@@ -6341,20 +6341,36 @@ update of it, which is answered 404; a second delete of it writes no second reco
 row the transaction created, a field no patch set reads as empty: a default the database
 gives the column is not known before the commit.
 
-**How long records are kept.** The application's schema says it. `period` is
-`resource.KeepChangeHistoryDays(n)` or `resource.KeepChangeHistoryForever()`, and a
-period that was never declared renders no statement. With a number of days the
-statements end with a row deletion policy on `EventTime`:
+**How long records are kept.** A change record is kept until something removes it, and
+the library removes none. An application made by `impulse new` declares
+`resource.KeepChangeHistoryForever()`: it keeps every record it has ever written, and the
+table grows for as long as the application runs. That is where an application starts
+because a record that was removed cannot be brought back, and an application under a
+record-keeping law has to keep them. A period that was never declared renders no
+statement, so the choice is always written down.
+
+An application under no such law may declare a number of days,
+`resource.KeepChangeHistoryDays(n)`. The table's statements then end with a row deletion
+policy on `EventTime`:
 
 ```sql
 ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY))
 ```
 
-Spanner then removes each record once it is older than the period, in the background
-(its documentation says typically within 72 hours of that moment). Nothing else removes
-a change record, so an application that declares forever keeps every record it has ever
-written, and the table grows for as long as the application runs. A record names the
-person who made the change for as long as it is kept: deleting an account rewrites no
-record. An application made by `impulse new` starts at 365 days. To change the period
-later, add a migration that replaces the table's row deletion policy with the new number
-of days.
+Spanner removes each record once it is older than the period, in the background (its
+documentation says typically within 72 hours of that moment). Know what the policy is
+before declaring one:
+
+- It removes the oldest records of rows that are still there. After the period a record
+  that is still in use no longer has the record of its own creation.
+- It cannot wait for anything: not for a row to be deleted, and not for the records under
+  a row to go first.
+- It cannot be stopped for one record. A record that has to be kept longer (a dispute, a
+  legal hold) is kept only by taking the policy off the whole table.
+- Spanner drops the policy when a database is restored from a backup. The restored
+  database keeps every record until a migration adds the policy again.
+
+A record names the person who made the change for as long as it is kept: deleting an
+account rewrites no record. To change the period later, add a migration that replaces the
+table's row deletion policy; to end it, one that takes the policy off. Lodestar declares
+365 days, in its baseline.

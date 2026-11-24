@@ -11,11 +11,12 @@ CREATE TABLE DataChangeEvents (
 -- One tenant's change records, newest first. A table of no tenant leaves TenantId empty.
 CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);
 
--- How long change records are kept: Spanner removes a record once it is older than this
--- many days. The period is the application's own: change the number before the first
--- deployment, and after that replace the policy in a new migration. The table's three
--- statements are the resource package's (resource.DataChangeEventsDDL).
-ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));
+-- Nothing removes a change record: this application keeps its change history forever
+-- until its author declares a period. An application under no record-keeping law may
+-- declare one (resource.KeepChangeHistoryDays), which adds a row deletion policy to this
+-- table. Section 24 of the resource package's reference says what such a policy does:
+-- read it before adding one. The table's statements are the resource package's
+-- (resource.DataChangeEventsDDL).
 
 -- The pipeline's migration guard reads this database's migration version through the
 -- migrations_reader database role, which holds select on the migrations table alone,

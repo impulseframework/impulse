@@ -12,7 +12,10 @@ type ChangeHistoryPeriod struct {
 }
 
 // KeepChangeHistoryDays declares that a change record is removed once it is older than
-// days. A number below one declares nothing.
+// days, by a row deletion policy on the table. It is for an application under no
+// record-keeping law: the policy removes the oldest records of rows that are still there,
+// waits for nothing, cannot be stopped for one record, and is dropped by Spanner when a
+// database is restored from a backup. A number below one declares nothing.
 func KeepChangeHistoryDays(days int) ChangeHistoryPeriod {
 	if days < 1 {
 		return ChangeHistoryPeriod{}
@@ -21,7 +24,8 @@ func KeepChangeHistoryDays(days int) ChangeHistoryPeriod {
 	return ChangeHistoryPeriod{days: days, forever: false}
 }
 
-// KeepChangeHistoryForever declares that no change record is ever removed.
+// KeepChangeHistoryForever declares that no change record is ever removed, which is what
+// an application made by impulse new starts with.
 func KeepChangeHistoryForever() ChangeHistoryPeriod {
 	return ChangeHistoryPeriod{days: 0, forever: true}
 }

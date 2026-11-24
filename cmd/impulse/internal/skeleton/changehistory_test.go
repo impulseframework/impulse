@@ -9,9 +9,9 @@ import (
 )
 
 // TestCandidateChangeHistoryMigration holds every candidate's first migration to the
-// change history table's statements as the resource package declares them, with the
-// period a new application starts with: 365 days. A new application writes its change
-// records to the table its candidate's migration makes.
+// change history table's statements as the resource package declares them, with what a
+// new application starts with: every record kept. A candidate's migration carries no row
+// deletion policy.
 func TestCandidateChangeHistoryMigration(t *testing.T) {
 	t.Parallel()
 
@@ -19,9 +19,9 @@ func TestCandidateChangeHistoryMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Candidates() error = %v", err)
 	}
-	statements := resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryDays(365))
-	if len(statements) != 3 {
-		t.Fatalf("resource.DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryDays(365)) declares %d statements, want 3", len(statements))
+	statements := resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryForever())
+	if len(statements) != 2 {
+		t.Fatalf("resource.DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryForever()) declares %d statements, want 2", len(statements))
 	}
 
 	for _, candidate := range candidates {
@@ -40,6 +40,9 @@ func TestCandidateChangeHistoryMigration(t *testing.T) {
 				if !strings.Contains(string(migration), stmt+";") {
 					t.Errorf("the candidate's schema/migrations/000001_DataChangeEvents.up.sql does not carry the statement:\n%s\ncopy the statements of resource.DataChangeEventsDDL into it", stmt)
 				}
+			}
+			if strings.Contains(string(migration), "ROW DELETION POLICY") {
+				t.Errorf("the candidate's schema/migrations/000001_DataChangeEvents.up.sql carries a row deletion policy; a new application keeps its change history forever until its author declares a period")
 			}
 		})
 	}
