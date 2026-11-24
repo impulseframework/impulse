@@ -722,11 +722,12 @@ func TestNameField_aNameThePersonMayNotList(t *testing.T) {
 
 // TestNameField_clientsByPartOfTheName pins a name read from a view matched by part of
 // it: the client rosters' name says which table column it projects (Clients.Name) and the
-// rosters project its token column, so the mission board and the missions, which show a
-// mission's client by the rosters' name, find the rows whose client's name holds a word.
-// The marshal at Anvil reads the rosters' names first, then each list with the name
-// beside each client's id, and the filter gives exactly the rows whose client's name
-// holds "halvard".
+// rosters project its token column, so the mission board, which shows a mission's client
+// by the rosters' name, finds the rows whose client's name holds a word. The missions
+// carry no client's name: their list is also asked across sectors, and a row of a
+// sector's roster is named inside one sector alone. The marshal at Anvil reads the
+// rosters' names first, then the board with the name beside each client's id, and the
+// filter gives exactly the rows whose client's name holds "halvard".
 func TestNameField_clientsByPartOfTheName(t *testing.T) {
 	t.Parallel()
 
@@ -734,7 +735,7 @@ func TestNameField_clientsByPartOfTheName(t *testing.T) {
 
 	clients := namesByID(t, h, "marshal", sectorPath(anvil, "client-rosters?columns=id,name&limit=200"), "id", "name")
 	const part = "halvard"
-	for _, list := range []string{"mission-boards", "missions"} {
+	for _, list := range []string{"mission-boards"} {
 		rows := namedRows(t, h, "marshal", sectorPath(anvil, list+"?columns=id,clientId,clientName&sort=id&limit=200"), "clientId", "clientName")
 		for _, r := range rows {
 			if want := clients[r.key]; r.name != want {
