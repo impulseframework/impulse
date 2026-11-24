@@ -92,9 +92,9 @@ func (s *SessionStorageDriver) UpdateCustomUserData(ctx context.Context, userID 
 		return errors.New("custom user data config is not set")
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)

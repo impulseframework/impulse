@@ -1410,10 +1410,11 @@ r=$(req pilot POST "$API/impersonate/end" '{}'); assert_py "the pilot returns to
 
 # Nobody is the subject of what they do while they act as someone else. The marshal
 # holds CommandStaff, the grant to act as a role, and acts as Headquarters, the role that
-# manages the crew's accounts. The kind is unmasked, so the session holds everything
-# headquarters may do, and is refused each of those things on the marshal's own account:
-# the rule is the identity library's, and reads the session's record, not its mask. The
-# same act on anyone else goes through, and her own row is still read.
+# gives the crew's roles and manages the accounts no sector manages. The kind is
+# unmasked, so the session holds everything headquarters may do, and is refused each of
+# those things on the marshal's own account: the rule is the identity library's, and
+# reads the session's record, not its mask. The same act on anyone else goes through, and
+# her own row is still read.
 r=$(req marshal POST "$API/impersonate" '{"kind":"role","principal":"Headquarters","reason":"walkthrough"}'); check "the marshal acts as the Headquarters role" 200 "$r"
 assert_py "with no mask" "$r" "rows['mask']=='everything'"
 r=$(req marshal POST "$API/assign-crew-role" "{\"userId\":\"$MARSHAL_ID\",\"role\":\"StandIn\"}"); check "acting as headquarters, she is refused a role given to her own account" 403 "$r"

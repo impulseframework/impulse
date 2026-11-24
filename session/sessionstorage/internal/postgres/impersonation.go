@@ -212,9 +212,9 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "ActorUsername" = $1 AND "EndedAt" IS NULL`, impTable)
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -256,9 +256,9 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, impTable)
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)

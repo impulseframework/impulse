@@ -165,7 +165,7 @@ linters:
           TestConditionLanguageWrites|\
           TestChangeRecordTenant|\
           TestDeleteCascade_takesWhatIsUnder|TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind|\
-          TestManagedAccountSectorMethods|\
+          TestManagedAccountSectorMethods|TestManagedAccountApplicationMethods|\
           TestMethodRequestFieldsNoTarget|TestMethodRequestFieldsList|TestMethodRequestFieldsTarget|\
           TestRoleRemovalWarning|\
           TestRowsOfWrites|\

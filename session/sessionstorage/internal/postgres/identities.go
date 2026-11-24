@@ -28,11 +28,12 @@ func (s *SessionStorageDriver) identitiesTable() string {
 	return pgx.Identifier{s.identitiesTableName}.Sanitize()
 }
 
-// Transact runs fn in a transaction and commits when fn returns nil.
+// Transact runs fn in a transaction at the read committed isolation level (begin) and
+// commits when fn returns nil.
 func (s *SessionStorageDriver) Transact(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -154,7 +155,9 @@ const linkDecisionLockClass = "session.link-decision"
 
 // LockUserIn reads the user as UserIn does and holds a transaction-scoped advisory lock
 // keyed by the user until tx ends, so two link decisions for one user run one after the
-// other and the second sees the first's link. An advisory lock rather than a stronger
+// other and the second sees the first's link. It sees it because the driver's transactions
+// are at read committed (begin): the read after the lock is a statement of its own, which
+// reads what has committed when it starts. An advisory lock rather than a stronger
 // row lock: upgrading the row lock deadlocks with a resolver that shared the row before
 // the decision, and twice in a row under load, while the advisory lock is independent
 // of row locks, so a resolver's own share lock and the key-share lock a session insert
@@ -366,9 +369,9 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -451,9 +454,9 @@ func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, use
 // still be linked to the user when the password goes, counted under the lock an unlink
 // takes too.
 func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven *securehash.Hash, standing []impulse.UUID) error {
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -518,9 +521,9 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 		return errors.New("DestroyUserSessions needs the auth schema: use Auth storage")
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -593,9 +596,9 @@ func (s *SessionStorageDriver) AppendAuthEvent(ctx context.Context, sessionID im
 		return httpio.NewBadRequestMessage(dbtype.AuthEventNeedsMethodMessage)
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)

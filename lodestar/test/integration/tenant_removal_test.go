@@ -123,7 +123,8 @@ func TestTenantRemoval(t *testing.T) {
 
 	// kit holds two roles at Anvil and one at Bastion; mara is a second Marshal of Anvil
 	// with an account; lou a Cadet of Anvil alone; hal holds Headquarters, which acts on
-	// the Accounts list.
+	// the Accounts list; wren holds Crew common for the whole fleet and nothing in a sector,
+	// so no sector manages her account.
 	w.seat(ctx, t, "kit", "Pilot", anvil)
 	w.giveCrewRole(ctx, t, "kit", "Cadet", accesstypes.DomainPolicyScope(anvil))
 	w.giveCrewRole(ctx, t, "kit", "Pilot", accesstypes.DomainPolicyScope(bastion))
@@ -131,6 +132,8 @@ func TestTenantRemoval(t *testing.T) {
 	w.seat(ctx, t, "lou", "Cadet", anvil)
 	w.seat(ctx, t, "hal", "Cadet", bastion)
 	w.giveCrewRole(ctx, t, "hal", "Headquarters", accesstypes.GlobalPolicyScope())
+	w.ids["wren"] = string(makeCrewAccount(ctx, t, w.db, "wren"))
+	w.giveCrewRole(ctx, t, "wren", "CrewCommon", accesstypes.GlobalPolicyScope())
 
 	kitHolds := []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot", "domain/" + bastion + " Pilot"}
 	if got := crewHeldBy(t, w.db, w.ids["kit"]); !slices.Equal(got, kitHolds) {
@@ -207,15 +210,18 @@ func TestTenantRemoval(t *testing.T) {
 			}
 		}
 
+		// On the Accounts list hal's own row is held beside wren's: no sector manages either
+		// account, so the condition on Headquarters' grants holds on both rows, and only the
+		// rule on one's own account tells the two apart.
 		accountActs := []string{"DeleteCrewUser", "DisableCrewUser"}
 		own = accountExecuteAnswer(t, w.h, "hal", w.ids["hal"])
-		other = accountExecuteAnswer(t, w.h, "hal", w.ids["lou"])
+		other = accountExecuteAnswer(t, w.h, "hal", w.ids["wren"])
 		for _, method := range accountActs {
 			if slices.Contains(own, method) {
 				t.Errorf("hal's own row on the Accounts list lists %s: %v", method, own)
 			}
 			if !slices.Contains(other, method) {
-				t.Errorf("lou's row on the Accounts list lists %v, want %s among them", other, method)
+				t.Errorf("wren's row on the Accounts list lists %v, want %s among them", other, method)
 			}
 		}
 

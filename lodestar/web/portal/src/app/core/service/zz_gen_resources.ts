@@ -47,6 +47,21 @@ export interface MembersHeldRoles {
   reason?: string;
 }
 
+export interface MembersListedIdentities {
+  id: string;
+  userId?: string;
+  username?: string;
+  method?: string;
+  connection?: string;
+  subject?: string;
+  tenant?: string;
+  emailAtLink?: string;
+  createdAt?: Date;
+  lastUsedAt?: Date;
+  managedByTenant?: boolean;
+  managingTenant?: string;
+}
+
 export interface MembersListedSessions {
   id: string;
   userId?: string;
@@ -71,6 +86,8 @@ export interface MembersListedUsers {
   roles?: string[];
   lockedUntil?: Date;
   trustedDevices?: number;
+  managedByTenant?: boolean;
+  managingTenant?: string;
 }
 
 export interface MembersRoles {
@@ -434,6 +451,25 @@ const resourceMap = defineResourceMap({
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.MembersListedIdentities]: {
+    route: 'members-listed-identities',
+    live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'connection', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'emailAtLink', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.MembersListedSessions]: {
     route: 'members-listed-sessions',
     live: true,
@@ -466,6 +502,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.MembersRoles]: {
@@ -912,6 +950,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.ClientRosters]: PermissionScopes.domain,
   [Resources.DistressCalls]: PermissionScopes.domain,
   [Resources.MembersHeldRoles]: PermissionScopes.global,
+  [Resources.MembersListedIdentities]: PermissionScopes.global,
   [Resources.MembersListedSessions]: PermissionScopes.global,
   [Resources.MembersListedUsers]: PermissionScopes.global,
   [Resources.MembersRoles]: PermissionScopes.global,

@@ -179,29 +179,56 @@ func unconditional(permissions rolePermissions) (free rolePermissions, held []st
 }
 
 // oneRoleDirective is the line a harness carries above provesGrant where every grant the
-// application's tests prove is one role's: the reference's own, word for word.
+// application's tests prove is one role's, as the command writes it.
 const oneRoleDirective = "//\n//nolint:unparam // The role file's conditional grants are all one role's today; the next role's case names its own.\n"
 
-// provenBy lists the grants a test proves of one role, each as the change names it and
-// sorted, read as impulse check reads them: from the literal coordinates of its
-// provesGrant calls. A call that names another role fails the test.
-func provenBy(t *testing.T, proof, role string) []string {
+// provenByRole lists the grants a test proves, by the role each provesGrant call names,
+// each as the change names it and sorted, read as impulse check reads them.
+func provenByRole(t *testing.T, proof string) map[string][]string {
 	t.Helper()
 
 	proven, _, err := readProof([]byte(proof))
 	if err != nil {
 		t.Fatalf("readProof() error = %v", err)
 	}
-	found := make([]string, 0, len(proven))
+	found := map[string][]string{}
 	for _, p := range proven {
-		if p.role != role {
-			t.Errorf("the test proves a grant of the role %q, want only the role %q", p.role, role)
-		}
-		found = append(found, p.String())
+		found[p.role] = append(found[p.role], p.String())
 	}
-	slices.Sort(found)
+	for role := range found {
+		slices.Sort(found[role])
+	}
 
 	return found
+}
+
+// accountConditions lists the grants the reference's own administrator role holds on the
+// whole application's methods that act on an account, under managedByTenant = false,
+// each as the change names it and sorted: the ones the command holds the application's
+// administrator to where a person may be in several tenants.
+func accountConditions(t *testing.T) []string {
+	t.Helper()
+
+	reference, err := referenceRoles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := slices.DeleteFunc(conditionsOf(roleNamed(reference.Roles.Global, referenceAdministrator)), func(grant string) bool {
+		return !strings.HasPrefix(grant, "Execute on ") || !strings.HasSuffix(grant, ` under "managedByTenant = false"`)
+	})
+	if len(held) == 0 {
+		t.Fatal("the reference's Administrator holds no account method under managedByTenant = false, so this proves nothing of them")
+	}
+
+	return held
+}
+
+// withoutPassword is the grants among them that ask nothing of a password, which an
+// auth with no password method does not serve.
+func withoutPassword(grants []string) []string {
+	return slices.DeleteFunc(slices.Clone(grants), func(grant string) bool {
+		return strings.Contains(grant, "Password") || strings.Contains(grant, "SignInWays")
+	})
 }
 
 // sorted is a copy of the lines in order.
@@ -247,14 +274,18 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		}
 		// A grant under a condition is one impulse check holds to a test that proves it, so
 		// the role is written with the test: one written without it is an application that
-		// fails its own check as it was made.
+		// fails its own check as it was made. A person may be in several tenants here, so the
+		// same test proves the application's own administrator's conditions too.
 		proof := read(t, a, tenantPeopleTest)
-		if got := provenBy(t, proof, "TenantAdministrator"); !slices.Equal(got, sorted(held)) {
-			t.Errorf("%s proves %q, want each grant the role holds under a condition and no other: %q", tenantPeopleTest, got, sorted(held))
+		accounts := accountConditions(t)
+		want := map[string][]string{"TenantAdministrator": sorted(held), "Administrator": accounts}
+		if got := provenByRole(t, proof); !cmp.Equal(got, want) {
+			t.Errorf("%s proves, by role, other than each grant the two roles hold under a condition (-want +proven):\n%s", tenantPeopleTest, cmp.Diff(want, got))
 		}
 		for _, want := range []string{
 			"func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *testing.T) {",
 			`provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "DisableStaffTenantUser", "managedHere = true")`,
+			`provesGrant(t, staff.Roles(), "Administrator", "Execute", "DisableStaffUser", "managedByTenant = false")`,
 			`"example.com/acme/depot/pkg/auth/staff"`, `"/api/tenants/"+tenant+"/"+method`, "staffAccount(ctx, t, s, name,", `password := "first-day-pass"`, `"/api/assign-staff-role"`,
 			`const south = "` + devTenantSouth + `"`, "admin.signIn(ctx, adminUser)",
 		} {
@@ -265,15 +296,14 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if formatted, err := format.Source([]byte(proof)); err != nil || string(formatted) != proof {
 			t.Errorf("%s is not gofmt-clean as written (format error = %v)", tenantPeopleTest, err)
 		}
-		// Every grant the test proves is one role's, and the application's lint refuses a
-		// parameter that takes one value in every call, so the harness written beside the
-		// test says so of provesGrant, as the reference's harness does.
-		harness := read(t, a, integrationHarness)
-		if got := strings.Count(harness, oneRoleDirective+"func provesGrant("); got != 1 {
-			t.Errorf("%s marks provesGrant for the lint %d time(s), want once, as the tenanted skeleton's harness does", integrationHarness, got)
+		// The test's provesGrant calls name two roles, so the application's lint has nothing
+		// to say of the parameter, and a mark would silence nothing, which the lint refuses:
+		// the harness stays as the command wrote it for the standing tests.
+		if harness := read(t, a, integrationHarness); strings.Contains(harness, "nolint:unparam") {
+			t.Errorf("%s marks provesGrant for the lint, and the test beside it names two roles", integrationHarness)
 		}
-		if formatted, err := format.Source([]byte(harness)); err != nil || string(formatted) != harness {
-			t.Errorf("%s is not gofmt-clean as written (format error = %v)", integrationHarness, err)
+		if got := linesWith(ch.Did, integrationHarness+": written again", nil); len(got) != 0 {
+			t.Errorf("the change says it wrote the harness again: %q", got)
 		}
 		if want := "Runs one tenant: manages its people, their groups and the roles they hold there, and declares the directory they sign in through."; role.Description != want {
 			t.Errorf("the role's description = %q, want %q", role.Description, want)
@@ -284,6 +314,12 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		}
 		if diff := cmp.Diff(recordGrants(roleNamed(reference.Roles.Global, "Administrator")), recordGrants(administrator)); diff != "" {
 			t.Errorf("the application's administrator does not hold the reference's grants on tenants (-reference +written):\n%s", diff)
+		}
+		// The application's own administrator changes an account from the whole
+		// application's side only where no tenant manages it, as the reference's does: each
+		// of those grants took the condition, and no other grant of the role holds under one.
+		if got := conditionsOf(administrator); !slices.Equal(got, accounts) {
+			t.Errorf("the application's administrator holds under a condition (-the reference's account methods +written):\n%s", cmp.Diff(accounts, got))
 		}
 		if !strings.HasPrefix(administrator.Description, "Manages the application's tenants and people: brings a tenant in by inviting the person who will administer it, ") {
 			t.Errorf("the administrator's description does not say the role brings tenants in: %q", administrator.Description)
@@ -312,7 +348,6 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		for prefix, texts := range map[string][]string{
 			roles + ": the role TenantAdministrator, a domain role":                                              {"a tenant's administrator holds", "the tenanted skeleton's TenantAdministrator", strconv.Itoa(len(held)) + " of them under the condition the skeleton holds each to"},
 			tenantPeopleTest + ": the test that proves each of the " + strconv.Itoa(len(held)) + " condition(s)": {"conditions-proven", "a person whose account the tenant manages"},
-			integrationHarness + ": written again with its provesGrant marked for the application's lint":        {"//nolint:unparam", "the TenantAdministrator role's"},
 			roles + ": the role Administrator gained the 9 grant(s)":                                             {"Execute on InviteStaffTenant", "List on StaffInvitedTenants", "List on StaffInvitedTenantRoles"},
 			foothold + ": AdministratorRoles() and FirstAdministratorRoles() name TenantAdministrator":           {"TenantAdministratorRoles()", "the application's router is built"},
 			deployTest + ": the test of the first administrator's roles":                                         {"every tenant"},
@@ -320,6 +355,16 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 			if got := linesWith(ch.Did, prefix, texts); len(got) != 1 {
 				t.Errorf("the change does not say once %q with %q: %q", prefix, texts, ch.Did)
 			}
+		}
+		heldLine := slices.IndexFunc(ch.Did, func(line string) bool {
+			return strings.HasPrefix(line, roles+": the role Administrator changes an account from the whole application's side only where no tenant manages it: "+strconv.Itoa(len(accounts))+" grant(s) took the condition managedByTenant = false, as the tenanted skeleton's Administrator holds them (Execute on DisableStaffUser, Execute on EnableStaffUser, ") &&
+				strings.HasSuffix(line, "), each proven by "+tenantPeopleTest)
+		})
+		facts := slices.IndexFunc(ch.Did, func(line string) bool {
+			return strings.HasPrefix(line, roles+": each global role that lists or reads the application's accounts")
+		})
+		if got := linesWith(ch.Did, roles+": the role Administrator changes an account", nil); len(got) != 1 || heldLine < 0 || heldLine < facts {
+			t.Errorf("the change does not say once, after who manages each account is read, that the administrator took the condition on its %d grant(s): %q", len(accounts), ch.Did)
 		}
 		// Nothing of the role is left to the author: the change names no grant left out.
 		if got := skippedLine(ch, roles); len(got) != 0 {
@@ -398,8 +443,18 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		for _, c := range carried {
 			want = append(want, c.String())
 		}
-		if got := provenBy(t, proof, "SectorAdministrator"); !slices.Equal(got, sorted(want)) {
+		proven := provenByRole(t, proof)
+		if got := proven["SectorAdministrator"]; !slices.Equal(got, sorted(want)) {
 			t.Errorf("%s proves %q, want each grant the role holds under a condition and no other: %q", tenantPeopleTest, got, sorted(want))
+		}
+		// And the application's own administrator's, on the crew auth's methods of the whole
+		// application, as the role now holds them.
+		administrator := roleNamed(file.Roles.Global, "Administrator")
+		if administrator == nil {
+			t.Fatalf("%s has no global role Administrator", roles)
+		}
+		if got, accounts := proven["Administrator"], conditionsOf(administrator); len(proven) != 2 || len(got) != len(accountConditions(t)) || !slices.Equal(got, accounts) || !slices.Contains(got, `Execute on DisableCrewUser under "managedByTenant = false"`) {
+			t.Errorf("%s proves %q of the application's administrator, which holds %q under a condition, want each of the reference's account methods in the crew auth's names", tenantPeopleTest, got, accounts)
 		}
 		for _, want := range []string{
 			`provesGrant(t, crew.Roles(), "SectorAdministrator", "List", "CrewSectorSignInWays", "managedHere = true")`,
@@ -417,9 +472,8 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if got := skippedLine(ch, roles); len(got) != 0 {
 			t.Errorf("the change leaves a step of the role file to the author: %q", got)
 		}
-		administrator := roleNamed(file.Roles.Global, "Administrator")
 		for permission, resource := range map[string]string{"Create": "Sectors", "Execute": "InviteCrewSector", "List": "CrewInvitedSectors"} {
-			if administrator == nil || !slices.ContainsFunc(administrator.Permissions.grants(permission), func(g access.Grant) bool {
+			if !slices.ContainsFunc(administrator.Permissions.grants(permission), func(g access.Grant) bool {
 				return string(g.Resource) == resource
 			}) {
 				t.Errorf("the application's administrator does not hold %s on %s", permission, resource)
@@ -427,6 +481,49 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		}
 		if got := linesWith(ch.Did, "pkg/auth/crew/foothold.go: ", []string{"name SectorAdministrator as held in every sector", "SectorAdministratorRoles()"}); len(got) != 1 {
 			t.Errorf("the change does not say once where the role is named: %q", ch.Did)
+		}
+	})
+
+	t.Run("where a person belongs to one tenant the application's administrator manages every account", func(t *testing.T) {
+		t.Parallel()
+
+		const roles = "pkg/auth/staff/roles.json"
+		a, ch := tenanted(t, Tenancy{Table: "Tenants", OneTenantPerPerson: true}, "staff", referenceCollection(t))
+		file := roleFileOf(t, a, roles)
+		administrator := roleNamed(file.Roles.Global, "Administrator")
+		if administrator == nil {
+			t.Fatalf("%s has no global role Administrator; the change skipped %q", roles, ch.Skipped)
+		}
+		if got := conditionsOf(administrator); len(got) != 0 {
+			t.Errorf("the application's administrator holds %q under a condition, and a person belongs to one tenant", got)
+		}
+		role := roleNamed(file.Roles.Domain, "TenantAdministrator")
+		if role == nil {
+			t.Fatalf("%s has no domain role TenantAdministrator; the change skipped %q", roles, ch.Skipped)
+		}
+		held := conditionsOf(role)
+		if got := provenByRole(t, read(t, a, tenantPeopleTest)); !cmp.Equal(got, map[string][]string{"TenantAdministrator": held}) {
+			t.Errorf("%s proves %q, want the tenant's role's %q alone", tenantPeopleTest, got, held)
+		}
+		// Every grant the test proves is one role's, and the application's lint refuses a
+		// parameter that takes one value in every call, so the harness written beside the
+		// test says so of provesGrant.
+		harness := read(t, a, integrationHarness)
+		if got := strings.Count(harness, oneRoleDirective+"func provesGrant("); got != 1 {
+			t.Errorf("%s marks provesGrant for the lint %d time(s), want once: every grant the test proves is one role's", integrationHarness, got)
+		}
+		if formatted, err := format.Source([]byte(harness)); err != nil || string(formatted) != harness {
+			t.Errorf("%s is not gofmt-clean as written (format error = %v)", integrationHarness, err)
+		}
+		lint := linesWith(ch.Did, integrationHarness+": written again with its provesGrant marked for the application's lint (//nolint:unparam): every grant the new test proves is the TenantAdministrator role's", []string{"the lint refuses a parameter that takes one value in every call"})
+		if len(lint) != 1 || strings.Contains(lint[0], "as the tenanted skeleton's is") {
+			t.Errorf("the change does not say once that it marked the harness, in its words: %q", ch.Did)
+		}
+		if got := linesWith(ch.Did, roles+": the role Administrator changes an account", nil); len(got) != 0 {
+			t.Errorf("the change says the administrator took a condition: %q", got)
+		}
+		if got := skippedLine(ch, roles); len(got) != 0 {
+			t.Errorf("the change leaves a step of the role file to the author: %q", got)
 		}
 	})
 
@@ -554,6 +651,117 @@ func TestTenancy_grantTenantMaking_namesWhatItCouldNotGive(t *testing.T) {
 				t.Errorf("Tenancy.grantTenantMaking() skipped %q, want one line holding %q", ch.Skipped, tt.want)
 			}
 		})
+	}
+}
+
+// grantOn is the grant a role holds for the permission on the resource under no
+// condition, the zero grant where it holds none.
+func grantOn(role *roleEntry, permission, resource string) access.Grant {
+	for _, grant := range role.Permissions.grants(permission) {
+		if string(grant.Resource) == resource && grant.Condition == "" {
+			return grant
+		}
+	}
+
+	return access.Grant{}
+}
+
+// TestTenancy_Apply_readsWhoManagesEachAccount pins that an application given tenancy has
+// its own administrators read who manages each account: each global role that lists or
+// reads the accounts reads the two facts there, its other fields kept; each that lists or
+// reads the identities table's list holds the same grant on the whole application's list
+// of the sign-in identities, with the two facts; a role that holds neither gains nothing;
+// and the change says so in one line.
+func TestTenancy_Apply_readsWhoManagesEachAccount(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	a := newBase(t, "staff")
+	before := roleFileOf(t, a, roles)
+	ch := tenantedOn(t, a, Tenancy{Table: "Tenants"}, "staff", referenceCollection(t))
+	file := roleFileOf(t, a, roles)
+
+	administrator, was := roleNamed(file.Roles.Global, "Administrator"), roleNamed(before.Roles.Global, "Administrator")
+	if administrator == nil || was == nil {
+		t.Fatalf("%s has no global role Administrator before and after tenancy", roles)
+	}
+	facts := []accesstypes.Tag{"managedByTenant", "managingTenant"}
+	for _, permission := range []string{"List", "Read"} {
+		listed := grantOn(was, permission, "StaffListedUsers")
+		identities := grantOn(was, permission, "StaffSessionIdentities")
+		if len(listed.Fields) == 0 || len(identities.Fields) == 0 {
+			t.Fatalf("the base's Administrator holds no %s on StaffListedUsers and StaffSessionIdentities, so this proves nothing", permission)
+		}
+		if diff := cmp.Diff(slices.Concat(listed.Fields, facts), grantOn(administrator, permission, "StaffListedUsers").Fields); diff != "" {
+			t.Errorf("%s on StaffListedUsers does not read who manages each account beside its own fields (-want +got):\n%s", permission, diff)
+		}
+		if diff := cmp.Diff(slices.Concat(identities.Fields, facts), grantOn(administrator, permission, "StaffListedIdentities").Fields); diff != "" {
+			t.Errorf("%s on StaffListedIdentities is not the grant on StaffSessionIdentities with the two facts (-want +got):\n%s", permission, diff)
+		}
+		if diff := cmp.Diff(identities, grantOn(administrator, permission, "StaffSessionIdentities")); diff != "" {
+			t.Errorf("%s on StaffSessionIdentities changed (-before +after):\n%s", permission, diff)
+		}
+	}
+	if diff := cmp.Diff(roleNamed(before.Roles.Global, "FeatureAdministrator"), roleNamed(file.Roles.Global, "FeatureAdministrator")); diff != "" {
+		t.Errorf("a role that lists neither the accounts nor the identities gained something (-before +after):\n%s", diff)
+	}
+	if got := unserved(t, a, file); len(got) != 0 {
+		t.Errorf("the role file grants what the application does not serve: %q", got)
+	}
+	want := roles + ": each global role that lists or reads the application's accounts or their sign-in identities now reads who manages each account there (" +
+		"Administrator: List on StaffListedUsers (managedByTenant, managingTenant); Administrator: List on StaffListedIdentities; " +
+		"Administrator: Read on StaffListedUsers (managedByTenant, managingTenant); Administrator: Read on StaffListedIdentities)"
+	if got := linesWith(ch.Did, roles+": each global role", nil); !slices.Equal(got, []string{want}) {
+		t.Errorf("the change says %q of who manages each account, want once %q", got, want)
+	}
+}
+
+// TestGrantManagingFacts_givesNothingTwice pins that a role file which reads who manages
+// each account already gains nothing, and the change says nothing: a grant of the
+// accounts that names the two facts keeps its fields, a grant of the identities' list
+// the role holds under the twin's condition already is not given again, a role that
+// lists neither keeps its grants, and a role held in a tenant is not the step's.
+func TestGrantManagingFacts_givesNothingTwice(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	a, _ := tenanted(t, Tenancy{Table: "Tenants"}, "staff", referenceCollection(t))
+	served, err := a.Served()
+	if err != nil || served == nil {
+		t.Fatalf("App.Served() = %v, %v, want the application's collection", served, err)
+	}
+	grant := func(resource string, fields ...accesstypes.Tag) access.Grant {
+		return access.Grant{Resource: accesstypes.Resource(resource), Fields: fields}
+	}
+	file := &roleFile{Auth: "staff", Roles: roleScopes{
+		Global: []*roleEntry{
+			{Name: "Auditor", Permissions: rolePermissions{{Permission: "List", Grants: []access.Grant{
+				grant("StaffListedUsers", "username", "managedByTenant", "managingTenant"),
+				grant("StaffSessionIdentities", "method", "userId"),
+				grant("StaffListedIdentities", "method", "userId", "managedByTenant", "managingTenant"),
+			}}}},
+			{Name: "Viewer", Permissions: rolePermissions{{Permission: "List", Grants: []access.Grant{grant("StaffSessionUsers", "username")}}}},
+		},
+		Domain: []*roleEntry{
+			{Name: "TenantAdministrator", Permissions: rolePermissions{{Permission: "List", Grants: []access.Grant{grant("StaffSessionIdentities", "method")}}}},
+		},
+	}}
+	was, err := file.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ch := &Change{}
+	grantManagingFacts(file, served, "staff", roles, ch)
+	got, err := file.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(string(was), string(got)); diff != "" {
+		t.Errorf("grantManagingFacts() changed a role file that reads who manages each account already (-before +after):\n%s", diff)
+	}
+	if len(ch.Did) != 0 {
+		t.Errorf("grantManagingFacts() said %q, and nothing was gained", ch.Did)
 	}
 }
 

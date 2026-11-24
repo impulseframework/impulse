@@ -124,9 +124,9 @@ func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtyp
 		return errors.New("a pending sign-in that rests on a password proof names its user")
 	}
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)

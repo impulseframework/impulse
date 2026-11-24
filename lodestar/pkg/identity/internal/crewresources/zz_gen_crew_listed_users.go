@@ -38,6 +38,8 @@ type crewListedUserRead struct {
 	Roles                  []string     `json:"roles"`
 	LockedUntil            *time.Time   `json:"lockedUntil"`
 	TrustedDevices         int64        `json:"trustedDevices"`
+	ManagedByTenant        bool         `json:"managedByTenant"`
+	ManagingTenant         *string      `json:"managingTenant"`
 }
 
 var crewListedUserReadSets resource.SetCache[CrewListedUser, crewListedUserRead]
@@ -158,6 +160,8 @@ func (c *CrewListedUserColumns) All() *CrewListedUserColumns {
 		"Roles",
 		"LockedUntil",
 		"TrustedDevices",
+		"ManagedByTenant",
+		"ManagingTenant",
 	}
 
 	return c
@@ -235,6 +239,18 @@ func (c *CrewListedUserColumns) TrustedDevices() *CrewListedUserColumns {
 	return c
 }
 
+func (c *CrewListedUserColumns) ManagedByTenant() *CrewListedUserColumns {
+	c.fields = append(c.fields, "ManagedByTenant")
+
+	return c
+}
+
+func (c *CrewListedUserColumns) ManagingTenant() *CrewListedUserColumns {
+	c.fields = append(c.fields, "ManagingTenant")
+
+	return c
+}
+
 type CrewListedUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -261,6 +277,14 @@ func (p CrewListedUserQueryPartialClause) Name() CrewListedUserQueryIdent[string
 
 func (p CrewListedUserQueryPartialClause) Email() CrewListedUserQueryIdent[string] {
 	return CrewListedUserQueryIdent[string]{Ident: resource.NewIdent[string]("Email", p.partialClause, true)}
+}
+
+func (p CrewListedUserQueryPartialClause) ManagedByTenant() CrewListedUserQueryIdent[bool] {
+	return CrewListedUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByTenant", p.partialClause, true)}
+}
+
+func (p CrewListedUserQueryPartialClause) ManagingTenant() CrewListedUserQueryIdent[string] {
+	return CrewListedUserQueryIdent[string]{Ident: resource.NewIdent[string]("ManagingTenant", p.partialClause, true)}
 }
 
 type CrewListedUserQueryClause struct {
@@ -375,6 +399,14 @@ func (c *crewListedUserSort) LockedUntil() *CrewListedUserSort {
 
 func (c *crewListedUserSort) TrustedDevices() *CrewListedUserSort {
 	return c.addField("TrustedDevices")
+}
+
+func (c *crewListedUserSort) ManagedByTenant() *CrewListedUserSort {
+	return c.addField("ManagedByTenant")
+}
+
+func (c *crewListedUserSort) ManagingTenant() *CrewListedUserSort {
+	return c.addField("ManagingTenant")
 }
 
 type CrewListedUserSort struct {

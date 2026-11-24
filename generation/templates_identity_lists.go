@@ -139,6 +139,61 @@ const (
 	// person holds roles.
 	identityTenantHeldAlone = `HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally`
 
+	// identityManagingTenant is who manages an account as the whole application's lists
+	// say it, as one column of a select over the account read under u: ManagingTenant, the
+	// key of the tenant whose list of its people says ManagedHere on the person's row, the
+	// lower key where two lists say it, and NULL where none does. ManagedHere is read as
+	// the tenant's list reads it, by the same constants over the same columns, so the two
+	// always agree; each list that carries the column says ManagedByTenant beside it, as
+	// ManagingTenant IS NOT NULL.
+	//
+	// The tenants asked about are the ones in whose list the person is a row by something
+	// they hold there themselves now (a membership in the tenant, a place in one of its
+	// own groups, each inside its period: identitySourceData.Counting, as the list reads
+	// who its people are) and the ones whose directory the person signs in through. A row
+	// a tenant's list holds only through a role held in every tenant, or through a group
+	// kept for the whole application, says ManagedHere through the tenant's directory
+	// alone, so those tenants are found by the directory. Each is found through an index
+	// by user (the memberships', the group members', the identities'): no row reads the
+	// tenant record's table or the memberships table as a whole. A group's tenant and a
+	// directory's are read as an array unnested beside the place's or the identity's row,
+	// which Spanner counts as no join (identityTenantDirectoryPeople): the column adds to
+	// the joins of the statement only the two of identityGroupPersonElsewhere and
+	// identityGroupPersonGlobally, where the auth keeps groups.
+	identityManagingTenant = `  (SELECT MIN(mt.DomainId) FROM (
+    SELECT DomainId, ` + identityTenantManagedFacts + `
+    FROM (
+      SELECT
+        t.DomainId AS DomainId,
+` + identityTenantPersonFacts + identityTenantPersonHeldHere + identityTenantThroughFacts + `
+      FROM (
+        SELECT mm.DomainId AS DomainId
+        FROM {{ .Policy.UserRoles }} mm
+        WHERE mm.UserId = u.Id AND mm.Kind = {{ .KindDomain }} AND mm.Axis = {{ .ScopeAxis }}
+          AND {{ .Counting "mm" }}
+{{- if .KeepsGroups }}
+        UNION DISTINCT
+        SELECT mg AS DomainId
+        FROM {{ .Policy.GroupMembers }} mp, UNNEST(ARRAY(
+          SELECT g.DomainId FROM {{ .Policy.Groups }} g
+          WHERE g.Id = mp.GroupId AND g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }}
+        )) AS mg
+        WHERE mp.UserId = u.Id AND {{ .Counting "mp" }}
+{{- end }}
+{{- if and .TenantDirectory .HasIdentities }}
+        UNION DISTINCT
+        SELECT md AS DomainId
+        FROM {{ .Tables.Identities }} mi, UNNEST(ARRAY(
+          SELECT d.{{ .TenantDirectory.TenantColumn }} FROM {{ .TenantDirectory.Table }} d
+          WHERE d.{{ .TenantDirectory.MethodColumn }} = mi.Method AND d.{{ .TenantDirectory.ConnectionColumn }} = mi.Connection
+        )) AS md
+        WHERE mi.UserId = u.Id
+{{- end }}
+      ) t
+    )
+  ) mt
+  WHERE mt.ManagedHere) AS ManagingTenant`
+
 	// identityTenantPeopleFrom selects the people of every tenant, t the tenant and the
 	// name and u the account: who holds a role in a tenant (one tenant's memberships, and
 	// the memberships held in every tenant once per row of the tenant record's table),

@@ -2123,6 +2123,109 @@ describe('identityPages, the people lists say what each person holds, and a lock
   });
 });
 
+// Where the application has tenants, the whole application's list says which tenant
+// manages each account, and a tenant's list says of a person that another tenant's
+// directory signs them in. Which methods a row offers is the server's answer for the row.
+describe('identityPages, who manages an account', () => {
+  // The people lists as a server serves them with what each person holds and who manages their account.
+  const managing = (resource: Resource): ResourceMeta => {
+    switch (resource) {
+      case 'CrewSessionUsers':
+        return fields(...metas[resource].fields.map((field) => field.fieldName), 'roles', 'managingTenant');
+      case 'CrewSectorUsers':
+        return fields(...metas[resource].fields.map((field) => field.fieldName), 'roles', 'managedByAnotherDirectory');
+      default:
+        return metas[resource];
+    }
+  };
+  // A description of its own: the same request answers the same pages.
+  const [accounts] = identityPages({ ...descriptor }, managing, { auth: 'Crew', scope: 'global' });
+  const [people] = identityPages({ ...descriptor }, managing, { auth: 'Crew', scope: 'domain' });
+  const managedBy = (config: RootConfig): MultiColumnConfig =>
+    columnOf(list(config), 'managingTenant') as MultiColumnConfig;
+  const directoryLine = "Signs in through another sector's directory";
+
+  it('the Accounts list says after State which sector manages each account, by its name', () => {
+    expect(visibleColumns(list(accounts))).toEqual([
+      ['name', 'Name'],
+      ['username', 'Username'],
+      ['email', 'Email'],
+      ['roles', 'Roles'],
+      ['disabled', 'State'],
+      ['managingTenant', 'Managed by'],
+      ['lastSignInAt', 'Last sign-in'],
+    ]);
+    // The sector is read from the tenant record by the key on the row and named with its
+    // word, under a header that is not the word; the key is an id nobody types, so the
+    // column takes no typed filter, as the roles' sector column does.
+    const by = managedBy(accounts);
+    expect(by.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    expect([by.tenantKey, by.filterable]).toEqual([true, false]);
+    expect(by.said?.('Anvil', {})).toBe('Sector Anvil');
+    // Where the reader may not read the sector's name the cell says so, and never shows the key.
+    expect(by.fallback?.({ managingTenant: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
+  });
+
+  it('says Application administrators of an account no sector manages', () => {
+    const by = managedBy(accounts);
+    expect(by.fallback?.({ managingTenant: null })).toBe('Application administrators');
+    expect(by.fallback?.({ managingTenant: '' })).toBe('Application administrators');
+    expect(by.fallback?.({})).toBe('Application administrators');
+  });
+
+  it('names the sector by its key where the tenant record marks no name, as the roles do', () => {
+    const unnamed = (resource: Resource): ResourceMeta =>
+      resource === 'Sectors' ? fields('id', 'region') : managing(resource);
+    const [plain] = identityPages({ ...descriptor }, unnamed, { auth: 'Crew', scope: 'global' });
+    const said = columnOf(list(plain), 'managingTenant').valueGetter as (row: RecordData) => string;
+    expect(said({ managingTenant: 's-1' })).toBe('Sector s-1');
+    expect(said({ managingTenant: null })).toBe('Application administrators');
+  });
+
+  it('draws no Managed by where the list does not say who manages an account', () => {
+    const [plain] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(columns(list(plain)).map(([id]) => id)).not.toContain('managingTenant');
+    const [staffAccounts] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Staff', scope: 'global' });
+    expect(columns(list(staffAccounts)).map(([id]) => id)).not.toContain('managingTenant');
+  });
+
+  it("a sector's People list keeps its columns, and says in State that another sector's directory signs a person in", () => {
+    expect(visibleColumns(list(people))).toEqual([
+      ['name', 'Name'],
+      ['username', 'Username'],
+      ['email', 'Email'],
+      ['roles', 'Roles'],
+      ['disabled', 'State'],
+      ['lastSignInAt', 'Last sign-in'],
+    ]);
+    const says = stateOf(list(people));
+    expect(says({ managedByAnotherDirectory: true })).toEqual([directoryLine]);
+    expect(says({ managedByAnotherDirectory: false })).toEqual([]);
+    // After the line that says the person holds a role in the whole application.
+    expect(says({ heldElsewhere: true, heldGlobally: true, managedByAnotherDirectory: true })).toEqual([
+      'Also in another sector',
+      'Also holds a role in the whole application',
+      directoryLine,
+    ]);
+    // Read with each row and not drawn, as the fields of the other lines are, and said on a person's page too.
+    expect(hiddenColumns(list(people))).toContain('managedByAnotherDirectory');
+    expect(sayingOf(people, 'State')({ managedByAnotherDirectory: true })).toEqual([directoryLine, true]);
+    // The tenant's word is the description's.
+    const costCenters = { ...descriptor, identity: [{ ...crew, tenant: 'CostCenter' }] } as ApiDescriptor;
+    const [costCenterPeople] = identityPages(costCenters, managing, { auth: 'Crew', scope: 'domain' });
+    expect(stateOf(list(costCenterPeople))({ managedByAnotherDirectory: true })).toEqual([
+      "Signs in through another cost center's directory",
+    ]);
+  });
+
+  it("says nothing of another sector's directory on the whole application's side, nor reads it where the list leaves it out", () => {
+    expect(stateOf(list(accounts))({ managedByAnotherDirectory: true })).toEqual([]);
+    expect(hiddenColumns(list(accounts))).not.toContain('managedByAnotherDirectory');
+    const [plain] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Crew', scope: 'domain' });
+    expect(hiddenColumns(list(plain))).not.toContain('managedByAnotherDirectory');
+  });
+});
+
 // Where the accounts list says how many devices each person trusts, a person's page says
 // the number beside the last sign-in. A tenant's people list does not say it, and its
 // page draws none.

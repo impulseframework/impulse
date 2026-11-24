@@ -27,7 +27,7 @@ import (
 // @answers(204)
 // @class(credential)
 type UnlinkCrewSessionIdentity struct {
-	// @target(CrewSessionIdentity)
+	// @target(CrewListedIdentity)
 	IdentityID impulse.UUID
 }
 

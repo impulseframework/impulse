@@ -24,6 +24,7 @@ import (
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	"google.golang.org/grpc/codes"
 )
 
@@ -177,14 +178,16 @@ func TestGeneratedIdentityDigest(t *testing.T) {
 				"CrewSessionUsers": {"List": accesstypes.DigestGranted, "Read": accesstypes.DigestGranted},
 				"CrewSessions":     {"List": accesstypes.DigestGranted, "Read": accesstypes.DigestGranted},
 				"CrewUserRoles":    {"List": accesstypes.DigestGranted},
-				"DisableCrewUser":  {"Execute": accesstypes.DigestGranted},
-				"EnableCrewUser":   {"Execute": accesstypes.DigestGranted},
-				"AssignCrewRole":   {"Execute": accesstypes.DigestGranted},
-				"RemoveCrewRole":   {"Execute": accesstypes.DigestGranted},
+				// The acts on an account are Headquarters' on the accounts no sector manages
+				// (managedByTenant = false), so the digest says they depend on the row.
+				"DisableCrewUser": {"Execute": accesstypes.DigestConditional},
+				"EnableCrewUser":  {"Execute": accesstypes.DigestConditional},
+				"AssignCrewRole":  {"Execute": accesstypes.DigestGranted},
+				"RemoveCrewRole":  {"Execute": accesstypes.DigestGranted},
 				// The account actions, the lockout, the invitations and the members' own.
-				"RenameCrewUser":                  {"Execute": accesstypes.DigestGranted},
-				"DeleteCrewUser":                  {"Execute": accesstypes.DigestGranted},
-				"RevokeCrewUserTrustedDevices":    {"Execute": accesstypes.DigestGranted},
+				"RenameCrewUser":                  {"Execute": accesstypes.DigestConditional},
+				"DeleteCrewUser":                  {"Execute": accesstypes.DigestConditional},
+				"RevokeCrewUserTrustedDevices":    {"Execute": accesstypes.DigestConditional},
 				"UnlockCrewSignIn":                {"Execute": accesstypes.DigestGranted},
 				"InviteCrewUser":                  {"Execute": accesstypes.DigestGranted},
 				"WithdrawCrewInvitation":          {"Execute": accesstypes.DigestGranted},
@@ -1067,9 +1070,11 @@ func TestGeneratedIdentityCredentials(t *testing.T) {
 		t.Errorf("require-crew-password-change of a person with no password: status %d, want 400: %s", status, body)
 	}
 
-	// Identities, written as a sign-in through the fleet's directory writes them, under
-	// the connection the crew's Google sign-in takes, so each is a way in: two for the
-	// person with no password, one for the marshal, who holds a password.
+	// Identities, written as the crew's open Google sign-up writes one for a personal
+	// Google account, under the connection of any Google account, which that sign-in
+	// takes, so each is a way in: two for the person with no password, one for the
+	// marshal, who holds a password. No sector's directory can be that connection, so no
+	// sector manages either person's account, and the fleet's unlink reaches each.
 	marshalID := crewAccountID(ctx, t, hq, "marshal")
 	link := func(userID, subject string) string {
 		id, err := impulse.NewUUID()
@@ -1077,7 +1082,7 @@ func TestGeneratedIdentityCredentials(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionIdentities", map[string]any{
-			"Id": id.String(), "UserId": userID, "Method": "google", "Connection": "example", "Subject": subject,
+			"Id": id.String(), "UserId": userID, "Method": "google", "Connection": signin.GoogleAnyAccountConnection, "Subject": subject,
 			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
 		})}); err != nil {
 			t.Fatalf("writing an identity of %s: %v", userID, err)
