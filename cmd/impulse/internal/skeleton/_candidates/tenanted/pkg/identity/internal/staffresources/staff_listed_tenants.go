@@ -25,7 +25,8 @@ type (
 	// read, and a Microsoft Entra tenant's id is never said.
 	// Administrators names each person who holds one of the roles the auth's permission
 	// engine names as a tenant administrator's in the tenant itself, by a role of their
-	// own or through one of its groups. Since is when the
+	// own or through one of its groups. A person whose account is disabled is not named:
+	// a disabled account holds its roles and administers nothing. Since is when the
 	// tenant was made: the record's CreatedAt, which it marks @tenantSince. The list filters by the name. It is a view over the
 	// record's table, so a row opens, is changed and is deleted as the record's own.
 	//
@@ -102,6 +103,7 @@ SELECT
         AND (tr.StartsAt IS NULL OR tr.StartsAt <= CURRENT_TIMESTAMP()) AND (tr.EndsAt IS NULL OR tr.EndsAt > CURRENT_TIMESTAMP())
         AND (tm.StartsAt IS NULL OR tm.StartsAt <= CURRENT_TIMESTAMP()) AND (tm.EndsAt IS NULL OR tm.EndsAt > CURRENT_TIMESTAMP())
     )
+      AND NOT u.Disabled
     ORDER BY Line
   ) AS Administrators
 FROM Tenants s

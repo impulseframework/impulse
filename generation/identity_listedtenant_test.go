@@ -269,7 +269,8 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 		"a role of\n // their own, a place in one of its groups, or a sign-in through its directory.",
 		"// A person who is there only through a role held in every citadel, or through a group\n // kept for the whole application, is not counted.\n",
 		"// Directory is the kind of directory its people sign in through, and of a Google\n // Workspace its connection too: the Workspace's domain, or the name the application's",
-		"or through one of its groups. Since is when the\n // citadel was made: the record's Raised, which it marks @tenantSince. The list filters by the name. It is a view over the\n // record's table, so a row opens, is changed and is deleted as the record's own.",
+		"or through one of its groups. A person whose account is disabled is not named:\n // a disabled account holds its roles and administers nothing. Since is when the\n // citadel was made: the record's Raised, which it marks @tenantSince. The list filters by the name. It is a view over the\n // record's table, so a row opens, is changed and is deleted as the record's own.",
+		"A person whose account is disabled is not named",
 		"// crewListedCitadelQuery selects every citadel, each with the people it holds, when it\n// was made, its directory and its administrators.",
 	}, []string{"Passphrase", "Cipher", "Sealed", "Search", "DefaultRole", "Raised time.Time", "first role"})
 
@@ -288,7 +289,9 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 		// memberships and groups.
 		"ARRAY(\n SELECT COALESCE(NULLIF(u.Name, ''), u.Username) AS Line\n FROM CrewSessionUsers u\n WHERE u.Id IN (\n",
 		"WHERE ta.Kind = 'domain' AND ta.Axis = '' AND ta.DomainId = s.Id\n AND ta.Role IN UNNEST(@tenantAdministratorRoles)\n AND " + countingSQL("ta") + "\n UNION DISTINCT\n",
-		"WHERE tg.Kind = 'domain' AND tg.Axis = '' AND tg.DomainId = s.Id\n AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = s.Id\n AND tr.Role IN UNNEST(@tenantAdministratorRoles)\n AND " + countingSQL("tr") + "\n AND " + countingSQL("tm") + "\n )\n ORDER BY Line\n ) AS Administrators\nFROM Citadels s\n",
+		"WHERE tg.Kind = 'domain' AND tg.Axis = '' AND tg.DomainId = s.Id\n AND tr.Kind = 'domain' AND tr.Axis = '' AND tr.DomainId = s.Id\n AND tr.Role IN UNNEST(@tenantAdministratorRoles)\n AND " + countingSQL("tr") + "\n AND " + countingSQL("tm") + "\n )\n AND NOT u.Disabled\n ORDER BY Line\n ) AS Administrators\nFROM Citadels s\n",
+		// No account that is disabled is named: it holds its roles and administers nothing.
+		"\n )\n AND NOT u.Disabled\n ORDER BY Line\n ) AS Administrators",
 	}, []string{
 		// No row held in every tenant and no group kept for the whole application counts,
 		// and nothing is read from the memberships for when the citadel was made.
@@ -298,6 +301,11 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 	// its one branch, and the directory is read by the tenant's column alone.
 	if got := strings.Count(query, "d.Connection"); got != 2 {
 		t.Errorf("the directory's connection is read %d times, want twice, in the Google Workspace branch alone:\n%s", got, query)
+	}
+	// Whether an account is disabled is read once, for the administrators alone: People
+	// still counts a disabled person.
+	if got := strings.Count(listed, "NOT u.Disabled"); got != 1 {
+		t.Errorf("the file reads NOT u.Disabled %d times, want once, in the administrators' array:\n%s", got, listed)
 	}
 
 	// The crew's client hands the list the roles that administer a citadel; the members'
@@ -331,11 +339,12 @@ func Test_prepareIdentity_listedTenant_shapes(t *testing.T) { //nolint:parallelt
 			"// @primarykey\n ID impulse.UUID `spanner:\"Id\" index:\"true\"`\n Name string `spanner:\"Name\"`\n People int64 `spanner:\"People\"`\n Administrators []string `spanner:\"Administrators\"`\n }",
 			"and two facts no table holds.",
 			"a role of\n // their own.\n",
-			"own. It is a view over the",
+			"own. A person whose account is disabled is not named:\n // a disabled account holds its roles and administers nothing. It is a view over the",
 			"// crewListedCitadelQuery selects every citadel, each with the people it holds and its administrators.",
 		}, []string{"Directory", "Closed", "CitadelDirectories", "The list filters by the name", "a place in one of its groups", "or through a group", "Since", "\"time\"", "was made"})
-		// The auth keeps no groups: no group is read for its people or its administrators.
-		assertContains(t, "the list's query", listedCitadelQuery(t, listed), nil, []string{"CrewGroups", "CrewGroupMembers", "CrewGroupRoles", "UNION DISTINCT", "JOIN"})
+		// The auth keeps no groups: no group is read for its people or its administrators,
+		// and no account that is disabled is named.
+		assertContains(t, "the list's query", listedCitadelQuery(t, listed), []string{"\n )\n AND NOT u.Disabled\n ORDER BY Line\n ) AS Administrators"}, []string{"CrewGroups", "CrewGroupMembers", "CrewGroupRoles", "UNION DISTINCT", "JOIN"})
 	})
 
 	t.Run("a record that declares a directory, for an auth that keeps no identities", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
