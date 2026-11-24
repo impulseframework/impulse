@@ -655,6 +655,71 @@ func TestNameField_rostersAndAssignments(t *testing.T) {
 	}
 }
 
+// TestNameField_aNameThePersonMayNotList pins a list for a person who may list the
+// passes and their squadron's id, and not the squadrons' names: a permission table of
+// the test's own, since no persona holds it. At Anvil, held to the passes read first, the
+// person reads the ids; a request for the name, a sort by it and a filter by it are
+// refused in words; and a request that names no columns answers the id and no name.
+func TestNameField_aNameThePersonMayNotList(t *testing.T) {
+	t.Parallel()
+
+	db, _, _ := sharedWorld(t)
+	h := newTestApp(db, grants{accesstypes.List: withFields("HangarPasses", "hangarId", "squadronId")})
+
+	passes := listRows(t, h, "marshal", sectorPath(anvil, "hangar-passes?columns=id,squadronId&sort=id&limit=200"))
+	if len(passes) < 2 {
+		t.Fatalf("Anvil holds %d passes; the checks need two", len(passes))
+	}
+	ids := make([]string, 0, len(passes))
+	for _, row := range passes {
+		ids = append(ids, cell[string](t, row, "id"))
+	}
+	held := "id:in:(" + strings.Join(ids, ",") + ")"
+	asked := func(query string) string {
+		return sectorPath(anvil, "hangar-passes?limit=200&"+query)
+	}
+
+	const askBy = "You may not sort or filter hangar passes by the squadron name here."
+	for _, tt := range []struct {
+		name  string
+		query string
+		want  string
+	}{
+		{name: "the name asked for", query: "columns=id,squadronName&filter=" + url.QueryEscape(held), want: "You may not list the squadron name of hangar passes here."},
+		{name: "a sort by the name", query: "columns=id,squadronId&sort=squadronName&filter=" + url.QueryEscape(held), want: askBy},
+		{name: "a filter by the name", query: "columns=id,squadronId&filter=" + url.QueryEscape(held+`,squadronName:eq:"Tongs"`), want: askBy},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			status, body := doRequestAs(t, h, "marshal", http.MethodGet, asked(tt.query), "")
+			assertStatus(t, status, http.StatusForbidden, body)
+			var refusal struct {
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(body, &refusal); err != nil {
+				t.Fatalf("json.Unmarshal(%s): %v", body, err)
+			}
+			if refusal.Message != tt.want {
+				t.Errorf("message = %q, want %q", refusal.Message, tt.want)
+			}
+		})
+	}
+
+	t.Run("no columns named: the id and no name", func(t *testing.T) {
+		rows := listRows(t, h, "marshal", asked("filter="+url.QueryEscape(held)))
+		if len(rows) != len(passes) {
+			t.Fatalf("got %d passes, want %d", len(rows), len(passes))
+		}
+		for _, row := range rows {
+			if _, ok := row["squadronId"]; !ok {
+				t.Errorf("pass %v carries no squadronId", row)
+			}
+			if name, ok := row["squadronName"]; ok {
+				t.Errorf("pass %v carries squadronName %v, which the person may not list", row["id"], name)
+			}
+		}
+	})
+}
+
 // TestNameField_clientsByPartOfTheName pins a name read from a view matched by part of
 // it: the client rosters' name says which table column it projects (Clients.Name) and the
 // rosters project its token column, so the mission board and the missions, which show a
