@@ -582,7 +582,7 @@ func Test_fileAuthzCases(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("queryRouteCase() = %v, %v", ok, err)
 	}
-	want := authzCase{Name: "DocumentContent", Method: "http.MethodGet", URL: "/api/documents/00000000-0000-0000-0000-000000000001/content", Permission: string(accesstypes.Read)}
+	want := authzCase{Name: "DocumentContent", Method: "http.MethodGet", URL: "/api/documents/00000000-0000-0000-0000-000000000001/content", Permission: string(accesstypes.Read), OutsideTenantGuard: true}
 	if diff := cmp.Diff(want, c, cmp.AllowUnexported(authzCase{})); diff != "" {
 		t.Errorf("file route case mismatch (-want +got):\n%s", diff)
 	}

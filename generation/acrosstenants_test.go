@@ -459,7 +459,7 @@ func Test_resourceAuthzCases_acrossTenants(t *testing.T) {
 			across = append(across, c)
 		}
 	}
-	want := []authzCase{{Name: "ShipmentsAcrossTenants", Method: "http.MethodGet", URL: "/api/shipments", Permission: "List", AcrossTenants: true}}
+	want := []authzCase{{Name: "ShipmentsAcrossTenants", Method: "http.MethodGet", URL: "/api/shipments", Permission: "List", AcrossTenants: true, OutsideTenantGuard: true}}
 	if diff := cmp.Diff(want, across, cmp.AllowUnexported(authzCase{})); diff != "" {
 		t.Fatalf("the across-tenants cases mismatch (-want +got):\n%s", diff)
 	}
