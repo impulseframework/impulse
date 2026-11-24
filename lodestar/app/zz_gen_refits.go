@@ -220,3 +220,42 @@ func (a *App) Refit() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// RefitChangeHistory answers a page of one refit's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) RefitChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID             impulse.UUID        `json:"id"             index:"true"      perm:"-"`
+		ShipID         impulse.UUID        `json:"shipId"`
+		StatusID       string              `json:"statusId"`
+		Estimate       decimal.NullDecimal `json:"estimate"`
+		InspectedAt    *time.Time          `json:"inspectedAt"`
+		OpenedByUserID string              `json:"openedByUserId"`
+		OpenedByName   string              `json:"openedByName"`
+		Notes          *string             `json:"notes"`
+		StatusName     *string             `json:"statusName"     nameof:"StatusID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Refit, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.RefitID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewRefitQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

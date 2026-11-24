@@ -99,6 +99,11 @@ const (
 	// declaration and follows the list handler, never named by an author (no @suppress
 	// argument), so it stays out of handlerTypes.
 	acrossTenantsHandler HandlerType = "acrossTenantsHandler"
+	// changeHistoryHandler is the handler of a record's change history: GET under the
+	// read route of every table-backed resource that has one. It is derived from the
+	// read route, never named by an author (no @suppress argument), so it stays out of
+	// handlerTypes.
+	changeHistoryHandler HandlerType = "changeHistoryHandler"
 )
 
 // RouteType describes a route or set of routes for a resource-driven API.
@@ -179,6 +184,8 @@ func (h HandlerType) template() string {
 		return listTemplate
 	case PatchHandler:
 		return patchTemplate
+	case changeHistoryHandler:
+		return changeHistoryTemplate
 	default:
 		panic(fmt.Sprintf("template(): unknown handler type: %s", h))
 	}
@@ -187,7 +194,7 @@ func (h HandlerType) template() string {
 // method returns the proper http method type for a HandlerType
 func (h HandlerType) method() string {
 	switch h {
-	case ReadHandler, ListHandler, fileHandler, acrossTenantsHandler:
+	case ReadHandler, ListHandler, fileHandler, acrossTenantsHandler, changeHistoryHandler:
 		return http.MethodGet
 	case PatchHandler:
 		return http.MethodPatch
@@ -504,7 +511,8 @@ type generatedRoute struct {
 	FormerPath    string
 	FormerTestURL string
 	// Source names the declaration a stored-file route comes from, the resource and its
-	// key column (Photo.Key), for the release file; empty on every other route.
+	// key column (Photo.Key), for the release file, and the resource a record's change
+	// history route serves; empty on every other route.
 	Source string
 	// SelfBounded marks a route whose handler bounds its own request body (an RPC
 	// method, at its declared maximum or the router's BodyLimit; an upload at its

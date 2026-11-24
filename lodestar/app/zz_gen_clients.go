@@ -262,3 +262,38 @@ func (a *App) PatchClients() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(resp)
 	})
 }
+
+// ClientChangeHistory answers a page of one client's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) ClientChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID           impulse.UUID `json:"id"           index:"true" perm:"-"`
+		Name         string       `json:"name"         index:"true" search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
+		ContactName  string       `json:"contactName"  pii:"true"   search:"token=ContactName_Search;index=ClientsSearch;role=text;contains"`
+		ContactEmail string       `json:"contactEmail" pii:"true"   search:"token=ContactEmail_Search;index=ClientsSearch;role=text;contains"`
+		Trusted      bool         `json:"trusted"`
+		Insured      *bool        `json:"insured"`
+	}
+
+	decoder := NewQueryDecoder[resources.Client, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.ClientID)
+
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewClientQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

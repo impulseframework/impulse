@@ -75,6 +75,11 @@ func (r *resourceGenerator) runRouteGeneration() error {
 	if err := validateAcrossTenantsRoutes(outletRoutes); err != nil {
 		return err
 	}
+	// And a record's change history is served where no other route of its outlet
+	// answers, by a handler no other route's handler is named as.
+	if err := validateChangeHistoryRoutes(outletRoutes); err != nil {
+		return err
+	}
 
 	stubDomainGuard, stubFeatureGuard := false, false
 	routeRequestLogs, routeMinSeverities := false, false
@@ -310,6 +315,13 @@ func (r *resourceGenerator) accumulateResourceRoutes(outlets []*routerOutlet, ou
 			across := r.resourceAcrossTenantsRoutes(res, outlet.prefix)
 			outletRoutes[i].RoutesMap[res.Name()] = append(outletRoutes[i].RoutesMap[res.Name()], across...)
 			routerTestRoutes = append(routerTestRoutes, across...)
+
+			histories, err := r.resourceChangeHistoryRoutes(res, outlet.prefix)
+			if err != nil {
+				return nil, nil, err
+			}
+			outletRoutes[i].RoutesMap[res.Name()] = append(outletRoutes[i].RoutesMap[res.Name()], histories...)
+			routerTestRoutes = append(routerTestRoutes, histories...)
 		}
 	}
 

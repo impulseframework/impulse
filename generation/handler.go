@@ -498,7 +498,7 @@ func (r *resourceGenerator) anyOutletServesSessions() bool {
 func (r *resourceGenerator) generateHandlers(res *resourceInfo) error {
 	handlerTypes := resourceEndpoints(res)
 
-	handlerData := make([][]byte, 0, len(handlerTypes)+len(res.Files)+1)
+	handlerData := make([][]byte, 0, len(handlerTypes)+len(res.Files)+2)
 	for _, handlerTyp := range handlerTypes {
 		data, err := r.handlerContent(handlerTyp, res)
 		if err != nil {
@@ -513,6 +513,16 @@ func (r *resourceGenerator) generateHandlers(res *resourceInfo) error {
 		data, err := r.acrossTenantsHandlerContent(res)
 		if err != nil {
 			return errors.Wrap(err, "acrossTenantsHandlerContent()")
+		}
+
+		handlerData = append(handlerData, data)
+	}
+	// A record's change history hangs under the read route, so its handler follows the
+	// resource's own.
+	if servesChangeHistory(res) {
+		data, err := r.changeHistoryHandlerContent(res)
+		if err != nil {
+			return errors.Wrap(err, "changeHistoryHandlerContent()")
 		}
 
 		handlerData = append(handlerData, data)

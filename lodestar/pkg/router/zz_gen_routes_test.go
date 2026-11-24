@@ -1133,6 +1133,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/clients/testClientID/changes", method: http.MethodGet,
+			handlerFunc: "ClientChangeHistory",
+			parameters:  map[string]string{"clientID": "testClientID"},
+		},
+		{
 			url: "/console/api/client-contacts", method: http.MethodGet,
 			handlerFunc: "ClientContacts",
 			parameters:  map[string]string{},
@@ -1153,6 +1158,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"clientContactID": "testClientContactID"},
 		},
 		{
+			url: "/console/api/client-contacts/testClientContactID/changes", method: http.MethodGet,
+			handlerFunc: "ClientContactChangeHistory",
+			parameters:  map[string]string{"clientContactID": "testClientContactID"},
+		},
+		{
 			url: "/portal/api/client-contacts", method: http.MethodGet,
 			handlerFunc: "ClientContacts",
 			parameters:  map[string]string{},
@@ -1170,6 +1180,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/client-contacts/testClientContactID", method: http.MethodPost,
 			handlerFunc: "ClientContact",
+			parameters:  map[string]string{"clientContactID": "testClientContactID"},
+		},
+		{
+			url: "/portal/api/client-contacts/testClientContactID/changes", method: http.MethodGet,
+			handlerFunc: "ClientContactChangeHistory",
 			parameters:  map[string]string{"clientContactID": "testClientContactID"},
 		},
 		{
@@ -1233,6 +1248,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"commendationID": "testCommendationID"},
 		},
 		{
+			url: "/console/api/commendations/testCommendationID/changes", method: http.MethodGet,
+			handlerFunc: "CommendationChangeHistory",
+			parameters:  map[string]string{"commendationID": "testCommendationID"},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments", method: http.MethodGet,
 			handlerFunc: "Consignments",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -1250,6 +1270,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments/testConsignmentID", method: http.MethodPost,
 			handlerFunc: "Consignment",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "consignmentID": "testConsignmentID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments/testConsignmentID/changes", method: http.MethodGet,
+			handlerFunc: "ConsignmentChangeHistory",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "consignmentID": "testConsignmentID"},
 		},
 		{
@@ -1273,6 +1298,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "consignmentID": "testConsignmentID"},
 		},
 		{
+			url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments/testConsignmentID/changes", method: http.MethodGet,
+			handlerFunc: "ConsignmentChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "consignmentID": "testConsignmentID"},
+		},
+		{
 			url: "/console/api/crew-groups", method: http.MethodGet,
 			handlerFunc: "CrewGroups",
 			parameters:  map[string]string{},
@@ -1290,6 +1320,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/crew-groups/testCrewGroupID", method: http.MethodPost,
 			handlerFunc: "CrewGroup",
+			parameters:  map[string]string{"crewGroupID": "testCrewGroupID"},
+		},
+		{
+			url: "/console/api/crew-groups/testCrewGroupID/changes", method: http.MethodGet,
+			handlerFunc: "CrewGroupChangeHistory",
 			parameters:  map[string]string{"crewGroupID": "testCrewGroupID"},
 		},
 		{
@@ -1573,6 +1608,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"crewSessionID": "testCrewSessionID"},
 		},
 		{
+			url: "/console/api/crew-sessions/testCrewSessionID/changes", method: http.MethodGet,
+			handlerFunc: "CrewSessionChangeHistory",
+			parameters:  map[string]string{"crewSessionID": "testCrewSessionID"},
+		},
+		{
 			url: "/console/api/crew-session-auth-events", method: http.MethodGet,
 			handlerFunc: "CrewSessionAuthEvents",
 			parameters:  map[string]string{},
@@ -1603,6 +1643,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"crewSessionIdentityID": "testCrewSessionIdentityID"},
 		},
 		{
+			url: "/console/api/crew-session-identities/testCrewSessionIdentityID/changes", method: http.MethodGet,
+			handlerFunc: "CrewSessionIdentityChangeHistory",
+			parameters:  map[string]string{"crewSessionIdentityID": "testCrewSessionIdentityID"},
+		},
+		{
 			url: "/console/api/crew-session-impersonations", method: http.MethodGet,
 			handlerFunc: "CrewSessionImpersonations",
 			parameters:  map[string]string{},
@@ -1623,6 +1668,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"crewSessionImpersonationSessionID": "testCrewSessionImpersonationSessionID"},
 		},
 		{
+			url: "/console/api/crew-session-impersonations/testCrewSessionImpersonationSessionID/changes", method: http.MethodGet,
+			handlerFunc: "CrewSessionImpersonationChangeHistory",
+			parameters:  map[string]string{"crewSessionImpersonationSessionID": "testCrewSessionImpersonationSessionID"},
+		},
+		{
 			url: "/console/api/crew-session-mail-links", method: http.MethodGet,
 			handlerFunc: "CrewSessionMailLinks",
 			parameters:  map[string]string{},
@@ -1640,6 +1690,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/crew-session-mail-links/testCrewSessionMailLinkID", method: http.MethodPost,
 			handlerFunc: "CrewSessionMailLink",
+			parameters:  map[string]string{"crewSessionMailLinkID": "testCrewSessionMailLinkID"},
+		},
+		{
+			url: "/console/api/crew-session-mail-links/testCrewSessionMailLinkID/changes", method: http.MethodGet,
+			handlerFunc: "CrewSessionMailLinkChangeHistory",
 			parameters:  map[string]string{"crewSessionMailLinkID": "testCrewSessionMailLinkID"},
 		},
 		{
@@ -1673,6 +1728,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"crewSessionTokenID": "testCrewSessionTokenID"},
 		},
 		{
+			url: "/console/api/crew-session-tokens/testCrewSessionTokenID/changes", method: http.MethodGet,
+			handlerFunc: "CrewSessionTokenChangeHistory",
+			parameters:  map[string]string{"crewSessionTokenID": "testCrewSessionTokenID"},
+		},
+		{
 			url: "/console/api/crew-session-trusted-devices", method: http.MethodGet,
 			handlerFunc: "CrewSessionTrustedDevices",
 			parameters:  map[string]string{},
@@ -1693,6 +1753,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"crewSessionTrustedDeviceID": "testCrewSessionTrustedDeviceID"},
 		},
 		{
+			url: "/console/api/crew-session-trusted-devices/testCrewSessionTrustedDeviceID/changes", method: http.MethodGet,
+			handlerFunc: "CrewSessionTrustedDeviceChangeHistory",
+			parameters:  map[string]string{"crewSessionTrustedDeviceID": "testCrewSessionTrustedDeviceID"},
+		},
+		{
 			url: "/console/api/crew-session-users", method: http.MethodGet,
 			handlerFunc: "CrewSessionUsers",
 			parameters:  map[string]string{},
@@ -1710,6 +1775,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/crew-session-users/testCrewSessionUserID", method: http.MethodPost,
 			handlerFunc: "CrewSessionUser",
+			parameters:  map[string]string{"crewSessionUserID": "testCrewSessionUserID"},
+		},
+		{
+			url: "/console/api/crew-session-users/testCrewSessionUserID/changes", method: http.MethodGet,
+			handlerFunc: "CrewSessionUserChangeHistory",
 			parameters:  map[string]string{"crewSessionUserID": "testCrewSessionUserID"},
 		},
 		{
@@ -1773,6 +1843,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "distressCallID": "testDistressCallID"},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/testDistressCallID/changes", method: http.MethodGet,
+			handlerFunc: "DistressCallChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "distressCallID": "testDistressCallID"},
+		},
+		{
 			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls", method: http.MethodGet,
 			handlerFunc: "DistressCalls",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -1793,6 +1868,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "distressCallID": "testDistressCallID"},
 		},
 		{
+			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/testDistressCallID/changes", method: http.MethodGet,
+			handlerFunc: "DistressCallChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "distressCallID": "testDistressCallID"},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays", method: http.MethodGet,
 			handlerFunc: "DistressRelays",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -1810,6 +1890,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID", method: http.MethodPost,
 			handlerFunc: "DistressRelay",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "distressRelayID": "testDistressRelayID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/testDistressRelayID/changes", method: http.MethodGet,
+			handlerFunc: "DistressRelayChangeHistory",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "distressRelayID": "testDistressRelayID"},
 		},
 		{
@@ -1868,6 +1953,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/testHangarID/changes", method: http.MethodGet,
+			handlerFunc: "HangarChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "hangarID": "testHangarID"},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodGet,
 			handlerFunc: "HangarPasses",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -1885,6 +1975,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodPost,
 			handlerFunc: "HangarPass",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "hangarPassID": "testHangarPassID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID/changes", method: http.MethodGet,
+			handlerFunc: "HangarPassChangeHistory",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "hangarPassID": "testHangarPassID"},
 		},
 		{
@@ -2128,6 +2223,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionID": "testMembersSessionID"},
 		},
 		{
+			url: "/console/api/members-sessions/testMembersSessionID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionChangeHistory",
+			parameters:  map[string]string{"membersSessionID": "testMembersSessionID"},
+		},
+		{
 			url: "/portal/api/members-sessions", method: http.MethodGet,
 			handlerFunc: "MembersSessions",
 			parameters:  map[string]string{},
@@ -2145,6 +2245,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/members-sessions/testMembersSessionID", method: http.MethodPost,
 			handlerFunc: "MembersSession",
+			parameters:  map[string]string{"membersSessionID": "testMembersSessionID"},
+		},
+		{
+			url: "/portal/api/members-sessions/testMembersSessionID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionChangeHistory",
 			parameters:  map[string]string{"membersSessionID": "testMembersSessionID"},
 		},
 		{
@@ -2188,6 +2293,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionIdentityID": "testMembersSessionIdentityID"},
 		},
 		{
+			url: "/console/api/members-session-identities/testMembersSessionIdentityID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionIdentityChangeHistory",
+			parameters:  map[string]string{"membersSessionIdentityID": "testMembersSessionIdentityID"},
+		},
+		{
 			url: "/portal/api/members-session-identities", method: http.MethodGet,
 			handlerFunc: "MembersSessionIdentities",
 			parameters:  map[string]string{},
@@ -2205,6 +2315,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/members-session-identities/testMembersSessionIdentityID", method: http.MethodPost,
 			handlerFunc: "MembersSessionIdentity",
+			parameters:  map[string]string{"membersSessionIdentityID": "testMembersSessionIdentityID"},
+		},
+		{
+			url: "/portal/api/members-session-identities/testMembersSessionIdentityID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionIdentityChangeHistory",
 			parameters:  map[string]string{"membersSessionIdentityID": "testMembersSessionIdentityID"},
 		},
 		{
@@ -2228,6 +2343,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionMailLinkID": "testMembersSessionMailLinkID"},
 		},
 		{
+			url: "/console/api/members-session-mail-links/testMembersSessionMailLinkID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionMailLinkChangeHistory",
+			parameters:  map[string]string{"membersSessionMailLinkID": "testMembersSessionMailLinkID"},
+		},
+		{
 			url: "/portal/api/members-session-mail-links", method: http.MethodGet,
 			handlerFunc: "MembersSessionMailLinks",
 			parameters:  map[string]string{},
@@ -2245,6 +2365,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/members-session-mail-links/testMembersSessionMailLinkID", method: http.MethodPost,
 			handlerFunc: "MembersSessionMailLink",
+			parameters:  map[string]string{"membersSessionMailLinkID": "testMembersSessionMailLinkID"},
+		},
+		{
+			url: "/portal/api/members-session-mail-links/testMembersSessionMailLinkID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionMailLinkChangeHistory",
 			parameters:  map[string]string{"membersSessionMailLinkID": "testMembersSessionMailLinkID"},
 		},
 		{
@@ -2288,6 +2413,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionTrustedDeviceID": "testMembersSessionTrustedDeviceID"},
 		},
 		{
+			url: "/console/api/members-session-trusted-devices/testMembersSessionTrustedDeviceID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionTrustedDeviceChangeHistory",
+			parameters:  map[string]string{"membersSessionTrustedDeviceID": "testMembersSessionTrustedDeviceID"},
+		},
+		{
 			url: "/portal/api/members-session-trusted-devices", method: http.MethodGet,
 			handlerFunc: "MembersSessionTrustedDevices",
 			parameters:  map[string]string{},
@@ -2305,6 +2435,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/members-session-trusted-devices/testMembersSessionTrustedDeviceID", method: http.MethodPost,
 			handlerFunc: "MembersSessionTrustedDevice",
+			parameters:  map[string]string{"membersSessionTrustedDeviceID": "testMembersSessionTrustedDeviceID"},
+		},
+		{
+			url: "/portal/api/members-session-trusted-devices/testMembersSessionTrustedDeviceID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionTrustedDeviceChangeHistory",
 			parameters:  map[string]string{"membersSessionTrustedDeviceID": "testMembersSessionTrustedDeviceID"},
 		},
 		{
@@ -2328,6 +2463,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionUserID": "testMembersSessionUserID"},
 		},
 		{
+			url: "/console/api/members-session-users/testMembersSessionUserID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionUserChangeHistory",
+			parameters:  map[string]string{"membersSessionUserID": "testMembersSessionUserID"},
+		},
+		{
 			url: "/portal/api/members-session-users", method: http.MethodGet,
 			handlerFunc: "MembersSessionUsers",
 			parameters:  map[string]string{},
@@ -2345,6 +2485,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/members-session-users/testMembersSessionUserID", method: http.MethodPost,
 			handlerFunc: "MembersSessionUser",
+			parameters:  map[string]string{"membersSessionUserID": "testMembersSessionUserID"},
+		},
+		{
+			url: "/portal/api/members-session-users/testMembersSessionUserID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionUserChangeHistory",
 			parameters:  map[string]string{"membersSessionUserID": "testMembersSessionUserID"},
 		},
 		{
@@ -2398,6 +2543,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/testMissionID/changes", method: http.MethodGet,
+			handlerFunc: "MissionChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "missionID": "testMissionID"},
+		},
+		{
 			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions", method: http.MethodGet,
 			handlerFunc: "Missions",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2426,6 +2576,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/missions", method: http.MethodPost,
 			handlerFunc: "MissionsAcrossTenants",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/testMissionID/changes", method: http.MethodGet,
+			handlerFunc: "MissionChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "missionID": "testMissionID"},
 		},
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodGet,
@@ -2473,6 +2628,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "missionDocumentID": "testMissionDocumentID"},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents/testMissionDocumentID/changes", method: http.MethodGet,
+			handlerFunc: "MissionDocumentChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "missionDocumentID": "testMissionDocumentID"},
+		},
+		{
 			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents", method: http.MethodGet,
 			handlerFunc: "MissionDocuments",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2495,6 +2655,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents/testMissionDocumentID/content", method: http.MethodGet,
 			handlerFunc: "MissionDocumentContent",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "missionDocumentID": "testMissionDocumentID"},
+		},
+		{
+			url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents/testMissionDocumentID/changes", method: http.MethodGet,
+			handlerFunc: "MissionDocumentChangeHistory",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "missionDocumentID": "testMissionDocumentID"},
 		},
 		{
@@ -2538,6 +2703,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"pilotID": "testPilotID"},
 		},
 		{
+			url: "/console/api/pilots/testPilotID/changes", method: http.MethodGet,
+			handlerFunc: "PilotChangeHistory",
+			parameters:  map[string]string{"pilotID": "testPilotID"},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/pilot-assignments", method: http.MethodGet,
 			handlerFunc: "PilotAssignments",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2578,6 +2748,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"pilotCertificationUserID": "testPilotCertificationUserID", "pilotCertificationCertificationID": "testPilotCertificationCertificationID"},
 		},
 		{
+			url: "/console/api/pilot-certifications/testPilotCertificationUserID/testPilotCertificationCertificationID/changes", method: http.MethodGet,
+			handlerFunc: "PilotCertificationChangeHistory",
+			parameters:  map[string]string{"pilotCertificationUserID": "testPilotCertificationUserID", "pilotCertificationCertificationID": "testPilotCertificationCertificationID"},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refits", method: http.MethodGet,
 			handlerFunc: "Refits",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2595,6 +2770,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refits/testRefitID", method: http.MethodPost,
 			handlerFunc: "Refit",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "refitID": "testRefitID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refits/testRefitID/changes", method: http.MethodGet,
+			handlerFunc: "RefitChangeHistory",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "refitID": "testRefitID"},
 		},
 		{
@@ -2623,6 +2803,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "refitTaskRefitID": "testRefitTaskRefitID", "refitTaskTaskNumber": "testRefitTaskTaskNumber"},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refit-tasks/testRefitTaskRefitID/testRefitTaskTaskNumber/changes", method: http.MethodGet,
+			handlerFunc: "RefitTaskChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "refitTaskRefitID": "testRefitTaskRefitID", "refitTaskTaskNumber": "testRefitTaskTaskNumber"},
+		},
+		{
 			url: "/console/api/sectors", method: http.MethodGet,
 			handlerFunc: "Sectors",
 			parameters:  map[string]string{},
@@ -2643,6 +2828,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "testSectorID"},
 		},
 		{
+			url: "/console/api/sectors/testSectorID/changes", method: http.MethodGet,
+			handlerFunc: "SectorChangeHistory",
+			parameters:  map[string]string{"sectorID": "testSectorID"},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories", method: http.MethodGet,
 			handlerFunc: "SectorDirectories",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2660,6 +2850,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories/testSectorDirectoryID", method: http.MethodPost,
 			handlerFunc: "SectorDirectory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "sectorDirectoryID": "testSectorDirectoryID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories/testSectorDirectoryID/changes", method: http.MethodGet,
+			handlerFunc: "SectorDirectoryChangeHistory",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "sectorDirectoryID": "testSectorDirectoryID"},
 		},
 		{
@@ -2703,6 +2898,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "shipID": "testShipID"},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/ships/testShipID/changes", method: http.MethodGet,
+			handlerFunc: "ShipChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "shipID": "testShipID"},
+		},
+		{
 			url: "/console/api/ship-classes", method: http.MethodGet,
 			handlerFunc: "ShipClasses",
 			parameters:  map[string]string{},
@@ -2720,6 +2920,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/ship-classes/testShipClassID", method: http.MethodPost,
 			handlerFunc: "ShipClass",
+			parameters:  map[string]string{"shipClassID": "testShipClassID"},
+		},
+		{
+			url: "/console/api/ship-classes/testShipClassID/changes", method: http.MethodGet,
+			handlerFunc: "ShipClassChangeHistory",
 			parameters:  map[string]string{"shipClassID": "testShipClassID"},
 		},
 		{
@@ -2743,6 +2948,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "sortieID": "testSortieID"},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sorties/testSortieID/changes", method: http.MethodGet,
+			handlerFunc: "SortieChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "sortieID": "testSortieID"},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sortie-expenses", method: http.MethodGet,
 			handlerFunc: "SortieExpenses",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2760,6 +2970,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sortie-expenses/testSortieExpenseID", method: http.MethodPost,
 			handlerFunc: "SortieExpense",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "sortieExpenseID": "testSortieExpenseID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sortie-expenses/testSortieExpenseID/changes", method: http.MethodGet,
+			handlerFunc: "SortieExpenseChangeHistory",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "sortieExpenseID": "testSortieExpenseID"},
 		},
 		{
@@ -2783,6 +2998,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "squadronID": "testSquadronID"},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadrons/testSquadronID/changes", method: http.MethodGet,
+			handlerFunc: "SquadronChangeHistory",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "squadronID": "testSquadronID"},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadron-memberships", method: http.MethodGet,
 			handlerFunc: "SquadronMemberships",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2800,6 +3020,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadron-memberships/testSquadronMembershipSquadronID/testSquadronMembershipUserID", method: http.MethodPost,
 			handlerFunc: "SquadronMembership",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "squadronMembershipSquadronID": "testSquadronMembershipSquadronID", "squadronMembershipUserID": "testSquadronMembershipUserID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadron-memberships/testSquadronMembershipSquadronID/testSquadronMembershipUserID/changes", method: http.MethodGet,
+			handlerFunc: "SquadronMembershipChangeHistory",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "squadronMembershipSquadronID": "testSquadronMembershipSquadronID", "squadronMembershipUserID": "testSquadronMembershipUserID"},
 		},
 		{
@@ -2840,6 +3065,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID", method: http.MethodPost,
 			handlerFunc: "Wing",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "wingID": "testWingID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/testWingID/changes", method: http.MethodGet,
+			handlerFunc: "WingChangeHistory",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "wingID": "testWingID"},
 		},
 		{
@@ -3400,12 +3630,20 @@ func (s *generatedHandlersStub) PatchClients() http.HandlerFunc {
 	return s.record("PatchClients")
 }
 
+func (s *generatedHandlersStub) ClientChangeHistory() http.HandlerFunc {
+	return s.record("ClientChangeHistory")
+}
+
 func (s *generatedHandlersStub) ClientContacts() http.HandlerFunc {
 	return s.record("ClientContacts")
 }
 
 func (s *generatedHandlersStub) ClientContact() http.HandlerFunc {
 	return s.record("ClientContact")
+}
+
+func (s *generatedHandlersStub) ClientContactChangeHistory() http.HandlerFunc {
+	return s.record("ClientContactChangeHistory")
 }
 
 func (s *generatedHandlersStub) ClientRosters() http.HandlerFunc {
@@ -3424,6 +3662,10 @@ func (s *generatedHandlersStub) Commendation() http.HandlerFunc {
 	return s.record("Commendation")
 }
 
+func (s *generatedHandlersStub) CommendationChangeHistory() http.HandlerFunc {
+	return s.record("CommendationChangeHistory")
+}
+
 func (s *generatedHandlersStub) CompileBriefing() http.HandlerFunc {
 	return s.record("CompileBriefing")
 }
@@ -3438,6 +3680,10 @@ func (s *generatedHandlersStub) Consignments() http.HandlerFunc {
 
 func (s *generatedHandlersStub) Consignment() http.HandlerFunc {
 	return s.record("Consignment")
+}
+
+func (s *generatedHandlersStub) ConsignmentChangeHistory() http.HandlerFunc {
+	return s.record("ConsignmentChangeHistory")
 }
 
 func (s *generatedHandlersStub) CreateCrewGroup() http.HandlerFunc {
@@ -3466,6 +3712,10 @@ func (s *generatedHandlersStub) CrewGroups() http.HandlerFunc {
 
 func (s *generatedHandlersStub) CrewGroup() http.HandlerFunc {
 	return s.record("CrewGroup")
+}
+
+func (s *generatedHandlersStub) CrewGroupChangeHistory() http.HandlerFunc {
+	return s.record("CrewGroupChangeHistory")
 }
 
 func (s *generatedHandlersStub) CrewGroupMembers() http.HandlerFunc {
@@ -3608,6 +3858,10 @@ func (s *generatedHandlersStub) CrewSession() http.HandlerFunc {
 	return s.record("CrewSession")
 }
 
+func (s *generatedHandlersStub) CrewSessionChangeHistory() http.HandlerFunc {
+	return s.record("CrewSessionChangeHistory")
+}
+
 func (s *generatedHandlersStub) CrewSessionAuthEvents() http.HandlerFunc {
 	return s.record("CrewSessionAuthEvents")
 }
@@ -3620,6 +3874,10 @@ func (s *generatedHandlersStub) CrewSessionIdentity() http.HandlerFunc {
 	return s.record("CrewSessionIdentity")
 }
 
+func (s *generatedHandlersStub) CrewSessionIdentityChangeHistory() http.HandlerFunc {
+	return s.record("CrewSessionIdentityChangeHistory")
+}
+
 func (s *generatedHandlersStub) CrewSessionImpersonations() http.HandlerFunc {
 	return s.record("CrewSessionImpersonations")
 }
@@ -3628,12 +3886,20 @@ func (s *generatedHandlersStub) CrewSessionImpersonation() http.HandlerFunc {
 	return s.record("CrewSessionImpersonation")
 }
 
+func (s *generatedHandlersStub) CrewSessionImpersonationChangeHistory() http.HandlerFunc {
+	return s.record("CrewSessionImpersonationChangeHistory")
+}
+
 func (s *generatedHandlersStub) CrewSessionMailLinks() http.HandlerFunc {
 	return s.record("CrewSessionMailLinks")
 }
 
 func (s *generatedHandlersStub) CrewSessionMailLink() http.HandlerFunc {
 	return s.record("CrewSessionMailLink")
+}
+
+func (s *generatedHandlersStub) CrewSessionMailLinkChangeHistory() http.HandlerFunc {
+	return s.record("CrewSessionMailLinkChangeHistory")
 }
 
 func (s *generatedHandlersStub) CrewSessionSignInAttempts() http.HandlerFunc {
@@ -3648,6 +3914,10 @@ func (s *generatedHandlersStub) CrewSessionToken() http.HandlerFunc {
 	return s.record("CrewSessionToken")
 }
 
+func (s *generatedHandlersStub) CrewSessionTokenChangeHistory() http.HandlerFunc {
+	return s.record("CrewSessionTokenChangeHistory")
+}
+
 func (s *generatedHandlersStub) CrewSessionTrustedDevices() http.HandlerFunc {
 	return s.record("CrewSessionTrustedDevices")
 }
@@ -3656,12 +3926,20 @@ func (s *generatedHandlersStub) CrewSessionTrustedDevice() http.HandlerFunc {
 	return s.record("CrewSessionTrustedDevice")
 }
 
+func (s *generatedHandlersStub) CrewSessionTrustedDeviceChangeHistory() http.HandlerFunc {
+	return s.record("CrewSessionTrustedDeviceChangeHistory")
+}
+
 func (s *generatedHandlersStub) CrewSessionUsers() http.HandlerFunc {
 	return s.record("CrewSessionUsers")
 }
 
 func (s *generatedHandlersStub) CrewSessionUser() http.HandlerFunc {
 	return s.record("CrewSessionUser")
+}
+
+func (s *generatedHandlersStub) CrewSessionUserChangeHistory() http.HandlerFunc {
+	return s.record("CrewSessionUserChangeHistory")
 }
 
 func (s *generatedHandlersStub) CrewSignInMethods() http.HandlerFunc {
@@ -3784,12 +4062,20 @@ func (s *generatedHandlersStub) DistressCall() http.HandlerFunc {
 	return s.record("DistressCall")
 }
 
+func (s *generatedHandlersStub) DistressCallChangeHistory() http.HandlerFunc {
+	return s.record("DistressCallChangeHistory")
+}
+
 func (s *generatedHandlersStub) DistressRelays() http.HandlerFunc {
 	return s.record("DistressRelays")
 }
 
 func (s *generatedHandlersStub) DistressRelay() http.HandlerFunc {
 	return s.record("DistressRelay")
+}
+
+func (s *generatedHandlersStub) DistressRelayChangeHistory() http.HandlerFunc {
+	return s.record("DistressRelayChangeHistory")
 }
 
 func (s *generatedHandlersStub) EnableCrewSectorUser() http.HandlerFunc {
@@ -3904,12 +4190,20 @@ func (s *generatedHandlersStub) PatchHangars() http.HandlerFunc {
 	return s.record("PatchHangars")
 }
 
+func (s *generatedHandlersStub) HangarChangeHistory() http.HandlerFunc {
+	return s.record("HangarChangeHistory")
+}
+
 func (s *generatedHandlersStub) HangarPasses() http.HandlerFunc {
 	return s.record("HangarPasses")
 }
 
 func (s *generatedHandlersStub) HangarPass() http.HandlerFunc {
 	return s.record("HangarPass")
+}
+
+func (s *generatedHandlersStub) HangarPassChangeHistory() http.HandlerFunc {
+	return s.record("HangarPassChangeHistory")
 }
 
 func (s *generatedHandlersStub) HoldMission() http.HandlerFunc {
@@ -4004,6 +4298,10 @@ func (s *generatedHandlersStub) MembersSession() http.HandlerFunc {
 	return s.record("MembersSession")
 }
 
+func (s *generatedHandlersStub) MembersSessionChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionChangeHistory")
+}
+
 func (s *generatedHandlersStub) MembersSessionAuthEvents() http.HandlerFunc {
 	return s.record("MembersSessionAuthEvents")
 }
@@ -4016,12 +4314,20 @@ func (s *generatedHandlersStub) MembersSessionIdentity() http.HandlerFunc {
 	return s.record("MembersSessionIdentity")
 }
 
+func (s *generatedHandlersStub) MembersSessionIdentityChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionIdentityChangeHistory")
+}
+
 func (s *generatedHandlersStub) MembersSessionMailLinks() http.HandlerFunc {
 	return s.record("MembersSessionMailLinks")
 }
 
 func (s *generatedHandlersStub) MembersSessionMailLink() http.HandlerFunc {
 	return s.record("MembersSessionMailLink")
+}
+
+func (s *generatedHandlersStub) MembersSessionMailLinkChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionMailLinkChangeHistory")
 }
 
 func (s *generatedHandlersStub) MembersSessionSignInAttempts() http.HandlerFunc {
@@ -4036,12 +4342,20 @@ func (s *generatedHandlersStub) MembersSessionTrustedDevice() http.HandlerFunc {
 	return s.record("MembersSessionTrustedDevice")
 }
 
+func (s *generatedHandlersStub) MembersSessionTrustedDeviceChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionTrustedDeviceChangeHistory")
+}
+
 func (s *generatedHandlersStub) MembersSessionUsers() http.HandlerFunc {
 	return s.record("MembersSessionUsers")
 }
 
 func (s *generatedHandlersStub) MembersSessionUser() http.HandlerFunc {
 	return s.record("MembersSessionUser")
+}
+
+func (s *generatedHandlersStub) MembersSessionUserChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionUserChangeHistory")
 }
 
 func (s *generatedHandlersStub) MembersSignInMethods() http.HandlerFunc {
@@ -4068,6 +4382,10 @@ func (s *generatedHandlersStub) MissionsAcrossTenants() http.HandlerFunc {
 	return s.record("MissionsAcrossTenants")
 }
 
+func (s *generatedHandlersStub) MissionChangeHistory() http.HandlerFunc {
+	return s.record("MissionChangeHistory")
+}
+
 func (s *generatedHandlersStub) MissionBoards() http.HandlerFunc {
 	return s.record("MissionBoards")
 }
@@ -4086,6 +4404,10 @@ func (s *generatedHandlersStub) MissionDocument() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MissionDocumentContent() http.HandlerFunc {
 	return s.record("MissionDocumentContent")
+}
+
+func (s *generatedHandlersStub) MissionDocumentChangeHistory() http.HandlerFunc {
+	return s.record("MissionDocumentChangeHistory")
 }
 
 func (s *generatedHandlersStub) OpenCrewSignUp() http.HandlerFunc {
@@ -4112,6 +4434,10 @@ func (s *generatedHandlersStub) Pilot() http.HandlerFunc {
 	return s.record("Pilot")
 }
 
+func (s *generatedHandlersStub) PilotChangeHistory() http.HandlerFunc {
+	return s.record("PilotChangeHistory")
+}
+
 func (s *generatedHandlersStub) PilotAssignments() http.HandlerFunc {
 	return s.record("PilotAssignments")
 }
@@ -4132,12 +4458,20 @@ func (s *generatedHandlersStub) PilotCertification() http.HandlerFunc {
 	return s.record("PilotCertification")
 }
 
+func (s *generatedHandlersStub) PilotCertificationChangeHistory() http.HandlerFunc {
+	return s.record("PilotCertificationChangeHistory")
+}
+
 func (s *generatedHandlersStub) Refits() http.HandlerFunc {
 	return s.record("Refits")
 }
 
 func (s *generatedHandlersStub) Refit() http.HandlerFunc {
 	return s.record("Refit")
+}
+
+func (s *generatedHandlersStub) RefitChangeHistory() http.HandlerFunc {
+	return s.record("RefitChangeHistory")
 }
 
 func (s *generatedHandlersStub) RefitTasks() http.HandlerFunc {
@@ -4150,6 +4484,10 @@ func (s *generatedHandlersStub) RefitTask() http.HandlerFunc {
 
 func (s *generatedHandlersStub) RefitTaskPhoto() http.HandlerFunc {
 	return s.record("RefitTaskPhoto")
+}
+
+func (s *generatedHandlersStub) RefitTaskChangeHistory() http.HandlerFunc {
+	return s.record("RefitTaskChangeHistory")
 }
 
 func (s *generatedHandlersStub) ReleaseConsignment() http.HandlerFunc {
@@ -4256,12 +4594,20 @@ func (s *generatedHandlersStub) Sector() http.HandlerFunc {
 	return s.record("Sector")
 }
 
+func (s *generatedHandlersStub) SectorChangeHistory() http.HandlerFunc {
+	return s.record("SectorChangeHistory")
+}
+
 func (s *generatedHandlersStub) SectorDirectories() http.HandlerFunc {
 	return s.record("SectorDirectories")
 }
 
 func (s *generatedHandlersStub) SectorDirectory() http.HandlerFunc {
 	return s.record("SectorDirectory")
+}
+
+func (s *generatedHandlersStub) SectorDirectoryChangeHistory() http.HandlerFunc {
+	return s.record("SectorDirectoryChangeHistory")
 }
 
 func (s *generatedHandlersStub) SectorHazardBoards() http.HandlerFunc {
@@ -4352,12 +4698,20 @@ func (s *generatedHandlersStub) Ship() http.HandlerFunc {
 	return s.record("Ship")
 }
 
+func (s *generatedHandlersStub) ShipChangeHistory() http.HandlerFunc {
+	return s.record("ShipChangeHistory")
+}
+
 func (s *generatedHandlersStub) ShipClasses() http.HandlerFunc {
 	return s.record("ShipClasses")
 }
 
 func (s *generatedHandlersStub) ShipClass() http.HandlerFunc {
 	return s.record("ShipClass")
+}
+
+func (s *generatedHandlersStub) ShipClassChangeHistory() http.HandlerFunc {
+	return s.record("ShipClassChangeHistory")
 }
 
 func (s *generatedHandlersStub) Sorties() http.HandlerFunc {
@@ -4368,12 +4722,20 @@ func (s *generatedHandlersStub) Sortie() http.HandlerFunc {
 	return s.record("Sortie")
 }
 
+func (s *generatedHandlersStub) SortieChangeHistory() http.HandlerFunc {
+	return s.record("SortieChangeHistory")
+}
+
 func (s *generatedHandlersStub) SortieExpenses() http.HandlerFunc {
 	return s.record("SortieExpenses")
 }
 
 func (s *generatedHandlersStub) SortieExpense() http.HandlerFunc {
 	return s.record("SortieExpense")
+}
+
+func (s *generatedHandlersStub) SortieExpenseChangeHistory() http.HandlerFunc {
+	return s.record("SortieExpenseChangeHistory")
 }
 
 func (s *generatedHandlersStub) Squadrons() http.HandlerFunc {
@@ -4384,12 +4746,20 @@ func (s *generatedHandlersStub) Squadron() http.HandlerFunc {
 	return s.record("Squadron")
 }
 
+func (s *generatedHandlersStub) SquadronChangeHistory() http.HandlerFunc {
+	return s.record("SquadronChangeHistory")
+}
+
 func (s *generatedHandlersStub) SquadronMemberships() http.HandlerFunc {
 	return s.record("SquadronMemberships")
 }
 
 func (s *generatedHandlersStub) SquadronMembership() http.HandlerFunc {
 	return s.record("SquadronMembership")
+}
+
+func (s *generatedHandlersStub) SquadronMembershipChangeHistory() http.HandlerFunc {
+	return s.record("SquadronMembershipChangeHistory")
 }
 
 func (s *generatedHandlersStub) SquadronRosters() http.HandlerFunc {
@@ -4462,6 +4832,10 @@ func (s *generatedHandlersStub) Wings() http.HandlerFunc {
 
 func (s *generatedHandlersStub) Wing() http.HandlerFunc {
 	return s.record("Wing")
+}
+
+func (s *generatedHandlersStub) WingChangeHistory() http.HandlerFunc {
+	return s.record("WingChangeHistory")
 }
 
 func (s *generatedHandlersStub) WithdrawCrewInvitation() http.HandlerFunc {

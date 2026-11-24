@@ -127,6 +127,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "ClientChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/clients/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "ClientChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/clients/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "ClientContacts denied",
 			method:       http.MethodGet,
 			target:       "/console/api/client-contacts",
@@ -153,6 +166,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "ClientContactChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/client-contacts/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "ClientContactChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/client-contacts/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "ClientContacts (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/client-contacts",
@@ -176,6 +202,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/portal/api/client-contacts/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "ClientContactChangeHistory (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/client-contacts/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "ClientContactChangeHistory (portal) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/client-contacts/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -257,6 +296,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "CommendationChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/commendations/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CommendationChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/commendations/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "Consignments denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments",
@@ -280,6 +332,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "ConsignmentChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "ConsignmentChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -309,6 +374,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "ConsignmentChangeHistory (droids) denied",
+			method:       http.MethodGet,
+			target:       "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "ConsignmentChangeHistory (droids) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/consignments/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "CrewGroups denied",
 			method:       http.MethodGet,
 			target:       "/console/api/crew-groups",
@@ -332,6 +410,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/crew-groups/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "CrewGroupChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-groups/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewGroupChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-groups/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -699,6 +790,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "CrewSessionChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-sessions/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewSessionChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-sessions/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "CrewSessionAuthEvents denied",
 			method:       http.MethodGet,
 			target:       "/console/api/crew-session-auth-events",
@@ -738,6 +842,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "CrewSessionIdentityChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-identities/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewSessionIdentityChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-identities/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "CrewSessionImpersonations denied",
 			method:       http.MethodGet,
 			target:       "/console/api/crew-session-impersonations",
@@ -764,6 +881,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "CrewSessionImpersonationChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-impersonations/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewSessionImpersonationChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-impersonations/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "CrewSessionMailLinks denied",
 			method:       http.MethodGet,
 			target:       "/console/api/crew-session-mail-links",
@@ -787,6 +917,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/crew-session-mail-links/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "CrewSessionMailLinkChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-mail-links/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewSessionMailLinkChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-mail-links/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -829,6 +972,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "CrewSessionTokenChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-tokens/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewSessionTokenChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-tokens/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "CrewSessionTrustedDevices denied",
 			method:       http.MethodGet,
 			target:       "/console/api/crew-session-trusted-devices",
@@ -855,6 +1011,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "CrewSessionTrustedDeviceChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-trusted-devices/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewSessionTrustedDeviceChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-trusted-devices/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "CrewSessionUsers denied",
 			method:       http.MethodGet,
 			target:       "/console/api/crew-session-users",
@@ -878,6 +1047,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/crew-session-users/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "CrewSessionUserChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-users/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewSessionUserChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-session-users/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -959,6 +1141,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "DistressCallChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "DistressCallChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "DistressCalls (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls",
@@ -985,6 +1180,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "DistressCallChangeHistory (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "DistressCallChangeHistory (portal) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-calls/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "DistressRelays denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays",
@@ -1008,6 +1216,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "DistressRelayChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "DistressRelayChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/distress-relays/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -1097,6 +1318,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
+			name:         "HangarChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "HangarChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "HangarPasses denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes",
@@ -1120,6 +1354,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "HangarPassChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "HangarPassChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -1435,6 +1682,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "MembersSessionChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/members-sessions/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/members-sessions/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "MembersSessions (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/members-sessions",
@@ -1458,6 +1718,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/portal/api/members-sessions/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "MembersSessionChangeHistory (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/members-sessions/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionChangeHistory (portal) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/members-sessions/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -1513,6 +1786,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "MembersSessionIdentityChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/members-session-identities/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionIdentityChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/members-session-identities/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "MembersSessionIdentities (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/members-session-identities",
@@ -1536,6 +1822,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/portal/api/members-session-identities/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "MembersSessionIdentityChangeHistory (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/members-session-identities/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionIdentityChangeHistory (portal) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/members-session-identities/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -1565,6 +1864,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "MembersSessionMailLinkChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/members-session-mail-links/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionMailLinkChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/members-session-mail-links/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "MembersSessionMailLinks (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/members-session-mail-links",
@@ -1588,6 +1900,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/portal/api/members-session-mail-links/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "MembersSessionMailLinkChangeHistory (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/members-session-mail-links/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionMailLinkChangeHistory (portal) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/members-session-mail-links/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -1643,6 +1968,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "MembersSessionTrustedDeviceChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/members-session-trusted-devices/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionTrustedDeviceChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/members-session-trusted-devices/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "MembersSessionTrustedDevices (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/members-session-trusted-devices",
@@ -1666,6 +2004,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/portal/api/members-session-trusted-devices/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "MembersSessionTrustedDeviceChangeHistory (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/members-session-trusted-devices/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionTrustedDeviceChangeHistory (portal) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/members-session-trusted-devices/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -1695,6 +2046,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "MembersSessionUserChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/members-session-users/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionUserChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/members-session-users/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "MembersSessionUsers (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/members-session-users",
@@ -1718,6 +2082,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/portal/api/members-session-users/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "MembersSessionUserChangeHistory (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/members-session-users/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersSessionUserChangeHistory (portal) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/members-session-users/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -1788,6 +2165,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK},
 		},
 		{
+			name:         "MissionChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "MissionChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "Missions (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions",
@@ -1827,6 +2217,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			method:       http.MethodGet,
 			target:       "/portal/api/missions",
 			wantStatuses: []int{http.StatusOK},
+		},
+		{
+			name:         "MissionChangeHistory (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "MissionChangeHistory (portal) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/missions/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
 			name:         "MissionBoards denied",
@@ -1894,6 +2297,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "MissionDocumentChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "MissionDocumentChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "MissionDocuments (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents",
@@ -1930,6 +2346,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents/00000000-0000-0000-0000-000000000001/content",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "MissionDocumentChangeHistory (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "MissionDocumentChangeHistory (portal) granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-documents/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -1985,6 +2414,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "PilotChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/pilots/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "PilotChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/pilots/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "PilotAssignments denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/pilot-assignments",
@@ -2037,6 +2479,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "PilotCertificationChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/pilot-certifications/authz-test-key/authz-test-key/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "PilotCertificationChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/pilot-certifications/authz-test-key/authz-test-key/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "Refits denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refits",
@@ -2060,6 +2515,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refits/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "RefitChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refits/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "RefitChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refits/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -2102,6 +2570,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "RefitTaskChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refit-tasks/00000000-0000-0000-0000-000000000001/1/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "RefitTaskChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/refit-tasks/00000000-0000-0000-0000-000000000001/1/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "Sectors denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors",
@@ -2128,6 +2609,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "SectorChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "SectorChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "SectorDirectories denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories",
@@ -2151,6 +2645,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "SectorDirectoryChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "SectorDirectoryChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -2206,6 +2713,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "ShipChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/ships/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "ShipChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/ships/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "ShipClasses denied",
 			method:       http.MethodGet,
 			target:       "/console/api/ship-classes?sort=id",
@@ -2229,6 +2749,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/ship-classes/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "ShipClassChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/ship-classes/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "ShipClassChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/ship-classes/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -2258,6 +2791,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "SortieChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sorties/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "SortieChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sorties/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "SortieExpenses denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sortie-expenses",
@@ -2281,6 +2827,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sortie-expenses/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "SortieExpenseChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sortie-expenses/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "SortieExpenseChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/sortie-expenses/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -2310,6 +2869,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "SquadronChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadrons/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "SquadronChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadrons/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "SquadronMemberships denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadron-memberships",
@@ -2333,6 +2905,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadron-memberships/00000000-0000-0000-0000-000000000001/authz-test-key",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "SquadronMembershipChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadron-memberships/00000000-0000-0000-0000-000000000001/authz-test-key/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "SquadronMembershipChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/squadron-memberships/00000000-0000-0000-0000-000000000001/authz-test-key/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -2385,6 +2970,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "WingChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "WingChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/wings/00000000-0000-0000-0000-000000000001/changes",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{

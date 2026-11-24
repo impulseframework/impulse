@@ -209,3 +209,42 @@ func (a *App) Ship() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// ShipChangeHistory answers a page of one ship's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) ShipChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID             impulse.UUID     `json:"id"          index:"true" perm:"-"`
+		HangarID       impulse.UUID     `json:"hangarId"`
+		ClassID        impulse.UUID     `json:"classId"`
+		Registry       string           `json:"registry"    index:"true"`
+		Name           string           `json:"name"`
+		LastRefitAt    *time.Time       `json:"lastRefitAt"`
+		UpdatedAt      *time.Time       `json:"updatedAt"`
+		CargoBays      []int64          `json:"cargoBays"`
+		TransponderKey *resource.Secret `json:"-"`
+	}
+
+	decoder := NewQueryDecoder[resources.Ship, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.ShipID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewShipQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

@@ -288,6 +288,7 @@ func Test_accumulateResourceRoutes_acrossTenants(t *testing.T) {
 		"GET /api/tenants/{tenantID}/shipments/{shipmentID} Shipment",
 		"PATCH /api/tenants/{tenantID}/shipments PatchShipments",
 		"GET /api/shipments ShipmentsAcrossTenants",
+		"GET /api/tenants/{tenantID}/shipments/{shipmentID}/changes ShipmentChangeHistory",
 	}
 	if diff := cmp.Diff(wantShipment, served(outletRoutes[0].RoutesMap["Shipment"])); diff != "" {
 		t.Errorf("Shipment's routes mismatch (-want +got):\n%s", diff)

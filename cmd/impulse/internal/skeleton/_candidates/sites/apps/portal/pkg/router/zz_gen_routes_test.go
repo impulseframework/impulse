@@ -228,6 +228,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "announcementID": "testAnnouncementID"},
 		},
 		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/testAnnouncementID/changes", method: http.MethodGet,
+			handlerFunc: "AnnouncementChangeHistory",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "announcementID": "testAnnouncementID"},
+		},
+		{
 			url: "/api/features", method: http.MethodGet,
 			handlerFunc: "Features",
 			parameters:  map[string]string{},
@@ -314,6 +319,10 @@ func (s *generatedHandlersStub) Announcements() http.HandlerFunc {
 
 func (s *generatedHandlersStub) Announcement() http.HandlerFunc {
 	return s.record("Announcement")
+}
+
+func (s *generatedHandlersStub) AnnouncementChangeHistory() http.HandlerFunc {
+	return s.record("AnnouncementChangeHistory")
 }
 
 func (s *generatedHandlersStub) FeatureFlags() http.HandlerFunc {

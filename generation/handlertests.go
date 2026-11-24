@@ -200,9 +200,11 @@ func queryRouteCase(route *generatedRoute, pkTypes []pkParamType, listQuery stri
 	switch route.HandlerType {
 	case ListHandler, acrossTenantsHandler:
 		permission = string(accesstypes.List)
-	case ReadHandler, fileHandler:
+	case ReadHandler, fileHandler, changeHistoryHandler:
 		// A @file route is a read: Read on the resource opens it (the segment field
-		// rides the same scripted grant).
+		// rides the same scripted grant). So is a record's change history, which asks
+		// the record's own Read grant and answers 404 for a record that is not there or
+		// a resource that does not track its changes, as the granted case allows.
 		permission = string(accesstypes.Read)
 	default:
 		return authzCase{}, false, nil
@@ -215,7 +217,7 @@ func queryRouteCase(route *generatedRoute, pkTypes []pkParamType, listQuery stri
 		url = strings.Replace(url, "{"+pkParams[0].Key+"}", domainTestValue, 1)
 		pkParams = pkParams[1:]
 	}
-	if route.HandlerType == ReadHandler || route.HandlerType == fileHandler {
+	if route.HandlerType == ReadHandler || route.HandlerType == fileHandler || route.HandlerType == changeHistoryHandler {
 		if len(pkParams) != len(pkTypes) {
 			return authzCase{}, false, errors.Newf("route %s: %d route parameters but %d primary keys", route.Path, len(pkParams), len(pkTypes))
 		}
@@ -252,7 +254,8 @@ func authzCaseName(base string, outlet *routerOutlet) string {
 }
 
 // resourceAuthzCases covers each resource's own routes on every outlet serving them:
-// query pairs for list and read, denied-only operation cases for the patch route.
+// query pairs for list and read, the stored files, the list across tenants and the
+// record's change history, denied-only operation cases for the patch route.
 func (r *resourceGenerator) resourceAuthzCases() (cases []authzCase, err error) {
 	for _, res := range r.resources {
 		if res.RoutingDisabled() {
@@ -297,6 +300,18 @@ func (r *resourceGenerator) resourceAuthzCases() (cases []authzCase, err error) 
 			}
 			for _, route := range r.resourceAcrossTenantsRoutes(res, outlet.prefix) {
 				c, _, err := queryRouteCase(route, pkTypes, resourceMatrixListQuery(res))
+				if err != nil {
+					return nil, err
+				}
+				c.Name = authzCaseName(c.Name, outlet)
+				cases = append(cases, c)
+			}
+			histories, err := r.resourceChangeHistoryRoutes(res, outlet.prefix)
+			if err != nil {
+				return nil, err
+			}
+			for _, route := range histories {
+				c, _, err := queryRouteCase(route, pkTypes, "")
 				if err != nil {
 					return nil, err
 				}

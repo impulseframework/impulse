@@ -40,6 +40,10 @@ func (a *App) StaffGroup() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffGroup()
 }
 
+func (a *App) StaffGroupChangeHistory() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffGroupChangeHistory()
+}
+
 func (a *App) StaffGroupMembers() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffGroupMembers()
 }
@@ -84,6 +88,10 @@ func (a *App) StaffSession() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSession()
 }
 
+func (a *App) StaffSessionChangeHistory() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSessionChangeHistory()
+}
+
 func (a *App) StaffSessionAuthEvents() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionAuthEvents()
 }
@@ -96,12 +104,20 @@ func (a *App) StaffSessionIdentity() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionIdentity()
 }
 
+func (a *App) StaffSessionIdentityChangeHistory() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSessionIdentityChangeHistory()
+}
+
 func (a *App) StaffSessionMailLinks() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionMailLinks()
 }
 
 func (a *App) StaffSessionMailLink() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionMailLink()
+}
+
+func (a *App) StaffSessionMailLinkChangeHistory() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSessionMailLinkChangeHistory()
 }
 
 func (a *App) StaffSessionSignInAttempts() http.HandlerFunc {
@@ -116,6 +132,10 @@ func (a *App) StaffSessionToken() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionToken()
 }
 
+func (a *App) StaffSessionTokenChangeHistory() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSessionTokenChangeHistory()
+}
+
 func (a *App) StaffSessionTrustedDevices() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionTrustedDevices()
 }
@@ -124,12 +144,20 @@ func (a *App) StaffSessionTrustedDevice() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionTrustedDevice()
 }
 
+func (a *App) StaffSessionTrustedDeviceChangeHistory() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSessionTrustedDeviceChangeHistory()
+}
+
 func (a *App) StaffSessionUsers() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionUsers()
 }
 
 func (a *App) StaffSessionUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSessionUser()
+}
+
+func (a *App) StaffSessionUserChangeHistory() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSessionUserChangeHistory()
 }
 
 func (a *App) StaffTakenRoles() http.HandlerFunc {
@@ -530,6 +558,10 @@ func (a *App) MembersGroup() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersGroup()
 }
 
+func (a *App) MembersGroupChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersGroupChangeHistory()
+}
+
 func (a *App) MembersGroupMembers() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersGroupMembers()
 }
@@ -574,6 +606,10 @@ func (a *App) MembersSession() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSession()
 }
 
+func (a *App) MembersSessionChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionChangeHistory()
+}
+
 func (a *App) MembersSessionAuthEvents() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionAuthEvents()
 }
@@ -586,12 +622,20 @@ func (a *App) MembersSessionIdentity() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionIdentity()
 }
 
+func (a *App) MembersSessionIdentityChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionIdentityChangeHistory()
+}
+
 func (a *App) MembersSessionMailLinks() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionMailLinks()
 }
 
 func (a *App) MembersSessionMailLink() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionMailLink()
+}
+
+func (a *App) MembersSessionMailLinkChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionMailLinkChangeHistory()
 }
 
 func (a *App) MembersSessionSignInAttempts() http.HandlerFunc {
@@ -606,6 +650,10 @@ func (a *App) MembersSessionToken() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionToken()
 }
 
+func (a *App) MembersSessionTokenChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionTokenChangeHistory()
+}
+
 func (a *App) MembersSessionTrustedDevices() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionTrustedDevices()
 }
@@ -614,12 +662,20 @@ func (a *App) MembersSessionTrustedDevice() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionTrustedDevice()
 }
 
+func (a *App) MembersSessionTrustedDeviceChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionTrustedDeviceChangeHistory()
+}
+
 func (a *App) MembersSessionUsers() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionUsers()
 }
 
 func (a *App) MembersSessionUser() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersSessionUser()
+}
+
+func (a *App) MembersSessionUserChangeHistory() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSessionUserChangeHistory()
 }
 
 func (a *App) MembersTakenRoles() http.HandlerFunc {
