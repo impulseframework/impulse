@@ -6394,10 +6394,12 @@ answers: a field declared `input_only`, a file's key, and a secret. `?field=` na
 is refused as a name the record does not have. The table records that a secret changed,
 with neither value, and this route does not say so: a write that changed only the secret
 is listed with when and by whom, and no field. A record's history outlives the record: once
-the record is deleted, its history is read by a caller whose `Read` grant on the resource
-carries no condition, with the fields granted to them without one, since a condition is
-judged on the row and the row is gone; anyone else is answered 404, as the record's own
-read answers. In a tenant's request only the change records written while the record was
+the record is deleted, its history is read by a caller from whom the record's read can
+hide no row, with the fields granted to them without a condition: their `Read` grant on
+the resource carries no condition, and their grants on its fields are not all under one.
+A condition is judged on the row, and the row is gone; anyone else is answered 404, as
+the record's own read answers, so a caller a condition hides a row from cannot tell it
+from a row that was deleted or never was. In a tenant's request only the change records written while the record was
 that tenant's are read. A record's history holds that record's own changes, not those of
 the records under it. Questions across records (everything one person changed) are not
 asked here: they belong to a copy of the table in a warehouse.

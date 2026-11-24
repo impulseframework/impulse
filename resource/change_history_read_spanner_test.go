@@ -25,6 +25,14 @@ type forkRowRead struct {
 	UpdatedBy string `json:"updatedBy"`
 }
 
+// trackedForkRowGeneratedRead is trackedForkRow's read type as a generated one is
+// written: the key asks no grant (perm:"-"), so only the title's grant decides which rows
+// the read answers.
+type trackedForkRowGeneratedRead struct {
+	ID    string `json:"id"    perm:"-"`
+	Title string `json:"title"`
+}
+
 // historyWriter writes trackedForkRow rows through the patch set, each write one change
 // record, the way a generated handler writes them.
 type historyWriter struct {
@@ -462,6 +470,38 @@ func TestChangeHistoryRead_grants(t *testing.T) {
 		}
 		if page, err := read(plainAlone, "/plain"); err != nil || len(page.Changes) != 2 {
 			t.Errorf("the same grant, on a record it reaches: Read() = %v, %v, want both records", page, err)
+		}
+	})
+	t.Run("a record the read may hide from the caller: not found, as the read answers, whether hidden, deleted or never there", func(t *testing.T) {
+		t.Parallel()
+
+		// The resource is granted outright and the title under a condition; the key asks
+		// no grant. Every field the read selects under a grant stands under the condition,
+		// so the read holds its rows to it and answers a row that fails it as not there.
+		decoder := MustNewQueryDecoder[trackedForkRow, trackedForkRowGeneratedRead](collection, accesstypes.Read)
+		readHidden := func(target string) (*ChangeHistoryPage, error) {
+			t.Helper()
+
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
+			history, err := decoder.DecodeChangeHistory(request, titleOfPlain, accesstypes.GlobalScope())
+			if err != nil {
+				t.Fatalf("DecodeChangeHistory() error = %v", err)
+			}
+			history.QuerySet().SetKey("ID", request.URL.Path[1:])
+
+			return history.Read(t.Context(), client)
+		}
+		for _, target := range []string{"/secretive", "/gone", "/never"} {
+			if page, err := readHidden(target); !httpio.HasNotFound(err) {
+				t.Errorf("%s: Read() = %v, %v, want a 404", target, page, err)
+			}
+		}
+		page, err := readHidden("/plain")
+		if err != nil {
+			t.Fatalf("/plain: Read() error = %v", err)
+		}
+		if diff := cmp.Diff([][]string{{"title"}, {"id", "title"}}, fieldsOf(page)); diff != "" {
+			t.Errorf("/plain: fields mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

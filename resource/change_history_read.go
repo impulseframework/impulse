@@ -118,9 +118,10 @@ func (h *ChangeHistoryQuery[Resource]) QuerySet() *QuerySet[Resource] {
 // told 403 on every resource, tracked or not. Then it decides the fields the reader may
 // see: where the record was read, every field the read returned whose cell is not masked
 // on the row; where it is not there, none if the grant on the resource carries a
-// condition (the not-found of the record's own read is answered, since a condition is
-// judged on the row and the row is gone), and otherwise every field the grant covers
-// without a condition. A field the record's read never returns is not among them. A
+// condition, or if the record's read holds its rows to a condition on its fields and so
+// may have hidden a row that is there (the not-found of the record's own read is
+// answered: a condition is judged on the row, and the row is gone or hidden), and
+// otherwise every field the grant covers without a condition. A field the record's read never returns is not among them. A
 // request that keeps one field's changes is refused 403 where that field is not among
 // them. In a tenant's request, on a resource that belongs to tenants, only the records
 // written while the row was that tenant's are read; a record that is not there, of a
@@ -168,6 +169,16 @@ func (h *ChangeHistoryQuery[Resource]) visibleFields(row *Row[Resource], notFoun
 	q := h.querySet
 	if notFound != nil {
 		if _, conditional := q.conditionalDecisions[q.resourceSet.BaseResource()]; conditional {
+			return nil, notFound
+		}
+		// The record's read holds its rows to a condition where it selects no field
+		// granted outright: a row that meets none of them is answered as not there,
+		// so its not-found does not say the record is gone.
+		plan, err := q.readConditionPlan()
+		if err != nil {
+			return nil, errors.Wrap(err, "QuerySet.readConditionPlan()")
+		}
+		if plan != nil && len(plan.rowPredicate) > 0 {
 			return nil, notFound
 		}
 	}
