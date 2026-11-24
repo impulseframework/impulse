@@ -11,6 +11,7 @@ import {
   IDLE_WARNING_DURATION,
   NotificationMessage,
 } from '@impulseframework/resource-angular/types';
+import { AlertComponent } from '@impulseframework/resource-angular/ui-alert';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
 import { firstValueFrom } from 'rxjs';
 
@@ -23,7 +24,9 @@ import { IdleService } from './idle.service';
 //
 // The warning is one persistent notice, counted down in place, that any activity ends: the
 // application knows the person is back from it and asks for nothing more. The retired
-// IDLE_TIMEOUT_REQUIRE_CONFIRMATION changes nothing but one console line.
+// IDLE_TIMEOUT_REQUIRE_CONFIRMATION changes nothing but one console line. The signed-out
+// notice is persistent too and outlasts stop(): it goes when the person closes it, or when
+// start() runs at the next sign-in, which takes down that notice and no other.
 
 const descriptor: ApiDescriptor = {
   resources: {},
@@ -230,8 +233,44 @@ describe('IdleService warning', () => {
     expect(notices()).toHaveLength(1);
     expect(notices()[0]).toMatchObject({
       type: AlertType.IDLE,
+      persistent: true,
       message: 'You have been logged out due to inactivity.',
     });
+  });
+
+  it("the signed-out notice is still there after the alert's thirty seconds, and after the stop() of the sign-out and sign-in pages", async () => {
+    const { idle, notices } = configure();
+    idle.start();
+    await vi.advanceTimersByTimeAsync(10_000);
+    // The alert renders the notice, as the application's alert area does: its timer is the one a plain notice goes by.
+    const alert = TestBed.createComponent(AlertComponent);
+    alert.componentRef.setInput('error', notices()[0]);
+    alert.detectChanges();
+    idle.stop();
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(notices()).toHaveLength(1);
+    expect(notices()[0]).toMatchObject({
+      type: AlertType.IDLE,
+      persistent: true,
+      message: 'You have been logged out due to inactivity.',
+    });
+  });
+
+  it('start() takes the signed-out notice down and leaves any other notice in place', async () => {
+    const { idle, notices } = configure();
+    idle.start();
+    await vi.advanceTimersByTimeAsync(10_000);
+    const other = TestBed.inject(NotificationService).addGlobalNotification({
+      message: 'Saved.',
+      link: '',
+      type: AlertType.SUCCESS,
+    });
+
+    idle.start();
+    expect(notices()).toHaveLength(1);
+    expect(notices()[0]).toMatchObject({ id: other, message: 'Saved.' });
+    idle.stop();
   });
 
   it('the retired confirmation token changes nothing but one console line', async () => {
