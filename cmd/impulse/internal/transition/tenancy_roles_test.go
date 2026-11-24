@@ -557,6 +557,117 @@ func TestTenancy_grantTenantMaking_namesWhatItCouldNotGive(t *testing.T) {
 	}
 }
 
+// grantOn is the grant a role holds for the permission on the resource under no
+// condition, the zero grant where it holds none.
+func grantOn(role *roleEntry, permission, resource string) access.Grant {
+	for _, grant := range role.Permissions.grants(permission) {
+		if string(grant.Resource) == resource && grant.Condition == "" {
+			return grant
+		}
+	}
+
+	return access.Grant{}
+}
+
+// TestTenancy_Apply_readsWhoManagesEachAccount pins that an application given tenancy has
+// its own administrators read who manages each account: each global role that lists or
+// reads the accounts reads the two facts there, its other fields kept; each that lists or
+// reads the identities table's list holds the same grant on the whole application's list
+// of the sign-in identities, with the two facts; a role that holds neither gains nothing;
+// and the change says so in one line.
+func TestTenancy_Apply_readsWhoManagesEachAccount(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	a := newBase(t, "staff")
+	before := roleFileOf(t, a, roles)
+	ch := tenantedOn(t, a, Tenancy{Table: "Tenants"}, "staff", referenceCollection(t))
+	file := roleFileOf(t, a, roles)
+
+	administrator, was := roleNamed(file.Roles.Global, "Administrator"), roleNamed(before.Roles.Global, "Administrator")
+	if administrator == nil || was == nil {
+		t.Fatalf("%s has no global role Administrator before and after tenancy", roles)
+	}
+	facts := []accesstypes.Tag{"managedByTenant", "managingTenant"}
+	for _, permission := range []string{"List", "Read"} {
+		listed := grantOn(was, permission, "StaffListedUsers")
+		identities := grantOn(was, permission, "StaffSessionIdentities")
+		if len(listed.Fields) == 0 || len(identities.Fields) == 0 {
+			t.Fatalf("the base's Administrator holds no %s on StaffListedUsers and StaffSessionIdentities, so this proves nothing", permission)
+		}
+		if diff := cmp.Diff(slices.Concat(listed.Fields, facts), grantOn(administrator, permission, "StaffListedUsers").Fields); diff != "" {
+			t.Errorf("%s on StaffListedUsers does not read who manages each account beside its own fields (-want +got):\n%s", permission, diff)
+		}
+		if diff := cmp.Diff(slices.Concat(identities.Fields, facts), grantOn(administrator, permission, "StaffListedIdentities").Fields); diff != "" {
+			t.Errorf("%s on StaffListedIdentities is not the grant on StaffSessionIdentities with the two facts (-want +got):\n%s", permission, diff)
+		}
+		if diff := cmp.Diff(identities, grantOn(administrator, permission, "StaffSessionIdentities")); diff != "" {
+			t.Errorf("%s on StaffSessionIdentities changed (-before +after):\n%s", permission, diff)
+		}
+	}
+	if diff := cmp.Diff(roleNamed(before.Roles.Global, "FeatureAdministrator"), roleNamed(file.Roles.Global, "FeatureAdministrator")); diff != "" {
+		t.Errorf("a role that lists neither the accounts nor the identities gained something (-before +after):\n%s", diff)
+	}
+	if got := unserved(t, a, file); len(got) != 0 {
+		t.Errorf("the role file grants what the application does not serve: %q", got)
+	}
+	want := roles + ": each global role that lists or reads the application's accounts or their sign-in identities now reads who manages each account there (" +
+		"Administrator: List on StaffListedUsers (managedByTenant, managingTenant); Administrator: List on StaffListedIdentities; " +
+		"Administrator: Read on StaffListedUsers (managedByTenant, managingTenant); Administrator: Read on StaffListedIdentities)"
+	if got := linesWith(ch.Did, roles+": each global role", nil); !slices.Equal(got, []string{want}) {
+		t.Errorf("the change says %q of who manages each account, want once %q", got, want)
+	}
+}
+
+// TestGrantManagingFacts_givesNothingTwice pins that a role file which reads who manages
+// each account already gains nothing, and the change says nothing: a grant of the
+// accounts that names the two facts keeps its fields, a grant of the identities' list
+// the role holds under the twin's condition already is not given again, a role that
+// lists neither keeps its grants, and a role held in a tenant is not the step's.
+func TestGrantManagingFacts_givesNothingTwice(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	a, _ := tenanted(t, Tenancy{Table: "Tenants"}, "staff", referenceCollection(t))
+	served, err := a.Served()
+	if err != nil || served == nil {
+		t.Fatalf("App.Served() = %v, %v, want the application's collection", served, err)
+	}
+	grant := func(resource string, fields ...accesstypes.Tag) access.Grant {
+		return access.Grant{Resource: accesstypes.Resource(resource), Fields: fields}
+	}
+	file := &roleFile{Auth: "staff", Roles: roleScopes{
+		Global: []*roleEntry{
+			{Name: "Auditor", Permissions: rolePermissions{{Permission: "List", Grants: []access.Grant{
+				grant("StaffListedUsers", "username", "managedByTenant", "managingTenant"),
+				grant("StaffSessionIdentities", "method", "userId"),
+				grant("StaffListedIdentities", "method", "userId", "managedByTenant", "managingTenant"),
+			}}}},
+			{Name: "Viewer", Permissions: rolePermissions{{Permission: "List", Grants: []access.Grant{grant("StaffSessionUsers", "username")}}}},
+		},
+		Domain: []*roleEntry{
+			{Name: "TenantAdministrator", Permissions: rolePermissions{{Permission: "List", Grants: []access.Grant{grant("StaffSessionIdentities", "method")}}}},
+		},
+	}}
+	was, err := file.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ch := &Change{}
+	grantManagingFacts(file, served, "staff", roles, ch)
+	got, err := file.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(string(was), string(got)); diff != "" {
+		t.Errorf("grantManagingFacts() changed a role file that reads who manages each account already (-before +after):\n%s", diff)
+	}
+	if len(ch.Did) != 0 {
+		t.Errorf("grantManagingFacts() said %q, and nothing was gained", ch.Did)
+	}
+}
+
 // TestRoleFile_keepsTheFile pins that a role file read to be changed is written back as
 // it was: every role file the command renders reads and writes to the same bytes, so a
 // change to one is the change alone, the file's auth stays its first key, and the

@@ -30,6 +30,7 @@ export const Resources = {
   StaffInvitedTenants: 'StaffInvitedTenants' as Resource,
   StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
   StaffListedGroups: 'StaffListedGroups' as Resource,
+  StaffListedIdentities: 'StaffListedIdentities' as Resource,
   StaffListedRoleGrants: 'StaffListedRoleGrants' as Resource,
   StaffListedUsers: 'StaffListedUsers' as Resource,
   StaffRememberLengths: 'StaffRememberLengths' as Resource,
@@ -390,6 +391,37 @@ export namespace StaffListedGroups {
   };
 }
 
+export namespace StaffListedIdentities {
+  export const fieldName = {
+    connection: 'connection' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    emailAtLink: 'emailAtLink' as FieldName,
+    id: 'id' as FieldName,
+    lastUsedAt: 'lastUsedAt' as FieldName,
+    managedByTenant: 'managedByTenant' as FieldName,
+    managingTenant: 'managingTenant' as FieldName,
+    method: 'method' as FieldName,
+    subject: 'subject' as FieldName,
+    tenant: 'tenant' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    connection: 'StaffListedIdentities.connection' as Resource,
+    createdAt: 'StaffListedIdentities.createdAt' as Resource,
+    emailAtLink: 'StaffListedIdentities.emailAtLink' as Resource,
+    id: 'StaffListedIdentities.id' as Resource,
+    lastUsedAt: 'StaffListedIdentities.lastUsedAt' as Resource,
+    managedByTenant: 'StaffListedIdentities.managedByTenant' as Resource,
+    managingTenant: 'StaffListedIdentities.managingTenant' as Resource,
+    method: 'StaffListedIdentities.method' as Resource,
+    subject: 'StaffListedIdentities.subject' as Resource,
+    tenant: 'StaffListedIdentities.tenant' as Resource,
+    userId: 'StaffListedIdentities.userId' as Resource,
+    username: 'StaffListedIdentities.username' as Resource,
+  };
+}
+
 export namespace StaffListedRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -426,6 +458,8 @@ export namespace StaffListedUsers {
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     lockedUntil: 'lockedUntil' as FieldName,
+    managedByTenant: 'managedByTenant' as FieldName,
+    managingTenant: 'managingTenant' as FieldName,
     name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     roles: 'roles' as FieldName,
@@ -439,6 +473,8 @@ export namespace StaffListedUsers {
     id: 'StaffListedUsers.id' as Resource,
     lastSignInAt: 'StaffListedUsers.lastSignInAt' as Resource,
     lockedUntil: 'StaffListedUsers.lockedUntil' as Resource,
+    managedByTenant: 'StaffListedUsers.managedByTenant' as Resource,
+    managingTenant: 'StaffListedUsers.managingTenant' as Resource,
     name: 'StaffListedUsers.name' as Resource,
     passwordChangeRequired: 'StaffListedUsers.passwordChangeRequired' as Resource,
     roles: 'StaffListedUsers.roles' as Resource,

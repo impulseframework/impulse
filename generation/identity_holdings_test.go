@@ -154,6 +154,15 @@ func Test_prepareIdentity_holdings(t *testing.T) {
 	if listed := readTreeFile(t, "internal/membersresources/members_listed_users.go"); !strings.Contains(listed, "  ) AS Roles\nFROM MembersSessionUsers u\n`") || strings.Contains(listed, "LockedUntil") {
 		t.Errorf("the Members auth's accounts are not listed with their roles alone, and its schema counts no failed sign-in:\n%s", listed)
 	}
+	// With no tenant record no tenant manages an account: the accounts say nothing of who
+	// does, and the whole application has no list of the sign-in identities beside the
+	// table's own.
+	if listed := readTreeFile(t, "internal/crewresources/crew_listed_users.go"); strings.Contains(listed, "ManagedByTenant") || strings.Contains(listed, "ManagingTenant") {
+		t.Errorf("the accounts of an application with no tenant record say who manages each:\n%s", listed)
+	}
+	if got := identitySource(t, "internal/crewresources/crew_listed_identities.go"); got != "" {
+		t.Errorf("crew_listed_identities.go is written, and the application has no tenant record:\n%s", got)
+	}
 	if held := readTreeFile(t, "internal/membersresources/members_held_roles.go"); strings.Contains(held, "UNION ALL") || strings.Contains(held, "@enumerate") {
 		t.Errorf("the Members auth's one list of roles reads roles through a group or links to one, and the auth keeps none:\n%s", held)
 	}
@@ -330,6 +339,119 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 			"scope := accesstypes.DomainPolicyScope(accesstypes.Domain(m.Domain))\n\tif err := client.manager.TakeRole(ctx, txn, scope, accesstypes.Role(m.Role), identity.TakeLength(m.Length), m.Reason); err != nil {",
 		},
 		"crewidentity/crew_takeable_roles.go": {"a role that exists in every ship", "roles, err := client.manager.RolesToTake(ctx, AssignCrewRole{}.Method(), true)"},
+	})
+}
+
+// Test_prepareIdentity_whoManagesEachAccount pins what the whole application's lists say
+// of who manages each account, where the application has a tenant record: the accounts'
+// list carries the two facts after its own columns, each under its attribute and a
+// filter key, ManagedByTenant read off ManagingTenant, and ManagingTenant the lower key
+// of the tenants whose list says ManagedHere on the person's row, asked of the tenants
+// the person holds something in themselves now and, where the tenant record declares a
+// directory and the auth keeps identities, of the tenants whose directory the person
+// signs in through. The sign-in identities are a list of their own with the same two
+// facts, written only where the schema holds the identities, and answering
+// TenantsToEnter where the record declares the directory-only switch.
+func Test_prepareIdentity_whoManagesEachAccount(t *testing.T) {
+	facts := "LockedUntil *time.Time `spanner:\"LockedUntil\"`\n" +
+		" // @attribute(managedByTenant)\n ManagedByTenant bool `spanner:\"ManagedByTenant\" index:\"true\"`\n" +
+		" // @attribute(managingTenant)\n ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`\n }\n)"
+	wrapped := "const crewListedUserQuery = `\nSELECT\n  *,\n  ManagingTenant IS NOT NULL AS ManagedByTenant\nFROM (\nSELECT\n  u.Id AS Id,\n"
+	held := "      FROM (\n" +
+		"        SELECT mm.DomainId AS DomainId\n" +
+		"        FROM CrewUserRoles mm\n" +
+		"        WHERE mm.UserId = u.Id AND mm.Kind = 'domain' AND mm.Axis = ''\n" +
+		"          AND " + countingSQL("mm") + "\n" +
+		"        UNION DISTINCT\n" +
+		"        SELECT mg AS DomainId\n" +
+		"        FROM CrewGroupMembers mp, UNNEST(ARRAY(\n" +
+		"          SELECT g.DomainId FROM CrewGroups g\n" +
+		"          WHERE g.Id = mp.GroupId AND g.Kind = 'domain' AND g.Axis = ''\n" +
+		"        )) AS mg\n" +
+		"        WHERE mp.UserId = u.Id AND " + countingSQL("mp") + "\n"
+	ending := "  WHERE mt.ManagedHere) AS ManagingTenant\nFROM CrewSessionUsers u\n) p\n`"
+	identities := []string{
+		"// @virtual\n // @outlet(default)\n // @order(CreatedAt desc)\n // @page(default: 25, max: 200)\n // @rowWord(sign-in identity)\n CrewListedIdentity struct {",
+		"// @primarykey\n ID impulse.UUID `spanner:\"Id\" index:\"true\"`\n UserID impulse.UUID `spanner:\"UserId\" index:\"true\"`\n Username string `spanner:\"Username\" index:\"true\"`\n Method string `spanner:\"Method\" index:\"true\"`\n",
+		"LastUsedAt time.Time `spanner:\"LastUsedAt\"`\n // @attribute(managedByTenant)\n ManagedByTenant bool `spanner:\"ManagedByTenant\" index:\"true\"`\n // @attribute(managingTenant)\n ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`\n }",
+		"func (CrewListedIdentity) Subquery() (query string, params map[string]any) {\n return crewListedIdentityQuery, nil\n}",
+	}
+	identitiesQuery := "const crewListedIdentityQuery = `\nSELECT\n  *,\n  ManagingTenant IS NOT NULL AS ManagedByTenant\nFROM (\nSELECT\n  i.Id AS Id,\n  u.Id AS UserId,\n  u.Username AS Username,\n"
+	identitiesEnding := "  WHERE mt.ManagedHere) AS ManagingTenant\nFROM CrewSessionIdentities i\nJOIN CrewSessionUsers u ON u.Id = i.UserId\n) p\n`"
+
+	t.Run("a tenant record with no directory", func(t *testing.T) {
+		// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+		t.Chdir(t.TempDir())
+
+		r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, crewGroupTables, membersIdentityTables)...)
+		r.resource = "pkg/resources"
+		r.tableMap["Ships"] = shipsTable()
+		writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": shipTenantSource})
+		if err := r.prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+
+		listed := identitySource(t, "internal/crewresources/crew_listed_users.go")
+		assertContains(t, "crew_listed_users.go", listed, []string{
+			facts,
+			"// ManagedByTenant (managedByTenant) says a ship manages the account, and\n // ManagingTenant (managingTenant) is that ship's key, empty where none does.",
+			"(CrewShipUser), so\n // the two always agree.",
+			"// The list filters by the username, the name and the email address, and by the two\n // facts of who manages the account.",
+		}, []string{"The list filters by the username, the name and the email address.\n"})
+		// Nobody signs in through a ship's directory: the ship manages the account of the
+		// person it holds alone.
+		query := readTreeFile(t, "internal/crewresources/crew_listed_users.go")
+		assertContains(t, "crew_listed_users.go", query, []string{
+			wrapped,
+			"  (SELECT MIN(mt.DomainId) FROM (\n    SELECT DomainId, (HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\n    FROM (\n      SELECT\n        t.DomainId AS DomainId,\n",
+			held + "      ) t\n    )\n  ) mt\n" + ending,
+		}, []string{"ThroughHere", "Directories"})
+
+		assertContains(t, "crew_listed_identities.go", identitySource(t, "internal/crewresources/crew_listed_identities.go"), identities, []string{"TenantsToEnter"})
+		assertContains(t, "crew_listed_identities.go", readTreeFile(t, "internal/crewresources/crew_listed_identities.go"), []string{identitiesQuery, held, identitiesEnding}, nil)
+		// The members' schema holds no identities: their accounts say who manages each,
+		// and they have no list of identities.
+		if got := identitySource(t, "internal/membersresources/members_listed_identities.go"); got != "" {
+			t.Errorf("members_listed_identities.go is written, and the members' schema holds no identities table:\n%s", got)
+		}
+		if members := identitySource(t, "internal/membersresources/members_listed_users.go"); !strings.Contains(members, "ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`") {
+			t.Errorf("the members' accounts do not say who manages each:\n%s", members)
+		}
+	})
+
+	t.Run("a tenant record with a directory", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+
+		withGroups := func(r *resourceGenerator) {
+			for _, table := range crewGroupTables {
+				r.tableMap[table] = &tableMetadata{}
+			}
+		}
+		if err := citadelGenerator(t, citadelTenantSource, withGroups).prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+
+		// A person of a citadel's directory is managed by that citadel, whatever they hold
+		// there: the citadels whose directory the person signs in through are asked too.
+		directory := "        UNION DISTINCT\n" +
+			"        SELECT md AS DomainId\n" +
+			"        FROM CrewSessionIdentities mi, UNNEST(ARRAY(\n" +
+			"          SELECT d.CitadelId FROM CitadelDirectories d\n" +
+			"          WHERE d.Method = mi.Method AND d.Connection = mi.Connection\n" +
+			"        )) AS md\n" +
+			"        WHERE mi.UserId = u.Id\n" +
+			"      ) t\n    )\n  ) mt\n"
+		managed := "    SELECT DomainId, (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,\n  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory\n"
+		assertContains(t, "crew_listed_users.go", readTreeFile(t, "internal/crewresources/crew_listed_users.go"), []string{
+			wrapped, managed, ") AS ThroughHere,", ") AS ThroughAnother\n      FROM (\n", held + directory + ending,
+		}, nil)
+		assertContains(t, "crew_listed_identities.go", readTreeFile(t, "internal/crewresources/crew_listed_identities.go"), []string{
+			identitiesQuery, managed, held + directory + identitiesEnding,
+		}, nil)
+		assertContains(t, "crew_listed_identities.go", identitySource(t, "internal/crewresources/crew_listed_identities.go"), append(identities,
+			"func (CrewListedIdentity) TenantsToEnter() resource.TenantsToEnter {\n return crewSessionUserTenantsToEnter(\"UserId\")\n}",
+			"Tenant is the link's own column, the organization its directory\n // vouched for, and is not the citadel that manages the account.",
+		), nil)
 	})
 }
 

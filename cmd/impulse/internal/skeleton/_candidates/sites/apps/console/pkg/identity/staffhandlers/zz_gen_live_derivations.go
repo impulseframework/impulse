@@ -53,14 +53,25 @@ var LiveDerivations = &live.Derivations{
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
 			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
 		}},
+		// StaffListedIdentities: the tables its query reads.
+		{Resource: staffresources.StaffListedIdentity{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
+			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
+		}},
 		// StaffListedUsers: the tables its query reads.
 		{Resource: staffresources.StaffListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
 			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
 			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
 			{Name: resources.Tenant{}.Resource(), Global: true},
 		}},
 		// StaffSignInWays: the tables declared with @changedBy.

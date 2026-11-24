@@ -27,7 +27,17 @@ type (
 	// under its id (session.AccountAttemptKeys with no address). It is no filter key
 	// either.
 	//
-	// The list filters by the username, the name and the email address.
+	// One party manages each account: the tenant whose directory the person signs in
+	// through; otherwise the one tenant the person holds something in, where they hold
+	// nothing anywhere else; otherwise the application's own administrators.
+	// ManagedByTenant (managedByTenant) says a tenant manages the account, and
+	// ManagingTenant (managingTenant) is that tenant's key, empty where none does.
+	// They are read as each tenant's own list reads ManagedHere (StaffTenantUser), so
+	// the two always agree. A role file uses them to give the application's administrators
+	// the accounts no tenant manages (managedByTenant = false).
+	//
+	// The list filters by the username, the name and the email address, and by the two
+	// facts of who manages the account.
 	//
 	// @virtual
 	// @outlet(default)
@@ -48,12 +58,21 @@ type (
 		// @roleOf(Staff)
 		Roles       []string   `spanner:"Roles"`
 		LockedUntil *time.Time `spanner:"LockedUntil"`
+		// @attribute(managedByTenant)
+		ManagedByTenant bool `spanner:"ManagedByTenant" index:"true"`
+		// @attribute(managingTenant)
+		ManagingTenant *string `spanner:"ManagingTenant" index:"true"`
 	}
 )
 
 // staffListedUserQuery selects the accounts, each with the lines of the roles
-// it holds and until when its sign-in is locked.
+// it holds and until when its sign-in is locked, and
+// who manages it.
 const staffListedUserQuery = `
+SELECT
+  *,
+  ManagingTenant IS NOT NULL AS ManagedByTenant
+FROM (
 SELECT
   u.Id AS Id,
   u.Username AS Username,
@@ -73,8 +92,86 @@ SELECT
   ) AS Roles,
   (SELECT MAX(la.LockedUntil) FROM StaffSessionSignInAttempts la
    WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))
-     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil
+     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,
+  (SELECT MIN(mt.DomainId) FROM (
+    SELECT DomainId, (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,
+  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory
+    FROM (
+      SELECT
+        t.DomainId AS DomainId,
+  (EXISTS (
+    SELECT 1 FROM StaffUserRoles o
+    WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM StaffUserRoles o
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups og ON og.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
+      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  )) AS HeldElsewhere,
+  (EXISTS (
+    SELECT 1 FROM StaffUserRoles g
+    WHERE g.UserId = u.Id AND g.Kind = 'global'
+      AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups gg ON gg.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND gg.Kind = 'global'
+      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  )) AS HeldGlobally,
+  (EXISTS (
+    SELECT 1 FROM StaffUserRoles o
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM StaffGroupMembers gm
+    WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+      AND EXISTS (
+        SELECT 1 FROM StaffGroups hg
+        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId
+      )
+  )) AS HeldHere,
+  EXISTS (
+    SELECT 1 FROM StaffSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId = t.DomainId
+    )
+  ) AS ThroughHere,
+  EXISTS (
+    SELECT 1 FROM StaffSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId != t.DomainId
+    )
+  ) AS ThroughAnother
+      FROM (
+        SELECT mm.DomainId AS DomainId
+        FROM StaffUserRoles mm
+        WHERE mm.UserId = u.Id AND mm.Kind = 'domain' AND mm.Axis = ''
+          AND (mm.StartsAt IS NULL OR mm.StartsAt <= CURRENT_TIMESTAMP()) AND (mm.EndsAt IS NULL OR mm.EndsAt > CURRENT_TIMESTAMP())
+        UNION DISTINCT
+        SELECT mg AS DomainId
+        FROM StaffGroupMembers mp, UNNEST(ARRAY(
+          SELECT g.DomainId FROM StaffGroups g
+          WHERE g.Id = mp.GroupId AND g.Kind = 'domain' AND g.Axis = ''
+        )) AS mg
+        WHERE mp.UserId = u.Id AND (mp.StartsAt IS NULL OR mp.StartsAt <= CURRENT_TIMESTAMP()) AND (mp.EndsAt IS NULL OR mp.EndsAt > CURRENT_TIMESTAMP())
+        UNION DISTINCT
+        SELECT md AS DomainId
+        FROM StaffSessionIdentities mi, UNNEST(ARRAY(
+          SELECT d.TenantId FROM TenantDirectories d
+          WHERE d.Method = mi.Method AND d.Connection = mi.Connection
+        )) AS md
+        WHERE mi.UserId = u.Id
+      ) t
+    )
+  ) mt
+  WHERE mt.ManagedHere) AS ManagingTenant
 FROM StaffSessionUsers u
+) p
 `
 
 // Subquery is the query the rows are read from.

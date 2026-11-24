@@ -4229,6 +4229,7 @@ GET  <prefix>/crew-session-users, …/{id}                   List, Read on CrewS
 GET  <prefix>/crew-listed-users, …/{id}                    List, Read on CrewListedUsers (the accounts with what each holds, sort=username)
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
+GET  <prefix>/crew-listed-identities, …/{id}               List, Read on CrewListedIdentities (the sign-in identities with who manages each account, where the application has a tenant record)
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
 GET  <prefix>/crew-session-tokens, …/{id}                  List, Read on CrewSessionTokens
 GET  <prefix>/crew-session-mail-links, …/{id}              List, Read on CrewSessionMailLinks
@@ -4427,11 +4428,11 @@ address. In an application with a tenant record (`@tenant`) the generated manage
 declares four views per Auth, each a tenant record like any other (`@virtual`,
 `@permissionScope(domain)`, the tenant in a `domain` column), listed and read under the
 domain pair on the outlets that serve the Auth's management. The whole application's
-lists carry the names of their tables, and its lists of what is held (`CrewHeldRoles`,
-`CrewListedUsers`, `CrewListedGroups`) the Auth's name before what each lists; a tenant's
-list is named for what it holds, with the Auth's name and the application's tenant
-record's before it. A tenant record whose name would give a list one of those names (a
-record named `Session`, `User` or `Listed`) is refused at generation:
+lists are named after the Auth alone, the declarations over its tables and the views
+beside them (`CrewHeldRoles`, `CrewListedUsers` and `CrewListedGroups` among them); a
+tenant's list is named for what it holds, with the Auth's name and the application's
+tenant record's before it. A tenant record whose name would give a list one of those
+names (a record named `Session`, `User` or `Listed`) is refused at generation:
 
 - `CrewSectorUsers`, the tenant's people: one row per person who holds a role in the
   tenant or in every tenant, and, where the tenant has a directory, per person who signs
@@ -4460,6 +4461,13 @@ record named `Session`, `User` or `Listed`) is refused at generation:
   `heldElsewhere`, `heldGlobally`, `managedHere` and `managedByAnotherDirectory`. The
   identity of a person who holds a role in two tenants is a row in each. A person's page
   lists their identities by `userId`.
+
+The whole application reads who manages each account off two of its own lists, where the
+application has a tenant record: `CrewListedUsers`, the accounts, and
+`CrewListedIdentities`, their sign-in identities. Each carries `managedByTenant` (a tenant
+manages the account) and `managingTenant` (that tenant's key, empty where none does), read
+as each tenant's list reads `managedHere`, so a role file gives the application's own
+administrators the accounts no tenant manages (`"condition": "managedByTenant = false"`).
 
 One party manages each account, and the lists say which. The tenant whose directory a
 person signs in through manages their account. A person who signs in through no tenant's
@@ -4982,10 +4990,17 @@ grants each like any resource.
   when the account's sign-in is locked by failed tries. A line names the tenant its role
   is held in by the name people call the tenant by, or by its key where the tenant record
   marks no name, so a grant of `roles` shows those names whatever the reader is granted
-  on the tenant record, as a line of `CrewListedGroups` does. The Accounts page lists it, it
-  filters by `username`, `name` and `email`, and the whole application's methods on a
-  person name their person by its row. `CrewSessionUsers`, the users table's own list,
-  stays: a picker of a person reads it.
+  on the tenant record, as a line of `CrewListedGroups` does. Where the application has a
+  tenant record it says who manages each account too: `managedByTenant` and
+  `managingTenant`. The Accounts page lists it, it filters by `username`, `name`, `email`
+  and the two facts, and the whole application's methods on a person name their person by
+  its row. `CrewSessionUsers`, the users table's own list, stays: a picker of a person
+  reads it.
+- `CrewListedIdentities` is the sign-in identities with who manages each account,
+  declared where the application has a tenant record: a row for each identity link, with
+  the columns of `CrewSessionIdentities`, the person's `username`, and the person's
+  `managedByTenant` and `managingTenant`. `CrewSessionIdentities`, the identities table's
+  own list, stays.
 - `CrewListedGroups` is the groups with what each holds: `people`, how many people are
   in the group, and `roles`, the roles it holds, a line each: the role's name, and where
   it is held when that is not where the group is kept ("Engineer in sector Anvil",

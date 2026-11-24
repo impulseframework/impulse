@@ -153,7 +153,9 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -201,7 +203,9 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -239,6 +243,21 @@
                 "subject",
                 "tenant",
                 "userId"
+              ]
+            },
+            {
+              "resource": "CrewListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -382,6 +401,21 @@
                 "subject",
                 "tenant",
                 "userId"
+              ]
+            },
+            {
+              "resource": "MembersListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -614,7 +648,9 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -653,7 +689,9 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -678,6 +716,21 @@
                 "subject",
                 "tenant",
                 "userId"
+              ]
+            },
+            {
+              "resource": "CrewListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -742,6 +795,21 @@
                 "subject",
                 "tenant",
                 "userId"
+              ]
+            },
+            {
+              "resource": "MembersListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -1127,7 +1195,9 @@
             {
               "resource": "CrewListedUsers",
               "fields": [
-                "username"
+                "username",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {

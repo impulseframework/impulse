@@ -34,6 +34,7 @@ export const Resources = {
   CrewInvitedSectors: 'CrewInvitedSectors' as Resource,
   CrewListedGroupRoles: 'CrewListedGroupRoles' as Resource,
   CrewListedGroups: 'CrewListedGroups' as Resource,
+  CrewListedIdentities: 'CrewListedIdentities' as Resource,
   CrewListedRoleGrants: 'CrewListedRoleGrants' as Resource,
   CrewListedUsers: 'CrewListedUsers' as Resource,
   CrewRememberLengths: 'CrewRememberLengths' as Resource,
@@ -75,6 +76,7 @@ export const Resources = {
   HangarPasses: 'HangarPasses' as Resource,
   Hangars: 'Hangars' as Resource,
   MembersHeldRoles: 'MembersHeldRoles' as Resource,
+  MembersListedIdentities: 'MembersListedIdentities' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
   MembersListedUsers: 'MembersListedUsers' as Resource,
   MembersRememberLengths: 'MembersRememberLengths' as Resource,
@@ -577,6 +579,37 @@ export namespace CrewListedGroups {
   };
 }
 
+export namespace CrewListedIdentities {
+  export const fieldName = {
+    connection: 'connection' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    emailAtLink: 'emailAtLink' as FieldName,
+    id: 'id' as FieldName,
+    lastUsedAt: 'lastUsedAt' as FieldName,
+    managedByTenant: 'managedByTenant' as FieldName,
+    managingTenant: 'managingTenant' as FieldName,
+    method: 'method' as FieldName,
+    subject: 'subject' as FieldName,
+    tenant: 'tenant' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    connection: 'CrewListedIdentities.connection' as Resource,
+    createdAt: 'CrewListedIdentities.createdAt' as Resource,
+    emailAtLink: 'CrewListedIdentities.emailAtLink' as Resource,
+    id: 'CrewListedIdentities.id' as Resource,
+    lastUsedAt: 'CrewListedIdentities.lastUsedAt' as Resource,
+    managedByTenant: 'CrewListedIdentities.managedByTenant' as Resource,
+    managingTenant: 'CrewListedIdentities.managingTenant' as Resource,
+    method: 'CrewListedIdentities.method' as Resource,
+    subject: 'CrewListedIdentities.subject' as Resource,
+    tenant: 'CrewListedIdentities.tenant' as Resource,
+    userId: 'CrewListedIdentities.userId' as Resource,
+    username: 'CrewListedIdentities.username' as Resource,
+  };
+}
+
 export namespace CrewListedRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -613,6 +646,8 @@ export namespace CrewListedUsers {
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     lockedUntil: 'lockedUntil' as FieldName,
+    managedByTenant: 'managedByTenant' as FieldName,
+    managingTenant: 'managingTenant' as FieldName,
     name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     roles: 'roles' as FieldName,
@@ -626,6 +661,8 @@ export namespace CrewListedUsers {
     id: 'CrewListedUsers.id' as Resource,
     lastSignInAt: 'CrewListedUsers.lastSignInAt' as Resource,
     lockedUntil: 'CrewListedUsers.lockedUntil' as Resource,
+    managedByTenant: 'CrewListedUsers.managedByTenant' as Resource,
+    managingTenant: 'CrewListedUsers.managingTenant' as Resource,
     name: 'CrewListedUsers.name' as Resource,
     passwordChangeRequired: 'CrewListedUsers.passwordChangeRequired' as Resource,
     roles: 'CrewListedUsers.roles' as Resource,
@@ -1551,6 +1588,37 @@ export namespace MembersHeldRoles {
   };
 }
 
+export namespace MembersListedIdentities {
+  export const fieldName = {
+    connection: 'connection' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    emailAtLink: 'emailAtLink' as FieldName,
+    id: 'id' as FieldName,
+    lastUsedAt: 'lastUsedAt' as FieldName,
+    managedByTenant: 'managedByTenant' as FieldName,
+    managingTenant: 'managingTenant' as FieldName,
+    method: 'method' as FieldName,
+    subject: 'subject' as FieldName,
+    tenant: 'tenant' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    connection: 'MembersListedIdentities.connection' as Resource,
+    createdAt: 'MembersListedIdentities.createdAt' as Resource,
+    emailAtLink: 'MembersListedIdentities.emailAtLink' as Resource,
+    id: 'MembersListedIdentities.id' as Resource,
+    lastUsedAt: 'MembersListedIdentities.lastUsedAt' as Resource,
+    managedByTenant: 'MembersListedIdentities.managedByTenant' as Resource,
+    managingTenant: 'MembersListedIdentities.managingTenant' as Resource,
+    method: 'MembersListedIdentities.method' as Resource,
+    subject: 'MembersListedIdentities.subject' as Resource,
+    tenant: 'MembersListedIdentities.tenant' as Resource,
+    userId: 'MembersListedIdentities.userId' as Resource,
+    username: 'MembersListedIdentities.username' as Resource,
+  };
+}
+
 export namespace MembersListedRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -1587,6 +1655,8 @@ export namespace MembersListedUsers {
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     lockedUntil: 'lockedUntil' as FieldName,
+    managedByTenant: 'managedByTenant' as FieldName,
+    managingTenant: 'managingTenant' as FieldName,
     name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     roles: 'roles' as FieldName,
@@ -1600,6 +1670,8 @@ export namespace MembersListedUsers {
     id: 'MembersListedUsers.id' as Resource,
     lastSignInAt: 'MembersListedUsers.lastSignInAt' as Resource,
     lockedUntil: 'MembersListedUsers.lockedUntil' as Resource,
+    managedByTenant: 'MembersListedUsers.managedByTenant' as Resource,
+    managingTenant: 'MembersListedUsers.managingTenant' as Resource,
     name: 'MembersListedUsers.name' as Resource,
     passwordChangeRequired: 'MembersListedUsers.passwordChangeRequired' as Resource,
     roles: 'MembersListedUsers.roles' as Resource,

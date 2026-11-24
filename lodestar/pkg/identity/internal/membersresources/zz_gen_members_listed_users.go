@@ -37,6 +37,8 @@ type membersListedUserRead struct {
 	LastSignInAt           *time.Time   `json:"lastSignInAt"`
 	Roles                  []string     `json:"roles"`
 	LockedUntil            *time.Time   `json:"lockedUntil"`
+	ManagedByTenant        bool         `json:"managedByTenant"`
+	ManagingTenant         *string      `json:"managingTenant"`
 }
 
 var membersListedUserReadSets resource.SetCache[MembersListedUser, membersListedUserRead]
@@ -156,6 +158,8 @@ func (c *MembersListedUserColumns) All() *MembersListedUserColumns {
 		"LastSignInAt",
 		"Roles",
 		"LockedUntil",
+		"ManagedByTenant",
+		"ManagingTenant",
 	}
 
 	return c
@@ -227,6 +231,18 @@ func (c *MembersListedUserColumns) LockedUntil() *MembersListedUserColumns {
 	return c
 }
 
+func (c *MembersListedUserColumns) ManagedByTenant() *MembersListedUserColumns {
+	c.fields = append(c.fields, "ManagedByTenant")
+
+	return c
+}
+
+func (c *MembersListedUserColumns) ManagingTenant() *MembersListedUserColumns {
+	c.fields = append(c.fields, "ManagingTenant")
+
+	return c
+}
+
 type MembersListedUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -253,6 +269,14 @@ func (p MembersListedUserQueryPartialClause) Name() MembersListedUserQueryIdent[
 
 func (p MembersListedUserQueryPartialClause) Email() MembersListedUserQueryIdent[string] {
 	return MembersListedUserQueryIdent[string]{Ident: resource.NewIdent[string]("Email", p.partialClause, true)}
+}
+
+func (p MembersListedUserQueryPartialClause) ManagedByTenant() MembersListedUserQueryIdent[bool] {
+	return MembersListedUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByTenant", p.partialClause, true)}
+}
+
+func (p MembersListedUserQueryPartialClause) ManagingTenant() MembersListedUserQueryIdent[string] {
+	return MembersListedUserQueryIdent[string]{Ident: resource.NewIdent[string]("ManagingTenant", p.partialClause, true)}
 }
 
 type MembersListedUserQueryClause struct {
@@ -363,6 +387,14 @@ func (c *membersListedUserSort) Roles() *MembersListedUserSort {
 
 func (c *membersListedUserSort) LockedUntil() *MembersListedUserSort {
 	return c.addField("LockedUntil")
+}
+
+func (c *membersListedUserSort) ManagedByTenant() *MembersListedUserSort {
+	return c.addField("ManagedByTenant")
+}
+
+func (c *membersListedUserSort) ManagingTenant() *MembersListedUserSort {
+	return c.addField("ManagingTenant")
 }
 
 type MembersListedUserSort struct {

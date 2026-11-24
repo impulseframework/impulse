@@ -31,6 +31,8 @@ func (h *Handlers) CrewListedUsers() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		Roles                  []string     `json:"roles"`
 		LockedUntil            *time.Time   `json:"lockedUntil"`
+		ManagedByTenant        bool         `json:"managedByTenant"        index:"true"`
+		ManagingTenant         *string      `json:"managingTenant"         index:"true"`
 	}
 
 	type response []map[string]any
@@ -117,6 +119,14 @@ func (h *Handlers) CrewListedUsers() http.HandlerFunc {
 					if !row.Masked("lockedUntil") {
 						rmap["lockedUntil"] = rec.LockedUntil
 					}
+				case "ManagedByTenant":
+					if !row.Masked("managedByTenant") {
+						rmap["managedByTenant"] = rec.ManagedByTenant
+					}
+				case "ManagingTenant":
+					if !row.Masked("managingTenant") {
+						rmap["managingTenant"] = rec.ManagingTenant
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -151,6 +161,8 @@ func (h *Handlers) CrewListedUser() http.HandlerFunc {
 		LastSignInAt           *time.Time   `json:"lastSignInAt"`
 		Roles                  []string     `json:"roles"`
 		LockedUntil            *time.Time   `json:"lockedUntil"`
+		ManagedByTenant        bool         `json:"managedByTenant"`
+		ManagingTenant         *string      `json:"managingTenant"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewListedUser, response](h, accesstypes.Read)
@@ -224,6 +236,14 @@ func (h *Handlers) CrewListedUser() http.HandlerFunc {
 			case "LockedUntil":
 				if !row.Masked("lockedUntil") {
 					rmap["lockedUntil"] = rec.LockedUntil
+				}
+			case "ManagedByTenant":
+				if !row.Masked("managedByTenant") {
+					rmap["managedByTenant"] = rec.ManagedByTenant
+				}
+			case "ManagingTenant":
+				if !row.Masked("managingTenant") {
+					rmap["managingTenant"] = rec.ManagingTenant
 				}
 			}
 		}

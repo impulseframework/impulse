@@ -498,7 +498,7 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 		}
 	}
 
-	// The five structs answer it over the column that holds the account's id, and the
+	// The six structs answer it over the column that holds the account's id, and the
 	// whole application's accounts, which its methods on a person name, are one of them.
 	for file, lines := range map[string][]string{
 		"internal/crewresources/crew_session_users.go": {
@@ -507,6 +507,7 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 			"func (CrewSessionUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}",
 		},
 		"internal/crewresources/crew_session_identities.go": {"func (CrewSessionIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},
+		"internal/crewresources/crew_listed_identities.go":  {"func (CrewListedIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},
 		"internal/crewresources/crew_listed_users.go":       {"func (CrewListedUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}"},
 		"internal/crewresources/crew_citadel_users.go":      {"func (CrewCitadelUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}"},
 		"internal/crewresources/crew_citadel_identities.go": {"func (CrewCitadelIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},

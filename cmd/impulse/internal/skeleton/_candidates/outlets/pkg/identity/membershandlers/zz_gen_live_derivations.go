@@ -52,14 +52,25 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 		}},
+		// MembersListedIdentities: the tables its query reads.
+		{Resource: membersresources.MembersListedIdentity{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
+			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
+		}},
 		// MembersListedUsers: the tables its query reads.
 		{Resource: membersresources.MembersListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: membersresources.MembersGroupMember{}.Resource(), Global: true},
 			{Name: membersresources.MembersGroupRole{}.Resource(), Global: true},
 			{Name: membersresources.MembersGroup{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
 			{Name: resources.Tenant{}.Resource(), Global: true},
 		}},
 		// MembersTakenRoles: the tables its query reads.

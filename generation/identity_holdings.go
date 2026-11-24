@@ -23,6 +23,11 @@ import (
 //     is locked: a tenant's list of its people carries the two, and the whole
 //     application's is a view beside the users table (<Auth>ListedUser), which the whole
 //     application's methods name a person by;
+//   - who manages each account, where the application has a tenant record: the accounts'
+//     view says whether a tenant does and which (managedByTenant, managingTenant), read as
+//     a tenant's list of its people reads managedHere (identity_lists.go), and the whole
+//     application's sign-in identities are a view beside the identities table that
+//     carries the same two (<Auth>ListedIdentity);
 //   - the roles a group holds, each with how many people lose it when the group stops
 //     holding it: a tenant's list carries the count, and the whole application's is a
 //     view beside the group roles table (<Auth>ListedGroupRole);
@@ -44,6 +49,7 @@ const (
 	heldRoleSuffix        = "HeldRole"
 	listedGroupSuffix     = "ListedGroup"
 	listedUserSuffix      = "ListedUser"
+	listedIdentitySuffix  = "ListedIdentity"
 	listedGroupRoleSuffix = "ListedGroupRole"
 	takenRoleSuffix       = "TakenRole"
 	takeableRoleSuffix    = "TakeableRole"
@@ -78,7 +84,9 @@ func (i *identityInstance) takesRoles() bool {
 // picks from. The groups with what each
 // holds are written only where the auth keeps groups: each of the two files needs the
 // group tables, and a file is written only where the instance holds every table it needs
-// (writeIdentitySources).
+// (writeIdentitySources). The sign-in identities with who manages each account are
+// written only where the application has a tenant record: with none there is no tenant
+// to name.
 func (r *resourceGenerator) holdingSources(inst *identityInstance) []identitySourceFile {
 	view := func(suffix, template string, needs ...identityTable) identitySourceFile {
 		return identitySourceFile{dir: inst.resources, name: fileStem(r.pluralize(inst.auth + suffix)), template: template, needs: needs}
@@ -90,6 +98,9 @@ func (r *resourceGenerator) holdingSources(inst *identityInstance) []identitySou
 		view(listedGroupSuffix, identityListedGroupsTemplate, listed...),
 		view(listedGroupRoleSuffix, identityListedGroupRolesTemplate, listed...),
 		{dir: inst.methods, name: fileStem(r.pluralize(inst.auth + listedRoleGrantSuffix)), template: identityListedRoleGrantsTemplate, needs: []identityTable{identityRoleGrants}},
+	}
+	if inst.tenant != nil {
+		files = append(files, view(listedIdentitySuffix, identityListedIdentitiesTemplate, identityUsers, identityMemberships, identityIdentities))
 	}
 	if inst.takesRoles() {
 		needs := []identityTable{identityUsers, identityMemberships}
@@ -107,8 +118,8 @@ func (r *resourceGenerator) holdingSources(inst *identityInstance) []identitySou
 // holdingNames are the names of the structs declared here, the ones a tenant's list must
 // not take.
 func (i *identityInstance) holdingNames() []string {
-	names := make([]string, 0, 8)
-	for _, suffix := range []string{heldRoleSuffix, listedGroupSuffix, listedUserSuffix, listedGroupRoleSuffix, takenRoleSuffix, takeableRoleSuffix, takeLengthSuffix, listedRoleGrantSuffix} {
+	names := make([]string, 0, 9)
+	for _, suffix := range []string{heldRoleSuffix, listedGroupSuffix, listedUserSuffix, listedIdentitySuffix, listedGroupRoleSuffix, takenRoleSuffix, takeableRoleSuffix, takeLengthSuffix, listedRoleGrantSuffix} {
 		names = append(names, i.auth+suffix)
 	}
 
@@ -133,6 +144,12 @@ func (d *identitySourceData) ListedGroup() string {
 // ListedUser is the struct of the accounts as a list shows them, each with what it holds.
 func (d *identitySourceData) ListedUser() string {
 	return d.auth + listedUserSuffix
+}
+
+// ListedIdentity is the struct of the sign-in identities as the whole application's list
+// shows them, each with who manages the person's account.
+func (d *identitySourceData) ListedIdentity() string {
+	return d.auth + listedIdentitySuffix
 }
 
 // ListedGroupRole is the struct of the roles the groups hold as a list shows them, each

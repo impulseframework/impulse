@@ -29,11 +29,20 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 		}},
+		// MembersListedIdentities: the tables its query reads.
+		{Resource: membersresources.MembersListedIdentity{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.SectorDirectory{}.Resource()},
+		}},
 		// MembersListedUsers: the tables its query reads.
 		{Resource: membersresources.MembersListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionIdentity{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
+			{Name: resources.SectorDirectory{}.Resource()},
 			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
 		// MembersSectorHeldRoles: the tables its query reads.

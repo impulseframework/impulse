@@ -140,6 +140,7 @@ func (tn Tenancy) writeRoles(a *app.App, ch *Change) (added bool, err error) {
 		return false, err
 	}
 	tn.grantTenantMaking(file, reference, served, seat.Name, rel, &named, ch)
+	grantManagingFacts(file, served, seat.Name, rel, ch)
 
 	if err := writeRoleFile(a, rel, file, mode, proof); err != nil {
 		return false, err
@@ -449,6 +450,130 @@ func (tn Tenancy) grantTenantMaking(file, reference *roleFile, served *app.Serve
 		role.Description = fmt.Sprintf(administratorManagesTenants, tn.manyLower(), tn.oneLower()) + rest
 	}
 	ch.didf("%s: the role %s gained the %d grant(s) a %s is made with, as the tenanted skeleton's %s holds them on what this application serves (%s)", rel, role.Name, len(gained), tn.oneLower(), referenceAdministrator, strings.Join(gained, ", "))
+}
+
+// The whole application's lists of the accounts and of their sign-in identities that say
+// who manages each account, and the identities table's own list, each after the auth's
+// name, as the generated management names them.
+const (
+	listedUsersSuffix       = "ListedUsers"
+	sessionIdentitiesSuffix = "SessionIdentities"
+	listedIdentitiesSuffix  = "ListedIdentities"
+)
+
+// managingFacts are the fields of the whole application's two lists that say who manages
+// each account: whether a tenant does, and which.
+var managingFacts = []accesstypes.Tag{"managedByTenant", "managingTenant"}
+
+// grantManagingFacts gives each global role of the auth's role file that lists or reads
+// the application's accounts or their sign-in identities who manages each account there,
+// on what the application serves (managingFactsOf), and says so in one line, none where
+// no role gained anything. It runs where the tenant-making grants are given, so a role
+// file the command leaves unwritten gains nothing here either.
+func grantManagingFacts(file *roleFile, served *app.Served, auth, rel string, ch *Change) {
+	gained := make([]string, 0, len(file.Roles.Global))
+	for _, role := range file.Roles.Global {
+		gained = append(gained, managingFactsOf(role, served, names.Pascal(auth))...)
+	}
+	if len(gained) == 0 {
+		return
+	}
+	ch.didf("%s: each global role that lists or reads the application's accounts or their sign-in identities now reads who manages each account there (%s)", rel, strings.Join(gained, "; "))
+}
+
+// managingFactsOf gives one global role the facts of who manages each account, for the
+// auth of that name, and answers what it gained in the file's order. A grant of List or
+// Read on the accounts' list gains each of the two facts the list takes for the
+// permission and the grant does not name already (factsToGain), its other fields and its
+// condition kept. A grant of List or Read on the identities table's list is given again
+// on the whole application's list of the identities (onListedIdentities), unless the role
+// carries one there under that condition already.
+func managingFactsOf(role *roleEntry, served *app.Served, auth string) []string {
+	accounts := accesstypes.Resource(auth + listedUsersSuffix)
+	identities := accesstypes.Resource(auth + sessionIdentitiesSuffix)
+	listed := accesstypes.Resource(auth + listedIdentitiesSuffix)
+	var gained []string
+	for i := range role.Permissions {
+		permission := role.Permissions[i].Permission
+		if permission != string(accesstypes.List) && permission != string(accesstypes.Read) {
+			continue
+		}
+		var twins []access.Grant
+		for j := range role.Permissions[i].Grants {
+			grant := &role.Permissions[i].Grants[j]
+			switch grant.Resource {
+			case accounts:
+				if fields := factsToGain(served, permission, *grant); len(fields) > 0 {
+					grant.Fields = append(grant.Fields, fields...)
+					gained = append(gained, fmt.Sprintf("%s: %s on %s (%s)", role.Name, permission, accounts, tagsText(fields)))
+				}
+			case identities:
+				twins = append(twins, *grant)
+			}
+		}
+		for _, twin := range twins {
+			if repeat, ok := onListedIdentities(served, permission, twin, listed); ok && role.Permissions.add(permission, repeat) {
+				gained = append(gained, role.Name+": "+permission+" on "+string(listed))
+			}
+		}
+	}
+
+	return gained
+}
+
+// factsToGain are the facts of who manages an account that a grant on the accounts' list
+// gains for the permission: each the list the application serves takes for it, that the
+// grant does not name already. A grant that names every field (*) names the facts
+// already, and a bare grant names no field to add them to: neither gains any.
+func factsToGain(served *app.Served, permission string, grant access.Grant) []accesstypes.Tag {
+	r, ok := served.Resource(string(grant.Resource))
+	if !ok || r.Scope != app.ScopeGlobal || namesNoField(grant) {
+		return nil
+	}
+	var fields []accesstypes.Tag
+	for _, fact := range managingFacts {
+		if r.FieldTakes(string(fact), permission) && !slices.Contains(grant.Fields, fact) {
+			fields = append(fields, fact)
+		}
+	}
+
+	return fields
+}
+
+// onListedIdentities is a grant on the identities table's list given again on the whole
+// application's list of the identities: the same fields and condition and the two facts,
+// cut to what the application serves (servedGrant). A grant that names every field (*),
+// or a bare one, is given as it stands, where the application serves the list for the
+// permission.
+func onListedIdentities(served *app.Served, permission string, twin access.Grant, listed accesstypes.Resource) (access.Grant, bool) {
+	repeat := access.Grant{Resource: listed, Condition: twin.Condition}
+	if namesNoField(twin) {
+		if _, ok := servedGrant(served, app.ScopeGlobal, permission, repeat); !ok {
+			return access.Grant{}, false
+		}
+		repeat.Fields = twin.Fields
+
+		return repeat, true
+	}
+	repeat.Fields = slices.Concat(twin.Fields, managingFacts)
+
+	return servedGrant(served, app.ScopeGlobal, permission, repeat)
+}
+
+// namesNoField reports whether a grant names no field the facts could join: it names
+// every field (*), or it is bare.
+func namesNoField(grant access.Grant) bool {
+	return len(grant.Fields) == 0 || slices.Contains(grant.Fields, "*")
+}
+
+// tagsText is the fields as a sentence lists them, ", " between them.
+func tagsText(fields []accesstypes.Tag) string {
+	words := make([]string, len(fields))
+	for i, field := range fields {
+		words[i] = string(field)
+	}
+
+	return strings.Join(words, ", ")
 }
 
 // footholdRoles is what one of the foothold's two functions returns: the roles it names

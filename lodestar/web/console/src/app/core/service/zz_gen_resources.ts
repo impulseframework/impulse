@@ -128,6 +128,21 @@ export interface CrewListedGroupRoles {
   losing?: number;
 }
 
+export interface CrewListedIdentities {
+  id: string;
+  userId?: string;
+  username?: string;
+  method?: string;
+  connection?: string;
+  subject?: string;
+  tenant?: string;
+  emailAtLink?: string;
+  createdAt?: Date;
+  lastUsedAt?: Date;
+  managedByTenant?: boolean;
+  managingTenant?: string;
+}
+
 export interface CrewListedUsers {
   id: string;
   username?: string;
@@ -140,6 +155,8 @@ export interface CrewListedUsers {
   lastSignInAt?: Date;
   roles?: string[];
   lockedUntil?: Date;
+  managedByTenant?: boolean;
+  managingTenant?: string;
 }
 
 export interface CrewRoles {
@@ -497,6 +514,21 @@ export interface MembersHeldRoles {
   reason?: string;
 }
 
+export interface MembersListedIdentities {
+  id: string;
+  userId?: string;
+  username?: string;
+  method?: string;
+  connection?: string;
+  subject?: string;
+  tenant?: string;
+  emailAtLink?: string;
+  createdAt?: Date;
+  lastUsedAt?: Date;
+  managedByTenant?: boolean;
+  managingTenant?: string;
+}
+
 export interface MembersListedUsers {
   id: string;
   username?: string;
@@ -509,6 +541,8 @@ export interface MembersListedUsers {
   lastSignInAt?: Date;
   roles?: string[];
   lockedUntil?: Date;
+  managedByTenant?: boolean;
+  managingTenant?: string;
 }
 
 export interface MembersRoles {
@@ -1315,6 +1349,25 @@ const resourceMap = defineResourceMap({
       { fieldName: 'losing', displayType: 'number', required: true, isIndex: false },
     ],
   },
+  [Resources.CrewListedIdentities]: {
+    route: 'crew-listed-identities',
+    live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'connection', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'emailAtLink', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.CrewListedUsers]: {
     route: 'crew-listed-users',
     live: true,
@@ -1331,6 +1384,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.CrewRoles]: {
@@ -1843,6 +1898,25 @@ const resourceMap = defineResourceMap({
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.MembersListedIdentities]: {
+    route: 'members-listed-identities',
+    live: true,
+    rowWords: { one: 'sign-in identity', many: 'sign-in identities' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'connection', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'emailAtLink', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.MembersListedUsers]: {
     route: 'members-listed-users',
     live: true,
@@ -1859,6 +1933,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["ClientAccount", "ClientPortal", "SuperAdministrator"] },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
     ],
   },
   [Resources.MembersRoles]: {
@@ -2879,6 +2955,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewHeldRoles]: PermissionScopes.global,
   [Resources.CrewListedGroups]: PermissionScopes.global,
   [Resources.CrewListedGroupRoles]: PermissionScopes.global,
+  [Resources.CrewListedIdentities]: PermissionScopes.global,
   [Resources.CrewListedUsers]: PermissionScopes.global,
   [Resources.CrewRoles]: PermissionScopes.global,
   [Resources.CrewSectorGroups]: PermissionScopes.domain,
@@ -2908,6 +2985,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.Hangars]: PermissionScopes.domain,
   [Resources.HangarPasses]: PermissionScopes.domain,
   [Resources.MembersHeldRoles]: PermissionScopes.global,
+  [Resources.MembersListedIdentities]: PermissionScopes.global,
   [Resources.MembersListedUsers]: PermissionScopes.global,
   [Resources.MembersRoles]: PermissionScopes.global,
   [Resources.MembersSectorHeldRoles]: PermissionScopes.domain,
