@@ -34,13 +34,14 @@ type (
 	// refused while the sector is directory only; the roles it gave stand, and the
 	// directory is free for another sector. The change events are the audit.
 	//
-	// DefaultSeat is the role a fleet member is given in the sector at their first
-	// sign-in through the directory, whether their account is created then or stood
-	// before (Cinder gives SectorCrew); or NULL, and the sector admits the directory's
-	// people by invitation only: a stranger is refused with no account, and an
-	// invitation is the way in. It is given once for the link between the account and
-	// the directory: a person whose role a marshal removed is not given it back by
-	// signing in. The record shows the role and its own update never writes it: the
+	// DefaultSeat is the role a fleet member is given in the sector when they sign in
+	// through the directory and hold nothing in the sector, at every sign-in, whether
+	// their account is created then or stood before (Cinder gives SectorCrew); or NULL,
+	// and the sector admits the directory's people by invitation only: a stranger is
+	// refused with no account, and an invitation is the way in. A person a marshal
+	// removes from the sector is given it again at their next sign-in through the
+	// directory; a role with no privileges keeps one person out while the sector is
+	// open. The record shows the role and its own update never writes it: the
 	// marshal names it with the sector's own method OpenSectorToDirectory, behind the
 	// warning the Sign-in page's dialog shows, and clears it with MakeSectorInviteOnly.
 	// The role is held to one the marshal could give directly, so a marshal, who gives

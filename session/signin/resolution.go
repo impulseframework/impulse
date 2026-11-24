@@ -173,11 +173,12 @@ func Tenant(tenant string) ResolutionOption {
 	return func(r *Resolution) { r.tenant = tenant }
 }
 
-// Seats grants seats to the user a Provision resolution creates, once the resolution
-// has committed, through the Auth's directory seat hook
-// (session.Auth.SetDirectoryAdmission): the default seats of the directories the
-// tenants declared, which the standard rule adds itself, or a custom rule's own.
-// A resolution that carries seats on an Auth with no hook fails the sign-in.
+// Seats offers seats to the user a resolution provisions or links, inside the
+// resolution's transaction, through the Auth's directory seat hook
+// (session.Auth.SetDirectoryAdmission), which gives a seat where the person holds
+// nothing in the tenant: the default seats of the directories the tenants declared,
+// which the standard rule adds itself, or a custom rule's own. A resolution that
+// carries seats on an Auth with no hook fails the sign-in.
 func Seats(seats ...DirectorySeat) ResolutionOption {
 	return func(r *Resolution) {
 		r.seats = append(r.seats, seats...)

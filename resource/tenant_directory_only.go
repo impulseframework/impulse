@@ -910,10 +910,11 @@ func (r *TenantDirectoryRules) sessionDirectoryName(session *sessioninfo.Session
 	return r.directoryName(directory)
 }
 
-// defaultRoleInWords says, in words, the role a person gets the first time they sign in
-// through tenant's directory, which the tenant has: empty where it admits the
-// directory's people by invitation only, or where the directories record declares no
-// default seat, which leaves the read with no role to say and no reason to fail.
+// defaultRoleInWords says, in words, the role a person gets when they sign in through
+// tenant's directory, which the tenant has, and hold nothing in the tenant: empty where
+// it admits the directory's people by invitation only, or where the directories record
+// declares no default seat, which leaves the read with no role to say and no reason to
+// fail.
 func (r *TenantDirectoryRules) defaultRoleInWords(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (string, error) {
 	if r.columns.DirectoriesKeyColumn == "" || r.columns.DefaultSeatColumn == "" {
 		return "", nil

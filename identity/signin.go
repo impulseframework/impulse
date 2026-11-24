@@ -111,7 +111,9 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 // It happens also when they were the other tenant's last administrator, which a Super
 // Administrator then repairs. The application's own people, who hold a role for the
 // whole application or in every tenant, are seated and keep everything. An invitation
-// into a second tenant is refused as before.
+// into a second tenant is refused as before. The hook cannot tell a directory's default
+// seat from a seat a registration's own account rule names (signin.Seats): it moves the
+// person for either.
 //
 // auth names the Auth in the log line a given role leaves.
 //

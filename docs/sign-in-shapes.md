@@ -1333,6 +1333,11 @@ does `--shape` with shape 5 or 6. With the option:
   also carries an invitation into the directory's tenant is refused for such a person, as an
   invitation into a second tenant is: they sign in once without the invitation, are moved, and
   can accept it then;
+- the move is made as soon as the directory has vouched for the person, also where the
+  application then holds the sign-in for a code of its own that is never entered. A
+  tenant made from a staff invitation that named a role is open from its first day and
+  moves its directory's people the same way; the staff member who sends that invitation
+  is shown no warning of it, where an administrator who opens a tenant later is;
 - an invitation into a tenant is refused as soon as it is sent, if the invited email
   address is the confirmed address of an account that belongs to another tenant;
 - a refusal never says which tenant holds the person.
@@ -1608,7 +1613,15 @@ existed before, or was tied to the directory before the tenant took it. A person
 holds anything in the tenant is given nothing more. So a person whose role the tenant's
 administrator took away is given the default role again at their next sign-in through
 the directory. To keep one person out while the tenant is open, give them a role with no
-privileges. To keep out everyone who is not invited, make the tenant invite only.
+privileges. To keep out everyone who is not invited, make the tenant invite only. A
+person who leaves the tenant themselves, or whose last role in it is taken away, is
+given the default role again the same way.
+
+The default role must stay one of the tenant's roles. If the role no longer exists (a
+custom role that was deleted, a role a release removed from the role file), a person of
+the directory who holds nothing in the tenant cannot sign in through the directory until
+the tenant's administrator names another role or makes the tenant invite only. A person
+who holds something in the tenant signs in as before.
 
 ```sh
 impulse add tenancy --shape global-users-each-tenant-chooses
