@@ -2140,6 +2140,159 @@ describe('identityPages, the Sessions page where the server says the state of ea
   });
 });
 
+// Where the server says what each failed sign-in counts (the list has `kind`), the Failed
+// sign-ins page says what each row counts and whose it is, the count against its limit or
+// as how many were sent or wrong, and how long it is locked.
+describe('identityPages, the Failed sign-ins page where the server says what each row counts', () => {
+  const attemptsMeta = (userTarget?: string): ResourceMeta => {
+    const meta = fields(
+      'name',
+      'kind',
+      'subject',
+      'userId',
+      'account',
+      'failures',
+      'failureLimit',
+      'state',
+      'locked',
+      'lockedUntil',
+      'windowEndsAt',
+      'updatedAt',
+    );
+    return {
+      ...meta,
+      fields: meta.fields.map((field) =>
+        field.fieldName === 'userId' && userTarget !== undefined
+          ? ({ ...field, enumeratedResource: userTarget } as FieldMeta)
+          : field,
+      ),
+    };
+  };
+  const pagesOver = (attemptsList: ResourceMeta): RootConfig[] =>
+    identityPages(
+      { ...descriptor } as ApiDescriptor,
+      (resource: Resource): ResourceMeta => (resource === 'CrewSessionSignInAttempts' ? attemptsList : metas[resource]),
+      { auth: 'Crew', scope: 'global' },
+    );
+  const attempts = pagesOver(attemptsMeta('CrewSessionUsers'))[3];
+  const cell = (id: string): ((row: RecordData) => string) => {
+    const getter = columnOf(list(attempts), id).valueGetter;
+    if (!getter) {
+      throw new Error(`the column ${id} has no getter`);
+    }
+    return (row: RecordData) => getter(row, noReader) as string;
+  };
+
+  it('draws the username, the account, the count, the state and the last change, and reads the rest', () => {
+    expect(visibleColumns(list(attempts))).toEqual([
+      ['subject', 'Username'],
+      ['account', 'Account'],
+      ['failures', 'Count'],
+      ['state', 'State'],
+      ['updatedAt', 'Last change'],
+    ]);
+    expect(hiddenColumns(list(attempts))).toEqual(['name', 'kind', 'failureLimit', 'lockedUntil']);
+    const account = columnOf(list(attempts), 'account');
+    expect([account.opensRow, account.filterable, account.sortable]).toEqual([true, false, false]);
+    expect(columnOf(list(attempts), 'failures').filterable).toBe(false);
+    const state = columnOf(list(attempts), 'state');
+    expect(state.sortable).toBe(false);
+    expect(state.filterChoices).toEqual([
+      { value: 'locked', label: 'Locked' },
+      { value: 'counting', label: 'Counting' },
+    ]);
+    expect([list(attempts).showViewButton, list(attempts).rowRoute]).toEqual([true, 'userId']);
+    expect(list(attempts).emptyMessage).toBe('No sign-in is locked or being counted.');
+    const [, , , unlinked] = pagesOver(attemptsMeta());
+    expect([list(unlinked).showViewButton, list(unlinked).rowRoute]).toEqual([false, undefined]);
+  });
+
+  it('says what each row counts, and the count, by its kind', () => {
+    const rows: [string, string, string][] = [
+      ['signIn', 'ada', '3 of 5'],
+      ['mail', 'Mail to ada@fleet.example', '3 sent'],
+      ['code', 'Sign-in codes to ada@fleet.example', '3 sent'],
+      ['reset', 'Password reset links to ada@fleet.example', '3 sent'],
+      ['invitationCode', 'Codes for the invitation to ada@fleet.example', '3 sent'],
+      ['invitationGuess', 'Wrong codes for the invitation to ada@fleet.example', '3 wrong'],
+      ['addressGuess', 'Wrong codes for ada@fleet.example', '3 wrong'],
+      ['codeGuess', 'Wrong sign-in codes for ada', '3 wrong'],
+      ['firstPassword', 'Wrong first-password codes for ada', '3 wrong'],
+      ['somethingNew', 'ada', '3'],
+    ];
+    for (const [kind, username, count] of rows) {
+      const subject = username.endsWith('ada') ? 'ada' : 'ada@fleet.example';
+      const row = { kind, subject, failures: 3, failureLimit: kind === 'signIn' ? 5 : null };
+      expect([kind, cell('subject')(row), cell('failures')(row)]).toEqual([kind, username, count]);
+    }
+    // A name's count with no limit beside it is the count alone.
+    expect(cell('failures')({ kind: 'signIn', subject: 'ada', failures: 3 })).toBe('3');
+  });
+
+  it("names the account, says a name nobody holds is no account's, and says nothing of any other row with none", () => {
+    expect(cell('account')({ kind: 'signIn', account: 'Ada Lovelace' })).toBe('Ada Lovelace');
+    expect(cell('account')({ kind: 'signIn', account: null })).toBe('No such account');
+    expect(cell('account')({ kind: 'mail', account: null })).toBe('');
+  });
+
+  describe('the lock', () => {
+    const noon = new Date(2026, 10, 23, 12, 0);
+    const later = (minutes: number): Date => new Date(noon.getTime() + minutes * 60_000);
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(noon);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('says until when a row is locked and how long is left, the time alone on the same day', () => {
+      const at = later(12);
+      expect(cell('state')({ state: 'locked', lockedUntil: at.toISOString() })).toBe(
+        `Locked until ${format(at, 'h:mm a')}, 12 minutes left`,
+      );
+    });
+
+    it('says the day too where the lock passes on another day', () => {
+      const at = later(24 * 60 + 30);
+      expect(cell('state')({ state: 'locked', lockedUntil: at.toISOString() })).toBe(
+        `Locked until ${format(at, 'M/d/yy h:mm a')}, 1 day left`,
+      );
+    });
+
+    it('says Locked alone of a lock no time ends, and of one with no time, and Counting of the rest', () => {
+      expect(cell('state')({ state: 'locked', lockedUntil: later(100 * 365 * 24 * 60).toISOString() })).toBe('Locked');
+      expect(cell('state')({ state: 'locked', lockedUntil: null })).toBe('Locked');
+      expect(cell('state')({ state: 'counting', lockedUntil: null })).toBe('Counting');
+    });
+  });
+
+  it('asks before Unlock in the words of what the row counts', () => {
+    const unlock = presentation(list(attempts).rowMethods, 'UnlockCrewSignIn');
+    expect([unlock.label, unlock.icon]).toEqual(['Unlock', 'lock_open']);
+    const asks = unlock.confirm as (row: RecordData) => string;
+    expect(asks({ kind: 'signIn', subject: 'ada' })).toBe('Unlock ada? The count of failed tries starts over.');
+    expect(asks({ kind: 'mail', subject: 'ada@fleet.example' })).toBe(
+      'Clear this count? Mail to ada@fleet.example can be sent again at once.',
+    );
+    expect(asks({ kind: 'codeGuess', subject: 'ada' })).toBe('Clear this count? Codes can be entered again.');
+  });
+
+  it('draws the page as it did where the server does not say what each row counts', () => {
+    const [, , , before] = identityPages({ ...descriptor } as ApiDescriptor, resourceMeta, {
+      auth: 'Crew',
+      scope: 'global',
+    });
+    expect(columns(list(before)).map(([id]) => id)).toEqual(
+      ['name', 'failures', 'lockedUntil', 'updatedAt'].filter((id) =>
+        metas['CrewSessionSignInAttempts'].fields.some((field) => field.fieldName === id),
+      ),
+    );
+    const asks = presentation(list(before).rowMethods, 'UnlockCrewSignIn').confirm as (row: RecordData) => string;
+    expect(asks({ name: 'ada' })).toBe('Unlock ada? The count of failed tries starts over.');
+  });
+});
+
 describe("identityPages, what Invite's dialog says", () => {
   const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
   const [people, invitations] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });

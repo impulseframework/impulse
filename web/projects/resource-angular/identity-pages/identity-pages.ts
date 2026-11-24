@@ -760,34 +760,81 @@ class SideBuilder {
     });
   }
 
-  /** The names whose failed sign-ins are being counted or are locked out, each with Unlock: the whole application's alone. */
+  /**
+   * The names whose failed sign-ins are being counted or are locked out, each with Unlock:
+   * the whole application's alone. Where the server says what each row counts (the list
+   * has `kind`), a row says it in words (a name, mail to an address, wrong codes), the
+   * account the count is kept for, the count against its limit or as how many were sent or
+   * wrong, and how long it is locked, and the list filters by whether it is locked; the
+   * account opens where the person's id names the list of the accounts. Otherwise a row
+   * says the name, the count and the lock as they are stored.
+   */
   signInAttempts(): RootConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.signInAttempts) {
       return undefined;
     }
     const resource = lists.signInAttempts as Resource;
+    const byKind = this.has(resource, 'kind');
+    const opensAccount = byKind && this.namesAccount(resource);
+    const listColumns: ColumnConfig[] = byKind
+      ? [
+          ...this.columns(resource, [['subject', 'Username']]).map((column) => ({
+            ...column,
+            valueGetter: (row: RecordData) => attemptSubject(row),
+          })),
+          ...this.columns(resource, [['account', 'Account']]).map((column) => ({
+            ...column,
+            opensRow: true,
+            filterable: false,
+            sortable: false,
+            valueGetter: (row: RecordData) => attemptAccount(row),
+          })),
+          ...this.columns(resource, [['failures', 'Count']]).map((column) => ({
+            ...column,
+            filterable: false,
+            valueGetter: (row: RecordData) => attemptCount(row),
+          })),
+          ...this.columns(resource, [['state', 'State']]).map((column) => ({
+            ...column,
+            sortable: false,
+            filterChoices: attemptStateWords,
+            valueGetter: (row: RecordData) => attemptState(row, Date.now()),
+          })),
+          ...this.columns(resource, [['updatedAt', 'Last change']]),
+          // Read with each row and not drawn: the cells above say them.
+          ...this.known(resource, [
+            ['name', ''],
+            ['kind', ''],
+            ['failureLimit', ''],
+            ['lockedUntil', ''],
+          ]).map(([name]) => ({ id: name as FieldName, hidden: true })),
+        ]
+      : this.columns(resource, [
+          ['name', 'Name'],
+          ['failures', 'Failed tries'],
+          ['lockedUntil', 'Locked until'],
+          ['updatedAt', 'Last try'],
+        ]);
     return rootConfig({
       page: { label: 'Failed sign-ins', icon: 'gpp_bad' },
       routeData: { route: this.route('signInAttempts', 'failed-sign-ins'), hasViewRoute: false },
       parentConfig: listViewConfig({
         title: this.heading('Failed sign-ins'),
         primaryResource: resource,
-        showViewButton: false,
+        showViewButton: opensAccount,
+        ...(opensAccount ? { rowRoute: 'userId' as FieldName } : {}),
+        ...(byKind ? { emptyMessage: 'No sign-in is locked or being counted.' } : {}),
         showRowCount: true,
-        listColumns: this.columns(resource, [
-          ['name', 'Name'],
-          ['failures', 'Failed tries'],
-          ['lockedUntil', 'Locked until'],
-          ['updatedAt', 'Last try'],
-        ]),
+        listColumns,
         rowMethods: this.present([
           [
             methods.unlockSignIn,
             {
               label: 'Unlock',
               icon: 'lock_open',
-              confirm: (row) => `Unlock ${String(row['name'])}? The count of failed tries starts over.`,
+              confirm: (row) =>
+                byKind ? unlockQuestion(row) : `Unlock ${String(row['name'])}? The count of failed tries starts over.`,
             },
           ],
         ]),
@@ -2624,6 +2671,116 @@ function lockLine(until: unknown, now: number): string {
     return '';
   }
   return `Locked until ${format(instant, isSameDay(instant, now) ? 'h:mm a' : momentFormat(instant, now))}`;
+}
+
+/** The kinds of count whose budget is mail sent (or codes mailed), each with what the row counts. */
+const attemptMailKinds: Record<string, string> = {
+  mail: 'Mail to',
+  code: 'Sign-in codes to',
+  reset: 'Password reset links to',
+  invitationCode: 'Codes for the invitation to',
+};
+
+/** The kinds of count whose budget is wrong codes entered, each with what the row counts. */
+const attemptGuessKinds: Record<string, string> = {
+  invitationGuess: 'Wrong codes for the invitation to',
+  addressGuess: 'Wrong codes for',
+  codeGuess: 'Wrong sign-in codes for',
+  firstPassword: 'Wrong first-password codes for',
+};
+
+/** The words of a failed sign-in's state, in the order the State column's filter offers them. */
+const attemptStateWords: readonly { value: string; label: string }[] = [
+  { value: 'locked', label: 'Locked' },
+  { value: 'counting', label: 'Counting' },
+];
+
+/** A row of the failed sign-ins: its kind and what it is for as the server says them, as text. */
+function attemptOf(row: RecordData): { kind: string; subject: string } {
+  return {
+    kind: typeof row['kind'] === 'string' ? row['kind'] : '',
+    subject: typeof row['subject'] === 'string' ? row['subject'] : '',
+  };
+}
+
+/**
+ * What a row of the failed sign-ins counts, in words: the name a person typed for a
+ * sign-in ("ada"), "Mail to ada@fleet.example" for mail and codes sent, "Wrong codes for
+ * ada@fleet.example" for wrong codes entered, and the subject alone for a kind it does not
+ * know.
+ */
+function attemptSubject(row: RecordData): string {
+  const { kind, subject } = attemptOf(row);
+  const said = attemptMailKinds[kind] ?? attemptGuessKinds[kind];
+  return said === undefined ? subject : `${said} ${subject}`;
+}
+
+/**
+ * The account a row of the failed sign-ins is kept for, by its name: "No such account"
+ * on a name a person typed that no account holds, and nothing on any other row with none.
+ */
+function attemptAccount(row: RecordData): string {
+  const account = row['account'];
+  if (typeof account === 'string' && account !== '') {
+    return account;
+  }
+  return attemptOf(row).kind === 'signIn' ? 'No such account' : '';
+}
+
+/**
+ * The count of a row of the failed sign-ins: for a name, against the limit that locks it
+ * ("3 of 5"); for mail, how many were sent ("3 sent"); for codes, how many were wrong
+ * ("3 wrong"); and the count alone otherwise.
+ */
+function attemptCount(row: RecordData): string {
+  const { kind } = attemptOf(row);
+  const failures = String(row['failures'] ?? '');
+  if (kind in attemptMailKinds) {
+    return `${failures} sent`;
+  }
+  if (kind in attemptGuessKinds) {
+    return `${failures} wrong`;
+  }
+  const limit = row['failureLimit'];
+  return kind === 'signIn' && typeof limit === 'number' ? `${failures} of ${limit}` : failures;
+}
+
+/** The longest a lock is said with its time: one that passes later is a count no time resets. */
+const attemptLockSaid = 366 * 24 * 60 * 60_000;
+
+/**
+ * The State of a row of the failed sign-ins: for a locked one, until when and how long is
+ * left ("Locked until 3:15 PM, 12 minutes left", lockLine and timeLeft); "Locked" alone
+ * where the lock passes more than 366 days from now, a count no time resets, or the row
+ * carries no time; "Counting" for the rest.
+ */
+function attemptState(row: RecordData, now: number): string {
+  if (row['state'] !== 'locked') {
+    return attemptStateWords.find((words) => words.value === row['state'])?.label ?? String(row['state'] ?? '');
+  }
+  const until = row['lockedUntil'];
+  const instant = typeof until === 'string' || until instanceof Date ? new Date(until) : undefined;
+  const line = lockLine(until, now);
+  if (instant === undefined || line === '' || instant.getTime() - now > attemptLockSaid) {
+    return 'Locked';
+  }
+  return `${line}, ${timeLeft(instant.getTime() - now)} left`;
+}
+
+/**
+ * What Unlock asks of a row of the failed sign-ins, by what it counts: of a name, that
+ * its count starts over; of mail, that it can be sent again at once; of wrong codes,
+ * that codes can be entered again.
+ */
+function unlockQuestion(row: RecordData): string {
+  const { kind, subject } = attemptOf(row);
+  if (kind in attemptMailKinds) {
+    return `Clear this count? Mail to ${subject} can be sent again at once.`;
+  }
+  if (kind in attemptGuessKinds) {
+    return 'Clear this count? Codes can be entered again.';
+  }
+  return `Unlock ${subject}? The count of failed tries starts over.`;
 }
 
 /**
