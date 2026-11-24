@@ -508,10 +508,6 @@ func TestManager_SignInMethods(t *testing.T) {
 		t.Errorf("SignInMethods() (-want +got):\n%s", diff)
 	}
 
-	open, err := m.AnyMethodOpen(t.Context(), nil)
-	if err != nil || !open {
-		t.Errorf("AnyMethodOpen() = %v, %v; want true while google is open", open, err)
-	}
 	closed := newSignUpManager(t, &fakeStore{methodRows: map[string]SignInMethodRow{
 		"password":  {Name: "password", OpenSignUp: true, OpenedFor: &earlierPassword, DefaultRole: &member},
 		"workspace": {Name: "workspace", OpenSignUp: true, OpenedFor: &earlierWorkspace, DefaultRole: &member},
@@ -520,11 +516,8 @@ func TestManager_SignInMethods(t *testing.T) {
 		"partners":  {Name: "partners", OpenSignUp: true, OpenedFor: audienceOf("partners")},
 		"retired":   {Name: "retired", OpenSignUp: true, OpenedFor: audienceOf("google")},
 	}})
-	if open, err := closed.AnyMethodOpen(t.Context(), nil); err != nil || open {
-		t.Errorf("AnyMethodOpen() = %v, %v; want false: a row that kept its audience in the earlier form, by names, a row that names none, a row of the directory's method, one of a registration whose own rule decides, and one of a method the auth no longer registers open nothing", open, err)
-	}
-	// A row that names no audience says so in the list too, and so does a row that kept
-	// its audience in the earlier form, by names: neither can be compared with whom the
+	// A row that names no audience says so in the list, and so does a row that kept its
+	// audience in the earlier form, by names: neither can be compared with whom the
 	// method admits, so neither is open, even where the names are the registration's own.
 	listed, err := closed.SignInMethods(t.Context(), nil)
 	if err != nil {

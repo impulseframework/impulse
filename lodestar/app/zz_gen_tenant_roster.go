@@ -69,9 +69,10 @@ func NewSectorDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTra
 // NewSectorDirectoryReader builds the sign-in's reader of every sector's declaration of
 // one directory (session.Auth.SetDirectoryAdmission, through signin.DirectoryReader):
 // the SectorDirectory rows naming the directory's method and connection, each as its sector
-// with the default seat the row carries (SectorDirectory.DefaultSeat: the role a stranger the
-// directory vouches for is seated with at their first sign-in, none for a NULL, and the
-// sector admits them by invitation only),
+// with the default seat the row carries (SectorDirectory.DefaultSeat: the role a person the
+// directory vouches for is seated with when they sign in through it and hold nothing in
+// the sector, at every sign-in, none for a NULL, and the sector admits them by
+// invitation only),
 // and with whether the sector says the directory asks its people for a second
 // factor of its own (SectorDirectory.AsksSecondFactor),
 // read in the sign-in's own transaction. The application hands it to the auth whose

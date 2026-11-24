@@ -26,6 +26,8 @@ import (
 	"slices"
 	"testing"
 
+	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/resource"
@@ -40,6 +42,7 @@ const (
 	nothingToRemoveHere  = "This person holds nothing in this sector itself, so there is nothing to remove here."
 	removalTakesMarshal  = "Removing this person from the sector takes away the role Sector marshal, which you may not take from them."
 	removalConfirmSector = "Remove from this sector"
+	removalSeatedAgain   = "This sector is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. A role with no privileges keeps them out."
 )
 
 // giveCrewRole gives the person the role in the scope, in a transaction of its own.
@@ -282,4 +285,57 @@ func TestTenantRemoval(t *testing.T) {
 			t.Errorf("mara holds %v after the refused call, want her role kept", got)
 		}
 	})
+}
+
+// TestTenantRemoval_seatedAgainBySignIn holds what the removal's warning says of a sector
+// open to its directory: Cinder is open to the fleet's Workspace with a starting role, so
+// removing a person who signs in through the Workspace says they are given the role again
+// at their next sign-in, and that a role with no privileges keeps them out. A person with
+// no sign-in through it is told nothing of the kind, and neither is the first once Cinder
+// is invite only. The warning writes nothing.
+func TestTenantRemoval_seatedAgainBySignIn(t *testing.T) {
+	t.Parallel()
+	w := newTenantListsWorld(t)
+	ctx := t.Context()
+
+	// ida signs in through the fleet's Workspace, Cinder's directory: her identity is
+	// written as the Google sign-in writes one. jo, seated at Cinder by hand, has none.
+	w.seat(ctx, t, "ida", "Pilot", cinder)
+	w.seat(ctx, t, "jo", "Pilot", cinder)
+	id, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionIdentities", map[string]any{
+		"Id": id.String(), "UserId": w.ids["ida"], "Method": "google", "Connection": "example", "Subject": "workspace-subject-of-ida",
+		"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+	})}); err != nil {
+		t.Fatalf("writing ida's identity through the Workspace: %v", err)
+	}
+	// seatedAgain says whether the warning of removing the person from Cinder, asked by
+	// the governor, holds the note.
+	seatedAgain := func(t *testing.T, name string) bool {
+		t.Helper()
+		rr := doRequestRecordedWithHeaders(t, w.h, tenantGovernor, http.MethodPost, sectorPath(cinder, sectorRemovalPath), w.removalBody(name), map[string]string{resource.WarningHeader: "true"})
+		assertStatus(t, rr.Code, http.StatusOK, rr.Body.Bytes())
+
+		return slices.ContainsFunc(decodeWarning(t, rr.Body.Bytes()).Also, func(note resource.WarningNote) bool { return note.Says == removalSeatedAgain })
+	}
+	held := []string{"domain/" + cinder + " Pilot"}
+
+	if !seatedAgain(t, "ida") {
+		t.Errorf("the warning of removing ida from Cinder holds no note %q, want it: Cinder is open and she signs in through its directory", removalSeatedAgain)
+	}
+	if got := crewHeldBy(t, w.db, w.ids["ida"]); !slices.Equal(got, held) {
+		t.Errorf("ida holds %v after the warning, want %v: the warning writes nothing", got, held)
+	}
+	if seatedAgain(t, "jo") {
+		t.Errorf("the warning of removing jo from Cinder holds %q, want none: jo has no sign-in through its directory", removalSeatedAgain)
+	}
+	if status, body := doRequestAs(t, w.h, tenantGovernor, http.MethodPost, sectorPath(cinder, "make-sector-invite-only"), `{}`); status != http.StatusOK {
+		t.Fatalf("making Cinder invite only: status %d: %s", status, body)
+	}
+	if seatedAgain(t, "ida") {
+		t.Errorf("the warning of removing ida from Cinder once it is invite only holds %q, want none", removalSeatedAgain)
+	}
 }

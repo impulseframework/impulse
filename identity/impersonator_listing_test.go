@@ -168,7 +168,6 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.CheckInvitedTenant":              {none: reads},
 	"Manager.InvitedTenants":                  {none: reads},
 	"Manager.SignInMethods":                   {none: reads},
-	"Manager.AnyMethodOpen":                   {none: reads},
 	"Manager.SessionMethodOpen":               {none: reads},
 	"Manager.OneTenantPerPerson":              {none: reads},
 	"Manager.SignInSettings":                  {none: reads},

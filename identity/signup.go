@@ -185,21 +185,6 @@ func (m *Manager) sessionRegistrations(ctx context.Context) []string {
 	return names
 }
 
-// AnyMethodOpen reports whether an administrator has some sign-in method of the auth
-// open to sign-up now, for the audience the method has. In an application with tenants
-// it is what lets a person who holds no tenant create one: a person who signed up
-// through an open method, and nobody while every method is invite only. A row of a
-// method the auth no longer registers opens nothing, and neither does one opened for
-// another audience than its registration has now.
-func (m *Manager) AnyMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
-	methods, err := m.SignInMethods(ctx, reader)
-	if err != nil {
-		return false, err
-	}
-
-	return slices.ContainsFunc(methods, func(method SignInMethod) bool { return method.OpenSignUp }), nil
-}
-
 // signInMethod is one registered method with its row, nil for a method that has none.
 func (m *Manager) signInMethod(registered *session.RegisteredMethod, row *SignInMethodRow) SignInMethod {
 	method := SignInMethod{

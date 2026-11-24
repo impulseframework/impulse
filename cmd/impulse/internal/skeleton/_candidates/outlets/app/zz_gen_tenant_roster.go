@@ -68,9 +68,10 @@ func NewTenantDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTra
 // NewTenantDirectoryReader builds the sign-in's reader of every tenant's declaration of
 // one directory (session.Auth.SetDirectoryAdmission, through signin.DirectoryReader):
 // the TenantDirectory rows naming the directory's method and connection, each as its tenant
-// with the default seat the row carries (TenantDirectory.DefaultSeat: the role a stranger the
-// directory vouches for is seated with at their first sign-in, none for a NULL, and the
-// tenant admits them by invitation only),
+// with the default seat the row carries (TenantDirectory.DefaultSeat: the role a person the
+// directory vouches for is seated with when they sign in through it and hold nothing in
+// the tenant, at every sign-in, none for a NULL, and the tenant admits them by
+// invitation only),
 // and with whether the tenant says the directory asks its people for a second
 // factor of its own (TenantDirectory.AsksSecondFactor),
 // read in the sign-in's own transaction. The application hands it to the auth whose

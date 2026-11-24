@@ -987,6 +987,30 @@ func (c *Client) DirectoryInvitations(ctx context.Context, txn resource.ReadWrit
 	return invitations, nil
 }
 
+// SeatedAgainBySignIn reports whether a person of the Staff auth removed from the
+// tenant is given its starting role again the next time they sign in: the tenant's
+// row of TenantDirectories names a default seat, and the person has a sign-in identity
+// (StaffSessionIdentities) whose method and connection are that row's. The directory gives a
+// person who holds nothing in the tenant that role at every sign-in
+// (identity.Manager.DirectorySeated). It is one statement past the declarations, as
+// UserID's is, read in the caller's transaction. The warning of the generated method
+// that removes a person from a tenant asks it, and on yes says so
+// (identity.Tenant.SeatedAgainNote).
+func (c *Client) SeatedAgainBySignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT EXISTS (SELECT 1 FROM StaffSessionIdentities i JOIN TenantDirectories d ON d.Method = i.Method AND d.Connection = i.Connection WHERE i.UserId = @userId AND d.TenantId = @tenant AND d.DefaultSeat IS NOT NULL AND d.DefaultSeat != '')",
+		Params: map[string]any{"userId": userID.String(), "tenant": string(tenant)},
+	}
+	var seated bool
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		return row.Column(0, &seated)
+	}); err != nil {
+		return false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return seated, nil
+}
+
 // groupID answers a group's id as the declarations hold it, from the text the permission
 // store names a group by.
 func groupID(group accesstypes.Group) (impulse.UUID, error) {
