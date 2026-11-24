@@ -1,0 +1,15 @@
+.impulse-change-history-dialog-field {
+  display: block;
+  max-width: 320px;
+  margin-top: 8px;
+}
+
+.impulse-change-history-dialog-error {
+  color: var(--mat-sys-error, #b3261e);
+}
+
+.impulse-change-history-dialog-older {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0 0;
+}

@@ -76,7 +76,9 @@ export const rowActionsKey = 'actions:menu';
  * server's: something a person only reads, opened in a pop-up (a flag's history). It is
  * drawn as an icon button named by its label, ahead of the row's menu of methods, on
  * every row; what the server lets the caller do is never decided here, so a button that
- * reads asks the server and shows its answer, a refusal included.
+ * reads asks the server and shows its answer, a refusal included. The list draws a row's
+ * buttons in its last column, and the record's page draws them beside Delete, each run
+ * with the record and the injector.
  */
 export interface RowButton {
   /** The button's name: its tooltip and what a screen reader says. */

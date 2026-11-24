@@ -594,6 +594,12 @@ await api.features.setFeature('debriefs', true); // the set and the digest are c
 const history = await api.features.changes('debriefs'); // each flip, newest first: changedAt, enabled, changedBy
 ```
 
+**A record's history.** `handle.changes(key, { after, field })` reads a page of the
+record's change records, newest first: `{ changes: [{ at, sequence, source, fields:
+[{ field, old, new }] }], next }`. Pass `next` back as `after` for the page before, and
+`field` for the changes to one field. The server leaves out every field the caller cannot
+see on the record, and answers 404 for a resource that does not track its changes.
+
 ## Sign-in
 
 A login page renders from what the server offers, naming no path, no label and no method of

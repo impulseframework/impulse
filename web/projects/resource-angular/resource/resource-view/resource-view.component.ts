@@ -41,6 +41,7 @@ import {
   Resource,
   RESOURCE_META,
   RootConfig,
+  RowButton,
   RPCConfig,
   ViewConfig,
   writeResource,
@@ -304,6 +305,25 @@ export class ResourceViewComponent implements OnInit {
       presentations,
     );
   });
+
+  /**
+   * The buttons the page's list gives every row (`rowButtons`), drawn for the record the
+   * page shows, after Delete: each is run with the record as the page read it and the
+   * page's injector, as the list runs it on the record's row. None for a view's config,
+   * which carries none, while the row is not on hand, and while the page creates a row.
+   */
+  rowButtons = computed<RowButton[]>(() => {
+    const config = this.config();
+    if (config.type !== 'ListView' || !this.store.rowPresent() || this.showCreateForm()) {
+      return [];
+    }
+    return config.rowButtons ?? [];
+  });
+
+  /** Runs one of the page's row buttons with the record the page shows. */
+  runRowButton(button: RowButton): void {
+    button.run(this.store.viewData(), this.injector);
+  }
 
   /**
    * Runs a method against the page's row through its dialog. Once it has run the page
