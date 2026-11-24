@@ -200,7 +200,7 @@ func Test_concealDeniedStatuses(t *testing.T) {
 		HandlerType: changeHistoryHandler,
 		TestParams:  []routeTestParam{{Key: "tenantID"}},
 	}
-	tenant, _, err := queryRouteCase(tenantHistory, []pkParamType{{declared: "ccc.UUID"}}, "")
+	tenant, _, err := queryRouteCase(tenantHistory, []pkParamType{{declared: "impulse.UUID"}}, "")
 	if err != nil {
 		t.Fatalf("queryRouteCase(tenant) error = %v", err)
 	}
@@ -221,6 +221,48 @@ func Test_concealDeniedStatuses(t *testing.T) {
 	}
 	if tenant.URL != "/api/tenants/00000000-0000-0000-0000-000000000001/changes" {
 		t.Errorf("the tenant record's history case asks %s: the case proves nothing", tenant.URL)
+	}
+}
+
+// Test_resourceFeatureTests_changeHistory pins the history route of a resource behind a
+// flag: it takes the read route's flag, so it is not served while the flag is off, and the
+// generated feature gate tests drive it in both states of the flag.
+func Test_resourceFeatureTests_changeHistory(t *testing.T) {
+	t.Parallel()
+
+	r := acrossFixtureGenerator(t)
+	shipment := r.resources[0]
+	gate := &featureGate{Constant: "Freight", Name: "freight"}
+	shipment.Feature = gate
+
+	routes, err := r.resourceChangeHistoryRoutes(shipment, "api")
+	if err != nil {
+		t.Fatalf("resourceChangeHistoryRoutes() error = %v", err)
+	}
+	if len(routes) != 1 || routes[0].Feature != gate {
+		t.Fatalf("resourceChangeHistoryRoutes() = %+v, want one route behind the shipment's flag", routes)
+	}
+	read, err := r.resourceRoute(shipment, ReadHandler, "api")
+	if err != nil {
+		t.Fatalf("resourceRoute() error = %v", err)
+	}
+	// The read's own gate case, whose address holds the key's placeholder value.
+	readCase, err := gateTestOf(read, resourcePKTypes(shipment), "", "Freight", r.allOutlets()[0])
+	if err != nil {
+		t.Fatalf("gateTestOf() error = %v", err)
+	}
+
+	data := &featureTestsData{}
+	if err := r.resourceFeatureTests(data, shipment, r.allOutlets()[0]); err != nil {
+		t.Fatalf("resourceFeatureTests() error = %v", err)
+	}
+	want := featureGateTest{Name: "ShipmentChangeHistory", Method: "http.MethodGet", URL: readCase.URL + "/" + resource.ChangeHistoryRoute, Constant: "Freight", Permission: "Read"}
+	found := false
+	for _, test := range data.Routes {
+		found = found || test == want
+	}
+	if !found {
+		t.Errorf("the gate tests lack %+v: %+v", want, data.Routes)
 	}
 }
 

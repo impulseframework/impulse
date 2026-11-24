@@ -57,6 +57,14 @@ func TestGeneratedFeatureGates(t *testing.T) {
 			grants:  grants{accesstypes.Read: true},
 			wantOn:  []int{http.StatusOK, http.StatusNotFound},
 		},
+		{
+			name:    "CommendationChangeHistory",
+			feature: resources.Commendations,
+			method:  http.MethodGet,
+			target:  "/console/api/commendations/00000000-0000-0000-0000-000000000001/changes",
+			grants:  grants{accesstypes.Read: true},
+			wantOn:  []int{http.StatusOK, http.StatusNotFound},
+		},
 	}
 	fields := []struct {
 		name    string
