@@ -1131,7 +1131,7 @@ the tenant's Sign-in page.
 | Choice | What it does |
 | --- | --- |
 | The tenant's directory | Makes the directory the administrator is signed in through the tenant's own, or removes it. |
-| Open to the directory, or invite only | Open names the role each person from the directory is given at their first sign-in through it, with no invitation. The role is one of the tenant's roles that the administrator could give directly. Invite only clears it: the directory's people then need an invitation. A tenant starts invite only unless the invitation that made it named a role. |
+| Open to the directory, or invite only | Open names the role each person from the directory is given when they sign in through it and hold nothing in the tenant, at every sign-in, with no invitation. The role is one of the tenant's roles that the administrator could give directly. Invite only clears it: the directory's people then need an invitation. A tenant starts invite only unless the invitation that made it named a role. |
 | The directory's second factor | Says that the tenant's directory asks its people for a second factor of its own. The application then stops asking the people who sign in through that directory for its mailed code, in this tenant and in every tenant that gave them a role. It is the tenant's word, and nothing checks it. A Super Administrator, and anyone who signs in with a password, are asked as before. Taking it back asks the directory's people again from their next sign-in. The choice is there where the application's directories carry it, and there is something to turn off only while the application asks everyone for a second factor. |
 | Directory only | Closes the tenant to every sign-in but one through its directory: no password, no personal account, no other organization's directory. That keeps out the application's own staff too. Two kinds of people still get in: an administrator of the tenant itself, with a password and a code mailed to their email address, and a Super Administrator. |
 
@@ -1582,12 +1582,13 @@ directory, and the list width lets the organizations on the list have one. A met
 wide as any organization lets every tenant choose. A tenant that has no directory is
 invite only, which is ordinary in this shape.
 
-A person is given the directory's default role at their first sign-in through the
-directory, whether their account is created then or existed before, unless they already
-hold a role in the tenant. A later sign-in gives nothing: a role the tenant's
-administrator took away afterward is not given back while the person still has their
-account. Taking away the last role a person holds anywhere deletes the account, and
-their next sign-in through the directory is then a first one again.
+A person who signs in through the directory and holds nothing in the tenant is given
+the directory's default role, at every sign-in: whether their account is created then,
+existed before, or was tied to the directory before the tenant took it. A person who
+holds anything in the tenant is given nothing more. So a person whose role the tenant's
+administrator took away is given the default role again at their next sign-in through
+the directory. To keep one person out while the tenant is open, give them a role with no
+privileges. To keep out everyone who is not invited, make the tenant invite only.
 
 ```sh
 impulse add tenancy --shape global-users-each-tenant-chooses

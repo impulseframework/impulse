@@ -341,24 +341,29 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 	}
 }
 
-// TestDirectoryDefaultRole_givenAtTheFirstSignInThroughTheDirectory proves when a
-// sector's default role is given to a person whose account stood before: at their first
-// sign-in through the sector's directory, the one that links the account to it, and
-// once for that link.
+// TestDirectoryDefaultRole_givenAtEverySignInThroughTheDirectory proves when a
+// sector's default role is given to a person whose account stood before: a sector that
+// is open to its directory gives its starting role to a person who signs in through the
+// directory and holds nothing in the sector, at every sign-in, whether the account is
+// new, stood before, or was tied to the directory before the sector took it, and
+// whatever the person holds in other sectors. A person a marshal removes from the
+// sector is given the starting role again the next time they sign in through the
+// directory. A role with no privileges keeps one person out while the sector is open;
+// making the sector invite only keeps everyone out who is not invited.
 //
 // The cadet is a password persona, seated in Anvil and nowhere else. The fleet's
 // directory is Cinder's, whose row names SectorCrew. Her first sign-in through the
 // fleet's directory is held for her password, which links the identity to her account,
 // and the link gives her Cinder's default role. Her second sign-in finds the link and
-// gives nothing. The governor removes the role, and signing in again does not give it
-// back: an administrator who wants one person out removes the role and leaves the
-// link. The governor then deletes the link as a marshal of Cinder, from Cinder's side,
-// since the link is under Cinder's directory and Cinder manages her account; her next
-// sign-in through the directory is a first one again: it links the account and, since
-// she holds no role at Cinder, gives the default role.
+// gives nothing more: she holds the role. The governor removes the role, and her next
+// sign-in through the directory gives it again. The governor then deletes the link as a
+// marshal of Cinder, from Cinder's side, since the link is under Cinder's directory and
+// Cinder manages her account; her next sign-in through the directory is a first one
+// again: it links the account and, since she holds the default role, gives nothing
+// more.
 //
 // Demonstrates: tenancy.default-seat.
-func TestDirectoryDefaultRole_givenAtTheFirstSignInThroughTheDirectory(t *testing.T) {
+func TestDirectoryDefaultRole_givenAtEverySignInThroughTheDirectory(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -413,20 +418,24 @@ func TestDirectoryDefaultRole_givenAtTheFirstSignInThroughTheDirectory(t *testin
 		t.Errorf("the cadet's roles at Cinder after her second sign-in = %v, want the one default role and nothing more", held)
 	}
 
-	// The role is removed, and signing in does not give it back.
+	// The governor removes the role, and her next sign-in through the directory gives it
+	// again.
 	take := jsonBody(t, map[string]any{"userId": cadetID, "role": "SectorCrew", "domain": cinder})
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("remove-crew-role"), take); status != http.StatusNoContent {
 		t.Fatalf("removing the cadet's role at Cinder: status %d: %s", status, body)
 	}
-	linked(false)
 	if held := atCinder(); len(held) != 0 {
-		t.Errorf("the cadet's roles at Cinder after signing in with the role removed = %v, want none: a removed role is not given back", held)
+		t.Fatalf("the cadet's roles at Cinder once the governor removed the role = %v, want none", held)
+	}
+	linked(false)
+	if held := atCinder(); !slices.Equal(held, []string{"SectorCrew"}) {
+		t.Errorf("the cadet's roles at Cinder after signing in with the role removed = %v, want the default role given again", held)
 	}
 
 	// The governor deletes the link as a marshal of Cinder, from Cinder's side: the link
 	// is under Cinder's directory, so Cinder manages her account. The next sign-in through
-	// the directory links the account again and gives the default role, since she holds
-	// no role at Cinder.
+	// the directory links the account again and gives nothing more, since she holds the
+	// default role.
 	var links []string
 	for _, row := range crewList(ctx, t, governor, "crew-session-identities") {
 		if row["userId"] == cadetID {
@@ -441,6 +450,6 @@ func TestDirectoryDefaultRole_givenAtTheFirstSignInThroughTheDirectory(t *testin
 	}
 	linked(true)
 	if held := atCinder(); !slices.Equal(held, []string{"SectorCrew"}) {
-		t.Errorf("the cadet's roles at Cinder after the sign-in that linked her account again = %v, want the default role", held)
+		t.Errorf("the cadet's roles at Cinder after the sign-in that linked her account again = %v, want the one default role and nothing more", held)
 	}
 }

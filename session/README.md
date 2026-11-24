@@ -343,7 +343,12 @@ DML what a later rule must read.
   that account, under the sign-in name. That link is their first sign-in through the
   directory, so the tenant's default seat is given at it too, through the hook, in
   the transaction that makes the link, whether the link is made at once or after
-  their password confirmed it.
+  their password confirmed it, and the hook is offered it again at every later
+  sign-in through the directory: a tenant that is open to its directory gives its
+  starting role to a person who signs in through the directory and holds nothing in
+  the tenant, at every sign-in, whether the account is new, stood before, or was tied
+  to the directory before the tenant took it, and whatever the person holds in other
+  tenants.
 
   **A first link on a name alone needs something to vouch for it.** An account created
   ahead with no password, which has never signed in (one the application created
@@ -422,11 +427,13 @@ DML what a later rule must read.
   (`identity_rejected`) before anything is written, and neither account gains a link. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
   seated with it in the tenant, through the hook, in the transaction
-  that creates the account and links it. The hook is called once for a link, never
-  for a sign-in that finds the link, and the application's hook gives the seat only
-  where the person holds none in the tenant (the generated identity client's does),
-  so a seat an administrator removed is not given back by signing in, and a link that
-  is deleted and made again gives it again. A seat the invitation the sign-in consumes names too (the
+  that creates the account and links it. The hook is called at every sign-in through
+  the directory by an account that is not disabled, also one that finds the link, and
+  the application's hook gives the seat only where the person holds nothing in the
+  tenant (the generated identity client's does). So a person an administrator removes
+  from the tenant is given the default seat again the next time they sign in through
+  the directory. A role with no privileges keeps one person out while the tenant is
+  open; making the tenant invite only keeps everyone out who is not invited. A seat the invitation the sign-in consumes names too (the
   same role in the same tenant) is given once, by the invitation, and is left out of
   what the hook is handed. A declaration naming none admits strangers by invitation only, the
   invitation the sign-in carries being the account as through a method that is invite
@@ -724,26 +731,29 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   one tenant at most), in the sign-in's first transaction; `seatHook`, a
   `session.DirectorySeatedHook[Tx]`, is the application's two functions over a
   person's roles. Its `Seat` seats the person with the seat the declaration
-  names (`signin.DirectorySeat`), inside the transaction that links the identity to
-  the user, which it is handed, so the link is made and the seat given together or
+  names (`signin.DirectorySeat`), inside the sign-in's transaction, which it is
+  handed, so a link that transaction makes is made and the seat given together or
   neither is, under the contract the invitation hook has (see "Invitations"). Its
   `OnlyIn` answers whether a tenant is the only place a person holds anything, read in
   that transaction, which the library asks before it links an identity on its name
   alone to an account that has never signed in (see "A first link on a name alone"
   above). The generated identity client answers both.
-  `Seat` is called at a person's first sign-in through the directory, the one that
-  makes the link, whether the account is created in it or stood before: a person
-  given a role ahead of their first sign-in, or invited by another tenant, has an
-  account, which the sign-in links to after the pending confirmation
-  (`Pending().Confirm()`) when it holds a password, and at once when it holds none
-  and the link is vouched for, and the hook
-  runs in the transaction of that link (the storage's `LinkConfirmedIdentity` for
-  the confirmed one, which an `AuthStore` of the application's own must implement).
-  It is called once for a link: a later sign-in finds the link and calls nothing.
-  Whether the person is seated is the hook's to decide over what it is handed: the
-  generated identity client's gives the seat where the person holds no role in the
-  tenant, so a seat an administrator removed is not given back by signing in, and a
-  link that is deleted and made again gives it again. A personal account, one of the
+  `Seat` is called at every sign-in through the directory by an account that is not
+  disabled. At a person's first sign-in through the directory, the one that makes
+  the link, whether the account is created in it or stood before (a person given a
+  role ahead of their first sign-in, or invited by another tenant, has an account,
+  which the sign-in links to after the pending confirmation (`Pending().Confirm()`)
+  when it holds a password, and at once when it holds none and the link is vouched
+  for), the hook runs in the transaction of that link (the storage's
+  `LinkConfirmedIdentity` for the confirmed one, which an `AuthStore` of the
+  application's own must implement). At every later sign-in it runs in the sign-in's
+  first transaction, which finds the link. Whether the person is seated is the hook's
+  to decide over what it is handed: the generated identity client's gives the seat
+  where the person holds nothing in the tenant. So a person an administrator removes
+  from the tenant is given the default seat again the next time they sign in through
+  the directory; a role with no privileges keeps one person out while the tenant is
+  open, and making the tenant invite only keeps everyone out who is not invited. A
+  personal account, one of the
   two connections that stand for everyone who is in no organization
   (`signin.Directory.PersonalAccounts`: any Google account,
   `signin.GoogleAnyAccountConnection`, and Microsoft's personal accounts,
