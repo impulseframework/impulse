@@ -210,9 +210,13 @@ func TestChangeHistoryVisibleFields(t *testing.T) {
 func TestChangeHistoryPage(t *testing.T) {
 	t.Parallel()
 
-	jsonNames := map[accesstypes.Field]string{"Title": "title", "Count": "count", "Code": "code", "Hidden": "hidden"}
+	jsonNames := map[accesstypes.Field]string{"Title": "title", "Count": "count", "Code": "code", "Hidden": "hidden", "Key": "key"}
 	jsonName := func(field accesstypes.Field) string {
 		return jsonNames[field]
+	}
+	// Key is a secret by the resource's declaration; no other field is.
+	secret := func(field accesstypes.Field) bool {
+		return field == "Key"
 	}
 	visible := []accesstypes.Field{"Code", "Title", "Count"}
 	newest := time.Date(2026, 11, 23, 18, 0, 0, 0, time.UTC)
@@ -225,7 +229,7 @@ func TestChangeHistoryPage(t *testing.T) {
 		{EventTime: newest.Add(-time.Minute), Sequence: 0, EventSource: "process sync", ChangeSet: changeSet(`{"Code":{"Old":null,"New":null,"Secret":true},"Title":{"New":"a"}}`)},
 		{EventTime: newest.Add(-2 * time.Minute), Sequence: 0, EventSource: "process sync"},
 	}
-	page, err := changeHistoryPage(rows, visible, jsonName)
+	page, err := changeHistoryPage(rows, visible, jsonName, secret)
 	if err != nil {
 		t.Fatalf("changeHistoryPage() error = %v", err)
 	}
@@ -266,7 +270,7 @@ func TestChangeHistoryPage(t *testing.T) {
 		for i := range many {
 			many[i] = changeRecordRow{EventTime: newest.Add(-time.Duration(i) * time.Second), Sequence: int64(i % 2)}
 		}
-		page, err := changeHistoryPage(many, visible, jsonName)
+		page, err := changeHistoryPage(many, visible, jsonName, secret)
 		if err != nil {
 			t.Fatalf("changeHistoryPage() error = %v", err)
 		}
@@ -278,12 +282,29 @@ func TestChangeHistoryPage(t *testing.T) {
 			t.Errorf("next = %q, want %q", page.Next, want)
 		}
 
-		whole, err := changeHistoryPage(many[:ChangeHistoryPageSize], visible, jsonName)
+		whole, err := changeHistoryPage(many[:ChangeHistoryPageSize], visible, jsonName, secret)
 		if err != nil {
 			t.Fatalf("changeHistoryPage() error = %v", err)
 		}
 		if len(whole.Changes) != ChangeHistoryPageSize || whole.Next != "" {
 			t.Errorf("a full page with nothing beyond it: %d records, next %q, want %d and none", len(whole.Changes), whole.Next, ChangeHistoryPageSize)
+		}
+	})
+	t.Run("a field declared a secret is answered with no value, whatever its record holds", func(t *testing.T) {
+		t.Parallel()
+
+		// A record written before the field was declared a secret: both values, no mark.
+		before := []changeRecordRow{{EventTime: newest, Sequence: 0, EventSource: "user b", ChangeSet: changeSet(`{"Key":{"Old":"old key","New":"new key"},"Title":{"Old":"a","New":"b"}}`)}}
+		page, err := changeHistoryPage(before, []accesstypes.Field{"Key", "Title"}, jsonName, secret)
+		if err != nil {
+			t.Fatalf("changeHistoryPage() error = %v", err)
+		}
+		want := []ChangedField{
+			{Field: "key", Old: null, New: null, Secret: true},
+			{Field: "title", Old: json.RawMessage(`"a"`), New: json.RawMessage(`"b"`)},
+		}
+		if diff := cmp.Diff(want, page.Changes[0].Fields); diff != "" {
+			t.Errorf("changeHistoryPage() fields mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

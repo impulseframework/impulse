@@ -234,7 +234,7 @@ func (h *ChangeHistoryQuery[Resource]) readPage(ctx context.Context, txn ReadOnl
 		return nil, notFound
 	}
 
-	return changeHistoryPage(rows, visible, q.jsonName)
+	return changeHistoryPage(rows, visible, q.jsonName, q.rMeta.secret)
 }
 
 // ChangeHistoryPage is a page of one record's history, as its route answers it: the
@@ -272,7 +272,8 @@ type ChangedField struct {
 	Old json.RawMessage `json:"old"`
 	// New is the value after the change, JSON null where there is none.
 	New json.RawMessage `json:"new"`
-	// Secret says the field holds a secret: it was changed, and neither value is kept.
+	// Secret says the field holds a secret, by the resource's declaration or by the
+	// record: it was changed, and no value of it is answered.
 	Secret bool `json:"secret,omitempty"`
 }
 
@@ -381,9 +382,9 @@ type changeSetEntry struct {
 // changeHistoryPage shapes the rows a read gave, newest first, into a page: at most
 // ChangeHistoryPageSize records, Next the token of the last where a further row came
 // back, and in each record the entries of the fields in visible, in its order, under
-// their JSON names (jsonName). An entry of any other field is left out, and a record
-// left with none is listed all the same.
-func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, jsonName func(accesstypes.Field) string) (*ChangeHistoryPage, error) {
+// their JSON names (jsonName), a secret's (secret) with no value. An entry of any other
+// field is left out, and a record left with none is listed all the same.
+func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, jsonName func(accesstypes.Field) string, secret func(accesstypes.Field) bool) (*ChangeHistoryPage, error) {
 	page := &ChangeHistoryPage{Changes: make([]ChangeRecord, 0, min(len(rows), ChangeHistoryPageSize))}
 	if len(rows) > ChangeHistoryPageSize {
 		rows = rows[:ChangeHistoryPageSize]
@@ -392,7 +393,7 @@ func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, json
 	}
 
 	for _, row := range rows {
-		fields, err := changedFields(row.ChangeSet, visible, jsonName)
+		fields, err := changedFields(row.ChangeSet, visible, jsonName, secret)
 		if err != nil {
 			return nil, errors.Wrapf(err, "the change record of %s at sequence %d", row.EventTime.UTC().Format(time.RFC3339Nano), row.Sequence)
 		}
@@ -403,8 +404,10 @@ func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, json
 }
 
 // changedFields answers the entries of one change set for the fields in visible, in its
-// order; a value the entry does not hold, or holds as JSON null, is JSON null.
-func changedFields(changeSet spanner.NullString, visible []accesstypes.Field, jsonName func(accesstypes.Field) string) ([]ChangedField, error) {
+// order; a value the entry does not hold, or holds as JSON null, is JSON null. An entry of
+// a field that is a secret, by the resource's declaration (secret) or by the entry's own
+// mark, is answered with both values JSON null, whatever the entry holds.
+func changedFields(changeSet spanner.NullString, visible []accesstypes.Field, jsonName func(accesstypes.Field) string, secret func(accesstypes.Field) bool) ([]ChangedField, error) {
 	fields := []ChangedField{}
 	if !changeSet.Valid {
 		return fields, nil
@@ -419,7 +422,12 @@ func changedFields(changeSet spanner.NullString, visible []accesstypes.Field, js
 		if entry == nil {
 			continue
 		}
-		fields = append(fields, ChangedField{Field: jsonName(field), Old: jsonValue(entry.Old), New: jsonValue(entry.New), Secret: entry.Secret})
+		if entry.Secret || secret(field) {
+			fields = append(fields, ChangedField{Field: jsonName(field), Old: json.RawMessage("null"), New: json.RawMessage("null"), Secret: true})
+
+			continue
+		}
+		fields = append(fields, ChangedField{Field: jsonName(field), Old: jsonValue(entry.Old), New: jsonValue(entry.New)})
 	}
 
 	return fields, nil
