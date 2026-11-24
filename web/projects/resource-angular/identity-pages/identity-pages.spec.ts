@@ -1958,8 +1958,7 @@ describe("identityPages, the people lists lead with the person's name", () => {
 
 // Where the server says which sessions are live (the sessions list has `live`), a person's
 // page lists the live ones and links under them to all of the person's sessions on the
-// Sessions page, which says each session's state in one column. A list from before the
-// server said so is drawn as it was.
+// Sessions page. A list from before the server said so is drawn as it was.
 describe('identityPages, the sessions where the server says which are live', () => {
   const liveMetas: Record<string, ResourceMeta> = {
     ...metas,
@@ -2001,26 +2000,6 @@ describe('identityPages, the sessions where the server says which are live', () 
     expect(live.more?.({ id: 'u-1', username: '' })).toBeUndefined();
   });
 
-  it("says on the Sessions page each session's state in one column, from what the server says of it", () => {
-    expect(visibleColumns(list(sessions))).toEqual([
-      ['username', 'Username'],
-      ['authenticatedAt', 'Signed in'],
-      ['updatedAt', 'Last active'],
-      ['live', 'State'],
-    ]);
-    expect(hiddenColumns(list(sessions))).toEqual(['expired']);
-    const state = columnOf(list(sessions), 'live');
-    expect([state.sortable, state.filterable]).toEqual([false, false]);
-    const said = state.valueGetter as (row: RecordData) => string;
-    expect([
-      said({ live: true, expired: false }),
-      said({ live: false, expired: false }),
-      said({ live: false, expired: true }),
-      said({}),
-    ]).toEqual(['Live', 'Timed out', 'Ended', '']);
-    expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
-  });
-
   it('draws both lists as it did where the server does not say which sessions are live', () => {
     const [before, , every] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
     const of = children(before)[2];
@@ -2039,6 +2018,125 @@ describe('identityPages, the sessions where the server says which are live', () 
       ['updatedAt', 'Last active'],
       ['expired', 'Expired'],
     ]);
+  });
+});
+
+// Where the server says each session's state in one word (the sessions list has `state`),
+// the Sessions page opens on the live sessions, says whose each is, how it signed in and
+// the browser, marks the reader's own, and opens the account from the username.
+describe('identityPages, the Sessions page where the server says the state of each session', () => {
+  /** The sessions list with every field, its person's id naming the given list where one is given. */
+  const sessionsMeta = (userTarget?: string): ResourceMeta => {
+    const meta = fields(
+      'id',
+      'userId',
+      'username',
+      'name',
+      'expired',
+      'live',
+      'state',
+      'signedInWith',
+      'browser',
+      'authenticatedAt',
+      'updatedAt',
+    );
+    return {
+      ...meta,
+      fields: meta.fields.map((field) =>
+        field.fieldName === 'userId' && userTarget !== undefined
+          ? ({ ...field, enumeratedResource: userTarget } as FieldMeta)
+          : field,
+      ),
+    };
+  };
+  /** The pages over a description of their own, the sessions list's metadata as given. */
+  const pagesOver = (sessionsList: ResourceMeta): RootConfig[] =>
+    identityPages(
+      { ...descriptor } as ApiDescriptor,
+      (resource: Resource): ResourceMeta => (resource === 'CrewSessions' ? sessionsList : metas[resource]),
+      { auth: 'Crew', scope: 'global' },
+    );
+  const [people, , sessions] = pagesOver(sessionsMeta('CrewSessionUsers'));
+  const reader = (sessionId?: string): SessionInfo =>
+    ({ authenticated: true, username: 'ada', sessionId }) as SessionInfo;
+
+  it('draws the username, the name, how each session signed in, the browser, when, and the state, and reads the id', () => {
+    expect(visibleColumns(list(sessions))).toEqual([
+      ['username', 'Username'],
+      ['name', 'Name'],
+      ['signedInWith', 'Signed in with'],
+      ['browser', 'Browser'],
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+      ['state', 'State'],
+    ]);
+    expect(hiddenColumns(list(sessions))).toEqual(['id']);
+    expect(columnOf(list(sessions), 'username').opensRow).toBe(true);
+    const browser = columnOf(list(sessions), 'browser');
+    expect([browser.filterable, browser.sortable]).toEqual([false, false]);
+    expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
+  });
+
+  it('draws only the columns whose fields the list has', () => {
+    const [, , fewer] = pagesOver(fields('id', 'userId', 'username', 'state', 'updatedAt'));
+    expect(visibleColumns(list(fewer))).toEqual([
+      ['username', 'Username'],
+      ['updatedAt', 'Last active'],
+      ['state', 'State'],
+    ]);
+  });
+
+  it('says the state in words, and offers the same words in its filter', () => {
+    const state = columnOf(list(sessions), 'state');
+    expect(state.sortable).toBe(false);
+    expect(state.filterChoices).toEqual([
+      { value: 'live', label: 'Live' },
+      { value: 'timedOut', label: 'Timed out' },
+      { value: 'ended', label: 'Ended' },
+    ]);
+    const said = state.valueGetter as (row: RecordData) => string;
+    expect([said({ state: 'live' }), said({ state: 'timedOut' }), said({ state: 'ended' })]).toEqual([
+      'Live',
+      'Timed out',
+      'Ended',
+    ]);
+  });
+
+  it("marks the reader's own session in its Browser cell, and says the browser's name alone on every other", () => {
+    const said = columnOf(list(sessions), 'browser').valueGetter as (row: RecordData, reader: SessionInfo) => string;
+    expect(said({ id: 's-1', browser: 'Chrome on macOS' }, reader('s-1'))).toBe('Chrome on macOS, this browser');
+    expect(said({ id: 's-1', browser: null }, reader('s-1'))).toBe('This browser');
+    expect(said({ id: 's-2', browser: 'Firefox on Linux' }, reader('s-1'))).toBe('Firefox on Linux');
+    expect(said({ id: 's-2', browser: null }, reader('s-1'))).toBe('');
+    // A read that names no session marks no row.
+    expect(said({ id: 's-1', browser: 'Chrome on macOS' }, reader())).toBe('Chrome on macOS');
+  });
+
+  it("opens the account from the username only where the person's id names the list of the accounts", () => {
+    expect([list(sessions).showViewButton, list(sessions).rowRoute]).toEqual([true, 'userId']);
+    for (const meta of [sessionsMeta(), sessionsMeta('CrewGroups')]) {
+      const [, , unlinked] = pagesOver(meta);
+      expect([list(unlinked).showViewButton, list(unlinked).rowRoute]).toEqual([false, undefined]);
+    }
+  });
+
+  it('opens on the live sessions', () => {
+    expect(list(sessions).opensWith).toEqual([{ field: 'state', operator: 'eq', value: 'live' }]);
+  });
+
+  it("lists under a person the live sessions with how each signed in and its browser, the reader's own marked", () => {
+    const live = children(people)[2];
+    expect(visibleColumns(live)).toEqual([
+      ['signedInWith', 'Signed in with'],
+      ['browser', 'Browser'],
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+    ]);
+    expect(hiddenColumns(live)).toEqual(['id']);
+    const said = columnOf(live, 'browser').valueGetter as (row: RecordData, reader: SessionInfo) => string;
+    expect(said({ id: 's-1', browser: 'Safari on iPhone' }, reader('s-1'))).toBe('Safari on iPhone, this browser');
+    expect(live.filter({ id: 'u-1', username: 'ada' })).toBe('live:eq:true');
+    expect(live.title).toBe('Live sessions');
   });
 });
 

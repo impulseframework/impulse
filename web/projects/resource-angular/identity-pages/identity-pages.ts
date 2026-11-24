@@ -34,6 +34,7 @@ import {
   rootConfig,
   RootConfig,
   section,
+  SessionInfo,
 } from '@impulseframework/resource-angular/types';
 import { format, isSameDay } from 'date-fns';
 import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-says';
@@ -716,8 +717,12 @@ class SideBuilder {
 
   /**
    * Every session of the Auth's people, each with End the session: the whole application's
-   * alone. A row says the session's state in one column, State: Live, Timed out or Ended,
-   * from what the server says of it.
+   * alone. Where the server says each session's state in one word (the list has `state`),
+   * the page opens on the live sessions and a row says whose the session is, how it signed
+   * in, the browser, marking the session the reader is using, and its state, by which the
+   * list filters (Live, Timed out, Ended); the username opens the account where the
+   * person's id names the list of the accounts. Otherwise a row says whether the session
+   * ended.
    */
   sessions(): RootConfig | undefined {
     const { lists } = this.side;
@@ -725,18 +730,17 @@ class SideBuilder {
       return undefined;
     }
     const resource = lists.sessions as Resource;
-    const listColumns: ColumnConfig[] = this.has(resource, 'live')
+    const byState = this.has(resource, 'state');
+    const opensAccount = byState && this.namesAccount(resource);
+    const listColumns: ColumnConfig[] = byState
       ? [
-          ...this.columns(resource, [['username', 'Username'], ...sessionColumns]),
-          {
-            id: 'live' as FieldName,
-            header: 'State',
-            sortable: false,
-            filterable: false,
-            valueGetter: (row: RecordData) => sessionState(row),
-          },
-          // Read with each row and not drawn: what State says of a session that is not live.
-          ...(this.has(resource, 'expired') ? [{ id: 'expired' as FieldName, hidden: true }] : []),
+          ...this.columns(resource, [['username', 'Username']]).map((column) => ({ ...column, opensRow: true })),
+          ...this.columns(resource, [['name', 'Name']]),
+          ...this.sessionDetails(resource),
+          ...this.columns(resource, sessionColumns),
+          { ...sessionStateColumn },
+          // Read with each row and not drawn: the Browser cell marks the reader's own by it.
+          ...(this.has(resource, 'id') ? [{ id: 'id' as FieldName, hidden: true }] : []),
         ]
       : this.columns(resource, [['username', 'Username'], ...sessionColumns, ['expired', 'Expired']]);
     return rootConfig({
@@ -745,7 +749,9 @@ class SideBuilder {
       parentConfig: listViewConfig({
         title: this.heading('Sessions'),
         primaryResource: resource,
-        showViewButton: false,
+        showViewButton: opensAccount,
+        ...(opensAccount ? { rowRoute: 'userId' as FieldName } : {}),
+        ...(byState ? { opensWith: [{ field: 'state', operator: 'eq', value: 'live' }] } : {}),
         showRowCount: true,
         listColumns,
         rowMethods: this.onSession(),
@@ -1587,8 +1593,10 @@ class SideBuilder {
 
   /**
    * A person's live sessions, under the person's row: the whole application's alone. The
-   * list is the sessions the server says are live, and under it a link opens the Sessions
-   * page filtered by the person's username, where every session of theirs is. Where the
+   * list is the sessions the server says are live, each with how it signed in and its
+   * browser where the list says them, the session the reader is using marked, and under it
+   * a link opens the Sessions page filtered by the person's username, where every session
+   * of theirs is. Where the
    * server's list does not say which are live (a description from before it did), the list
    * is every session, as it was.
    */
@@ -1621,7 +1629,12 @@ class SideBuilder {
       showViewButton: false,
       collapsible: false,
       emptyMessage: 'This person has no live session.',
-      listColumns: this.columns(resource, sessionColumns),
+      listColumns: [
+        ...this.sessionDetails(resource),
+        ...this.columns(resource, sessionColumns),
+        // Read with each row and not drawn: the Browser cell marks the reader's own by it.
+        ...(this.has(resource, 'browser') && this.has(resource, 'id') ? [{ id: 'id' as FieldName, hidden: true }] : []),
+      ],
       more: (person) => {
         const username = person?.['username'];
         if (typeof username !== 'string' || username === '') {
@@ -1991,6 +2004,39 @@ class SideBuilder {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Whether the list's person's id (`userId`) names the list of this side's accounts (the
+   * metadata's `enumeratedResource`), so a row can open the person's account by it.
+   */
+  private namesAccount(resource: Resource): boolean {
+    const users = this.side.lists.users;
+    return (this.resourceMeta(resource)?.fields ?? []).some(
+      (candidate) => candidate.fieldName === 'userId' && users !== undefined && candidate.enumeratedResource === users,
+    );
+  }
+
+  /**
+   * The columns of a list of sessions that say how each session signed in and the
+   * browser it was signed in from, each where the list has its field. The Browser cell of
+   * the session the reader is using says so (sessionBrowser).
+   */
+  private sessionDetails(resource: Resource): ColumnConfig[] {
+    return [
+      ...this.columns(resource, [['signedInWith', 'Signed in with']]),
+      ...(this.has(resource, 'browser')
+        ? [
+            {
+              id: 'browser' as FieldName,
+              header: 'Browser',
+              filterable: false,
+              sortable: false,
+              valueGetter: (row: RecordData, reader: SessionInfo) => sessionBrowser(row, reader),
+            },
+          ]
+        : []),
+    ];
   }
 
   /**
@@ -2611,22 +2657,41 @@ const sessionColumns: Named[] = [
   ['updatedAt', 'Last active'],
 ];
 
+/** The words for each state the server says a session is in, in the order the State column's filter offers them. */
+const sessionStateWords: readonly { value: string; label: string }[] = [
+  { value: 'live', label: 'Live' },
+  { value: 'timedOut', label: 'Timed out' },
+  { value: 'ended', label: 'Ended' },
+];
+
 /**
- * A session's state in a word: "Live" where the server says a request that carries it is
- * still accepted, "Ended" where it was ended, and "Timed out" where it is neither: it sat
- * idle past the session timeout. Empty for a row that says neither fact.
+ * The Sessions page's State column: the state the server says a session is in, in the
+ * words its filter offers (sessionStateWords); a state it does not know is written as
+ * stored.
  */
-function sessionState(row: RecordData): string {
-  if (row['live'] === true) {
-    return 'Live';
+const sessionStateColumn: ColumnConfig = {
+  id: 'state' as FieldName,
+  header: 'State',
+  sortable: false,
+  filterChoices: sessionStateWords,
+  valueGetter: (row: RecordData) => {
+    const state = typeof row['state'] === 'string' ? row['state'] : '';
+    return sessionStateWords.find((words) => words.value === state)?.label ?? state;
+  },
+};
+
+/**
+ * What a session's Browser cell says: the browser's name, and of the session the reader
+ * is using (the session read's `sessionId`), ", this browser" after it ("Chrome on macOS,
+ * this browser"), or "This browser" where the session keeps no browser's name.
+ */
+function sessionBrowser(row: RecordData, reader: SessionInfo): string {
+  const name = typeof row['browser'] === 'string' ? row['browser'] : '';
+  const own = typeof reader.sessionId === 'string' && reader.sessionId !== '' && row['id'] === reader.sessionId;
+  if (!own) {
+    return name;
   }
-  if (row['expired'] === true) {
-    return 'Ended';
-  }
-  if (row['live'] === false) {
-    return 'Timed out';
-  }
-  return '';
+  return name === '' ? 'This browser' : `${name}, this browser`;
 }
 
 /** The key of the password among the ways a person signs in (the row's `way`); every other way is an identity. */
