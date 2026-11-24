@@ -3238,7 +3238,6 @@
                 "squadronId",
                 "kindId",
                 "statusId",
-                "briefingTemplateId",
                 "deadline",
                 "daysLeft"
               ]

@@ -32,8 +32,11 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 // them — its control waits, with a hint, until an indexed filter is in the request, and
 // clearing the last indexed filter clears it too. The Briefing column is on an id whose
 // resource declares no name, so it shows the stored key, sorts by it, and filters by it
-// as days left does, beside an indexed filter. A page size over the view's maximum,
-// or a filter the server refuses, is shown in the server's words.
+// as days left does, beside an indexed filter. It is drawn for a role that lists the
+// key on the board, the sector marshal alone: the dispatcher reads a mission's template
+// until the mission is completed, failed or stood down, and the board lists those
+// missions too, so the dispatcher's board carries no Briefing column. A page size over
+// the view's maximum, or a filter the server refuses, is shown in the server's words.
 //
 // The two pickers read on their sources' maximums, from the generated descriptor. The
 // client roster declares one, so the client picker pages the roster one server page at
