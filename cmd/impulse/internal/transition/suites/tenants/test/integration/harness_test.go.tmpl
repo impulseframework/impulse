@@ -325,8 +325,9 @@ type signInMethod struct {
 	Says       string `json:"says"`
 }
 
-// signInMethods reads the auth's sign-in methods as the Sign-in page lists them.
-func signInMethods(ctx context.Context, t *testing.T, b *browser) []signInMethod {
+// passwordMethod reads the password method's row of the list the Sign-in page draws,
+// whichever other sign-in methods the auth registers.
+func passwordMethod(ctx context.Context, t *testing.T, b *browser) signInMethod {
 	t.Helper()
 
 	status, body := b.do(ctx, http.MethodGet, "/api/staff-sign-in-methods", nil)
@@ -337,8 +338,14 @@ func signInMethods(ctx context.Context, t *testing.T, b *browser) []signInMethod
 	if err := json.Unmarshal(body, &methods); err != nil {
 		t.Fatalf("decoding the sign-in methods: %v: %s", err, body)
 	}
+	for i := range methods {
+		if methods[i].Name == "password" {
+			return methods[i]
+		}
+	}
+	t.Fatalf("the sign-in methods list carries no password method: %s", body)
 
-	return methods
+	return signInMethod{}
 }
 
 // mailedToken finds the token of the link of the kind (signUp, invitation) among the
