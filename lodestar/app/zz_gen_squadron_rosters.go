@@ -23,8 +23,8 @@ func (a *App) SquadronRosters() http.HandlerFunc {
 		UserID       string           `json:"userId"       index:"true"     perm:"-"`
 		SectorID     impulse.UUID     `json:"sectorId"     index:"true"`
 		SquadronName string           `json:"squadronName" index:"true"`
-		PilotID      impulse.NullUUID `json:"pilotId"`
-		PilotName    *string          `json:"pilotName"    nameof:"PilotID"`
+		PilotID      impulse.NullUUID `json:"pilotId"      index:"true"`
+		PilotName    *string          `json:"pilotName"    nameof:"PilotID" index:"true"`
 	}
 
 	type response []map[string]any

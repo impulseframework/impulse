@@ -1306,7 +1306,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "userId"},
 				},
 				Domain:    &resource.DomainBindingData{Column: "SectorId"},
-				QueryKeys: []accesstypes.Tag{"sectorId", "squadronName"},
+				QueryKeys: []accesstypes.Tag{"sectorId", "squadronName", "pilotId"},
 			},
 			{
 				Name:        "Squadrons",
@@ -2516,7 +2516,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "feeLimit", UserColumn: "UserId", Column: "FeeLimit", Type: "number"},
 				},
 				Order:        []accesstypes.Tag{"displayName"},
-				QueryKeys:    []accesstypes.Tag{"userId"},
+				QueryKeys:    []accesstypes.Tag{"userId", "displayName"},
 				RequiredTags: []accesstypes.Tag{"clearance", "displayName", "feeLimit", "userId"},
 			},
 			{

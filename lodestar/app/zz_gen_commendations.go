@@ -26,7 +26,7 @@ func (a *App) Commendations() http.HandlerFunc {
 		AwardedByUserID string       `json:"awardedByUserId"`
 		AwardedByName   string       `json:"awardedByName"`
 		AwardedAt       time.Time    `json:"awardedAt"`
-		PilotName       *string      `json:"pilotName"       nameof:"PilotID"`
+		PilotName       *string      `json:"pilotName"       nameof:"PilotID" index:"true"`
 	}
 
 	type response []map[string]any

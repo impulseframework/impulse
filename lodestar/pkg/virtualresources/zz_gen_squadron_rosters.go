@@ -227,6 +227,10 @@ func (p SquadronRosterQueryPartialClause) SquadronName() SquadronRosterQueryIden
 	return SquadronRosterQueryIdent[string]{Ident: resource.NewIdent[string]("SquadronName", p.partialClause, true)}
 }
 
+func (p SquadronRosterQueryPartialClause) PilotID() SquadronRosterQueryIdent[impulse.UUID] {
+	return SquadronRosterQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("PilotID", p.partialClause, true)}
+}
+
 type SquadronRosterQueryClause struct {
 	clause resource.QueryClause
 }

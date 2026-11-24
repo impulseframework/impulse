@@ -298,10 +298,73 @@ LEFT JOIN TenantDirectories td ON td.TenantId = ts.Id
 ) p
 `
 
+// membersTenantUserNameQuery selects, for every tenant, its people's ids and the name each is
+// shown by: the rows of membersTenantUserQuery, one for one, from the same people and their
+// accounts, without the facts of where a person holds roles and who manages the account. A list
+// that shows a person by name reads the name from it (NameSubquery): a name's query is written
+// into the statement of the list that shows it, the facts' joins are the larger part of the
+// list's own query, and Spanner refuses a statement of more than twenty joins.
+const membersTenantUserNameQuery = `
+SELECT
+  u.Id AS Id,
+  t.DomainId AS DomainId,
+  COALESCE(NULLIF(u.Name, ''), u.Username) AS DisplayName
+FROM (
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId
+  FROM MembersUserRoles m
+  WHERE m.Kind = 'domain' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT s.Id AS DomainId, m.UserId AS UserId
+  FROM MembersUserRoles@{FORCE_INDEX=_BASE_TABLE} m
+  CROSS JOIN Tenants s
+  WHERE m.Kind = 'every' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT g.DomainId AS DomainId, gm.UserId AS UserId
+  FROM MembersGroups g
+  JOIN MembersGroupMembers gm ON gm.GroupId = g.Id
+  WHERE g.Kind = 'domain' AND g.Axis = ''
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT r.DomainId AS DomainId, gm.UserId AS UserId
+  FROM MembersGroupRoles r
+  JOIN MembersGroups g ON g.Id = r.GroupId
+  JOIN MembersGroupMembers gm ON gm.GroupId = r.GroupId
+  WHERE r.Kind = 'domain' AND r.Axis = '' AND g.Kind = 'global' AND r.Role != 'SuperAdministrator'
+    AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT s.Id AS DomainId, gm.UserId AS UserId
+  FROM MembersGroupRoles r
+  JOIN MembersGroups g ON g.Id = r.GroupId
+  JOIN MembersGroupMembers gm ON gm.GroupId = r.GroupId
+  CROSS JOIN Tenants s
+  WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
+    AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT dr.TenantId AS DomainId, du AS UserId
+  FROM TenantDirectories dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM MembersSessionIdentities dl
+    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection
+  )) AS du
+) t
+JOIN MembersSessionUsers u ON u.Id = t.UserId
+`
+
 // Subquery is the query the rows are read from.
 func (MembersTenantUser) Subquery() (query string, params map[string]any) {
 	return membersTenantUserQuery, nil
 }
+
+// NameSubquery is the query a list that points to a person reads the person's name from
+// (resource.NameSubqueryer): the person's id, the tenant and DisplayName.
+func (MembersTenantUser) NameSubquery() (query string, params map[string]any) {
+	return membersTenantUserNameQuery, nil
+}
+
+var _ resource.NameSubqueryer = MembersTenantUser{}
 
 // TenantsToEnter names the tenants the person administers: a caller whose session
 // does not enter one of them is not offered the methods that change how the person signs

@@ -1207,7 +1207,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'awardedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'awardedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
     ],
-    nameFields: [{ fieldName: 'pilotName', of: 'pilotId' }],
+    nameFields: [{ fieldName: 'pilotName', of: 'pilotId', filterable: 'always' }],
   },
   [Resources.Consignments]: {
     route: 'sectors/{sectorID}/consignments',
@@ -2216,7 +2216,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'daysLeft', displayType: 'number', required: true, isIndex: false, filterable: 'withIndexed' },
     ],
     searchFields: ['title'],
-    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always' }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.MissionDocuments]: {
     route: 'sectors/{sectorID}/mission-documents',
@@ -2260,7 +2260,7 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 36, enumeratedResource: Resources.CrewSessionUsers },
-      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'clearance', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'feeLimit', displayType: 'number', decimal: true, required: true, isIndex: false },
     ],
@@ -2462,9 +2462,9 @@ const resourceMap = defineResourceMap({
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'squadronName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'pilotId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.Pilots },
+      { fieldName: 'pilotId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Pilots },
     ],
-    nameFields: [{ fieldName: 'pilotName', of: 'pilotId' }],
+    nameFields: [{ fieldName: 'pilotName', of: 'pilotId', filterable: 'always' }],
   },
   [Resources.Wings]: {
     route: 'sectors/{sectorID}/wings',
