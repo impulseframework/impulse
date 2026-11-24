@@ -87,9 +87,10 @@ export const squadronsConfig = rootConfig({
       primaryResource: Resources.SquadronRosters,
       parentRelation: { parentKey: Squadrons.fieldName.id, childKey: SquadronRosters.fieldName.squadronId },
       rowRoute: SquadronRosters.fieldName.pilotId,
-      // A member is named by the pilot's name; the id of their account, which the
+      // A member is named by the pilot's name: the column is on the pilot's id, and the list
+      // asks the server for the name beside it. The id of their account, which the
       // membership holds, is nothing a person reads.
-      listColumns: [{ id: SquadronRosters.fieldName.pilotName, header: 'Pilot' }],
+      listColumns: [{ id: SquadronRosters.fieldName.pilotId, header: 'Pilot' }],
       elements: [
         section({
           label: 'Membership',

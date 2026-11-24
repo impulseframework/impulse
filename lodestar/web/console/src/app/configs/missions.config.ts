@@ -61,8 +61,8 @@ export const missionsConfig = rootConfig({
     primaryResource: Resources.MissionBoards,
     listColumns: [
       { id: MissionBoards.fieldName.title },
-      { id: MissionBoards.fieldName.clientName, header: 'Client' },
-      { id: MissionBoards.fieldName.squadronName, header: 'Squadron' },
+      { id: MissionBoards.fieldName.clientId, header: 'Client' },
+      { id: MissionBoards.fieldName.squadronId, header: 'Squadron' },
       { id: MissionBoards.fieldName.statusId, header: 'Status' },
       { id: MissionBoards.fieldName.deadline },
       { id: MissionBoards.fieldName.daysLeft, header: 'Days left' },
