@@ -4717,8 +4717,9 @@ administrator hands out, the role file says, in the conditions of the Execute gr
 the facts of the row, and over the request's own fields (`new.role`, section 2's
 `@attribute` on a field of an `@rpc` struct). Lodestar's Sector Marshal acts on the
 account of a person the sector manages, gives every role but the Marshal's own, takes
-a role away where the sector itself gave it, and withdraws an invitation that stands and
-gives no Marshal's role:
+a role away where the sector itself gave it, withdraws an invitation that stands and
+gives no Marshal's role, and sends again an invitation that gives no Marshal's role,
+whether it stands, has expired or could not be mailed:
 
 ```json
 "Execute": [
@@ -4726,7 +4727,8 @@ gives no Marshal's role:
   { "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "InviteCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "RemoveCrewSectorRole", "condition": "role != 'SectorMarshal' AND everyDomain = false" },
-  { "resource": "WithdrawCrewSectorInvitation", "condition": "pending = true AND role != 'SectorMarshal'" }
+  { "resource": "WithdrawCrewSectorInvitation", "condition": "pending = true AND role != 'SectorMarshal'" },
+  { "resource": "ResendCrewSectorInvitation", "condition": "role != 'SectorMarshal'" }
 ]
 ```
 
@@ -4736,7 +4738,11 @@ whole application. `roles` is a list, judged role by role, and an invitation
 with no role is refused by a grant that reads `new.role`, since no value never permits.
 The roles of an invitation's row are a list too, judged the same way: an invitation the
 whole application's administrator sent in the Marshal's role, alone or among others, is
-not the Marshal's to withdraw, and its row's Execute answer leaves the withdrawal out.
+not the Marshal's to withdraw or to send again, and its row's Execute answer leaves both
+out. The grant on Send again does not read `pending`: the method is for an invitation
+that has expired or could not be mailed as much as for one that stands, and it refuses
+one that was accepted or withdrawn itself (409), so `pending = true` there would only
+keep an administrator from the invitations Send again is for.
 
 **The invitation that makes a tenant.** Nobody creates a tenant directly (section 16,
 "How a tenant comes to exist"): staff bring an organization in by inviting one person,

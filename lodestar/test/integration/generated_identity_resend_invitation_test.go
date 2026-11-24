@@ -21,8 +21,11 @@ import (
 // one that was accepted is refused; and a sector's administrator does not find another
 // sector's invitation.
 //
-// The Sector Marshal sends again an invitation that stands and gives no Marshal's role
-// (pending = true AND role != 'SectorMarshal'), as the Marshal withdraws one.
+// The Sector Marshal sends again an invitation that gives no Marshal's role, whether it
+// stands, has expired or could not be mailed (role != 'SectorMarshal'): the grant does not
+// read pending, as the Marshal's Withdraw does. One that gives the Marshal's role, alone or
+// among others, is refused (403), and one that was accepted is answered by the method
+// itself (409).
 //
 // Demonstrates: auth.generated-identity, auth.tenant-methods.
 func TestGeneratedIdentityInvitationsSentAgain(t *testing.T) {
@@ -31,7 +34,7 @@ func TestGeneratedIdentityInvitationsSentAgain(t *testing.T) {
 	s := newServed(ctx, t)
 
 	// The Execute grant this suite proves, pinned to the roles file (conditions-proven).
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "ResendCrewSectorInvitation", "pending = true AND role != 'SectorMarshal'")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "ResendCrewSectorInvitation", "role != 'SectorMarshal'")
 
 	hq := newBrowser(t, s, consoleAPI)
 	hq.signIn(ctx, "governor")
@@ -46,6 +49,16 @@ func TestGeneratedIdentityInvitationsSentAgain(t *testing.T) {
 		withdrawnAt = readColumn[spanner.NullTime](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{id}, "WithdrawnAt")
 
 		return consumedAt, withdrawnAt
+	}
+	// expire moves the invitation id's expiry into the past.
+	expire := func(id string) {
+		t.Helper()
+
+		if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap("CrewSessionMailLinks", map[string]any{
+			"Id": id, "ExpiresAt": time.Now().Add(-time.Hour),
+		})}); err != nil {
+			t.Fatalf("moving the invitation's expiry into the past: %v", err)
+		}
 	}
 	// resend sends the invitation id again at the path and answers the new one.
 	resend := func(b *browser, path, id string) invited {
@@ -122,11 +135,7 @@ func TestGeneratedIdentityInvitationsSentAgain(t *testing.T) {
 
 	// An invitation that has expired is sent again, and its row is left as it is.
 	late := inviteCrew(ctx, t, hq, `{"email":"late@example.com","roles":["ClientBrowser"]}`)
-	if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap("CrewSessionMailLinks", map[string]any{
-		"Id": late.ID, "ExpiresAt": time.Now().Add(-time.Hour),
-	})}); err != nil {
-		t.Fatalf("moving the invitation's expiry into the past: %v", err)
-	}
+	expire(late.ID)
 	resend(hq, consoleAPI+"/resend-crew-invitation", late.ID)
 	if consumedAt, withdrawnAt := ended(late.ID); consumedAt.Valid || withdrawnAt.Valid {
 		t.Errorf("the expired invitation sent again: ConsumedAt = %v, WithdrawnAt = %v; want both null: it is left as it is", consumedAt, withdrawnAt)
@@ -156,6 +165,62 @@ func TestGeneratedIdentityInvitationsSentAgain(t *testing.T) {
 	accept(newToken, "recruitagain")
 	if got, want := crewHolds(t, s.db, "recruitagain"), []string{"domain/" + anvil + " Cadet"}; !slices.Equal(got, want) {
 		t.Errorf("the person who accepted Anvil's new link holds %v, want %v", got, want)
+	}
+
+	// executes is what the row of Anvil's list answers the Marshal may execute on it.
+	executes := func(id string) []any {
+		t.Helper()
+
+		status, body := marshal.do(ctx, http.MethodGet, sectorPath(anvil, sectorInvitationsPath+"/"+id+"?capabilities=Execute"), nil)
+		assertStatus(t, status, http.StatusOK, body)
+		caps, _ := decodeRow(t, body)["zzCapabilities"].(map[string]any)
+		methods, _ := caps["Execute"].([]any)
+
+		return methods
+	}
+
+	// The Marshal's Send again does not read whether the invitation stands: an expired
+	// invitation of Anvil that gives no Marshal's role answers that the Marshal may send it
+	// again and not withdraw it, and is sent again with its row left as it is.
+	const lateRecruit = "late.recruit@example.com"
+	lateAtAnvil := inviteCrew(ctx, t, hq, `{"email":"`+lateRecruit+`","roles":["Cadet"],"domain":"`+anvil+`"}`)
+	expire(lateAtAnvil.ID)
+	if methods := executes(lateAtAnvil.ID); !slices.Contains(methods, any("ResendCrewSectorInvitation")) || slices.Contains(methods, any("WithdrawCrewSectorInvitation")) {
+		t.Errorf("Anvil's expired invitation's Execute answer %v, want ResendCrewSectorInvitation and not WithdrawCrewSectorInvitation", methods)
+	}
+	_, oldToken = lastMailTo(t, s, lateRecruit, "invitation")
+	resend(marshal, sectorPath(anvil, "resend-crew-sector-invitation"), lateAtAnvil.ID)
+	if _, newToken = lastMailTo(t, s, lateRecruit, "invitation"); newToken == oldToken {
+		t.Error("Anvil's expired invitation sent again mailed the link mailed before, want a new one")
+	}
+	if consumedAt, withdrawnAt := ended(lateAtAnvil.ID); consumedAt.Valid || withdrawnAt.Valid {
+		t.Errorf("Anvil's expired invitation sent again: ConsumedAt = %v, WithdrawnAt = %v; want both null: it is left as it is", consumedAt, withdrawnAt)
+	}
+
+	// An invitation into Anvil that gives the Marshal's role, alone or among others, is not
+	// the Marshal's to send again: its row's Execute answer leaves Send again out, the
+	// Marshal is refused, and nothing is mailed.
+	for _, c := range []struct{ name, email, roles string }{
+		{"in the Marshal's role", "successor.again@example.com", `["SectorMarshal"]`},
+		{"with the Marshal's role among others", "deputy.again@example.com", `["Cadet","SectorMarshal"]`},
+	} {
+		invitation := inviteCrew(ctx, t, hq, `{"email":"`+c.email+`","roles":`+c.roles+`,"domain":"`+anvil+`"}`)
+		if slices.Contains(executes(invitation.ID), any("ResendCrewSectorInvitation")) {
+			t.Errorf("the invitation %s answers that the Marshal may send it again", c.name)
+		}
+		sent := len(s.mail.Messages())
+		if status, body := marshal.do(ctx, http.MethodPost, sectorPath(anvil, "resend-crew-sector-invitation"), []byte(`{"invitationId":"`+invitation.ID+`"}`)); status != http.StatusForbidden {
+			t.Errorf("the Marshal's Send again of the invitation %s: status %d, want 403: %s", c.name, status, body)
+		}
+		if mailed := mailedSince(s, sent, c.email); len(mailed) != 0 {
+			t.Errorf("the Marshal's refused Send again of the invitation %s mailed %q", c.name, subjects(mailed))
+		}
+	}
+
+	// An invitation of Anvil that was accepted is answered by the method itself.
+	status, body = marshal.do(ctx, http.MethodPost, sectorPath(anvil, "resend-crew-sector-invitation"), []byte(`{"invitationId":"`+againAtAnvil.ID+`"}`))
+	if status != http.StatusConflict || refusalMessage(t, body) != "This invitation was accepted. There is nothing to send again." {
+		t.Errorf("the Marshal sending Anvil's accepted invitation again: status %d, %s; want 409 saying there is nothing to send", status, body)
 	}
 
 	// Another sector's invitation is no row of Anvil's list: the Marshal does not find it,

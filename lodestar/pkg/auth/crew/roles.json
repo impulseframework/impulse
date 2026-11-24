@@ -2545,7 +2545,7 @@
             },
             {
               "resource": "ResendCrewSectorInvitation",
-              "condition": "pending = true AND role != 'SectorMarshal'"
+              "condition": "role != 'SectorMarshal'"
             },
             {
               "resource": "AssignCrewSectorRole",
