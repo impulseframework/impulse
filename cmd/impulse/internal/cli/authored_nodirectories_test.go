@@ -21,6 +21,11 @@ import (
 // tenants have no directories.
 const noDirectoriesSays = "The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone"
 
+// noDirectoriesBriefSays is what the brief the tenancy step leaves in an application whose
+// tenants have no directories says of them: they have none, and laying them in is the
+// author's act.
+var noDirectoriesBriefSays = []string{"No tenant has a directory in this application (`--tenant-directories=false`)", "Giving the application tenant directories later is the author's act and no command's"}
+
 // googleForInvited is the method the author of an application whose tenants have no
 // directories adds for the people invited into it: any Google account, the application
 // giving the roles.
@@ -40,7 +45,7 @@ func startsWithNoDirectories(t *testing.T, made *authoredApplication, wantShape 
 	if want := noDirectoriesSays + "."; made.madeAs.Says != want {
 		t.Errorf("before a method is added, impulse audit says %q of the staff auth, want %q", made.madeAs.Says, want)
 	}
-	for _, want := range []string{"No tenant has a directory in this application (`--tenant-directories=false`)", "Giving the application tenant directories later is the author's act and no command's"} {
+	for _, want := range noDirectoriesBriefSays {
 		if !strings.Contains(made.newBrief, want) {
 			t.Errorf("the tenancy brief does not say %q", want)
 		}

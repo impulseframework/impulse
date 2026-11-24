@@ -97,7 +97,9 @@ func (a *authoredApplication) unchanged(t *testing.T, step string) {
 //   - impulse check finds nothing failing in the application as impulse new made it:
 //     the brief impulse new left is there all the same, for what the start listed itself,
 //     and where the start listed nothing the command says the check is clean and leaves
-//     no brief;
+//     no brief; a start that composes nothing (no shape and nothing else) is the base
+//     alone, which impulse new commits itself and runs no check over, so it is held to
+//     leaving no brief and nothing to commit;
 //   - the application passes go vet under both of its tag sets and its own tests as
 //     impulse new made it, before any method is added (vetsAsMade, testsAsMade);
 //   - the tests that do not compile yet are files the standing brief names, and the
@@ -165,10 +167,16 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	if err := create.Execute(); err != nil {
 		t.Fatalf("impulse new error = %v\n%s", err, said.String())
 	}
+	// A start that names no shape and nothing else composes nothing: impulse new renders
+	// the base, commits it itself and runs no check over it, so it leaves no brief, says
+	// nothing of a check and leaves nothing to commit.
+	composed := shapeKey != "" || len(start) > 0
 	// A new application passes its own check the moment it is made. Where the start
 	// listed work of its own the brief is there for that, and reports no failing check;
 	// where it listed none, the command says the check is clean and leaves no brief.
 	switch _, err := os.Stat(filepath.Join(dir, handoff.File)); {
+	case !composed:
+		startsAsTheBaseAlone(t, made, err)
 	case errors.Is(err, os.ErrNotExist):
 		if want := "\nThe check is clean: "; !strings.Contains(said.String(), want) {
 			t.Errorf("impulse new left no brief and did not say %q: impulse check fails in the application as it was made, and nothing hands it on\n%s", want, said.String())
@@ -182,7 +190,9 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 			t.Errorf("the brief impulse new left does not say %q: impulse check fails in the application as it was made\n%s", want, said.String())
 		}
 	}
-	checkpoint("checkpoint: the application as impulse new composed it")
+	if composed {
+		checkpoint("checkpoint: the application as impulse new composed it")
+	}
 	made.madeAs = readShape(t, dir)
 	// The application as impulse new made it, before a method is added and while every
 	// test in it is the start's own: it passes go vet and its tests.
@@ -331,6 +341,28 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	}
 
 	return made
+}
+
+// startsAsTheBaseAlone holds an application impulse new made with nothing composed (no
+// shape, no outlet) to what the command does then: it commits the base itself and runs
+// no check over it, so it leaves no brief (stat is what os.Stat answered for the brief)
+// and the tree is clean.
+func startsAsTheBaseAlone(t *testing.T, made *authoredApplication, stat error) {
+	t.Helper()
+
+	switch {
+	case stat == nil:
+		t.Errorf("impulse new composed nothing and left a brief (%s): there is nothing for it to hand on", handoff.File)
+	case !errors.Is(stat, os.ErrNotExist):
+		t.Fatal(stat)
+	}
+	out, err := made.run(t, "git", "status", "--porcelain")
+	if err != nil {
+		t.Fatalf("git status --porcelain: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("impulse new composed nothing and left the base uncommitted:\n%s", out)
+	}
 }
 
 // vetsAsMade holds an application impulse new just made to passing go vet as it stands,
@@ -572,7 +604,7 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 	}
 }
 
-// TestAuthoredApplication makes nine applications the way their author does, with the
+// TestAuthoredApplication makes ten applications the way their author does, with the
 // commands and nothing else, and holds what the commands left to each application's own
 // formatting and lint and to the brief (author). The commands leave obligations, and
 // the brief is where each is named, so the test holds that nothing else is left. Each
@@ -643,13 +675,19 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 // The eighth is the second with a person in several tenants: impulse new with the shape
 // Global users, invite only, then the same Google method, held to all the second is.
 //
+// The ninth is the second made the other way round: impulse new with no shape named, the
+// same Google method added, and then impulse add tenancy with the shape Tenant-owned
+// users, invite only. The base's tests pass with the two methods on the auth before the
+// tenancy is laid in; the command names the Google method as a way for an invited person
+// to sign in and nothing more; and the application is held to all the second is.
+//
 // The first eight cost about twenty-five minutes and under eight gigabytes on a machine
 // whose Go caches and emulator image are warm: each command regenerates against the
 // emulator (about twenty-five seconds), each application runs its tests as it is made
 // (about as long; the fifth and the four with no password sign-in twice, the sixth three
 // times), and the rest is each application's build, vet and lint runs and the four
 // development runs. Of the ones whose tenants have no directories, the second took about
-// five minutes in a run of its own and the eighth about four.
+// five minutes in a run of its own, the eighth about four and the ninth about seven.
 func TestAuthoredApplication(t *testing.T) {
 	if os.Getenv(runAuthored) == "" {
 		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), each application's lint (golangci-lint) and each application's tests as it is made, about twenty-five minutes", runAuthored)
@@ -705,6 +743,46 @@ func TestAuthoredApplication(t *testing.T) {
 		made := author(t, checkout, "basin", "global-users-invite-only", nil, [][]string{googleForInvited})
 		startsWithNoDirectories(t, made, "7 Global users, invite only")
 		holdsNoDirectories(t, made, "7 Global users, invite only")
+	})
+
+	t.Run("tenants laid in over a Google method, with no directories", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
+		made := author(t, checkout, "landing", "", nil, [][]string{googleForInvited})
+		// The base's tests, the tests of sign-up among them, pass with the two methods on
+		// the auth.
+		if out, err := made.run(t, "go", "test", "-tags", "skipAuth", "-count=1", "./..."); err != nil {
+			t.Errorf("go test -tags skipAuth ./...: %v: the base passes its own tests with the Google method beside the password\n%s", err, out)
+		}
+		// The author then lays the tenants in, with no directories.
+		var said bytes.Buffer
+		add := newAddTenancy()
+		add.SetOut(&said)
+		add.SetErr(&said)
+		add.SetArgs([]string{"--shape", "tenant-owned-users-invite-only", "--app", made.dir})
+		if err := add.Execute(); err != nil {
+			t.Fatalf("impulse add tenancy --shape tenant-owned-users-invite-only error = %v\n%s", err, said.String())
+		}
+		for _, want := range []string{
+			"Starting point: 5 Tenant-owned users, invite only.",
+			"The staff auth's google method (pkg/auth/staff/google.go:",
+			" is a way for an invited person to sign in and nothing more, and impulse audit reads the application as 5 Tenant-owned users, invite only with it as without it.",
+		} {
+			if !strings.Contains(said.String(), want) {
+				t.Errorf("impulse add tenancy does not say %q:\n%s", want, said.String())
+			}
+		}
+		for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "checkpoint: tenancy"}} {
+			if out, err := made.run(t, "git", args...); err != nil {
+				t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+			}
+		}
+		brief := made.read(t, handoff.File)
+		for _, want := range noDirectoriesBriefSays {
+			if !strings.Contains(brief, want) {
+				t.Errorf("the tenancy brief does not say %q", want)
+			}
+		}
+		vetsAsMade(t, made)
+		holdsNoDirectories(t, made, "5 Tenant-owned users, invite only")
 	})
 
 	t.Run("tenants by their directories, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
