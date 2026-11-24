@@ -2188,10 +2188,12 @@ describe('identityPages, who manages an account', () => {
       ['lastSignInAt', 'Last sign-in'],
     ]);
     // The column is on the key and names the sector after its word, under a header that is
-    // not the word. The list carries no name beside the key, so a row says the name the
-    // reader's own list of sectors holds (tenantKey), and the list draws the column with
-    // neither a sort nor a filter, as it draws a column whose cells do not say the stored
-    // value; the key is an id nobody reads.
+    // not the word. This description's accounts carry no name beside the key (a generated
+    // list carries one where the key points to the tenant record, and the library's list
+    // then shows it, sorts by it and filters by it). Where a list carries none, a row says
+    // the name the reader's own list of sectors holds (tenantKey), and the list draws the
+    // column with neither a sort nor a filter, as it draws a column whose cells do not say
+    // the stored value; the key is an id nobody reads.
     const by = managedBy(accounts);
     expect(by.tenantKey).toBe(true);
     expect([by.filterable, by.sortable, by.valueGetter]).toEqual([undefined, undefined, undefined]);
