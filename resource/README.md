@@ -4797,8 +4797,9 @@ The auth whose people make the tenants also lists them: `<Auth>Listed<Record>`
 (`StaffListedTenants`), a view over the tenant record's table with the record's own
 fields and three facts no table holds. People is how many people hold something in the
 tenant itself right now, a role of their own, a place in one of its groups or a sign-in
-through its directory; a person who is there only through a role held in every tenant is
-not counted. Directory is the kind of directory its people sign in through, with the
+through its directory; a person who is there only through a role held in every tenant,
+or through a group kept for the whole application, is not counted. Directory is the kind
+of directory its people sign in through, with the
 domain of a Google Workspace. Administrators names each person who holds a tenant
 administrator's role in the tenant itself. Since is when the tenant was made: the column
 the record marks `@tenantSince`, served as `since` whatever the record calls it; a record
