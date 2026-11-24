@@ -770,6 +770,8 @@ type fakeSessions struct {
 	tenantNames map[accesstypes.Domain]string
 	// sessionTimeout is how long the Auth lets a session sit idle.
 	sessionTimeout time.Duration
+	// signInFailureLimit is how many failed sign-ins lock a name.
+	signInFailureLimit int
 }
 
 func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
@@ -782,6 +784,10 @@ func (s fakeSessions) TenantName(tenant accesstypes.Domain) string {
 
 func (s fakeSessions) SessionTimeout() time.Duration {
 	return s.sessionTimeout
+}
+
+func (s fakeSessions) SignInFailureLimit() int {
+	return s.signInFailureLimit
 }
 
 // asked records a message the rules asked the session library to mail, and answers the

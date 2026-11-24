@@ -228,6 +228,8 @@ type GeneratedHandlers interface {
 	CrewListedSessions() http.HandlerFunc
 	CrewListedSession() http.HandlerFunc
 
+	CrewListedSignInAttempts() http.HandlerFunc
+
 	CrewListedUsers() http.HandlerFunc
 	CrewListedUser() http.HandlerFunc
 
@@ -427,6 +429,8 @@ type GeneratedHandlers interface {
 
 	MembersListedSessions() http.HandlerFunc
 	MembersListedSession() http.HandlerFunc
+
+	MembersListedSignInAttempts() http.HandlerFunc
 
 	MembersListedUsers() http.HandlerFunc
 	MembersListedUser() http.HandlerFunc
@@ -850,6 +854,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/crew-listed-sessions/{crewListedSessionID}", crewListedSessionHandler)
 	bounded.Post("/console/api/crew-listed-sessions/{crewListedSessionID}", crewListedSessionHandler)
 
+	crewListedSignInAttemptsHandler := h.CrewListedSignInAttempts()
+	bounded.Get("/console/api/crew-listed-sign-in-attempts", crewListedSignInAttemptsHandler)
+	bounded.Post("/console/api/crew-listed-sign-in-attempts", crewListedSignInAttemptsHandler)
+
 	crewListedUsersHandler := h.CrewListedUsers()
 	bounded.Get("/console/api/crew-listed-users", crewListedUsersHandler)
 	bounded.Post("/console/api/crew-listed-users", crewListedUsersHandler)
@@ -1227,6 +1235,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	membersListedSessionHandler := h.MembersListedSession()
 	bounded.Get("/console/api/members-listed-sessions/{membersListedSessionID}", membersListedSessionHandler)
 	bounded.Post("/console/api/members-listed-sessions/{membersListedSessionID}", membersListedSessionHandler)
+
+	membersListedSignInAttemptsHandler := h.MembersListedSignInAttempts()
+	bounded.Get("/console/api/members-listed-sign-in-attempts", membersListedSignInAttemptsHandler)
+	bounded.Post("/console/api/members-listed-sign-in-attempts", membersListedSignInAttemptsHandler)
 
 	membersListedUsersHandler := h.MembersListedUsers()
 	bounded.Get("/console/api/members-listed-users", membersListedUsersHandler)
@@ -1799,6 +1811,8 @@ type GeneratedPortalHandlers interface {
 	MembersListedSessions() http.HandlerFunc
 	MembersListedSession() http.HandlerFunc
 
+	MembersListedSignInAttempts() http.HandlerFunc
+
 	MembersListedUsers() http.HandlerFunc
 	MembersListedUser() http.HandlerFunc
 
@@ -2004,6 +2018,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersListedSessionHandler := h.MembersListedSession()
 	bounded.Get("/portal/api/members-listed-sessions/{membersListedSessionID}", membersListedSessionHandler)
 	bounded.Post("/portal/api/members-listed-sessions/{membersListedSessionID}", membersListedSessionHandler)
+
+	membersListedSignInAttemptsHandler := h.MembersListedSignInAttempts()
+	bounded.Get("/portal/api/members-listed-sign-in-attempts", membersListedSignInAttemptsHandler)
+	bounded.Post("/portal/api/members-listed-sign-in-attempts", membersListedSignInAttemptsHandler)
 
 	membersListedUsersHandler := h.MembersListedUsers()
 	bounded.Get("/portal/api/members-listed-users", membersListedUsersHandler)

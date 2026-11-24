@@ -2282,7 +2282,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockCrewSignIn]: {
     route: 'unlock-crew-sign-in',
-    target: { resource: Resources.CrewSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.CrewListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2291,7 +2291,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockMembersSignIn]: {
     route: 'unlock-members-sign-in',
-    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.MembersListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [

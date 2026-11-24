@@ -149,7 +149,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListSignInWays, i.signInWayName(false)},
 		{identityListInvitations, data.ListedMailLink()},
 		{identityListSessions, data.ListedSession()},
-		{identityListSignInAttempts, data.SignInAttempt()},
+		{identityListSignInAttempts, data.ListedSignInAttempt()},
 		{identityListSignInMethods, data.SignInMethod()},
 		{identityListSignInSettings, data.SignInSetting()},
 		{identityListRememberLengths, data.RememberLength()},

@@ -15,24 +15,24 @@ type Resourcer interface {
 		crewresources.CrewGroupUser | crewresources.CrewHeldRole |
 		crewresources.CrewListedGroup | crewresources.CrewListedGroupRole |
 		crewresources.CrewListedIdentity | crewresources.CrewListedMailLink |
-		crewresources.CrewListedSession | crewresources.CrewListedUser |
-		crewresources.CrewRole | crewresources.CrewRoleGrant | crewresources.CrewSectorGroup |
-		crewresources.CrewSectorGroupRole | crewresources.CrewSectorGroupUser |
-		crewresources.CrewSectorHeldRole | crewresources.CrewSectorIdentity |
-		crewresources.CrewSectorInvitation | crewresources.CrewSectorUser |
-		crewresources.CrewSectorUserGroupRole | crewresources.CrewSectorUserRole |
-		crewresources.CrewSession | crewresources.CrewSessionAuthEvent |
-		crewresources.CrewSessionIdentity | crewresources.CrewSessionImpersonation |
-		crewresources.CrewSessionMailLink | crewresources.CrewSessionSignInAttempt |
-		crewresources.CrewSessionSignInMethod | crewresources.CrewSessionSignInSetting |
-		crewresources.CrewSessionToken | crewresources.CrewSessionTrustedDevice |
-		crewresources.CrewSessionUser | crewresources.CrewTakenRole |
-		crewresources.CrewUserGroupRole | crewresources.CrewUserRole |
-		crewidentity.CrewGivableRole | crewidentity.CrewInvitedSector |
-		crewidentity.CrewInvitedSectorRole | crewidentity.CrewListedRoleGrant |
-		crewidentity.CrewRememberLength | crewidentity.CrewSectorDirectoryRole |
-		crewidentity.CrewSectorRole | crewidentity.CrewSectorSignInWay |
-		crewidentity.CrewSignInMethod | crewidentity.CrewSignInSetting |
-		crewidentity.CrewSignInWay | crewidentity.CrewTakeLength |
-		crewidentity.CrewTakeableRole
+		crewresources.CrewListedSession | crewresources.CrewListedSignInAttempt |
+		crewresources.CrewListedUser | crewresources.CrewRole | crewresources.CrewRoleGrant |
+		crewresources.CrewSectorGroup | crewresources.CrewSectorGroupRole |
+		crewresources.CrewSectorGroupUser | crewresources.CrewSectorHeldRole |
+		crewresources.CrewSectorIdentity | crewresources.CrewSectorInvitation |
+		crewresources.CrewSectorUser | crewresources.CrewSectorUserGroupRole |
+		crewresources.CrewSectorUserRole | crewresources.CrewSession |
+		crewresources.CrewSessionAuthEvent | crewresources.CrewSessionIdentity |
+		crewresources.CrewSessionImpersonation | crewresources.CrewSessionMailLink |
+		crewresources.CrewSessionSignInAttempt | crewresources.CrewSessionSignInMethod |
+		crewresources.CrewSessionSignInSetting | crewresources.CrewSessionToken |
+		crewresources.CrewSessionTrustedDevice | crewresources.CrewSessionUser |
+		crewresources.CrewTakenRole | crewresources.CrewUserGroupRole |
+		crewresources.CrewUserRole | crewidentity.CrewGivableRole |
+		crewidentity.CrewInvitedSector | crewidentity.CrewInvitedSectorRole |
+		crewidentity.CrewListedRoleGrant | crewidentity.CrewRememberLength |
+		crewidentity.CrewSectorDirectoryRole | crewidentity.CrewSectorRole |
+		crewidentity.CrewSectorSignInWay | crewidentity.CrewSignInMethod |
+		crewidentity.CrewSignInSetting | crewidentity.CrewSignInWay |
+		crewidentity.CrewTakeLength | crewidentity.CrewTakeableRole
 }

@@ -517,6 +517,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "CrewListedSignInAttempts denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-listed-sign-in-attempts",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewListedSignInAttempts granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-listed-sign-in-attempts",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "CrewListedUsers denied",
 			method:       http.MethodGet,
 			target:       "/console/api/crew-listed-users",
@@ -1406,6 +1419,32 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
 			target:       "/portal/api/members-listed-sessions/00000000-0000-0000-0000-000000000001",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "MembersListedSignInAttempts denied",
+			method:       http.MethodGet,
+			target:       "/console/api/members-listed-sign-in-attempts",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersListedSignInAttempts granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/members-listed-sign-in-attempts",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "MembersListedSignInAttempts (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/members-listed-sign-in-attempts",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersListedSignInAttempts (portal) granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/members-listed-sign-in-attempts",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{

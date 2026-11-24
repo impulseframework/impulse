@@ -55,12 +55,14 @@ func Test_prepareIdentity_listedSessions(t *testing.T) { //nolint:paralleltest /
 	}
 	assertContains(t, "the members auth's list of its sessions", squashSpace(readTreeFile(t, "internal/membersresources/members_listed_sessions.go")), squashEach(members), []string{"Impersonations", "NOT EXISTS"})
 
+	// The crew auth's schema holds the failed sign-ins too, whose list is told where to
+	// ask its limit after the sessions' is told the timeout.
 	for file, call := range map[string]string{
-		"crewidentity/client.go":    "crewresources.SetCrewListedSessionTimeout(sessions.SessionTimeout())",
-		"membersidentity/client.go": "membersresources.SetMembersListedSessionTimeout(sessions.SessionTimeout())",
+		"crewidentity/client.go":    "crewresources.SetCrewListedSessionTimeout(sessions.SessionTimeout())\n\t// The list of the failed sign-ins",
+		"membersidentity/client.go": "membersresources.SetMembersListedSessionTimeout(sessions.SessionTimeout())\n\n\treturn &Client{manager: manager}, nil",
 	} {
 		assertContains(t, file, squashSpace(readTreeFile(t, file)), squashEach([]string{
-			"// The list of the auth's sessions says which are live by the timeout the Auth judges a\n\t// request by.\n\t" + call + "\n\n\treturn &Client{manager: manager}, nil",
+			"// The list of the auth's sessions says which are live by the timeout the Auth judges a\n\t// request by.\n\t" + call,
 		}), nil)
 	}
 }

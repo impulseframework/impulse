@@ -4237,6 +4237,7 @@ GET  <prefix>/crew-listed-mail-links, …/{id}               List, Read on CrewL
 GET  <prefix>/crew-session-mail-links, …/{id}              List, Read on CrewSessionMailLinks
 GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations (newest first; `mask` is each session's mask in words)
 GET  <prefix>/crew-session-trusted-devices, …/{id}         List, Read on CrewSessionTrustedDevices (the remembered browsers)
+GET  <prefix>/crew-listed-sign-in-attempts                 List on CrewListedSignInAttempts (the counts that are locked or still being counted, the locked first)
 GET  <prefix>/crew-session-sign-in-attempts                List on CrewSessionSignInAttempts
 GET  <prefix>/crew-session-auth-events                     List on CrewSessionAuthEvents
 GET  <prefix>/crew-user-roles                              List on CrewUserRoles (the role memberships)
@@ -4273,7 +4274,7 @@ POST <prefix>/set-crew-user-name              {"userId","name"}                E
 POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewListedUsers
 POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewListedUsers
 POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewListedUsers
-POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
+POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewListedSignInAttempts
 POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
 POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewListedMailLinks
 POST <prefix>/resend-crew-invitation          {"invitationId"} → {"id","sent"}   Execute on ResendCrewInvitation, targeting CrewListedMailLinks
@@ -5030,6 +5031,9 @@ grants each like any resource.
 - `CrewListedMailLinks` is the mailed links as a page lists them: the link's columns, its state
   (open, accepted, withdrawn, expired, not mailed), the sender's name, and whether the invitation
   makes a tenant.
+- `CrewListedSignInAttempts` is the failed sign-ins as a page lists them: the counts that are
+  locked or still being counted, each with what it counts, the account that holds the name, and
+  the limit that locks a name.
 - `CrewListedGroups` is the groups with what each holds: `people`, how many people are
   in the group, and `roles`, the roles it holds, a line each: the role's name, and where
   it is held when that is not where the group is kept ("Engineer in sector Anvil",

@@ -38,6 +38,7 @@ export const Resources = {
   CrewListedMailLinks: 'CrewListedMailLinks' as Resource,
   CrewListedRoleGrants: 'CrewListedRoleGrants' as Resource,
   CrewListedSessions: 'CrewListedSessions' as Resource,
+  CrewListedSignInAttempts: 'CrewListedSignInAttempts' as Resource,
   CrewListedUsers: 'CrewListedUsers' as Resource,
   CrewRememberLengths: 'CrewRememberLengths' as Resource,
   CrewRoles: 'CrewRoles' as Resource,
@@ -82,6 +83,7 @@ export const Resources = {
   MembersListedMailLinks: 'MembersListedMailLinks' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
   MembersListedSessions: 'MembersListedSessions' as Resource,
+  MembersListedSignInAttempts: 'MembersListedSignInAttempts' as Resource,
   MembersListedUsers: 'MembersListedUsers' as Resource,
   MembersRememberLengths: 'MembersRememberLengths' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
@@ -704,6 +706,37 @@ export namespace CrewListedSessions {
     updatedAt: 'CrewListedSessions.updatedAt' as Resource,
     userId: 'CrewListedSessions.userId' as Resource,
     username: 'CrewListedSessions.username' as Resource,
+  };
+}
+
+export namespace CrewListedSignInAttempts {
+  export const fieldName = {
+    account: 'account' as FieldName,
+    failureLimit: 'failureLimit' as FieldName,
+    failures: 'failures' as FieldName,
+    kind: 'kind' as FieldName,
+    locked: 'locked' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
+    name: 'name' as FieldName,
+    state: 'state' as FieldName,
+    subject: 'subject' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+    userId: 'userId' as FieldName,
+    windowEndsAt: 'windowEndsAt' as FieldName,
+  };
+  export const resourceName = {
+    account: 'CrewListedSignInAttempts.account' as Resource,
+    failureLimit: 'CrewListedSignInAttempts.failureLimit' as Resource,
+    failures: 'CrewListedSignInAttempts.failures' as Resource,
+    kind: 'CrewListedSignInAttempts.kind' as Resource,
+    locked: 'CrewListedSignInAttempts.locked' as Resource,
+    lockedUntil: 'CrewListedSignInAttempts.lockedUntil' as Resource,
+    name: 'CrewListedSignInAttempts.name' as Resource,
+    state: 'CrewListedSignInAttempts.state' as Resource,
+    subject: 'CrewListedSignInAttempts.subject' as Resource,
+    updatedAt: 'CrewListedSignInAttempts.updatedAt' as Resource,
+    userId: 'CrewListedSignInAttempts.userId' as Resource,
+    windowEndsAt: 'CrewListedSignInAttempts.windowEndsAt' as Resource,
   };
 }
 
@@ -1787,6 +1820,37 @@ export namespace MembersListedSessions {
     updatedAt: 'MembersListedSessions.updatedAt' as Resource,
     userId: 'MembersListedSessions.userId' as Resource,
     username: 'MembersListedSessions.username' as Resource,
+  };
+}
+
+export namespace MembersListedSignInAttempts {
+  export const fieldName = {
+    account: 'account' as FieldName,
+    failureLimit: 'failureLimit' as FieldName,
+    failures: 'failures' as FieldName,
+    kind: 'kind' as FieldName,
+    locked: 'locked' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
+    name: 'name' as FieldName,
+    state: 'state' as FieldName,
+    subject: 'subject' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+    userId: 'userId' as FieldName,
+    windowEndsAt: 'windowEndsAt' as FieldName,
+  };
+  export const resourceName = {
+    account: 'MembersListedSignInAttempts.account' as Resource,
+    failureLimit: 'MembersListedSignInAttempts.failureLimit' as Resource,
+    failures: 'MembersListedSignInAttempts.failures' as Resource,
+    kind: 'MembersListedSignInAttempts.kind' as Resource,
+    locked: 'MembersListedSignInAttempts.locked' as Resource,
+    lockedUntil: 'MembersListedSignInAttempts.lockedUntil' as Resource,
+    name: 'MembersListedSignInAttempts.name' as Resource,
+    state: 'MembersListedSignInAttempts.state' as Resource,
+    subject: 'MembersListedSignInAttempts.subject' as Resource,
+    updatedAt: 'MembersListedSignInAttempts.updatedAt' as Resource,
+    userId: 'MembersListedSignInAttempts.userId' as Resource,
+    windowEndsAt: 'MembersListedSignInAttempts.windowEndsAt' as Resource,
   };
 }
 

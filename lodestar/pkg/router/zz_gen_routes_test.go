@@ -189,6 +189,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/crew-listed-sessions", method: http.MethodPost},
 		{url: "/droids/crew-listed-sessions/testCrewListedSessionID", method: http.MethodGet},
 		{url: "/droids/crew-listed-sessions/testCrewListedSessionID", method: http.MethodPost},
+		{url: "/droids/crew-listed-sign-in-attempts", method: http.MethodGet},
+		{url: "/droids/crew-listed-sign-in-attempts", method: http.MethodPost},
 		{url: "/droids/crew-listed-users", method: http.MethodGet},
 		{url: "/droids/crew-listed-users", method: http.MethodPost},
 		{url: "/droids/crew-listed-users/testCrewListedUserID", method: http.MethodGet},
@@ -304,6 +306,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/members-listed-sessions", method: http.MethodPost},
 		{url: "/droids/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet},
 		{url: "/droids/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost},
+		{url: "/droids/members-listed-sign-in-attempts", method: http.MethodGet},
+		{url: "/droids/members-listed-sign-in-attempts", method: http.MethodPost},
 		{url: "/droids/members-listed-users", method: http.MethodGet},
 		{url: "/droids/members-listed-users", method: http.MethodPost},
 		{url: "/droids/members-listed-users/testMembersListedUserID", method: http.MethodGet},
@@ -639,6 +643,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/crew-listed-sessions", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-sessions/testCrewListedSessionID", method: http.MethodGet},
 		{url: "/portal/api/crew-listed-sessions/testCrewListedSessionID", method: http.MethodPost},
+		{url: "/portal/api/crew-listed-sign-in-attempts", method: http.MethodGet},
+		{url: "/portal/api/crew-listed-sign-in-attempts", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-users", method: http.MethodGet},
 		{url: "/portal/api/crew-listed-users", method: http.MethodPost},
 		{url: "/portal/api/crew-listed-users/testCrewListedUserID", method: http.MethodGet},
@@ -1493,6 +1499,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"crewListedSessionID": "testCrewListedSessionID"},
 		},
 		{
+			url: "/console/api/crew-listed-sign-in-attempts", method: http.MethodGet,
+			handlerFunc: "CrewListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-listed-sign-in-attempts", method: http.MethodPost,
+			handlerFunc: "CrewListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/crew-listed-users", method: http.MethodGet,
 			handlerFunc: "CrewListedUsers",
 			parameters:  map[string]string{},
@@ -2166,6 +2182,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost,
 			handlerFunc: "MembersListedSession",
 			parameters:  map[string]string{"membersListedSessionID": "testMembersListedSessionID"},
+		},
+		{
+			url: "/console/api/members-listed-sign-in-attempts", method: http.MethodGet,
+			handlerFunc: "MembersListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/members-listed-sign-in-attempts", method: http.MethodPost,
+			handlerFunc: "MembersListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-sign-in-attempts", method: http.MethodGet,
+			handlerFunc: "MembersListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-sign-in-attempts", method: http.MethodPost,
+			handlerFunc: "MembersListedSignInAttempts",
+			parameters:  map[string]string{},
 		},
 		{
 			url: "/console/api/members-listed-users", method: http.MethodGet,
@@ -3836,6 +3872,10 @@ func (s *generatedHandlersStub) CrewListedSession() http.HandlerFunc {
 	return s.record("CrewListedSession")
 }
 
+func (s *generatedHandlersStub) CrewListedSignInAttempts() http.HandlerFunc {
+	return s.record("CrewListedSignInAttempts")
+}
+
 func (s *generatedHandlersStub) CrewListedUsers() http.HandlerFunc {
 	return s.record("CrewListedUsers")
 }
@@ -4306,6 +4346,10 @@ func (s *generatedHandlersStub) MembersListedSessions() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MembersListedSession() http.HandlerFunc {
 	return s.record("MembersListedSession")
+}
+
+func (s *generatedHandlersStub) MembersListedSignInAttempts() http.HandlerFunc {
+	return s.record("MembersListedSignInAttempts")
 }
 
 func (s *generatedHandlersStub) MembersListedUsers() http.HandlerFunc {

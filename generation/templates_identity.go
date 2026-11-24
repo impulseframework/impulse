@@ -360,7 +360,8 @@ type (
 	// no folded name holds: MAIL:, CODE: and RESET: and the address for the mail, the
 	// sign-in codes and the reset links an address is sent, FIRST-PASSWORD: and the
 	// account for the guesses at the code of a first password. A name is locked while
-	// LockedUntil is ahead.
+	// LockedUntil is ahead. A page lists the counts from {{ .ListedSignInAttempt }}, which
+	// holds only those that are locked or still being counted.
 	//
 	// @resource
 	// @suppress(readHandler)
@@ -771,6 +772,11 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if
 	// The list of the auth's sessions says which are live by the timeout the Auth judges a
 	// request by.
 	{{ .ResourcesPackage }}.Set{{ .ListedSession }}Timeout(sessions.SessionTimeout())
+	{{- end }}
+	{{- if .Has "signInAttempts" }}
+	// The list of the failed sign-ins says the limit that locks a name by asking the Auth
+	// at each query: the limit is fixed when the password method is registered.
+	{{ .ResourcesPackage }}.Set{{ .ListedSignInAttempt }}Limit(sessions.SignInFailureLimit)
 	{{- end }}
 
 	return &Client{manager: manager}, nil
@@ -2843,13 +2849,15 @@ import (
 // keeps under a name, and with it the lock the count earned: the name may sign in
 // again. Every instance of the application lets the name through within a few seconds
 // of the commit, the time each trusts what it remembers of a name. A client held for
-// its own failed attempts, whatever the name, waits its hold out.
+// its own failed attempts, whatever the name, waits its hold out. It names the count by
+// its row of {{ .ListedSignInAttempt }}, the list a page shows, so a row of that list
+// offers it.
 //
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Unlock{{ .Auth }}SignIn struct {
-	// @target({{ .SignInAttempt }})
+	// @target({{ .ListedSignInAttempt }})
 	Name string ` + "`validate:\"required\"`" + `
 }
 

@@ -397,6 +397,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_held_roles.go",
 		"internal/crewresources/crew_listed_mail_links.go",
 		"internal/crewresources/crew_listed_sessions.go",
+		"internal/crewresources/crew_listed_sign_in_attempts.go",
 		"internal/crewresources/crew_listed_users.go",
 		"internal/crewresources/crew_role_grants.go",
 		"internal/crewresources/crew_roles.go",
@@ -513,7 +514,7 @@ func Test_prepareIdentity(t *testing.T) {
 		},
 		"crewidentity/revoke_crew_user_trusted_devices.go":       {"// @target(CrewListedUser)", "client.manager.RevokeTrustedDevices(ctx, txn, m.UserID)"},
 		"internal/crewresources/crew_session_trusted_devices.go": {"CrewSessionTrustedDevice struct {", "RevokedAt  *time.Time", "// @suppress(patchHandler)"},
-		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewSessionSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},
+		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewListedSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},
 		"crewidentity/invite_crew_user.go": {
 			// The application has no tenants, so the invitation names no place: its roles are
 			// held for the whole application (Test_prepareIdentity_placeFields).

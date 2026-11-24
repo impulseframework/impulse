@@ -262,6 +262,11 @@ type SessionAPI interface {
 	// (session.AuthAPI.SessionTimeout). The generated list of the Auth's sessions says
 	// which of them are live by it.
 	SessionTimeout() time.Duration
+	// SignInFailureLimit answers how many failed sign-ins within the window lock a name
+	// (session.AuthAPI.SignInFailureLimit). The generated list of the failed sign-ins
+	// asks it at each query and where the application builds its handlers, so it answers
+	// at any time and changes nothing.
+	SignInFailureLimit() int
 	// RequestAddressChange mails the link that confirms a new address for the user, to
 	// that address, and changes nothing: the account keeps the address it has until the
 	// link is followed (session.AuthAPI.RequestAddressChange). The message says who

@@ -96,6 +96,10 @@ func (a *App) CrewListedSession() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedSession()
 }
 
+func (a *App) CrewListedSignInAttempts() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSignInAttempts()
+}
+
 func (a *App) CrewListedUsers() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedUsers()
 }
@@ -600,6 +604,10 @@ func (a *App) MembersListedSessions() http.HandlerFunc {
 
 func (a *App) MembersListedSession() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersListedSession()
+}
+
+func (a *App) MembersListedSignInAttempts() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSignInAttempts()
 }
 
 func (a *App) MembersListedUsers() http.HandlerFunc {

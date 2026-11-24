@@ -759,6 +759,7 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// The mailed links as a page lists them, each saying what became of it and who
 	// sent it.
 	files = append(files, r.mailLinkListSources(inst)...)
+	files = append(files, r.signInAttemptListSources(inst)...)
 	// What the rules ask of the role file: who may give a role and take one away.
 	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {
