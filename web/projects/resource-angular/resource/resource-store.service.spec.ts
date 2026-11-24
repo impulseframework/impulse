@@ -9,9 +9,8 @@ import { ResourceStore } from './resource-store.service';
 
 // The store's whole-set funnel and the paged reader, on the read mode the descriptor's
 // maximum page size decides: a source with no maximum is read whole in one limit=all
-// request; a source with a maximum is read one server page at a time, looked up by
-// key in `in` batches no larger than its maximum, and never read whole. The requests
-// are pinned by URL against a scripted client.
+// request; a source with a maximum is read one server page at a time and never read
+// whole. The requests are pinned by URL against a scripted client.
 
 const descriptor: ApiDescriptor = {
   permissionDigestRoute: 'permission-digest',
@@ -52,18 +51,6 @@ const descriptor: ApiDescriptor = {
       keys: ['id'],
       operations: ['list', 'read'],
       page: { default: 10, max: 50 },
-    },
-    // A second paged source of a tenant: with Hangars, two sources that differ in nothing but the source.
-    Gantries: {
-      resource: 'Gantries' as Resource,
-      property: 'gantries',
-      route: 'gantries',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read'],
-      page: { default: 25, max: 2 },
-      order: [{ field: 'name', direction: 'asc' }],
     },
   },
   methods: {
@@ -179,110 +166,6 @@ describe('ResourceStore whole-set funnel', () => {
       } else {
         expect(ref.value()).toEqual(tt.wantRows as never);
       }
-    });
-  }
-});
-
-describe('ResourceStore key lookup', () => {
-  it('reads a source with no maximum whole once and ignores the keys', async () => {
-    const script = scripted({ '/api/ship-classes?columns=id%2Cdesignation&limit=all': { rows: [{ id: 'c1', designation: 'Cutter' }, { id: 'c2', designation: 'Tug' }] } });
-    const store = storeOver(script);
-    const keys = signal(['c1']);
-    const ref = store.resourceListByKeys(signal('ship-classes'), signal('id'), keys, signal(['id', 'designation']));
-    await settle(() => ref.status() === 'resolved');
-    expect(ref.value()).toEqual([{ id: 'c1', designation: 'Cutter' }, { id: 'c2', designation: 'Tug' }] as never);
-
-    // Another page's keys ask nothing more: the whole list is already held.
-    keys.set(['c2']);
-    await settle(() => ref.status() === 'resolved');
-    expect(script.requests.map((r) => r.url)).toEqual(['/api/ship-classes?columns=id%2Cdesignation&limit=all']);
-  });
-
-  it('asks a source with a maximum for one in page per batch no larger than the maximum, never a whole read', async () => {
-    const first = '/api/sectors/anvil/hangars?filter=id%3Ain%3A%28h1%2Ch2%29&columns=id%2Cname&limit=2';
-    const second = '/api/sectors/anvil/hangars?filter=id%3Ain%3A%28h3%29&columns=id%2Cname&limit=1';
-    const script = scripted({
-      [first]: { rows: [{ id: 'h1', name: 'Anvil Dock One' }, { id: 'h2', name: 'Quarantine Bay' }] },
-      [second]: { rows: [{ id: 'h3', name: 'Bastion Slip' }] },
-    });
-    const store = storeOver(script);
-    const ref = store.resourceListByKeys(signal('sectors/{sectorID}/hangars'), signal('id'), signal(['h1', 'h2', 'h3']), signal(['id', 'name']), 200);
-    await settle(() => ref.status() === 'resolved');
-    expect(script.requests.map((r) => r.url).sort()).toEqual([first, second].sort());
-    expect((ref.value() as { id: string }[]).map((row) => row.id).sort()).toEqual(['h1', 'h2', 'h3']);
-  });
-
-  it('sorts a bounded source with no order by the key field, which its index serves', async () => {
-    const url = '/api/berths?filter=id%3Ain%3A%28b1%29&sort=id%3Aasc&columns=id%2Cname&limit=1';
-    const script = scripted({ [url]: { rows: [{ id: 'b1', name: 'Berth 1' }] } });
-    const store = storeOver(script);
-    const ref = store.resourceListByKeys(signal('berths'), signal('id'), signal(['b1']), signal(['id', 'name']));
-    await settle(() => ref.status() === 'resolved');
-    expect(script.requests.map((r) => r.url)).toEqual([url]);
-  });
-
-  it('keeps a refusal by all that was asked: the same keys of another tenant, for other columns, by another key or of another source are each asked, and each once', async () => {
-    // Nothing is scripted, so the server refuses every read: an answer in the 400s.
-    const script = scripted({});
-    const domain = signal<Domain | undefined>('anvil' as Domain);
-    const store = storeOver(script, domain);
-    const route = signal('sectors/{sectorID}/hangars');
-    const keyField = signal('id');
-    const keys = signal(['h1']);
-    const columns = signal(['id', 'name']);
-    const ref = store.resourceListByKeys(route, keyField, keys, columns);
-    /** How many reads the server has been sent once the reader has taken a change and ended in a refusal. */
-    const askedAfter = async (change: () => void): Promise<number> => {
-      change();
-      await settle(() => false, 5);
-      expect(ref.status()).toBe('error');
-      return script.requests.length;
-    };
-
-    expect(await askedAfter(() => undefined)).toBe(1);
-    // The same keys handed again: the refusal is the answer, and nothing is asked.
-    expect(await askedAfter(() => keys.set(['h1']))).toBe(1);
-    // Another tenant may answer where the first refused: it is asked. Back in the first, nothing is.
-    expect(await askedAfter(() => domain.set('bastion' as Domain))).toBe(2);
-    expect(await askedAfter(() => domain.set('anvil' as Domain))).toBe(2);
-    // Other columns and another key, each in its turn.
-    expect(await askedAfter(() => columns.set(['id']))).toBe(3);
-    expect(await askedAfter(() => columns.set(['id', 'name']))).toBe(3);
-    expect(await askedAfter(() => keyField.set('name'))).toBe(4);
-    expect(await askedAfter(() => keyField.set('id'))).toBe(4);
-    // Another source of the same tenant, so that the source is all that differs.
-    expect(await askedAfter(() => route.set('sectors/{sectorID}/gantries'))).toBe(5);
-    expect(await askedAfter(() => route.set('sectors/{sectorID}/hangars'))).toBe(5);
-  });
-
-  // An answer in the 400s is what the same request gets again, all but the two that say
-  // the server had no time for it: those are asked again, as a read that failed is.
-  const answers: { status: number; says: string; askedAgain: boolean }[] = [
-    { status: 400, says: 'the source cannot be asked that way', askedAgain: false },
-    { status: 403, says: 'the caller may not list the source', askedAgain: false },
-    { status: 404, says: 'the source is not there', askedAgain: false },
-    { status: 408, says: 'the request timed out', askedAgain: true },
-    { status: 409, says: 'the source is in no state to be asked', askedAgain: false },
-    { status: 429, says: 'too many requests', askedAgain: true },
-    { status: 500, says: 'the read failed', askedAgain: true },
-  ];
-  for (const answer of answers) {
-    it(`${answer.askedAgain ? 'asks again' : 'does not ask again'} for the same keys after a ${answer.status}: ${answer.says}`, async () => {
-      const url = '/api/sectors/anvil/hangars?filter=id%3Ain%3A%28h1%29&columns=id%2Cname&limit=1';
-      const script = scripted({ [url]: { status: answer.status, rows: { message: answer.says } } });
-      const store = storeOver(script);
-      const keys = signal(['h1']);
-      const ref = store.resourceListByKeys(signal('sectors/{sectorID}/hangars'), signal('id'), keys, signal(['id', 'name']));
-      await settle(() => false, 5);
-      expect(ref.status()).toBe('error');
-      expect(script.requests.map((r) => r.url)).toEqual([url]);
-
-      // The same keys handed again, as a sort that brings rows naming the same records does.
-      keys.set(['h1']);
-      await settle(() => false, 5);
-      expect(ref.status()).toBe('error');
-      expect((ref.error() as ApiError).status).toBe(answer.status);
-      expect(script.requests.length).toBe(answer.askedAgain ? 2 : 1);
     });
   }
 });
@@ -492,8 +375,6 @@ describe('ResourceStore tenant scoping', () => {
   const shipClassPaged = '/api/ship-classes?columns=id%2Cdesignation&count=true';
   const anvilHangarPaged = '/api/sectors/anvil/hangars?columns=id%2Cname&count=true';
   const bastionHangarPaged = '/api/sectors/bastion/hangars?columns=id%2Cname&count=true';
-  const anvilHangarKeys = '/api/sectors/anvil/hangars?filter=id%3Ain%3A%28h1%29&columns=id%2Cname&limit=1';
-  const bastionHangarKeys = '/api/sectors/bastion/hangars?filter=id%3Ain%3A%28h1%29&columns=id%2Cname&limit=1';
 
   /** The store's list page over one resource, as the list component wires it. */
   const listPage = (store: ResourceStore, name: string, route: string, column: string): (() => boolean) => {
@@ -587,26 +468,6 @@ describe('ResourceStore tenant scoping', () => {
       },
       wantFirst: [anvilHangarPaged],
       wantAfter: [anvilHangarPaged, bastionHangarPaged],
-    },
-    {
-      name: 'the key lookup over a global resource reads once across a change of the tenant',
-      script: { [shipClassList]: [] },
-      build: (store) => {
-        const ref = store.resourceListByKeys(signal('ship-classes'), signal('id'), signal(['c1']), signal(['id', 'designation']));
-        return { settled: () => ref.status() === 'resolved' };
-      },
-      wantFirst: [shipClassList],
-      wantAfter: [shipClassList],
-    },
-    {
-      name: 'the key lookup over a domain-scoped resource reads again, naming the new tenant',
-      script: { [anvilHangarKeys]: [], [bastionHangarKeys]: [] },
-      build: (store) => {
-        const ref = store.resourceListByKeys(signal(hangars), signal('id'), signal(['h1']), signal(['id', 'name']));
-        return { settled: () => ref.status() === 'resolved' };
-      },
-      wantFirst: [anvilHangarKeys],
-      wantAfter: [anvilHangarKeys, bastionHangarKeys],
     },
   ];
 

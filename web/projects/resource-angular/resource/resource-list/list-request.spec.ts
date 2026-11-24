@@ -21,7 +21,6 @@ import {
   queryableMeta,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
-  relatedUnreadMessage,
   roleQuestionField,
   rolesQuestion,
   searchEligibility,
@@ -768,52 +767,6 @@ describe('listEmptyMessage', () => {
   }
 });
 
-describe('relatedUnreadMessage', () => {
-  const refused = new ApiError('GET', '/api/sectors', 403, {
-    message: 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Sectors]',
-  });
-  const cases: { name: string; error: unknown; headings: string[]; want: string }[] = [
-    {
-      name: 'a refused read names the column and says the person may not see its records',
-      error: refused,
-      headings: ['Kept in'],
-      want: 'You do not have permission to see the records named in the Kept in column.',
-    },
-    {
-      name: 'two columns over one read are both named',
-      error: refused,
-      headings: ['Kept in', 'Owner'],
-      want: 'You do not have permission to see the records named in the Kept in and Owner columns.',
-    },
-    {
-      name: 'three are named as a person lists them',
-      error: refused,
-      headings: ['Kept in', 'Owner', 'Home port'],
-      want: 'You do not have permission to see the records named in the Kept in, Owner and Home port columns.',
-    },
-    {
-      name: 'a read the server could not serve is not a refusal of the person',
-      error: new ApiError('GET', '/api/sectors', 500, { message: serverSays.failed }),
-      headings: ['Kept in'],
-      want: 'The records named in the Kept in column could not be loaded.',
-    },
-    {
-      name: 'a read that never got an answer says the same',
-      error: new Error('network down'),
-      headings: ['Kept in'],
-      want: 'The records named in the Kept in column could not be loaded.',
-    },
-  ];
-
-  for (const tt of cases) {
-    it(tt.name, () => {
-      const said = relatedUnreadMessage(tt.error, tt.headings);
-      expect(said).toBe(tt.want);
-      expect(carriesServerWords(said)).toBe(false);
-    });
-  }
-});
-
 describe('refuseKeylessConfig', () => {
   const orders: ResourceMeta = { route: 'standing-orders', fields: [field('section'), field('directive')] };
   const cases: {
@@ -875,8 +828,7 @@ describe('refuseWriteOnlyColumns', () => {
       field('transcript', { writeOnly: true }),
     ],
   };
-  const column = (id: string, additionalIds?: { id: string; resource?: Resource; field?: string }[]): ColumnConfig =>
-    (additionalIds ? { id, additionalIds } : { id }) as unknown as ColumnConfig;
+  const column = (id: string): ColumnConfig => ({ id }) as unknown as ColumnConfig;
 
   const cases: { name: string; meta: ResourceMeta | undefined; columns: ColumnConfig[]; wantThrows?: RegExp }[] = [
     { name: 'columns over returned fields pass', meta: calls, columns: [column('summary'), column('id')] },
@@ -885,17 +837,6 @@ describe('refuseWriteOnlyColumns', () => {
       meta: calls,
       columns: [column('summary'), column('transcript')],
       wantThrows: /^DistressCalls: listColumns names transcript, which is write-only: a list never returns it$/,
-    },
-    {
-      name: 'a concatenated column reading the write-only field off this resource is refused',
-      meta: calls,
-      columns: [column('summary', [{ id: 'transcript' }])],
-      wantThrows: /names transcript, which is write-only/,
-    },
-    {
-      name: "a concatenated column reading another resource's field of the same name passes",
-      meta: calls,
-      columns: [column('summary', [{ id: 'transcript', resource: 'Logs' as Resource, field: 'text' }])],
     },
     {
       name: 'a resource with no write-only field passes whatever is named',

@@ -30,8 +30,7 @@ import {
 // key-less resource's page size or row expansion, and a column over a write-only field.
 
 /**
- * Refuses a list configuration naming a write-only field as a column, alone or among a
- * concatenated column's own fields (`additionalIds` on this resource). The server never
+ * Refuses a list configuration naming a write-only field as a column. The server never
  * returns such a field and refuses a `columns=` that names it with a 400, so the column
  * is a configuration error, thrown when the page is built naming the resource and the
  * field, never a silently empty cell.
@@ -46,18 +45,8 @@ export function refuseWriteOnlyColumns(
     return;
   }
   for (const column of columns) {
-    const named: string[] = [column.id];
-    if ('additionalIds' in column) {
-      for (const additional of column.additionalIds) {
-        if (additional.resource === undefined) {
-          named.push(additional.id);
-        }
-      }
-    }
-    for (const field of named) {
-      if (writeOnly.has(field)) {
-        throw new Error(`${resource}: listColumns names ${field}, which is write-only: a list never returns it`);
-      }
+    if (writeOnly.has(column.id)) {
+      throw new Error(`${resource}: listColumns names ${column.id}, which is write-only: a list never returns it`);
     }
   }
 }
@@ -425,24 +414,4 @@ export function listEmptyMessage(error: unknown, noListableColumns: boolean, emp
     return 'This list could not be loaded.';
   }
   return empty || noRecordsFound;
-}
-
-/**
- * What a list says above its rows when it could not read the records some of its columns
- * name (a related record's name, read by the keys the rows carry): the columns, by their
- * headings, and which of the two it was, that the person may not see those records (the
- * server refused the read with a 403: the caller holds no List on the record) or that the
- * read failed. The words are the page's, never the server's, as the empty table's are. The
- * rows are drawn all the same, each such cell saying what the page gives for a row whose
- * record is not read.
- */
-export function relatedUnreadMessage(error: unknown, headings: readonly string[]): string {
-  const columns =
-    headings.length === 1
-      ? `the ${headings[0]} column`
-      : `the ${headings.slice(0, -1).join(', ')} and ${headings.at(-1)} columns`;
-  if (error instanceof ApiError && error.status === 403) {
-    return `You do not have permission to see the records named in ${columns}.`;
-  }
-  return `The records named in ${columns} could not be loaded.`;
 }

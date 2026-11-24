@@ -10,7 +10,6 @@ import {
   linkedSignal,
   OnInit,
   output,
-  ResourceRef,
   runInInjectionContext,
   signal,
   Type,
@@ -36,7 +35,6 @@ import {
   UrlTree,
 } from '@angular/router';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
 import {
   AppGridComponent,
   ColumnFilter,
@@ -48,7 +46,6 @@ import {
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
 import {
-  ApiError,
   Domain,
   ListPermission,
   PermissionDigestState,
@@ -67,11 +64,9 @@ import {
   iconCellKey,
   keyFields,
   linkCellKey,
-  ListConcatFn,
   ListViewConfig,
   ReadPermission,
   RecordData,
-  Resource,
   RESOURCE_META,
   RootConfig,
   RowAction,
@@ -86,14 +81,7 @@ import {
   ActionAccessControlWrapperComponent,
   ActionButtonContext,
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
-import {
-  hyphenConcatWithoutResource,
-  hyphenSpaceConcatWithoutResource,
-  noSpaceConcatWithoutResource,
-  spaceConcatWithoutResource,
-  spaceHyphenConcatWithoutResource,
-} from '../concat-fns';
-import { applyFormatting, formatDateString, formatFieldValue } from '../format-fns';
+import { applyFormatting, formatFieldValue } from '../format-fns';
 import { addRowLabel, rowMessage, rowWordsOf } from '../row-words';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import {
@@ -133,7 +121,6 @@ import {
   queryableMeta,
   refuseKeylessConfig,
   refuseWriteOnlyColumns,
-  relatedUnreadMessage,
   roleQuestionField,
   rolesQuestion,
   sameSorts,
@@ -144,9 +131,6 @@ import { listableColumns, sameColumns } from './listable-columns';
 import { askedNames, cellText, listedColumns, requestSorts, tableSorts } from './name-columns';
 import { filterParam, readAddressFilter, sameFilters, standingFilters, writeAddressFilter } from './address-filters';
 import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
-
-/** A column's heading where the page gives none: its field's name in words, as the table draws it. */
-const headingTitle = new CamelCaseToTitlePipe();
 
 @Component({
   standalone: true,
@@ -308,57 +292,6 @@ export class ResourceListComponent implements OnInit {
   notice = computed(() => this.config()?.notice?.(this.store.page().rows) ?? '');
 
   /**
-   * The related reads the server refused or that failed, each by its key with what the
-   * read ended in. A read asked again stays here while it is on its way: a page turn, a
-   * sort or a filter brings other rows, so other keys to read, and the read that could not
-   * be made a moment ago is the same read, most often with the same answer. It leaves when
-   * it answers. A read the server refused is not asked again for the same keys while the
-   * list stands (the store's reader keeps the refusal): it comes back here as the same
-   * error, so nothing more is written of it.
-   */
-  private unanswered = linkedSignal<{ refKey: string; status: string; error: unknown }[], Map<string, unknown>>({
-    source: () =>
-      [...this.resourceRefMap()].map(([refKey, ref]) => ({
-        refKey,
-        status: ref.status(),
-        error: ref.status() === 'error' ? ref.error() : undefined,
-      })),
-    computation: (reads, previous) => {
-      const unanswered = new Map<string, unknown>();
-      for (const read of reads) {
-        if (read.status === 'error') {
-          unanswered.set(read.refKey, read.error);
-        } else if ((read.status === 'loading' || read.status === 'reloading') && previous?.value.has(read.refKey)) {
-          unanswered.set(read.refKey, previous.value.get(read.refKey));
-        }
-      }
-      return unanswered;
-    },
-  });
-
-  /**
-   * What the list could not read of the records its columns name: a sentence for each
-   * related read the server refused or that failed, naming the shown columns it fills by
-   * their headings. Such a read is over, so the list is drawn with the rows it has, and
-   * its sentence stands above them, standing still while the read is asked again, until
-   * the read answers. Two reads that come to the same sentence (two columns under one
-   * heading, each naming another record) say it once. A column over a tenant's key that
-   * says in its own words what a row shows when the tenant may not be seen (`tenantKey`
-   * with a `fallback`) is not named for a read the server refused: its cells already say
-   * it. Where no other column is over that read, nothing is said of it.
-   */
-  unread = computed<string[]>(() => {
-    const sentences = new Set<string>();
-    for (const [refKey, error] of this.unanswered()) {
-      const headings = this.headingsOver(refKey, error instanceof ApiError && error.status === 403);
-      if (headings.length > 0) {
-        sentences.add(relatedUnreadMessage(error, headings));
-      }
-    }
-    return [...sentences];
-  });
-
-  /**
    * Whether the page's address named a filter the list cannot show the person, so the
    * list is shown without it and says so above its rows. The list's own rewrite of the
    * address leaves it standing; the person's next commit, and an address whose filters
@@ -516,7 +449,6 @@ export class ResourceListComponent implements OnInit {
 
   /** The row field an expanded row is opened by: the listed resource's single key, none on a key-less resource. */
   expansionKey = computed(() => keyFields(this.meta())[0]?.fieldName as FieldName | undefined);
-  resourceRefMap = signal(new Map<string, ResourceRef<RecordData[]>>());
   primaryKeys = computed(() => keyFields(this.meta()));
   /**
    * Whether the listed resource has no primary key (a `@computed` or `@virtual` struct
@@ -565,12 +497,10 @@ export class ResourceListComponent implements OnInit {
   /**
    * The configured columns the caller may list: every column when nothing narrows,
    * otherwise those whose fields the digest grants. Key fields are structural, never
-   * grant-bearing, and always pass; a concatenated column passes when its own field and
-   * every field it reads off this resource pass (fields of a referenced resource are
-   * read through that resource's own request). Equal while the same columns: every digest
-   * load re-evaluates this, and one that changes the answer for none of them (another
-   * scope's digest landing after sign-in, a reload) leaves the columns as they are, so the
-   * store's request, which they are part of, is not asked again.
+   * grant-bearing, and always pass. Equal while the same columns: every digest load
+   * re-evaluates this, and one that changes the answer for none of them (another scope's
+   * digest landing after sign-in, a reload) leaves the columns as they are, so the store's
+   * request, which they are part of, is not asked again.
    */
   listColumns = computed<ColumnConfig[]>(
     () =>
@@ -1105,17 +1035,6 @@ export class ResourceListComponent implements OnInit {
         hidden: true,
       });
     }
-    for (const col of listColumns) {
-      if (!('additionalIds' in col)) continue;
-      for (const additionalCol of col.additionalIds) {
-        if (additionalCol.resource !== undefined) continue;
-        idCols.push({
-          id: additionalCol.id as FieldName,
-          hidden: true,
-        });
-      }
-    }
-
     return [...new Set([...idCols, ...listColumns])];
   });
 
@@ -1157,7 +1076,6 @@ export class ResourceListComponent implements OnInit {
   drawnSorts = computed(() => tableSorts(this.listed(), this.store.sorts()));
 
   columns = computed(() => {
-    const refmap = this.resourceRefMap();
     const columns: ColumnConfig[] = [];
     const usedIds = new Set<string>();
     // A column over a field the server does not order is drawn with no sort button, as one
@@ -1181,122 +1099,56 @@ export class ResourceListComponent implements OnInit {
         continue;
       }
 
-      if ('additionalIds' in col) {
-        columns.push({
-          id: indexId,
-          header: col.header,
-          width: col.width,
-          resizable: col.resizable,
-          // A column that opts out of its filter control says so to the table, and so
-          // does one that opts out of sorting.
-          ...(col.filterable === false ? { filterable: false } : {}),
-          ...(col.sortable === false || unordered.has(col.id) ? { sortable: false } : {}),
-          valueGetter: (data) => {
-            const concatArray: string[] = [];
-            let reading = false;
-
-            col.additionalIds.forEach((additionalCol) => {
-              if (!additionalCol.resource) {
-                concatArray.push(data[additionalCol.id]);
-              } else {
-                const refKey = this.resourceRefKey(additionalCol.resource, additionalCol.id as FieldName);
-                const resourceRef = refmap.get(refKey);
-                // A related read the server refused (the caller holds no List on the related
-                // record), or one that failed, holds no rows (reading its value would throw):
-                // the cell says what the page gives for a row whose record is not read, and the
-                // list says above its rows what it could not read.
-                const resData = resourceRef?.hasValue() ? resourceRef.value() : undefined;
-                // The read starts from an empty list and holds it while it loads: a row
-                // that finds nothing in it then is not yet known to be missing.
-                reading ||= resourceRef?.isLoading() === true;
-                if (!resData) {
-                  return;
-                }
-                for (const res of resData) {
-                  if (res[additionalCol.id] === data[col.id] && additionalCol.field) {
-                    const value = res[additionalCol.field];
-                    if (col.formatType && typeof value === 'string') {
-                      concatArray.push(formatDateString(col.formatType, value));
-                    } else if (value) {
-                      concatArray.push(value as string);
-                    }
-                  }
-                }
-              }
-            });
-
-            if (concatArray.length === 0 && col.tenantKey) {
-              // The tenant's record was not read: the person's own list of tenants may
-              // still name it.
-              const held = this.ownTenantName(data[col.id]);
-              if (held !== undefined) {
-                concatArray.push(held);
-              } else if (reading && data[col.id]) {
-                // The record is still being read: the cell says nothing yet, and never
-                // that the reader cannot see a tenant the read is about to name.
-                return '';
-              }
-            }
-            if (concatArray.length === 0) {
-              return col.fallback ? col.fallback(data) : (col.emptyDataValue as string);
-            }
-
-            const value = concatenated(col.concatFn, concatArray);
-            return col.said ? col.said(value, data) : value;
-          },
-        });
-      } else {
-        // A cell without a configured format is written by the field: the name of the
-        // value where the field takes one of a fixed set, a role's name in words where it
-        // holds one, and otherwise by the display type: a size for bytes, the elements for
-        // an array, a place in words or one-line JSON for an object, a calendar date for a
-        // date, the value's text for the rest.
-        // A yes-or-no value is not written at all: the table draws it as a mark
-        // (processedRowData).
-        const fieldMeta = this.meta()?.fields?.find((field) => field.fieldName === col.id);
-        const valueFormatter = (params: DataType | null): string => {
-          if (col.formatType) {
-            const retValue = applyFormatting(col.formatType, params as string);
-            return retValue || (col.emptyDataValue as string);
-          }
-          return formatFieldValue(fieldMeta, params) || (col.emptyDataValue as string);
-        };
-        // A column that says how its cell is read off the row (valueGetter) is read
-        // that way, then formatted like any other. A name column, and a column which
-        // shows no name (the list carries none beside its id, or the person may not list
-        // it) but has the page's words for a tenant or a row, are read off the row by
-        // cellText: the name beside the id, else the page's words, else the stored value.
-        // The second says no stored value, so it offers neither sort nor filter.
-        const named = listed.kind === 'name' || listed.kind === 'worded';
-        const worded = listed.kind === 'worded';
-        const shared = {
-          id: indexId,
-          header: listed.header ?? col.header,
-          width: col.width,
-          resizable: col.resizable,
-          ...(named
-            ? { valueGetter: (data: RecordData): string => cellText(listed, data, (key) => this.ownTenantName(key)) }
-            : { valueFormatter }),
-          // A configured format stays with the column, so the display row knows the
-          // author chose how the cell is written.
-          ...(col.formatType ? { formatType: col.formatType } : {}),
-          ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
-          // A column that opts out of its filter control says so to the table, and so
-          // does one that opts out of sorting.
-          ...(col.filterable === false || worded ? { filterable: false } : {}),
-          // A column whose list is drawn a line each says so to the table.
-          ...(col.lines ? { lines: true } : {}),
-          ...(col.sortable === false || worded || unordered.has(col.id) ? { sortable: false } : {}),
-          // A column of words that opens its row says so while a row opens, and its link
-          // rides the display row (processedRowData); otherwise its cell is words alone.
-          ...(col.opensRow && !col.iconConfig && rowOpens ? { opensRow: true } : {}),
-        };
-        // An icon column keeps its map and tooltip position for the grid; the cell itself is
-        // resolved with the display row (processedRowData), never at render time.
-        columns.push(
-          col.iconConfig ? { ...shared, iconConfig: col.iconConfig, tooltipPosition: col.tooltipPosition } : shared,
-        );
-      }
+      // A cell without a configured format is written by the field: the name of the
+      // value where the field takes one of a fixed set, a role's name in words where it
+      // holds one, and otherwise by the display type: a size for bytes, the elements for
+      // an array, a place in words or one-line JSON for an object, a calendar date for a
+      // date, the value's text for the rest.
+      // A yes-or-no value is not written at all: the table draws it as a mark
+      // (processedRowData).
+      const fieldMeta = this.meta()?.fields?.find((field) => field.fieldName === col.id);
+      const valueFormatter = (params: DataType | null): string => {
+        if (col.formatType) {
+          const retValue = applyFormatting(col.formatType, params as string);
+          return retValue || (col.emptyDataValue as string);
+        }
+        return formatFieldValue(fieldMeta, params) || (col.emptyDataValue as string);
+      };
+      // A column that says how its cell is read off the row (valueGetter) is read
+      // that way, then formatted like any other. A name column, and a column which
+      // shows no name (the list carries none beside its id, or the person may not list
+      // it) but has the page's words for a tenant or a row, are read off the row by
+      // cellText: the name beside the id, else the page's words, else the stored value.
+      // The second says no stored value, so it offers neither sort nor filter.
+      const named = listed.kind === 'name' || listed.kind === 'worded';
+      const worded = listed.kind === 'worded';
+      const shared = {
+        id: indexId,
+        header: listed.header ?? col.header,
+        width: col.width,
+        resizable: col.resizable,
+        ...(named
+          ? { valueGetter: (data: RecordData): string => cellText(listed, data, (key) => this.ownTenantName(key)) }
+          : { valueFormatter }),
+        // A configured format stays with the column, so the display row knows the
+        // author chose how the cell is written.
+        ...(col.formatType ? { formatType: col.formatType } : {}),
+        ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
+        // A column that opts out of its filter control says so to the table, and so
+        // does one that opts out of sorting.
+        ...(col.filterable === false || worded ? { filterable: false } : {}),
+        // A column whose list is drawn a line each says so to the table.
+        ...(col.lines ? { lines: true } : {}),
+        ...(col.sortable === false || worded || unordered.has(col.id) ? { sortable: false } : {}),
+        // A column of words that opens its row says so while a row opens, and its link
+        // rides the display row (processedRowData); otherwise its cell is words alone.
+        ...(col.opensRow && !col.iconConfig && rowOpens ? { opensRow: true } : {}),
+      };
+      // An icon column keeps its map and tooltip position for the grid; the cell itself is
+      // resolved with the display row (processedRowData), never at render time.
+      columns.push(
+        col.iconConfig ? { ...shared, iconConfig: col.iconConfig, tooltipPosition: col.tooltipPosition } : shared,
+      );
     }
 
     if (this.across()) {
@@ -1665,44 +1517,17 @@ export class ResourceListComponent implements OnInit {
   }
 
   /**
-   * Whether a name some column shows is still on its way: a related resource read for
-   * the first time, or asked for keys it has not answered for. A related resource read
-   * again keeps the names it had, so it is not waited for.
-   */
-  private namesAwaited = computed(() => {
-    for (const ref of this.resourceRefMap().values()) {
-      if (ref.status() === 'loading') {
-        return true;
-      }
-    }
-    return false;
-  });
-
-  /**
-   * The rows the table draws: the page's rows, once every name their columns show is
-   * known, and on a list across tenants once the digest of every tenant on the page has
-   * answered or failed. While a related resource or a digest is being read the table keeps
-   * the rows it had (none, on a list just opened), so a row is never drawn with a key, or
-   * with the words for a row that has no related record, where its name is drawn a moment
-   * later, and never without a link that is drawn a moment later.
+   * The rows the table draws: the page's rows, and on a list across tenants once the
+   * digest of every tenant on the page has answered or failed. While a digest is being
+   * read the table keeps the rows it had (none, on a list just opened), so a row is never
+   * drawn without a link that is drawn a moment later.
    */
   tableRowData = linkedSignal<{ rows: RecordData[]; awaited: boolean }, RecordData[]>({
-    source: () => ({ rows: this.processedRowData(), awaited: this.namesAwaited() || this.linksAwaited() }),
+    source: () => ({ rows: this.processedRowData(), awaited: this.linksAwaited() }),
     computation: (now, previous) => (now.awaited ? (previous?.value ?? []) : now.rows),
   });
 
-  loadingRowData = computed(() => {
-    if (this.store.pageStatus() === 'loading' || this.linksAwaited()) {
-      return true;
-    }
-    for (const ref of this.resourceRefMap().values()) {
-      const refStatus = ref.status();
-      if (refStatus === 'loading' || refStatus === 'reloading') {
-        return true;
-      }
-    }
-    return false;
-  });
+  loadingRowData = computed(() => this.store.pageStatus() === 'loading' || this.linksAwaited());
 
   filters = computed(() => {
     const configFilter = this.config().filter?.(this.relatedData()) || '';
@@ -1736,14 +1561,9 @@ export class ResourceListComponent implements OnInit {
     return this.config().parentRelation?.childKey as string;
   });
 
-  private resourceRefKey(resource: Resource, keyField: FieldName): string {
-    return `${resource}::${keyField}`;
-  }
-
   /**
    * A tenant's name as the person's own list of tenants holds it, for a column over a
-   * tenant's key whose record could not be read; undefined for a key the list does not
-   * name, which the list answers with the key itself.
+   * tenant's key whose row shows no name; undefined for a key the list does not name.
    */
   private ownTenantName(key: unknown): string | undefined {
     if (typeof key !== 'string' || key === '') {
@@ -1763,32 +1583,6 @@ export class ResourceListComponent implements OnInit {
     }
     this.logged.add(error);
     return true;
-  }
-
-  /**
-   * The headings, as the table draws them, of the shown columns that name a record of the
-   * related read under the key. Where the server refused the read, a column over a tenant's
-   * key with words of its own for a tenant the person may not see is left out.
-   */
-  private headingsOver(refKey: string, refused: boolean): string[] {
-    const headings: string[] = [];
-    for (const col of this.listColumns()) {
-      if (col.hidden || !('additionalIds' in col)) {
-        continue;
-      }
-      if (refused && col.tenantKey && col.fallback) {
-        continue;
-      }
-      const reads = col.additionalIds.some(
-        (additional) =>
-          additional.resource !== undefined &&
-          this.resourceRefKey(additional.resource, additional.id as FieldName) === refKey,
-      );
-      if (reads) {
-        headings.push(headingTitle.transform(col.header || col.id));
-      }
-    }
-    return headings;
   }
 
   private getUniqueId(baseId: string, usedIds: Set<string>): string {
@@ -1876,65 +1670,6 @@ export class ResourceListComponent implements OnInit {
     }
 
     runInInjectionContext(this.injector, () => {
-      const referenced = new Map<
-        string,
-        { route: string; keyField: FieldName; fkColumns: Set<FieldName>; columns: Set<FieldName> }
-      >();
-      this.config().listColumns.forEach((element) => {
-        if (!('additionalIds' in element)) {
-          return;
-        }
-        element.additionalIds.forEach((additionalCol) => {
-          if (additionalCol.resource === undefined) {
-            return;
-          }
-          const meta = this.resourceMeta(additionalCol.resource);
-          if (meta === undefined) {
-            return;
-          }
-          const keyField = additionalCol.id as FieldName;
-          const refKey = this.resourceRefKey(additionalCol.resource, keyField);
-          const entry = referenced.get(refKey) ?? {
-            route: meta.route,
-            keyField,
-            fkColumns: new Set<FieldName>(),
-            columns: new Set<FieldName>(),
-          };
-          entry.fkColumns.add(element.id as FieldName);
-          entry.columns.add(keyField);
-          if (additionalCol.field) {
-            entry.columns.add(additionalCol.field as FieldName);
-          }
-          referenced.set(refKey, entry);
-        });
-      });
-
-      referenced.forEach((entry, refKey) => {
-        if (this.resourceRefMap().has(refKey)) {
-          return;
-        }
-        const keys = computed(() => {
-          const data = this.store.page().rows;
-          const values = new Set<string>();
-          for (const row of data) {
-            for (const fkColumn of entry.fkColumns) {
-              const value = row[fkColumn];
-              if (value !== undefined && value !== null && value !== '') {
-                values.add(String(value));
-              }
-            }
-          }
-          return [...values];
-        });
-        const ref = this.store.resourceListByKeys(
-          signal(entry.route),
-          signal(entry.keyField),
-          keys,
-          signal([...entry.columns]),
-        );
-        this.resourceRefMap.update((map) => new Map(map).set(refKey, ref));
-      });
-
       effect(() => {
         // A row of a list across tenants links to its own page where its tenant's digest
         // lets the person read it: the digests of the tenants on a page are read before
@@ -1952,20 +1687,15 @@ export class ResourceListComponent implements OnInit {
       });
 
       effect(() => {
-        // What the server said of a list or of a related read it refused, or how the read
-        // failed, is for whoever looks into it: it is written to the console, once, with
-        // the resource and the read it belongs to. The screen says it in the page's words.
+        // What the server said of a list it refused, or how the read failed, is for
+        // whoever looks into it: it is written to the console, once, with the resource it
+        // belongs to. The screen says it in the page's words.
         // Each line's words are a constant, and the console puts the names where they keep
         // a place (%s): a name is never itself read as words to print.
         const resource = this.config().primaryResource;
         const pageError: unknown = this.store.pageError();
         if (pageError && this.firstSeen(pageError)) {
           console.error('%s: the list could not be loaded:', resource, pageError);
-        }
-        for (const [refKey, error] of this.unanswered()) {
-          if (this.firstSeen(error)) {
-            console.error('%s: the records read for %s could not be loaded:', resource, refKey, error);
-          }
         }
       });
 
@@ -2005,20 +1735,4 @@ export class ResourceListComponent implements OnInit {
 /** Whether two lists of texts are the same texts in the same order. */
 function sameTexts(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((text, i) => text === b[i]);
-}
-
-/** The values a related-record column found, joined as the column asks; a hyphen where it does not say. */
-function concatenated(concatFn: ListConcatFn | undefined, values: string[]): string {
-  switch (concatFn) {
-    case 'space-concat':
-      return spaceConcatWithoutResource(values);
-    case 'space-hyphen-concat':
-      return spaceHyphenConcatWithoutResource(values);
-    case 'hyphen-space-concat':
-      return hyphenSpaceConcatWithoutResource(values);
-    case 'no-space-concat':
-      return noSpaceConcatWithoutResource(values);
-    default:
-      return hyphenConcatWithoutResource(values);
-  }
 }

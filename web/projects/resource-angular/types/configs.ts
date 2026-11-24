@@ -206,13 +206,11 @@ export interface MethodPresentation {
   says?: string;
 }
 
-export type ListConcatFn =
-  'space-concat' | 'hyphen-concat' | 'space-hyphen-concat' | 'hyphen-space-concat' | 'no-space-concat';
 export type ConfigType = ChildResourceConfig;
 export type FormatType = 'simpleSlashDateFormat';
 export type RPCPlacement = 'inline' | 'end';
 
-export type ColumnConfig = SingleColumnConfig | MultiColumnConfig;
+export type ColumnConfig = SingleColumnConfig;
 
 /**
  * The display-row key an icon column's resolved icon rides under, beside the column's
@@ -415,75 +413,6 @@ export const singleColumnConfigDefaults = {
   filterable: true,
   hideHeader: false,
 } satisfies SingleColumnConfig;
-
-/** A column concatenating its field with fields of related resources: a field column with the related ids. */
-export type MultiColumnConfig = FieldColumnConfig & {
-  // todo: additionalIds name is not clear. the id provided is fetched from a different resource, such as a typeId
-  additionalIds: AdditionalResourceConfig[];
-  concatFn: ListConcatFn;
-  /**
-   * What the cell says for a row with nothing to concatenate, given the row: the row
-   * names no related record (a role held in the whole application names no tenant), or
-   * the related records could not be read (the caller holds no List on them). Absent,
-   * the cell shows `emptyDataValue`.
-   */
-  fallback?: (data: any) => string;
-  /**
-   * The column's field holds a tenant's key. Where the tenant's record could not be read
-   * (the caller holds no List on it), the tenant is named as the person's own list of
-   * tenants names it, the tenants they hold a role in, which the client already holds,
-   * before `fallback` is asked.
-   */
-  tenantKey?: boolean;
-  /**
-   * How the cell says the value it found, given the value and the row: the page's words
-   * around a bare name, where the heading does not say what the name is a name of
-   * ("Sector Anvil" under "Held in"). Absent, the cell shows the value. It is not asked
-   * for a row that falls back.
-   */
-  said?: (value: string, data: any) => string;
-};
-export type MultiColumnConfigOptions = MultiColumnConfig;
-
-export function multiColumnConfig(config: MultiColumnConfigOptions): MultiColumnConfig {
-  return {
-    ...multiColumnConfigDefaults,
-    ...config,
-  } satisfies MultiColumnConfig;
-}
-
-export const multiColumnConfigDefaults = {
-  ...singleColumnConfigDefaults,
-  additionalIds: [] as AdditionalResourceConfig[],
-  concatFn: 'hyphen-concat' as ListConcatFn,
-} satisfies MultiColumnConfig;
-
-export interface AdditionalResourceConfig {
-  resource?: Resource;
-  id: FieldName;
-  field?: FieldName;
-  hidden?: boolean;
-}
-export interface AdditionalResourceConfigOptions {
-  id: FieldName;
-  resource?: Resource;
-  field?: FieldName;
-  hidden?: boolean;
-}
-
-export function additionalResourceConfig(config: AdditionalResourceConfigOptions): AdditionalResourceConfig {
-  return {
-    ...additionalResourceConfigDefaults,
-    ...config,
-  } satisfies AdditionalResourceConfig;
-}
-
-export const additionalResourceConfigDefaults = {
-  id: '' as FieldName,
-  resource: '' as Resource,
-  field: '' as FieldName,
-  hidden: false,
-} satisfies AdditionalResourceConfig;
 
 export interface FieldSort {
   field: FieldName;

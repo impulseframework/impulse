@@ -133,12 +133,10 @@ function listedColumn(
 
 /**
  * Whether a column draws its own field's value as text: a field column (no button, no
- * icon), shown, with no getter of its own and no related records of its own to read.
+ * icon), shown, with no getter of its own.
  */
 function drawnFromField(column: ColumnConfig): boolean {
-  return (
-    !('additionalIds' in column) && !column.buttonConfig && !column.iconConfig && !column.hidden && !column.valueGetter
-  );
+  return !column.buttonConfig && !column.iconConfig && !column.hidden && !column.valueGetter;
 }
 
 /**

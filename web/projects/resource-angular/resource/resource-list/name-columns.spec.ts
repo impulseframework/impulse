@@ -1,5 +1,5 @@
 import { FieldMeta, Resource, ResourceMeta } from '@impulseframework/resource';
-import { ColumnConfig, FieldName, multiColumnConfig } from '@impulseframework/resource-angular/types';
+import { ColumnConfig, FieldName } from '@impulseframework/resource-angular/types';
 
 import { askedNames, cellText, ListedColumn, listedColumns, requestSorts, tableSorts } from './name-columns';
 
@@ -324,22 +324,6 @@ describe('listedColumns', () => {
         tableId: 'homeSectorId' as FieldName,
         asks: ['homeSectorId'] as FieldName[],
         sortField: 'homeSectorId' as FieldName,
-        header: undefined,
-      },
-    },
-    {
-      name: 'a column that reads a related record itself is untouched',
-      column: multiColumnConfig({
-        id: 'squadronId' as FieldName,
-        additionalIds: [{ resource: squadrons, id: 'id' as FieldName, field: 'name' as FieldName }],
-        concatFn: 'space-concat',
-      }),
-      listable: {},
-      want: {
-        kind: 'field',
-        tableId: 'squadronId' as FieldName,
-        asks: ['squadronId'] as FieldName[],
-        sortField: 'squadronId' as FieldName,
         header: undefined,
       },
     },
