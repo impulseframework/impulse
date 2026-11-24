@@ -139,6 +139,12 @@ const (
 	// person holds roles.
 	identityTenantHeldAlone = `HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally`
 
+	// identityTenantDisplayName is the name a person of a tenant's list is shown by, over
+	// the account u: their name, or their username where they have none. The list's query
+	// and its name query both write it, so a person's name on the list and beside an id
+	// that points to them cannot differ.
+	identityTenantDisplayName = `COALESCE(NULLIF(u.Name, ''), u.Username)`
+
 	// identityTenantPeopleFrom selects the people of every tenant, t the tenant and the
 	// name and u the account: who holds a role in a tenant (one tenant's memberships, and
 	// the memberships held in every tenant once per row of the tenant record's table),
@@ -300,9 +306,7 @@ import (
 	{{- if .AdministratorsEnter }}
 	"github.com/impulseframework/impulse/accesstypes"
 	{{- end }}
-	{{- if .OffersToEntering }}
 	"github.com/impulseframework/impulse/resource"
-	{{- end }}
 )
 
 type (
@@ -444,7 +448,7 @@ SELECT
   t.DomainId AS DomainId,
   u.Username AS Username,
   u.Name AS Name,
-  COALESCE(NULLIF(u.Name, ''), u.Username) AS DisplayName,
+  ` + identityTenantDisplayName + ` AS DisplayName,
   u.Email AS Email,
   u.EmailVerifiedAt AS EmailVerifiedAt,
   u.Disabled AS Disabled,
@@ -456,6 +460,20 @@ SELECT
 ` + identityTenantPersonFacts + identityTenantPersonHeldHere + identityTenantPersonInEveryTenant + identityTenantThroughFacts + `{{ if .TenantDirectory }}` + identityTenantDirectoryFacts + `{{ end }}
 ` + identityTenantPeopleFrom + `{{ if .TenantDirectory }}` + identityTenantDirectoryJoins + `{{ end }}
 ) p
+` + "`" + `
+
+// {{ GoCamel .TenantUser }}NameQuery selects, for every {{ .TenantWord }}, its people's ids and the name each is
+// shown by: the rows of {{ GoCamel .TenantUser }}Query, one for one, from the same people and their
+// accounts, without the facts of where a person holds roles and who manages the account. A list
+// that shows a person by name reads the name from it (NameSubquery): a name's query is written
+// into the statement of the list that shows it, the facts' joins are the larger part of the
+// list's own query, and Spanner refuses a statement of more than twenty joins.
+const {{ GoCamel .TenantUser }}NameQuery = ` + "`" + `
+SELECT
+  u.Id AS Id,
+  t.DomainId AS DomainId,
+  ` + identityTenantDisplayName + ` AS DisplayName
+` + identityTenantPeopleFrom + `
 ` + "`" + `
 
 {{- if .AdministratorsEnter }}
@@ -494,6 +512,14 @@ func ({{ .TenantUser }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .TenantUser }}Query, nil
 	{{- end }}
 }
+
+// NameSubquery is the query a list that points to a person reads the person's name from
+// (resource.NameSubqueryer): the person's id, the {{ .TenantWord }} and DisplayName.
+func ({{ .TenantUser }}) NameSubquery() (query string, params map[string]any) {
+	return {{ GoCamel .TenantUser }}NameQuery, nil
+}
+
+var _ resource.NameSubqueryer = {{ .TenantUser }}{}
 {{- if .OffersToEntering }}
 
 ` + identityTenantsToEnterDoc + `

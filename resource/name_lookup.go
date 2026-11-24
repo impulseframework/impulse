@@ -528,7 +528,7 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 			return nil, errors.Newf("name field %s: its id field %s not found in db struct", field, name.Key)
 		}
 
-		query, err := q.nameViewQuery(&name.NameField, registry)
+		query, err := q.nameViewQuery(&name.NameField, registry, grant.IsConditional())
 		if err != nil {
 			return nil, err
 		}
@@ -609,16 +609,20 @@ func (r *renderedReadConditions) namesRowFrom(dbType DBType, from string) (strin
 }
 
 // nameViewQuery returns the query of the view a name is read from, "" where the
-// name is read from a table. In the query it returns, each parameter the view binds
-// is written as a placeholder of the statement's own, bound under the view and the
-// parameter's name (bindShared): a view read twice in one statement binds each of its
-// parameters once, and two views that bind a parameter of one name never meet. A
+// name is read from a table: the view's name query where it gives one
+// (NameSubqueryer) and whole is false, its whole query (Subquery) otherwise. A
+// caller asks for the whole query where the name's grant is held under a condition,
+// which reads the view's own fields. In the query it returns, each parameter the view
+// binds is written as a placeholder of the statement's own, bound under the view, the
+// query and the parameter's name (bindShared): a view read twice in one statement
+// binds each of its parameters once, the two queries of one view never share a
+// placeholder, and two views that bind a parameter of one name never meet. A
 // parameter the view binds and its query never names is not bound. A name read from a
 // view the decoder was not handed is not read; a parameter of the view's whose name
 // starts with an underscore is refused as a list's own view's is (viewFromItem); and
 // a query that binds a parameter and cannot be read to its end is refused, since its
 // parameters cannot all be found.
-func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegistry) (string, error) {
+func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegistry, whole bool) (string, error) {
 	if !name.View {
 		return "", nil
 	}
@@ -627,9 +631,14 @@ func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegis
 		return "", errors.New(noNameView(name, q.Resource()))
 	}
 	query, params := view.Subquery()
+	method, bound, words := "Subquery", "views", viewQueryWords
+	if named, ok := view.(NameSubqueryer); ok && !whole {
+		query, params = named.NameSubquery()
+		method, bound, words = "NameSubquery", "names", nameQueryWords
+	}
 	for _, param := range slices.Sorted(maps.Keys(params)) {
 		if strings.HasPrefix(param, "_") {
-			return "", errors.Newf("Subquery params for %s can not start with an _", name.Resource)
+			return "", errors.Newf("%s params for %s can not start with an _", method, name.Resource)
 		}
 	}
 	if len(params) == 0 {
@@ -637,13 +646,13 @@ func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegis
 	}
 	toks, err := viewParamTokens(query, params)
 	if err != nil {
-		return "", errors.New(unreadableViewQuery(name, q.Resource(), err))
+		return "", errors.New(unreadableViewQuery(name, q.Resource(), words, err))
 	}
 	var b strings.Builder
 	last := 0
 	for _, tok := range toks {
 		b.WriteString(query[last:tok.Pos])
-		b.WriteString(registry.bindShared(fmt.Sprintf("views/%s/%s", name.Resource, tok.AsString), params[tok.AsString]))
+		b.WriteString(registry.bindShared(fmt.Sprintf("%s/%s/%s", bound, name.Resource, tok.AsString), params[tok.AsString]))
 		last = int(tok.End)
 	}
 	b.WriteString(query[last:])
@@ -672,10 +681,17 @@ func viewParamTokens(query string, params map[string]any) ([]token.Token, error)
 	}
 }
 
+// The words a refusal names a view's query by: the query its rows are read from
+// (Subquery), and the one it gives its names through (NameSubqueryer).
+const (
+	viewQueryWords = "query"
+	nameQueryWords = "name query (NameSubquery)"
+)
+
 // unreadableViewQuery says the query of the view a name is read from binds a
-// parameter and cannot be read to its end.
-func unreadableViewQuery(name *NameField, res accesstypes.Resource, err error) string {
-	return fmt.Sprintf("name field %s of %s is read from the view %s, and the view's query cannot be read to its end (%v): the statement that reads the name writes each parameter of the view under a name of its own, and so reads the whole query. Correct the query at that place.", name.Field, res, name.Resource, err)
+// parameter and cannot be read to its end, naming the query by its words.
+func unreadableViewQuery(name *NameField, res accesstypes.Resource, words string, err error) string {
+	return fmt.Sprintf("name field %s of %s is read from the view %s, and the view's %s cannot be read to its end (%v): the statement that reads the name writes each parameter of the view under a name of its own, and so reads the whole %s. Correct the %s at that place.", name.Field, res, name.Resource, words, err, words, words)
 }
 
 // noNameView says a name is read from a view the decoder holds no entry for.

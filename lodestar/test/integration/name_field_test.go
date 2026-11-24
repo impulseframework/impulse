@@ -13,6 +13,9 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewhandlers"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membershandlers"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 )
 
@@ -659,5 +662,59 @@ func TestNameField_groupsKeptIn(t *testing.T) {
 	slices.Sort(got)
 	if want := idsWhere(groups, func(g namedRow) bool { return g.key == anvil }); !slices.Equal(got, want) {
 		t.Errorf("%s = %v, want Anvil's groups %v", filter, got, want)
+	}
+}
+
+// TestNameField_peopleNameQuery pins the lighter query the people views give their names
+// through: for the crew's and the members' people of a tenant, the rows of the name query
+// (NameSubquery) are the rows of the view's own query, each person's id, tenant and the
+// name they are shown by, one for one, over the shared world's database.
+func TestNameField_peopleNameQuery(t *testing.T) {
+	t.Parallel()
+
+	db, _, _ := sharedWorld(t)
+	for _, tt := range []struct {
+		auth  string
+		views resource.NameViews
+		view  accesstypes.Resource
+	}{
+		{auth: "crew", views: crewhandlers.NameViews, view: "CrewSectorUsers"},
+		{auth: "members", views: membershandlers.NameViews, view: "MembersSectorUsers"},
+	} {
+		t.Run(tt.auth, func(t *testing.T) {
+			t.Parallel()
+
+			view, ok := tt.views[tt.view].(resource.NameSubqueryer)
+			if !ok {
+				t.Fatalf("the %s handlers' %s gives its names through no query of their own (resource.NameSubqueryer)", tt.auth, tt.view)
+			}
+			read := func(query string, params map[string]any) []string {
+				t.Helper()
+
+				var rows []string
+				iter := db.Client.Single().Query(t.Context(), spanner.Statement{SQL: "SELECT Id, DomainId, DisplayName FROM (" + query + ")", Params: params})
+				if err := iter.Do(func(row *spanner.Row) error {
+					var id, domain, name string
+					if err := row.Columns(&id, &domain, &name); err != nil {
+						return err
+					}
+					rows = append(rows, id+" "+domain+" "+name)
+
+					return nil
+				}); err != nil {
+					t.Fatalf("reading %s: %v", tt.view, err)
+				}
+				slices.Sort(rows)
+
+				return rows
+			}
+			whole := read(view.Subquery())
+			if len(whole) == 0 {
+				t.Fatalf("the %s view holds no rows; the test needs some", tt.view)
+			}
+			if names := read(view.NameSubquery()); !slices.Equal(names, whole) {
+				t.Errorf("the %s name query's rows =\n%v\nwant the view's own rows\n%v", tt.view, names, whole)
+			}
+		})
 	}
 }

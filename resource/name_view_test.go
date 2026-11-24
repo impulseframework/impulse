@@ -6,6 +6,7 @@ package resource
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -65,6 +66,41 @@ type squadronTagsView struct{}
 // Subquery is the view's query.
 func (squadronTagsView) Subquery() (query string, params map[string]any) {
 	return "SELECT Id, SectorId, Name AS Tag FROM Squadrons WHERE Name != @leftOutLabel", map[string]any{"leftOutLabel": "Red"}
+}
+
+// squadronNamesQuery is the lighter query the named labels' view gives its names
+// through: the same columns, its own parameter leaving the blue squadron out.
+const squadronNamesQuery = "SELECT Id, SectorId, Name AS Label FROM Squadrons WHERE Name != @leftOutName"
+
+// namedLabelsView is the view of squadron labels that gives its names through a query
+// of their own (NameSubqueryer).
+type namedLabelsView struct{}
+
+// Subquery is the view's query.
+func (namedLabelsView) Subquery() (query string, params map[string]any) {
+	return squadronLabelsQuery, map[string]any{"leftOutLabel": "Green"}
+}
+
+// NameSubquery is the query the view gives its names through.
+func (namedLabelsView) NameSubquery() (query string, params map[string]any) {
+	return squadronNamesQuery, map[string]any{"leftOutName": "Blue"}
+}
+
+// withNamesView is a view of squadron labels whose name query opens with a WITH clause.
+type withNamesView struct{ squadronLabelsView }
+
+// NameSubquery is the query the view gives its names through.
+func (withNamesView) NameSubquery() (query string, params map[string]any) {
+	return "WITH Named AS (SELECT Id, SectorId, Name FROM Squadrons) SELECT Id, SectorId, Name AS Label FROM Named", nil
+}
+
+// unreadableNamesView is a view of squadron labels whose name query binds a parameter
+// and cannot be read to its end.
+type unreadableNamesView struct{ squadronLabelsView }
+
+// NameSubquery is the query the view gives its names through.
+func (unreadableNamesView) NameSubquery() (query string, params map[string]any) {
+	return "SELECT Id, SectorId, Name AS Label FROM Squadrons WHERE Name != @leftOutName AND Name != 'Gray", map[string]any{"leftOutName": "Blue"}
 }
 
 // labelViews hands the squadron labels' view to a decoder.
@@ -464,6 +500,37 @@ func TestNameView_statement(t *testing.T) {
 		}
 	})
 
+	t.Run("a view that gives its names through a query of their own: the lookup and the filter read it, unless the name's grant is held under a condition", func(t *testing.T) {
+		t.Parallel()
+
+		named := NameViews{"SquadronLabels": namedLabelsView{}}
+		conditional := &nameGrantPermissions{decisions: map[grantByScope]accesstypes.Decision{
+			{scope: inSector1, perm: accesstypes.List, res: squadronLabelGrant}: conditionalOn(squadronLabelGrant, "label = 'Red'"),
+		}}
+		target := "/?columns=id,squadronName&filter=squadronName:eq:Red&sort=id&limit=2"
+		for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+			stmt, err := decodeLabels(t, newLabelDecoder[labelPass, labelPassRequest](t, named), target, &nameGrantPermissions{}, dbType).stmt(dbType)
+			if err != nil {
+				t.Fatalf("stmt(%s) error = %v", dbType, err)
+			}
+			sql := oneLine(stmt.SQL)
+			if reads := strings.Count(sql, "FROM Squadrons WHERE Name != @_c1 )"); reads != 2 || strings.Contains(sql, "@leftOut") {
+				t.Errorf("%s statement =\n%s\nwant the lookup and the filter each to read the name query, its parameter as @_c1", dbType, sql)
+			}
+			if stmt.Params["_c1"] != "Blue" || slices.Contains(slices.Collect(maps.Values(stmt.Params)), any("Green")) {
+				t.Errorf("%s params = %v, want the name query's leftOutName bound to Blue as _c1, and nothing of the view's own query", dbType, stmt.Params)
+			}
+
+			stmt, err = decodeLabels(t, newLabelDecoder[labelPass, labelPassRequest](t, named), target, conditional, dbType).stmt(dbType)
+			if err != nil {
+				t.Fatalf("stmt(%s) under a condition error = %v", dbType, err)
+			}
+			if values := slices.Collect(maps.Values(stmt.Params)); !slices.Contains(values, any("Green")) || slices.Contains(values, any("Blue")) {
+				t.Errorf("%s params under a condition = %v, want the view's own query's leftOutLabel bound, and nothing of the name query", dbType, stmt.Params)
+			}
+		}
+	})
+
 	t.Run("the count statement carries the view's parameter", func(t *testing.T) {
 		t.Parallel()
 
@@ -508,6 +575,16 @@ func TestNameView_decoder(t *testing.T) {
 			name:  "handed a view whose query opens with WITH",
 			views: NameViews{"SquadronLabels": withLabelsView{}},
 			want:  "name field SquadronName of HangarPasses is read from the view SquadronLabels, whose query opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's query without WITH, each WITH table as a subquery in its FROM.",
+		},
+		{
+			name:  "handed a view whose name query opens with WITH",
+			views: NameViews{"SquadronLabels": withNamesView{}},
+			want:  "name field SquadronName of HangarPasses is read from the view SquadronLabels, whose name query (NameSubquery) opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's name query (NameSubquery) without WITH, each WITH table as a subquery in its FROM.",
+		},
+		{
+			name:  "handed a view whose name query binds a parameter and cannot be read to its end",
+			views: NameViews{"SquadronLabels": unreadableNamesView{}},
+			want:  "name field SquadronName of HangarPasses is read from the view SquadronLabels, and the view's name query (NameSubquery) cannot be read to its end (syntax error: :1:90: unclosed string literal): the statement that reads the name writes each parameter of the view under a name of its own, and so reads the whole name query (NameSubquery). Correct the name query (NameSubquery) at that place.",
 		},
 		{
 			name:  "handed a view that binds a parameter and whose query cannot be read to its end",
