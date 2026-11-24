@@ -178,7 +178,7 @@ func Test_prepareIdentity_trustedDevices(t *testing.T) { //nolint:paralleltest /
 			},
 		},
 	}
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		t.Run(tt.name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 
