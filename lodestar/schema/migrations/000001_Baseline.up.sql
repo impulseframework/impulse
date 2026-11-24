@@ -4,21 +4,22 @@
 -- what a later migration had dropped is gone. Schema changes from here append files after
 -- this one.
 
+-- The change history: one record for every create, update and delete of a tracked row.
+-- The key puts a row's records together, newest first, so reading a page of one record's
+-- history reads that page and nothing else. The statement is the resource package's
+-- (resource.DataChangeEventsDDL); impulse check holds the two together.
 CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
   RowId STRING(MAX) NOT NULL,
-  Sequence INT64 NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  Sequence INT64 NOT NULL,
   EventSource STRING(MAX) NOT NULL,
   ChangeSet JSON,
   TenantId STRING(MAX) NOT NULL,
-) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
-
--- One sector's change records, newest first.
-CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);
 
 -- How long change records are kept: Spanner removes a record once it is older than this
--- many days. The table's three statements are the library's own
+-- many days. The table's two statements are the library's own
 -- (resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryDays(365))),
 -- which a test pins.
 ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));

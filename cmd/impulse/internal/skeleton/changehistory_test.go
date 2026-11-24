@@ -20,8 +20,8 @@ func TestCandidateChangeHistoryMigration(t *testing.T) {
 		t.Fatalf("Candidates() error = %v", err)
 	}
 	statements := resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryForever())
-	if len(statements) != 2 {
-		t.Fatalf("resource.DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryForever()) declares %d statements, want 2", len(statements))
+	if len(statements) != 1 {
+		t.Fatalf("resource.DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryForever()) declares %d statements, want 1", len(statements))
 	}
 
 	for _, candidate := range candidates {

@@ -6302,7 +6302,21 @@ to, empty for a row of a table that belongs to no tenant. A secret field is name
 changed with neither value (section 23).
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
-statements. An application copies them into its first migration, as `impulse new` writes
+statements. For Spanner the first creates the table:
+
+```sql
+CREATE TABLE DataChangeEvents (
+  TableName STRING(MAX) NOT NULL,
+  RowId STRING(MAX) NOT NULL,
+  EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  Sequence INT64 NOT NULL,
+  EventSource STRING(MAX) NOT NULL,
+  ChangeSet JSON,
+  TenantId STRING(MAX) NOT NULL,
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC)
+```
+
+An application copies them into its first migration, as `impulse new` writes
 them and as Lodestar does in
 [000001_Baseline.up.sql](../lodestar/schema/migrations/000001_Baseline.up.sql), pinned
 to the function by a test. The function has statements for Spanner alone: the package
@@ -6316,20 +6330,18 @@ bootstrap, a delete that takes rows with it) resolves it from the row: the value
 patch or the stored row holds, then one point read for each step of the way, which sees
 the rows the same transaction has buffered. An update that moves a row to another tenant
 records the new tenant. A record keeps the tenant its row had when it was written: a
-parent moved later in the same transaction does not change it. The index
-`DataChangeEventsByTenant` on `(TenantId, EventTime DESC, TableName, RowId, Sequence
-DESC)` reads one tenant's records newest first:
+parent moved later in the same transaction does not change it.
 
-```sql
-SELECT TableName, RowId, EventTime, EventSource, ChangeSet
-  FROM DataChangeEvents@{FORCE_INDEX=DataChangeEventsByTenant}
- WHERE TenantId = @tenant
- ORDER BY EventTime DESC, TableName, RowId, Sequence DESC
- LIMIT 200
-```
+The key is `(TableName, RowId, EventTime DESC, Sequence DESC)`: a row's records lie
+together, newest first, so a page of one record's history is one short range of the
+table however long the history is. The table has no other index. A question across
+records (everything one person changed, everything changed in a tenant last week) reads
+the whole table, so it is asked of a copy in a warehouse and not of the application's
+database. `TenantId` stays on every record: it is what holds a tenant's request to that
+tenant's records, and what a copy is divided by.
 
-`impulse check` (`change-history`) says when an application's table lacks a column or
-the index.
+`impulse check` (`change-history`) says when an application's table lacks a column or is
+keyed otherwise.
 
 **More than one write of a row in one transaction.** A record's old values are the row as
 it stood just before that write, counting what the same transaction's earlier patches

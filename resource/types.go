@@ -30,8 +30,8 @@ var _ PatchSetMetadata = (*DataChangeEvent)(nil)
 type DataChangeEvent struct {
 	TableName   accesstypes.Resource `spanner:"TableName"`
 	RowID       string               `spanner:"RowId"`
-	Sequence    int                  `spanner:"Sequence"`
 	EventTime   time.Time            `spanner:"EventTime"`
+	Sequence    int                  `spanner:"Sequence"`
 	EventSource string               `spanner:"EventSource"`
 	ChangeSet   spanner.NullJSON     `spanner:"ChangeSet"`
 	TenantID    string               `spanner:"TenantId"`

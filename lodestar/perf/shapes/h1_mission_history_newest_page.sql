@@ -1,0 +1,2 @@
+-- A record's history: the newest page of the underway convoy's history in Anvil, the statement of the record's changes route (resource/change_history_read.go) with its parameters bound to literals: one range of the table's key.
+SELECT EventTime, Sequence, EventSource, TO_JSON_STRING(ChangeSet) AS ChangeSet FROM DataChangeEvents WHERE TableName = 'Missions' AND RowId = '80000000-0000-4000-8000-000000000003' AND TenantId = 'a1111111-1111-4111-8111-111111111111' ORDER BY EventTime DESC, Sequence DESC LIMIT 51

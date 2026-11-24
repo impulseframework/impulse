@@ -152,5 +152,4 @@ DROP INDEX CrewSessions_Expired_idx;
 DROP TABLE CrewSessions;
 DROP INDEX CrewSessionUsersByNormalizedUsername;
 DROP TABLE CrewSessionUsers;
-DROP INDEX DataChangeEventsByTenant;
 DROP TABLE DataChangeEvents;

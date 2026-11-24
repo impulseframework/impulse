@@ -14,16 +14,14 @@
 CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
   RowId STRING(MAX) NOT NULL,
-  Sequence INT64 NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  Sequence INT64 NOT NULL,
   EventSource STRING(MAX) NOT NULL,
   ChangeSet JSON,
   TenantId STRING(MAX) NOT NULL,
-) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);
 
-CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);
-
--- The table's three statements are resource.DataChangeEventsDDL's, which a test pins.
+-- The table's two statements are resource.DataChangeEventsDDL's, which a test pins.
 ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));
 
 CREATE TABLE Yards (

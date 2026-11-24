@@ -319,10 +319,12 @@ type changeRecordRow struct {
 }
 
 // readChangeRecords reads the change records of one record, newest first, one more than
-// a page holds so the page knows whether older ones exist. The place a page continues
-// from is a range on the time first, so the table's key serves it as a range. The field
-// kept is named in the statement by its Go field name, which is how the change set keys
-// its entries; nothing from the request is written into the statement's text.
+// a page holds so the page knows whether older ones exist. The page is one range of the
+// table's key, which leads with the table and RowId and orders a row's records by time
+// and then sequence, newest first, as the statement does: the read starts where the page
+// continues from and stops once it has what it needs. The field kept is named in the
+// statement by its Go field name, which is how the change set keys its entries; nothing
+// from the request is written into the statement's text.
 func readChangeRecords(ctx context.Context, txn ReadOnlyTransaction, records changeRecordsQuery) ([]changeRecordRow, error) {
 	var sql strings.Builder
 	sql.WriteString("SELECT EventTime, Sequence, EventSource, TO_JSON_STRING(ChangeSet) AS ChangeSet\n")

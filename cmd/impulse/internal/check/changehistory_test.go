@@ -19,23 +19,23 @@ const changeHistoryMigration = `-- The change history.
 CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
   RowId STRING(MAX) NOT NULL,
-  Sequence INT64 NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  Sequence INT64 NOT NULL,
   EventSource STRING(MAX) NOT NULL,
   ChangeSet JSON,
   TenantId STRING(MAX) NOT NULL,
-) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
-
-CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);
 
 ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));
 `
 
-// The change history statements the cases vary: the table's tenant column, and the
-// library's index.
+// The change history statements the cases vary: the table's tenant column, the library's
+// key, the key the table had before the library's, and the index by tenant that table had.
 const (
 	changeHistoryTenantLine = "  TenantId STRING(MAX) NOT NULL,\n"
-	changeHistoryIndex      = "CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);\n"
+	changeHistoryKey        = ") PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);\n"
+	changeHistoryOldKey     = ") PRIMARY KEY (TableName, RowId, Sequence, EventTime);\n"
+	changeHistoryOldIndex   = "CREATE INDEX ChangeRecordsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);\n"
 )
 
 func TestChangeHistory(t *testing.T) {
@@ -68,10 +68,9 @@ func TestChangeHistory(t *testing.T) {
 		return files
 	}
 	withoutTenant := strings.Replace(changeHistoryMigration, changeHistoryTenantLine, "", 1)
-	withoutIndex := strings.Replace(changeHistoryMigration, changeHistoryIndex, "", 1)
 	columnFinding := migration + ": the DataChangeEvents table has no TenantId column. Every tracked write fills the columns resource.DataChangeEventsDDL declares (resource/change_history.go), so a tracked write to this table fails. Add the column in a new migration under schema/migrations; change the migration that creates the table instead if no database has run it yet."
-	indexFinding := "no migration creates the index DataChangeEventsByTenant as resource.DataChangeEventsDDL declares it (resource/change_history.go). One tenant's change records are read by it. Copy the statement into a new migration under schema/migrations."
-	passed := "DataChangeEvents carries the columns and the index of the resource package's statements"
+	keyFinding := migration + ": DataChangeEvents is keyed by (TableName, RowId, Sequence, EventTime), and the resource package's statement keys it by (TableName, RowId, EventTime DESC, Sequence DESC). A table's key cannot be altered: correct the migration that creates the table, and make again any database made from the old statement."
+	passed := "DataChangeEvents carries the columns and the key of the resource package's statements"
 	library := map[string]fakeAnswer{goListResource: {out: moduleDir + "\n"}}
 
 	tests := []struct {
@@ -94,7 +93,7 @@ func TestChangeHistory(t *testing.T) {
 			wantStatus: Skip, wantSummary: "no migration creates the DataChangeEvents table",
 		},
 		{
-			name:       "the table and the index as the library declares them",
+			name:       "the table as the library declares it",
 			files:      application(changeHistoryMigration, nil),
 			answers:    library,
 			wantStatus: Pass, wantSummary: passed,
@@ -109,17 +108,17 @@ func TestChangeHistory(t *testing.T) {
 		},
 		{
 			name: "the column created by a table statement laid out another way",
-			files: application("CREATE TABLE `DataChangeEvents` (TableName STRING(MAX) NOT NULL, RowId STRING(MAX) NOT NULL, Sequence INT64 NOT NULL, "+
-				"EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true), EventSource STRING(MAX) NOT NULL, ChangeSet JSON, "+
-				"tenantid STRING(MAX) NOT NULL, Origin STRING(MAX)) PRIMARY KEY (TableName, RowId, Sequence, EventTime);\n\n"+changeHistoryIndex, nil),
+			files: application("CREATE TABLE `DataChangeEvents` (TableName STRING(MAX) NOT NULL, RowId STRING(MAX) NOT NULL, "+
+				"EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true), Sequence INT64 NOT NULL, EventSource STRING(MAX) NOT NULL, ChangeSet JSON, "+
+				"tenantid STRING(MAX) NOT NULL, Origin STRING(MAX)) primary key (`TableName`,RowId,\n  EventTime desc,  Sequence DESC);\n", nil),
 			answers:    library,
 			wantStatus: Pass, wantSummary: passed,
 			wantCalls: []string{goListResource},
 		},
 		{
 			name: "the column added by a later migration",
-			files: application(strings.Replace(withoutTenant, changeHistoryIndex, "", 1), map[string]string{
-				"schema/migrations/000007_ChangeTenant.up.sql": "-- The tenant of each record.\nalter table DataChangeEvents\n  add column if not exists `TenantId` STRING(MAX) NOT NULL DEFAULT (\"\");\n\n" + changeHistoryIndex,
+			files: application(withoutTenant, map[string]string{
+				"schema/migrations/000007_ChangeTenant.up.sql": "-- The tenant of each record.\nalter table DataChangeEvents\n  add column if not exists `TenantId` STRING(MAX) NOT NULL DEFAULT (\"\");\n",
 			}),
 			answers:    library,
 			wantStatus: Pass, wantSummary: passed,
@@ -127,10 +126,10 @@ func TestChangeHistory(t *testing.T) {
 		},
 		{
 			name:       "a table from before the tenant column",
-			files:      application(strings.Replace(withoutTenant, changeHistoryIndex, "", 1), nil),
+			files:      application(strings.Replace(withoutTenant, changeHistoryKey, changeHistoryOldKey, 1)+"\n"+changeHistoryOldIndex, nil),
 			answers:    library,
 			wantStatus: Fail, wantSummary: "2 change history problem(s)",
-			wantDetails: []string{columnFinding, indexFinding},
+			wantDetails: []string{columnFinding, keyFinding},
 			wantCalls:   []string{goListResource},
 		},
 		{
@@ -144,27 +143,29 @@ func TestChangeHistory(t *testing.T) {
 			wantCalls:   []string{goListResource},
 		},
 		{
-			name:       "no index",
-			files:      application(withoutIndex, nil),
+			name:       "a table keyed as before the library's key",
+			files:      application(strings.Replace(changeHistoryMigration, changeHistoryKey, changeHistoryOldKey, 1), nil),
 			answers:    library,
 			wantStatus: Fail, wantSummary: "1 change history problem(s)",
-			wantDetails: []string{indexFinding},
+			wantDetails: []string{keyFinding},
 			wantCalls:   []string{goListResource},
 		},
 		{
-			name:       "the index written in lower case, spaced another way, with IF NOT EXISTS",
-			files:      application(strings.Replace(changeHistoryMigration, changeHistoryIndex, "create index if not exists DataChangeEventsByTenant on DataChangeEvents (TenantId, EventTime desc, TableName, RowId, Sequence desc);\n", 1), nil),
+			name:       "a table keyed by the library's key in another order",
+			files:      application(strings.Replace(changeHistoryMigration, changeHistoryKey, ") PRIMARY KEY (TableName, RowId, Sequence DESC, EventTime DESC);\n", 1), nil),
+			answers:    library,
+			wantStatus: Fail, wantSummary: "1 change history problem(s)",
+			wantDetails: []string{migration + ": DataChangeEvents is keyed by (TableName, RowId, Sequence DESC, EventTime DESC), and the resource package's statement keys it by (TableName, RowId, EventTime DESC, Sequence DESC). A table's key cannot be altered: correct the migration that creates the table, and make again any database made from the old statement."},
+			wantCalls:   []string{goListResource},
+		},
+		{
+			name: "the library's key and an index by tenant left by an earlier migration",
+			files: application(changeHistoryMigration, map[string]string{
+				"schema/migrations/000007_ChangeIndex.up.sql": changeHistoryOldIndex,
+			}),
 			answers:    library,
 			wantStatus: Pass, wantSummary: passed,
 			wantCalls: []string{goListResource},
-		},
-		{
-			name:       "an index of that name over other columns",
-			files:      application(strings.Replace(changeHistoryMigration, changeHistoryIndex, "CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC);\n", 1), nil),
-			answers:    library,
-			wantStatus: Fail, wantSummary: "1 change history problem(s)",
-			wantDetails: []string{indexFinding},
-			wantCalls:   []string{goListResource},
 		},
 		{
 			name:       "the framework module predates the library's change history statements",
@@ -213,7 +214,7 @@ func TestChangeHistoryMeaning(t *testing.T) {
 	t.Parallel()
 
 	meaning := Meaning(changeHistoryName)
-	for _, want := range []string{"`TenantId`", "resource.DataChangeEventsDDL(resource.SpannerDBType, period)", "ALTER TABLE DataChangeEvents ADD COLUMN"} {
+	for _, want := range []string{"`TenantId`", "resource.DataChangeEventsDDL(resource.SpannerDBType, period)", "ALTER TABLE DataChangeEvents ADD COLUMN", "one range of the table's key"} {
 		if !strings.Contains(meaning, want) {
 			t.Errorf("Meaning() lacks %q", want)
 		}

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -20,9 +19,10 @@ import (
 // that tracks its changes writes to carries every column the resource package of the
 // framework module the application pins declares for it (resource.DataChangeEventsDDL,
 // read from the module's source as feature-flags reads its statements), created with the
-// table or added by a later migration, and a migration creates each index the function
-// declares, statement for statement, spacing and letter case aside. A tracked write fills
-// exactly the library's columns, and one tenant's change records are read by the index.
+// table or added by a later migration, and the statement that creates the table keys it
+// as the library's does, spacing, backquotes and letter case aside. A tracked write fills
+// exactly the library's columns, and a record's history is read as one range of the key.
+// An index of the application's on the table is its own affair.
 type changeHistory struct{}
 
 // changeHistoryName is the check's name.
@@ -34,23 +34,20 @@ const (
 	changeHistoryTable   = "DataChangeEvents"
 )
 
-// createIndexRE finds the index a statement creates, when the statement starts with
-// CREATE INDEX.
-var createIndexRE = regexp.MustCompile("(?i)^\\s*CREATE\\s+INDEX\\s+`?([A-Za-z_][A-Za-z0-9_]*)`?")
-
-// createIndexIfNotExistsRE finds a CREATE INDEX statement's IF NOT EXISTS.
-var createIndexIfNotExistsRE = regexp.MustCompile(`(?i)^\s*CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS\s+`)
+// primaryKeyRE finds the key a CREATE TABLE statement gives its table: what stands
+// between the parentheses after the PRIMARY KEY that follows the columns' closing one.
+var primaryKeyRE = regexp.MustCompile(`(?i)\)\s*PRIMARY\s+KEY\s*\(([^)]*)\)`)
 
 // addChangeHistoryColumnRE finds the column a statement adds to the change history table.
 var addChangeHistoryColumnRE = regexp.MustCompile("(?i)ALTER\\s+TABLE\\s+`?" + changeHistoryTable + "`?\\s+ADD\\s+COLUMN\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?`?([A-Za-z_][A-Za-z0-9_]*)`?")
 
 // changeHistoryDDL is what the library declares for the change history table: its
-// columns in order, and each index statement by the index's name, in indexForm. source
-// names the file they were read from.
+// columns in order, and its key as keyForm writes it. source names the file they were
+// read from.
 type changeHistoryDDL struct {
 	source  string
 	columns []string
-	indexes map[string]string
+	key     string
 }
 
 func (changeHistory) Name() string {
@@ -58,12 +55,12 @@ func (changeHistory) Name() string {
 }
 
 func (changeHistory) Describe() string {
-	return "the DataChangeEvents table carries every column and index resource.DataChangeEventsDDL declares in the resource package of the framework module the application pins"
+	return "the change history table carries the columns and the key of the resource package's statements"
 }
 
 // Meaning explains the obligation for the handoff brief.
 func (changeHistory) Meaning() string {
-	return "A resource that tracks its changes writes one record to `DataChangeEvents` for each create, update and delete, and each record carries the tenant of its row in `TenantId`. The library declares the table: `resource.DataChangeEventsDDL(resource.SpannerDBType, period)` renders its statements, and a tracked write fills exactly those columns. Each line under the check is a column or an index the application's migrations do not create. A missing column is added by a new migration (`ALTER TABLE DataChangeEvents ADD COLUMN`, with a default when the table already holds records), or in the migration that creates the table when no database has run it yet. A missing index is created by a new migration with the library's statement."
+	return "A resource that tracks its changes writes one record to `DataChangeEvents` for each create, update and delete, and each record carries the tenant of its row in `TenantId`. The library declares the table: `resource.DataChangeEventsDDL(resource.SpannerDBType, period)` renders its statements. The library writes a change record's columns by name and reads one record's history as one range of the table's key. A table short of a column fails every tracked write; a table with another key answers a record's history by reading every record the row ever had. Each line under the check is a column the application's migrations do not create, or a key that is not the library's. A missing column is added by a new migration (`ALTER TABLE DataChangeEvents ADD COLUMN`, with a default when the table already holds records), or in the migration that creates the table when no database has run it yet. A table's key cannot be altered: the migration that creates the table takes the library's statement, and a database made from the old statement is made again."
 }
 
 func (c changeHistory) Run(ctx context.Context, env *Env) Result {
@@ -100,12 +97,14 @@ func (c changeHistory) Run(ctx context.Context, env *Env) Result {
 		return fail(c.Name(), err.Error())
 	}
 	details := c.columnFindings(file, created, statements, library)
-	details = append(details, c.indexFindings(path.Dir(file), statements, library)...)
+	if finding := c.keyFinding(file, created, library); finding != "" {
+		details = append(details, finding)
+	}
 	if len(details) > 0 {
 		return fail(c.Name(), fmt.Sprintf("%d change history problem(s)", len(details)), append(details, unread...)...)
 	}
 
-	return passWithDetails(c.Name(), "DataChangeEvents carries the columns and the index of the resource package's statements", unread...)
+	return passWithDetails(c.Name(), "DataChangeEvents carries the columns and the key of the resource package's statements", unread...)
 }
 
 // columnFindings names each column of the library's table the application's table
@@ -133,39 +132,40 @@ func (changeHistory) columnFindings(file, created string, statements []string, l
 	return details
 }
 
-// indexFindings names each index of the library no up migration creates with the
-// library's statement, both brought to indexForm.
-func (changeHistory) indexFindings(dir string, statements []string, library changeHistoryDDL) []string {
-	carried := make(map[string]bool, len(statements))
-	for _, stmt := range statements {
-		carried[indexForm(stmt)] = true
-	}
-	names := make([]string, 0, len(library.indexes))
-	for name := range library.indexes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	var details []string
-	for _, name := range names {
-		if carried[library.indexes[name]] {
-			continue
-		}
-		details = append(details, fmt.Sprintf("no migration creates the index %s as resource.%s declares it (%s). One tenant's change records are read by it. Copy the statement into a new migration under %s.", name, changeHistoryDDLFunc, library.source, dir))
+// keyFinding names a key of the application's table that is not the library's: the
+// PRIMARY KEY of the statement that creates the table (read with its white space folded,
+// by migrationStatement), as keyForm writes it, against the library's, letter case aside.
+// A table's key cannot be altered, so no later migration changes it; a library statement
+// that gives no key is compared with nothing.
+func (changeHistory) keyFinding(file, created string, library changeHistoryDDL) string {
+	key := tableKey(created)
+	if library.key == "" || strings.EqualFold(key, library.key) {
+		return ""
 	}
 
-	return details
+	return fmt.Sprintf("%s: DataChangeEvents is keyed by (%s), and the resource package's statement keys it by (%s). A table's key cannot be altered: correct the migration that creates the table, and make again any database made from the old statement.", file, key, library.key)
 }
 
-// indexForm brings a CREATE INDEX statement to the one form two spellings of it share:
-// comments stripped, IF NOT EXISTS after CREATE INDEX dropped, backquotes dropped, all
-// whitespace removed, letters folded to lower case, the terminator dropped. An index over
-// other columns, or over them in another order, keeps a form of its own.
-func indexForm(stmt string) string {
-	stmt = createIndexIfNotExistsRE.ReplaceAllString(stripSQLComments(stmt), "CREATE INDEX ")
-	stmt = strings.ReplaceAll(stmt, "`", "")
-	stmt = strings.Join(strings.Fields(stmt), "")
+// tableKey answers the key a CREATE TABLE statement gives its table, as keyForm writes
+// it, or nothing for a statement that gives none.
+func tableKey(stmt string) string {
+	m := primaryKeyRE.FindStringSubmatch(stmt)
+	if m == nil {
+		return ""
+	}
 
-	return strings.TrimSuffix(strings.ToLower(stmt), ";")
+	return keyForm(m[1])
+}
+
+// keyForm writes a key's parts as the library does: backquotes dropped, the parts
+// trimmed and joined by a comma and a space.
+func keyForm(key string) string {
+	parts := strings.Split(strings.ReplaceAll(key, "`", ""), ",")
+	for i, part := range parts {
+		parts[i] = strings.TrimSpace(part)
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 // namedFold reports whether the list holds the name, case aside.
@@ -182,7 +182,7 @@ func namedFold(list []string, name string) bool {
 // libraryChangeHistory reads the Spanner statements of resource.DataChangeEventsDDL from
 // the resource package of the framework module the application pins: the columns of the
 // table's statement (the first word of each line between its first line and its
-// ") PRIMARY KEY" line) and each CREATE INDEX statement. declared is false when the
+// ") PRIMARY KEY" line) and its key. declared is false when the
 // package declares no such function: its version predates the library's change history
 // statements. A module that cannot be found, and a function with no table statement, are
 // the problem returned; a file that cannot be read is an error.
@@ -200,17 +200,13 @@ func libraryChangeHistory(ctx context.Context, env *Env) (ddl changeHistoryDDL, 
 	if err != nil {
 		return changeHistoryDDL{}, true, "", err
 	}
-	ddl = changeHistoryDDL{source: path.Join(path.Base(dir), name), indexes: map[string]string{}}
+	ddl = changeHistoryDDL{source: path.Join(path.Base(dir), name)}
 	table := false
 	for _, stmt := range raw {
 		if m := createTableRE.FindStringSubmatch(stmt); len(m) > 1 && m[1] == changeHistoryTable {
 			table = true
 			ddl.columns = tableColumns(stmt)
-
-			continue
-		}
-		if m := createIndexRE.FindStringSubmatch(stmt); m != nil {
-			ddl.indexes[m[1]] = indexForm(stmt)
+			ddl.key = tableKey(stmt)
 		}
 	}
 	if !table {

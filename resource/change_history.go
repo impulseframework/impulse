@@ -35,33 +35,31 @@ func KeepChangeHistoryForever() ChangeHistoryPeriod {
 // application database's type. An application copies them into its first migration;
 // tests pin Lodestar's and each skeleton's to them. The first statement creates the
 // table, whose TenantId column holds the key of the tenant a changed row belongs to,
-// empty for a row of no tenant. The second creates the index DataChangeEventsByTenant,
-// by which one tenant's records are read newest first. For a period of days a third
-// gives the table a row deletion policy on EventTime, by which Spanner removes each
-// record older than the period in the background; for a period of forever there is no
-// third statement. There are statements for Spanner alone: the table gets its PostgreSQL
-// statements when the package writes to PostgreSQL. A period that declares nothing has
-// none.
+// empty for a row of no tenant. Its key puts a row's records together, newest first, so
+// a page of one record's history is one range of the table, and the table has no other
+// index. For a period of days a second statement gives the table a row deletion policy
+// on EventTime, by which Spanner removes each record older than the period in the
+// background; for a period of forever there is no second statement. There are
+// statements for Spanner alone: the table gets its PostgreSQL statements when the
+// package writes to PostgreSQL. A period that declares nothing has none.
 func DataChangeEventsDDL(dbType DBType, period ChangeHistoryPeriod) []string {
 	switch dbType {
 	case SpannerDBType:
 		createTable := `CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
   RowId STRING(MAX) NOT NULL,
-  Sequence INT64 NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  Sequence INT64 NOT NULL,
   EventSource STRING(MAX) NOT NULL,
   ChangeSet JSON,
   TenantId STRING(MAX) NOT NULL,
-) PRIMARY KEY (TableName, RowId, Sequence, EventTime)`
-		createIndex := "CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC)"
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC)`
 		switch {
 		case period.forever:
-			return []string{createTable, createIndex}
+			return []string{createTable}
 		case period.days >= 1:
 			return []string{
 				createTable,
-				createIndex,
 				"ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL " + strconv.Itoa(period.days) + " DAY))",
 			}
 		default:
