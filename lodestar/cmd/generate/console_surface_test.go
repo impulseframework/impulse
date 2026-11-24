@@ -13,7 +13,8 @@ import (
 // browser packages' showcase retired: the idle session provided from the build's environment through the
 // library's tokens, its warning the library's notice that any activity ends, with no
 // button of the console's (the retired confirmation flag is not provided); the notices'
-// place, under the frame's bar and at the foot of the screen on a phone; the Squadrons
+// place, at the top of the screen on a page with no bar, under the frame's bar on a page in
+// the frame, and at the foot of the screen on a phone; the Squadrons
 // page's componentConfig (the channel card) and arrayConfig (the sector's other
 // squadrons, filtered by the indexed key); the Hangars page, whose passes
 // list offers the three holder pickers, the sector's groups among them, and whose two
@@ -22,9 +23,10 @@ import (
 // config to ask); and the leave-page
 // confirmation, which the library's resourceRoutes attaches to every config-driven list
 // and row route under the FRONTEND_LOGIN_PATH the console provides, so the console adds
-// no guard of its own. Lodestar has no browser specs and the walkthrough is curl, so the
-// committed sources are the proof the wiring is present; the dialogs are driven by hand
-// in the browser (README, "Running it"). Needs no emulator.
+// no guard of its own. No browser spec loads the application's config or measures where a
+// stylesheet puts a thing, and the walkthrough is curl, so the committed sources are the
+// proof the wiring is present; the dialogs are driven by hand in the browser (README,
+// "Running it"). Needs no emulator.
 //
 // Demonstrates: idle.configured, config.component, config.array, form.leave-page, list.create-dialog.
 func TestConsoleCarriesLibrarySurface(t *testing.T) {
@@ -70,13 +72,15 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 			want: []string{"component: FrameComponent,", "canActivate: [LoginAuthenticationGuard],"},
 		},
 		{
-			name: "the notices stack under the frame's bar, and at the foot of the screen on a phone, as the skeleton places them",
+			name: "the notices stack at the top of the screen on a page with no bar, under the frame's bar on a page in the frame, and at the foot of the screen on a phone, as the skeleton places them",
 			file: "app/app.component.scss",
 			want: []string{
-				".alert-container {", "top: 56px;", "transform: translateX(-50%);",
-				"@media (max-width: 599.98px) {", "top: auto;", "bottom: 16px;",
+				".alert-container {",
+				"top: 12px;",
+				"&.framed {\n    top: 56px;\n  }",
+				"transform: translateX(-50%);",
+				"@media (max-width: 599.98px) {\n    &,\n    &.framed {\n      top: auto;\n      bottom: 16px;\n    }\n  }",
 			},
-			absent: []string{"top: 12px;"},
 		},
 		{
 			name: "the Squadrons page carries the channel card and the sector's other squadrons",
