@@ -4,7 +4,6 @@ import {
   FieldMeta,
   ListViewConfig,
   MethodPresentation,
-  MultiColumnConfig,
   RecordData,
   ResourceMeta,
   RootConfig,
@@ -932,10 +931,9 @@ describe("identityPages, the whole application's side", () => {
     // never the sector's key.
     const where = roles.listColumns[1];
     expect(where.id).toBe('domainId');
-    expect('additionalIds' in where).toBe(false);
     expect(where.tenantKey).toBe(true);
     expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
-    expect(where.filterable).toBeUndefined();
+    expect([where.filterable, where.sortable, where.valueGetter]).toEqual([undefined, undefined, undefined]);
     expect(roles.listColumns[2].hidden).toBe(true);
     const heldIn = where.fallback as (row: RecordData) => string;
     const remove = presentation(roles.rowMethods, 'RemoveCrewRole');
@@ -1025,24 +1023,32 @@ describe("identityPages, the whole application's side", () => {
     expect(where.valueGetter?.({ kind: 'every', domainId: '' })).toBe('Every sector');
   });
 
-  it("where the list carries no sector's name beside the key, reads the sector record's row by the keys on the page", () => {
+  it("draws the same column whether or not the list carries the sector's name beside the key: the list decides what a row shows", () => {
     const unnamed = (resource: Resource): ResourceMeta =>
       resource === 'CrewUserRoles' ? { ...metas[resource], nameFields: undefined } : metas[resource];
     const [unnamedPeople] = identityPages({ ...descriptor }, unnamed, { auth: 'Crew', scope: 'global' });
-    const where = children(unnamedPeople)[0].listColumns[1] as MultiColumnConfig;
-    expect(where.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
-    expect(where.tenantKey).toBe(true);
-    expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
-    expect(where.filterable).toBe(false);
-    expect(where.fallback?.({ kind: 'domain', domainId: 's-1' })).toBe('A sector you cannot see');
+    const named = children(people)[0].listColumns[1];
+    const without = children(unnamedPeople)[0].listColumns[1];
+    expect(Object.keys(without).sort()).toEqual(Object.keys(named).sort());
+    expect([without.id, without.header, without.tenantKey]).toEqual([named.id, named.header, named.tenantKey]);
+    expect([without.filterable, without.sortable, without.valueGetter]).toEqual([undefined, undefined, undefined]);
+    expect(without.said?.('Anvil', {})).toBe(named.said?.('Anvil', {}));
+    const rows: RecordData[] = [
+      { kind: 'domain', domainId: 's-1' },
+      { kind: 'global', domainId: '' },
+      { kind: 'every', domainId: '' },
+    ];
+    expect(rows.map((row) => without.fallback?.(row))).toEqual(rows.map((row) => named.fallback?.(row)));
+    expect(without.fallback?.({ kind: 'domain', domainId: 's-1' })).toBe('A sector you cannot see');
   });
 
   it("where the outlet serves no sector record there is none to read: a row names the sector from the person's own list of tenants, or says the page's words, and never the key", () => {
     const unserved = { ...descriptor, identity: [{ ...crew, tenantResource: undefined }] } as ApiDescriptor;
     const [unservedPeople] = identityPages(unserved, resourceMeta, { auth: 'Crew', scope: 'global' });
-    const where = children(unservedPeople)[0].listColumns[1] as MultiColumnConfig;
+    const where = children(unservedPeople)[0].listColumns[1];
     // No record is read, and the list asks the person's own tenants for the name.
-    expect(where.additionalIds).toEqual([]);
+    expect(where.id).toBe('domainId');
+    expect([where.filterable, where.sortable, where.valueGetter]).toEqual([undefined, undefined, undefined]);
     expect(where.tenantKey).toBe(true);
     expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
     const said = where.fallback as (row: RecordData) => string;
@@ -1087,7 +1093,7 @@ describe("identityPages, the whole application's side", () => {
   it("says the first administrator's own invitation gives roles in the whole application and in every sector", () => {
     // The pages of a descriptor are made once, so pages over other fields take a descriptor of their own.
     const [, links] = identityPages({ ...descriptor }, sentMetas, { auth: 'Crew', scope: 'global' });
-    const into = (config: RootConfig): MultiColumnConfig => list(config).listColumns[3] as MultiColumnConfig;
+    const into = (config: RootConfig): ColumnConfig => list(config).listColumns[3];
     const first = {
       kind: 'invitation',
       tenantId: null,
@@ -1132,8 +1138,7 @@ describe("identityPages, the whole application's side", () => {
     // sector's name the cell says so, and never shows the key.
     const into = list(invitations).listColumns[3];
     expect(into.id).toBe('tenantId');
-    expect('additionalIds' in into).toBe(false);
-    expect(into.filterable).toBeUndefined();
+    expect([into.filterable, into.sortable, into.valueGetter]).toEqual([undefined, undefined, undefined]);
     expect(into.tenantKey).toBe(true);
     expect(into.said).toBeUndefined();
     expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
@@ -1159,7 +1164,7 @@ describe("identityPages, the whole application's side", () => {
         : metas[resource];
     const [, unmarkedLinks] = identityPages({ ...descriptor }, unmarked, { auth: 'Crew', scope: 'global' });
     expect(list(unmarkedLinks).listColumns.some((column) => column.hidden)).toBe(false);
-    const into = list(unmarkedLinks).listColumns[3] as MultiColumnConfig;
+    const into = list(unmarkedLinks).listColumns[3];
     expect(into.fallback?.({ tenantId: null, roleNames: ['Clerk'] })).toBe('');
   });
 });
@@ -2187,8 +2192,7 @@ describe('identityPages, an Auth that keeps groups', () => {
     ]);
     const kept = groups.listColumns[2];
     expect(kept.id).toBe('domainId');
-    expect('additionalIds' in kept).toBe(false);
-    expect(kept.filterable).toBeUndefined();
+    expect([kept.filterable, kept.sortable, kept.valueGetter]).toEqual([undefined, undefined, undefined]);
     expect(kept.tenantKey).toBe(true);
     expect(kept.said?.('Anvil', {})).toBe('Sector Anvil');
     const keptIn = kept.fallback as (row: RecordData) => string;
