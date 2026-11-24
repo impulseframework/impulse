@@ -39,13 +39,10 @@ import { NotificationService } from '@impulseframework/resource-angular/ui-notif
 import {
   acrossTenantsHandle,
   AnyResourceHandle,
-  ApiError,
   BatchResult,
   Capability,
   ChangeEvent,
   Domain,
-  keyBatches,
-  keyLookupQuery,
   ListQuery,
   liveSubscription,
   LiveSubscription,
@@ -61,7 +58,7 @@ import {
   sameSubscription,
   wholeListQuery,
 } from '@impulseframework/resource';
-import { from, map, mergeMap, Observable, of, tap, throwError, toArray } from 'rxjs';
+import { from, Observable, of, tap } from 'rxjs';
 import { PagedList, PagedListRequest } from './paged-list';
 import { PagePosition, positionAfter } from './resource-list/list-request';
 import { methodsOfferedOn, methodsTargeting } from './row-methods/row-methods';
@@ -81,24 +78,8 @@ export type ListPageStatus = 'idle' | 'loading' | 'resolved' | 'error';
 
 const emptyListPage: ListPage = { rows: [], offset: 0, hasPrev: false, hasNext: false };
 
-/** The answers in the 400s that say nothing of the request: the server had no time for it. */
-const NO_TIME_FOR_IT: ReadonlySet<number> = new Set([408, 429]);
-
-/**
- * Whether the server would answer the same request the same way again. An answer in the
- * 400s says what is wrong with the request or with who asks (it may not be asked, what it
- * names is not there, it cannot be asked that way), so asking again gets it again. A 408,
- * the request timed out, and a 429, too many requests, are the two that do not: the next
- * request may be answered.
- */
-function answersTheSameAgain(status: number): boolean {
-  return status >= 400 && status < 500 && !NO_TIME_FOR_IT.has(status);
-}
-
 @Injectable()
 export class ResourceStore {
-  private static readonly BATCH_REQUEST_CONCURRENCY = 5;
-
   resourceMeta = signal({} as ResourceMeta);
   resourceName = signal<Resource>('' as Resource);
   filter = signal<string>('');
@@ -242,18 +223,30 @@ export class ResourceStore {
   });
 
   /**
+   * The fields and the name fields the metadata marks PII (the name beside an id is PII
+   * where the pointed-to name is): a filter that names one travels in the body, the
+   * page's (sensitive) and a read beside the page's (rowsBesidePage) alike.
+   */
+  private readonly piiFields = computed(
+    () =>
+      new Set([
+        ...(this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
+        ...(this.resourceMeta().nameFields ?? []).filter((name) => name.pii).map((name) => name.fieldName),
+      ]),
+  );
+
+  /**
    * Whether the request must travel in the body: the page asked for it
-   * (disableCacheForFilterPii), the page's filter or a column filter names a field the
-   * metadata marks PII, or the search box reaches one. The server refuses a PII field in
-   * a URL with a 400, so the store posts on its own wherever the metadata lets it tell.
+   * (disableCacheForFilterPii), the page's filter or a column filter names a field or a
+   * name field the metadata marks PII (piiFields), or the search box reaches one. The
+   * server refuses a PII field in a URL with a 400, so the store posts on its own
+   * wherever the metadata lets it tell.
    */
   private readonly sensitive = computed(() => {
     if (this.disableCacheForFilterPii()) {
       return true;
     }
-    const pii = new Set(
-      (this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
-    );
+    const pii = this.piiFields();
     if (
       pii.size > 0 &&
       (filterFields(this.filter()).some((f) => pii.has(f)) ||
@@ -345,8 +338,8 @@ export class ResourceStore {
    * page's own filter (the conditions the person did not choose: the config's filter, a
    * child list's parent key) joined with the condition given, and never under the person's
    * column filters or search text. One request with the columns, the sort and the limit
-   * given: no count, not live, and no capability asked. A filter that names a PII field
-   * travels in the body, as the page's does.
+   * given: no count, not live, and no capability asked. A filter that names a field or a
+   * name field the metadata marks PII (piiFields) travels in the body, as the page's does.
    */
   async rowsBesidePage(query: {
     condition: string;
@@ -357,9 +350,7 @@ export class ResourceStore {
     const route = this.route();
     const clauses = [this.filter().trim(), query.condition.trim()].filter((clause) => clause !== '');
     const filter = clauses.length > 1 ? clauses.map((clause) => `(${clause})`).join(',') : clauses[0];
-    const pii = new Set(
-      (this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
-    );
+    const pii = this.piiFields();
     const sensitive =
       this.disableCacheForFilterPii() || (filter !== undefined && filterFields(filter).some((field) => pii.has(field)));
     const sort = query.sorts.map((s) => ({ field: s.field as string, direction: s.direction }));
@@ -928,107 +919,6 @@ export class ResourceStore {
   }
 
   /**
-   * The display values a list's referenced-resource columns show, resolved on the read
-   * mode of the referenced resource (readMode). A source with no maximum is read whole
-   * once, `limit=all`, and mapped, whatever keys the page holds, so turning the page asks
-   * nothing more of it. A source with a maximum is asked for one `filter=<key>:in:(…)`
-   * page per batch of the page's keys, each batch no larger than its maximum (and than
-   * `batchSize`), each answered by the key's index in one request; nothing is walked and
-   * nothing is read whole.
-   *
-   * A read the server refused (an answer in the 400s: the caller may not list the source,
-   * or the source would not be asked that way) is not asked again for the same keys by the
-   * same reader, in whatever order the page holds them: a sort or a filter that brings rows
-   * naming the same records ends in the refusal the server gave, the same error, and no
-   * request is made. A read that failed (no answer, or one in the 500s) is asked again, as
-   * the next answer may be another; so is a read the server had no time for (a 408, the
-   * request timed out, and a 429, too many requests), which says nothing of the read itself.
-   */
-  resourceListByKeys(
-    route: Signal<string>,
-    keyField: Signal<string>,
-    keys: Signal<string[]>,
-    columns: Signal<string[]> = signal([]),
-    batchSize = 200,
-  ): ResourceRef<RecordData[]> {
-    if (!Number.isInteger(batchSize) || batchSize <= 0) {
-      throw new Error(`resourceListByKeys: batchSize must be a positive integer, got ${batchSize}`);
-    }
-
-    // The reads the server refused, each by what was asked.
-    const refused = new Map<string, ApiError>();
-
-    return untracked(() => {
-      return rxResource({
-        defaultValue: [] as RecordData[],
-        injector: this.injector,
-        params: () => {
-          const resourceRoute = route();
-          const descriptor = this.descriptorFor(resourceRoute);
-          const paged = resourceRoute !== '' && readMode(descriptor) === 'paged';
-          return {
-            route: resourceRoute,
-            keyField: keyField(),
-            // A whole source is read once for every page: the keys are not a parameter.
-            keys: paged ? keys() : [],
-            paged,
-            columns: columns(),
-            domain: this.scopedDomain(descriptor),
-          };
-        },
-        stream: ({ params }) => {
-          if (!params.route || !params.keyField) {
-            return of([] as RecordData[]);
-          }
-          const handle = this.handleFor(params.route);
-          const columnsAsked = params.columns.length > 0 ? params.columns : undefined;
-          if (!params.paged) {
-            return from(
-              handle.list(wholeListQuery<RecordData>(handle.descriptor, { columns: columnsAsked }) as never) as Promise<
-                RecordData[]
-              >,
-            );
-          }
-          if (params.keys.length === 0) {
-            return of([] as RecordData[]);
-          }
-          const asked = JSON.stringify([
-            params.route,
-            params.keyField,
-            params.columns,
-            params.domain,
-            [...params.keys].sort(),
-          ]);
-          const refusal = refused.get(asked);
-          if (refusal !== undefined) {
-            return throwError(() => refusal);
-          }
-          return from(keyBatches(handle.descriptor, params.keys, batchSize)).pipe(
-            mergeMap(
-              (batch) =>
-                from(
-                  handle.list(
-                    keyLookupQuery<RecordData>(handle.descriptor, params.keyField, batch, columnsAsked) as never,
-                  ) as Promise<RecordData[]>,
-                ),
-              ResourceStore.BATCH_REQUEST_CONCURRENCY,
-            ),
-            toArray(),
-            map((results) => results.flat()),
-            tap({
-              error: (error: unknown) => {
-                if (error instanceof ApiError && answersTheSameAgain(error.status)) {
-                  refused.set(asked, error);
-                }
-              },
-            }),
-          );
-        },
-      }) as ResourceRef<RecordData[]>;
-    });
-  }
-
-  /**
    * One server page of a resource, for a reader that pages a bounded source (a picker
    * over a resource with a maximum page size): the first page, with its count, whenever
    * the request changes, and Previous and Next by the server's relations. The request is
@@ -1058,8 +948,7 @@ export class ResourceStore {
 
   /**
    * Lists a resource through the client for the readers that want a whole set — the
-   * array view, the pickers, the referenced-resource lookups — on the resource's read
-   * mode (readMode). A source with no maximum is read whole, `limit=all`, in one
+   * array view and the pickers — on the resource's read mode (readMode). A source with no maximum is read whole, `limit=all`, in one
    * request. A source with a maximum is never read whole, so the answer is one server
    * page, the descriptor's default, and a bounded source with no `@order` and no sort is
    * refused by the server in its own words, which the reader shows. A caller that names

@@ -1692,10 +1692,11 @@
               "resource": "MissionBoards",
               "fields": [
                 "title",
-                "clientName",
-                "squadronName",
+                "clientId",
+                "squadronId",
                 "kindId",
                 "statusId",
+                "briefingTemplateId",
                 "deadline",
                 "daysLeft"
               ]
@@ -1704,14 +1705,12 @@
               "resource": "SquadronRosters",
               "fields": [
                 "squadronName",
-                "pilotName",
                 "pilotId"
               ]
             },
             {
               "resource": "PilotAssignments",
               "fields": [
-                "squadronName",
                 "wingName"
               ]
             },
@@ -1720,6 +1719,7 @@
               "fields": [
                 "username",
                 "name",
+                "displayName",
                 "email",
                 "disabled",
                 "heldElsewhere",
@@ -3234,8 +3234,8 @@
               "resource": "MissionBoards",
               "fields": [
                 "title",
-                "clientName",
-                "squadronName",
+                "clientId",
+                "squadronId",
                 "kindId",
                 "statusId",
                 "deadline",
@@ -3246,14 +3246,12 @@
               "resource": "SquadronRosters",
               "fields": [
                 "squadronName",
-                "pilotName",
                 "pilotId"
               ]
             },
             {
               "resource": "PilotAssignments",
               "fields": [
-                "squadronName",
                 "wingName"
               ]
             },
@@ -3419,8 +3417,8 @@
               "resource": "MissionBoards",
               "fields": [
                 "title",
-                "clientName",
-                "squadronName",
+                "clientId",
+                "squadronId",
                 "kindId",
                 "statusId",
                 "deadline",
@@ -3522,8 +3520,8 @@
               "resource": "MissionBoards",
               "fields": [
                 "title",
-                "clientName",
-                "squadronName",
+                "clientId",
+                "squadronId",
                 "kindId",
                 "statusId",
                 "deadline",

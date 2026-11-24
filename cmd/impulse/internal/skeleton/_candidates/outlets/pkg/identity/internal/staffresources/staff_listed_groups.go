@@ -31,14 +31,15 @@ type (
 	StaffListedGroup struct {
 		// @primarykey
 		// @attribute(group)
-		ID          impulse.UUID `spanner:"Id"          index:"true"`
-		Kind        string       `spanner:"Kind"        index:"true"`
-		Axis        string       `spanner:"Axis"        index:"true"`
-		DomainID    string       `spanner:"DomainId"    index:"true"`
-		Name        string       `spanner:"Name"        index:"true"`
-		Description string       `spanner:"Description"`
-		UpdatedAt   time.Time    `spanner:"UpdatedAt"`
-		People      int64        `spanner:"People"`
+		ID   impulse.UUID `spanner:"Id"   index:"true"`
+		Kind string       `spanner:"Kind" index:"true"`
+		Axis string       `spanner:"Axis" index:"true"`
+		// @enumerate(Tenants)
+		DomainID    string    `spanner:"DomainId"    index:"true"`
+		Name        string    `spanner:"Name"        index:"true"`
+		Description string    `spanner:"Description"`
+		UpdatedAt   time.Time `spanner:"UpdatedAt"`
+		People      int64     `spanner:"People"`
 		// @roleOf(Staff)
 		Roles []string `spanner:"Roles"`
 	}

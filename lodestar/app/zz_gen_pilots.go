@@ -22,7 +22,7 @@ func (a *App) Pilots() http.HandlerFunc {
 	type pilot struct {
 		ID          impulse.UUID    `json:"id"          index:"true" perm:"-"`
 		UserID      string          `json:"userId"      index:"true"`
-		DisplayName string          `json:"displayName"`
+		DisplayName string          `json:"displayName" index:"true"`
 		Clearance   int64           `json:"clearance"`
 		FeeLimit    decimal.Decimal `json:"feeLimit"`
 	}

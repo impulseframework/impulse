@@ -72,7 +72,9 @@ export interface SortRule {
 /**
  * Which columns the server filters, by column id: the generated field metadata's
  * `filterable` for the field the column shows. A column absent here draws no filter
- * control.
+ * control. It also answers for each field the page's own filter names
+ * (`externalFilterFields`), which may be no column: the grid asks it whether an indexed
+ * filter is already in the request.
  */
 export type ColumnFilterability = Readonly<Record<string, FilterEligibility | undefined>>;
 

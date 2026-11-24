@@ -40,6 +40,7 @@ type (
 		// @primarykey
 		Axis string `spanner:"Axis"`
 		// @primarykey
+		// @enumerate(Sectors)
 		DomainID string `spanner:"DomainId" index:"true"`
 		// @primarykey
 		// @roleOf(Crew)

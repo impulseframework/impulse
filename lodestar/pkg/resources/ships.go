@@ -78,12 +78,13 @@ type (
 		// @attribute(hangarZone, via: Zone)
 		HangarID impulse.UUID `spanner:"HangarId"`
 		// @attribute(shipRole, via: RoleID)
-		ClassID     impulse.UUID `spanner:"ClassId"`
-		Registry    string       `spanner:"Registry"    conditions:"immutable"`
-		Name        string       `spanner:"Name"`
-		LastRefitAt *time.Time   `spanner:"LastRefitAt" conditions:"output_only"`
-		UpdatedAt   *time.Time   `spanner:"UpdatedAt"   output_only_update_fn:"resource.CommitTimestampPtr"`
-		CargoBays   []int64      `spanner:"CargoBays"`
+		ClassID  impulse.UUID `spanner:"ClassId"`
+		Registry string       `spanner:"Registry" conditions:"immutable"`
+		// @name
+		Name        string     `spanner:"Name"`
+		LastRefitAt *time.Time `spanner:"LastRefitAt" conditions:"output_only"`
+		UpdatedAt   *time.Time `spanner:"UpdatedAt"   output_only_update_fn:"resource.CommitTimestampPtr"`
+		CargoBays   []int64    `spanner:"CargoBays"`
 		// TransponderKey is the key the ship's transponder signs its answers with.
 		TransponderKey *resource.Secret `spanner:"TransponderKey" conditions:"secret"`
 	}

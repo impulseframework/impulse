@@ -20,16 +20,20 @@ import (
 
 func (a *App) HangarPasses() http.HandlerFunc {
 	type hangarPass struct {
-		ID         impulse.UUID     `json:"id"         index:"true"      perm:"-"`
-		SectorID   impulse.UUID     `json:"sectorId"   index:"true"`
-		HangarID   impulse.UUID     `json:"hangarId"   index:"true"`
-		UserID     *string          `json:"userId"     index:"true"`
-		SquadronID impulse.NullUUID `json:"squadronId" index:"true"`
-		GroupID    impulse.NullUUID `json:"groupId"    index:"true"`
-		LevelID    string           `json:"levelId"    index:"true"`
-		ExpiresAt  *time.Time       `json:"expiresAt"`
-		SectorName *string          `json:"sectorName" nameof:"SectorID" index:"true"`
-		LevelName  *string          `json:"levelName"  nameof:"LevelID"  index:"true"`
+		ID           impulse.UUID     `json:"id"           index:"true"        perm:"-"`
+		SectorID     impulse.UUID     `json:"sectorId"     index:"true"`
+		HangarID     impulse.UUID     `json:"hangarId"     index:"true"`
+		UserID       *string          `json:"userId"       index:"true"`
+		SquadronID   impulse.NullUUID `json:"squadronId"   index:"true"`
+		GroupID      impulse.NullUUID `json:"groupId"      index:"true"`
+		LevelID      string           `json:"levelId"      index:"true"`
+		ExpiresAt    *time.Time       `json:"expiresAt"`
+		SectorName   *string          `json:"sectorName"   nameof:"SectorID"   index:"true"`
+		HangarName   *string          `json:"hangarName"   nameof:"HangarID"   index:"true"        search:"lower=Name_Lower"`
+		UserName     *string          `json:"userName"     nameof:"UserID"     allow_filter:"true"`
+		SquadronName *string          `json:"squadronName" nameof:"SquadronID" index:"true"        search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
+		GroupName    *string          `json:"groupName"    nameof:"GroupID"    index:"true"`
+		LevelName    *string          `json:"levelName"    nameof:"LevelID"    index:"true"`
 	}
 
 	type response []map[string]any
@@ -133,16 +137,20 @@ func (a *App) HangarPasses() http.HandlerFunc {
 
 func (a *App) HangarPass() http.HandlerFunc {
 	type response struct {
-		ID         impulse.UUID     `json:"id"         index:"true"      perm:"-"`
-		SectorID   impulse.UUID     `json:"sectorId"`
-		HangarID   impulse.UUID     `json:"hangarId"`
-		UserID     *string          `json:"userId"`
-		SquadronID impulse.NullUUID `json:"squadronId"`
-		GroupID    impulse.NullUUID `json:"groupId"`
-		LevelID    string           `json:"levelId"`
-		ExpiresAt  *time.Time       `json:"expiresAt"`
-		SectorName *string          `json:"sectorName" nameof:"SectorID"`
-		LevelName  *string          `json:"levelName"  nameof:"LevelID"`
+		ID           impulse.UUID     `json:"id"           index:"true"        perm:"-"`
+		SectorID     impulse.UUID     `json:"sectorId"`
+		HangarID     impulse.UUID     `json:"hangarId"`
+		UserID       *string          `json:"userId"`
+		SquadronID   impulse.NullUUID `json:"squadronId"`
+		GroupID      impulse.NullUUID `json:"groupId"`
+		LevelID      string           `json:"levelId"`
+		ExpiresAt    *time.Time       `json:"expiresAt"`
+		SectorName   *string          `json:"sectorName"   nameof:"SectorID"`
+		HangarName   *string          `json:"hangarName"   nameof:"HangarID"`
+		UserName     *string          `json:"userName"     nameof:"UserID"`
+		SquadronName *string          `json:"squadronName" nameof:"SquadronID"`
+		GroupName    *string          `json:"groupName"    nameof:"GroupID"`
+		LevelName    *string          `json:"levelName"    nameof:"LevelID"`
 	}
 
 	decoder := NewQueryDecoder[resources.HangarPass, response](a, accesstypes.Read)

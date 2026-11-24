@@ -17,6 +17,7 @@ export interface ClientContacts {
   userId?: string;
   clientId?: string;
   displayName?: string;
+  clientName?: string;
 }
 
 export interface ClientRosters {
@@ -35,6 +36,7 @@ export interface Commendations {
   awardedByUserId?: string;
   awardedByName?: string;
   awardedAt?: Date;
+  pilotName?: string;
 }
 
 export interface Consignments {
@@ -47,6 +49,7 @@ export interface Consignments {
   expiresOn?: Date;
   releasedAt?: Date;
   sectorName?: string;
+  clientName?: string;
 }
 
 export interface CrewGroups {
@@ -102,6 +105,7 @@ export interface CrewHeldRoles {
   startsAt?: Date;
   endsAt?: Date;
   reason?: string;
+  domainName?: string;
 }
 
 export interface CrewListedGroups {
@@ -114,6 +118,7 @@ export interface CrewListedGroups {
   updatedAt?: Date;
   people?: number;
   roles?: string[];
+  domainName?: string;
 }
 
 export interface CrewListedGroupRoles {
@@ -126,6 +131,7 @@ export interface CrewListedGroupRoles {
   startsAt?: Date;
   endsAt?: Date;
   losing?: number;
+  domainName?: string;
 }
 
 export interface CrewListedIdentities {
@@ -227,6 +233,7 @@ export interface CrewSectorHeldRoles {
   startsAt?: Date;
   endsAt?: Date;
   reason?: string;
+  groupPageName?: string;
 }
 
 export interface CrewSectorIdentities {
@@ -265,6 +272,7 @@ export interface CrewSectorUsers {
   domainId?: string;
   username?: string;
   name?: string;
+  displayName?: string;
   email?: string;
   emailVerifiedAt?: Date;
   disabled?: boolean;
@@ -373,6 +381,7 @@ export interface CrewSessionMailLinks {
   expiresAt?: Date;
   consumedAt?: Date;
   mailFailedAt?: Date;
+  tenantName?: string;
 }
 
 export interface CrewSessionSignInAttempts {
@@ -431,6 +440,7 @@ export interface CrewTakenRoles {
   startsAt?: Date;
   endsAt?: Date;
   ended?: boolean;
+  domainName?: string;
 }
 
 export interface CrewUserGroupRoles {
@@ -445,6 +455,7 @@ export interface CrewUserGroupRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  domainName?: string;
 }
 
 export interface CrewUserRoles {
@@ -481,6 +492,7 @@ export interface DistressRelays {
   relayedByName?: string;
   relayedAt?: Date;
   sectorName?: string;
+  answersRelayName?: string;
 }
 
 export interface FeeByKinds {
@@ -508,6 +520,10 @@ export interface HangarPasses {
   levelId?: string;
   expiresAt?: Date;
   sectorName?: string;
+  hangarName?: string;
+  userName?: string;
+  squadronName?: string;
+  groupName?: string;
   levelName?: string;
 }
 
@@ -629,6 +645,7 @@ export interface MembersSectorUsers {
   domainId?: string;
   username?: string;
   name?: string;
+  displayName?: string;
   email?: string;
   emailVerifiedAt?: Date;
   disabled?: boolean;
@@ -775,12 +792,15 @@ export interface MissionBoards {
   id: string;
   sectorId?: string;
   title?: string;
-  clientName?: string;
-  squadronName?: string;
+  clientId?: string;
+  squadronId?: string;
   kindId?: string;
   statusId?: string;
+  briefingTemplateId?: string;
   deadline?: Date;
   daysLeft?: number;
+  clientName?: string;
+  squadronName?: string;
   kindName?: string;
   statusName?: string;
 }
@@ -797,6 +817,7 @@ export interface MissionDocuments {
   uploadedAt?: Date;
   provenance?: MissionDocuments.Provenance;
   digest?: string;
+  missionName?: string;
 }
 export namespace MissionDocuments {
   export interface Provenance {
@@ -826,8 +847,8 @@ export interface PilotAssignments {
   squadronId: string;
   userId: string;
   sectorId?: string;
-  squadronName?: string;
   wingName?: string;
+  squadronName?: string;
 }
 
 export interface PilotCertifications {
@@ -845,6 +866,7 @@ export interface Refits {
   openedByUserId?: string;
   openedByName?: string;
   notes?: string;
+  shipName?: string;
   statusName?: string;
 }
 
@@ -892,6 +914,8 @@ export interface Ships {
   lastRefitAt?: Date;
   updatedAt?: Date;
   cargoBays?: number[];
+  hangarName?: string;
+  className?: string;
 }
 
 export interface ShipClasses {
@@ -912,6 +936,8 @@ export interface Sorties {
   launchedAt?: Date;
   returnedAt?: Date;
   debrief?: string;
+  missionName?: string;
+  shipName?: string;
 }
 
 export interface SortieExpenses {
@@ -927,11 +953,14 @@ export interface Squadrons {
   wingId?: string;
   name?: string;
   callsigns?: string[];
+  wingName?: string;
 }
 
 export interface SquadronMemberships {
   squadronId: string;
   userId: string;
+  squadronName?: string;
+  userName?: string;
 }
 
 export interface SquadronRosters {
@@ -939,8 +968,8 @@ export interface SquadronRosters {
   userId: string;
   sectorId?: string;
   squadronName?: string;
-  pilotName?: string;
   pilotId?: string;
+  pilotName?: string;
 }
 
 export interface Wings {
@@ -1183,6 +1212,7 @@ const resourceMap = defineResourceMap({
     route: 'clients',
     live: true,
     rowWords: { one: 'client', many: 'clients' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
@@ -1206,11 +1236,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', search: ['contains'] },
     ],
     searchFields: ['displayName'],
+    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }],
   },
   [Resources.ClientRosters]: {
     route: 'sectors/{sectorID}/client-rosters',
     live: true,
     rowWords: { one: 'client', many: 'clients' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
@@ -1235,6 +1267,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'awardedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'awardedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
     ],
+    nameFields: [{ fieldName: 'pilotName', of: 'pilotId', filterable: 'always' }],
   },
   [Resources.Consignments]: {
     route: 'sectors/{sectorID}/consignments',
@@ -1251,7 +1284,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'expiresOn', displayType: 'civildate', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'releasedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always' },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'clientName', of: 'clientId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }],
   },
   [Resources.CrewGroups]: {
     route: 'crew-groups',
@@ -1330,7 +1363,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
       { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 5 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewListedGroups },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1339,6 +1372,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.CrewListedGroups]: {
     route: 'crew-listed-groups',
@@ -1348,13 +1382,14 @@ const resourceMap = defineResourceMap({
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.CrewListedGroupRoles]: {
     route: 'crew-listed-group-roles',
@@ -1365,13 +1400,14 @@ const resourceMap = defineResourceMap({
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
       { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'losing', displayType: 'number', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.CrewListedIdentities]: {
     route: 'crew-listed-identities',
@@ -1449,6 +1485,7 @@ const resourceMap = defineResourceMap({
     route: 'sectors/{sectorID}/crew-sector-groups',
     live: true,
     rowWords: { one: 'group', many: 'groups' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1510,6 +1547,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'groupPageName', of: 'groupPage' }],
   },
   [Resources.CrewSectorIdentities]: {
     route: 'sectors/{sectorID}/crew-sector-identities',
@@ -1554,11 +1592,13 @@ const resourceMap = defineResourceMap({
     route: 'sectors/{sectorID}/crew-sector-users',
     live: true,
     rowWords: { one: 'person', many: 'people' },
+    nameField: 'displayName',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
@@ -1703,7 +1743,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'email', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSessionUsers },
-      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'tenantId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
       { fieldName: 'everyTenant', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
       { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
@@ -1712,6 +1752,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
   },
   [Resources.CrewSessionSignInAttempts]: {
     route: 'crew-session-sign-in-attempts',
@@ -1797,13 +1838,14 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
       { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'reason', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'ended', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.CrewUserGroupRoles]: {
     route: 'crew-user-group-roles',
@@ -1816,12 +1858,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
       { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.CrewUserRoles]: {
     route: 'crew-user-roles',
@@ -1867,6 +1910,7 @@ const resourceMap = defineResourceMap({
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'distress relay', many: 'distress relays' },
+    nameField: 'message',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
@@ -1876,7 +1920,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'relayedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'relayedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always', readOnly: true },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'answersRelayName', of: 'answersRelayId' }],
   },
   [Resources.FeeByKinds]: {
     route: 'fee-by-kinds',
@@ -1893,6 +1937,7 @@ const resourceMap = defineResourceMap({
     route: 'sectors/{sectorID}/hangars',
     live: true,
     rowWords: { one: 'hangar', many: 'hangars' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
@@ -1916,7 +1961,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'levelId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "run", display: "Run" }, { id: "visit", display: "Visit" }] },
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'levelName', of: 'levelId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'hangarName', of: 'hangarId', filterable: 'always', search: ['startswith'] }, { fieldName: 'userName', of: 'userId', filterable: 'withIndexed' }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'groupName', of: 'groupId', filterable: 'always' }, { fieldName: 'levelName', of: 'levelId', filterable: 'always' }],
   },
   [Resources.MembersHeldRoles]: {
     route: 'members-held-roles',
@@ -2073,11 +2118,13 @@ const resourceMap = defineResourceMap({
     route: 'sectors/{sectorID}/members-sector-users',
     live: true,
     rowWords: { one: 'person', many: 'people' },
+    nameField: 'displayName',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
@@ -2264,6 +2311,7 @@ const resourceMap = defineResourceMap({
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'mission', many: 'missions' },
+    nameField: 'title',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
@@ -2295,15 +2343,16 @@ const resourceMap = defineResourceMap({
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'title', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains'] },
-      { fieldName: 'clientName', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
-      { fieldName: 'squadronName', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'clientId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.ClientRosters },
+      { fieldName: 'squadronId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
       { fieldName: 'kindId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "courier", display: "Courier" }, { id: "escort", display: "Escort" }, { id: "rescue", display: "Rescue" }, { id: "salvage", display: "Salvage" }] },
       { fieldName: 'statusId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "claimed", display: "Claimed" }, { id: "completed", display: "Completed" }, { id: "failed", display: "Failed" }, { id: "on_hold", display: "On hold" }, { id: "open", display: "Open" }, { id: "stood_down", display: "Stood down" }, { id: "underway", display: "Underway" }] },
+      { fieldName: 'briefingTemplateId', displayType: 'enumerated', required: false, isIndex: false, filterable: 'withIndexed', enumeratedResource: Resources.BriefingTemplates },
       { fieldName: 'deadline', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'daysLeft', displayType: 'number', required: true, isIndex: false, filterable: 'withIndexed' },
     ],
-    searchFields: ['title', 'clientName'],
-    nameFields: [{ fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
+    searchFields: ['title'],
+    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'kindName', of: 'kindId', filterable: 'always' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.MissionDocuments]: {
     route: 'sectors/{sectorID}/mission-documents',
@@ -2324,6 +2373,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'provenance', displayType: 'object', required: false, isIndex: false, sortable: false },
       { fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false },
     ],
+    nameFields: [{ fieldName: 'missionName', of: 'missionId', filterable: 'withIndexed', search: ['contains'] }],
   },
   [Resources.OpenMissionsBySquadrons]: {
     route: 'sectors/{sectorID}/open-missions-by-squadrons',
@@ -2342,10 +2392,11 @@ const resourceMap = defineResourceMap({
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'pilot', many: 'pilots' },
+    nameField: 'displayName',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 36, enumeratedResource: Resources.CrewSessionUsers },
-      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'clearance', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'feeLimit', displayType: 'number', decimal: true, required: true, isIndex: false },
     ],
@@ -2359,9 +2410,9 @@ const resourceMap = defineResourceMap({
       { fieldName: 'squadronId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'squadronName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'wingName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
     ],
+    nameFields: [{ fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }],
   },
   [Resources.PilotCertifications]: {
     route: 'pilot-certifications',
@@ -2389,7 +2440,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'openedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'shipName', of: 'shipId' }, { fieldName: 'statusName', of: 'statusId', filterable: 'always' }],
   },
   [Resources.RefitTasks]: {
     route: 'sectors/{sectorID}/refit-tasks',
@@ -2452,6 +2503,7 @@ const resourceMap = defineResourceMap({
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'ship', many: 'ships' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'hangarId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Hangars },
@@ -2463,12 +2515,14 @@ const resourceMap = defineResourceMap({
       { fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false, sortable: false },
       { fieldName: 'transponderKey', displayType: 'string', required: false, isIndex: false, sortable: false, maxLength: 64, writeOnly: true, secret: true },
     ],
+    nameFields: [{ fieldName: 'hangarName', of: 'hangarId', filterable: 'always', search: ['startswith'] }, { fieldName: 'className', of: 'classId', filterable: 'always' }],
   },
   [Resources.ShipClasses]: {
     route: 'ship-classes',
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'ship class', many: 'ship classes' },
+    nameField: 'designation',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'designation', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -2493,6 +2547,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'returnedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'debrief', displayType: 'string', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'missionName', of: 'missionId', filterable: 'withIndexed', search: ['contains'] }, { fieldName: 'shipName', of: 'shipId' }],
   },
   [Resources.SortieExpenses]: {
     route: 'sectors/{sectorID}/sortie-expenses',
@@ -2512,12 +2567,15 @@ const resourceMap = defineResourceMap({
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'squadron', many: 'squadrons' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'wingId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Wings },
-      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'callsigns', displayType: 'string[]', required: false, isIndex: false, sortable: false, maxLength: 16 },
     ],
+    searchFields: ['name'],
+    nameFields: [{ fieldName: 'wingName', of: 'wingId', filterable: 'always' }],
   },
   [Resources.SquadronMemberships]: {
     route: 'sectors/{sectorID}/squadron-memberships',
@@ -2528,6 +2586,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'squadronId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSectorUsers },
     ],
+    nameFields: [{ fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }, { fieldName: 'userName', of: 'userId', filterable: 'withIndexed' }],
   },
   [Resources.SquadronRosters]: {
     route: 'sectors/{sectorID}/squadron-rosters',
@@ -2539,15 +2598,16 @@ const resourceMap = defineResourceMap({
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'squadronName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'pilotName', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'pilotId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.Pilots },
+      { fieldName: 'pilotId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Pilots },
     ],
+    nameFields: [{ fieldName: 'pilotName', of: 'pilotId', filterable: 'always' }],
   },
   [Resources.Wings]: {
     route: 'sectors/{sectorID}/wings',
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'wing', many: 'wings' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },

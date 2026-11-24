@@ -199,9 +199,12 @@ export interface IdentityDescriptor {
   /**
    * The tenant record's resource, where the outlet serves it. A list of the whole
    * application's side carries the key of the tenant a role or an invitation is in, an
-   * id nobody reads: the pages read the tenant's name from this resource (its metadata's
-   * `nameField`). Absent where the outlet does not serve the record, or on a description
-   * from a generator that predates it, and the pages show the key.
+   * id nobody reads, and the tenant's name beside it where every outlet that serves the
+   * Auth's management serves the record. The pages read from this resource's metadata the
+   * field the record's rows are known by (`nameField`): where the record marks none, the
+   * key is all a cell can show. Absent where the outlet does not serve the record, or on
+   * a description from a generator that predates it: the pages then name a tenant from
+   * the reader's own list of tenants, or in words.
    */
   readonly tenantResource?: string;
   /**

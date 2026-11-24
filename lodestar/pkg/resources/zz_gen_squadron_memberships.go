@@ -29,6 +29,16 @@ func (SquadronMembership) TenantBinding() resource.TenantBinding {
 	return resource.TenantBinding{Field: "SquadronID", Path: []resource.BindingHop{{Table: "Squadrons", JoinColumn: "Id", Column: "WingId"}, {Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (SquadronMembership) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "UserName", Key: "UserID", Resource: "CrewSectorUsers", Tag: "displayName", Table: "CrewSectorUsers", KeyColumn: "Id", NameColumn: "DisplayName", View: true, TenantColumn: "DomainId"},
+	}
+}
+
 // squadronMembershipRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; squadronMembershipReadSets holds one Set per read operation.

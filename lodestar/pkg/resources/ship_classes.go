@@ -28,11 +28,12 @@ type (
 	// @resource
 	// @page(default: 25)
 	ShipClass struct {
-		ID          impulse.UUID `spanner:"Id"`
-		Designation string       `spanner:"Designation" conditions:"immutable"`
-		RoleID      string       `spanner:"RoleId"`
-		Tonnage     int64        `spanner:"Tonnage"`
-		Hardened    bool         `spanner:"Hardened"`
-		InService   bool         `spanner:"InService"`
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Designation string `spanner:"Designation" conditions:"immutable"`
+		RoleID      string `spanner:"RoleId"`
+		Tonnage     int64  `spanner:"Tonnage"`
+		Hardened    bool   `spanner:"Hardened"`
+		InService   bool   `spanner:"InService"`
 	}
 )

@@ -20,17 +20,20 @@ import (
 
 func (a *App) MissionBoards() http.HandlerFunc {
 	type missionBoard struct {
-		ID           impulse.UUID `json:"id"           index:"true"        perm:"-"`
-		SectorID     impulse.UUID `json:"sectorId"     index:"true"`
-		Title        string       `json:"title"        index:"true"        search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
-		ClientName   string       `json:"clientName"   index:"true"        search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
-		SquadronName *string      `json:"squadronName" index:"true"`
-		KindID       string       `json:"kindId"       index:"true"`
-		StatusID     string       `json:"statusId"     index:"true"`
-		Deadline     time.Time    `json:"deadline"     index:"true"`
-		DaysLeft     int64        `json:"daysLeft"     allow_filter:"true"`
-		KindName     *string      `json:"kindName"     nameof:"KindID"     index:"true"`
-		StatusName   *string      `json:"statusName"   nameof:"StatusID"   index:"true"`
+		ID                 impulse.UUID     `json:"id"                 index:"true"        perm:"-"`
+		SectorID           impulse.UUID     `json:"sectorId"           index:"true"`
+		Title              string           `json:"title"              index:"true"        search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
+		ClientID           impulse.UUID     `json:"clientId"           index:"true"`
+		SquadronID         impulse.NullUUID `json:"squadronId"         index:"true"`
+		KindID             string           `json:"kindId"             index:"true"`
+		StatusID           string           `json:"statusId"           index:"true"`
+		BriefingTemplateID *string          `json:"briefingTemplateId" allow_filter:"true"`
+		Deadline           time.Time        `json:"deadline"           index:"true"`
+		DaysLeft           int64            `json:"daysLeft"           allow_filter:"true"`
+		ClientName         *string          `json:"clientName"         nameof:"ClientID"   index:"true"                                                        search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
+		SquadronName       *string          `json:"squadronName"       nameof:"SquadronID" index:"true"                                                        search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
+		KindName           *string          `json:"kindName"           nameof:"KindID"     index:"true"`
+		StatusName         *string          `json:"statusName"         nameof:"StatusID"   index:"true"`
 	}
 
 	type response []map[string]any
@@ -86,13 +89,13 @@ func (a *App) MissionBoards() http.HandlerFunc {
 					if !row.Masked("title") {
 						rmap["title"] = rec.Title
 					}
-				case "ClientName":
-					if !row.Masked("clientName") {
-						rmap["clientName"] = rec.ClientName
+				case "ClientID":
+					if !row.Masked("clientId") {
+						rmap["clientId"] = rec.ClientID
 					}
-				case "SquadronName":
-					if !row.Masked("squadronName") {
-						rmap["squadronName"] = rec.SquadronName
+				case "SquadronID":
+					if !row.Masked("squadronId") {
+						rmap["squadronId"] = rec.SquadronID
 					}
 				case "KindID":
 					if !row.Masked("kindId") {
@@ -101,6 +104,10 @@ func (a *App) MissionBoards() http.HandlerFunc {
 				case "StatusID":
 					if !row.Masked("statusId") {
 						rmap["statusId"] = rec.StatusID
+					}
+				case "BriefingTemplateID":
+					if !row.Masked("briefingTemplateId") {
+						rmap["briefingTemplateId"] = rec.BriefingTemplateID
 					}
 				case "Deadline":
 					if !row.Masked("deadline") {
@@ -138,17 +145,20 @@ func (a *App) MissionBoards() http.HandlerFunc {
 
 func (a *App) MissionBoard() http.HandlerFunc {
 	type response struct {
-		ID           impulse.UUID `json:"id"           index:"true"                                                                            perm:"-"`
-		SectorID     impulse.UUID `json:"sectorId"`
-		Title        string       `json:"title"        search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
-		ClientName   string       `json:"clientName"   search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
-		SquadronName *string      `json:"squadronName"`
-		KindID       string       `json:"kindId"`
-		StatusID     string       `json:"statusId"`
-		Deadline     time.Time    `json:"deadline"`
-		DaysLeft     int64        `json:"daysLeft"`
-		KindName     *string      `json:"kindName"     nameof:"KindID"`
-		StatusName   *string      `json:"statusName"   nameof:"StatusID"`
+		ID                 impulse.UUID     `json:"id"                 index:"true"                                                        perm:"-"`
+		SectorID           impulse.UUID     `json:"sectorId"`
+		Title              string           `json:"title"              search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
+		ClientID           impulse.UUID     `json:"clientId"`
+		SquadronID         impulse.NullUUID `json:"squadronId"`
+		KindID             string           `json:"kindId"`
+		StatusID           string           `json:"statusId"`
+		BriefingTemplateID *string          `json:"briefingTemplateId"`
+		Deadline           time.Time        `json:"deadline"`
+		DaysLeft           int64            `json:"daysLeft"`
+		ClientName         *string          `json:"clientName"         nameof:"ClientID"`
+		SquadronName       *string          `json:"squadronName"       nameof:"SquadronID"`
+		KindName           *string          `json:"kindName"           nameof:"KindID"`
+		StatusName         *string          `json:"statusName"         nameof:"StatusID"`
 	}
 
 	decoder := NewQueryDecoder[virtualresources.MissionBoard, response](a, accesstypes.Read)
@@ -192,13 +202,13 @@ func (a *App) MissionBoard() http.HandlerFunc {
 				if !row.Masked("title") {
 					rmap["title"] = rec.Title
 				}
-			case "ClientName":
-				if !row.Masked("clientName") {
-					rmap["clientName"] = rec.ClientName
+			case "ClientID":
+				if !row.Masked("clientId") {
+					rmap["clientId"] = rec.ClientID
 				}
-			case "SquadronName":
-				if !row.Masked("squadronName") {
-					rmap["squadronName"] = rec.SquadronName
+			case "SquadronID":
+				if !row.Masked("squadronId") {
+					rmap["squadronId"] = rec.SquadronID
 				}
 			case "KindID":
 				if !row.Masked("kindId") {
@@ -207,6 +217,10 @@ func (a *App) MissionBoard() http.HandlerFunc {
 			case "StatusID":
 				if !row.Masked("statusId") {
 					rmap["statusId"] = rec.StatusID
+				}
+			case "BriefingTemplateID":
+				if !row.Masked("briefingTemplateId") {
+					rmap["briefingTemplateId"] = rec.BriefingTemplateID
 				}
 			case "Deadline":
 				if !row.Masked("deadline") {

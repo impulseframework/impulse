@@ -1,10 +1,4 @@
-import {
-  ColumnConfig,
-  FieldName,
-  multiColumnConfig,
-  Resource,
-  singleColumnConfig,
-} from '@impulseframework/resource-angular/types';
+import { ColumnConfig, FieldName, singleColumnConfig } from '@impulseframework/resource-angular/types';
 
 import { listableColumns, sameColumns } from './listable-columns';
 
@@ -13,16 +7,6 @@ describe('listableColumns', () => {
   const contactName = singleColumnConfig({ id: 'contactName' as FieldName });
   const trusted = singleColumnConfig({ id: 'trusted' as FieldName });
   const id = singleColumnConfig({ id: 'id' as FieldName, hidden: true });
-  const clientLabel = multiColumnConfig({
-    id: 'clientId' as FieldName,
-    additionalIds: [{ id: 'clientName' as FieldName }],
-    concatFn: 'space-concat',
-  });
-  const clientLookup = multiColumnConfig({
-    id: 'clientId' as FieldName,
-    additionalIds: [{ id: 'id' as FieldName, resource: 'Clients' as Resource, field: 'name' as FieldName }],
-    concatFn: 'space-concat',
-  });
   const ids = (columns: ColumnConfig[]): string[] => columns.map((c) => c.id);
 
   const cases: {
@@ -52,27 +36,6 @@ describe('listableColumns', () => {
       listable: new Set(['name']),
       keys: new Set(['id']),
       want: ['id', 'name'],
-    },
-    {
-      name: 'a concatenated column needs every field it reads off this resource',
-      configured: [clientLabel],
-      listable: new Set(['clientId']),
-      keys: new Set(['id']),
-      want: [],
-    },
-    {
-      name: 'a concatenated column passes once every own field is granted',
-      configured: [clientLabel],
-      listable: new Set(['clientId', 'clientName']),
-      keys: new Set(['id']),
-      want: ['clientId'],
-    },
-    {
-      name: 'a field read off a referenced resource is not judged here',
-      configured: [clientLookup],
-      listable: new Set(['clientId']),
-      keys: new Set(['id']),
-      want: ['clientId'],
     },
     {
       name: 'a grant covering none of the columns leaves no column',

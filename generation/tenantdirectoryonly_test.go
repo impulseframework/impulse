@@ -1322,6 +1322,27 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			if joins := len(joinWord.FindAllString(query, -1)); joins+entering > 20 {
 				t.Errorf("the people's list holds %d joins and the query of the tenants a person administers %d, more than the twenty Spanner allows a statement:\n%s", joins, entering, query)
 			}
+			// A list that shows a person by name reads the name from the lighter name
+			// query (NameSubquery), written into its statement once to read the name and
+			// once for each condition of its filter on the name: the same people and
+			// accounts, without the facts, so at most eight joins where the auth keeps
+			// groups and two where it does not.
+			names := renderedConstant(t, string(out), "crewSectorUserNameQuery")
+			if strings.Contains(strings.TrimPrefix(names, "const crewSectorUserNameQuery = `"), "`") {
+				t.Errorf("the people's name query takes another query in, whose joins this count does not see:\n%s", names)
+			}
+			most := 2
+			if tt.data.KeepsGroups() {
+				most = 8
+			}
+			if joins := len(joinWord.FindAllString(names, -1)); joins > most {
+				t.Errorf("the people's name query holds %d joins, more than %d:\n%s", joins, most, names)
+			}
+			assertContains(t, "the people's list", string(out), []string{
+				"func (CrewSectorUser) NameSubquery() (query string, params map[string]any) {\n\treturn crewSectorUserNameQuery, nil\n}",
+				"var _ resource.NameSubqueryer = CrewSectorUser{}",
+				"SELECT\n  u.Id AS Id,\n  t.DomainId AS DomainId,\n  COALESCE(NULLIF(u.Name, ''), u.Username) AS DisplayName\nFROM (\n",
+			}, nil)
 		})
 	}
 

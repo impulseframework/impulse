@@ -84,6 +84,7 @@ func (Refit) DeleteTree() *resource.DeleteTree {
 // looked up in the pointed-to table by the id; it is no column of this resource.
 func (Refit) NameFields() []resource.NameField {
 	return []resource.NameField{
+		{Field: "ShipName", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
 		{Field: "StatusName", Key: "StatusID", Resource: "", Tag: "", Table: "RefitStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 	}
 }

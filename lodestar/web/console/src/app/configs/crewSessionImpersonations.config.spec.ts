@@ -28,9 +28,10 @@ import { crewSessionImpersonationsConfig, heldAs, revokeQuestion, stillOpen } fr
 // The watch desk is the library's list over the crew auth's impersonation records. The
 // server as the spec plays it answers Headquarters: a session the Marshal holds as the
 // Cadet, a session the Governor holds as a role, a session whose time ran out with no
-// end written, and a session ended yesterday as an account that is gone. The page names
-// who each session is held as (the account's username, the role in words that say it is
-// a role, or the id the record keeps), says "Still open" where a session has not ended
+// end written, and a session ended yesterday whose record keeps no username. The page
+// names who each session is held as (the username the record keeps, the role in words
+// that say it is a role, or the id the record keeps), sorts and filters by the username,
+// and asks nothing of the accounts, says "Still open" where a session has not ended
 // and "Time ran out" where its time passed with no end, offers Revoke on the open ones
 // alone, asks before it ends one, and draws no way into a row.
 
@@ -49,6 +50,7 @@ const sessions = [
     actorUsername: 'marshal',
     principalKind: 'User',
     principalUserId: cadet,
+    principalUsername: 'cadet',
     mask: 'reading only',
     reason: 'watch desk walkthrough',
     startedAt: '2026-10-02T14:05:00Z',
@@ -72,6 +74,7 @@ const sessions = [
     actorUsername: 'marshal',
     principalKind: 'User',
     principalUserId: cadet,
+    principalUsername: 'cadet',
     mask: 'reading only',
     reason: 'left open over the morning',
     startedAt: '2026-10-02T10:00:00Z',
@@ -104,12 +107,13 @@ const fields = [
   'principalKind',
   'principalRole',
   'principalUserId',
+  'principalUsername',
   'reason',
   'sourceSessionId',
   'startedAt',
 ];
 
-/** Headquarters' digest: the records field by field, the accounts by name, and the method that ends a session. */
+/** Headquarters' digest: the records field by field, and the method that ends a session. */
 const headquarters: PermissionDigest = {
   ...Object.fromEntries(
     ['CrewSessionImpersonations', ...fields.map((f) => `CrewSessionImpersonations.${f}`)].map((name) => [
@@ -117,8 +121,6 @@ const headquarters: PermissionDigest = {
       { List: 'granted', Read: 'granted' },
     ]),
   ),
-  CrewSessionUsers: { List: 'granted' },
-  'CrewSessionUsers.username': { List: 'granted' },
   [ends]: { Execute: 'granted' },
 };
 
@@ -140,7 +142,7 @@ describe('the watch desk', () => {
     vi.useRealTimers();
   });
 
-  /** Waits until the page and the accounts it names have both been read, and draws them. */
+  /** Waits until the page has been read, and draws it. */
   const settle = async (): Promise<void> => {
     const list = fixture.componentInstance;
     for (let quiet = 0, i = 0; i < 100 && quiet < 2; i++) {
@@ -161,8 +163,6 @@ describe('the watch desk', () => {
           return { status: 200, body: headquarters };
         case deskPath:
           return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
-        case accountsPath:
-          return { status: 200, body: [{ id: cadet, username: 'cadet' }] };
         default:
           return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
       }
@@ -221,7 +221,7 @@ describe('the watch desk', () => {
       'How it ended',
     ]);
     expect(cells()).toEqual([
-      // A person, by the username the accounts answer for the id the record keeps.
+      // A person, by the username the record keeps.
       [
         'marshal',
         'cadet',
@@ -254,7 +254,7 @@ describe('the watch desk', () => {
         'Time ran out',
         '',
       ],
-      // An account that is gone, by the id the record keeps.
+      // A record that keeps no username, by the id it keeps.
       [
         'marshal',
         gone,
@@ -266,11 +266,31 @@ describe('the watch desk', () => {
         'Revoked',
       ],
     ]);
-    // The role rides along unseen, and the accounts are asked by the ids the rows name.
+    // The role and the account's id ride along unseen, and nothing but the desk is asked:
+    // the record keeps the username.
     const asked = transport.requests.find((request) => request.url.startsWith(`${deskPath}?`));
     const columns = new URL(asked?.url ?? '', 'http://lodestar.test').searchParams.get('columns')?.split(',');
-    expect(columns).toContain('principalRole');
-    expect(transport.requests.some((request) => request.url.startsWith(`${accountsPath}?`))).toBe(true);
+    expect(columns).toEqual(expect.arrayContaining(['principalUsername', 'principalUserId', 'principalRole']));
+    expect(transport.requests.some((request) => request.url.startsWith(`${accountsPath}?`))).toBe(false);
+  });
+
+  it('sorts and filters the As column by the username the record keeps', async () => {
+    await create(sessions);
+    const heading = Array.from(element().querySelectorAll<HTMLElement>('th button.header-label')).find(
+      (button) => button.textContent?.trim() === 'As',
+    );
+    expect(heading).toBeDefined();
+    heading?.click();
+    await settle();
+    const sorted = transport.requests.filter((request) => request.url.startsWith(`${deskPath}?`)).at(-1);
+    expect(new URL(sorted?.url ?? '', 'http://lodestar.test').searchParams.get('sort')).toBe('principalUsername:asc');
+
+    fixture.componentInstance.onFilterChange([{ field: 'principalUsername', operator: 'eq', value: 'cadet' }]);
+    await settle();
+    const filtered = transport.requests.filter((request) => request.url.startsWith(`${deskPath}?`)).at(-1);
+    expect(new URL(filtered?.url ?? '', 'http://lodestar.test').searchParams.get('filter')).toBe(
+      'principalUsername:eq:cadet',
+    );
   });
 
   it('offers Revoke on the sessions still open, on none that ended or ran out of time, and draws no way into a row', async () => {
