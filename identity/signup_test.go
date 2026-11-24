@@ -538,6 +538,133 @@ func TestManager_SignInMethods(t *testing.T) {
 	}
 }
 
+// TestManager_SessionMethodOpen pins what lets a person who holds no tenant create one:
+// the sign-in method the session came through, read from its first sign-in event, is
+// open to sign-up now for the audience it has. Some other method being open admits
+// nobody; a session that came through no method, or through one the auth no longer
+// offers, is answered no; where two registrations take the session's connection, one of
+// them open is enough.
+func TestManager_SessionMethodOpen(t *testing.T) {
+	t.Parallel()
+
+	audienceOf := func(name string) *string {
+		for _, method := range registeredMethods() {
+			if method.Name == name {
+				key := method.Audience.Key()
+
+				return &key
+			}
+		}
+		t.Fatalf("no method is registered under %q", name)
+
+		return nil
+	}
+	other := signin.Audience{Organizations: []string{"acme.example"}, Identities: []string{"domain:lakeside.edu"}}.Key()
+	googleOpen := SignInMethodRow{Name: "google", OpenSignUp: true, OpenedFor: audienceOf("google")}
+	byGoogle := sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "any-google-account"}
+	byPassword := sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}
+	tests := []struct {
+		name string
+		// events are the session's auth events, oldest first; noSession puts no session
+		// on the context. rows are the sign-in methods table's rows, by name.
+		events    []sessioninfo.AuthEvent
+		noSession bool
+		rows      map[string]SignInMethodRow
+		// untaken are connections no registration takes, and through the registrations
+		// an identity of a connection signs in through where it is not the one named
+		// for its method.
+		untaken map[string]bool
+		through map[string][]string
+		want    bool
+	}{
+		{
+			name:   "a session that came through the open method",
+			events: []sessioninfo.AuthEvent{byGoogle},
+			rows:   map[string]SignInMethodRow{"google": googleOpen, "password": {Name: "password"}},
+			want:   true,
+		},
+		{
+			name:   "a password session while another method is open and the password method is invite only",
+			events: []sessioninfo.AuthEvent{byPassword},
+			rows:   map[string]SignInMethodRow{"google": googleOpen, "password": {Name: "password"}},
+		},
+		{
+			name:   "a password session while the password method is open",
+			events: []sessioninfo.AuthEvent{byPassword},
+			rows:   map[string]SignInMethodRow{"password": {Name: "password", OpenSignUp: true, OpenedFor: audienceOf("password")}},
+			want:   true,
+		},
+		{
+			name:   "a session through a method opened for another audience than its registration has now",
+			events: []sessioninfo.AuthEvent{byGoogle},
+			rows:   map[string]SignInMethodRow{"google": {Name: "google", OpenSignUp: true, OpenedFor: &other}},
+		},
+		{
+			name:    "a session through a connection no registration takes",
+			events:  []sessioninfo.AuthEvent{byGoogle},
+			rows:    map[string]SignInMethodRow{"google": googleOpen},
+			untaken: map[string]bool{"any-google-account": true},
+		},
+		{
+			name:   "an impersonation",
+			events: []sessioninfo.AuthEvent{{Method: sessioninfo.MethodImpersonation}, byGoogle},
+			rows:   map[string]SignInMethodRow{"google": googleOpen},
+		},
+		{
+			name: "a session that records no event",
+			rows: map[string]SignInMethodRow{"google": googleOpen},
+		},
+		{
+			name:      "no session on the context",
+			noSession: true,
+			rows:      map[string]SignInMethodRow{"google": googleOpen},
+		},
+		{
+			name:    "a session through a connection two registrations take, the second one open",
+			events:  []sessioninfo.AuthEvent{{Method: sessioninfo.MethodGoogle, Connection: "acme.example"}},
+			rows:    map[string]SignInMethodRow{"workspace": {Name: "workspace"}, "google": googleOpen},
+			through: map[string][]string{"acme.example": {"workspace", "google"}},
+			want:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sessions := fakeSessions{methods: registeredMethods(), untaken: tt.untaken, through: tt.through}
+			m, err := New(managedAuth, &fakeStore{methodRows: tt.rows}, &fakeEngine{roles: engineRoles}, sessions)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			ctx := t.Context()
+			if !tt.noSession {
+				ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{AuthEvents: tt.events})
+			}
+
+			got, err := m.SessionMethodOpen(ctx, nil)
+			if err != nil {
+				t.Fatalf("SessionMethodOpen() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("SessionMethodOpen() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestManager_OneTenantPerPerson pins that the manager says whether it was built to hold a
+// person to one tenant.
+func TestManager_OneTenantPerPerson(t *testing.T) {
+	t.Parallel()
+
+	if held, _ := newManager(t, &fakeStore{}, engineRoles, WithOneTenantPerPerson()); !held.OneTenantPerPerson() {
+		t.Error("OneTenantPerPerson() = false with WithOneTenantPerPerson, want true")
+	}
+	if free, _ := newManager(t, &fakeStore{}, engineRoles); free.OneTenantPerPerson() {
+		t.Error("OneTenantPerPerson() = true without the option, want false")
+	}
+}
+
 func TestManager_SignUpRoles(t *testing.T) {
 	t.Parallel()
 

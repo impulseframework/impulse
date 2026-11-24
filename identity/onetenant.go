@@ -60,6 +60,13 @@ func WithOneTenantPerPerson() Option {
 	}
 }
 
+// OneTenantPerPerson reports whether the application holds a person to one tenant
+// (WithOneTenantPerPerson). The generated create-your-tenant route asks it: there a
+// tenant created through an organization's directory takes that directory.
+func (m *Manager) OneTenantPerPerson() bool {
+	return m.oneTenant != nil
+}
+
 // HoldsTenant reports whether the person holds a role in some tenant, as the caller's
 // transaction reads it: a membership of their own held in one tenant, or a place in a
 // group kept in one, whose period has not ended (holds). A role held for the whole
