@@ -1,5 +1,10 @@
 @use '../../styles/headings';
 
+// A list that waits for a row is left out of the page while it has none, with no gap where it would be.
+:host([hidden]) {
+  display: none;
+}
+
 .page-container {
   position: relative;
   margin: 10px 0 0 0;

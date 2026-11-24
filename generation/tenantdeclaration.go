@@ -45,7 +45,7 @@ import (
 // @tenantDirectory on the struct, @directoryOnly, @directoryMethod, @directoryConnection,
 // @directoryDefaultSeat and @directorySecondFactor on its fields, each refused where it
 // cannot mean anything, and the record's @tenantName, the name the tenant list carries,
-// beside them.
+// and @tenantSince, when a tenant was made, beside them.
 // The rules that read across structs (one directories record, the record it belongs
 // to) run once every struct is extracted (rejectSecondTenantDirectory,
 // validateTenantDeclaration). The scope and the tenant record resolve first.
@@ -80,6 +80,10 @@ func resolveTenantDeclaration(res *resourceInfo, pStruct *parser.Struct, annotat
 			res.DirectoryOnlyField = flag
 		case fieldAnnotations.Has(tenantNameKeyword):
 			if err := res.setTenantNameColumn(field); err != nil {
+				return err
+			}
+		case fieldAnnotations.Has(tenantSinceKeyword):
+			if err := res.setTenantSinceColumn(field); err != nil {
 				return err
 			}
 		case fieldAnnotations.Has(directoryMethodKeyword):
@@ -119,6 +123,27 @@ func (r *resourceInfo) setTenantNameColumn(field *parser.Field) error {
 	r.TenantNameField = r.fieldNamed(field.Name())
 	if r.TenantNameField == nil {
 		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), tenantNameKeyword)
+	}
+
+	return nil
+}
+
+// setTenantSinceColumn records the tenant record's column holding when a tenant was made
+// (@tenantSince), refusing it off the record, on a column that is neither a timestamp nor
+// a nullable one, and declared twice. The mark writes nothing: the field's tags decide how
+// the column is written and served, as for any field.
+func (r *resourceInfo) setTenantSinceColumn(field *parser.Field) error {
+	switch {
+	case !r.IsTenant:
+		return errors.Newf("struct %s field %s: @%s on a resource that is not the tenant record; when a tenant was made is the @%s record's column", r.Name(), field.Name(), tenantSinceKeyword, tenantKeyword)
+	case !isTimeOrNullableTime(field.GoType()):
+		return errors.Newf("struct %s field %s: @%s on a %s column; when a tenant was made is a timestamp (time.Time) or a nullable timestamp (*time.Time)", r.Name(), field.Name(), tenantSinceKeyword, field.Type())
+	case r.TenantSinceField != nil:
+		return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already, and a tenant was made once", r.Name(), field.Name(), tenantSinceKeyword, r.TenantSinceField.Name())
+	}
+	r.TenantSinceField = r.fieldNamed(field.Name())
+	if r.TenantSinceField == nil {
+		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), tenantSinceKeyword)
 	}
 
 	return nil
@@ -178,6 +203,25 @@ func isStringOrNullableString(t types.Type) bool {
 	}
 
 	return isStringKinded(t)
+}
+
+// isTimeOrNullableTime reports whether the type is the time package's Time or a pointer
+// to it, an alias unwrapped at either level.
+func isTimeOrNullableTime(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	t = types.Unalias(t)
+	if p, isPointer := t.(*types.Pointer); isPointer {
+		t = types.Unalias(p.Elem())
+	}
+	named, isNamed := t.(*types.Named)
+	if !isNamed {
+		return false
+	}
+	obj := named.Obj()
+
+	return obj.Pkg() != nil && obj.Pkg().Path()+"."+obj.Name() == timeGoType
 }
 
 // setDirectoryColumn records one of the directories record's two columns, refusing it

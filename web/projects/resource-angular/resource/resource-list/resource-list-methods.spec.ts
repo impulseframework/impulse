@@ -1,7 +1,7 @@
 import { ApplicationRef, Injector, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialogRef } from '@angular/material/dialog';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   ApiDescriptor,
   ClientBase,
@@ -1192,4 +1192,161 @@ describe('ResourceListComponent row methods', () => {
       expect(element().querySelector('button.impulse-resource-list-method')).toBeNull();
     });
   }
+});
+
+// A link to a list page can open one of the methods above its list: the query parameter
+// `run` names the method. The list the page is built on, once it knows which methods it
+// offers the person, opens the named one's dialog as a press of its button would, and in
+// every case takes the parameter off the address, in place, the others kept.
+describe('ResourceListComponent, a method named in the address', () => {
+  let fixture: ComponentFixture<ResourceListComponent>;
+  let opened: MethodDialogData[];
+
+  const offered: MethodPresentation[] = [
+    { method: 'CreatePerson' as Method, label: 'Add a person', icon: 'person_add' },
+    { method: 'InvitePerson' as Method, label: 'Invite' },
+  ];
+  // The caller may add a person and may not invite one.
+  const digest: PermissionDigest = {
+    [people]: { List: 'granted' },
+    [`${people}.username`]: { List: 'granted' },
+    CreatePerson: { Execute: 'granted' },
+  };
+
+  /**
+   * Opens the list at an address, as the router opens a page it has navigated to. The
+   * tenant's digest is read first unless the test reads it later.
+   */
+  const open = async (url: string, isRootList?: boolean, readDigest = true): Promise<void> => {
+    const config = listViewConfig({
+      elements: [],
+      listColumns: [{ id: 'username' as FieldName }],
+      primaryResource: people,
+      listMethods: offered,
+    });
+    const transport = scriptedTransport((request: TransportRequest): TransportResponse => {
+      const path = new URL(request.url, 'http://lists.test').pathname;
+      if (path === '/api/permission-digest') {
+        return { status: 200, body: digest };
+      }
+      if (path === '/api/sectors/anvil/sector-people') {
+        return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+      }
+      return { status: 404, body: { message: `unscripted ${request.url}` } };
+    });
+    await TestBed.configureTestingModule({
+      imports: [ResourceListComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
+        { provide: METHOD_META, useValue: (name: string): MethodMeta => methodMetas[name] },
+        { provide: RESOURCE_DOMAIN, useValue: signal<Domain | undefined>('anvil' as Domain) },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} },
+          },
+        },
+      ],
+    }).compileComponents();
+    if (readDigest) {
+      await readTheDigest();
+    }
+    await TestBed.inject(Router).navigateByUrl(url);
+    fixture = TestBed.createComponent(ResourceListComponent);
+    fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+    fixture.componentRef.setInput('resourceConfig', config);
+    if (isRootList !== undefined) {
+      fixture.componentRef.setInput('isRootList', isRootList);
+    }
+    opened = [];
+    fixture.componentInstance.dialog.open = ((_: unknown, dialog: { data: MethodDialogData }) => {
+      opened.push(dialog.data);
+      return { afterClosed: () => of(undefined) } as unknown as MatDialogRef<unknown>;
+    }) as never;
+    fixture.detectChanges();
+    await settle();
+  };
+
+  const readTheDigest = async (): Promise<void> => {
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest('anvil' as Domain);
+  };
+
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) {
+      await TestBed.inject(ApplicationRef).whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  };
+
+  const address = (): ReturnType<Router['parseUrl']> => {
+    const router = TestBed.inject(Router);
+    return router.parseUrl(router.url);
+  };
+  const methodsOpened = (): string[] => opened.map((data) => String(data.method));
+
+  it("opens the dialog of a method it offers named in the address, once, and takes the parameter off in place, the address's others kept", async () => {
+    await open('/?run=CreatePerson&tab=2');
+
+    expect(methodsOpened()).toEqual(['CreatePerson']);
+    expect(opened[0]).toEqual({ method: 'CreatePerson', label: 'Add a person', preset: {}, confirm: undefined });
+    expect(address().queryParamMap.has('run')).toBe(false);
+    expect(address().queryParamMap.get('tab')).toBe('2');
+    expect(TestBed.inject(Router).lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+
+    await settle();
+    expect(methodsOpened()).toEqual(['CreatePerson']);
+  });
+
+  for (const tt of [
+    { name: 'a method the page names and the person is not offered', run: 'InvitePerson' },
+    { name: 'a name the list offers no method by', run: 'LaunchShip' },
+  ]) {
+    it(`opens nothing for ${tt.name}, and takes the parameter off`, async () => {
+      await open(`/?run=${tt.run}&tab=2`);
+
+      expect(methodsOpened()).toEqual([]);
+      expect(address().queryParamMap.has('run')).toBe(false);
+      expect(address().queryParamMap.get('tab')).toBe('2');
+    });
+  }
+
+  it('acts once the digest that says which methods it offers is read, and not before', async () => {
+    await open('/?run=CreatePerson', undefined, false);
+    expect(methodsOpened()).toEqual([]);
+    expect(address().queryParamMap.get('run')).toBe('CreatePerson');
+
+    await readTheDigest();
+    await settle();
+
+    expect(methodsOpened()).toEqual(['CreatePerson']);
+    expect(address().queryParamMap.has('run')).toBe(false);
+  });
+
+  it('ignores the parameter where it is not the list its page is built on: a list above, below or under a row', async () => {
+    await open('/?run=CreatePerson', false);
+
+    expect(methodsOpened()).toEqual([]);
+    expect(address().queryParamMap.get('run')).toBe('CreatePerson');
+  });
+
+  it('opens the dialog again at each navigation to the page it is on that brings the parameter', async () => {
+    await open('/');
+    expect(methodsOpened()).toEqual([]);
+    const router = TestBed.inject(Router);
+
+    await router.navigateByUrl('/?run=CreatePerson');
+    await settle();
+    expect(methodsOpened()).toEqual(['CreatePerson']);
+    expect(address().queryParamMap.has('run')).toBe(false);
+
+    await router.navigateByUrl('/?run=CreatePerson');
+    await settle();
+    expect(methodsOpened()).toEqual(['CreatePerson', 'CreatePerson']);
+    expect(address().queryParamMap.has('run')).toBe(false);
+  });
 });

@@ -26,6 +26,7 @@ export * from './resource-resolver/resource-resolver.component';
 export * from './resource-store.service';
 export * from './row-methods/row-methods';
 export * from './row-store.directive';
+export { articleFor } from './row-words';
 export * from './resource-view/resource-view.component';
 export * from './search-box/search-box.component';
 export * from './search-box/search-fields';

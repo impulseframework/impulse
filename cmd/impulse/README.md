@@ -127,8 +127,9 @@ templates, this README, and the tool's source.
 
   How a tenant comes to exist is apart from who may enter one, and no declaration.
   Nobody creates a tenant directly: the record's create is refused with a sentence that
-  says so. Staff bring an organization in by inviting one person, on the Invited tenants
-  page the library draws from the auth's generated management: the invitation carries
+  says so. Staff bring an organization in by inviting one person, on the tenants page
+  (All tenants), which lists the invitations still waiting above the tenants, and which
+  the library draws from the auth's generated management: the invitation carries
   the tenant's details as staff entered them, held to the record's own create under the
   sender's Create grant when it is sent, and the invited person's first sign-in makes
   the tenant, makes them its administrator and, where they came through their
@@ -1290,24 +1291,25 @@ screen names the tenant an invitation seats a person in and not its id; the app 
 generated code as `TenantRoster()` and `TenantDeclarations()` and hands the roster's
 `Domains` and the declarations to the session permissions (a new `tenancy.go` plus the
 `Configurer`, `App` and `UserPermissions` edits); and the browser app takes the tenant's
-shape: the tenant pages are copied in (the configuration of All tenants, the library's list
-page over the record, and the dialog a person who signed up creates their own tenant
-through; the tenant's Sign-in settings page is the library's, which the routes and the menu
-file place where a tenant can have a directory), the menu
-file gains the tenant menus ahead of its others (Tenants with All tenants,
-People with the tenant's side of the auth's people, and, where a tenant can have a
-directory, Tenant with Sign-in settings;
-the Invited tenants page, where staff bring a tenant in, is among the auth's pages the
-System menu already places, and the menu file's test, where it lists that menu's pages as
-the skeleton's does, gains it after Mailed links), the
+shape: the tenant's Sign-in settings page is the library's, which the routes and the menu
+file place where a tenant can have a directory, the menu
+file gains the tenant menus ahead of its others (Tenants with All tenants and Invite a
+tenant…, People with the tenant's side of the auth's people, and, where a tenant can have a
+directory, Tenant with Sign-in settings; staff bring a tenant in from the tenants page
+(All tenants), which lists the invitations still waiting above the tenants), the
 frame's configuration names the place outside every tenant (Configuration, with a gear),
 routes still as the skeleton rendered them are written in the tenant shape, and the test
 of the dialogs (`app/app.dialogs.spec.ts`) still as the skeleton rendered it is written
 again as the tenanted skeleton's, which has no test of the dialog that invites a person
 (the base's expects that dialog to ask for no place, and it now asks for the tenant),
 while the library's frame carries the tenant the URL names, the guard, the refusal page
-and the place switcher. The record's name, marked `@tenantName`, is what the session's tenant
-list shows. A record of another name gets everything in its own words: with
+and the place switcher. The list of tenants and a tenant's page are the browser package's
+(`tenantsPage`, `tenantsRoute`), and so are the invitation in the menu (`inviteTenantAction`)
+and the dialog a person who signed up creates their own tenant through
+(`openCreateTenantDialog`): a skeleton writes no file for them, and `impulse add tenancy`
+copies none. The record's name, marked `@tenantName`, is what the session's tenant
+list shows. Its `CreatedAt`, marked `@tenantSince`, is when the tenant was made, written by the
+database with the row; the list of tenants says it as Since. A record of another name gets everything in its own words: with
 `--tenant-table ServiceAreas` the pages, the menus and the routes say service area, and
 every name the generator derives from the record is the record's; the files are written
 without wrapping their lines again, so the brief says to run `impulse check --only prettier

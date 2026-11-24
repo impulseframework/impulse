@@ -158,6 +158,16 @@ export interface StaffListedSignInAttempts {
   updatedAt?: Date;
 }
 
+export interface StaffListedTenants {
+  id: string;
+  name?: string;
+  directoryOnly?: boolean;
+  people?: number;
+  since?: Date;
+  directory?: string;
+  administrators?: string[];
+}
+
 export interface StaffListedUsers {
   id: string;
   username?: string;
@@ -173,6 +183,7 @@ export interface StaffListedUsers {
   trustedDevices?: number;
   managedByTenant?: boolean;
   managingTenant?: string;
+  managingTenantName?: string;
 }
 
 export interface StaffRoles {
@@ -457,6 +468,7 @@ export interface StaffUserRoles {
 export interface Tenants {
   id: string;
   name?: string;
+  createdAt?: Date;
   directoryOnly?: boolean;
 }
 
@@ -822,6 +834,21 @@ const resourceMap = defineResourceMap({
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
     ],
   },
+  [Resources.StaffListedTenants]: {
+    route: 'staff-listed-tenants',
+    rowsOf: Resources.Tenants,
+    live: true,
+    rowWords: { one: 'tenant', many: 'tenants' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'directoryOnly', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'since', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'directory', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'administrators', displayType: 'string[]', required: true, isIndex: false, sortable: false },
+    ],
+  },
   [Resources.StaffListedUsers]: {
     route: 'staff-listed-users',
     live: true,
@@ -840,8 +867,9 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Tenants },
     ],
+    nameFields: [{ fieldName: 'managingTenantName', of: 'managingTenant', filterable: 'always' }],
   },
   [Resources.StaffRoles]: {
     route: 'staff-roles',
@@ -1254,6 +1282,7 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'directoryOnly', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
     ],
   },
@@ -1546,6 +1575,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffListedMailLinks]: PermissionScopes.global,
   [Resources.StaffListedSessions]: PermissionScopes.global,
   [Resources.StaffListedSignInAttempts]: PermissionScopes.global,
+  [Resources.StaffListedTenants]: PermissionScopes.global,
   [Resources.StaffListedUsers]: PermissionScopes.global,
   [Resources.StaffRoles]: PermissionScopes.global,
   [Resources.StaffSessions]: PermissionScopes.global,

@@ -40,6 +40,7 @@ const (
 	StaffListedIdentityID           httpio.ParamType = "staffListedIdentityID"
 	StaffListedMailLinkID           httpio.ParamType = "staffListedMailLinkID"
 	StaffListedSessionID            httpio.ParamType = "staffListedSessionID"
+	StaffListedTenantID             httpio.ParamType = "staffListedTenantID"
 	StaffListedUserID               httpio.ParamType = "staffListedUserID"
 	StaffSessionID                  httpio.ParamType = "staffSessionID"
 	StaffSessionIdentityID          httpio.ParamType = "staffSessionIdentityID"
@@ -251,6 +252,9 @@ type GeneratedHandlers interface {
 	StaffListedSession() http.HandlerFunc
 
 	StaffListedSignInAttempts() http.HandlerFunc
+
+	StaffListedTenants() http.HandlerFunc
+	StaffListedTenant() http.HandlerFunc
 
 	StaffListedUsers() http.HandlerFunc
 	StaffListedUser() http.HandlerFunc
@@ -611,6 +615,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffListedSignInAttemptsHandler := h.StaffListedSignInAttempts()
 	bounded.Get("/api/staff-listed-sign-in-attempts", staffListedSignInAttemptsHandler)
 	bounded.Post("/api/staff-listed-sign-in-attempts", staffListedSignInAttemptsHandler)
+
+	staffListedTenantsHandler := h.StaffListedTenants()
+	bounded.Get("/api/staff-listed-tenants", staffListedTenantsHandler)
+	bounded.Post("/api/staff-listed-tenants", staffListedTenantsHandler)
+
+	staffListedTenantHandler := h.StaffListedTenant()
+	bounded.Get("/api/staff-listed-tenants/{staffListedTenantID}", staffListedTenantHandler)
+	bounded.Post("/api/staff-listed-tenants/{staffListedTenantID}", staffListedTenantHandler)
 
 	staffListedUsersHandler := h.StaffListedUsers()
 	bounded.Get("/api/staff-listed-users", staffListedUsersHandler)

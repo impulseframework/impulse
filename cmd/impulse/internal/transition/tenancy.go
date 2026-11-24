@@ -17,6 +17,7 @@ import (
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
+	"github.com/impulseframework/impulse/internal/words"
 )
 
 // Tenancy makes a flat, untenanted application tenanted: the tenant record becomes a
@@ -66,35 +67,11 @@ const (
 // TenancyReferenceCandidate is the embedded skeleton with tenancy wired.
 const TenancyReferenceCandidate = "tenanted"
 
-// tenancyAdminCandidate is the embedded skeleton the tenant record's pages are copied
-// from: the All tenants page's configuration, the menus that place it, and the dialog a
-// person who signed up creates a tenant of their own through (the create-your-tenant
-// route). The page staff bring a tenant in from, by inviting one person, is the
-// library's, drawn from the generated description among the auth's own pages.
+// tenancyAdminCandidate is the embedded skeleton the tenant menus are taken from. The pages
+// they place are the library's, drawn from the generated description: the list of tenants
+// and a tenant's page, the invitation that brings a tenant in, and the dialog a person who
+// signed up creates a tenant of their own through.
 const tenancyAdminCandidate = "outlets"
-
-// tenantWebFile is one file a candidate's console carries, by its path under the
-// project's source root.
-type tenantWebFile struct {
-	candidate, rel string
-}
-
-// tenantWebFiles are the tenant pages, laid into the default browser project beside the
-// generated client: the All tenants page's configuration (the library's list page over
-// the tenant record), and the new-tenant dialog, through which a person who signed up and
-// holds no tenant yet creates their own. The library carries the rest: its frame the
-// tenant the URL names, the guard on the tenant segment, the refusal page and the place
-// switcher, and its identity pages the tenant's Sign-in settings page (who may enter the
-// tenant: its directory and whether it is the only way in), which the routes and the menu
-// file place. The tenant segment in the routes and the menus in the menu file are the
-// agent's.
-var tenantWebFiles = []tenantWebFile{
-	{tenancyAdminCandidate, "app/configs/tenants.config.ts"},
-	{tenancyAdminCandidate, "app/components/ui/new-tenant/new-tenant-dialog.component.ts"},
-	{tenancyAdminCandidate, "app/components/ui/new-tenant/new-tenant-dialog.component.html"},
-	{tenancyAdminCandidate, "app/components/ui/new-tenant/new-tenant-dialog.component.scss"},
-	{tenancyAdminCandidate, "app/components/ui/new-tenant/new-tenant-dialog.component.spec.ts"},
-}
 
 var tableNameRE = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
 
@@ -376,11 +353,11 @@ func (tn Tenancy) writeMigration(a *app.App, dir string, ch *Change) error {
 	}
 	base := fmt.Sprintf("%06d_%s", n, tn.Table)
 	up, down := tn.tenantTable(), fmt.Sprintf("DROP INDEX %[1]sByName;\nDROP TABLE %[1]s;\n", tn.Table)
-	did := fmt.Sprintf("the %s table (a generated id as its primary key and a unique Name; no tenant has a directory, so the table carries no directory-only switch and no directories table is written)", tn.Table)
+	did := fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name and CreatedAt, when the tenant was made; no tenant has a directory, so the table carries no directory-only switch and no directories table is written)", tn.Table)
 	if !tn.NoDirectories {
 		up += "\n" + tn.directoryTable()
 		down = fmt.Sprintf("DROP INDEX %[2]sByMethodConnection;\nDROP INDEX %[2]sBy%[3]sId;\nDROP TABLE %[2]s;\n", tn.Table, tn.DirectoryTable(), tn.Record()) + down
-		did = fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the %s table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)", tn.Table, tn.DirectoryTable())
+		did = fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the %s table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)", tn.Table, tn.DirectoryTable())
 	}
 	if err := writeNew(a, path.Join(dir, base+".up.sql"), up); err != nil {
 		return err
@@ -394,7 +371,8 @@ func (tn Tenancy) writeMigration(a *app.App, dir string, ch *Change) error {
 }
 
 // tenantTable is the tenant table's statements: the table keyed by a generated id, with
-// its unique name, and the directory-only switch where a tenant can have a directory.
+// its unique name, when each tenant was made, which the database writes with the row, and
+// the directory-only switch where a tenant can have a directory.
 func (tn Tenancy) tenantTable() string {
 	directoryOnly := ""
 	if !tn.NoDirectories {
@@ -415,6 +393,9 @@ func (tn Tenancy) tenantTable() string {
 CREATE TABLE %[1]s (
   Id STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
+  -- When the tenant was made: the time of the commit that made the row, written by the
+  -- record's create and never changed. The list of tenants says it as Since.
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 %[2]s
   CONSTRAINT CK_%[1]s_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);
@@ -487,7 +468,7 @@ func (tn Tenancy) writeSeed(a *app.App, dir string, ch *Change) error {
 	if !hasPassword(a) {
 		comment, seeded = seedCommentNoLogins, "anyone is seeded"
 	}
-	up := comment + fmt.Sprintf("INSERT INTO %[1]s (Id, Name) VALUES ('%[2]s', 'North');\nINSERT INTO %[1]s (Id, Name) VALUES ('%[3]s', 'South');\n", tn.Table, devTenantNorth, devTenantSouth)
+	up := comment + fmt.Sprintf("INSERT INTO %[1]s (Id, Name, CreatedAt) VALUES ('%[2]s', 'North', PENDING_COMMIT_TIMESTAMP());\nINSERT INTO %[1]s (Id, Name, CreatedAt) VALUES ('%[3]s', 'South', PENDING_COMMIT_TIMESTAMP());\n", tn.Table, devTenantNorth, devTenantSouth)
 	down := fmt.Sprintf("DELETE FROM %s WHERE Id IN ('%s', '%s');\n", tn.Table, devTenantNorth, devTenantSouth)
 	base := "000001_dev_" + tn.Segment()
 	if err := writeNew(a, path.Join(dir, base+".up.sql"), up); err != nil {
@@ -507,14 +488,16 @@ func (tn Tenancy) writeRecord(a *app.App, resourceDir string, ch *Change) error 
 	// (ServiceAreas in service_areas.go).
 	rel := path.Join(resourceDir, strcase.ToSnake(tn.Table)+".go")
 	if _, err := os.Stat(a.Abs(rel)); err == nil {
-		ch.skipf("%s already exists, so the %s resource struct was not written; make sure it is a global @resource annotated @tenant and @order, keyed by a generated id (ID impulse.UUID), with a Name marked @tenantName", rel, tn.Record())
+		ch.skipf("%s already exists, so the %s resource struct was not written; make sure it is a global @resource annotated @tenant and @order, keyed by a generated id (ID impulse.UUID), with a Name marked @tenantName and a CreatedAt marked @tenantSince (time.Time, conditions:\"output_only\", default_create_fn:\"resource.CommitTimestamp\"), which the tenant table's migration makes a column the database writes", rel, tn.Record())
 
 		return nil
 	}
-	pkg, words := packageNameOf(a, resourceDir), tn.recordWords()
+	pkg, said := packageNameOf(a, resourceDir), tn.recordWords()
 	src := fmt.Sprintf(`package %s
 
 import (
+	"time"
+
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -560,6 +543,11 @@ type (
 		// carries it, so the place switcher shows it to them.
 		// @tenantName
 		Name string `+"`spanner:\"Name\"`"+`
+		// CreatedAt is when the tenant was made: the database writes it with the row, at the
+		// commit that makes the tenant, whichever way it is made, and nothing changes it
+		// afterward. The list of tenants says it as Since.
+		// @tenantSince
+		CreatedAt time.Time `+"`spanner:\"CreatedAt\" conditions:\"output_only\" default_create_fn:\"resource.CommitTimestamp\"`"+`
 %[8]s	}
 )
 
@@ -568,11 +556,11 @@ type (
 func (%[2]s) Config() resource.Config {
 	return %[5]s
 }
-`, pkg, tn.Record(), tn.Segment(), strcase.ToCamel(tn.Record()), trackingConfig(a, resourceDir), words.made, words.declares, words.flag, words.audited)
+`, pkg, tn.Record(), tn.Segment(), strcase.ToCamel(tn.Record()), trackingConfig(a, resourceDir), said.made, said.declares, said.flag, said.audited)
 	if err := writeNew(a, rel, src); err != nil {
 		return err
 	}
-	ch.didf("%s: the %s resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with %s", rel, tn.Record(), words.did)
+	ch.didf("%s: the %s resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), %s", rel, tn.Record(), said.did)
 
 	return nil
 }
@@ -1534,11 +1522,11 @@ func (tn Tenancy) meaning(a *app.App) string {
 		signInMenu = ", and no menu for Sign-in settings, since no " + tn.oneLower() + " has a directory to set there"
 	}
 	items := []string{
-		"The bootstrap and the deployment. Seed the development tenants (`schema/devseed`, a data migration applied with the migrator's data step) BEFORE the logins and before the data level opens, since the roster's start reads the table; the App's `UserPermissions` passes the roster's `Domains` (`a.tenants.Domains`) to `resource.SessionPermissions` so a login's tenant list is read from it. The roles need no provisioning per tenant, since a membership held in every domain (`EveryDomainPolicyScope`) reaches every tenant the roster names. A tenant's key is an id generated when the tenant is made, so the seed inserts each development tenant under a fixed id of its own (any id's text, written once) with its name, and nothing else types one. Give the development logins roles in the tenants (the bootstrap identities file): the administrator under `everyDomain`, and add a member login that holds a role in one tenant only under `domains`, so concealment is observable; name the tenant there by its name, and have the bootstrap find its id through the roster (`TenantRoster().Named(name)`, which refuses a name no tenant or more than one tenant carries) before it writes the membership.",
+		"The bootstrap and the deployment. Seed the development tenants (`schema/devseed`, a data migration applied with the migrator's data step) BEFORE the logins and before the data level opens, since the roster's start reads the table; the App's `UserPermissions` passes the roster's `Domains` (`a.tenants.Domains`) to `resource.SessionPermissions` so a login's tenant list is read from it. The roles need no provisioning per tenant, since a membership held in every domain (`EveryDomainPolicyScope`) reaches every tenant the roster names. A tenant's key is an id generated when the tenant is made, so the seed inserts each development tenant under a fixed id of its own (any id's text, written once) with its name and the commit's own time as when it was made (`CreatedAt`, `PENDING_COMMIT_TIMESTAMP()`), and nothing else types one. Give the development logins roles in the tenants (the bootstrap identities file): the administrator under `everyDomain`, and add a member login that holds a role in one tenant only under `domains`, so concealment is observable; name the tenant there by its name, and have the bootstrap find its id through the roster (`TenantRoster().Named(name)`, which refuses a name no tenant or more than one tenant carries) before it writes the membership.",
 		"Tenant-scoped resources. Decide which existing resources belong to a tenant: give each a `TenantId` column referencing the tenant table (`STRING(36)`, the tenant's id; a migration, with a data step assigning existing rows to a tenant; the foreign key carries no delete rule, since rows are deleted in code only and `no-delete-cascade` fails on `ON DELETE CASCADE`: the generated delete of a tenant takes the tenant's rows in code, each through its resource's own delete), type the field `impulse.UUID`, annotate the struct `@permissionScope(domain)` and the column `// @domain`, then run `go generate ./...`. A table that reaches its tenant through another row (`// @domain(via: ...)` on the column that names that row) is taken by the tenant's delete the same way, and its foreign key to that row carries no delete rule either. If none of the application's resources is tenant-scoped yet, add a first one so the option is observable from the first sign-in; the reference has one. `tenancy-wired` requires at least one.",
 		tn.harnessItem(a),
 		tn.testsItem(),
-		fmt.Sprintf("The browser app mirrors the API's shape, in the library's frame (`provideFrame`, `@impulseframework/resource-angular/auth-frame`, which provides the %[1]s the URL names as every library page's tenant), and this command wrote it where the files were as the skeleton rendered them; the did and skipped lines say which. The routes: the %[2]s segment (`%[3]s/:%[4]sID`, the generated `DomainRoutePath`) with the library's `tenantGuard` on it, the refusal page ahead of it (`refusedRoute(DomainRoutePath)`), the place outside every %[1]s (`outsideGuard`) routed before the segment so the record's own page (`%[3]s/<id>`) is reached, and `homeGuard` at the root, with the dashboard, every %[1]s-scoped page and `frameRoutes()` under the segment and the pages of the place outside every %[1]s beside it, All %[5]s among them (`resourceRoutes(tenantsConfig, resourceMeta)`); routes edited since the skeleton rendered them were left, and take this shape by hand, as the tenanted skeleton's routes have it. The menu file: the %[6]s menu (All %[5]s, `resourcePage(tenantsConfig, resourceMeta)`; the list draws no Create button, since nobody creates a %[1]s directly, and the page staff bring a %[1]s in from by inviting one person, Invited %[5]s, is the library's, among the auth's pages for the whole application that `identityMenuPages` with `scope: 'global'` places), People (the %[1]s's side of the auth's people, `identityMenuPages` with `scope: 'domain'`)%[7]s, each showing in its place only; a %[1]s-scoped page the routes gain goes in a menu of its own or one of these, and the menu file's test names a page the routes carry and no menu places. Where staff bring a %[1]s in through the console's auth, that test, where it lists the pages the System menu places as the skeleton's does, gains Invited %[5]s after Mailed links. The test of the dialogs (`app/app.dialogs.spec.ts`), where it is as the skeleton rendered it, is written again as the tenanted skeleton's, which has no test of the dialog that invites a person: the base's expects that dialog to ask for no place, and it now asks for the %[1]s; one edited since is left, and a skipped line says what its test must expect. The configuration: the place outside every %[1]s is Configuration with a gear (`outside` in `provideFrame`), which the application may rename. The frame's place switcher shows itself once the session has %[5]s and opens the same page under the chosen one, and the tenant word on screen is the generator's, from the record. The dashboard is the application's: it shows the global digest in every place until it reads the %[1]s the page is open in (`TenantService`), as the tenanted skeleton's does, and it offers a person who holds no %[1]s the copied dialog (`openNewTenantDialog(dialog)`), as the tenanted skeleton's card does, since a person who signs up creates their own. The files this command wrote carry the record's and the auth's own names and were not wrapped again, since the formatter is the prettier the web root pins and exists only once its packages are installed: after the install, run `impulse check --only prettier --fix` once, which wraps again any line those names made longer or shorter and changes nothing where they left every line as it was; a file that needs it fails the `prettier` check until then.", tn.oneLower(), tn.oneLower(), tn.Segment(), lowerFirst(tn.Record()), tn.manyLower(), tn.many(), signInMenu),
+		fmt.Sprintf("The browser app mirrors the API's shape, in the library's frame (`provideFrame`, `@impulseframework/resource-angular/auth-frame`, which provides the %[1]s the URL names as every library page's tenant), and this command wrote it where the files were as the skeleton rendered them; the did and skipped lines say which. The routes: the %[2]s segment (`%[3]s/:%[4]sID`, the generated `DomainRoutePath`) with the library's `tenantGuard` on it, the refusal page ahead of it (`refusedRoute(DomainRoutePath)`), the place outside every %[1]s (`outsideGuard`) routed before the segment so the record's own page (`%[3]s/<id>`) is reached, and `homeGuard` at the root, with the dashboard, every %[1]s-scoped page and `frameRoutes()` under the segment and the pages of the place outside every %[1]s beside it, All %[5]s among them (`tenantsRoute(apiDescriptor, resourceMeta, { auth })`, the library's page); routes edited since the skeleton rendered them were left, and take this shape by hand, as the tenanted skeleton's routes have it. The menu file: the %[6]s menu (All %[5]s, `tenantsPage(apiDescriptor, resourceMeta, { auth })`, the library's page, which lists each %[1]s with its directory, its people and since when, and Invite %[8]s…, `inviteTenantAction`, which opens the invitation from the menu; the list draws no Create button, since nobody creates a %[1]s directly: staff bring a %[1]s in by inviting one person, from the button above the list or from the menu, and the invitations still waiting are listed above the %[5]s), People (the %[1]s's side of the auth's people, `identityMenuPages` with `scope: 'domain'`)%[7]s, each showing in its place only; a %[1]s-scoped page the routes gain goes in a menu of its own or one of these, and the menu file's test names a page the routes carry and no menu places. The test of the dialogs (`app/app.dialogs.spec.ts`), where it is as the skeleton rendered it, is written again as the tenanted skeleton's, which has no test of the dialog that invites a person: the base's expects that dialog to ask for no place, and it now asks for the %[1]s; one edited since is left, and a skipped line says what its test must expect. The configuration: the place outside every %[1]s is Configuration with a gear (`outside` in `provideFrame`), which the application may rename. The frame's place switcher shows itself once the session has %[5]s and opens the same page under the chosen one, and the tenant word on screen is the generator's, from the record. The dashboard is the application's: it shows the global digest in every place until it reads the %[1]s the page is open in (`TenantService`), as the tenanted skeleton's does, and it offers a person who holds no %[1]s the library's dialog (`openCreateTenantDialog(dialog, apiDescriptor)`), as the tenanted skeleton's card does, since a person who signs up creates their own. The files this command wrote carry the record's and the auth's own names and were not wrapped again, since the formatter is the prettier the web root pins and exists only once its packages are installed: after the install, run `impulse check --only prettier --fix` once, which wraps again any line those names made longer or shorter and changes nothing where they left every line as it was; a file that needs it fails the `prettier` check until then.", tn.oneLower(), tn.oneLower(), tn.Segment(), lowerFirst(tn.Record()), tn.manyLower(), tn.many(), signInMenu, words.WithArticle(tn.oneLower())),
 		tn.declarationItem(),
 		tn.makingItem(rec),
 	}

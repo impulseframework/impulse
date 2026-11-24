@@ -41,7 +41,7 @@ own tenant, holds no grant of the page and takes none for a set time. The librar
 draws them from the API description (`identityRoutes` in the console's `app.routes.ts`,
 placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
 the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
-shows Tenants (All tenants) and System (the staff's accounts, the Invited tenants page and
+shows Tenants (All tenants and Invite a tenant…) and System (the staff's accounts and
 Feature flags) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
 portal has no pages of its own yet, so its bar holds Help alone. In both, the person's own
 menu holds Your account, Appearance and Sign out, and Help ends with About, a pop-up that carries
@@ -49,8 +49,8 @@ the release and, outside production, the environment's name (the server's `APP_E
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator
-brings an organization in by inviting one person, on the console's Invited tenants page
-(System), which the library draws from the staff auth's generated `InviteStaffTenant`,
+brings an organization in by inviting one person, on the console's tenants page (All
+tenants), which lists the invitations still waiting above the tenants, and which the library draws from the staff auth's generated `InviteStaffTenant`,
 `StaffInvitedTenants` and `WithdrawStaffInvitedTenant`. Sending the invitation takes the
 `Administrator` role's Create grant on the record, and a name a tenant holds is refused
 there. No tenant exists while the invitation waits; the invited person's first sign-in

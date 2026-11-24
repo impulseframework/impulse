@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -32,6 +33,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 	type tenantRequest struct {
 		ID            impulse.UUID `json:"-"`
 		Name          string       `json:"name"`
+		CreatedAt     time.Time    `json:"-"`
 		DirectoryOnly bool         `json:"-"`
 	}
 	tenantDecoder := NewDecoder[resources.Tenant, tenantRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)

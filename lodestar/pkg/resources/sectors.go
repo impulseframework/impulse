@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"time"
+
 	"cloud.google.com/go/civil"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
@@ -106,6 +108,11 @@ type (
 		Name        string     `spanner:"Name"`
 		Region      string     `spanner:"Region"`
 		Established civil.Date `spanner:"Established"`
+		// ChartedAt is when the sector was charted: the database writes it with the row, at
+		// the commit that makes the sector, whichever way it is made, and nothing changes it
+		// afterward. The crew's list of sectors says it as Since.
+		// @tenantSince
+		ChartedAt time.Time `spanner:"ChartedAt" conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
 		// DirectoryOnly says the sector's people enter through its directory only: no
 		// other sign-in reaches the sector, and the flag closes this sector alone. The
 		// switch is the sector's own: the sector's marshal (SectorMarshal) turns it with the

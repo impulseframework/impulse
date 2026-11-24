@@ -45,8 +45,8 @@ may end it early. The role file gives the page's lists and its method to the
 own tenant, holds no grant of the page and takes none for a set time. The library draws them from the API description
 (`identityRoutes` in `app.routes.ts`, placed by `identityMenuPages` in the menu file), and
 a tenant's pages read the tenant from the URL (the frame provides `RESOURCE_DOMAIN`).
-The menu file (`app.menus.ts`) shows Tenants (All tenants, the library's list page over the
-record) and System (the staff's accounts, the Invited tenants page and Feature flags) in
+The menu file (`app.menus.ts`) shows Tenants (All tenants, the library's list of tenants
+with a tenant's page, and Invite a tenant…, which opens the invitation there) and System (the staff's accounts and Feature flags) in
 Configuration, and People and Tenant (Sign-in settings) inside a tenant; the person's own
 menu holds Your account (the username, name, email address and password, as lines that
 open in place to change them, and where the person is signed in),
@@ -56,8 +56,8 @@ the menu file fails on a page the routes carry and no menu places (`unplacedPage
 How a tenant comes to exist is decided in the running application, apart from who may
 enter one. Nobody creates a tenant directly: the record's create is refused, with a
 sentence that says so. An administrator brings an organization in by inviting one person,
-on the console's Invited tenants page (System), which the library draws from the staff
-auth's generated `InviteStaffTenant`, `StaffInvitedTenants` and
+on the console's tenants page (All tenants), which lists the invitations still waiting
+above the tenants, and which the library draws from the staff auth's generated `InviteStaffTenant`, `StaffInvitedTenants` and
 `WithdrawStaffInvitedTenant`: the invitation carries the tenant's name and, where the
 administrator says so, that the tenant is entered through its directory only and the role
 its directory's people start with, picked from the roles the administrator could give
@@ -78,7 +78,7 @@ create-your-tenant route (`POST /api/create-tenant`), which takes the tenant's n
 the roles the App names in `TenantAdministratorRoles` (`TenantAdministrator`) and
 hands the tenant to the roster, so their next request stands in it; a person who already
 holds a tenant is refused, an administrator of one tenant never creates another, and the
-console's dashboard offers the new-tenant dialog to a session without a tenant. The order is sign in
+console's dashboard offers the library's dialog (`openCreateTenantDialog`) to a session without a tenant. The order is sign in
 first, then name the tenant: the staff auth carries a Google registration as wide as any
 Google account (`pkg/auth/staff/google.go`), and every sign-in method starts invite only.
 An administrator opens one to sign-up on the console's Sign-in page (Open sign-up, which
@@ -483,11 +483,11 @@ form the Checks section and CI use; `bun ng test console` watches. The specs bes
 skeleton's components are the pattern for the application's own: the dashboard renders a
 permission digest over a scripted client from `@impulseframework/resource-angular/testing`
 (`provideResourceTesting` puts the generated client on a transport that records every
-request and answers from the test); the new-tenant dialog posts to the create-your-tenant
-route and reports the server's refusal in place; and the menu file's spec holds every page
-the routes carry to a place in the menus. The frame itself (the tenant guard, the
-switcher, the menus and the person's menu) and the tenant's Sign-in settings page are the
-library's, tested there.
+request and answers from the test) and its card opens the library's dialog a person
+creates their own tenant through; and the menu file's spec holds every page the routes
+carry to a place in the menus. The frame itself (the tenant guard, the switcher, the menus
+and the person's menu), the tenants page, the dialog and the tenant's Sign-in settings page
+are the library's, tested there.
 
 ## Live pages
 

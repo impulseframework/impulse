@@ -322,6 +322,17 @@
               ]
             },
             {
+              "resource": "StaffListedTenants",
+              "fields": [
+                "administrators",
+                "directory",
+                "directoryOnly",
+                "name",
+                "people",
+                "since"
+              ]
+            },
+            {
               "resource": "StaffInvitedTenantRoles",
               "fields": [
                 "description"

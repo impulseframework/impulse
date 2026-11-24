@@ -352,6 +352,24 @@ describe("identityPages, the whole application's side", () => {
     ]);
   });
 
+  it('builds no page for the invitations that make a tenant, where the description names their list: the tenants page shows them', () => {
+    const [wholeApplication, tenant] = crew.sides;
+    const invitingSide = {
+      ...wholeApplication,
+      lists: { ...wholeApplication.lists, invitedTenants: 'CrewInvitedSectors' },
+      methods: { ...wholeApplication.methods, inviteTenant: 'InviteCrewSector' },
+    };
+    const inviting = { ...descriptor, identity: [{ ...crew, sides: [invitingSide, tenant] }] } as ApiDescriptor;
+    const built = identityPages(inviting, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(built.map((page) => page.routeData.route)).toEqual([
+      'crew-accounts',
+      'crew-mailed-links',
+      'crew-sessions',
+      'crew-failed-sign-ins',
+      'crew-sign-in',
+    ]);
+  });
+
   describe('the Sign-in page', () => {
     // What the server lists: one row for each method the Auth registers, with what was chosen for it.
     const password: RecordData = {
@@ -2790,10 +2808,12 @@ describe('identityPages, who manages an account', () => {
       ['lastSignInAt', 'Last sign-in'],
     ]);
     // The column is on the key and names the sector after its word, under a header that is
-    // not the word. The list carries no name beside the key, so a row says the name the
-    // reader's own list of sectors holds (tenantKey), and the list draws the column with
-    // neither a sort nor a filter, as it draws a column whose cells do not say the stored
-    // value; the key is an id nobody reads.
+    // not the word. This description's accounts carry no name beside the key (a generated
+    // list carries one where the key points to the tenant record, and the library's list
+    // then shows it, sorts by it and filters by it). Where a list carries none, a row says
+    // the name the reader's own list of sectors holds (tenantKey), and the list draws the
+    // column with neither a sort nor a filter, as it draws a column whose cells do not say
+    // the stored value; the key is an id nobody reads.
     const by = managedBy(accounts);
     expect(by.tenantKey).toBe(true);
     expect([by.filterable, by.sortable, by.valueGetter]).toEqual([undefined, undefined, undefined]);

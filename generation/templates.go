@@ -4795,6 +4795,9 @@ export const apiDescriptor = defineApiDescriptor({
 {{- if .HasDomainScoped }}
   domainRoute: { segment: '{{ .DomainRouteSegment }}', param: '{{ .DomainRouteParam }}'{{ if .DomainWord.One }}, word: { one: '{{ .DomainWord.One }}', many: '{{ .DomainWord.Many }}' }{{ end }} },
 {{- end }}
+{{- with .TenantCreation }}
+  tenantCreation: { route: '{{ .Route }}', resource: '{{ .Resource }}', key: '{{ .KeyWire }}', fields: [{{ range $i, $f := .Fields }}{{ if $i }}, {{ end }}{ name: '{{ $f.Name }}', required: {{ $f.Required }} }{{ end }}] },
+{{- end }}
 {{- if .ConsolidatedRoute }}
   consolidatedRoute: '{{ .ConsolidatedRoute }}',
 {{- end }}
@@ -4853,6 +4856,9 @@ export const apiDescriptor = defineApiDescriptor({
       {{- end }}
       {{- if $a.TenantDirectoryOnlyField }}
       tenantDirectoryOnlyField: '{{ $a.TenantDirectoryOnlyField }}',
+      {{- end }}
+      {{- if $a.TenantSinceField }}
+      tenantSinceField: '{{ $a.TenantSinceField }}',
       {{- end }}
       {{- if $a.RolesFrom }}
       rolesFrom: '{{ $a.RolesFrom }}',

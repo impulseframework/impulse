@@ -68,3 +68,43 @@ func TestRoleInWords(t *testing.T) {
 		})
 	}
 }
+
+// TestWithArticle pins the article before a word: picked by how the word is said aloud,
+// as the browser package picks it (articleFor), never by its first letter alone.
+func TestWithArticle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		word string
+		want string
+	}{
+		{word: "HQ unit", want: "an HQ unit"},
+		{word: "SSO office", want: "an SSO office"},
+		{word: "URL", want: "a URL"},
+		{word: "hour", want: "an hour"},
+		{word: "honest broker", want: "an honest broker"},
+		{word: "unit", want: "a unit"},
+		{word: "university", want: "a university"},
+		{word: "union", want: "a union"},
+		{word: "user group", want: "a user group"},
+		{word: "utility", want: "a utility"},
+		{word: "European office", want: "a European office"},
+		{word: "one-person shop", want: "a one-person shop"},
+		{word: "office", want: "an office"},
+		{word: "outlet", want: "an outlet"},
+		{word: "unimportant thing", want: "an unimportant thing"},
+		{word: "uninsured driver", want: "an uninsured driver"},
+		{word: "sector", want: "a sector"},
+		{word: "tenant", want: "a tenant"},
+		{word: "", want: "a "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.word, func(t *testing.T) {
+			t.Parallel()
+
+			if got := WithArticle(tt.word); got != tt.want {
+				t.Errorf("WithArticle(%q) = %q, want %q", tt.word, got, tt.want)
+			}
+		})
+	}
+}

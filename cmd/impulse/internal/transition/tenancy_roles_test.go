@@ -348,7 +348,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		for prefix, texts := range map[string][]string{
 			roles + ": the role TenantAdministrator, a domain role":                                              {"a tenant's administrator holds", "the tenanted skeleton's TenantAdministrator", strconv.Itoa(len(held)) + " of them under the condition the skeleton holds each to"},
 			tenantPeopleTest + ": the test that proves each of the " + strconv.Itoa(len(held)) + " condition(s)": {"conditions-proven", "a person whose account the tenant manages"},
-			roles + ": the role Administrator gained the 9 grant(s)":                                             {"Execute on InviteStaffTenant", "List on StaffInvitedTenants", "List on StaffInvitedTenantRoles"},
+			roles + ": the role Administrator gained the 10 grant(s)":                                            {"Execute on InviteStaffTenant", "List on StaffInvitedTenants", "List on StaffListedTenants", "List on StaffInvitedTenantRoles"},
 			foothold + ": AdministratorRoles() and FirstAdministratorRoles() name TenantAdministrator":           {"TenantAdministratorRoles()", "the application's router is built"},
 			deployTest + ": the test of the first administrator's roles":                                         {"every tenant"},
 		} {
@@ -619,7 +619,7 @@ func TestTenancy_Apply_regeneratesWithTheRole(t *testing.T) {
 
 // TestTenancy_grantTenantMaking_namesWhatItCouldNotGive pins the hand step the tenancy
 // step leaves where no role the foothold names is in the role file: it names the lists a
-// tenant is made with, the list of the roles a new tenant's people may start with only
+// tenant is made with (the invitations that stand and the list of tenants), the list of the roles a new tenant's people may start with only
 // where a tenant can have a directory, since only there is that list served.
 func TestTenancy_grantTenantMaking_namesWhatItCouldNotGive(t *testing.T) {
 	t.Parallel()
@@ -633,12 +633,12 @@ func TestTenancy_grantTenantMaking_namesWhatItCouldNotGive(t *testing.T) {
 		{
 			name:    "a tenant can have a directory",
 			tenancy: Tenancy{Table: "Tenants"},
-			want:    "and List on StaffInvitedTenants and StaffInvitedTenantRoles, as the tenanted skeleton's Administrator holds them",
+			want:    "and List on StaffInvitedTenants and StaffListedTenants and StaffInvitedTenantRoles, as the tenanted skeleton's Administrator holds them",
 		},
 		{
 			name:    "no tenant has a directory",
 			tenancy: Tenancy{Table: "Tenants", NoDirectories: true},
-			want:    "and List on StaffInvitedTenants, as the tenanted skeleton's Administrator holds them",
+			want:    "and List on StaffInvitedTenants and StaffListedTenants, as the tenanted skeleton's Administrator holds them",
 		},
 	}
 	for _, tt := range tests {

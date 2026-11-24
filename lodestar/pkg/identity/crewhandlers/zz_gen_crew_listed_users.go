@@ -20,7 +20,7 @@ import (
 
 func (h *Handlers) CrewListedUsers() http.HandlerFunc {
 	type crewListedUser struct {
-		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
+		ID                     impulse.UUID `json:"id"                     index:"true"            perm:"-"`
 		Username               string       `json:"username"               index:"true"`
 		Name                   *string      `json:"name"                   index:"true"`
 		Email                  *string      `json:"email"                  index:"true"`
@@ -34,6 +34,7 @@ func (h *Handlers) CrewListedUsers() http.HandlerFunc {
 		TrustedDevices         int64        `json:"trustedDevices"`
 		ManagedByTenant        bool         `json:"managedByTenant"        index:"true"`
 		ManagingTenant         *string      `json:"managingTenant"         index:"true"`
+		ManagingTenantName     *string      `json:"managingTenantName"     nameof:"ManagingTenant" index:"true"`
 	}
 
 	type response []map[string]any
@@ -72,7 +73,7 @@ func (h *Handlers) CrewListedUsers() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*crewListedUser)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -134,6 +135,11 @@ func (h *Handlers) CrewListedUsers() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -155,7 +161,7 @@ func (h *Handlers) CrewListedUsers() http.HandlerFunc {
 
 func (h *Handlers) CrewListedUser() http.HandlerFunc {
 	type response struct {
-		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
+		ID                     impulse.UUID `json:"id"                     index:"true"            perm:"-"`
 		Username               string       `json:"username"`
 		Name                   *string      `json:"name"`
 		Email                  *string      `json:"email"`
@@ -169,6 +175,7 @@ func (h *Handlers) CrewListedUser() http.HandlerFunc {
 		TrustedDevices         int64        `json:"trustedDevices"`
 		ManagedByTenant        bool         `json:"managedByTenant"`
 		ManagingTenant         *string      `json:"managingTenant"`
+		ManagingTenantName     *string      `json:"managingTenantName"     nameof:"ManagingTenant"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewListedUser, response](h, accesstypes.Read)
@@ -195,7 +202,7 @@ func (h *Handlers) CrewListedUser() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -255,6 +262,11 @@ func (h *Handlers) CrewListedUser() http.HandlerFunc {
 				if !row.Masked("managingTenant") {
 					rmap["managingTenant"] = rec.ManagingTenant
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

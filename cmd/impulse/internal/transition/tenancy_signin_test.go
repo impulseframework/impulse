@@ -89,7 +89,7 @@ func TestTenancy_Apply_seedWords(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Tenancy.Apply() error = %v", err)
 		}
-		if got := read(t, a, seed); !strings.HasPrefix(got, seedCommentLogins+"INSERT INTO Tenants") {
+		if got := read(t, a, seed); !strings.HasPrefix(got, seedCommentLogins+"INSERT INTO Tenants (Id, Name, CreatedAt)") {
 			t.Errorf("%s does not open with the account of the development logins:\n%s", seed, got)
 		}
 		if got := linesWith(ch.Did, did, []string{"to apply before the logins"}); len(got) != 1 {
@@ -108,7 +108,7 @@ func TestTenancy_Apply_seedWords(t *testing.T) {
 			t.Fatalf("Tenancy.Apply() error = %v", err)
 		}
 		got := read(t, a, seed)
-		if !strings.HasPrefix(got, seedCommentNoLogins+"INSERT INTO Tenants") {
+		if !strings.HasPrefix(got, seedCommentNoLogins+"INSERT INTO Tenants (Id, Name, CreatedAt)") {
 			t.Errorf("%s does not open with the account for an application with no password method:\n%s", seed, got)
 		}
 		for _, never := range []string{"development logins", "identities file"} {

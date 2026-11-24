@@ -170,6 +170,18 @@ export interface CrewListedMailLinks {
   tenantName?: string;
 }
 
+export interface CrewListedSectors {
+  id: string;
+  name?: string;
+  region?: string;
+  established?: Date;
+  directoryOnly?: boolean;
+  people?: number;
+  since?: Date;
+  directory?: string;
+  administrators?: string[];
+}
+
 export interface CrewListedSessions {
   id: string;
   userId?: string;
@@ -215,6 +227,7 @@ export interface CrewListedUsers {
   trustedDevices?: number;
   managedByTenant?: boolean;
   managingTenant?: string;
+  managingTenantName?: string;
 }
 
 export interface CrewRoles {
@@ -970,6 +983,7 @@ export interface Sectors {
   name?: string;
   region?: string;
   established?: Date;
+  chartedAt?: Date;
   directoryOnly?: boolean;
 }
 
@@ -1540,6 +1554,23 @@ const resourceMap = defineResourceMap({
     ],
     nameFields: [{ fieldName: 'tenantName', of: 'tenantId' }],
   },
+  [Resources.CrewListedSectors]: {
+    route: 'crew-listed-sectors',
+    rowsOf: Resources.Sectors,
+    live: true,
+    rowWords: { one: 'sector', many: 'sectors' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'region', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
+      { fieldName: 'directoryOnly', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'since', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'directory', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'administrators', displayType: 'string[]', required: true, isIndex: false, sortable: false },
+    ],
+  },
   [Resources.CrewListedSessions]: {
     route: 'crew-listed-sessions',
     live: true,
@@ -1597,8 +1628,9 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
     ],
+    nameFields: [{ fieldName: 'managingTenantName', of: 'managingTenant', filterable: 'always' }],
   },
   [Resources.CrewRoles]: {
     route: 'crew-roles',
@@ -2659,6 +2691,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'region', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
+      { fieldName: 'chartedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'directoryOnly', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
     ],
   },
@@ -3265,6 +3298,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewListedGroupRoles]: PermissionScopes.global,
   [Resources.CrewListedIdentities]: PermissionScopes.global,
   [Resources.CrewListedMailLinks]: PermissionScopes.global,
+  [Resources.CrewListedSectors]: PermissionScopes.global,
   [Resources.CrewListedSessions]: PermissionScopes.global,
   [Resources.CrewListedSignInAttempts]: PermissionScopes.global,
   [Resources.CrewListedUsers]: PermissionScopes.global,
