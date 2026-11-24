@@ -14,7 +14,6 @@ import {
   field,
   foreignKeyDefault,
   listViewConfig,
-  multiColumnConfig,
   rootConfig,
   section,
 } from '@impulseframework/resource-angular/types';
@@ -54,13 +53,9 @@ export const squadronsConfig = rootConfig({
     primaryResource: Resources.Squadrons,
     listColumns: [
       { id: Squadrons.fieldName.name },
-      // The wing by its name: the column holds the wing's id, which nobody reads.
-      multiColumnConfig({
-        id: Squadrons.fieldName.wingId,
-        header: 'Wing',
-        additionalIds: [{ id: Wings.fieldName.id, resource: Resources.Wings, field: Wings.fieldName.name }],
-        concatFn: 'hyphen-concat',
-      }),
+      // The wing by its name: the column holds the wing's id, which nobody reads, and the
+      // list asks the server for the wing's name beside it, and sorts and filters by it.
+      { id: Squadrons.fieldName.wingId, header: 'Wing' },
       { id: Squadrons.fieldName.callsigns },
     ],
     elements: [
@@ -133,15 +128,7 @@ export const squadronsConfig = rootConfig({
       listFilter: (squadron: SquadronRow): string => `${Squadrons.fieldName.id}:ne:${squadron.id}`,
       iteratedConfig: listViewConfig({
         primaryResource: Resources.Squadrons,
-        listColumns: [
-          { id: Squadrons.fieldName.name },
-          multiColumnConfig({
-            id: Squadrons.fieldName.wingId,
-            header: 'Wing',
-            additionalIds: [{ id: Wings.fieldName.id, resource: Resources.Wings, field: Wings.fieldName.name }],
-            concatFn: 'hyphen-concat',
-          }),
-        ],
+        listColumns: [{ id: Squadrons.fieldName.name }, { id: Squadrons.fieldName.wingId, header: 'Wing' }],
         elements: [
           section({
             label: 'Squadron',

@@ -12,7 +12,6 @@ import {
   field,
   foreignKeyDefault,
   listViewConfig,
-  multiColumnConfig,
   rootConfig,
   section,
 } from '@impulseframework/resource-angular/types';
@@ -66,55 +65,15 @@ export const hangarsConfig = rootConfig({
       // A pass is read whole in its row: there is no page of its own to open.
       showViewButton: false,
       // The holder by its name, in the column of its kind: the pass holds an id, which
-      // nobody reads. Each column resolves its page of names with one request. The field
-      // behind each column is the id, so a filter typed over it, or a sort by it, would
-      // be asked of ids: the three columns offer neither. A person is read as people know
-      // them, the name first and the login they sign in under beside it, and by the
-      // login alone where the account carries no name.
+      // nobody reads, and the list asks the server for the name beside each id with the
+      // page of passes, and sorts and filters by it. A person is read as the sector's
+      // people list shows them, by the name, or by the login they sign in under where the
+      // account carries no name; a squadron by its name, also matched by part of it; a
+      // group by its name.
       listColumns: [
-        multiColumnConfig({
-          id: HangarPasses.fieldName.userId,
-          header: 'Person',
-          additionalIds: [
-            {
-              id: CrewSectorUsers.fieldName.id,
-              resource: Resources.CrewSectorUsers,
-              field: CrewSectorUsers.fieldName.name,
-            },
-            {
-              id: CrewSectorUsers.fieldName.id,
-              resource: Resources.CrewSectorUsers,
-              field: CrewSectorUsers.fieldName.username,
-            },
-          ],
-          concatFn: 'hyphen-concat',
-          filterable: false,
-          sortable: false,
-        }),
-        multiColumnConfig({
-          id: HangarPasses.fieldName.squadronId,
-          header: 'Squadron',
-          additionalIds: [
-            { id: Squadrons.fieldName.id, resource: Resources.Squadrons, field: Squadrons.fieldName.name },
-          ],
-          concatFn: 'hyphen-concat',
-          filterable: false,
-          sortable: false,
-        }),
-        multiColumnConfig({
-          id: HangarPasses.fieldName.groupId,
-          header: 'Group',
-          additionalIds: [
-            {
-              id: CrewSectorGroups.fieldName.id,
-              resource: Resources.CrewSectorGroups,
-              field: CrewSectorGroups.fieldName.name,
-            },
-          ],
-          concatFn: 'hyphen-concat',
-          filterable: false,
-          sortable: false,
-        }),
+        { id: HangarPasses.fieldName.userId, header: 'Person' },
+        { id: HangarPasses.fieldName.squadronId, header: 'Squadron' },
+        { id: HangarPasses.fieldName.groupId, header: 'Group' },
         { id: HangarPasses.fieldName.levelId, header: 'Level' },
         { id: HangarPasses.fieldName.expiresAt, header: 'Expires' },
       ],

@@ -1,8 +1,7 @@
-import { CrewSessionImpersonations, CrewSessionUsers, Methods, Resources } from '@app/service/zz_gen_constants';
+import { CrewSessionImpersonations, Methods, Resources } from '@app/service/zz_gen_constants';
 import {
   dayAndMinuteFormat,
   listViewConfig,
-  multiColumnConfig,
   RecordData,
   roleInWords,
   rootConfig,
@@ -50,10 +49,9 @@ export function ended(row: RecordData): string {
 }
 
 /**
- * Who a session is held as, where no account answers by name: the role in words that
+ * Who a session is held as, where the record keeps no username: the role in words that
  * say it is a role ("the Dispatcher role", "the Sector marshal role") for a session
- * held as a role, and the id the record keeps for a person whose account the caller
- * may not list or which is gone.
+ * held as a role, and the id the record keeps for a person.
  */
 export function heldAs(row: RecordData): string {
   const role = row[record.principalRole];
@@ -71,8 +69,8 @@ export function revokeQuestion(row: RecordData): string {
 // The watch desk: the sessions people hold as someone else across the whole service,
 // drawn by the library's list over the crew auth's generated impersonation records,
 // newest first as the resource orders them. Each row says who established the session,
-// as whom (the person's username, read from the accounts by the id the record keeps, or
-// "the Dispatcher role" for a role), what it may do (its mask, in the server's words),
+// as whom (the username the record keeps for the person, or "the Dispatcher role" for a
+// role), what it may do (its mask, in the server's words),
 // why, when it began, when its two-hour cap ends it, and when and why it ended; a
 // session that has not ended reads "Still open", and one whose cap passed with no end
 // written reads "Time ran out". A row's menu offers Revoke while the session is open
@@ -99,23 +97,16 @@ export const crewSessionImpersonationsConfig = rootConfig({
     emptyMessage: 'Nobody has used the console as someone else.',
     listColumns: [
       { id: record.actorUsername, header: 'Established by' },
-      multiColumnConfig({
-        id: record.principalUserId,
+      // The person by the username the record keeps, which the column sorts and filters
+      // by as Established by does; a session held as a role says the role.
+      {
+        id: record.principalUsername,
         header: 'As',
-        additionalIds: [
-          {
-            id: CrewSessionUsers.fieldName.id,
-            resource: Resources.CrewSessionUsers,
-            field: CrewSessionUsers.fieldName.username,
-          },
-        ],
-        concatFn: 'hyphen-concat',
-        fallback: heldAs,
-        // The server filters this field by the account's id, which nobody types: the
-        // column shows a name and offers no filter. Established by filters by username.
-        filterable: false,
-      }),
-      // The role rides along unseen: the As column says it where the session is held as a role.
+        valueGetter: (row: RecordData): string => String(row[record.principalUsername] ?? '') || heldAs(row),
+      },
+      // The account's id and the role ride along unseen: the As column says them where
+      // the record keeps no username.
+      { id: record.principalUserId, hidden: true },
       { id: record.principalRole, hidden: true },
       // The session's mask as the server says it: "reading only", "everything", or what a
       // session that acts as a person is refused.

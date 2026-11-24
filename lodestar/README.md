@@ -1460,10 +1460,10 @@ the `act` kind refuses it by its class, and no role the release ships deletes a 
   hangars, which declare one (one server page at a time, Previous and Next inside the
   panel, the chosen hangar read by key), and
   [`picker.whole`](web/console/src/app/configs/ships.config.ts) over the hull catalog,
-  which declares none (read whole with `limit=all`); its Hangar column resolves each
-  page's hangars with one `in` request over the page's keys
-  ([`column.referenced-in`](web/console/src/app/configs/ships.config.ts)) where its
-  Class column maps the catalog read whole once. The
+  which declares none (read whole with `limit=all`); its Hangar and Class columns show the
+  hangar's name and the hull's designation, which the server reads beside each id with the
+  page of ships, and sort and filter by them
+  ([`column.name-field`](web/console/src/app/configs/ships.config.ts)). The
   [Hangars page](web/console/src/app/configs/hangars.config.ts) lists a sector's hangars,
   and a hangar's own page lists its passes: who the hangar is open to. Both lists open
   their create in a dialog, as every list of the console does

@@ -31,14 +31,16 @@ import { consignmentsConfig, releaseQuestion, releaseReceipt } from './consignme
 // be released, and cargo already released, whose row offers nothing. One released row
 // carries the answer the server gives a role whose grant has no condition (the Sector
 // Marshal's): the method is listed on it, and the page still offers nothing, since cargo
-// is released once. The page names the owner, says "In bond" where nothing was released,
+// is released once. The page names the owner by the name the server reads beside the
+// client's id (the Supercargo lists the clients' names on trusted clients alone), says
+// "In bond" where nothing was released,
 // offers Release in the row's menu on cargo in bond by the server's answer, asks before
 // it runs, and says the receipt the method answers.
 
 const anvil = 'a1111111-1111-4111-8111-111111111111';
 const halvard = 'c0000000-0000-4000-8000-000000000001';
 const bastion = 'c0000000-0000-4000-8000-000000000002';
-// A client the Supercargo may not list: the clients' read answers without it.
+// A client the Supercargo may not list: the server answers no name beside its id.
 const unlisted = 'c0000000-0000-4000-8000-000000000003';
 
 const hold = [
@@ -47,6 +49,7 @@ const hold = [
     bondCode: 'BND-0007',
     description: 'Reactor shielding',
     clientId: halvard,
+    clientName: 'Halvard Freight',
     mass: 120,
     expiresOn: '2026-12-01',
     zzCapabilities: { Execute: ['ReleaseConsignment'] },
@@ -56,6 +59,7 @@ const hold = [
     bondCode: 'BND-0003',
     description: 'Relay dishes',
     clientId: bastion,
+    clientName: 'Bastion Relay Station',
     mass: 8.5,
     expiresOn: '2026-08-15',
     releasedAt: '2026-10-02T14:05:00Z',
@@ -66,6 +70,7 @@ const hold = [
     bondCode: 'BND-0011',
     description: 'Ore samples',
     clientId: unlisted,
+    clientName: null,
     mass: 40,
     expiresOn: '2027-01-10',
     zzCapabilities: { Execute: ['ReleaseConsignment'] },
@@ -76,6 +81,7 @@ const hold = [
     bondCode: 'BND-0001',
     description: 'Survey drones',
     clientId: halvard,
+    clientName: 'Halvard Freight',
     mass: 2,
     expiresOn: '2026-09-20',
     releasedAt: '2026-09-28T10:30:00Z',
@@ -83,12 +89,11 @@ const hold = [
   },
 ];
 
-const owners = [
-  { id: halvard, name: 'Halvard Freight' },
-  { id: bastion, name: 'Bastion Relay Station' },
-];
-
-/** The Supercargo's digest in the sector: the hold field by field, a consignment to book in, and Release under its condition. */
+/**
+ * The Supercargo's digest in the sector: the hold field by field, a consignment to book
+ * in, Release under its condition, and the clients' names on trusted clients (the client
+ * browser's grant, which the persona holds everywhere).
+ */
 const supercargo: PermissionDigest = {
   ...Object.fromEntries(
     [
@@ -98,6 +103,8 @@ const supercargo: PermissionDigest = {
   ),
   Consignments: { List: 'granted', Read: 'granted', Create: 'granted' },
   ReleaseConsignment: { Execute: 'conditional' },
+  Clients: { List: 'conditional' },
+  'Clients.name': { List: 'conditional' },
 };
 
 describe('the salvage hold', () => {
@@ -109,7 +116,7 @@ describe('the salvage hold', () => {
 
   const holdPath = `${environment.apiUrl}/sectors/${anvil}/consignments`;
 
-  /** Waits until the page and the owners it names have both been read, and draws them. */
+  /** Waits until the page has been read, and draws it. */
   const settle = async (): Promise<void> => {
     const list = fixture.componentInstance;
     for (let quiet = 0, i = 0; i < 100 && quiet < 2; i++) {
@@ -129,8 +136,6 @@ describe('the salvage hold', () => {
           return { status: 200, body: url.searchParams.has('domain') ? supercargo : {} };
         case holdPath:
           return { status: 200, body: hold, headers: { 'total-count': String(hold.length) } };
-        case `${environment.apiUrl}/clients`:
-          return { status: 200, body: owners, headers: { 'total-count': String(owners.length) } };
         default:
           return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
       }
@@ -194,7 +199,8 @@ describe('the salvage hold', () => {
         '8/15/2026',
         format(new Date('2026-10-02T14:05:00Z'), dayAndMinuteFormat),
       ],
-      // An owner the person may not list is no name: the cell is empty, never the client's id.
+      // An owner whose name the person may not list is no name: the cell is empty, never the
+      // client's id.
       ['BND-0011', 'Ore samples', '', '40', '1/10/2027', 'In bond'],
       [
         'BND-0001',
@@ -205,6 +211,8 @@ describe('the salvage hold', () => {
         format(new Date('2026-09-28T10:30:00Z'), dayAndMinuteFormat),
       ],
     ]);
+    // The owners' names ride with the page: nothing reads the clients.
+    expect(transport.requests.some((request) => request.url.startsWith(`${environment.apiUrl}/clients`))).toBe(false);
     // The Supercargo may book a consignment in: the page offers Add a consignment.
     expect(element().querySelector('.impulse-resource-list-create-button')?.textContent).toContain('Add a consignment');
   });

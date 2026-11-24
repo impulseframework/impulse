@@ -42,9 +42,10 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 //
 // The board's box sits above the grid, beside the column filters, and both narrow one
 // request: the page sends the complete column filters and the box as conjuncts of one
-// AND, `(statusId:eq:open),*:search:"survey"`, so the key set the box gathers over the
-// two indexes and the filters' residual narrow the same page, with its count and its
-// declared order. The box counts as the indexed touch the days-left control waits for, so
+// AND, `(statusId:eq:open),*:search:"survey"`, so the box, which searches the mission's
+// title, and the filters narrow the same page, with its count and its declared order. A
+// client is found by the Client column's own filter, which matches the client's name or
+// part of it. The box counts as the indexed touch the days-left control waits for, so
 // a days-left filter rides beside the box alone and leaves when the last indexed touch,
 // the box or a status filter, is cleared. The deadline's menu takes a date as a person
 // writes it, 2026-12-15 or 12/15/2026, a month or a minute, and the server reads the

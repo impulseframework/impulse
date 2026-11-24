@@ -1428,6 +1428,7 @@ export namespace DistressRelays {
     relayedByName: 'relayedByName' as FieldName,
     sectorId: 'sectorId' as FieldName,
     sectorName: 'sectorName' as FieldName,
+    answersRelayName: 'answersRelayName' as FieldName,
   };
   export const resourceName = {
     answersRelayId: 'DistressRelays.answersRelayId' as Resource,

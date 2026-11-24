@@ -84,6 +84,7 @@ func (DistressRelay) DeleteTree() *resource.DeleteTree {
 func (DistressRelay) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "AnswersRelayName", Key: "AnswersRelayID", Resource: "DistressRelays", Tag: "message", Table: "DistressRelays", KeyColumn: "Id", NameColumn: "Message", TenantColumn: "SectorId"},
 	}
 }
 

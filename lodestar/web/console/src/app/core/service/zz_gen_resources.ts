@@ -463,6 +463,7 @@ export interface DistressRelays {
   relayedByName?: string;
   relayedAt?: Date;
   sectorName?: string;
+  answersRelayName?: string;
 }
 
 export interface FeeByKinds {
@@ -1813,6 +1814,7 @@ const resourceMap = defineResourceMap({
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'distress relay', many: 'distress relays' },
+    nameField: 'message',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors, readOnly: true },
@@ -1822,7 +1824,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'relayedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'relayedAt', displayType: 'date', required: false, isIndex: true, filterable: 'always', readOnly: true },
     ],
-    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'sectorName', of: 'sectorId', filterable: 'always' }, { fieldName: 'answersRelayName', of: 'answersRelayId' }],
   },
   [Resources.FeeByKinds]: {
     route: 'fee-by-kinds',

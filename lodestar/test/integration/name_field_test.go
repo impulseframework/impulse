@@ -1,5 +1,11 @@
 package integration
 
+// The name a list shows beside an id that points to a row with one, read by the server
+// with each page of rows, sorted and filtered by: the console's list columns on an id
+// draw it (ships.config.ts and the other pages).
+//
+// Demonstrates: column.name-field.
+
 import (
 	"cmp"
 	"encoding/json"

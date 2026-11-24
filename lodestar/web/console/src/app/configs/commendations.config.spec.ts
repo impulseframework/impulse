@@ -13,20 +13,28 @@ import { environment } from '@env';
 import { commendationsConfig } from './commendations.config';
 
 // The commendations list names each cited pilot as the registry does. A citation holds
-// the pilot's id, which nobody reads: the column shows the pilot's name, read for the
-// page's pilots with one request, and never the id.
+// the pilot's id, which nobody reads: the column shows the pilot's name, which the server
+// reads beside the id with the page of citations, sorts and filters by it, and never shows
+// the id. Nothing reads the registry.
 
 const pax = '30000000-0000-4000-8000-000000000004';
 const vela = '30000000-0000-4000-8000-000000000005';
 
 const citations = [
-  { id: 'k-1', pilotId: pax, citation: 'Brought the Kestrel home on one engine.', awardedByName: 'adjutant' },
-  { id: 'k-2', pilotId: vela, citation: 'Held the line at the Cinder Verge.', awardedByName: 'adjutant' },
-];
-
-const registry = [
-  { id: pax, displayName: 'Pilot Pax' },
-  { id: vela, displayName: 'Veteran Vela' },
+  {
+    id: 'k-1',
+    pilotId: pax,
+    pilotName: 'Pilot Pax',
+    citation: 'Brought the Kestrel home on one engine.',
+    awardedByName: 'adjutant',
+  },
+  {
+    id: 'k-2',
+    pilotId: vela,
+    pilotName: 'Veteran Vela',
+    citation: 'Held the line at the Cinder Verge.',
+    awardedByName: 'adjutant',
+  },
 ];
 
 function server(request: TransportRequest): TransportResponse {
@@ -43,8 +51,6 @@ function server(request: TransportRequest): TransportResponse {
       return { status: 200, body: { commendations: true } };
     case `${environment.apiUrl}/commendations`:
       return { status: 200, body: citations, headers: { 'total-count': '2' } };
-    case `${environment.apiUrl}/pilots`:
-      return { status: 200, body: registry };
     default:
       return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
   }
@@ -89,7 +95,7 @@ describe('the commendations list', () => {
     fixture.componentRef.setInput('resourceConfig', commendationsConfig.parentConfig);
     fixture.detectChanges();
     await TestBed.inject(ApplicationRef).whenStable();
-    // The page's rows land first, then the names its Pilot column reads for them.
+    // The page's rows land with the names its Pilot column shows.
     const drawn = (): boolean => column('Pilot').some((cell) => cell.includes('Pax'));
     for (let i = 0; i < 200 && !drawn(); i++) {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -102,11 +108,27 @@ describe('the commendations list', () => {
     expect(text(element())).not.toContain('30000000-');
   });
 
-  it("reads the registry with one request, for the pilots' names alone", () => {
-    const reads = transport.requests.filter((request) => request.url.startsWith(`${environment.apiUrl}/pilots?`));
-    expect(reads.length).toBe(1);
-    // The registry is a list read whole: the request names the columns and no pilot.
-    const asked = new URL(reads[0]?.url ?? '', 'http://lodestar.test').searchParams;
-    expect(asked.get('columns')?.split(',').sort()).toEqual(['displayName', 'id']);
+  it("asks for the pilot's name beside the id with the page of citations, and reads no registry", () => {
+    const lists = transport.requests.filter((request) =>
+      request.url.startsWith(`${environment.apiUrl}/commendations?`),
+    );
+    expect(lists.length).toBe(1);
+    const asked = new URL(lists[0]?.url ?? '', 'http://lodestar.test').searchParams;
+    expect(asked.get('columns')?.split(',')).toEqual(expect.arrayContaining(['pilotId', 'pilotName']));
+    expect(transport.requests.some((request) => request.url.startsWith(`${environment.apiUrl}/pilots`))).toBe(false);
+  });
+
+  it("sorts the citations by the pilot's name from the Pilot heading", async () => {
+    const heading = Array.from(element().querySelectorAll<HTMLElement>('th button.header-label')).find(
+      (button) => text(button) === 'Pilot',
+    );
+    expect(heading).toBeDefined();
+    heading?.click();
+    fixture.detectChanges();
+    await TestBed.inject(ApplicationRef).whenStable();
+    const last = transport.requests
+      .filter((request) => request.url.startsWith(`${environment.apiUrl}/commendations?`))
+      .at(-1);
+    expect(new URL(last?.url ?? '', 'http://lodestar.test').searchParams.get('sort')).toBe('pilotName:asc');
   });
 });
