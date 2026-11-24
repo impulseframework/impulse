@@ -528,6 +528,10 @@ type GeneratedHandlers interface {
 
 	RequireMembersSecondFactor() http.HandlerFunc
 
+	ResendCrewInvitation() http.HandlerFunc
+
+	ResendCrewSectorInvitation() http.HandlerFunc
+
 	ResumeMission() http.HandlerFunc
 
 	RevokeCrewSectorUserTrustedDevices() http.HandlerFunc
@@ -1409,6 +1413,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/sectors/{sectorID}/require-crew-sector-password-change", domainGuard(h.RequireCrewSectorPasswordChange()))
 
 	asked.Post("/console/api/require-members-second-factor", h.RequireMembersSecondFactor())
+
+	asked.Post("/console/api/resend-crew-invitation", h.ResendCrewInvitation())
+
+	asked.Post("/console/api/sectors/{sectorID}/resend-crew-sector-invitation", domainGuard(h.ResendCrewSectorInvitation()))
 
 	asked.Post("/console/api/sectors/{sectorID}/resume-mission", domainGuard(h.ResumeMission()))
 

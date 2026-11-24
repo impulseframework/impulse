@@ -174,6 +174,7 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 	parts := []identityPart{
 		{"invite", "Invite" + subject + "User"},
 		{"withdrawInvitation", "Withdraw" + subject + "Invitation"},
+		{"resendInvitation", "Resend" + subject + "Invitation"},
 		{"assignRole", "Assign" + subject + "Role"},
 		{"removeRole", "Remove" + subject + "Role"},
 		{"disable", "Disable" + subject + "User"},

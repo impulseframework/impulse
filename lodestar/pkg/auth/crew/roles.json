@@ -1083,6 +1083,9 @@
               "resource": "WithdrawCrewInvitation"
             },
             {
+              "resource": "ResendCrewInvitation"
+            },
+            {
               "resource": "InviteCrewSector"
             },
             {
@@ -2448,6 +2451,10 @@
             },
             {
               "resource": "WithdrawCrewSectorInvitation",
+              "condition": "pending = true AND role != 'SectorMarshal'"
+            },
+            {
+              "resource": "ResendCrewSectorInvitation",
               "condition": "pending = true AND role != 'SectorMarshal'"
             },
             {

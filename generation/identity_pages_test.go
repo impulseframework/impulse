@@ -68,6 +68,8 @@ func Test_identityOn(t *testing.T) {
 				// application's alone.
 				"SendCrewUserPasswordResetLink", "SetCrewSelfServiceReset", "SendCrewSectorUserPasswordResetLink",
 				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices", "RemoveCrewSectorPassword",
+				// An invitation sent again, on each side.
+				"ResendCrewInvitation", "ResendCrewSectorInvitation",
 				// Served by the outlet and no part of the auth's management; the tenant record
 				// is named, since a page reads a tenant's name from it.
 				"Ships", "HailShip", "Sectors",
@@ -90,7 +92,7 @@ func Test_identityOn(t *testing.T) {
 							part("signInMethods", "CrewSignInMethods"),
 						},
 						Methods: []identityPart{
-							part("disable", "DisableCrewUser"),
+							part("resendInvitation", "ResendCrewInvitation"), part("disable", "DisableCrewUser"),
 							part("sendPasswordResetLink", "SendCrewUserPasswordResetLink"), part("endUserSessions", "EndCrewUserSessions"),
 							part("unlinkIdentity", "UnlinkCrewSessionIdentity"), part("removePassword", "RemoveCrewPassword"),
 							part("endSession", "EndCrewSession"), part("unlockSignIn", "UnlockCrewSignIn"),
@@ -107,6 +109,7 @@ func Test_identityOn(t *testing.T) {
 							part("invitations", "CrewSectorInvitations"),
 						},
 						Methods: []identityPart{
+							part("resendInvitation", "ResendCrewSectorInvitation"),
 							part("assignRole", "AssignCrewSectorRole"), part("removeRole", "RemoveCrewSectorRole"), part("disable", "DisableCrewSectorUser"),
 							part("sendPasswordResetLink", "SendCrewSectorUserPasswordResetLink"),
 							part("revokeTrustedDevices", "RevokeCrewSectorUserTrustedDevices"), part("removePassword", "RemoveCrewSectorPassword"),

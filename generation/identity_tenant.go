@@ -233,6 +233,7 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 		files = append(files,
 			method("Invite"+subject+"User", identityTenantInviteUserTemplate, identityMailLinks, identityMemberships),
 			method("Withdraw"+subject+"Invitation", identityWithdrawInvitationTemplate, identityMailLinks, identityMemberships),
+			method("Resend"+subject+"Invitation", identityResendInvitationTemplate, identityMailLinks, identityMemberships),
 		)
 	}
 

@@ -448,6 +448,14 @@ func (a *App) RequireCrewSectorPasswordChange() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RequireCrewSectorPasswordChange()
 }
 
+func (a *App) ResendCrewInvitation() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).ResendCrewInvitation()
+}
+
+func (a *App) ResendCrewSectorInvitation() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).ResendCrewSectorInvitation()
+}
+
 func (a *App) RevokeCrewSectorUserTrustedDevices() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RevokeCrewSectorUserTrustedDevices()
 }

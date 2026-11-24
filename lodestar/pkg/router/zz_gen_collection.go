@@ -1080,6 +1080,13 @@ func Collection() *resource.GeneratedCollection {
 				CallerEnters: true,
 			},
 			{
+				Name:        "ResendCrewSectorInvitation",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+				Target:      "CrewSectorInvitations",
+			},
+			{
 				Name:        "ResumeMission",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -2617,6 +2624,13 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
+				Name:        "ResendCrewInvitation",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+				Target:      "CrewSessionMailLinks",
 			},
 			{
 				Name:        "RevokeCrewSessionToken",

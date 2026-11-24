@@ -191,6 +191,8 @@ export const Methods = {
   RequireCrewSecondFactor: 'RequireCrewSecondFactor' as Method,
   RequireCrewSectorPasswordChange: 'RequireCrewSectorPasswordChange' as Method,
   RequireMembersSecondFactor: 'RequireMembersSecondFactor' as Method,
+  ResendCrewInvitation: 'ResendCrewInvitation' as Method,
+  ResendCrewSectorInvitation: 'ResendCrewSectorInvitation' as Method,
   ResumeMission: 'ResumeMission' as Method,
   RevokeCrewSectorUserTrustedDevices: 'RevokeCrewSectorUserTrustedDevices' as Method,
   RevokeCrewSessionToken: 'RevokeCrewSessionToken' as Method,
@@ -3021,6 +3023,18 @@ export namespace RequireCrewSectorPasswordChange {
 
 export namespace RequireMembersSecondFactor {
   export const fieldName = {};
+}
+
+export namespace ResendCrewInvitation {
+  export const fieldName = {
+    invitationId: 'invitationId' as FieldName,
+  };
+}
+
+export namespace ResendCrewSectorInvitation {
+  export const fieldName = {
+    invitationId: 'invitationId' as FieldName,
+  };
 }
 
 export namespace ResumeMission {

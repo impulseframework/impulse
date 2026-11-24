@@ -4274,6 +4274,7 @@ POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      E
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
 POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
 POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewSessionMailLinks
+POST <prefix>/resend-crew-invitation          {"invitationId"} → {"id","sent"}   Execute on ResendCrewInvitation, targeting CrewSessionMailLinks
 POST <prefix>/invite-crew-sector              {"email","name","sectorName",…,"sectorDirectoryOnly","defaultRole"} → {"id","sent"}   Execute on InviteCrewSector, and Create on Sectors
 POST <prefix>/withdraw-crew-invited-sector    {"invitationId"}                 Execute on WithdrawCrewInvitedSector
 POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewListedUsers
@@ -4300,6 +4301,7 @@ POST <prefix>/make-crew-invite-only           {"name"}                         E
 POST <prefix>/set-crew-self-service-reset     {"on"}                           Execute on SetCrewSelfServiceReset
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
+POST <prefix>/sectors/{sectorID}/resend-crew-sector-invitation   {"invitationId"} → {"id","sent"}   Execute on ResendCrewSectorInvitation, targeting CrewSectorInvitations
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorHeldRoles (declares a warning)
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
@@ -4378,7 +4380,7 @@ which refuses every session that acts as someone else by itself as well), a grou
 `remove-crew-group-member`), a role given to a group or taken from it
 (`give-crew-group-role`, `take-crew-group-role`), an invitation sent or withdrawn, the
 one that makes a tenant among them (`invite-crew-user`, `withdraw-crew-invitation`,
-`invite-crew-sector`, `withdraw-crew-invited-sector`), a sign-in method opened to sign-up
+`resend-crew-invitation`, `invite-crew-sector`, `withdraw-crew-invited-sector`), a sign-in method opened to sign-up
 or made invite only
 (`open-crew-sign-up`, `make-crew-invite-only`), and the switch that lets people ask at
 the sign-in page for a link that resets their own password
@@ -5256,6 +5258,9 @@ every policy store's schema holds it).
 - Withdrawing holds to invitations. A mail link of another kind (a verification, a
   sign-up) is not found, and neither is an invitation that was accepted, withdrawn or
   has expired (404).
+- Send again mails a new link with the same address, roles, place and name and withdraws
+  the one that stood; it is offered on an invitation that is open, has expired or could
+  not be mailed.
 
 **Who may sign up.** Whether a sign-in method admits a person who has no account and no
 invitation is chosen for each method in the running application, never in code. The
@@ -5909,7 +5914,7 @@ the tenant record's name where the application has one, and a side for each scop
 (`global`, the whole application's; `domain`, a tenant's) that names the lists by what
 each holds (`users`, `roles`, `rolesToGive` (the list a role is picked from by the methods that give one), `identities`, `signInWays`, `invitations`, and for the whole application
 `sessions`, `signInAttempts`, `signInMethods`, `signUpRoles` and, for the Auth a tenant is made through, `invitedTenants`) and the methods by what each does (`invite`,
-`withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
+`withdrawInvitation`, `resendInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
 `rename`, `setEmail`, `sendPasswordResetLink`, `requirePasswordChange`,
 `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
 the whole application `endSession`, `unlockSignIn`, `openSignUp`, `makeInviteOnly`, `setSelfServiceReset`, `inviteTenant` and `withdrawInvitedTenant`). The names differ in every application

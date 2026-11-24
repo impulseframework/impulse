@@ -539,6 +539,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/require-crew-second-factor", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/require-crew-sector-password-change", method: http.MethodPost},
 		{url: "/droids/require-members-second-factor", method: http.MethodPost},
+		{url: "/droids/resend-crew-invitation", method: http.MethodPost},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/resend-crew-sector-invitation", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/resume-mission", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/revoke-crew-sector-user-trusted-devices", method: http.MethodPost},
 		{url: "/droids/revoke-crew-session-token", method: http.MethodPost},
@@ -882,6 +884,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/require-crew-password-change", method: http.MethodPost},
 		{url: "/portal/api/require-crew-second-factor", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/require-crew-sector-password-change", method: http.MethodPost},
+		{url: "/portal/api/resend-crew-invitation", method: http.MethodPost},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/resend-crew-sector-invitation", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/resume-mission", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/revoke-crew-sector-user-trusted-devices", method: http.MethodPost},
 		{url: "/portal/api/revoke-crew-session-token", method: http.MethodPost},
@@ -4398,6 +4402,14 @@ func (s *generatedHandlersStub) RequireCrewSectorPasswordChange() http.HandlerFu
 
 func (s *generatedHandlersStub) RequireMembersSecondFactor() http.HandlerFunc {
 	return s.record("RequireMembersSecondFactor")
+}
+
+func (s *generatedHandlersStub) ResendCrewInvitation() http.HandlerFunc {
+	return s.record("ResendCrewInvitation")
+}
+
+func (s *generatedHandlersStub) ResendCrewSectorInvitation() http.HandlerFunc {
+	return s.record("ResendCrewSectorInvitation")
 }
 
 func (s *generatedHandlersStub) ResumeMission() http.HandlerFunc {

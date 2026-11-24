@@ -773,6 +773,30 @@ export interface RequireMembersSecondFactor {}
 /** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
 export type RequireMembersSecondFactorStatus = 204;
 
+export interface ResendCrewInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendCrewInvitation {
+  invitationId: string;
+}
+/** The result ResendCrewInvitation answers with. */
+export interface ResendCrewInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
+export interface ResendCrewSectorInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendCrewSectorInvitation {
+  invitationId: string;
+}
+/** The result ResendCrewSectorInvitation answers with. */
+export interface ResendCrewSectorInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
 export interface ResumeMissionConfig {
   missionId: string | FieldPointer;
 }
@@ -1939,6 +1963,24 @@ const methodMap: MethodMap = {
     statuses: [204],
     dryRun: true,
     fields: [],
+  },
+  [Methods.ResendCrewInvitation]: {
+    route: 'resend-crew-invitation',
+    target: { resource: Resources.CrewSessionMailLinks, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.ResendCrewSectorInvitation]: {
+    route: 'resend-crew-sector-invitation',
+    target: { resource: Resources.CrewSectorInvitations, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
   },
   [Methods.ResumeMission]: {
     route: 'resume-mission',

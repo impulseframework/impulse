@@ -724,6 +724,7 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			// someone else. It gives a role, which the acceptance seats the person in.
 			identitySourceFile{dir: inst.methods, name: fileStem("Invite" + inst.auth + "User"), template: identityInviteUserTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Withdraw" + inst.auth + "Invitation"), template: identityWithdrawInvitationTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
+			identitySourceFile{dir: inst.methods, name: fileStem("Resend" + inst.auth + "Invitation"), template: identityResendInvitationTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Assign" + inst.auth + "Role"), template: identityAssignRoleTemplate, needs: []identityTable{identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Remove" + inst.auth + "Role"), template: identityRemoveRoleTemplate, needs: []identityTable{identityMemberships}},
 		)

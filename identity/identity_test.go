@@ -108,6 +108,8 @@ type fakeStore struct {
 	invitations map[accesstypes.Domain][]impulse.UUID
 	// invited are the unconsumed invitations that make a tenant.
 	invited []InvitedTenantRow
+	// sentInvitations are the invitations as their rows keep them, by id (SentInvitation).
+	sentInvitations map[impulse.UUID]*SentInvitation
 	// passwords are the users that exist for the password rule, true where one holds a
 	// password; identities the user each identity links to; tokens the tokens by id,
 	// and families the unrevoked tokens of each family.
@@ -443,6 +445,15 @@ func (f *fakeStore) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTrans
 	f.writes = append(f.writes, "consume mail link "+id.String())
 
 	return nil
+}
+
+func (f *fakeStore) SentInvitation(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (invitation *SentInvitation, found bool, err error) {
+	if err := f.fail("SentInvitation"); err != nil {
+		return nil, false, err
+	}
+	invitation, found = f.sentInvitations[id]
+
+	return invitation, found, nil
 }
 
 func (f *fakeStore) SignInMethodRows(context.Context, resource.ReadOnlyTransaction) ([]SignInMethodRow, error) {

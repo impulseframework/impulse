@@ -170,6 +170,10 @@ type Store interface {
 	// ConsumeMailLink buffers the withdrawal of one link: it is consumed and marked
 	// withdrawn, and is then dead.
 	ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// SentInvitation reads the invitation of the id as its row keeps it, in the
+	// caller's transaction; found is false where no invitation holds the id, a link of
+	// another kind among them.
+	SentInvitation(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (invitation *SentInvitation, found bool, err error)
 	// TenantInvitations lists the invitations into one tenant that are not consumed:
 	// neither accepted nor withdrawn. An auth that mails no links answers none.
 	TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
