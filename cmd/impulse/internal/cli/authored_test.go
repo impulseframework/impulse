@@ -686,94 +686,9 @@ func TestAuthoredApplication(t *testing.T) {
 	})
 
 	t.Run("tenants with no directories", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
-		made := author(t, checkout, "yard", "tenant-owned-users-invite-only", nil, [][]string{
-			{"staff", "google", "--slot", "any", "--authority", "application"},
-		})
-		// The application is the shape it was made as, before the Google method is on it
-		// and after.
-		const noDirectories = "The tenants have no directories (the tenant record declares none), so a tenant's people come by invitation alone"
-		if want := "5 Tenant-owned users, invite only"; made.madeAs.Shape == nil || made.madeAs.Shape.String() != want {
-			t.Errorf("before a method is added, impulse audit reads the staff auth as %v, want %s", made.madeAs.Shape, want)
-		}
-		if want := noDirectories + "."; made.madeAs.Says != want {
-			t.Errorf("before a method is added, impulse audit says %q of the staff auth, want %q", made.madeAs.Says, want)
-		}
-		got := readShape(t, made.dir)
-		if want := "5 Tenant-owned users, invite only"; got.Shape == nil || got.Shape.String() != want {
-			t.Errorf("impulse audit reads the staff auth as %v, want %s: a method through an organization's directory does not change the shape of an application whose tenants have no directories", got.Shape, want)
-		}
-		if want := noDirectories + ", and the google method is a way for an invited person to sign in and nothing more."; got.Says != want {
-			t.Errorf("impulse audit says %q of the staff auth, want %q", got.Says, want)
-		}
-		if !slices.ContainsFunc(got.Methods, func(m shape.Method) bool { return m.Name == "google" }) {
-			t.Errorf("impulse audit reads no google method on the staff auth: %+v", got.Methods)
-		}
-		// The brief the tenancy step left says the tenants have no directories, and that
-		// laying them in is the author's act.
-		for _, want := range []string{"No tenant has a directory in this application (`--tenant-directories=false`)", "Giving the application tenant directories later is the author's act and no command's"} {
-			if !strings.Contains(made.newBrief, want) {
-				t.Errorf("the tenancy brief does not say %q", want)
-			}
-		}
-		// Nothing the commands wrote or the generator emitted gives a tenant a directory:
-		// no record or table, no switch on the tenant record, no reader or admission in
-		// the auth or the data level, no route and no page. (The generated code that every
-		// application carries still says in its comments what the library does with a
-		// directory, and the generated maker refuses an invitation that asks for one.)
-		tree, err := os.OpenRoot(made.dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tree.Close()
-		// absent are the words no file under the path may hold.
-		absent := []struct {
-			under string
-			words []string
-		}{
-			{under: "schema/", words: []string{"TenantDirector", "DirectoryOnly"}},
-			{under: "pkg/resources/", words: []string{"TenantDirector", "DirectoryOnly", "@tenantDirectory", "@directoryOnly", "@directorySecondFactor"}},
-			{under: "pkg/auth/", words: []string{"TenantDirectories", "SetDirectoryAdmission", "DirectoryReader"}},
-			{under: "pkg/config/", words: []string{"TenantDirectories", "DirectoryReader"}},
-			{under: "pkg/router/", words: []string{"TenantDirector", "tenant-director", "DirectoryOnly", "directory-only", "to-directory", "vouch-for", "TenantSignInSettings"}},
-			{under: "web/", words: []string{"TenantDirector", "tenantDirector", "tenant-director", "directoryOnly", "DirectoryOnly", "tenantSignInPage", "tenantSignInRoute", "sign-in.routes"}},
-		}
-		err = fs.WalkDir(tree.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return errors.Wrap(err, "fs.WalkDir()")
-			}
-			if d.IsDir() {
-				if d.Name() == ".git" || d.Name() == "node_modules" {
-					return fs.SkipDir
-				}
-
-				return nil
-			}
-			if name := d.Name(); name == "tenant_directories.go" || strings.HasPrefix(name, "zz_gen_tenant_director") || strings.HasPrefix(name, "tenant-sign-in.") {
-				t.Errorf("%s is a file of a tenant's directory, in an application whose tenants have no directories", p)
-			}
-			if !slices.Contains([]string{".go", ".ts", ".html", ".sql", ".json"}, path.Ext(p)) {
-				return nil
-			}
-			src, err := fs.ReadFile(tree.FS(), p)
-			if err != nil {
-				return errors.Wrap(err, "fs.ReadFile()")
-			}
-			for _, held := range absent {
-				if !strings.HasPrefix(p, held.under) {
-					continue
-				}
-				for _, word := range held.words {
-					if bytes.Contains(src, []byte(word)) {
-						t.Errorf("%s names %s, in an application whose tenants have no directories", p, word)
-					}
-				}
-			}
-
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		made := author(t, checkout, "yard", "tenant-owned-users-invite-only", nil, [][]string{googleForInvited})
+		startsWithNoDirectories(t, made, "5 Tenant-owned users, invite only")
+		holdsNoDirectories(t, made, "5 Tenant-owned users, invite only")
 	})
 
 	t.Run("tenants by their directories, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says

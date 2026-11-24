@@ -1,0 +1,205 @@
+//go:build skipAuth
+
+package integration
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+
+	"example.com/ci/yard/pkg/auth/staff"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+)
+
+const (
+	// googleInvited is the address the application's administrator invites, and
+	// googleStranger another person of the same Workspace, whom nobody invited: under the
+	// session library's skipAuth build tag every simulated Google sign-in is an account of
+	// one Workspace, whoever signs in.
+	googleInvited  = "ada@lakeside.example"
+	googleStranger = "mallory@lakeside.example"
+
+	// googleReturnURL is the page a sign-in through Google names, the application's root,
+	// and googleCodeStep where the callback sends a browser whose sign-in Google admitted
+	// and the second factor holds: the login page's code step, which goes on to the root.
+	googleReturnURL = "/"
+	googleCodeStep  = "/login?pending=mfa"
+)
+
+// googleLogin lets one sign-in through the simulated Google run at a time: under the
+// session library's skipAuth build tag the callback takes the person from
+// APP_<REGISTRATION>_USERNAME, which each round trip sets.
+var googleLogin sync.Mutex
+
+// TestInvitedThroughGoogle_seatedByInvitationAlone proves that in an application whose
+// tenants have no directories the Google method is a way for an invited person to sign in
+// and nothing more. The application's administrator invites an address into the tenant
+// north with the role of a tenant's administrator. Another person of the same Workspace
+// who signs in through Google with no link is refused as not invited: no account is made
+// and the invitation stands. The invited person opens the link, signs in through Google
+// and completes the second factor where the sign-in is held for it; they are seated in
+// north with that role and nothing else, and the invitation is spent. No route of a
+// tenant's directory is served to them: the application has none.
+func TestInvitedThroughGoogle_seatedByInvitationAlone(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	api := s.auth.Session().API()
+
+	// The invitation, sent by the application's administrator into the tenant.
+	admin := newBrowser(t, s)
+	admin.signIn(ctx, adminUser)
+	before := len(s.mail.Messages())
+	invite, err := json.Marshal(map[string]any{"email": googleInvited, "name": "Ada", "domain": north, "roles": []string{"TenantAdministrator"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/invite-staff-user", invite); status != http.StatusOK {
+		t.Fatalf("POST /api/invite-staff-user for %s in the tenant north: status %d: %s", googleInvited, status, body)
+	}
+	links := 0
+	for _, m := range s.mail.Messages()[before:] {
+		if strings.Contains(m.Text, "/login#invitation=") {
+			links++
+		}
+	}
+	if links != 1 {
+		t.Fatalf("the invitation mailed %d invitation link(s), want 1", links)
+	}
+	token := mailedToken(t, s, before, "invitation")
+
+	// A person of the same Workspace with no link: refused as not invited, no account is
+	// made, and the invitation stands.
+	stranger := newBrowser(t, s)
+	stranger.prime(ctx)
+	if status, location := stranger.googleRoundTrip(ctx, googleStranger); status != http.StatusFound || location != "/login?code="+string(sessioninfo.RefusedNotInvited) {
+		t.Errorf("a person of the same Workspace signing in through Google with no invitation: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedNotInvited)
+	}
+	users, err := api.Users(ctx)
+	if err != nil {
+		t.Fatalf("session.AuthAPI.Users() error = %v", err)
+	}
+	for _, user := range users {
+		if user.Username == googleStranger {
+			t.Errorf("an account was made for %s, whom nobody invited", googleStranger)
+		}
+	}
+	if standing, err := api.Invitations(ctx); err != nil || len(standing) != 1 || standing[0].Email != googleInvited {
+		t.Fatalf("the invitations that stand after the refused sign-in = %+v, %v, want the one for %s", standing, err, googleInvited)
+	}
+
+	// The invited person: the link, the sign-in through Google, and the second factor
+	// where the sign-in is held for it.
+	b := newBrowser(t, s)
+	b.prime(ctx)
+	if status, body := b.do(ctx, http.MethodPost, "/api/user/invitation", []byte(`{"token":"`+token+`"}`)); status != http.StatusOK {
+		t.Fatalf("POST /api/user/invitation as %s: status %d: %s", googleInvited, status, body)
+	}
+	switch status, location := b.googleRoundTrip(ctx, googleInvited); {
+	case status == http.StatusFound && location == googleReturnURL:
+	case status == http.StatusFound && location == googleCodeStep:
+		b.secondFactor(ctx, googleInvited, false)
+	default:
+		t.Fatalf("the invited person's sign-in through Google: status %d to %q, want %d to %q or to the login page's code step %q", status, location, http.StatusFound, googleReturnURL, googleCodeStep)
+	}
+	if sess := b.session(ctx); !sess.Authenticated || sess.Username != googleInvited {
+		t.Fatalf("the session after the invited person's sign-in = %+v, want authenticated as %s", sess, googleInvited)
+	}
+	if standing, err := api.Invitations(ctx); err != nil || len(standing) != 0 {
+		t.Errorf("the invitations that stand after the acceptance = %+v, %v, want none", standing, err)
+	}
+
+	// Seated: the invited person reads the tenant's people, which the role grants in north,
+	// and holds the role there and nothing for the whole application or in every tenant.
+	if status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+north+"/staff-tenant-users", nil); status != http.StatusOK {
+		t.Errorf("GET the people of the tenant north as the invited person: status %d, want %d by the invitation's role: %s", status, http.StatusOK, body)
+	}
+	user, err := api.UserByEmail(ctx, googleInvited)
+	if err != nil {
+		t.Fatalf("session.AuthAPI.UserByEmail(%s) error = %v: the acceptance made no account", googleInvited, err)
+	}
+	held, err := s.access.UserManager().UserRoles(ctx, accesstypes.User(user.ID.String()))
+	if err != nil {
+		t.Fatalf("access.UserManager.UserRoles(%s) error = %v", googleInvited, err)
+	}
+	if got, want := held[accesstypes.DomainPolicyScope(north)], []accesstypes.Role{"TenantAdministrator"}; !slices.Equal(got, want) {
+		t.Errorf("the invited person's roles in the tenant north = %v, want %v", got, want)
+	}
+	if got := held[accesstypes.GlobalPolicyScope()]; len(got) != 0 {
+		t.Errorf("the invited person's roles for the whole application = %v, want none", got)
+	}
+	if got := held[accesstypes.EveryDomainPolicyScope()]; len(got) != 0 {
+		t.Errorf("the invited person's roles in every tenant = %v, want none", got)
+	}
+
+	// No route of a tenant's directory: the application has no tenant directories, so it
+	// serves none of them, to the tenant's own administrator either.
+	for _, route := range []struct{ method, path string }{
+		{http.MethodGet, "/api/tenants/" + north + "/tenant-directories"},
+		{http.MethodPost, "/api/tenants/" + north + "/tenant-directories"},
+		{http.MethodPost, "/api/tenants/" + north + "/open-tenant-to-directory"},
+		{http.MethodPost, "/api/tenants/" + north + "/make-tenant-directory-only"},
+		{http.MethodGet, "/api/tenants/" + north + "/sign-in-settings"},
+	} {
+		var body []byte
+		if route.method == http.MethodPost {
+			body = []byte(`{}`)
+		}
+		if status, answer := b.do(ctx, route.method, route.path, body); status != http.StatusNotFound {
+			t.Errorf("%s %s as the tenant's administrator: status %d, want %d: the application has no tenant directories: %s", route.method, route.path, status, http.StatusNotFound, answer)
+		}
+	}
+}
+
+// googleRoundTrip sends the browser through the staff auth's Google registration as user:
+// the login route, then the callback the simulated Google would send the browser to,
+// whose status and destination it returns. The callback is asked for by its path: the
+// served stack tells the registration no callback address.
+func (b *browser) googleRoundTrip(ctx context.Context, user string) (status int, location string) {
+	b.t.Helper()
+
+	googleLogin.Lock()
+	defer googleLogin.Unlock()
+	if err := os.Setenv("APP_"+strings.ToUpper(staff.GoogleRegistration)+"_USERNAME", user); err != nil {
+		b.t.Fatal(err)
+	}
+	login := "/api/user/" + staff.GoogleRegistration + "/login?returnUrl=" + url.QueryEscape(googleReturnURL)
+	if status, _ := b.googleRedirect(ctx, login); status != http.StatusFound {
+		b.t.Fatalf("GET %s: status %d, want %d to Google", login, status, http.StatusFound)
+	}
+
+	return b.googleRedirect(ctx, "/api/user/"+staff.GoogleRegistration+"/callback")
+}
+
+// googleRedirect issues one GET as this browser without following the redirect it
+// answers with, and returns the status and where it points.
+func (b *browser) googleRedirect(ctx context.Context, path string) (status int, location string) {
+	b.t.Helper()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.base+path, http.NoBody)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	client := &http.Client{Jar: b.client.Jar, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		b.t.Fatal(err)
+	}
+
+	return resp.StatusCode, resp.Header.Get("Location")
+}
