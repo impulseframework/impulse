@@ -99,11 +99,13 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	// The lists that read the memberships: the sector's people, their roles, their
 	// identities and their ways to sign in, the one list of the roles a person holds, for
 	// the whole application and for a sector, the accounts with what each holds, the
-	// roles held for a set time with a reason, and the roles of a group, which count the
-	// people who would lose each one.
+	// roles held for a set time with a reason, the roles of a group, which count the
+	// people who would lose each one, and the list of sectors, which counts each sector's
+	// people and names its administrators.
 	lists := []live.WholeChange{
 		{Resource: "CrewHeldRoles", AllDomains: true},
 		{Resource: "CrewListedGroupRoles", AllDomains: true},
+		{Resource: "CrewListedSectors", AllDomains: true},
 		{Resource: "CrewListedUsers", AllDomains: true},
 		{Resource: "CrewSectorGroupRoles", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
@@ -118,10 +120,12 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	// alone does not; and the two lists of a group's roles count from the memberships
 	// and name nobody, so a commit that writes an account alone does not tell them.
 	// Both lists of how a person signs in declare the accounts, and the sector's alone
-	// the memberships.
+	// the memberships. The list of sectors names each sector's administrators from the
+	// users table.
 	named := []live.WholeChange{
 		{Resource: "CrewGroupUsers", AllDomains: true},
 		{Resource: "CrewHeldRoles", AllDomains: true},
+		{Resource: "CrewListedSectors", AllDomains: true},
 		{Resource: "CrewListedUsers", AllDomains: true},
 		{Resource: "CrewSectorGroupUsers", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
