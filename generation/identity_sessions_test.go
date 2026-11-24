@@ -112,3 +112,84 @@ func Test_resourceGenerator_sessionListSources(t *testing.T) {
 		t.Errorf("sessionListSources() (-want +got):\n%s", diff)
 	}
 }
+
+// Test_prepareIdentity_trustedDevices pins the count of the browsers remembered for each
+// account on the whole application's list of the accounts: where the schema holds the
+// trusted devices table, the view's last field and its query's last column, no filter
+// key, counted by the session library's four conditions over the days the sign-in
+// settings say, and session.DefaultRememberedBrowserDays where the schema holds no
+// settings table; nothing where it holds no trusted devices table. Each case holds the
+// query from the roles to its FROM, so the columns are one statement with and without
+// the lock before them.
+func Test_prepareIdentity_trustedDevices(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
+	count := func(table, days string) string {
+		return "  (SELECT COUNT(*) FROM " + table + " td\n" +
+			"   WHERE td.UserId = u.Id AND td.RevokedAt IS NULL\n" +
+			"     AND td.ExpiresAt > CURRENT_TIMESTAMP()\n" +
+			"     AND td.CreatedAt > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL " + days + " DAY)) AS TrustedDevices"
+	}
+	lock := "  (SELECT MAX(la.LockedUntil) FROM CrewSessionSignInAttempts la\n" +
+		"   WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))\n" +
+		"     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil"
+	said := "// TrustedDevices (trustedDevices) is how many browsers are remembered for the account\n" +
+		"\t// and skip the second factor right now: the ones not forgotten, not past their time,\n" +
+		"\t// and remembered within the days the auth's sign-in settings say, none where browsers\n" +
+		"\t// are not remembered. It is what the session library counts for the person's own\n" +
+		"\t// account page (sessionstorage.AuthStore.TrustedDeviceCount). It is no filter key."
+	crewFile := "internal/crewresources/crew_listed_users.go"
+	membersFile := "internal/membersresources/members_listed_users.go"
+	type listed struct {
+		file            string
+		wantContains    []string
+		wantNotContains []string
+	}
+	tests := []struct {
+		name   string
+		tables []string
+		lists  []listed
+	}{
+		{
+			name:   "a schema that holds the trusted devices table",
+			tables: slices.Concat(crewEveryTable, membersIdentityTables, []string{"MembersSessionTrustedDevices"}),
+			lists: []listed{
+				// The crew auth's schema holds the sign-in settings and counts failed
+				// sign-ins: the count reads the settings' days and follows the lock.
+				{file: crewFile, wantContains: []string{
+					"under its id (session.AccountAttemptKeys with no address). It is no filter key\n\t// either.\n\t//\n\t" + said + "\n\t//\n\t// The list filters by",
+					"LockedUntil *time.Time `spanner:\"LockedUntil\"`\n\t\tTrustedDevices int64 `spanner:\"TrustedDevices\"`\n\t}",
+					"  ) AS Roles,\n" + lock + ",\n" + count("CrewSessionTrustedDevices", "IFNULL((SELECT ss.RememberBrowserDays FROM CrewSessionSignInSettings ss), 30)") + "\nFROM CrewSessionUsers u\n`",
+				}},
+				// The members auth's schema holds neither: the days are the session
+				// library's default, and the count follows the roles.
+				{file: membersFile, wantContains: []string{
+					"Roles []string `spanner:\"Roles\"`\n\t\tTrustedDevices int64 `spanner:\"TrustedDevices\"`\n\t}",
+					"  ) AS Roles,\n" + count("MembersSessionTrustedDevices", "30") + "\nFROM MembersSessionUsers u\n`",
+				}, wantNotContains: []string{"SignInSettings", "RememberBrowserDays", "LockedUntil"}},
+			},
+		},
+		{
+			name: "a schema that holds no trusted devices table",
+			tables: slices.Concat(slices.DeleteFunc(slices.Clone(crewEveryTable), func(table string) bool {
+				return table == "CrewSessionTrustedDevices"
+			}), membersIdentityTables),
+			lists: []listed{
+				{file: crewFile, wantContains: []string{"  ) AS Roles,\n" + lock + "\nFROM CrewSessionUsers u\n`"}, wantNotContains: []string{"TrustedDevices", "trusted"}},
+				{file: membersFile, wantContains: []string{"  ) AS Roles\nFROM MembersSessionUsers u\n`"}, wantNotContains: []string{"TrustedDevices", "trusted"}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
+			r := identityFixtureGenerator(t, tt.tables...)
+			r.extraOutlets[1].auth = &outletAuth{importPath: membersAuthPath, methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}}
+			if err := r.prepareIdentity(); err != nil {
+				t.Fatalf("prepareIdentity() error = %v", err)
+			}
+			for _, list := range tt.lists {
+				assertContains(t, list.file, squashSpace(readTreeFile(t, list.file)), squashEach(list.wantContains), list.wantNotContains)
+			}
+		})
+	}
+}

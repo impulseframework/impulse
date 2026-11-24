@@ -4982,7 +4982,9 @@ grants each like any resource.
   when the account's sign-in is locked by failed tries. A line names the tenant its role
   is held in by the name people call the tenant by, or by its key where the tenant record
   marks no name, so a grant of `roles` shows those names whatever the reader is granted
-  on the tenant record, as a line of `CrewListedGroups` does. The Accounts page lists it, it
+  on the tenant record, as a line of `CrewListedGroups` does. Where the schema holds the
+  trusted devices table it carries `trustedDevices` too: how many browsers are remembered
+  for the account and skip the second factor right now. The Accounts page lists it, it
   filters by `username`, `name` and `email`, and the whole application's methods on a
   person name their person by its row. `CrewSessionUsers`, the users table's own list,
   stays: a picker of a person reads it.
