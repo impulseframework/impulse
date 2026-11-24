@@ -572,7 +572,7 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 	}
 }
 
-// TestAuthoredApplication makes eight applications the way their author does, with the
+// TestAuthoredApplication makes nine applications the way their author does, with the
 // commands and nothing else, and holds what the commands left to each application's own
 // formatting and lint and to the brief (author). The commands leave obligations, and
 // the brief is where each is named, so the test holds that nothing else is left. Each
@@ -589,7 +589,12 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 // shape Tenant-owned users, invite only, then a Google method added. It is read as that
 // shape before the method is added and after it, the reading names the method as a way
 // for an invited person to sign in, and nothing the commands wrote or generated names a
-// tenant's directory: no record, no reader, no admission, no route.
+// tenant's directory: no record, no reader, no admission, no route. With the method on it
+// the application is held to every step (everyStepAsMade), its check among them, and its
+// own tests pass with the framework's proof of the method beside them: a person invited
+// into a tenant accepts through Google and is seated there, another person of the same
+// Workspace whom nobody invited is refused, and no route of a tenant's directory is
+// served (holdsNoDirectories).
 //
 // The third is an application whose tenants are their directories and that has no
 // password sign-in: impulse new with the shape Tenant-owned users, by directory, and
@@ -635,11 +640,16 @@ func holdsDirectoryRoles(t *testing.T, made *authoredApplication, wantMethod, wa
 // fourth is, with the provider's method in the Google method's place and the issuer in
 // the Workspace's, and the tests the start wrote sign in through the simulated provider.
 //
-// It costs about twenty-five minutes and under eight gigabytes on a machine whose Go caches
-// and emulator image are warm: each command regenerates against the emulator (about
-// twenty-five seconds), each application runs its tests as it is made (about as long; the
-// fifth and the four with no password sign-in twice, the sixth three times), and the rest
-// is each application's build, vet and lint runs and the four development runs.
+// The eighth is the second with a person in several tenants: impulse new with the shape
+// Global users, invite only, then the same Google method, held to all the second is.
+//
+// The first eight cost about twenty-five minutes and under eight gigabytes on a machine
+// whose Go caches and emulator image are warm: each command regenerates against the
+// emulator (about twenty-five seconds), each application runs its tests as it is made
+// (about as long; the fifth and the four with no password sign-in twice, the sixth three
+// times), and the rest is each application's build, vet and lint runs and the four
+// development runs. Of the ones whose tenants have no directories, the second took about
+// five minutes in a run of its own and the eighth about four.
 func TestAuthoredApplication(t *testing.T) {
 	if os.Getenv(runAuthored) == "" {
 		t.Skipf("set %s=1 to run: it runs impulse new and impulse add method against this checkout (the Spanner emulator, go mod tidy), each application's lint (golangci-lint) and each application's tests as it is made, about twenty-five minutes", runAuthored)
@@ -689,6 +699,12 @@ func TestAuthoredApplication(t *testing.T) {
 		made := author(t, checkout, "yard", "tenant-owned-users-invite-only", nil, [][]string{googleForInvited})
 		startsWithNoDirectories(t, made, "5 Tenant-owned users, invite only")
 		holdsNoDirectories(t, made, "5 Tenant-owned users, invite only")
+	})
+
+	t.Run("tenants with no directories, a person in several", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
+		made := author(t, checkout, "basin", "global-users-invite-only", nil, [][]string{googleForInvited})
+		startsWithNoDirectories(t, made, "7 Global users, invite only")
+		holdsNoDirectories(t, made, "7 Global users, invite only")
 	})
 
 	t.Run("tenants by their directories, with no password sign-in", func(t *testing.T) { //nolint:paralleltest // made one after the other, as the comment above the first says
