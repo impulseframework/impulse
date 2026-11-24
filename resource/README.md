@@ -4288,7 +4288,7 @@ POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      E
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewListedSignInAttempts
 POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
 POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewListedMailLinks
-POST <prefix>/resend-crew-invitation          {"invitationId"} → {"id","sent"}   Execute on ResendCrewInvitation, targeting CrewListedMailLinks
+POST <prefix>/resend-crew-invitation          {"invitationId"} → {"id","sent"}   no grant of its own: Execute on InviteCrewUser, read over the row of CrewListedMailLinks
 POST <prefix>/invite-crew-sector              {"email","name","sectorName",…,"sectorDirectoryOnly","defaultRole"} → {"id","sent"}   Execute on InviteCrewSector, and Create on Sectors
 POST <prefix>/withdraw-crew-invited-sector    {"invitationId"}                 Execute on WithdrawCrewInvitedSector
 POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewListedUsers
@@ -4315,7 +4315,7 @@ POST <prefix>/make-crew-invite-only           {"name"}                         E
 POST <prefix>/set-crew-self-service-reset     {"on"}                           Execute on SetCrewSelfServiceReset
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
-POST <prefix>/sectors/{sectorID}/resend-crew-sector-invitation   {"invitationId"} → {"id","sent"}   Execute on ResendCrewSectorInvitation, targeting CrewSectorInvitations
+POST <prefix>/sectors/{sectorID}/resend-crew-sector-invitation   {"invitationId"} → {"id","sent"}   no grant of its own: Execute on InviteCrewSectorUser, read over the row of CrewSectorInvitations
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role","startsAt","endsAt","reason"}   Execute on AssignCrewSectorRole, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorHeldRoles (declares a warning)
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
@@ -4744,9 +4744,8 @@ administrator hands out, the role file says, in the conditions of the Execute gr
 the facts of the row, and over the request's own fields (`new.role`, section 2's
 `@attribute` on a field of an `@rpc` struct). Lodestar's Sector Marshal acts on the
 account of a person the sector manages, gives every role but the Marshal's own, takes
-a role away where the sector itself gave it, withdraws an invitation that stands and
-gives no Marshal's role, and sends again an invitation that gives no Marshal's role,
-whether it stands, has expired or could not be mailed:
+a role away where the sector itself gave it, and withdraws an invitation that stands and
+gives no Marshal's role:
 
 ```json
 "Execute": [
@@ -4754,8 +4753,7 @@ whether it stands, has expired or could not be mailed:
   { "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "InviteCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "RemoveCrewSectorRole", "condition": "role != 'SectorMarshal' AND everyDomain = false" },
-  { "resource": "WithdrawCrewSectorInvitation", "condition": "pending = true AND role != 'SectorMarshal'" },
-  { "resource": "ResendCrewSectorInvitation", "condition": "role != 'SectorMarshal'" }
+  { "resource": "WithdrawCrewSectorInvitation", "condition": "pending = true AND role != 'SectorMarshal'" }
 ]
 ```
 
@@ -4765,11 +4763,21 @@ whole application. `roles` is a list, judged role by role, and an invitation
 with no role is refused by a grant that reads `new.role`, since no value never permits.
 The roles of an invitation's row are a list too, judged the same way: an invitation the
 whole application's administrator sent in the Marshal's role, alone or among others, is
-not the Marshal's to withdraw or to send again, and its row's Execute answer leaves both
-out. The grant on Send again does not read `pending`: the method is for an invitation
-that has expired or could not be mailed as much as for one that stands, and it refuses
-one that was accepted or withdrawn itself (409), so `pending = true` there would only
-keep an administrator from the invitations Send again is for.
+not the Marshal's to withdraw, and its row's Execute answer leaves the withdrawal out.
+
+Sending an invitation again has no grant of its own, and a role file that grants it is
+refused when the roles are read: whoever may invite a person into the roles an
+invitation gives may send that invitation again. The method is judged by the grant on
+the invitation of its side (`InviteCrewUser` for the whole application,
+`InviteCrewSectorUser` for a sector), and a condition on that grant that reads
+`new.role` is read over the roles of the invitation's row, by the request's own check and
+by the row's Execute answer alike. So the Marshal, who invites into every role but the
+Marshal's own, sends again an invitation that gives no Marshal's role, whether it stands,
+has expired or could not be mailed, is refused one that gives the Marshal's role (403),
+and is not offered Send again on its row, and the role file says the limit once. The
+method itself refuses an invitation that was accepted or withdrawn (409). A session that
+acts as someone else is judged the same way: a permission mask that lets the session
+invite lets it send again.
 
 **The invitation that makes a tenant.** Nobody creates a tenant directly (section 16,
 "How a tenant comes to exist"): staff bring an organization in by inviting one person,
@@ -5330,7 +5338,8 @@ every policy store's schema holds it).
   has expired (404).
 - Send again mails a new link with the same address, roles, place and name and withdraws
   the one that stood; it is offered on an invitation that is open, has expired or could
-  not be mailed.
+  not be mailed. It takes no grant of its own: whoever may invite into the invitation's
+  roles may send it again.
 
 **Who may sign up.** Whether a sign-in method admits a person who has no account and no
 invitation is chosen for each method in the running application, never in code. The

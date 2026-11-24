@@ -1091,7 +1091,9 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				NoRole:      true,
 				Target:      "CrewSectorInvitations",
+				JudgedBy:    "InviteCrewSectorUser",
 			},
 			{
 				Name:        "ResumeMission",
@@ -2823,7 +2825,9 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				NoRole:      true,
 				Target:      "CrewListedMailLinks",
+				JudgedBy:    "InviteCrewUser",
 			},
 			{
 				Name:        "RevokeCrewSessionToken",

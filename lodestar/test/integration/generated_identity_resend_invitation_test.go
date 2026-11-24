@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
+	"github.com/impulseframework/impulse/lodestar/pkg/router"
 )
 
 // TestGeneratedIdentityInvitationsSentAgain holds the sending again of an invitation on
@@ -21,11 +23,14 @@ import (
 // one that was accepted is refused; and a sector's administrator does not find another
 // sector's invitation.
 //
-// The Sector Marshal sends again an invitation that gives no Marshal's role, whether it
-// stands, has expired or could not be mailed (role != 'SectorMarshal'): the grant does not
-// read pending, as the Marshal's Withdraw does. One that gives the Marshal's role, alone or
-// among others, is refused (403), and one that was accepted is answered by the method
-// itself (409).
+// No role is given Send again. The Sector Marshal sends again by the grant on
+// InviteCrewSectorUser (new.role != 'SectorMarshal'), read over the roles of the
+// invitation's row: an invitation that gives no Marshal's role is the Marshal's to send
+// again, whether it stands, has expired or could not be mailed; one that gives the
+// Marshal's role, alone or among others, is refused (403) and its row's Execute answer
+// leaves Send again out; and one that was accepted is answered by the method itself
+// (409). The Marshal holds no grant to invite for the whole application, and is refused
+// Send again there.
 //
 // Demonstrates: auth.generated-identity, auth.tenant-methods.
 func TestGeneratedIdentityInvitationsSentAgain(t *testing.T) {
@@ -34,7 +39,33 @@ func TestGeneratedIdentityInvitationsSentAgain(t *testing.T) {
 	s := newServed(ctx, t)
 
 	// The Execute grant this suite proves, pinned to the roles file (conditions-proven).
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "ResendCrewSectorInvitation", "role != 'SectorMarshal'")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "InviteCrewSectorUser", "new.role != 'SectorMarshal'")
+	// Send again has no grant of its own: no role names it, and the collection judges it by
+	// the grant on the invitation of its side.
+	config, err := crew.Roles().Parse()
+	if err != nil {
+		t.Fatalf("access.RoleFile.Parse() error = %v", err)
+	}
+	for _, r := range slices.Concat(config.Roles.Global, config.Roles.Domain) {
+		for permission, grants := range r.Permissions {
+			for _, g := range grants {
+				if g.Resource == "ResendCrewInvitation" || g.Resource == "ResendCrewSectorInvitation" {
+					t.Errorf("the role %s grants %s on %s, which no role is given", r.Name, permission, g.Resource)
+				}
+			}
+		}
+	}
+	for method, want := range map[accesstypes.Resource]accesstypes.Resource{
+		"ResendCrewInvitation":       "InviteCrewUser",
+		"ResendCrewSectorInvitation": "InviteCrewSectorUser",
+	} {
+		if by, judged := router.Collection().JudgedBy(method); by != want || !judged {
+			t.Errorf("router.Collection().JudgedBy(%s) = (%q, %v), want (%s, true)", method, by, judged, want)
+		}
+		if !router.Collection().IsNoRoleAction(method) {
+			t.Errorf("router.Collection().IsNoRoleAction(%s) = false, want true: no role is given Send again", method)
+		}
+	}
 
 	hq := newBrowser(t, s, consoleAPI)
 	hq.signIn(ctx, "governor")
@@ -139,6 +170,22 @@ func TestGeneratedIdentityInvitationsSentAgain(t *testing.T) {
 	resend(hq, consoleAPI+"/resend-crew-invitation", late.ID)
 	if consumedAt, withdrawnAt := ended(late.ID); consumedAt.Valid || withdrawnAt.Valid {
 		t.Errorf("the expired invitation sent again: ConsumedAt = %v, WithdrawnAt = %v; want both null: it is left as it is", consumedAt, withdrawnAt)
+	}
+
+	// The Marshal holds no grant to invite for the whole application, so an invitation
+	// Headquarters sent is not the Marshal's to send again: refused, nothing mailed, and
+	// the invitation as it was.
+	const standing = "standing.again@example.com"
+	open := inviteCrew(ctx, t, hq, `{"email":"`+standing+`","roles":["ClientBrowser"]}`)
+	sent := len(s.mail.Messages())
+	if status, body := marshal.do(ctx, http.MethodPost, consoleAPI+"/resend-crew-invitation", []byte(`{"invitationId":"`+open.ID+`"}`)); status != http.StatusForbidden {
+		t.Errorf("the Marshal's Send again of an invitation of the whole application: status %d, want 403: %s", status, body)
+	}
+	if mailed := mailedSince(s, sent, standing); len(mailed) != 0 {
+		t.Errorf("the Marshal's refused Send again of an invitation of the whole application mailed %q", subjects(mailed))
+	}
+	if consumedAt, withdrawnAt := ended(open.ID); consumedAt.Valid || withdrawnAt.Valid {
+		t.Errorf("the invitation the Marshal was refused: ConsumedAt = %v, WithdrawnAt = %v; want both null: it stands", consumedAt, withdrawnAt)
 	}
 
 	// A sector's side: the Marshal sends again an invitation of Anvil that stands.

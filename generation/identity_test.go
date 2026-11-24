@@ -535,7 +535,7 @@ func Test_prepareIdentity(t *testing.T) {
 			"Sent bool", "client.manager.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })",
 		},
 		"crewidentity/withdraw_crew_invitation.go": {"// @target(CrewListedMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
-		"crewidentity/resend_crew_invitation.go":   {"// @target(CrewListedMailLink)", "client.manager.ResendInvitation(ctx, txn, m.InvitationID, func(sent bool) { result.Sent = sent })", "ResendCrewInvitationResult struct {"},
+		"crewidentity/resend_crew_invitation.go":   {"// @target(CrewListedMailLink)", "client.manager.ResendInvitation(ctx, txn, m.InvitationID, func(sent bool) { result.Sent = sent })", "ResendCrewInvitationResult struct {", "No role is given the method"},
 		"crewidentity/disable_crew_user.go":        {"// @rpc", "// @outlet(default)", "// @target(CrewListedUser)", "func (m *DisableCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {"},
 		// An address is asked for and never written: the method takes one, answers how
 		// the mailing went, and hands the manager the callback that tells it.
@@ -1170,6 +1170,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/resend_crew_ship_invitation.go": {
 			"ResendCrewShipInvitation struct {", "// @target(CrewShipInvitation)", "// @permissionScope(domain)", guard,
 			"row of CrewShipInvitation, the tenant's own list of invitations", "client.manager.ResendInvitation(ctx, txn, m.InvitationID, func(sent bool) { result.Sent = sent })",
+			"No role is given the method",
 		},
 		"crewidentity/assign_crew_ship_role.go": {
 			"type AssignCrewShipRole struct {", "// @permissionScope(domain)", "// @target(CrewShipUser)", "// @attribute(role)",

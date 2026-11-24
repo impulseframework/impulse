@@ -483,6 +483,7 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 	if err := r.collectRPCRegistrations(b); err != nil {
 		return resource.CollectionData{}, err
 	}
+	r.collectIdentityJudgedRegistrations(b)
 
 	if err := r.collectManualRegistrations(b); err != nil {
 		return resource.CollectionData{}, err
