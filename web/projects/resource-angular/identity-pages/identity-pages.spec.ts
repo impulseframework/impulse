@@ -2126,6 +2126,35 @@ describe('identityPages, the people lists say what each person holds, and a lock
 // An Auth that keeps groups of people: the description names the groups, the people in
 // them, the roles they hold and the roles each person holds through one, on each side,
 // with the methods that manage them.
+// Where the accounts list says how many devices each person trusts, a person's page says
+// the number beside the last sign-in. A tenant's people list does not say it, and its
+// page draws none.
+describe('identityPages, how many devices a person trusts', () => {
+  const trusting = (resource: Resource): ResourceMeta =>
+    resource === 'CrewSessionUsers'
+      ? fields(...metas[resource].fields.map((field) => field.fieldName), 'trustedDevices')
+      : metas[resource];
+  // A description of its own: the same request answers the same pages.
+  const [accounts] = identityPages({ ...descriptor }, trusting, { auth: 'Crew', scope: 'global' });
+  const [people] = identityPages({ ...descriptor }, trusting, { auth: 'Crew', scope: 'domain' });
+
+  it("says on a person's page how many devices they trust, directly after the last sign-in", () => {
+    const shown = personSection(accounts).children.filter((child) => child.shouldRender !== false);
+    const after = shown.findIndex((child) => child.name === 'lastSignInAt');
+    expect(shown.slice(after, after + 2).map((child) => [child.type, child.name, child.label])).toEqual([
+      ['field', 'lastSignInAt', 'Last sign-in'],
+      ['field', 'trustedDevices', 'Trusted devices'],
+    ]);
+  });
+
+  it("draws no count where the list does not say it: on a tenant's page, and where the server says it nowhere", () => {
+    const [plain] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    for (const config of [people, plain]) {
+      expect(pageFields(config).map(([, name]) => name)).not.toContain('trustedDevices');
+    }
+  });
+});
+
 describe('identityPages, an Auth that keeps groups', () => {
   const groupMetas: Record<string, ResourceMeta> = {
     ...metas,

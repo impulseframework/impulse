@@ -1143,6 +1143,8 @@ class SideBuilder {
    * is something to say, and whether the email address is confirmed (emailConfirmed). The
    * fields those two read are held by the page's form and not drawn: a field the page
    * says in words reads the form's values, and the form holds a field the page names.
+   * Where the list says how many devices the person trusts (trustedDevices), the page
+   * says the number beside the last sign-in.
    */
   private personFields(users: Resource): ConfigElement[] {
     const drawn = (named: Named[]): ConfigElement[] =>
@@ -1176,6 +1178,7 @@ class SideBuilder {
         : []),
       ...drawn([
         ['lastSignInAt', 'Last sign-in'],
+        ['trustedDevices', 'Trusted devices'],
         ['cannotEnter', 'Cannot enter'],
         ['createdAt', 'Created'],
       ]),
