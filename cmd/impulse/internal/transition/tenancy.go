@@ -376,11 +376,11 @@ func (tn Tenancy) writeMigration(a *app.App, dir string, ch *Change) error {
 	}
 	base := fmt.Sprintf("%06d_%s", n, tn.Table)
 	up, down := tn.tenantTable(), fmt.Sprintf("DROP INDEX %[1]sByName;\nDROP TABLE %[1]s;\n", tn.Table)
-	did := fmt.Sprintf("the %s table (a generated id as its primary key and a unique Name; no tenant has a directory, so the table carries no directory-only switch and no directories table is written)", tn.Table)
+	did := fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name and CreatedAt, when the tenant was made; no tenant has a directory, so the table carries no directory-only switch and no directories table is written)", tn.Table)
 	if !tn.NoDirectories {
 		up += "\n" + tn.directoryTable()
 		down = fmt.Sprintf("DROP INDEX %[2]sByMethodConnection;\nDROP INDEX %[2]sBy%[3]sId;\nDROP TABLE %[2]s;\n", tn.Table, tn.DirectoryTable(), tn.Record()) + down
-		did = fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the %s table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)", tn.Table, tn.DirectoryTable())
+		did = fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the %s table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)", tn.Table, tn.DirectoryTable())
 	}
 	if err := writeNew(a, path.Join(dir, base+".up.sql"), up); err != nil {
 		return err
@@ -394,7 +394,8 @@ func (tn Tenancy) writeMigration(a *app.App, dir string, ch *Change) error {
 }
 
 // tenantTable is the tenant table's statements: the table keyed by a generated id, with
-// its unique name, and the directory-only switch where a tenant can have a directory.
+// its unique name, when each tenant was made, which the database writes with the row, and
+// the directory-only switch where a tenant can have a directory.
 func (tn Tenancy) tenantTable() string {
 	directoryOnly := ""
 	if !tn.NoDirectories {
@@ -415,6 +416,9 @@ func (tn Tenancy) tenantTable() string {
 CREATE TABLE %[1]s (
   Id STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
+  -- When the tenant was made: the time of the commit that made the row, written by the
+  -- record's create and never changed. The list of tenants says it as Since.
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 %[2]s
   CONSTRAINT CK_%[1]s_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);
@@ -487,7 +491,7 @@ func (tn Tenancy) writeSeed(a *app.App, dir string, ch *Change) error {
 	if !hasPassword(a) {
 		comment, seeded = seedCommentNoLogins, "anyone is seeded"
 	}
-	up := comment + fmt.Sprintf("INSERT INTO %[1]s (Id, Name) VALUES ('%[2]s', 'North');\nINSERT INTO %[1]s (Id, Name) VALUES ('%[3]s', 'South');\n", tn.Table, devTenantNorth, devTenantSouth)
+	up := comment + fmt.Sprintf("INSERT INTO %[1]s (Id, Name, CreatedAt) VALUES ('%[2]s', 'North', PENDING_COMMIT_TIMESTAMP());\nINSERT INTO %[1]s (Id, Name, CreatedAt) VALUES ('%[3]s', 'South', PENDING_COMMIT_TIMESTAMP());\n", tn.Table, devTenantNorth, devTenantSouth)
 	down := fmt.Sprintf("DELETE FROM %s WHERE Id IN ('%s', '%s');\n", tn.Table, devTenantNorth, devTenantSouth)
 	base := "000001_dev_" + tn.Segment()
 	if err := writeNew(a, path.Join(dir, base+".up.sql"), up); err != nil {
@@ -507,7 +511,7 @@ func (tn Tenancy) writeRecord(a *app.App, resourceDir string, ch *Change) error 
 	// (ServiceAreas in service_areas.go).
 	rel := path.Join(resourceDir, strcase.ToSnake(tn.Table)+".go")
 	if _, err := os.Stat(a.Abs(rel)); err == nil {
-		ch.skipf("%s already exists, so the %s resource struct was not written; make sure it is a global @resource annotated @tenant and @order, keyed by a generated id (ID impulse.UUID), with a Name marked @tenantName", rel, tn.Record())
+		ch.skipf("%s already exists, so the %s resource struct was not written; make sure it is a global @resource annotated @tenant and @order, keyed by a generated id (ID impulse.UUID), with a Name marked @tenantName and a CreatedAt marked @tenantSince (time.Time, conditions:\"output_only\", default_create_fn:\"resource.CommitTimestamp\"), which the tenant table's migration makes a column the database writes", rel, tn.Record())
 
 		return nil
 	}
@@ -515,6 +519,8 @@ func (tn Tenancy) writeRecord(a *app.App, resourceDir string, ch *Change) error 
 	src := fmt.Sprintf(`package %s
 
 import (
+	"time"
+
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -560,6 +566,11 @@ type (
 		// carries it, so the place switcher shows it to them.
 		// @tenantName
 		Name string `+"`spanner:\"Name\"`"+`
+		// CreatedAt is when the tenant was made: the database writes it with the row, at the
+		// commit that makes the tenant, whichever way it is made, and nothing changes it
+		// afterward. The list of tenants says it as Since.
+		// @tenantSince
+		CreatedAt time.Time `+"`spanner:\"CreatedAt\" conditions:\"output_only\" default_create_fn:\"resource.CommitTimestamp\"`"+`
 %[8]s	}
 )
 
@@ -572,7 +583,7 @@ func (%[2]s) Config() resource.Config {
 	if err := writeNew(a, rel, src); err != nil {
 		return err
 	}
-	ch.didf("%s: the %s resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with %s", rel, tn.Record(), words.did)
+	ch.didf("%s: the %s resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), %s", rel, tn.Record(), words.did)
 
 	return nil
 }
@@ -1534,7 +1545,7 @@ func (tn Tenancy) meaning(a *app.App) string {
 		signInMenu = ", and no menu for Sign-in settings, since no " + tn.oneLower() + " has a directory to set there"
 	}
 	items := []string{
-		"The bootstrap and the deployment. Seed the development tenants (`schema/devseed`, a data migration applied with the migrator's data step) BEFORE the logins and before the data level opens, since the roster's start reads the table; the App's `UserPermissions` passes the roster's `Domains` (`a.tenants.Domains`) to `resource.SessionPermissions` so a login's tenant list is read from it. The roles need no provisioning per tenant, since a membership held in every domain (`EveryDomainPolicyScope`) reaches every tenant the roster names. A tenant's key is an id generated when the tenant is made, so the seed inserts each development tenant under a fixed id of its own (any id's text, written once) with its name, and nothing else types one. Give the development logins roles in the tenants (the bootstrap identities file): the administrator under `everyDomain`, and add a member login that holds a role in one tenant only under `domains`, so concealment is observable; name the tenant there by its name, and have the bootstrap find its id through the roster (`TenantRoster().Named(name)`, which refuses a name no tenant or more than one tenant carries) before it writes the membership.",
+		"The bootstrap and the deployment. Seed the development tenants (`schema/devseed`, a data migration applied with the migrator's data step) BEFORE the logins and before the data level opens, since the roster's start reads the table; the App's `UserPermissions` passes the roster's `Domains` (`a.tenants.Domains`) to `resource.SessionPermissions` so a login's tenant list is read from it. The roles need no provisioning per tenant, since a membership held in every domain (`EveryDomainPolicyScope`) reaches every tenant the roster names. A tenant's key is an id generated when the tenant is made, so the seed inserts each development tenant under a fixed id of its own (any id's text, written once) with its name and the commit's own time as when it was made (`CreatedAt`, `PENDING_COMMIT_TIMESTAMP()`), and nothing else types one. Give the development logins roles in the tenants (the bootstrap identities file): the administrator under `everyDomain`, and add a member login that holds a role in one tenant only under `domains`, so concealment is observable; name the tenant there by its name, and have the bootstrap find its id through the roster (`TenantRoster().Named(name)`, which refuses a name no tenant or more than one tenant carries) before it writes the membership.",
 		"Tenant-scoped resources. Decide which existing resources belong to a tenant: give each a `TenantId` column referencing the tenant table (`STRING(36)`, the tenant's id; a migration, with a data step assigning existing rows to a tenant; the foreign key carries no delete rule, since rows are deleted in code only and `no-delete-cascade` fails on `ON DELETE CASCADE`: the generated delete of a tenant takes the tenant's rows in code, each through its resource's own delete), type the field `impulse.UUID`, annotate the struct `@permissionScope(domain)` and the column `// @domain`, then run `go generate ./...`. A table that reaches its tenant through another row (`// @domain(via: ...)` on the column that names that row) is taken by the tenant's delete the same way, and its foreign key to that row carries no delete rule either. If none of the application's resources is tenant-scoped yet, add a first one so the option is observable from the first sign-in; the reference has one. `tenancy-wired` requires at least one.",
 		tn.harnessItem(a),
 		tn.testsItem(),

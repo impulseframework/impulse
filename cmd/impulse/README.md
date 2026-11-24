@@ -1307,7 +1307,8 @@ again as the tenanted skeleton's, which has no test of the dialog that invites a
 (the base's expects that dialog to ask for no place, and it now asks for the tenant),
 while the library's frame carries the tenant the URL names, the guard, the refusal page
 and the place switcher. The record's name, marked `@tenantName`, is what the session's tenant
-list shows. A record of another name gets everything in its own words: with
+list shows. Its `CreatedAt`, marked `@tenantSince`, is when the tenant was made, written by the
+database with the row; the list of tenants says it as Since. A record of another name gets everything in its own words: with
 `--tenant-table ServiceAreas` the pages, the menus and the routes say service area, and
 every name the generator derives from the record is the record's; the files are written
 without wrapping their lines again, so the brief says to run `impulse check --only prettier

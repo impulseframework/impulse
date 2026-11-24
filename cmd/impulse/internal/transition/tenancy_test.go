@@ -256,9 +256,9 @@ func TestTenancyApply(t *testing.T) {
 			files: tenancyFiles(),
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 				"schema/devseed/000001_dev_tenants.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before the logins",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with its declaration's flag (DirectoryOnly) and change tracking",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
@@ -277,8 +277,8 @@ func TestTenancyApply(t *testing.T) {
 				for rel, want := range map[string]string{
 					"schema/migrations/000003_Tenants.up.sql":   "CREATE TABLE TenantDirectories (",
 					"schema/migrations/000003_Tenants.down.sql": "DROP INDEX TenantDirectoriesByMethodConnection;\nDROP INDEX TenantDirectoriesByTenantId;\nDROP TABLE TenantDirectories;\nDROP INDEX TenantsByName;\nDROP TABLE Tenants;",
-					"schema/devseed/000001_dev_tenants.up.sql":  "INSERT INTO Tenants (Id, Name) VALUES ('11111111-1111-4111-8111-111111111111', 'North');",
-					"pkg/resources/tenants.go":                  "package resources\n\nimport (\n\t\"github.com/impulseframework/impulse\"\n\t\"github.com/impulseframework/impulse/resource\"\n)\n\ntype (\n\t// Tenant is the tenant record (@tenant)",
+					"schema/devseed/000001_dev_tenants.up.sql":  "INSERT INTO Tenants (Id, Name, CreatedAt) VALUES ('11111111-1111-4111-8111-111111111111', 'North', PENDING_COMMIT_TIMESTAMP());",
+					"pkg/resources/tenants.go":                  "package resources\n\nimport (\n\t\"time\"\n\n\t\"github.com/impulseframework/impulse\"\n\t\"github.com/impulseframework/impulse/resource\"\n)\n\ntype (\n\t// Tenant is the tenant record (@tenant)",
 					"pkg/resources/tenant_directories.go":       "\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\t// @order(Method asc, Connection asc)\n\tTenantDirectory struct {\n\t\tID impulse.UUID `spanner:\"Id\"`\n\t\t// @domain\n\t\tTenantID impulse.UUID `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t\t// @directoryDefaultSeat\n\t\tDefaultSeat *string `spanner:\"DefaultSeat\"`\n\t\t// @directorySecondFactor\n\t\tAsksSecondFactor bool `spanner:\"AsksSecondFactor\"`\n\t}",
 					"pkg/config/tenancy.go":                     "package config\n",
 					"app/tenancy.go":                            "package app\n",
@@ -320,9 +320,9 @@ func TestTenancyApply(t *testing.T) {
 			}(),
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 				"schema/devseed/000001_dev_tenants.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before the logins",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with its declaration's flag (DirectoryOnly) and change tracking",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
@@ -360,8 +360,8 @@ func TestTenancyApply(t *testing.T) {
 			},
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000002_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with its declaration's flag (DirectoryOnly) and change tracking",
+				"schema/migrations/000002_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
@@ -564,6 +564,31 @@ func TestClientExpression(t *testing.T) {
 				t.Errorf("clientExpression() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestTenancyApply_theRecordThereAlready pins what the command says where the tenant
+// record's file is there already: it writes no record and leaves the file as it is, and
+// says what the record must hold for the table the migration writes, the time the
+// database writes when a tenant is made among it.
+func TestTenancyApply_theRecordThereAlready(t *testing.T) {
+	t.Parallel()
+
+	a := newBase(t, "staff")
+	const rel, mine = "pkg/resources/tenants.go", "package resources\n"
+	if err := os.WriteFile(a.Abs(rel), []byte(mine), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	ch := &Change{}
+	if err := (Tenancy{Table: "Tenants"}).writeRecord(a, "pkg/resources", ch); err != nil {
+		t.Fatalf("Tenancy.writeRecord() error = %v", err)
+	}
+	want := rel + " already exists, so the Tenant resource struct was not written; make sure it is a global @resource annotated @tenant and @order, keyed by a generated id (ID impulse.UUID), with a Name marked @tenantName and a CreatedAt marked @tenantSince (time.Time, conditions:\"output_only\", default_create_fn:\"resource.CommitTimestamp\"), which the tenant table's migration makes a column the database writes"
+	if !slices.Equal(ch.Skipped, []string{want}) || len(ch.Did) != 0 {
+		t.Errorf("Tenancy.writeRecord() did %q and skipped %q, want nothing done and the skip %q", ch.Did, ch.Skipped, want)
+	}
+	if got := read(t, a, rel); got != mine {
+		t.Errorf("%s was changed:\n%s", rel, got)
 	}
 }
 
