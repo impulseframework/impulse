@@ -736,8 +736,11 @@ export class ResourceListComponent implements OnInit {
   /**
    * Which columns the server filters, from the listed resource's metadata: the grid draws
    * a filter control only on these, and a companion-only column waits for an indexed filter.
+   * The fields of the page's own filter are answered too, the key of the record a list is
+   * under among them, so a column does not wait where the request already carries an
+   * indexed filter the list shows no column for.
    */
-  filterability = computed(() => filterEligibility(this.queryMeta(), this.columns()));
+  filterability = computed(() => filterEligibility(this.queryMeta(), this.columns(), this.configFilterFields()));
 
   /** The fields the page's own filter names, so the grid knows when an indexed filter is already in the request. */
   configFilterFields = computed(() => filterFields(this.filters()));

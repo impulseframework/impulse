@@ -93,6 +93,8 @@ const metas: Record<string, ResourceMeta> = {
       field('clientId', { isIndex: true, filterable: 'always' }),
       field('homePort', { isIndex: true, filterable: 'always' }),
       field('registry', { isIndex: true, filterable: 'always' }),
+      // A field the server filters only beside an indexed filter, and matches no text in.
+      field('berthNote', { filterable: 'withIndexed' }),
       // A field that takes one of a fixed set of values: the metadata lists each stored
       // key beside its name.
       field('statusId', {
@@ -504,6 +506,39 @@ describe('ResourceListComponent', () => {
         (fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row td.data-col'),
       ).map((td) => td.textContent?.trim());
       expect(cells).toEqual(['Dawn', 'Visit']);
+    });
+  });
+
+  describe('filters beside the key of the record it is under', () => {
+    it("draws a companion-only column's control enabled where the page's own filter holds an indexed field, and keeps a filter on that column alone", async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'berthNote' as FieldName, header: 'Berth' }],
+        },
+        [{ id: 's-1', name: 'Kestrel', berthNote: 'aft' }],
+      );
+      // A child list's parent key comes in as the list's filter; no column shows it.
+      fixture.componentRef.setInput('filter', 'homePort:eq:Anvil');
+      fixture.detectChanges();
+      await settle();
+      const heading = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('th.data-col')).find(
+        (th) => th.querySelector('.col-header')?.textContent?.trim() === 'Berth',
+      );
+      const control = heading?.querySelector<HTMLButtonElement>('button.filter-trigger');
+
+      expect(control).toBeTruthy();
+      expect(control?.disabled).toBe(false);
+
+      fixture.componentInstance.onFilterChange([{ field: 'berthNote', operator: 'eq', value: 'aft' }]);
+      await settle();
+
+      expect(fixture.componentInstance.store.columnFilters()).toEqual([
+        { field: 'berthNote', operator: 'eq', value: 'aft' },
+      ]);
+      expect(new URL(transport.requests.at(-1)?.url ?? '', 'http://list.test').searchParams.get('filter')).toBe(
+        '((homePort:eq:Anvil)),(berthNote:eq:aft)',
+      );
     });
   });
 

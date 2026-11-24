@@ -66,6 +66,7 @@ describe('filterEligibility', () => {
     name: string;
     meta: ResourceMeta | undefined;
     columns: string[];
+    pageFields?: string[];
     want: Record<string, string | undefined>;
   }[] = [
     {
@@ -87,6 +88,27 @@ describe('filterEligibility', () => {
       columns: ['title', 'squadronName', 'pilotName'],
       want: { title: 'always', squadronName: 'always' },
     },
+    {
+      name: "a field of the page's own filter that no column shows takes its field's filterable",
+      meta: boards,
+      columns: ['fee'],
+      pageFields: ['title'],
+      want: { fee: 'withIndexed', title: 'always' },
+    },
+    {
+      name: "a name field the page's own filter names takes the name field's",
+      meta: namedBoards,
+      columns: ['title'],
+      pageFields: ['squadronName'],
+      want: { title: 'always', squadronName: 'always' },
+    },
+    {
+      name: 'a page field the server filters by nothing, and one that is no field, are absent',
+      meta: boards,
+      columns: [],
+      pageFields: ['daysLeft', 'notAField'],
+      want: {},
+    },
   ];
 
   for (const tt of cases) {
@@ -95,6 +117,7 @@ describe('filterEligibility', () => {
         filterEligibility(
           tt.meta,
           tt.columns.map((id) => ({ id })),
+          tt.pageFields,
         ),
       ).toEqual(tt.want as never);
     });

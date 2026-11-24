@@ -111,11 +111,16 @@ export function refuseKeylessConfig(
  * Which of the table's columns the server filters: the generated metadata's `filterable`
  * for the field each column shows, keyed by column id, a name field's beside the fields'
  * (`nameFields`, for a column drawn by the name beside an id). A column whose id is
- * neither (an action column, a renamed duplicate) is absent, so it draws no control.
+ * neither (an action column, a renamed duplicate) is absent, so it draws no control. The
+ * fields the page's own filter names (`pageFields`: the config's `filter`, and on a list
+ * under a record the key of that record) are answered the same way though no column shows
+ * them: the grid asks of each whether it is the indexed filter a companion-only column
+ * waits for. An id that is no column's draws no control.
  */
 export function filterEligibility(
   meta: ResourceMeta | undefined,
   columns: readonly { id: string }[],
+  pageFields: readonly string[] = [],
 ): ColumnFilterability {
   const byField = new Map([
     ...(meta?.fields ?? []).map((field) => [field.fieldName, field.filterable] as const),
@@ -126,6 +131,12 @@ export function filterEligibility(
     const filterable = byField.get(column.id);
     if (filterable !== undefined) {
       eligibility[column.id] = filterable;
+    }
+  }
+  for (const field of pageFields) {
+    const filterable = byField.get(field);
+    if (filterable !== undefined && !(field in eligibility)) {
+      eligibility[field] = filterable;
     }
   }
   return eligibility;
