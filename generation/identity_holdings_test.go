@@ -361,12 +361,14 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 // directory and the auth keeps identities, of the tenants whose directory the person
 // signs in through. The sign-in identities are a list of their own with the same two
 // facts, written only where the schema holds the identities, and answering
-// TenantsToEnter where the record declares the directory-only switch.
+// TenantsToEnter where the record declares the directory-only switch. The accounts'
+// ManagingTenant points to the tenant record where every outlet of the auth's management
+// serves it, so the list carries the tenant's name; the identities' points to nothing.
 func Test_prepareIdentity_whoManagesEachAccount(t *testing.T) {
 	facts := "LockedUntil *time.Time `spanner:\"LockedUntil\"`\n" +
 		" TrustedDevices int64 `spanner:\"TrustedDevices\"`\n" +
 		" // @attribute(managedByTenant)\n ManagedByTenant bool `spanner:\"ManagedByTenant\" index:\"true\"`\n" +
-		" // @attribute(managingTenant)\n ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`\n }\n)"
+		" // @attribute(managingTenant)\n // @enumerate(Ships)\n ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`\n }\n)"
 	wrapped := "const crewListedUserQuery = `\nSELECT\n  *,\n  ManagingTenant IS NOT NULL AS ManagedByTenant\nFROM (\nSELECT\n  u.Id AS Id,\n"
 	held := "      FROM (\n" +
 		"        SELECT mm.DomainId AS DomainId\n" +
@@ -408,6 +410,7 @@ func Test_prepareIdentity_whoManagesEachAccount(t *testing.T) {
 			"// ManagedByTenant (managedByTenant) says a ship manages the account, and\n // ManagingTenant (managingTenant) is that ship's key, empty where none does.",
 			"(CrewShipUser), so\n // the two always agree.",
 			"// The list filters by the username, the name and the email address, and by the two\n // facts of who manages the account.",
+			"// ManagingTenant points to the Ship record, so where the record marks its name a",
 		}, []string{"The list filters by the username, the name and the email address.\n"})
 		// Nobody signs in through a ship's directory: the ship manages the account of the
 		// person it holds alone.
@@ -425,9 +428,13 @@ func Test_prepareIdentity_whoManagesEachAccount(t *testing.T) {
 		if got := identitySource(t, "internal/membersresources/members_listed_identities.go"); got != "" {
 			t.Errorf("members_listed_identities.go is written, and the members' schema holds no identities table:\n%s", got)
 		}
-		if members := identitySource(t, "internal/membersresources/members_listed_users.go"); !strings.Contains(members, "ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`") {
+		members := identitySource(t, "internal/membersresources/members_listed_users.go")
+		if !strings.Contains(members, "ManagingTenant *string `spanner:\"ManagingTenant\" index:\"true\"`") {
 			t.Errorf("the members' accounts do not say who manages each:\n%s", members)
 		}
+		// The members' management is served on the portal too, which does not serve the
+		// record: their accounts point to no ship.
+		assertContains(t, "members_listed_users.go", members, nil, []string{"@enumerate(Ships)", "points to the Ship record"})
 	})
 
 	t.Run("a tenant record with a directory", func(t *testing.T) {

@@ -187,6 +187,7 @@ export interface CrewListedUsers {
   trustedDevices?: number;
   managedByTenant?: boolean;
   managingTenant?: string;
+  managingTenantName?: string;
 }
 
 export interface CrewRoles {
@@ -1491,8 +1492,9 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'managingTenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'managingTenant', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
     ],
+    nameFields: [{ fieldName: 'managingTenantName', of: 'managingTenant', filterable: 'always' }],
   },
   [Resources.CrewRoles]: {
     route: 'crew-roles',

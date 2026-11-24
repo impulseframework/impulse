@@ -41,6 +41,10 @@ type (
 	// They are read as each tenant's own list reads ManagedHere (StaffTenantUser), so
 	// the two always agree. A role file uses them to give the application's administrators
 	// the accounts no tenant manages (managedByTenant = false).
+	// ManagingTenant points to the Tenant record, so where the record marks its name a
+	// row carries that name beside the key (managingTenantName) for a reader who may list
+	// it. The list sorts by the name, and filters by it where the name is a filter key of
+	// the record.
 	//
 	// The list filters by the username, the name and the email address, and by the two
 	// facts of who manages the account.
@@ -68,6 +72,7 @@ type (
 		// @attribute(managedByTenant)
 		ManagedByTenant bool `spanner:"ManagedByTenant" index:"true"`
 		// @attribute(managingTenant)
+		// @enumerate(Tenants)
 		ManagingTenant *string `spanner:"ManagingTenant" index:"true"`
 	}
 )

@@ -514,6 +514,7 @@ export namespace StaffListedUsers {
     roles: 'roles' as FieldName,
     trustedDevices: 'trustedDevices' as FieldName,
     username: 'username' as FieldName,
+    managingTenantName: 'managingTenantName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'StaffListedUsers.createdAt' as Resource,

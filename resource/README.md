@@ -5017,10 +5017,15 @@ grants each like any resource.
   trusted devices table it carries `trustedDevices` too: how many browsers are remembered
   for the account and skip the second factor right now. Where the application has a
   tenant record it says who manages each account too: `managedByTenant` and
-  `managingTenant`. The Accounts page lists it, it filters by `username`, `name`, `email`
-  and the two facts, and the whole application's methods on a person name their person by
-  its row. `CrewSessionUsers`, the users table's own list, stays: a picker of a person
-  reads it.
+  `managingTenant`. Where every outlet that serves the Auth's management serves the
+  tenant record, `managingTenant` points to the record, so a row carries the managing
+  tenant's name beside the key, `managingTenantName`: a name field as `@name` describes
+  them, shown to a reader who holds List on the record's name field, which the list sorts
+  by and, where a filter may name it, filters by. An account no tenant manages carries
+  neither. The Accounts page lists it, it filters by `username`, `name`, `email` and the
+  two facts, and the whole application's methods on a person name their person by its
+  row. `CrewSessionUsers`, the users table's own list, stays: a picker of a person reads
+  it.
 - `CrewListedIdentities` is the sign-in identities with who manages each account,
   declared where the application has a tenant record: a row for each identity link, with
   the columns of `CrewSessionIdentities`, the person's `username`, and the person's

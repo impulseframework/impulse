@@ -710,6 +710,7 @@ export namespace CrewListedUsers {
     roles: 'roles' as FieldName,
     trustedDevices: 'trustedDevices' as FieldName,
     username: 'username' as FieldName,
+    managingTenantName: 'managingTenantName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'CrewListedUsers.createdAt' as Resource,
