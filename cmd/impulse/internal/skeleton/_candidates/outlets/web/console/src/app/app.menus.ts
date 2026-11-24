@@ -2,9 +2,12 @@ import { apiDescriptor } from '@app/service/zz_gen_api';
 import { resourceMeta } from '@app/service/zz_gen_resources';
 import { Menu } from '@impulseframework/resource-angular/auth-frame';
 import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
-import { identityMenuPages, tenantSignInPage } from '@impulseframework/resource-angular/identity-pages';
-import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
-import { tenantsConfig } from './configs/tenants.config';
+import {
+  identityMenuPages,
+  inviteTenantAction,
+  tenantSignInPage,
+  tenantsPage,
+} from '@impulseframework/resource-angular/identity-pages';
 
 /**
  * The application's menu file: the menus across the top, in order, which the library's
@@ -26,11 +29,15 @@ export function appMenus(): Menu[] {
       label: 'Tenants',
       groups: [
         {
-          // The tenants the application serves. Nobody creates one here: an administrator
-          // brings an organization in by inviting one person, on the Invited tenants page
-          // among the staff's pages under System, and that person's first sign-in makes
-          // the tenant.
-          entries: [resourcePage(tenantsConfig, resourceMeta)],
+          // The tenants the application serves, on the library's page, and Invite a tenant…,
+          // which opens the invitation on that page. Nobody creates one here: an
+          // administrator brings an organization in by inviting one person, there or on the
+          // Invited tenants page among the staff's pages under System, and that person's
+          // first sign-in makes the tenant.
+          entries: [
+            tenantsPage(apiDescriptor, resourceMeta, { auth: 'Staff' }),
+            inviteTenantAction(apiDescriptor, resourceMeta, { auth: 'Staff' }),
+          ],
         },
       ],
     },

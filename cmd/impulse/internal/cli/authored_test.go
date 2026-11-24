@@ -339,8 +339,35 @@ func author(t *testing.T, checkout, name, shapeKey string, start []string, metho
 	if roles := made.read(t, "pkg/auth/staff/roles.json"); strings.Contains(roles, `"StaffSignUpRoles"`) {
 		t.Error("pkg/auth/staff/roles.json still grants StaffSignUpRoles, a list the generator does not emit for an application with tenants: the application would not start")
 	}
+	hasTheLibrarysTenantPages(t, made)
 
 	return made
+}
+
+// hasTheLibrarysTenantPages holds an application with tenants to its tenant pages being
+// the browser package's: it has no configuration of All tenants and no dialog of its own
+// through which a person who signed up creates their own tenant, its menu file places the
+// list of tenants and the invitation in the menu, and its routes carry the tenants page.
+func hasTheLibrarysTenantPages(t *testing.T, made *authoredApplication) {
+	t.Helper()
+
+	const src = "web/console/src/app/"
+	for _, rel := range []string{src + "configs/tenants.config.ts", src + "components/ui/new-tenant"} {
+		if _, err := os.Stat(filepath.Join(made.dir, filepath.FromSlash(rel))); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s is there (stat error %v): the tenant pages are the browser package's, and no file of the application's own", rel, err)
+		}
+	}
+	for rel, wants := range map[string][]string{
+		src + "app.menus.ts":  {"tenantsPage(", "inviteTenantAction("},
+		src + "app.routes.ts": {"tenantsRoute("},
+	} {
+		got := made.read(t, rel)
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s does not call %s: the tenant pages are the browser package's", rel, want)
+			}
+		}
+	}
 }
 
 // startsAsTheBaseAlone holds an application impulse new made with nothing composed (no
@@ -782,6 +809,7 @@ func TestAuthoredApplication(t *testing.T) {
 			}
 		}
 		vetsAsMade(t, made)
+		hasTheLibrarysTenantPages(t, made)
 		holdsNoDirectories(t, made, "5 Tenant-owned users, invite only")
 	})
 

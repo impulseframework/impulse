@@ -55,7 +55,7 @@ same page for the members auth (`/members-break-glass`), and the members role fi
 its lists and its method to no role, as it gives nothing of the whole application's side. The library draws them from the API description (`identityRoutes` in each application's
 `app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
 the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
-(`app.menus.ts`) shows Tenants (All tenants) and System (the staff's accounts, the
+(`app.menus.ts`) shows Tenants (All tenants and Invite a tenant…) and System (the staff's accounts, the
 Invited tenants page and Feature flags) in Configuration, and People and Tenant (Sign-in settings)
 inside a tenant; the portal's shows System (the members' accounts) and People. The
 person's own menu holds Your account (on the console: the username, name, email address

@@ -11,9 +11,7 @@ import {
   tenantGuard,
 } from '@impulseframework/resource-angular/auth-frame';
 import { featureFlagsRoute } from '@impulseframework/resource-angular/feature-flags';
-import { identityRoutes, tenantSignInRoute } from '@impulseframework/resource-angular/identity-pages';
-import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
-import { tenantsConfig } from './configs/tenants.config';
+import { identityRoutes, tenantSignInRoute, tenantsRoute } from '@impulseframework/resource-angular/identity-pages';
 
 // The dashboard is every place's first page (provideFrame's home): outside every tenant it
 // shows the global digest, under a tenant the digest there.
@@ -60,8 +58,8 @@ export const routes: Routes = [
         canActivate: [outsideGuard],
         children: [
           dashboardRoute(),
-          // All tenants: the library's list page over the tenant record.
-          resourceRoutes(tenantsConfig, resourceMeta),
+          // All tenants: the library's tenants page, the list and a tenant's own page.
+          tenantsRoute(apiDescriptor, resourceMeta, { auth: 'Staff' }),
           // The staff's accounts across the whole application: the accounts with a
           // person's row page (the roles held, the sign-in identities and the sessions
           // under it), the mailed links, the sessions and the failed sign-ins. No page is

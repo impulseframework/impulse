@@ -41,7 +41,7 @@ own tenant, holds no grant of the page and takes none for a set time. The librar
 draws them from the API description (`identityRoutes` in the console's `app.routes.ts`,
 placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
 the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
-shows Tenants (All tenants) and System (the staff's accounts, the Invited tenants page and
+shows Tenants (All tenants and Invite a tenant…) and System (the staff's accounts, the Invited tenants page and
 Feature flags) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
 portal has no pages of its own yet, so its bar holds Help alone. In both, the person's own
 menu holds Your account, Appearance and Sign out, and Help ends with About, a pop-up that carries

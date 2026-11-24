@@ -3,18 +3,18 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
-import { CreateTenantOffered, createTenantRoute } from '@app/service/zz_gen_api';
+import { apiDescriptor, CreateTenantOffered, createTenantRoute } from '@app/service/zz_gen_api';
 import { Resources } from '@app/service/zz_gen_constants';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
 import { PlaceService, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { openCreateTenantDialog } from '@impulseframework/resource-angular/identity-pages';
 import {
   PermissionsCardComponent,
   PermissionsCardResource,
 } from '@impulseframework/resource-angular/ui-permissions-card';
 import { Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
 import { environment } from '@env';
-import { openNewTenantDialog } from '../new-tenant/new-tenant-dialog.component';
 
 /**
  * The dashboard is every place's first page: who is signed in and what the session holds
@@ -24,7 +24,7 @@ import { openNewTenantDialog } from '../new-tenant/new-tenant-dialog.component';
  * where its columns fit, each resource as a block where they do not. It lives outside
  * the tenant segment and under it: Configuration's first page, and the tenant's. A session
  * holding no tenant is offered its own while the server would create it: a person who
- * signed up creates one through the new-tenant dialog. The page asks the server whether a
+ * signed up creates one through the library's dialog. The page asks the server whether a
  * tenant can be created now and shows the offer only where it says yes, so while every
  * sign-in method is invite only nobody is offered a dialog the server would refuse. The
  * person's email address and the look of the application are theirs, not a place's: the
@@ -100,9 +100,12 @@ export class DashboardComponent {
     });
   }
 
-  /** Opens the new-tenant dialog: the person names their tenant and becomes its administrator. */
+  /**
+   * Opens the library's dialog a person creates their own tenant through: they name it and
+   * become its administrator, and the dialog opens the new tenant.
+   */
   createYourTenant(): void {
-    openNewTenantDialog(this.dialog);
+    openCreateTenantDialog(this.dialog, apiDescriptor);
   }
 
   private scopeOf(resource: Resource): string {
