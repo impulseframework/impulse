@@ -82,7 +82,7 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 		return fmt.Appendf(nil, `{"groupId":%q,"role":"Cadet"}`, group)
 	case "InviteUser":
 		return []byte(`{"email":"invited-under-a-mask@example.com","roles":["Cadet"]}`)
-	case "WithdrawInvitation":
+	case "WithdrawInvitation", "ResendInvitation":
 		return fmt.Appendf(nil, `{"invitationId":%q}`, invitation)
 	case "OpenSignUp", "MakeInviteOnly":
 		return []byte(`{"name":"password"}`)
