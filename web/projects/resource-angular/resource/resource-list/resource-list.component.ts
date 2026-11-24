@@ -141,6 +141,7 @@ import {
   unorderedFields,
 } from './list-request';
 import { listableColumns, sameColumns } from './listable-columns';
+import { askedNames, cellText, listedColumns, requestSorts, tableSorts } from './name-columns';
 import { filterParam, readAddressFilter, sameFilters, standingFilters, writeAddressFilter } from './address-filters';
 import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
 
@@ -933,9 +934,13 @@ export class ResourceListComponent implements OnInit {
     }
   }
 
-  /** A header click: the sorts to request next; the store drops the cursor and asks for a first page. */
+  /**
+   * A header click: the sorts to request next, a press on a fixed set's column by the
+   * names beside its field (requestSorts); the store drops the cursor and asks for a first
+   * page.
+   */
   onSortChange(sorts: SortRule[]): void {
-    this.wantedSorts.set(sorts as FieldSort[]);
+    this.wantedSorts.set(requestSorts(this.listed(), sorts) as FieldSort[]);
     this.store.sorts.set(this.askedSorts());
   }
 
@@ -1113,9 +1118,46 @@ export class ResourceListComponent implements OnInit {
 
     return [...new Set([...idCols, ...listColumns])];
   });
+
+  /**
+   * How the list draws each of its columns (listedColumns): on its field's stored value,
+   * or, on a field that holds another row's id, by the name the server answers beside the
+   * id, where the pointed-to resource declares one and the person may list it. Across
+   * tenants no one digest speaks for the rows, and nothing narrows the names either: the
+   * server decides, tenant by tenant, what a row shows.
+   */
+  private readonly listed = computed(() =>
+    listedColumns(
+      this.rootColumns(),
+      this.meta(),
+      (resource) => (this.across() ? undefined : this.listableOf(resource)),
+      this.resourceMeta,
+    ),
+  );
+
+  /**
+   * The columns the list's request asks for (the store's): the columns the caller may list
+   * and, for each column drawn by a name, a hidden column on the name field (askedNames),
+   * so every row carries the name beside its id. Equal while the same fields, so the
+   * store's request is not asked again for the same columns.
+   */
+  private readonly requestColumns = computed<ColumnConfig[]>(
+    () => {
+      const names = askedNames(this.listed());
+      const columns = this.listColumns();
+      return names.length === 0 ? columns : [...columns, ...names.map((id) => ({ id, hidden: true }))];
+    },
+    { equal: (a, b) => a.length === b.length && a.every((column, i) => column.id === b[i].id) },
+  );
+
+  /**
+   * The sorts the table draws on its headings: a sort by the names beside a fixed set's
+   * field stands on that field's column (tableSorts).
+   */
+  drawnSorts = computed(() => tableSorts(this.listed(), this.store.sorts()));
+
   columns = computed(() => {
     const refmap = this.resourceRefMap();
-    const cols = this.rootColumns();
     const columns: ColumnConfig[] = [];
     const usedIds = new Set<string>();
     // A column over a field the server does not order is drawn with no sort button, as one
@@ -1128,8 +1170,11 @@ export class ResourceListComponent implements OnInit {
       usedIds.add(TenantProperty);
     }
 
-    for (const col of cols) {
-      const indexId = this.getUniqueId(col.id, usedIds) as FieldName;
+    for (const listed of this.listed()) {
+      const col = listed.column;
+      // A column drawn by the name beside its id is the table's column under the name
+      // field's id, so a header click sorts by the name and its filter names it.
+      const indexId = this.getUniqueId(listed.tableId, usedIds) as FieldName;
       usedIds.add(indexId);
 
       if (col.hidden) {
@@ -1217,23 +1262,31 @@ export class ResourceListComponent implements OnInit {
           return formatFieldValue(fieldMeta, params) || (col.emptyDataValue as string);
         };
         // A column that says how its cell is read off the row (valueGetter) is read
-        // that way, then formatted like any other.
+        // that way, then formatted like any other. A column drawn by a name (a name
+        // column, or one on an id whose name the person may not list that has the page's
+        // words for a tenant or a row) is read off the row by cellText: the name beside
+        // the id, else the page's words, else the stored value. Such a column on the id
+        // says no stored value, so it offers neither sort nor filter.
+        const named = listed.kind === 'name' || listed.kind === 'worded';
+        const worded = listed.kind === 'worded';
         const shared = {
           id: indexId,
-          header: col.header,
+          header: listed.header ?? col.header,
           width: col.width,
           resizable: col.resizable,
-          valueFormatter,
+          ...(named
+            ? { valueGetter: (data: RecordData): string => cellText(listed, data, (key) => this.ownTenantName(key)) }
+            : { valueFormatter }),
           // A configured format stays with the column, so the display row knows the
           // author chose how the cell is written.
           ...(col.formatType ? { formatType: col.formatType } : {}),
           ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
           // A column that opts out of its filter control says so to the table, and so
           // does one that opts out of sorting.
-          ...(col.filterable === false ? { filterable: false } : {}),
+          ...(col.filterable === false || worded ? { filterable: false } : {}),
           // A column whose list is drawn a line each says so to the table.
           ...(col.lines ? { lines: true } : {}),
-          ...(col.sortable === false || unordered.has(col.id) ? { sortable: false } : {}),
+          ...(col.sortable === false || worded || unordered.has(col.id) ? { sortable: false } : {}),
           // A column of words that opens its row says so while a row opens, and its link
           // rides the display row (processedRowData); otherwise its cell is words alone.
           ...(col.opensRow && !col.iconConfig && rowOpens ? { opensRow: true } : {}),
@@ -1795,7 +1848,7 @@ export class ResourceListComponent implements OnInit {
       // The store reads the listed resource and writes the write resource.
       this.store.resourceName.set(this.writeResourceName());
       this.store.resourceMeta.set(this.meta());
-      this.store.listColumns.set(this.listColumns());
+      this.store.listColumns.set(this.requestColumns());
       this.store.pageCapabilities.set(
         this.rowMethodNames().length > 0 || this.offeredMethodNames().length > 0 ? ['Execute'] : [],
       );
@@ -1924,7 +1977,7 @@ export class ResourceListComponent implements OnInit {
       effect(() => {
         this.filter();
         this.relatedData();
-        const columns = this.listColumns();
+        const columns = this.requestColumns();
         this.store.filter.set(this.filters());
         this.store.disableCacheForFilterPii.set(this.config().disableCacheForFilterPii);
         this.store.searchPII.set(this.searchPII());

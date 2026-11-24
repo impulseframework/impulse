@@ -93,15 +93,18 @@ export function refuseKeylessConfig(
 
 /**
  * Which of the table's columns the server filters: the generated metadata's `filterable`
- * for the field each column shows, keyed by column id. A column whose id is not a field
- * of the listed resource (an action column, a renamed duplicate) is absent, so it draws
- * no control.
+ * for the field each column shows, keyed by column id, a name field's beside the fields'
+ * (`nameFields`, for a column drawn by the name beside an id). A column whose id is
+ * neither (an action column, a renamed duplicate) is absent, so it draws no control.
  */
 export function filterEligibility(
   meta: ResourceMeta | undefined,
   columns: readonly { id: string }[],
 ): ColumnFilterability {
-  const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field.filterable]));
+  const byField = new Map([
+    ...(meta?.fields ?? []).map((field) => [field.fieldName, field.filterable] as const),
+    ...(meta?.nameFields ?? []).map((name) => [name.fieldName, name.filterable] as const),
+  ]);
   const eligibility: Record<string, ColumnFilterability[string]> = {};
   for (const column of columns) {
     const filterable = byField.get(column.id);
@@ -157,10 +160,12 @@ export function queryableMeta(
  * The sorts the server answers this caller. Where the digest's List field set for the
  * resource is given (`listable`), a sort by a field it does not name is dropped, a key
  * field apart, which takes no grant: the server refuses the whole list for a sort by a
- * field the caller may not list, on a table, a view and a computed resource alike. Not
- * given (nothing is known, or a list across tenants), nothing is dropped for it. Then,
- * on a computed resource, each sort by a field the digest lists as conditional is
- * dropped, which the server refuses as it refuses a filter by it (queryableMeta).
+ * field the caller may not list, on a table, a view and a computed resource alike. A
+ * name field is in no digest of the resource: a sort by it is judged by the id it stands
+ * beside (`nameFields`). Not given (nothing is known, or a list across tenants), nothing
+ * is dropped for it. Then, on a computed resource, each sort by a field the digest lists
+ * as conditional is dropped, which the server refuses as it refuses a filter by it
+ * (queryableMeta).
  */
 export function answeredSorts<S extends { readonly field: string }>(
   sorts: readonly S[],
@@ -171,7 +176,11 @@ export function answeredSorts<S extends { readonly field: string }>(
   let answered = [...sorts];
   if (listable !== undefined) {
     const keys = new Set<string>(keyFields(meta).map((key) => key.fieldName));
-    answered = answered.filter((sort) => listable.has(sort.field) || keys.has(sort.field));
+    const ids = new Map((meta?.nameFields ?? []).map((name) => [name.fieldName, name.of]));
+    answered = answered.filter((sort) => {
+      const field = ids.get(sort.field) ?? sort.field;
+      return listable.has(field) || keys.has(field);
+    });
   }
   if (meta?.computed !== true) {
     return answered;
@@ -212,11 +221,15 @@ export function sameSorts(a: readonly FieldSort[], b: readonly FieldSort[]): boo
 
 /**
  * Which text matches each of the table's columns answers: the generated metadata's
- * `search` for the field each column shows, keyed by column id. A column whose field
- * lists none, or whose id is not a field of the listed resource, is absent.
+ * `search` for the field each column shows, keyed by column id, a name field's beside the
+ * fields' (`nameFields`). A column whose field lists none, or whose id is neither a field
+ * nor a name field of the listed resource, is absent.
  */
 export function searchEligibility(meta: ResourceMeta | undefined, columns: readonly { id: string }[]): ColumnSearches {
-  const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field.search]));
+  const byField = new Map([
+    ...(meta?.fields ?? []).map((field) => [field.fieldName, field.search] as const),
+    ...(meta?.nameFields ?? []).map((name) => [name.fieldName, name.search] as const),
+  ]);
   const searches: Record<string, ColumnSearches[string]> = {};
   for (const column of columns) {
     const search = byField.get(column.id);

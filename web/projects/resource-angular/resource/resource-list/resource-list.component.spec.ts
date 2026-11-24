@@ -57,6 +57,8 @@ const ships = 'Ships' as Resource;
 const calls = 'DistressCalls' as Resource;
 const clients = 'Clients' as Resource;
 const contacts = 'ClientContacts' as Resource;
+const patrols = 'Patrols' as Resource;
+const squadrons = 'Squadrons' as Resource;
 
 /** The base64 of 32 zero bytes: a SHA-256 digest. */
 const digest32 = btoa(String.fromCharCode(...new Array<number>(32).fill(0)));
@@ -130,6 +132,40 @@ const metas: Record<string, ResourceMeta> = {
     searchFields: ['name', 'contactEmail', 'clientContact.displayName'],
     searchBranches: [{ field: 'clientContact.displayName', resource: contacts, fieldName: 'displayName' }],
   } as ResourceMeta,
+  // A patrol's squadron is a row with a name (the squadrons' @name), which the server
+  // answers beside the id and filters and matches text in; its level is one of a fixed
+  // set, whose names have a name field beside the id too.
+  [patrols]: {
+    route: 'patrols',
+    fields: [
+      field('id', { primaryKey: { ordinalPosition: 0 } }),
+      field('name'),
+      field('squadronId', {
+        displayType: 'enumerated',
+        isIndex: true,
+        filterable: 'always',
+        enumeratedResource: squadrons,
+      }),
+      field('levelId', {
+        displayType: 'enumerated',
+        isIndex: true,
+        filterable: 'always',
+        enumeration: [
+          { id: 'run', display: 'Run' },
+          { id: 'visit', display: 'Visit' },
+        ],
+      }),
+    ],
+    nameFields: [
+      { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains'] },
+      { fieldName: 'levelName', of: 'levelId', filterable: 'always' },
+    ],
+  } as ResourceMeta,
+  [squadrons]: {
+    route: 'squadrons',
+    nameField: 'name',
+    fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')],
+  } as ResourceMeta,
 };
 
 /** The generated descriptor as the console's would read: the key-less list over an empty key tuple, the ships keyed. */
@@ -177,6 +213,17 @@ const descriptor: ApiDescriptor = {
       keys: ['id'],
       operations: ['list', 'read'],
       page: { default: 25, max: 200 },
+    },
+    [patrols]: {
+      resource: patrols,
+      property: 'patrols',
+      route: 'patrols',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'name', direction: 'asc' }],
     },
   },
   methods: {},
@@ -385,6 +432,80 @@ describe('ResourceListComponent', () => {
             `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.header-label') ? 'a button' : 'words'}`,
         );
       expect(headings).toEqual(['Name: a button', 'Status: a button']);
+    });
+  });
+
+  describe('draws a column on an id by the name of the row it points to', () => {
+    const listRequests = (): string[] => transport.requests.map((request) => `${request.method} ${request.url}`);
+    const headingButton = (words: string): HTMLElement | undefined =>
+      Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('th.data-col button.header-label'),
+      ).find((button) => button.textContent?.includes(words));
+    const grid = (): AppGridComponent =>
+      fixture.debugElement.query(By.directive(AppGridComponent)).componentInstance as AppGridComponent;
+
+    it('asks for the name beside the id, draws it or the id where a row has none, sorts by it from its heading and filters by it', async () => {
+      await create(
+        { primaryResource: patrols, listColumns: [{ id: 'name' as FieldName }, { id: 'squadronId' as FieldName }] },
+        [
+          { id: 'p-1', name: 'Dawn', squadronId: 'q-1', squadronName: 'Hammer' },
+          { id: 'p-2', name: 'Dusk', squadronId: 'q-2', squadronName: null },
+        ],
+      );
+      fixture.detectChanges();
+      await settle();
+      const element = fixture.nativeElement as HTMLElement;
+
+      expect(listRequests()).toEqual(['GET /api/patrols?columns=name%2CsquadronId%2CsquadronName%2Cid&count=true']);
+      const cells = Array.from(element.querySelectorAll('tr.impulse-row')).map((row) =>
+        Array.from(row.querySelectorAll('td.data-col')).map((td) => td.textContent?.trim()),
+      );
+      expect(cells).toEqual([
+        ['Dawn', 'Hammer'],
+        ['Dusk', 'q-2'],
+      ]);
+      expect(
+        Array.from(element.querySelectorAll('th.data-col .col-header')).map((th) => th.textContent?.trim()),
+      ).toEqual(['Name', 'Squadron']);
+      expect(grid().filterability()).toMatchObject({ squadronName: 'always' });
+      expect(grid().searches()).toEqual({ squadronName: ['contains'] });
+
+      headingButton('Squadron')?.click();
+      fixture.detectChanges();
+      await settle();
+      expect(fixture.componentInstance.store.sorts()).toEqual([{ field: 'squadronName', direction: 'asc' }]);
+      expect(new URL(transport.requests.at(-1)?.url ?? '', 'http://list.test').searchParams.get('sort')).toBe(
+        'squadronName:asc',
+      );
+
+      fixture.componentInstance.onFilterChange([{ field: 'squadronName', operator: 'contains', value: 'ham' }]);
+      await settle();
+      expect(new URL(transport.requests.at(-1)?.url ?? '', 'http://list.test').searchParams.get('filter')).toBe(
+        'squadronName:contains:ham',
+      );
+    });
+
+    it("a heading press on a fixed set's column sorts by the names beside it, and the table's arrow stands on that column", async () => {
+      await create(
+        {
+          primaryResource: patrols,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'levelId' as FieldName, header: 'Level' }],
+        },
+        [{ id: 'p-1', name: 'Dawn', levelId: 'visit' }],
+      );
+      fixture.detectChanges();
+      await settle();
+      expect(listRequests()).toEqual(['GET /api/patrols?columns=name%2ClevelId%2Cid&count=true']);
+
+      headingButton('Level')?.click();
+      fixture.detectChanges();
+      await settle();
+      expect(fixture.componentInstance.store.sorts()).toEqual([{ field: 'levelName', direction: 'asc' }]);
+      expect(grid().sorts()).toEqual([{ field: 'levelId', direction: 'asc' }]);
+      const cells = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('tr.impulse-row td.data-col'),
+      ).map((td) => td.textContent?.trim());
+      expect(cells).toEqual(['Dawn', 'Visit']);
     });
   });
 

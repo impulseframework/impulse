@@ -244,16 +244,19 @@ export class ResourceStore {
   /**
    * Whether the request must travel in the body: the page asked for it
    * (disableCacheForFilterPii), the page's filter or a column filter names a field the
-   * metadata marks PII, or the search box reaches one. The server refuses a PII field in
-   * a URL with a 400, so the store posts on its own wherever the metadata lets it tell.
+   * metadata marks PII, or a name field it marks so (the name beside an id is PII where
+   * the pointed-to name is), or the search box reaches one. The server refuses a PII
+   * field in a URL with a 400, so the store posts on its own wherever the metadata lets
+   * it tell.
    */
   private readonly sensitive = computed(() => {
     if (this.disableCacheForFilterPii()) {
       return true;
     }
-    const pii = new Set(
-      (this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
-    );
+    const pii = new Set([
+      ...(this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
+      ...(this.resourceMeta().nameFields ?? []).filter((name) => name.pii).map((name) => name.fieldName),
+    ]);
     if (
       pii.size > 0 &&
       (filterFields(this.filter()).some((f) => pii.has(f)) ||

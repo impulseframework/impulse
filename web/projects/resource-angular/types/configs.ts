@@ -321,6 +321,22 @@ interface ColumnConfigBase {
   hidden?: boolean;
   emptyDataValue?: DataType;
   /**
+   * What the cell says for a row that shows no name, given the row: the id points to no
+   * row, or to one the reader may not see. Absent, the cell shows the stored value.
+   */
+  fallback?: (data: any) => string;
+  /**
+   * The column's field holds a tenant's key. Where the row shows no name, the tenant is
+   * named as the person's own list of tenants names it, before `fallback` is asked.
+   */
+  tenantKey?: boolean;
+  /**
+   * How the cell says the name it shows, given the name and the row: the page's words
+   * around a bare name ("Sector Anvil" under "Held in"). It is not asked for a row that
+   * falls back.
+   */
+  said?: (value: string, data: any) => string;
+  /**
    * Draws a list field's items a line each, in place of one line of them joined by
    * commas and cut short: for a short list a person reads whole (the roles a group
    * holds). A row is as tall as its longest list. The column does not grow wide for a

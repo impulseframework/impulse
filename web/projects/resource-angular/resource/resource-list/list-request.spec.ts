@@ -46,6 +46,21 @@ const boards: ResourceMeta = {
   ],
 };
 
+// The same board with ids that point to a squadron and a pilot, each with a name beside it:
+// the squadron's name the server filters and matches text in, the pilot's neither.
+const namedBoards: ResourceMeta = {
+  ...boards,
+  fields: [
+    ...boards.fields,
+    field('squadronId', { displayType: 'enumerated', isIndex: true, filterable: 'always' }),
+    field('pilotId', { displayType: 'enumerated' }),
+  ],
+  nameFields: [
+    { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith'] },
+    { fieldName: 'pilotName', of: 'pilotId' },
+  ],
+};
+
 describe('filterEligibility', () => {
   const cases: {
     name: string;
@@ -66,6 +81,12 @@ describe('filterEligibility', () => {
       want: {},
     },
     { name: 'no metadata, nothing filters', meta: undefined, columns: ['title'], want: {} },
+    {
+      name: "a column on a name field takes the name field's filterable, and one the server filters by nothing is absent",
+      meta: namedBoards,
+      columns: ['title', 'squadronName', 'pilotName'],
+      want: { title: 'always', squadronName: 'always' },
+    },
   ];
 
   for (const tt of cases) {
@@ -211,6 +232,15 @@ describe('answeredSorts', () => {
     const listable = new Set(['holder', 'budget']);
 
     expect(answeredSorts(sorts, passes, states, listable)).toEqual([sorts[1], sorts[4]]);
+  });
+
+  it('a sort by a name field is answered where the digest lists the id it stands beside, or nothing narrows, and dropped where it does not', () => {
+    const named: ResourceMeta = { ...table, nameFields: [{ fieldName: 'bayName', of: 'bay' }] };
+    const byBayName = [{ field: 'bayName', direction: 'asc' as const }, sorts[4]];
+
+    expect(answeredSorts(byBayName, named, {}, new Set(['bay']))).toEqual(byBayName);
+    expect(answeredSorts(byBayName, named, {})).toEqual(byBayName);
+    expect(answeredSorts(byBayName, named, {}, new Set(['holder', 'bayName']))).toEqual([sorts[4]]);
   });
 
   it('the sorts handed in are not changed, and a new array comes back', () => {
@@ -554,6 +584,12 @@ describe('searchEligibility', () => {
       want: {},
     },
     { name: 'no metadata, no matches', meta: undefined, columns: ['title'], want: {} },
+    {
+      name: "a column on a name field takes the name field's matches, and one that answers none is absent",
+      meta: namedBoards,
+      columns: ['title', 'squadronName', 'pilotName'],
+      want: { title: ['contains', 'startswith'], squadronName: ['contains', 'startswith'] },
+    },
   ];
 
   for (const tt of cases) {

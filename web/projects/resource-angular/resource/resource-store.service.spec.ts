@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { ColumnConfig, FieldName, RESOURCE_DOMAIN, rpcConfig } from '@impulseframework/resource-angular/types';
-import { ApiDescriptor, ApiError, createClient, Domain, Method, Resource, Transport, TransportRequest } from '@impulseframework/resource';
+import { ApiDescriptor, ApiError, createClient, Domain, Method, Resource, ResourceMeta, Transport, TransportRequest } from '@impulseframework/resource';
 import { firstValueFrom } from 'rxjs';
 import { ResourceStore } from './resource-store.service';
 
@@ -323,6 +323,45 @@ describe('ResourceStore paged reader', () => {
     expect(error instanceof ApiError && error.message).toBe('Berths serves at most 50 rows per page and declares no order; add a sort');
     expect(pager.rows()).toEqual([]);
     pager.destroy();
+  });
+});
+
+describe('ResourceStore list page', () => {
+  // A ship class's builder is a person, whose name the metadata marks PII; its yard's is not.
+  const shipClasses = {
+    route: 'ship-classes',
+    fields: [
+      { fieldName: 'id', displayType: 'uuid', required: false, isIndex: true, primaryKey: { ordinalPosition: 0 } },
+      { fieldName: 'builderId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'yardId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always' },
+    ],
+    nameFields: [
+      { fieldName: 'builderName', of: 'builderId', filterable: 'always', pii: true },
+      { fieldName: 'yardName', of: 'yardId', filterable: 'always' },
+    ],
+  } as ResourceMeta;
+
+  it('posts a column filter by a name field the metadata marks PII, and sends one by any other name field in the address', async () => {
+    const script = scripted({});
+    const store = storeOver(script);
+    store.resourceMeta.set(shipClasses);
+    store.resourceName.set('ShipClasses' as Resource);
+    store.listColumns.set([{ id: 'builderId' as FieldName }, { id: 'builderName' as FieldName, hidden: true }]);
+    store.buildStorePage();
+    await settle(() => script.requests.length > 0);
+
+    store.columnFilters.set([{ field: 'yardName', operator: 'eq', value: 'Clyde' }]);
+    await settle(() => script.requests.length > 1);
+    expect(`${script.requests.at(-1)?.method} ${script.requests.at(-1)?.url}`).toBe(
+      'GET /api/ship-classes?filter=yardName%3Aeq%3AClyde&columns=builderId%2CbuilderName%2Cid&count=true',
+    );
+
+    store.columnFilters.set([{ field: 'builderName', operator: 'eq', value: 'Ada' }]);
+    await settle(() => script.requests.length > 2);
+    expect(`${script.requests.at(-1)?.method} ${script.requests.at(-1)?.url}`).toBe(
+      'POST /api/ship-classes?columns=builderId%2CbuilderName%2Cid&count=true',
+    );
+    expect(script.requests.at(-1)?.body).toEqual({ filter: 'builderName:eq:Ada' });
   });
 });
 
