@@ -270,19 +270,20 @@ an application cannot import. It is not the `oidc` method of the last column: th
 names a single provider in a setting, so it serves one organization.
 
 One thing differs between Google and Microsoft: invitations. An invitation is accepted
-only with the invited email address. Google vouches for the address a sign-in carries, so
-a Google sign-in with the invited address accepts at once, and one with another address
-is refused. Microsoft does not vouch for an address. A Microsoft sign-in carries none
-unless the application's registration at Microsoft is set up to send it, and the one it
-then carries is whatever the administrator of that Microsoft directory wrote: anybody can
-make a directory and write somebody else's address in it. So that address counts for
-nothing, whether it is the invited one or another. A person who accepts an invitation with
-Microsoft, or with another provider that sends no address or does not vouch for the one
-it sends, is stopped before the application opens and mailed a code at the invited
-address. They type no address: the code goes to the one that was invited. Entering the
-code accepts the invitation, and a new person's account is made with the invited address,
-confirmed. The first administrator of an auth whose only method is Microsoft accepts the
-same way.
+only with the invited email address. Google vouches for the address a sign-in carries
+where the address is Google's own to answer for, a Gmail address or the address of a
+Google Workspace account, so such a sign-in with the invited address accepts at once, and
+one with another address is refused. Microsoft does not vouch for an address. A Microsoft
+sign-in carries none unless the application's registration at Microsoft is set up to send
+it, and the one it then carries is whatever the administrator of that Microsoft directory
+wrote: anybody can make a directory and write somebody else's address in it. So that
+address counts for nothing, whether it is the invited one or another. A person who accepts
+an invitation with Microsoft, with a Google account made with an address from somewhere
+else, or with another provider that sends no address or does not vouch for the one it
+sends, is stopped before the application opens and mailed a code at the invited address.
+They type no address: the code goes to the one that was invited. Entering the code accepts
+the invitation, and a new person's account is made with the invited address, confirmed.
+The first administrator of an auth whose only method is Microsoft accepts the same way.
 
 The code shows that the mailbox is the person's, and nothing more. It makes a new person's
 account, and it confirms the invited address on the account of a person who already signs
@@ -1080,12 +1081,13 @@ a tenant then has one is settled while the application runs.
 
 An application without the directories record has no tenant directories, and that is
 shapes 5 and 7. No tenant takes a directory, none is opened to one and none is made
-directory only. A Google, Microsoft or other provider's method is then a way for an
-invited person to sign in and nothing more: a person from an organization's directory
-who has no account and no invitation joins no tenant, whichever methods the auth has.
-They are refused while the method is invite only, as every method starts. Where an
-administrator has opened the method to sign-up, they get an account that holds no
-tenant, and can create a tenant of their own, as
+directory only. A tenant there has no Sign-in settings page, since everything on that page
+is about the tenant's directory. A Google, Microsoft or other provider's method is then a
+way for an invited person to sign in and nothing more: a person from an organization's
+directory who has no account and no invitation joins no tenant, whichever methods the auth
+has. They are refused while the method is invite only, as every method starts. Where an
+administrator has opened the method to sign-up, they get an account that holds no tenant,
+and can create a tenant of their own, as
 [Who can create a tenant](#who-can-create-a-tenant) describes.
 
 A person who has an account already is not such a person. Their sign-in under the account's
@@ -1315,12 +1317,13 @@ Any method can be used, and the methods are the same for every tenant. No tenant
 directory: an application made with this shape has tenants and no tenant directories, so
 a Google, Microsoft or other provider's method is a way for an invited person to sign in
 and nothing more. An invited person accepts by signing in with any of the auth's methods
-(with Google, the sign-in carries the invited email address; with Microsoft, or with
-another provider that does not vouch for the address it sends, the person is mailed a
-code at the invited address, as
+(with a Gmail address or a Google Workspace account, the Google sign-in carries the
+invited email address; with Microsoft, with a Google account made with an address from
+somewhere else, or with another provider, the person is mailed a code at the invited
+address, as
 [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
-describes). A person from an organization's directory who has no account and no
-invitation joins no tenant, whichever methods the auth has, as
+describes). A person from an organization's directory who has no account and no invitation
+joins no tenant, whichever methods the auth has, as
 [A tenant's directory](#a-tenants-directory) describes, and nothing can be opened to a
 directory or made directory only.
 
