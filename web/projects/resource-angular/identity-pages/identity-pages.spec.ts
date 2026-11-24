@@ -349,6 +349,24 @@ describe("identityPages, the whole application's side", () => {
     ]);
   });
 
+  it('builds no page for the invitations that make a tenant, where the description names their list: the tenants page shows them', () => {
+    const [wholeApplication, tenant] = crew.sides;
+    const invitingSide = {
+      ...wholeApplication,
+      lists: { ...wholeApplication.lists, invitedTenants: 'CrewInvitedSectors' },
+      methods: { ...wholeApplication.methods, inviteTenant: 'InviteCrewSector' },
+    };
+    const inviting = { ...descriptor, identity: [{ ...crew, sides: [invitingSide, tenant] }] } as ApiDescriptor;
+    const built = identityPages(inviting, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(built.map((page) => page.routeData.route)).toEqual([
+      'crew-accounts',
+      'crew-mailed-links',
+      'crew-sessions',
+      'crew-failed-sign-ins',
+      'crew-sign-in',
+    ]);
+  });
+
   describe('the Sign-in page', () => {
     // What the server lists: one row for each method the Auth registers, with what was chosen for it.
     const password: RecordData = {

@@ -118,10 +118,11 @@ export function appMenus(): Menu[] {
       label: 'System',
       groups: [
         {
-          // The crew's accounts across the whole service, their mailed links, the Invited
-          // sectors page, where headquarters and the surveyor bring a new sector in by
-          // inviting the person who will run it, sessions and failed sign-ins, and the
-          // Sign-in page, which lists the crew's sign-in methods.
+          // The crew's accounts across the whole service, their mailed links, sessions and
+          // failed sign-ins, and the Sign-in page, which lists the crew's sign-in methods.
+          // Headquarters and the surveyor bring a new sector in by inviting the person who
+          // will run it from the sectors page (All sectors, in Records), which lists the
+          // invitations still waiting above the sectors.
           // Its Open sign-up action runs a method that declares a warning: the library's
           // dialog asks the server what opening that method will do, shows the answer in
           // the warning style, and holds its button until the word `open` is typed.

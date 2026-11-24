@@ -127,8 +127,9 @@ templates, this README, and the tool's source.
 
   How a tenant comes to exist is apart from who may enter one, and no declaration.
   Nobody creates a tenant directly: the record's create is refused with a sentence that
-  says so. Staff bring an organization in by inviting one person, on the Invited tenants
-  page the library draws from the auth's generated management: the invitation carries
+  says so. Staff bring an organization in by inviting one person, on the tenants page
+  (All tenants), which lists the invitations still waiting above the tenants, and which
+  the library draws from the auth's generated management: the invitation carries
   the tenant's details as staff entered them, held to the record's own create under the
   sender's Create grant when it is sent, and the invited person's first sign-in makes
   the tenant, makes them its administrator and, where they came through their
@@ -1294,10 +1295,8 @@ shape: the tenant's Sign-in settings page is the library's, which the routes and
 file place where a tenant can have a directory, the menu
 file gains the tenant menus ahead of its others (Tenants with All tenants and Invite a
 tenant…, People with the tenant's side of the auth's people, and, where a tenant can have a
-directory, Tenant with Sign-in settings;
-the Invited tenants page, where staff bring a tenant in, is among the auth's pages the
-System menu already places, and the menu file's test, where it lists that menu's pages as
-the skeleton's does, gains it after Mailed links), the
+directory, Tenant with Sign-in settings; staff bring a tenant in from the tenants page
+(All tenants), which lists the invitations still waiting above the tenants), the
 frame's configuration names the place outside every tenant (Configuration, with a gear),
 routes still as the skeleton rendered them are written in the tenant shape, and the test
 of the dialogs (`app/app.dialogs.spec.ts`) still as the skeleton rendered it is written

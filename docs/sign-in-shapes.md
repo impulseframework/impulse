@@ -1030,8 +1030,9 @@ Nobody creates a tenant directly. A tenant comes to exist in one of two ways.
 
 **By invitation.** Staff do not create tenants. They invite a person, and that person's
 first sign-in creates the tenant and makes them its first administrator. This is how to
-control who is added. In the skeletons the invitation is sent from the Invited tenants
-page, in the System menu, by a holder of the `Administrator` role. The invitation carries
+control who is added. In the skeletons the invitation is sent from the tenants page (All
+tenants, in the Tenants menu), which lists the invitations still waiting above the
+tenants, by a holder of the `Administrator` role. The invitation carries
 the tenant's name. Where a tenant can have a directory, it can also say that the tenant
 is entered through its directory only, and name the role the directory's people start
 with.

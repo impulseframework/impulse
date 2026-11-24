@@ -19,11 +19,21 @@ describe('the menu file', () => {
     expect(unplacedPages(routes, withoutTenant).map((page) => page.label)).toEqual(['Sign-in settings']);
   });
 
-  it("places the Invited tenants page among the staff's pages under System, where a tenant is brought in", () => {
-    // The library builds the page from the generated description, which names the list of
-    // the invitations that make a tenant; the routes carry it and System places it.
-    const withoutSystem = menus().filter((menu) => menu.label !== 'System');
-    expect(unplacedPages(routes, withoutSystem).map((page) => page.label)).toContain('Invited tenants');
+  it("places the staff's pages for the whole application under System, and no page of the invitations that make a tenant", () => {
+    // The library builds the pages from the generated description, which names the list of
+    // the invitations that make a tenant: that list is no page of these, but is shown on All
+    // tenants, above the tenants.
+    const system = menus().find((menu) => menu.label === 'System');
+    expect((system?.groups ?? []).flatMap((group) => group.entries).map((entry) => entry.label)).toEqual([
+      'Accounts',
+      'Groups',
+      'Mailed links',
+      'Sessions',
+      'Failed sign-ins',
+      'Sign-in',
+      'Break glass',
+      'Feature flags',
+    ]);
   });
 
   it("places Invite a tenant… after All tenants: an action outside every tenant that opens the page with the invitation's dialog", () => {

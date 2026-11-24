@@ -31,8 +31,8 @@ export function appMenus(): Menu[] {
         {
           // The tenants the application serves, on the library's page, and Invite a tenant…,
           // which opens the invitation on that page. Nobody creates one here: an
-          // administrator brings an organization in by inviting one person, there or on the
-          // Invited tenants page among the staff's pages under System, and that person's
+          // administrator brings an organization in by inviting one person, from that page,
+          // which lists the invitations still waiting above the tenants, and that person's
           // first sign-in makes the tenant.
           entries: [
             tenantsPage(apiDescriptor, resourceMeta, { auth: 'Staff' }),
@@ -62,9 +62,8 @@ export function appMenus(): Menu[] {
       groups: [
         {
           entries: [
-            // The staff's accounts across the whole application, their mailed links, the
-            // Invited tenants page, where an administrator brings a tenant in by inviting
-            // the person who will administer it, sessions and failed sign-ins.
+            // The staff's accounts across the whole application, their mailed links,
+            // sessions and failed sign-ins.
             ...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
           ],
         },

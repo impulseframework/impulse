@@ -37,7 +37,8 @@ type (
 	// How a tenant comes to exist is apart from who may enter one. Nobody creates a
 	// tenant directly: the record's create is refused, saying so. An administrator
 	// brings an organization in by inviting one person (the staff auth's generated
-	// InviteStaffTenant, on the console's Invited tenants page): the invitation carries
+	// InviteStaffTenant, on the console's tenants page, which lists the invitations still
+	// waiting above the tenants): the invitation carries
 	// the tenant's details as the administrator entered them, held to this record's own
 	// create under the Administrator role's Create grant when it is sent, and the
 	// invited person's first sign-in makes the tenant, seats them as its administrator

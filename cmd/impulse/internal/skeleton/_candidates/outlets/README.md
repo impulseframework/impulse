@@ -55,8 +55,8 @@ same page for the members auth (`/members-break-glass`), and the members role fi
 its lists and its method to no role, as it gives nothing of the whole application's side. The library draws them from the API description (`identityRoutes` in each application's
 `app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
 the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
-(`app.menus.ts`) shows Tenants (All tenants and Invite a tenant…) and System (the staff's accounts, the
-Invited tenants page and Feature flags) in Configuration, and People and Tenant (Sign-in settings)
+(`app.menus.ts`) shows Tenants (All tenants and Invite a tenant…) and System (the staff's accounts and
+Feature flags) in Configuration, and People and Tenant (Sign-in settings)
 inside a tenant; the portal's shows System (the members' accounts) and People. The
 person's own menu holds Your account (on the console: the username, name, email address
 and password, as lines that open in place to change them, and where the person is signed
@@ -66,8 +66,8 @@ Appearance and Sign out. Help ends with About, a pop-up that carries the release
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator
-brings an organization in by inviting one person, on the console's Invited tenants page
-(System), which the library draws from the staff auth's generated `InviteStaffTenant`,
+brings an organization in by inviting one person, on the console's tenants page (All
+tenants), which lists the invitations still waiting above the tenants, and which the library draws from the staff auth's generated `InviteStaffTenant`,
 `StaffInvitedTenants` and `WithdrawStaffInvitedTenant`. Sending the invitation takes the
 `Administrator` role's Create grant on the record, and a name a tenant holds is refused
 there. No tenant exists while the invitation waits; the invited person's first sign-in

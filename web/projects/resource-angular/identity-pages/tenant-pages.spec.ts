@@ -22,7 +22,7 @@ import {
 } from '@impulseframework/resource-angular/types';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
 import { describe, expect, it, vi } from 'vitest';
-import { identityPages } from './identity-pages';
+import { invitedTenantsConfig } from './identity-pages';
 import { inviteTenantAction, tenantsConfig, tenantsPage, tenantsRoute } from './tenant-pages';
 
 // The tenants page is placed from the API's description alone: the whole application's
@@ -383,10 +383,8 @@ describe('tenantsPage and tenantsRoute', () => {
   });
 
   it('send an invitation from above the list, with the waiting list above it, titled, keeping Withdraw and no method of its own', () => {
-    // The Invited sectors page's own list, as the identity pages build it.
-    const own = identityPages(crew, resourceMeta, { auth: 'Crew', scope: 'global' }).find(
-      (candidate) => candidate.parentConfig.primaryResource === invited,
-    )?.parentConfig as ListViewConfig;
+    // The invitations' own list, as the identity pages' configuration for them builds it.
+    const own = invitedTenantsConfig(crew, resourceMeta, { auth: 'Crew' })?.parentConfig as ListViewConfig;
     expect(list(config).listMethods).toEqual(own.listMethods);
     expect(list(config).listMethods?.map((presented) => [presented.method, presented.label, presented.icon])).toEqual([
       [invite, 'Invite a sector', 'send'],
@@ -407,7 +405,7 @@ describe('tenantsPage and tenantsRoute', () => {
         presented.label,
       ]),
     ).toEqual([[withdraw, 'Withdraw']]);
-    // The Invited sectors page keeps its own title and its Invite.
+    // The invitations' own configuration keeps its own title and its Invite.
     expect([own.title, own.listMethods?.length]).toEqual(['Invited sectors', 1]);
   });
 

@@ -3,7 +3,11 @@ import { apiDescriptor } from '@app/service/zz_gen_api';
 import { Methods, Resources } from '@app/service/zz_gen_constants';
 import { methodMeta as generatedMethodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { identityMenuPages, identityPages } from '@impulseframework/resource-angular/identity-pages';
+import {
+  identityMenuPages,
+  identityPages,
+  invitedTenantsConfig,
+} from '@impulseframework/resource-angular/identity-pages';
 import {
   ListViewConfig,
   Method,
@@ -51,21 +55,21 @@ const sampleRows = (resource: Resource): RecordData[] => {
 };
 
 describe("the library's pages over an auth's generated management", () => {
-  it('are the accounts, groups, mailed links, invited sectors, sessions, failed sign-ins, sign-in methods and Break glass of the whole service, and the people, groups and invitations of a sector', () => {
+  it('are the accounts, groups, mailed links, sessions, failed sign-ins, sign-in methods and Break glass of the whole service, and the people, groups and invitations of a sector', () => {
     const routes = (auth: string, scope: 'global' | 'domain'): (string | undefined)[] =>
       identityPages(apiDescriptor, resourceMeta, { auth, scope }).map((page) => page.routeData.route);
 
     // Every auth has the Sign-in page, where whether everyone is asked for a second factor
     // is set: the crew's, which also carries the choice of who may sign up, and the
-    // members', whose roles a directory writes. The crew's people make the sectors, so its
-    // pages hold the invitations that make one; the members' do not. The crew's roles are
-    // given by hand, so a person of the crew takes one for a set time on Break glass;
-    // nobody gives the members a role by hand, and they have no such page.
+    // members', whose roles a directory writes. The crew's people make the sectors, but
+    // the invitations that make one are no page of these: the sectors page shows them
+    // above the sectors. The crew's roles are given by hand, so a person of the crew takes
+    // one for a set time on Break glass; nobody gives the members a role by hand, and they
+    // have no such page.
     expect(routes('Crew', 'global')).toEqual([
       'crew-accounts',
       'crew-groups',
       'crew-mailed-links',
-      'crew-invited-sectors',
       'crew-sessions',
       'crew-failed-sign-ins',
       'crew-sign-in',
@@ -276,13 +280,11 @@ describe("the library's pages over an auth's generated management", () => {
     });
   }
 
-  it("brings a sector in from the crew's Invited sectors page: the list is the generated one, the form is the invitation's own fields, and Withdraw is filled from the row", () => {
+  it("brings a sector in from the crew's invitations, which the sectors page shows above the sectors: the list is the generated one, the form is the invitation's own fields, and Withdraw is filled from the row", () => {
     // Nobody creates a sector directly: the record's metadata says so, so no page of the
     // library draws a Create button for it.
     expect(resourceMeta(Resources.Sectors as Resource).createDisabled).toBe(true);
-    const page = identityPages(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' }).find(
-      (candidate) => candidate.routeData.route === 'crew-invited-sectors',
-    );
+    const page = invitedTenantsConfig(apiDescriptor, resourceMeta, { auth: 'Crew' });
     const list = page?.parentConfig as ListViewConfig;
     expect([page?.page?.label, list.title, list.primaryResource]).toEqual([
       'Invited sectors',
@@ -340,12 +342,8 @@ describe("the library's pages over an auth's generated management", () => {
       'invitationId',
     ]);
     expect(withdraw?.fill?.({ id: 'i-1', email: 'founder@dawn.example' })).toEqual({ invitationId: 'i-1' });
-    // The members' people make no sector: their pages hold no such list.
-    expect(
-      identityPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }).map(
-        (candidate) => candidate.routeData.route,
-      ),
-    ).not.toContain('members-invited-sectors');
+    // The members' people make no sector: their side names no such list.
+    expect(invitedTenantsConfig(apiDescriptor, resourceMeta, { auth: 'Members' })).toBeUndefined();
   });
 
   it("ask the list a role is picked from for the dialog's own method, on every dialog of the crew's that gives a role", () => {

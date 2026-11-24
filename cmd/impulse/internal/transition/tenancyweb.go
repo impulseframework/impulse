@@ -42,9 +42,6 @@ func (tn Tenancy) writeBrowser(a *app.App, site *app.Site, ch *Change) error {
 	if err := tn.editMenus(a, source, auth, ch); err != nil {
 		return err
 	}
-	if err := tn.editMenuSpec(a, site, source, auth, ch); err != nil {
-		return err
-	}
 	if err := tn.editDialogsSpec(a, source, auth, ch); err != nil {
 		return err
 	}
@@ -467,8 +464,8 @@ var (
 // record's menu (All), People (the tenant's side of the auth's people) and, where a
 // tenant can have a directory, the record's own menu (Sign-in settings), each showing in
 // its place only, as the reference's menu file has them, with the imports they need.
-// The page staff bring a tenant in from is among the auth's pages for the whole
-// application, which the menu file places already.
+// Staff bring a tenant in from the record's list, which lists the invitations still
+// waiting above the tenants.
 func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	rel := path.Join(source, appMenusFile)
 	data, mode, err := readFile(a, rel)
@@ -550,51 +547,6 @@ const appMenusSpecFile = "app/app.menus.spec.ts"
 // appDialogsSpecFile is the test of the dialogs the library draws for the generated
 // methods, under a project's source root.
 const appDialogsSpecFile = "app/app.dialogs.spec.ts"
-
-// systemPagesRE reads where the base skeleton's menu test lists the pages the System menu
-// alone places: the auth's mailed links, then its sessions.
-var systemPagesRE = regexp.MustCompile(`\n([ \t]*)'Mailed links',\n[ \t]*'Sessions',\n`)
-
-// editMenuSpec names the page staff bring a tenant in from in the menu file's test,
-// where the test lists the pages the System menu alone places as the base skeleton's
-// does. The library draws that page for the auth a tenant is made through, among the
-// auth's pages for the whole application, after its mailed links, so a test that pins
-// those pages fails until it names the page. A console whose auth makes no tenant has no
-// such page, and its test is left without a word, as is an application with no such test.
-func (tn Tenancy) editMenuSpec(a *app.App, site *app.Site, source, auth string, ch *Change) error {
-	maker := tn.makerAuth(a, site)
-	if maker == nil || !strings.EqualFold(maker.Name, auth) {
-		return nil
-	}
-	rel := path.Join(source, appMenusSpecFile)
-	data, mode, err := readFile(a, rel)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	label := "Invited " + tn.manyLower()
-	text := string(data)
-	if strings.Contains(text, "'"+label+"'") {
-		return nil
-	}
-	loc := systemPagesRE.FindStringSubmatchIndex(text)
-	if loc == nil {
-		ch.skipf("%s does not list the pages the System menu places as the skeleton's test does ('Mailed links', then 'Sessions'), so it was left as it is: the System menu gains %s, the page staff bring a %s in from, after Mailed links, and a test that pins the menu's pages names it there", rel, label, tn.oneLower())
-
-		return nil
-	}
-	indent := text[loc[2]:loc[3]]
-	at := loc[0] + len("\n"+indent+"'Mailed links',\n")
-	edited := text[:at] + indent + "'" + label + "',\n" + text[at:]
-	if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
-		return errors.Wrap(err, "os.WriteFile()")
-	}
-	ch.didf("%s: the pages the System menu places gain %s, the page staff bring a %s in from, after Mailed links", rel, label, tn.oneLower())
-
-	return nil
-}
 
 // editDialogsSpec writes the test of the dialogs again as the tenanted skeleton's where
 // it is as the base skeleton rendered it, for the auth, as editRoutes writes the routes.

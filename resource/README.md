@@ -5964,11 +5964,8 @@ library builds the pages from the block at run time
 `@impulseframework/resource-angular/identity-pages`): the people with a menu on each row
 holding the methods the server lists for that row, a person's row page with the roles
 held, the ways they sign in and the sign-in identities under it (and the sessions, for
-the whole application), the invitations, and for the whole application the page staff
-bring a tenant in from, named by the tenant record ("Invited sectors": the invitations
-that still stand with a column for each detail the caller may read, the method that
-sends one above the list, and Withdraw on each row, each offered only under its grant),
-the sessions, the failed sign-ins and the Sign-in page: one row for each sign-in method, Open sign-up on a
+the whole application), the invitations, and for the whole application the sessions,
+the failed sign-ins and the Sign-in page: one row for each sign-in method, Open sign-up on a
 method that is invite only and Make invite only on one that is open, each only where the
 caller holds the grant and never on a method the directory or the application's own rule
 decides, the method's warning drawn by the method dialog, and a notice above the list
@@ -5976,7 +5973,9 @@ while a method is open. Above the ways a person signs in, the page offers
 Remove password for an Auth with a password method where the removal can happen: the
 server's answer for the person's row lists the method, and the list shows a password and
 an identity that counts. It asks first, naming what is left by the words of the rows, and
-the offer goes with the password once the list is read again.
+the offer goes with the password once the list is read again. The invitations that make a
+tenant are no page of these: the tenants page (All tenants), which lists the invitations
+still waiting above the tenants, shows them, with the button that sends one.
 A period is picked and shown in days. The server keeps an end as the first instant the
 assignment no longer counts, and "until 1 December" means through the end of
 1 December: the dialog of a method that gives something for a period sends the day

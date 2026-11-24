@@ -119,8 +119,8 @@ func TestTenancyBrowser(t *testing.T) {
 	menus := "web/console/src/app/app.menus.ts"
 	// The Tenants menu holds the library's list of tenants and the invitation that opens on
 	// it: nobody creates a tenant directly, so the menu file gains no entry that would, and
-	// no dialog service for one. The page staff bring a tenant in from is among the auth's
-	// pages the System menu already places.
+	// no dialog service for one. The invitations still waiting are listed on that page,
+	// above the tenants.
 	wantContains(t, a, menus, []string{
 		"import {\n  identityMenuPages,\n  inviteTenantAction,\n  tenantSignInPage,\n  tenantsPage,\n} from '@impulseframework/resource-angular/identity-pages';\n",
 		"export function appMenus(): Menu[] {\n  return [\n    {\n      label: 'Tenants',",
@@ -261,73 +261,6 @@ func TestTenancyBrowserEdited(t *testing.T) {
 			t.Errorf("Skipped lacks %q:\n%s", want, skipped)
 		}
 	}
-}
-
-// TestTenancyBrowserMenuSpec pins what add tenancy does to the menu file's test. The
-// library draws the page staff bring a tenant in from for the auth a tenant is made
-// through, among that auth's pages the System menu places, so the base skeleton's test,
-// which lists those pages, gains it after Mailed links, in the record's words. A console
-// whose auth makes no tenant has no such page and its test is left; a test that lists the
-// pages in another form is left and the brief says what it gains.
-func TestTenancyBrowserMenuSpec(t *testing.T) {
-	t.Parallel()
-
-	spec := "web/console/src/" + appMenusSpecFile
-	base := skeletonWeb(t, appMenusSpecFile)
-	listed := "      'Mailed links',\n      'Sessions',\n"
-	if !strings.Contains(base, listed) {
-		t.Fatalf("the base skeleton's menu test does not list the System menu's pages as this test reads them (%q):\n%s", listed, base)
-	}
-	// through is an application a tenant is made through the staff auth of: the auth is
-	// bound to the default outlet, which serves the tenant record.
-	through := func(specText string) func(files map[string]string) {
-		return func(files map[string]string) {
-			files["pkg/config/data.go"] = makerConfig
-			files["pkg/auth/staff/staff.go"] = staffPackage(t, "staff.go")
-			files["cmd/generate/resourcegenerator/main.go"] = boundProgram(t)
-			files[spec] = specText
-		}
-	}
-
-	t.Run("the skeleton's test gains the page after Mailed links, in the record's words", func(t *testing.T) {
-		t.Parallel()
-
-		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, through(base)))
-		want := strings.Replace(base, listed, "      'Mailed links',\n      'Invited service areas',\n      'Sessions',\n", 1)
-		if diff := cmp.Diff(want, read(t, a, spec)); diff != "" {
-			t.Errorf("menu test mismatch (-want +got):\n%s", diff)
-		}
-		if did := strings.Join(ch.Did, "\n"); !strings.Contains(did, spec+": the pages the System menu places gain Invited service areas, the page staff bring a service area in from, after Mailed links") {
-			t.Errorf("Did does not say the menu test gained the page:\n%s", did)
-		}
-	})
-
-	t.Run("a console whose auth makes no tenant keeps its test", func(t *testing.T) {
-		t.Parallel()
-
-		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, func(files map[string]string) {
-			files[spec] = base
-		}))
-		if diff := cmp.Diff(base, read(t, a, spec)); diff != "" {
-			t.Errorf("menu test mismatch (-want +got):\n%s", diff)
-		}
-		if said := strings.Join(append(ch.Did, ch.Skipped...), "\n"); strings.Contains(said, appMenusSpecFile) {
-			t.Errorf("the brief speaks of a menu test that was left as it is:\n%s", said)
-		}
-	})
-
-	t.Run("a test in another form is left, and the brief says what it gains", func(t *testing.T) {
-		t.Parallel()
-
-		own := "// the application's own menu test\n"
-		a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, through(own)))
-		if got := read(t, a, spec); got != own {
-			t.Errorf("menu test = %q, want it left", got)
-		}
-		if skipped := strings.Join(ch.Skipped, "\n"); !strings.Contains(skipped, spec+" does not list the pages the System menu places as the skeleton's test does ('Mailed links', then 'Sessions'), so it was left as it is: the System menu gains Invited service areas, the page staff bring a service area in from, after Mailed links") {
-			t.Errorf("Skipped does not say what the menu test gains:\n%s", skipped)
-		}
-	})
 }
 
 // TestTenancyBrowserDialogsSpec pins what add tenancy does to the test of the dialogs.

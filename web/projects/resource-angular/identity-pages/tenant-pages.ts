@@ -28,7 +28,7 @@ import {
   section,
 } from '@impulseframework/resource-angular/types';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
-import { identityPages } from './identity-pages';
+import { invitedTenantsConfig } from './identity-pages';
 
 // The list of an application's tenants and a tenant's own page, built from the API's own
 // description.
@@ -210,7 +210,7 @@ function buildTenants(
   const sinceField = listed ? 'since' : fields.since;
   const since = fields.since && sinceField && listedFields.has(sinceField) ? sinceField : undefined;
   const opens = openButton(fields, words);
-  const waiting = listed ? waitingList(descriptor, resourceMeta, options.auth, side.lists.invitedTenants) : undefined;
+  const waiting = listed ? waitingList(descriptor, resourceMeta, options.auth) : undefined;
   const invite = waiting?.listMethods;
   const columns: ColumnConfig[] = [
     ...(fields.name ? [{ id: fields.name as FieldName, header: 'Name', opensRow: true }] : []),
@@ -295,21 +295,15 @@ function formFields(fields: RecordFields, listsRecord: boolean): ConfigElement[]
 }
 
 /**
- * The invitations still waiting, as the Auth's identity pages list them, with the method
- * that sends one. None where the side names no such list.
+ * The invitations still waiting, with the method that sends one, as invitedTenantsConfig
+ * builds them. None where the side names no such list.
  */
 function waitingList(
   descriptor: ApiDescriptor,
   resourceMeta: (resource: Resource) => ResourceMeta | undefined,
   auth: string,
-  invitedTenants: string | undefined,
 ): ListViewConfig | undefined {
-  if (!invitedTenants) {
-    return undefined;
-  }
-  const config = identityPages(descriptor, resourceMeta, { auth, scope: 'global' }).find(
-    (candidate) => candidate.parentConfig.primaryResource === invitedTenants,
-  )?.parentConfig;
+  const config = invitedTenantsConfig(descriptor, resourceMeta, { auth })?.parentConfig;
   return config?.type === 'ListView' ? config : undefined;
 }
 
