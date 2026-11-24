@@ -19,6 +19,7 @@ import {
   RESOURCE_META,
   RowAction,
   rowActionsKey,
+  SessionInfo,
 } from '@impulseframework/resource-angular/types';
 import { environment } from '@env';
 import { format } from 'date-fns';
@@ -359,7 +360,7 @@ describe("the watch desk's words", () => {
   const ended = (row: RecordData): string | string[] | undefined =>
     (crewSessionImpersonationsConfig.parentConfig as ListViewConfig).listColumns
       .find((column) => column.id === 'endedAt')
-      ?.valueGetter?.(row);
+      ?.valueGetter?.(row, {} as SessionInfo);
 
   it('says when a session ended, that it is still open, or that its time ran out', () => {
     const at = format(new Date('2026-10-01T09:20:00Z'), dayAndMinuteFormat);

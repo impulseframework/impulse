@@ -319,7 +319,7 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 			inst.password = true
 			inst.usernameIsEmail = m.usernameIsEmail
 		}
-		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label, syncsRoles: m.syncsRoles})
+		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label, syncsRoles: m.syncsRoles, method: m.kind.sessionMethod()})
 		if m.syncsRoles {
 			inst.rolesSynced = true
 		}
@@ -390,6 +390,12 @@ func (r *resourceGenerator) prepareIdentity() error {
 			return err
 		}
 		if err := r.requireMailFailedColumn(inst); err != nil {
+			return err
+		}
+		if err := r.requireWithdrawnColumn(inst); err != nil {
+			return err
+		}
+		if err := r.requireSessionBrowserColumn(inst); err != nil {
 			return err
 		}
 		if err := r.refuseReservedRole(inst); err != nil {
@@ -721,6 +727,7 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			// someone else. It gives a role, which the acceptance seats the person in.
 			identitySourceFile{dir: inst.methods, name: fileStem("Invite" + inst.auth + "User"), template: identityInviteUserTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Withdraw" + inst.auth + "Invitation"), template: identityWithdrawInvitationTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
+			identitySourceFile{dir: inst.methods, name: fileStem("Resend" + inst.auth + "Invitation"), template: identityResendInvitationTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Assign" + inst.auth + "Role"), template: identityAssignRoleTemplate, needs: []identityTable{identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Remove" + inst.auth + "Role"), template: identityRemoveRoleTemplate, needs: []identityTable{identityMemberships}},
 		)
@@ -752,6 +759,10 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	files = append(files, r.holdingSources(inst)...)
 	// The sessions as a page lists them, each saying whether it is live.
 	files = append(files, r.sessionListSources(inst)...)
+	// The mailed links as a page lists them, each saying what became of it and who
+	// sent it.
+	files = append(files, r.mailLinkListSources(inst)...)
+	files = append(files, r.signInAttemptListSources(inst)...)
 	// What the rules ask of the role file: who may give a role and take one away.
 	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {

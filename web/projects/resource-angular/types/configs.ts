@@ -4,6 +4,7 @@ import { IconName } from './icon-names';
 import { FieldName, Method, PermissionScope, Resource } from './permissions';
 import { NullBoolean } from './resource-meta';
 import { ConcatFn, defaultEmptyFieldValue } from './resource-types';
+import { SessionInfo } from './session-info';
 import { ResourceValidatorFn } from './validators';
 
 export interface FieldPointer {
@@ -308,9 +309,11 @@ interface ColumnConfigBase {
   /**
    * How the cell is read off the row, in place of the field's own value: handed the row
    * as the server answered it. A getter that answers a list, on a column with `lines`,
-   * is drawn a line each.
+   * is drawn a line each. The second argument is the session read's answer (who is signed
+   * in, and with which session), for a cell that says something of the reader: which row is
+   * theirs.
    */
-  valueGetter?: (data: any) => string | string[];
+  valueGetter?: (data: any, reader: SessionInfo) => string | string[];
   valueFormatter?: (data: any) => string;
   tooltipPosition?: TooltipPosition;
   viewRoute?: Resource;
@@ -370,6 +373,14 @@ interface ColumnConfigBase {
    * link, so it is for a column every row fills.
    */
   opensRow?: boolean;
+  /**
+   * The values the column filters by, each with the words a person reads for it, where the
+   * field takes one of a fixed set the generated metadata does not list (a state the server
+   * works out). The column's filter menu offers the words and the filter carries the values,
+   * as for a field whose metadata lists its values. It never adds a filter control where the
+   * server does not filter the field.
+   */
+  filterChoices?: readonly { value: string; label: string }[];
 }
 
 /** A column rendering its field's value as text. */
@@ -1145,6 +1156,15 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    */
   more?: (parent: RecordData | undefined) => ListLink | undefined;
   /**
+   * The column filters the page opens with where its address names none: for a page that
+   * shows first the part of its list a person most often wants (the sessions that are
+   * live). They are filters like any the person set, shown in their columns' menus and
+   * written into the address, and the person changes or clears them. An address with no
+   * filter opens the list on them again, except the one the list writes when the person
+   * clears every filter. Only the list a page is built on reads it.
+   */
+  opensWith?: readonly { field: string; operator: string; value: string }[];
+  /**
    * The buttons every row carries ahead of its menu of methods; see RowButton. None by
    * default.
    */
@@ -1239,6 +1259,8 @@ export interface ListViewConfig extends BaseConfig {
   emptyMessage?: string;
   /** The link under the list; see ListViewConfigOptions.more. */
   more?: (parent: RecordData | undefined) => ListLink | undefined;
+  /** The column filters the page opens with; see ListViewConfigOptions.opensWith. */
+  opensWith?: readonly { field: string; operator: string; value: string }[];
   /** The buttons every row carries; see ListViewConfigOptions.rowButtons. */
   rowButtons?: RowButton[];
   /** Whether the page draws the search box; see ListViewConfigOptions.showSearchBox. */
@@ -1296,6 +1318,7 @@ export const listViewConfigDefaults = {
   },
   showRowCount: true,
   showSearchBox: true,
+  opensWith: [],
 } satisfies ListViewConfig;
 
 export type ViewType = 'OneToOne' | 'OneToMany';

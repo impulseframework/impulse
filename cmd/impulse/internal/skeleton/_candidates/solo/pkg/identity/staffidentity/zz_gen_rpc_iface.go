@@ -12,7 +12,7 @@ type Method interface {
 		EndStaffUserSessions | GiveStaffGroupRole | InviteStaffUser | MakeStaffInviteOnly |
 		OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword | RemoveStaffRole |
 		RenameStaffUser | RequireStaffPasswordChange | RequireStaffSecondFactor |
-		RevokeStaffSessionToken | RevokeStaffUserTrustedDevices |
+		ResendStaffInvitation | RevokeStaffSessionToken | RevokeStaffUserTrustedDevices |
 		SendStaffUserPasswordResetLink | SetStaffRememberedBrowsers | SetStaffSelfServiceReset |
 		SetStaffUserEmail | SetStaffUserName | StopRequiringStaffSecondFactor |
 		TakeStaffGroupRole | TakeStaffRole | UnlinkStaffSessionIdentity | UnlockStaffSignIn |

@@ -294,9 +294,9 @@ func TestAuth_proveFirstPasswordCode_guessesAtOnce(t *testing.T) {
 		sent = sendFirstPasswordCode(t, f, recorder, sessionID)
 		hold := newTogether()
 		f.afterFailure = hold.arrive
-		links.beforeRevoke = hold.arrive
+		links.beforeRevoke, links.beforeConsume = hold.arrive, hold.arrive
 		// The counters start at the guesses: mailing the code counted against the mailbox.
-		links.revokes, f.attemptWrites = 0, 0
+		links.revokes, links.consumes, f.attemptWrites = 0, 0, 0
 
 		return f, links, userID, sent
 	}
@@ -311,9 +311,9 @@ func TestAuth_proveFirstPasswordCode_guessesAtOnce(t *testing.T) {
 			return err
 		})
 
-		// A guess of the right code that was judged asked the store to end the code.
-		if links.revokes != firstPasswordAttempts.Failures {
-			t.Errorf("%d of %d guesses made at once were judged, want %d: the limit", links.revokes, guessesAtOnce, firstPasswordAttempts.Failures)
+		// A guess of the right code that was judged asked the store to consume the code.
+		if links.consumes != firstPasswordAttempts.Failures {
+			t.Errorf("%d of %d guesses made at once were judged, want %d: the limit", links.consumes, guessesAtOnce, firstPasswordAttempts.Failures)
 		}
 		if f.attemptWrites != guessesAtOnce {
 			t.Errorf("%d attempts were taken, want %d: one for each guess", f.attemptWrites, guessesAtOnce)

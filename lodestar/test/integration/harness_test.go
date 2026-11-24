@@ -403,6 +403,14 @@ func (noSessionAPI) SessionTimeout() time.Duration {
 	return servedSessionTimeout
 }
 
+// SignInFailureLimit answers five failed sign-ins, the session library's own default,
+// which the served stack's crew auth counts by too: the generated list of the failed
+// sign-ins asks the client built last, and answering the stack's limit keeps what that
+// list says from turning on which one it was.
+func (noSessionAPI) SignInFailureLimit() int {
+	return 5
+}
+
 // RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
 // here to mail through, and each says so.
 func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {

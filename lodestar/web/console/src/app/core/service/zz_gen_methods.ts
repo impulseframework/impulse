@@ -773,6 +773,30 @@ export interface RequireMembersSecondFactor {}
 /** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
 export type RequireMembersSecondFactorStatus = 204;
 
+export interface ResendCrewInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendCrewInvitation {
+  invitationId: string;
+}
+/** The result ResendCrewInvitation answers with. */
+export interface ResendCrewInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
+export interface ResendCrewSectorInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendCrewSectorInvitation {
+  invitationId: string;
+}
+/** The result ResendCrewSectorInvitation answers with. */
+export interface ResendCrewSectorInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
 export interface ResumeMissionConfig {
   missionId: string | FieldPointer;
 }
@@ -1575,6 +1599,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.CrewListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -1611,6 +1636,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.MembersListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -1940,6 +1966,24 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [],
   },
+  [Methods.ResendCrewInvitation]: {
+    route: 'resend-crew-invitation',
+    target: { resource: Resources.CrewListedMailLinks, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.ResendCrewSectorInvitation]: {
+    route: 'resend-crew-sector-invitation',
+    target: { resource: Resources.CrewSectorInvitations, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
   [Methods.ResumeMission]: {
     route: 'resume-mission',
     transition: { target: Resources.Missions, from: ['on_hold'], to: 'underway' },
@@ -2238,7 +2282,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockCrewSignIn]: {
     route: 'unlock-crew-sign-in',
-    target: { resource: Resources.CrewSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.CrewListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2247,7 +2291,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockMembersSignIn]: {
     route: 'unlock-members-sign-in',
-    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.MembersListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2256,7 +2300,7 @@ const methodMap: MethodMap = {
   },
   [Methods.WithdrawCrewInvitation]: {
     route: 'withdraw-crew-invitation',
-    target: { resource: Resources.CrewSessionMailLinks, key: { invitationId: 'id' } },
+    target: { resource: Resources.CrewListedMailLinks, key: { invitationId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

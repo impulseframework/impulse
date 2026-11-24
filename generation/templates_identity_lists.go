@@ -707,8 +707,11 @@ type (
 	// {{ .TenantName }}: a row of {{ .Tables.MailLinks }} of the invitation kind that names
 	// the tenant, with the columns {{ .MailLink }} serves of it. DomainId is the tenant the
 	// invitation seats a person in (the link's TenantId), and RoleNames the roles it gives
-	// there, and Name the name its sender gave the person, where they gave one. The
-	// link itself is in the message alone and its hash is not a column.
+	// there, and Name the name its sender gave the person, where they gave one. State
+	// says what became of the invitation (open, accepted, withdrawn, expired,
+	// notMailed), and SentBy who sent it. An invitation that makes a tenant names no
+	// tenant, so it is never a row of this list. The link itself is in the message alone
+	// and its hash is not a column.
 	//
 	// Pending is a fact about the row, under the name a grant's condition reads
 	// (pending): the invitation stands, neither accepted nor withdrawn (both consume it)
@@ -734,9 +737,12 @@ type (
 		// @roleOf({{ .Auth }})
 		RoleNames  []string      ` + "`spanner:\"RoleNames\"`" + `
 		InvitedByUserID  *impulse.UUID ` + "`spanner:\"InvitedByUserId\"`" + `
+		SentBy     *string       ` + "`spanner:\"SentBy\"`" + `
 		CreatedAt  time.Time     ` + "`spanner:\"CreatedAt\" index:\"true\"`" + `
 		ExpiresAt  time.Time     ` + "`spanner:\"ExpiresAt\"`" + `
 		ConsumedAt *time.Time    ` + "`spanner:\"ConsumedAt\"`" + `
+		WithdrawnAt *time.Time   ` + "`spanner:\"WithdrawnAt\"`" + `
+		State      string        ` + "`spanner:\"State\" index:\"true\"`" + `
 		// @attribute(pending)
 		Pending bool ` + "`spanner:\"Pending\" index:\"true\"`" + `
 	}
@@ -744,8 +750,9 @@ type (
 
 // {{ GoCamel .TenantMailLink }}Query selects the invitations of every tenant: the mail
 // links of the invitation kind that name one. The table's index by tenant holds them
-// newest first, with the columns the list shows, so a page reads its own rows from the
-// index and nothing else.
+// newest first, with every column of the table the list reads, so a page reads its own
+// rows from the index and no row of the table; the sender's name is read from the users
+// table, by the sender's id.
 const {{ GoCamel .TenantMailLink }}Query = ` + "`" + `
 SELECT
   l.Id AS Id,
@@ -754,11 +761,21 @@ SELECT
   l.Name AS Name,
   l.RoleNames AS RoleNames,
   l.InvitedByUserId AS InvitedByUserId,
+{{- if .Has "users" }}
+  COALESCE(NULLIF(iu.Name, ''), iu.Username) AS SentBy,
+{{- else }}
+  CAST(NULL AS STRING) AS SentBy,
+{{- end }}
   l.CreatedAt AS CreatedAt,
   l.ExpiresAt AS ExpiresAt,
   l.ConsumedAt AS ConsumedAt,
+  l.WithdrawnAt AS WithdrawnAt,
+{{ .MailLinkState "l" }},
   (l.ConsumedAt IS NULL AND l.ExpiresAt > CURRENT_TIMESTAMP()) AS Pending
 FROM {{ .Tables.MailLinks }} l
+{{- if .Has "users" }}
+LEFT JOIN {{ .Tables.Users }} iu ON iu.Id = l.InvitedByUserId
+{{- end }}
 WHERE l.Kind = {{ .InvitationKind }} AND l.TenantId IS NOT NULL
 ` + "`" + `
 

@@ -19,6 +19,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/securehash"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/shopspring/decimal"
 	"golang.org/x/mod/semver"
 )
@@ -378,6 +379,38 @@ const (
 	// it and nowhere else.
 	methodPersona authMethodKind = "persona"
 )
+
+// sessionSignInWords are the session library's words for the sign-ins it runs
+// (sessioninfo.AuthMethod), each with the method kind that records it: the word an auth
+// event of a sign-in through the kind records. The persona method is the library's
+// generic OpenID Connect method, so it records the OpenID Connect word. The list of the
+// sessions reads them in this order.
+var sessionSignInWords = []struct {
+	kind authMethodKind
+	word string
+}{
+	{kind: methodPassword, word: string(sessioninfo.MethodPassword)},
+	{kind: methodGoogle, word: string(sessioninfo.MethodGoogle)},
+	{kind: methodAzure, word: string(sessioninfo.MethodAzure)},
+	{kind: methodWorkOS, word: string(sessioninfo.MethodWorkOS)},
+	{kind: methodOIDC, word: string(sessioninfo.MethodOIDC)},
+}
+
+// sessionMethod is the session library's word for the method (sessioninfo.AuthMethod),
+// the one an auth event of a sign-in through it records (sessionSignInWords): the
+// persona method's is the OpenID Connect method's.
+func (k authMethodKind) sessionMethod() string {
+	if k == methodPersona {
+		k = methodOIDC
+	}
+	for _, signIn := range sessionSignInWords {
+		if signIn.kind == k {
+			return signIn.word
+		}
+	}
+
+	return string(k)
+}
 
 // passwordMethodName is the name the session library registers the password method
 // under; no external registration may take it.

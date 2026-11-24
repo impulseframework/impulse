@@ -155,13 +155,14 @@ func (s *SessionStorageDriver) ConsumeMailLink(ctx context.Context, tokenHash []
 	return s.consumeMailLink(ctx, s.conn, `"TokenHash"`, tokenHash, now)
 }
 
-// RevokeMailLink marks the live mail link id consumed, as ConsumeMailLink does by the
-// token: an invitation withdrawn by hand. A link that is not live is NotFound.
+// RevokeMailLink marks the live mail link id consumed and withdrawn, both at the
+// database's time: a link taken back before anyone followed it. A link that is not live
+// is NotFound.
 func (s *SessionStorageDriver) RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return s.consumeMailLink(ctx, s.conn, `"Id"`, id, now)
+	return s.endMailLink(ctx, s.conn, mailLinkWithdrawn, `"Id"`, id, now)
 }
 
 // FailMailLink marks the live mail link id consumed and as one whose message could not
@@ -186,10 +187,11 @@ type execer interface {
 }
 
 // The columns the end of a mail link sets, each to the database's time: a link that was
-// followed or withdrawn is consumed, and one whose message could not be mailed is
-// consumed and says the mail failed.
+// followed is consumed, one that was withdrawn is consumed and says it was taken back,
+// and one whose message could not be mailed is consumed and says the mail failed.
 const (
 	mailLinkConsumed   = `"ConsumedAt" = now()`
+	mailLinkWithdrawn  = `"ConsumedAt" = now(), "WithdrawnAt" = now()`
 	mailLinkMailFailed = `"ConsumedAt" = now(), "MailFailedAt" = now()`
 )
 

@@ -49,6 +49,7 @@ type staffSessionMailLinkRead struct {
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
 	MailFailedAt    *time.Time    `json:"mailFailedAt"`
+	WithdrawnAt     *time.Time    `json:"withdrawnAt"`
 }
 
 var staffSessionMailLinkReadSets resource.SetCache[StaffSessionMailLink, staffSessionMailLinkRead]
@@ -70,6 +71,7 @@ type staffSessionMailLinkWrite struct {
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
 	MailFailedAt    *time.Time    `json:"mailFailedAt"`
+	WithdrawnAt     *time.Time    `json:"withdrawnAt"`
 }
 
 var staffSessionMailLinkWriteSets resource.SetCache[StaffSessionMailLink, staffSessionMailLinkWrite]
@@ -191,6 +193,7 @@ func (c *StaffSessionMailLinkColumns) All() *StaffSessionMailLinkColumns {
 		"ExpiresAt",
 		"ConsumedAt",
 		"MailFailedAt",
+		"WithdrawnAt",
 	}
 
 	return c
@@ -270,6 +273,12 @@ func (c *StaffSessionMailLinkColumns) ConsumedAt() *StaffSessionMailLinkColumns 
 
 func (c *StaffSessionMailLinkColumns) MailFailedAt() *StaffSessionMailLinkColumns {
 	c.fields = append(c.fields, "MailFailedAt")
+
+	return c
+}
+
+func (c *StaffSessionMailLinkColumns) WithdrawnAt() *StaffSessionMailLinkColumns {
+	c.fields = append(c.fields, "WithdrawnAt")
 
 	return c
 }
@@ -418,6 +427,10 @@ func (c *staffSessionMailLinkSort) ConsumedAt() *StaffSessionMailLinkSort {
 
 func (c *staffSessionMailLinkSort) MailFailedAt() *StaffSessionMailLinkSort {
 	return c.addField("MailFailedAt")
+}
+
+func (c *staffSessionMailLinkSort) WithdrawnAt() *StaffSessionMailLinkSort {
+	return c.addField("WithdrawnAt")
 }
 
 type StaffSessionMailLinkSort struct {
@@ -721,6 +734,26 @@ func (p *StaffSessionMailLinkCreatePatch) MailFailedAt() *time.Time {
 
 func (p *StaffSessionMailLinkCreatePatch) MailFailedAtIsSet() bool {
 	return p.patchSet.IsSet("MailFailedAt")
+}
+
+func (p *StaffSessionMailLinkCreatePatch) SetWithdrawnAt(v *time.Time) *StaffSessionMailLinkCreatePatch {
+	if v != nil {
+		p.patchSet.Set("WithdrawnAt", v)
+	} else {
+		p.patchSet.Set("WithdrawnAt", nil)
+	}
+
+	return p
+}
+
+func (p *StaffSessionMailLinkCreatePatch) WithdrawnAt() *time.Time {
+	v, _ := p.patchSet.Get("WithdrawnAt").(*time.Time)
+
+	return v
+}
+
+func (p *StaffSessionMailLinkCreatePatch) WithdrawnAtIsSet() bool {
+	return p.patchSet.IsSet("WithdrawnAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -1029,6 +1062,26 @@ func (p *StaffSessionMailLinkUpdatePatch) MailFailedAt() *time.Time {
 
 func (p *StaffSessionMailLinkUpdatePatch) MailFailedAtIsSet() bool {
 	return p.patchSet.IsSet("MailFailedAt")
+}
+
+func (p *StaffSessionMailLinkUpdatePatch) SetWithdrawnAt(v *time.Time) *StaffSessionMailLinkUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("WithdrawnAt", v)
+	} else {
+		p.patchSet.Set("WithdrawnAt", nil)
+	}
+
+	return p
+}
+
+func (p *StaffSessionMailLinkUpdatePatch) WithdrawnAt() *time.Time {
+	v, _ := p.patchSet.Get("WithdrawnAt").(*time.Time)
+
+	return v
+}
+
+func (p *StaffSessionMailLinkUpdatePatch) WithdrawnAtIsSet() bool {
+	return p.patchSet.IsSet("WithdrawnAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

@@ -47,7 +47,7 @@ func TestMigrations_listIndexes(t *testing.T) {
 				tt.address,
 				usersIndex,
 				"CREATE INDEX StaffSessionIdentitiesByUserId ON StaffSessionIdentities(UserId) STORING (Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt);",
-				"CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenantId ON StaffSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);",
+				"CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenantId ON StaffSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt, MailFailedAt, WithdrawnAt);",
 				// The pending sign-ins keep the proof of the password a sign-in rests on,
 				// which the session library reads and writes on every row.
 				"    Username              STRING(MAX) NOT NULL,\n    PasswordProof         BYTES(32),\n",
@@ -174,5 +174,26 @@ func TestMigrations_signInSettings(t *testing.T) {
 	const drops = "DROP TABLE StaffSessionSignInSettings;\nDROP TABLE StaffSessionSignInMethods;"
 	if !strings.Contains(down.String(), drops) {
 		t.Errorf("the down migrations lack %q", drops)
+	}
+}
+
+// TestMigrations_withdrawnLinks holds the column a mail link that was taken back is
+// marked in: the session library's SessionWithdrawnLinks migration, in the mail links
+// table under the auth's prefix, where the generator asks for it.
+func TestMigrations_withdrawnLinks(t *testing.T) {
+	t.Parallel()
+
+	var up strings.Builder
+	for _, m := range Migrations("Staff", "staff", false) {
+		up.WriteString(m.Up)
+	}
+	const column = "    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),\n"
+	_, table, found := strings.Cut(up.String(), "CREATE TABLE StaffSessionMailLinks (")
+	if !found {
+		t.Fatal("the migrations make no mail links table")
+	}
+	table, _, _ = strings.Cut(table, ") PRIMARY KEY (Id);")
+	if !strings.Contains(table, column) {
+		t.Errorf("the mail links table lacks %q:\n%s", column, table)
 	}
 }

@@ -15,7 +15,8 @@ type Resourcer interface {
 		membersresources.MembersGroupRole | membersresources.MembersGroupUser |
 		membersresources.MembersHeldRole | membersresources.MembersListedGroup |
 		membersresources.MembersListedGroupRole | membersresources.MembersListedIdentity |
-		membersresources.MembersListedSession | membersresources.MembersListedUser |
+		membersresources.MembersListedMailLink | membersresources.MembersListedSession |
+		membersresources.MembersListedSignInAttempt | membersresources.MembersListedUser |
 		membersresources.MembersRole | membersresources.MembersRoleGrant |
 		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |
 		membersresources.MembersSessionIdentity | membersresources.MembersSessionMailLink |

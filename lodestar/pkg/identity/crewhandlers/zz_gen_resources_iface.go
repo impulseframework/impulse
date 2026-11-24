@@ -14,7 +14,8 @@ type Resourcer interface {
 	crewresources.CrewGroup | crewresources.CrewGroupMember | crewresources.CrewGroupRole |
 		crewresources.CrewGroupUser | crewresources.CrewHeldRole |
 		crewresources.CrewListedGroup | crewresources.CrewListedGroupRole |
-		crewresources.CrewListedIdentity | crewresources.CrewListedSession |
+		crewresources.CrewListedIdentity | crewresources.CrewListedMailLink |
+		crewresources.CrewListedSession | crewresources.CrewListedSignInAttempt |
 		crewresources.CrewListedUser | crewresources.CrewRole | crewresources.CrewRoleGrant |
 		crewresources.CrewSectorGroup | crewresources.CrewSectorGroupRole |
 		crewresources.CrewSectorGroupUser | crewresources.CrewSectorHeldRole |

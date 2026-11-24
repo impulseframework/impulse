@@ -16,6 +16,8 @@ package integration
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -24,6 +26,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
@@ -178,6 +181,69 @@ func TestGeneratedIdentitySessionsSayWhichAreLive(t *testing.T) {
 	if status != http.StatusForbidden || table != http.StatusForbidden {
 		t.Errorf("the cadet's list of the sessions: status %d, and of the table's %d, want both 403: %s", status, table, body)
 	}
+}
+
+// TestGeneratedIdentityEndSessionAsksFirst holds the question before a session is ended,
+// on the served stack with the real session manager: asked for its warning, the method
+// says of the session the request arrived on that ending it signs the caller out, and of
+// another session that the browser or device it is on is signed out, and asking ends
+// neither. Ending the caller's own session answers 204, and the next request on it is
+// refused as signed out.
+func TestGeneratedIdentityEndSessionAsksFirst(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s := newServed(ctx, t)
+
+	hq := newBrowser(t, s, consoleAPI)
+	hq.signIn(ctx, "governor")
+	pilot := newBrowser(t, s, consoleAPI)
+	pilot.signIn(ctx, "pilot")
+	// onlySession is the one live session of the account username.
+	onlySession := func(username string) string {
+		t.Helper()
+
+		rows := listedSessions(ctx, t, hq, "userId:eq:"+crewAccountID(ctx, t, hq, username)+",live:eq:true")
+		if len(rows) != 1 {
+			t.Fatalf("the live sessions of %s = %v, want the one its sign-in made", username, rows)
+		}
+
+		return cell[string](t, rows[0], "id")
+	}
+	own, other := onlySession("governor"), onlySession("pilot")
+	// warning asks the method what ending the session id would do.
+	warning := func(id string) resource.Warning {
+		t.Helper()
+
+		res := hq.doWith(ctx, http.MethodPost, consoleAPI+"/end-crew-session", []byte(`{"sessionId":"`+id+`"}`), map[string]string{resource.WarningHeader: "true"})
+		defer func() { _ = res.Body.Close() }()
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatalf("reading the warning: %v", err)
+		}
+		assertStatus(t, res.StatusCode, http.StatusOK, body)
+		var said resource.Warning
+		if err := json.Unmarshal(body, &said); err != nil {
+			t.Fatalf("the warning %s: %v", body, err)
+		}
+
+		return said
+	}
+
+	if got, want := warning(own), (resource.Warning{Consequence: "This is the session you are using. Ending it signs you out.", Confirm: "End the session and sign out"}); got.Consequence != want.Consequence || got.Confirm != want.Confirm || got.Names != nil || got.Also != nil {
+		t.Errorf("the warning on the caller's own session = %+v, want %+v", got, want)
+	}
+	if got, want := warning(other), (resource.Warning{Consequence: "The browser or device this session is on is signed out.", Confirm: "End the session"}); got.Consequence != want.Consequence || got.Confirm != want.Confirm || got.Names != nil || got.Also != nil {
+		t.Errorf("the warning on another's session = %+v, want %+v", got, want)
+	}
+	if onlySession("governor") != own || onlySession("pilot") != other {
+		t.Error("a question ended a session, want both still live")
+	}
+
+	// The caller ends their own session: the next request on it is refused as signed out.
+	status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/end-crew-session", []byte(`{"sessionId":"`+own+`"}`))
+	assertStatus(t, status, http.StatusNoContent, body)
+	status, body = hq.do(ctx, http.MethodGet, consoleAPI+"/"+crewListedSessionsPath+"?limit=200", nil)
+	assertStatus(t, status, http.StatusUnauthorized, body)
 }
 
 // TestGeneratedIdentityAccountsCountTrustedDevices holds the count of the browsers

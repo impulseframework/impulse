@@ -108,6 +108,8 @@ type fakeStore struct {
 	invitations map[accesstypes.Domain][]impulse.UUID
 	// invited are the unconsumed invitations that make a tenant.
 	invited []InvitedTenantRow
+	// sentInvitations are the invitations as their rows keep them, by id (SentInvitation).
+	sentInvitations map[impulse.UUID]*SentInvitation
 	// passwords are the users that exist for the password rule, true where one holds a
 	// password; identities the user each identity links to; tokens the tokens by id,
 	// and families the unrevoked tokens of each family.
@@ -445,6 +447,15 @@ func (f *fakeStore) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTrans
 	return nil
 }
 
+func (f *fakeStore) SentInvitation(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (invitation *SentInvitation, found bool, err error) {
+	if err := f.fail("SentInvitation"); err != nil {
+		return nil, false, err
+	}
+	invitation, found = f.sentInvitations[id]
+
+	return invitation, found, nil
+}
+
 func (f *fakeStore) SignInMethodRows(context.Context, resource.ReadOnlyTransaction) ([]SignInMethodRow, error) {
 	if err := f.fail("SignInMethodRows"); err != nil {
 		return nil, err
@@ -759,6 +770,8 @@ type fakeSessions struct {
 	tenantNames map[accesstypes.Domain]string
 	// sessionTimeout is how long the Auth lets a session sit idle.
 	sessionTimeout time.Duration
+	// signInFailureLimit is how many failed sign-ins lock a name.
+	signInFailureLimit int
 }
 
 func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
@@ -771,6 +784,10 @@ func (s fakeSessions) TenantName(tenant accesstypes.Domain) string {
 
 func (s fakeSessions) SessionTimeout() time.Duration {
 	return s.sessionTimeout
+}
+
+func (s fakeSessions) SignInFailureLimit() int {
+	return s.signInFailureLimit
 }
 
 // asked records a message the rules asked the session library to mail, and answers the

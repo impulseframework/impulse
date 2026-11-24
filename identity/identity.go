@@ -167,8 +167,13 @@ type Store interface {
 	// MailLink reads one link the auth mailed; found is false where no link holds the
 	// id.
 	MailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (link *MailLink, found bool, err error)
-	// ConsumeMailLink buffers the consumption of one link: it is then dead.
+	// ConsumeMailLink buffers the withdrawal of one link: it is consumed and marked
+	// withdrawn, and is then dead.
 	ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// SentInvitation reads the invitation of the id as its row keeps it, in the
+	// caller's transaction; found is false where no invitation holds the id, a link of
+	// another kind among them.
+	SentInvitation(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (invitation *SentInvitation, found bool, err error)
 	// TenantInvitations lists the invitations into one tenant that are not consumed:
 	// neither accepted nor withdrawn. An auth that mails no links answers none.
 	TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
@@ -257,6 +262,11 @@ type SessionAPI interface {
 	// (session.AuthAPI.SessionTimeout). The generated list of the Auth's sessions says
 	// which of them are live by it.
 	SessionTimeout() time.Duration
+	// SignInFailureLimit answers how many failed sign-ins within the window lock a name
+	// (session.AuthAPI.SignInFailureLimit). The generated list of the failed sign-ins
+	// asks it at each query and where the application builds its handlers, so it answers
+	// at any time and changes nothing.
+	SignInFailureLimit() int
 	// RequestAddressChange mails the link that confirms a new address for the user, to
 	// that address, and changes nothing: the account keeps the address it has until the
 	// link is followed (session.AuthAPI.RequestAddressChange). The message says who

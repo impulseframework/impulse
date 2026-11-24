@@ -307,10 +307,14 @@ type (
 	// and where they are held (TenantID for one tenant, EveryTenant for every tenant,
 	// neither for the whole application), and the name its sender gave the person
 	// (Name), where they gave one. A link stands while it is neither consumed nor
-	// expired, and one that was followed and one that was withdrawn are both consumed.
-	// A link whose message could not be mailed is consumed too, where the mail failed,
-	// and MailFailedAt says when: the one field that tells it from a link that was
-	// used. The link itself is in the message alone and its hash is not a field.
+	// expired, and one that was followed and one that was withdrawn are both consumed,
+	// the second with WithdrawnAt set. A link whose message could not be mailed is
+	// consumed too, where the mail failed, and MailFailedAt says when: the one field
+	// that tells it from a link that was used. A link that was taken back is consumed
+	// too, with WithdrawnAt set: it tells a withdrawal from an acceptance. The link
+	// itself is in the message alone and its hash is not a field. A page lists the
+	// links through {{ .ListedMailLink }}, which says what became of each and who sent
+	// it.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -336,6 +340,7 @@ type (
 		ExpiresAt  time.Time     ` + "`spanner:\"ExpiresAt\"`" + `
 		ConsumedAt *time.Time    ` + "`spanner:\"ConsumedAt\"`" + `
 		MailFailedAt *time.Time  ` + "`spanner:\"MailFailedAt\"`" + `
+		WithdrawnAt *time.Time   ` + "`spanner:\"WithdrawnAt\"`" + `
 	}
 )
 `
@@ -358,7 +363,8 @@ type (
 	// no folded name holds: MAIL:, CODE: and RESET: and the address for the mail, the
 	// sign-in codes and the reset links an address is sent, FIRST-PASSWORD: and the
 	// account for the guesses at the code of a first password. A name is locked while
-	// LockedUntil is ahead.
+	// LockedUntil is ahead. A page lists the counts from {{ .ListedSignInAttempt }}, which
+	// holds only those that are locked or still being counted.
 	//
 	// @resource
 	// @suppress(readHandler)
@@ -769,6 +775,11 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if
 	// The list of the auth's sessions says which are live by the timeout the Auth judges a
 	// request by.
 	{{ .ResourcesPackage }}.Set{{ .ListedSession }}Timeout(sessions.SessionTimeout())
+	{{- end }}
+	{{- if .Has "signInAttempts" }}
+	// The list of the failed sign-ins says the limit that locks a name by asking the Auth
+	// at each query: the limit is fixed when the password method is registered.
+	{{ .ResourcesPackage }}.Set{{ .ListedSignInAttempt }}Limit(sessions.SignInFailureLimit)
 	{{- end }}
 
 	return &Client{manager: manager}, nil
@@ -1718,11 +1729,48 @@ func (store) MailLink(ctx context.Context, txn resource.ReadWriteTransaction, id
 
 func (store) ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
 	consumedAt := spanner.CommitTimestamp
-	if err := {{ .ResourcesPackage }}.New{{ .MailLink }}UpdatePatch(id).SetConsumedAt(&consumedAt).Buffer(ctx, txn); err != nil {
+	if err := {{ .ResourcesPackage }}.New{{ .MailLink }}UpdatePatch(id).SetConsumedAt(&consumedAt).SetWithdrawnAt(&consumedAt).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .MailLink }}UpdatePatch.Buffer()")
 	}
 
 	return nil
+}
+
+func (store) SentInvitation(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (invitation *identity.SentInvitation, found bool, err error) {
+	// A read that goes past the declarations, as UserID's does: whether an invitation
+	// makes a tenant is its NewTenant document, which is no field of the declaration.
+	// A link of another kind is not found.
+	stmt := spanner.Statement{
+		SQL: "SELECT Email, Name, TenantId, EveryTenant, RoleNames, NewTenant IS NOT NULL, ConsumedAt IS NOT NULL AND WithdrawnAt IS NULL AND MailFailedAt IS NULL, WithdrawnAt IS NOT NULL, MailFailedAt IS NOT NULL, ExpiresAt" +
+			" FROM {{ .Tables.MailLinks }} WHERE Id = @id AND Kind = @kind",
+		Params: map[string]any{"id": id.String(), "kind": string(sessionstorage.MailLinkInvitation)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			sent         identity.SentInvitation
+			name, tenant spanner.NullString
+			roles        []string
+		)
+		if err := row.Columns(&sent.Invitation.Email, &name, &tenant, &sent.Invitation.EveryDomain, &roles, &sent.MakesTenant, &sent.Accepted, &sent.Withdrawn, &sent.NotMailed, &sent.ExpiresAt); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		if name.Valid {
+			sent.Invitation.Name = &name.StringVal
+		}
+		if tenant.Valid {
+			sent.Invitation.Domain = &tenant.StringVal
+		}
+		for _, role := range roles {
+			sent.Invitation.Roles = append(sent.Invitation.Roles, accesstypes.Role(role))
+		}
+		invitation, found = &sent, true
+
+		return nil
+	}); err != nil {
+		return nil, false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return invitation, found, nil
 }
 
 func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
@@ -1786,6 +1834,10 @@ func (store) MailLink(context.Context, resource.ReadWriteTransaction, impulse.UU
 
 func (store) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
 	return errors.Newf("the schema holds no table {{ .Tables.MailLinks }}: there is no mail link %s to consume", id)
+}
+
+func (store) SentInvitation(context.Context, resource.ReadWriteTransaction, impulse.UUID) (invitation *identity.SentInvitation, found bool, err error) {
+	return nil, false, nil
 }
 
 func (store) TenantInvitations(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
@@ -2022,6 +2074,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // End{{ .Session }} ends one session of the {{ .Auth }} auth: the next request that
@@ -2030,12 +2083,33 @@ import (
 // the session by its row of {{ .ListedSession }}, the list a page shows, so a row of that
 // list offers it.
 //
+// Before it runs, the method says what it does (Warning): for the session the caller
+// is using, that ending it signs them out.
+//
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
+// @warning
 type End{{ .Session }} struct {
 	// @target({{ .ListedSession }})
 	SessionID impulse.UUID
+}
+
+// Warning says what ending the session does, in the words the person confirms: where
+// it is the session the request arrived on, that ending it signs them out. It writes
+// nothing.
+func (m *End{{ .Session }}) Warning(ctx context.Context, _ resource.ReadWriteTransaction, _ *Client) (*resource.Warning, error) {
+	if sessioninfo.IDFromCtx(ctx) == m.SessionID {
+		return &resource.Warning{
+			Consequence: "This is the session you are using. Ending it signs you out.",
+			Confirm:     "End the session and sign out",
+		}, nil
+	}
+
+	return &resource.Warning{
+		Consequence: "The browser or device this session is on is signed out.",
+		Confirm:     "End the session",
+	}, nil
 }
 
 // Execute buffers the end of the session into the caller's transaction.
@@ -2708,6 +2782,59 @@ func (m *Withdraw{{ .Subject }}Invitation) Execute(ctx context.Context, txn reso
 }
 `
 
+	// identityResendInvitationTemplate is the method that sends an invitation again.
+	identityResendInvitationTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
+// Source: {{ .Source }}
+
+package {{ .Package }}
+
+import (
+	"context"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
+)
+
+type (
+	// Resend{{ .Subject }}Invitation sends an invitation of the {{ .Auth }} auth again: a
+	// new link to the same address, with the same roles, held in the same place, and
+	// the same name, mailed once the transaction has committed. An invitation that
+	// still stands is withdrawn in the same transaction, so the link mailed before
+	// stops working; one that has expired or whose message could not be mailed is left
+	// as it is. The new invitation is held to every rule an invitation is held to, as
+	// the caller's own, and names the caller as its sender. An invitation that was
+	// accepted or withdrawn is refused, and one that makes a tenant is not found here,
+	// as a link of another kind is.` + identityTenantInvitationNote + `
+	//
+	// @rpc` + identityTenantScope + `
+	// @outlet({{ .Outlets }})` + identityAccessClass + `
+	Resend{{ .Subject }}Invitation struct {
+		// @target({{ .SubjectMailLink }})
+		InvitationID impulse.UUID
+	}
+	// Resend{{ .Subject }}InvitationResult answers the new invitation's id and whether
+	// its message went. Sent is set once the transaction has committed.
+	Resend{{ .Subject }}InvitationResult struct {
+		ID   impulse.UUID
+		Sent bool
+	}
+)
+
+// Execute buffers the new invitation, and the withdrawal of one that stands, into the
+// caller's transaction and registers the send for after its commit.
+func (m *Resend{{ .Subject }}Invitation) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Resend{{ .Subject }}InvitationResult, error) {` + identityTenantGuardAnswering + `
+	result := &Resend{{ .Subject }}InvitationResult{}
+	id, err := client.manager.ResendInvitation(ctx, txn, m.InvitationID, func(sent bool) { result.Sent = sent })
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.ResendInvitation()")
+	}
+	result.ID = id
+
+	return result, nil
+}
+`
+
 	// identityUnlockSignInTemplate is the method that clears a name's lockout.
 	identityUnlockSignInTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
 // Source: {{ .Source }}
@@ -2725,13 +2852,15 @@ import (
 // keeps under a name, and with it the lock the count earned: the name may sign in
 // again. Every instance of the application lets the name through within a few seconds
 // of the commit, the time each trusts what it remembers of a name. A client held for
-// its own failed attempts, whatever the name, waits its hold out.
+// its own failed attempts, whatever the name, waits its hold out. It names the count by
+// its row of {{ .ListedSignInAttempt }}, the list a page shows, so a row of that list
+// offers it.
 //
 // @rpc
 // @outlet({{ .Outlets }})
 // @answers(204)
 type Unlock{{ .Auth }}SignIn struct {
-	// @target({{ .SignInAttempt }})
+	// @target({{ .ListedSignInAttempt }})
 	Name string ` + "`validate:\"required\"`" + `
 }
 

@@ -26,9 +26,12 @@ func (h *Handlers) MembersTenantInvitations() http.HandlerFunc {
 		Name            *string       `json:"name"`
 		RoleNames       []string      `json:"roleNames"`
 		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+		SentBy          *string       `json:"sentBy"`
 		CreatedAt       time.Time     `json:"createdAt"       index:"true"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		State           string        `json:"state"           index:"true"`
 		Pending         bool          `json:"pending"         index:"true"`
 	}
 
@@ -97,6 +100,10 @@ func (h *Handlers) MembersTenantInvitations() http.HandlerFunc {
 					if !row.Masked("invitedByUserId") {
 						rmap["invitedByUserId"] = rec.InvitedByUserID
 					}
+				case "SentBy":
+					if !row.Masked("sentBy") {
+						rmap["sentBy"] = rec.SentBy
+					}
 				case "CreatedAt":
 					if !row.Masked("createdAt") {
 						rmap["createdAt"] = rec.CreatedAt
@@ -108,6 +115,14 @@ func (h *Handlers) MembersTenantInvitations() http.HandlerFunc {
 				case "ConsumedAt":
 					if !row.Masked("consumedAt") {
 						rmap["consumedAt"] = rec.ConsumedAt
+					}
+				case "WithdrawnAt":
+					if !row.Masked("withdrawnAt") {
+						rmap["withdrawnAt"] = rec.WithdrawnAt
+					}
+				case "State":
+					if !row.Masked("state") {
+						rmap["state"] = rec.State
 					}
 				case "Pending":
 					if !row.Masked("pending") {
@@ -142,9 +157,12 @@ func (h *Handlers) MembersTenantInvitation() http.HandlerFunc {
 		Name            *string       `json:"name"`
 		RoleNames       []string      `json:"roleNames"`
 		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+		SentBy          *string       `json:"sentBy"`
 		CreatedAt       time.Time     `json:"createdAt"`
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
+		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		State           string        `json:"state"`
 		Pending         bool          `json:"pending"`
 	}
 
@@ -201,6 +219,10 @@ func (h *Handlers) MembersTenantInvitation() http.HandlerFunc {
 				if !row.Masked("invitedByUserId") {
 					rmap["invitedByUserId"] = rec.InvitedByUserID
 				}
+			case "SentBy":
+				if !row.Masked("sentBy") {
+					rmap["sentBy"] = rec.SentBy
+				}
 			case "CreatedAt":
 				if !row.Masked("createdAt") {
 					rmap["createdAt"] = rec.CreatedAt
@@ -212,6 +234,14 @@ func (h *Handlers) MembersTenantInvitation() http.HandlerFunc {
 			case "ConsumedAt":
 				if !row.Masked("consumedAt") {
 					rmap["consumedAt"] = rec.ConsumedAt
+				}
+			case "WithdrawnAt":
+				if !row.Masked("withdrawnAt") {
+					rmap["withdrawnAt"] = rec.WithdrawnAt
+				}
+			case "State":
+				if !row.Masked("state") {
+					rmap["state"] = rec.State
 				}
 			case "Pending":
 				if !row.Masked("pending") {

@@ -61,9 +61,22 @@ var LiveDerivations = &live.Derivations{
 			{Name: membersresources.MembersUserRole{}.Resource(), Global: true},
 			{Name: resources.TenantDirectory{}.Resource()},
 		}},
+		// MembersListedMailLinks: the tables its query reads.
+		{Resource: membersresources.MembersListedMailLink{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionMailLink{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
+		}},
 		// MembersListedSessions: the tables its query reads.
 		{Resource: membersresources.MembersListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionAuthEvent{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersSession{}.Resource(), Global: true},
+		}},
+		// MembersListedSignInAttempts: the tables its query reads.
+		{Resource: membersresources.MembersListedSignInAttempt{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionMailLink{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 		}},
 		// MembersListedUsers: the tables its query reads.
 		{Resource: membersresources.MembersListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
@@ -127,6 +140,7 @@ var LiveDerivations = &live.Derivations{
 		// MembersTenantInvitations: the tables its query reads.
 		{Resource: membersresources.MembersTenantInvitation{}.Resource(), Tables: []live.SourceTable{
 			{Name: membersresources.MembersSessionMailLink{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 		}},
 		// MembersTenantUsers: the tables its query reads.
 		{Resource: membersresources.MembersTenantUser{}.Resource(), Tables: []live.SourceTable{

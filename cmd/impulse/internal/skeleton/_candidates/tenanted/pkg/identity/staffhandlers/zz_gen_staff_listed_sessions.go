@@ -8,10 +8,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/identity/internal/staffresources"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/identity/internal/staffresources"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -23,8 +23,12 @@ func (h *Handlers) StaffListedSessions() http.HandlerFunc {
 		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
 		UserID          *impulse.UUID `json:"userId"          index:"true"`
 		Username        string        `json:"username"        index:"true"`
+		Name            *string       `json:"name"`
 		Expired         bool          `json:"expired"         index:"true"`
 		Live            bool          `json:"live"            index:"true"`
+		State           string        `json:"state"           index:"true"`
+		SignedInWith    *string       `json:"signedInWith"    index:"true"`
+		Browser         *string       `json:"browser"`
 		AuthenticatedAt *time.Time    `json:"authenticatedAt"`
 		CreatedAt       time.Time     `json:"createdAt"`
 		UpdatedAt       time.Time     `json:"updatedAt"       index:"true"`
@@ -82,6 +86,10 @@ func (h *Handlers) StaffListedSessions() http.HandlerFunc {
 					if !row.Masked("username") {
 						rmap["username"] = rec.Username
 					}
+				case "Name":
+					if !row.Masked("name") {
+						rmap["name"] = rec.Name
+					}
 				case "Expired":
 					if !row.Masked("expired") {
 						rmap["expired"] = rec.Expired
@@ -89,6 +97,18 @@ func (h *Handlers) StaffListedSessions() http.HandlerFunc {
 				case "Live":
 					if !row.Masked("live") {
 						rmap["live"] = rec.Live
+					}
+				case "State":
+					if !row.Masked("state") {
+						rmap["state"] = rec.State
+					}
+				case "SignedInWith":
+					if !row.Masked("signedInWith") {
+						rmap["signedInWith"] = rec.SignedInWith
+					}
+				case "Browser":
+					if !row.Masked("browser") {
+						rmap["browser"] = rec.Browser
 					}
 				case "AuthenticatedAt":
 					if !row.Masked("authenticatedAt") {
@@ -128,8 +148,12 @@ func (h *Handlers) StaffListedSession() http.HandlerFunc {
 		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
 		UserID          *impulse.UUID `json:"userId"`
 		Username        string        `json:"username"`
+		Name            *string       `json:"name"`
 		Expired         bool          `json:"expired"`
 		Live            bool          `json:"live"`
+		State           string        `json:"state"`
+		SignedInWith    *string       `json:"signedInWith"`
+		Browser         *string       `json:"browser"`
 		AuthenticatedAt *time.Time    `json:"authenticatedAt"`
 		CreatedAt       time.Time     `json:"createdAt"`
 		UpdatedAt       time.Time     `json:"updatedAt"`
@@ -175,6 +199,10 @@ func (h *Handlers) StaffListedSession() http.HandlerFunc {
 				if !row.Masked("username") {
 					rmap["username"] = rec.Username
 				}
+			case "Name":
+				if !row.Masked("name") {
+					rmap["name"] = rec.Name
+				}
 			case "Expired":
 				if !row.Masked("expired") {
 					rmap["expired"] = rec.Expired
@@ -182,6 +210,18 @@ func (h *Handlers) StaffListedSession() http.HandlerFunc {
 			case "Live":
 				if !row.Masked("live") {
 					rmap["live"] = rec.Live
+				}
+			case "State":
+				if !row.Masked("state") {
+					rmap["state"] = rec.State
+				}
+			case "SignedInWith":
+				if !row.Masked("signedInWith") {
+					rmap["signedInWith"] = rec.SignedInWith
+				}
+			case "Browser":
+				if !row.Masked("browser") {
+					rmap["browser"] = rec.Browser
 				}
 			case "AuthenticatedAt":
 				if !row.Masked("authenticatedAt") {

@@ -17,8 +17,20 @@ type (
 	// accepted: the session was not ended (Expired), it was used within the Auth's
 	// session timeout. It is the session library's rule for a
 	// request, read from the database's clock. A session that is neither live nor ended
-	// timed out. The list filters by the session's id, the person's id, the username,
-	// Expired, Live and the last activity, and lists the most recently used first.
+	// timed out. State says which in one word: live, timedOut or ended. Username is the
+	// account's present username, so a person renamed since they signed in is listed,
+	// and found, under the name they have now; Name is their name. SignedInWith is how
+	// the session signed in, in the words of the login page's button for the method (the
+	// first of the session's auth events), and Browser the browser it was signed in
+	// from, where it was recognized. A session the application started itself
+	// (session.AuthAPI.StartAuthenticatedSession) says "Started by the application": its
+	// first event is a step of the application's own, which the library accepts under no
+	// sign-in method's name, so every first event that is neither a sign-in method's nor
+	// an impersonation's is one. A session established as someone else says "Viewing as
+	// someone else", and one signed in through a method the Auth no longer registers says
+	// the method's stored word. The list filters by the session's id, the person's id, the
+	// username, Expired, Live, State, how the session signed in and the last activity, and
+	// lists the most recently used first.
 	//
 	// @virtual
 	// @outlet(portal, default)
@@ -27,31 +39,69 @@ type (
 	// @rowWord(session)
 	MembersListedSession struct {
 		// @primarykey
-		ID              impulse.UUID  `spanner:"Id"              index:"true"`
+		ID impulse.UUID `spanner:"Id" index:"true"`
+		// UserID names a row of the list of the accounts: a page links the row to the
+		// account's page by it.
+		//
+		// @enumerate(MembersListedUsers)
 		UserID          *impulse.UUID `spanner:"UserId"          index:"true"`
 		Username        string        `spanner:"Username"        index:"true"`
+		Name            *string       `spanner:"Name"`
 		Expired         bool          `spanner:"Expired"         index:"true"`
 		Live            bool          `spanner:"Live"            index:"true"`
+		State           string        `spanner:"State"           index:"true"`
+		SignedInWith    *string       `spanner:"SignedInWith"    index:"true"`
+		Browser         *string       `spanner:"Browser"`
 		AuthenticatedAt *time.Time    `spanner:"AuthenticatedAt"`
 		CreatedAt       time.Time     `spanner:"CreatedAt"`
 		UpdatedAt       time.Time     `spanner:"UpdatedAt"       index:"true"`
 	}
 )
 
-// membersListedSessionQuery selects the sessions, each with whether it is live.
-// The timeout is read as @sessionTimeoutMilliseconds, in milliseconds.
+// membersListedSessionQuery selects the sessions, each with whether it is live,
+// written once in the inner query, and its state, which reads it. The timeout is read
+// as @sessionTimeoutMilliseconds, in milliseconds.
 const membersListedSessionQuery = `
 SELECT
-  s.Id AS Id,
-  s.UserId AS UserId,
-  s.Username AS Username,
-  s.Expired AS Expired,
-  (NOT s.Expired
-    AND s.UpdatedAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @sessionTimeoutMilliseconds MILLISECOND)) AS Live,
-  s.AuthenticatedAt AS AuthenticatedAt,
-  s.CreatedAt AS CreatedAt,
-  s.UpdatedAt AS UpdatedAt
-FROM MembersSessions s
+  ls.Id AS Id,
+  ls.UserId AS UserId,
+  COALESCE(u.Username, ls.Username) AS Username,
+  NULLIF(u.Name, '') AS Name,
+  ls.Expired AS Expired,
+  ls.Live AS Live,
+  CASE WHEN ls.Live THEN 'live' WHEN ls.Expired THEN 'ended' ELSE 'timedOut' END AS State,
+  (SELECT CASE e.Method
+      WHEN 'google' THEN 'Company directory'
+      WHEN 'impersonation' THEN 'Viewing as someone else'
+      WHEN 'password' THEN e.Method
+      WHEN 'azure' THEN e.Method
+      WHEN 'workos' THEN e.Method
+      WHEN 'oidc' THEN e.Method
+      ELSE 'Started by the application'
+    END
+    FROM MembersSessionAuthEvents e
+    WHERE e.SessionId = ls.Id
+    ORDER BY e.Seq
+    LIMIT 1) AS SignedInWith,
+  ls.Browser AS Browser,
+  ls.AuthenticatedAt AS AuthenticatedAt,
+  ls.CreatedAt AS CreatedAt,
+  ls.UpdatedAt AS UpdatedAt
+FROM (
+  SELECT
+    s.Id AS Id,
+    s.UserId AS UserId,
+    s.Username AS Username,
+    s.Expired AS Expired,
+    (NOT s.Expired
+      AND s.UpdatedAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @sessionTimeoutMilliseconds MILLISECOND)) AS Live,
+    s.Browser AS Browser,
+    s.AuthenticatedAt AS AuthenticatedAt,
+    s.CreatedAt AS CreatedAt,
+    s.UpdatedAt AS UpdatedAt
+  FROM MembersSessions s
+) ls
+LEFT JOIN MembersSessionUsers u ON u.Id = ls.UserId
 `
 
 // membersListedSessionTimeout is how long a session of the Members auth may sit

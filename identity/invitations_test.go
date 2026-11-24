@@ -436,3 +436,140 @@ func TestManager_WithdrawInvitation(t *testing.T) {
 		})
 	}
 }
+
+// TestManager_ResendInvitation pins the second sending of an invitation: a new
+// invitation with the old one's address, name, place and roles, sent by the caller and
+// held to every rule an invitation is; the old one withdrawn in the same transaction
+// while it stands and left as it is once it has expired or could not be mailed; one
+// that was accepted or withdrawn refused in words; and one that makes a tenant, or an
+// id no invitation holds, not found, with nothing written.
+func TestManager_ResendInvitation(t *testing.T) {
+	t.Parallel()
+
+	oldID := mustUUID("66666666-6666-4666-8666-666666666666")
+	ahead, behind := time.Now().Add(time.Hour), time.Now().Add(-time.Hour)
+	steward := Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Steward"}}
+	row := func(tail string) string {
+		return "insert invitation " + invitationID.String() + " pat@example.com " + tail
+	}
+	consumed := "consume mail link " + oldID.String()
+
+	tests := []struct {
+		name    string
+		old     *SentInvitation
+		caller  accesstypes.User
+		held    []access.MembershipKey
+		wantErr func(error) bool
+		// wantWrites are the buffered writes and wantMailed the addresses mailed.
+		wantWrites []string
+		wantMailed []string
+	}{
+		{
+			name:       "an invitation that stands is sent again by the caller, with its name, its tenant and its roles, and is withdrawn",
+			old:        &SentInvitation{Invitation: Invitation{Email: "pat@example.com", Name: ptr("Pat Example"), Domain: ptr("alpha"), Roles: []accesstypes.Role{"Reader"}}, ExpiresAt: ahead},
+			caller:     dana,
+			wantWrites: []string{row("tenant=alpha roles=Reader by=" + userID.String() + " name=Pat Example"), consumed},
+			wantMailed: []string{"pat@example.com"},
+		},
+		{
+			name:       "an invitation into every tenant is sent again into every tenant",
+			old:        &SentInvitation{Invitation: Invitation{Email: "pat@example.com", EveryDomain: true, Roles: []accesstypes.Role{"Reader"}}, ExpiresAt: ahead},
+			caller:     dana,
+			wantWrites: []string{row("tenant= roles=Reader by=" + userID.String() + " every-tenant"), consumed},
+			wantMailed: []string{"pat@example.com"},
+		},
+		{
+			name:       "an invitation that has expired is sent again and left as it is",
+			old:        &SentInvitation{Invitation: steward, ExpiresAt: behind},
+			caller:     dana,
+			wantWrites: []string{row("tenant= roles=Steward by=" + userID.String())},
+			wantMailed: []string{"pat@example.com"},
+		},
+		{
+			name:       "an invitation whose message could not be mailed is sent again and left as it is",
+			old:        &SentInvitation{Invitation: steward, NotMailed: true, ExpiresAt: ahead},
+			caller:     dana,
+			wantWrites: []string{row("tenant= roles=Steward by=" + userID.String())},
+			wantMailed: []string{"pat@example.com"},
+		},
+		{
+			name: "an invitation that was accepted is refused, saying there is nothing to send",
+			old:  &SentInvitation{Invitation: steward, Accepted: true, ExpiresAt: ahead},
+			wantErr: func(err error) bool {
+				return httpio.HasConflict(err) && httpio.Message(err) == "This invitation was accepted. There is nothing to send again."
+			},
+		},
+		{
+			name: "an invitation that was withdrawn is refused, saying to invite the person again",
+			old:  &SentInvitation{Invitation: steward, Withdrawn: true, ExpiresAt: ahead},
+			wantErr: func(err error) bool {
+				return httpio.HasConflict(err) && httpio.Message(err) == "This invitation was withdrawn. Invite the person again to bring them in."
+			},
+		},
+		{
+			name:    "an invitation that makes a tenant is not found here",
+			old:     &SentInvitation{Invitation: steward, MakesTenant: true, ExpiresAt: ahead},
+			wantErr: httpio.HasNotFound,
+		},
+		{
+			name:    "an id no invitation holds is not found",
+			wantErr: httpio.HasNotFound,
+		},
+		{
+			// The new invitation is the caller's own: the rule on the role is asked of
+			// them, whoever sent the first one.
+			name:    "a caller who does not hold the Super administrator role is refused an invitation that gives it, and the one that stands is kept",
+			old:     &SentInvitation{Invitation: Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{accesstypes.SuperAdministrator}}, ExpiresAt: ahead},
+			caller:  erin,
+			held:    []access.MembershipKey{erinSteward},
+			wantErr: httpio.HasForbidden,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := superStore(tt.held...)
+			if tt.old != nil {
+				store.sentInvitations = map[impulse.UUID]*SentInvitation{oldID: tt.old}
+			}
+			mail := &fakeMail{id: invitationID}
+			m, err := New(managedAuth, store, &fakeEngine{roles: superRoles}, fakeSessions{mail: mail})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			var (
+				got  impulse.UUID
+				told *bool
+			)
+			err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				id, err := m.ResendInvitation(asCallerThrough(ctx, managedAuth, tt.caller), txn, oldID, func(sent bool) { told = &sent })
+				got = id
+
+				return err
+			})
+			if tt.wantErr != nil {
+				if err == nil || !tt.wantErr(err) {
+					t.Fatalf("ResendInvitation() error = %v, want the refusal", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("ResendInvitation() error = %v", err)
+				}
+				if got != invitationID {
+					t.Errorf("ResendInvitation() = %s, want the new invitation's id %s", got, invitationID)
+				}
+				if told == nil || !*told {
+					t.Errorf("the answer was told %v, want that the message went", told)
+				}
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantMailed, mail.sent); diff != "" {
+				t.Errorf("addresses mailed (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

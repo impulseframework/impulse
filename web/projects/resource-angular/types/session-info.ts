@@ -6,6 +6,11 @@ import { Look } from '@impulseframework/resource';
  */
 export interface SessionInfo {
   authenticated: boolean;
+  /**
+   * The id of the session this browser is signed in with: a list of sessions marks the row
+   * that carries it as the reader's own.
+   */
+  sessionId?: string;
   username: string;
   /**
    * The person's name as people read it ("Gale Reyes"), when they hold one: what a page

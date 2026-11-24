@@ -89,6 +89,8 @@ var accessActions = []accesstypes.Resource{
 	"RemoveCrewSectorUser",
 	"RequireCrewSecondFactor",
 	"RequireMembersSecondFactor",
+	"ResendCrewInvitation",
+	"ResendCrewSectorInvitation",
 	"SetCrewRememberedBrowsers",
 	"SetCrewSelfServiceReset",
 	"SetMembersRememberedBrowsers",

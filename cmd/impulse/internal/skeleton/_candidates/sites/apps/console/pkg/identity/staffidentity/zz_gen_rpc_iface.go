@@ -17,11 +17,11 @@ type Method interface {
 		RemoveStaffRole | RemoveStaffTenantGroupMember | RemoveStaffTenantPassword |
 		RemoveStaffTenantRole | RemoveStaffTenantUser | RenameStaffTenantUser | RenameStaffUser |
 		RequireStaffPasswordChange | RequireStaffSecondFactor |
-		RequireStaffTenantPasswordChange | RevokeStaffSessionToken |
-		RevokeStaffTenantUserTrustedDevices | RevokeStaffUserTrustedDevices |
-		SendStaffTenantUserPasswordResetLink | SendStaffUserPasswordResetLink |
-		SetStaffRememberedBrowsers | SetStaffSelfServiceReset | SetStaffTenantUserEmail |
-		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName |
+		RequireStaffTenantPasswordChange | ResendStaffInvitation | ResendStaffTenantInvitation |
+		RevokeStaffSessionToken | RevokeStaffTenantUserTrustedDevices |
+		RevokeStaffUserTrustedDevices | SendStaffTenantUserPasswordResetLink |
+		SendStaffUserPasswordResetLink | SetStaffRememberedBrowsers | SetStaffSelfServiceReset |
+		SetStaffTenantUserEmail | SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName |
 		StopRequiringStaffSecondFactor | TakeStaffGroupRole | TakeStaffRole |
 		TakeStaffTenantGroupRole | UnlinkStaffSessionIdentity |
 		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
