@@ -30,7 +30,9 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 // (title, client, squadron, status, deadline) filter always, and days left, computed in
 // the SQL and indexed by nothing but declared allow_filter, filters only beside one of
 // them — its control waits, with a hint, until an indexed filter is in the request, and
-// clearing the last indexed filter clears it too. A page size over the view's maximum,
+// clearing the last indexed filter clears it too. The Briefing column is on an id whose
+// resource declares no name, so it shows the stored key, sorts by it, and filters by it
+// as days left does, beside an indexed filter. A page size over the view's maximum,
 // or a filter the server refuses, is shown in the server's words.
 //
 // The two pickers read on their sources' maximums, from the generated descriptor. The
@@ -64,6 +66,7 @@ export const missionsConfig = rootConfig({
       { id: MissionBoards.fieldName.clientId, header: 'Client' },
       { id: MissionBoards.fieldName.squadronId, header: 'Squadron' },
       { id: MissionBoards.fieldName.statusId, header: 'Status' },
+      { id: MissionBoards.fieldName.briefingTemplateId, header: 'Briefing' },
       { id: MissionBoards.fieldName.deadline },
       { id: MissionBoards.fieldName.daysLeft, header: 'Days left' },
     ],

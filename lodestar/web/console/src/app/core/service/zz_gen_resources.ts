@@ -762,6 +762,7 @@ export interface MissionBoards {
   squadronId?: string;
   kindId?: string;
   statusId?: string;
+  briefingTemplateId?: string;
   deadline?: Date;
   daysLeft?: number;
   clientName?: string;
@@ -2270,6 +2271,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'squadronId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Squadrons },
       { fieldName: 'kindId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "courier", display: "Courier" }, { id: "escort", display: "Escort" }, { id: "rescue", display: "Rescue" }, { id: "salvage", display: "Salvage" }] },
       { fieldName: 'statusId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "claimed", display: "Claimed" }, { id: "completed", display: "Completed" }, { id: "failed", display: "Failed" }, { id: "on_hold", display: "On hold" }, { id: "open", display: "Open" }, { id: "stood_down", display: "Stood down" }, { id: "underway", display: "Underway" }] },
+      { fieldName: 'briefingTemplateId', displayType: 'enumerated', required: false, isIndex: false, filterable: 'withIndexed', enumeratedResource: Resources.BriefingTemplates },
       { fieldName: 'deadline', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'daysLeft', displayType: 'number', required: true, isIndex: false, filterable: 'withIndexed' },
     ],

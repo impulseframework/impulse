@@ -7,6 +7,7 @@ SELECT
   m.AssignedSquadronId AS SquadronId,
   m.KindId AS KindId,
   m.StatusId AS StatusId,
+  m.BriefingTemplateId AS BriefingTemplateId,
   m.Deadline AS Deadline,
   TIMESTAMP_DIFF(m.Deadline, CURRENT_TIMESTAMP(), DAY) AS DaysLeft
 FROM Missions m

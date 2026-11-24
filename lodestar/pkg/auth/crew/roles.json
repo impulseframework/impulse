@@ -1614,6 +1614,7 @@
                 "squadronId",
                 "kindId",
                 "statusId",
+                "briefingTemplateId",
                 "deadline",
                 "daysLeft"
               ]
@@ -3155,6 +3156,7 @@
                 "squadronId",
                 "kindId",
                 "statusId",
+                "briefingTemplateId",
                 "deadline",
                 "daysLeft"
               ]

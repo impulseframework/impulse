@@ -452,7 +452,8 @@ it spans several (the clients' box, with their contacts); either way the count a
 cursor pages carry the whole, and the declared order stands. The box is the
 indexed touch a companion-only column waits for, so on the
 [Missions page](web/console/src/app/configs/missions.config.ts), the board, whose box searches the
-mission's title, with filters on status, squadron, kind, deadline and days left, a
+mission's title, with filters on status, squadron, kind, deadline, days left and the
+briefing template's key, a
 days-left filter rides beside the box alone and leaves when the last indexed touch, the
 box or a status filter, is cleared; the deadline's menu takes a date as a person writes
 it (below). The filter is placed as a whole: on the

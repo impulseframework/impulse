@@ -38,15 +38,16 @@ func (MissionBoard) NameFields() []resource.NameField {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; missionBoardReadSets holds one Set per read operation.
 type missionBoardRead struct {
-	ID         impulse.UUID     `json:"id"         perm:"-"`
-	SectorID   impulse.UUID     `json:"sectorId"`
-	Title      string           `json:"title"`
-	ClientID   impulse.UUID     `json:"clientId"`
-	SquadronID impulse.NullUUID `json:"squadronId"`
-	KindID     string           `json:"kindId"`
-	StatusID   string           `json:"statusId"`
-	Deadline   time.Time        `json:"deadline"`
-	DaysLeft   int64            `json:"daysLeft"`
+	ID                 impulse.UUID     `json:"id"                 perm:"-"`
+	SectorID           impulse.UUID     `json:"sectorId"`
+	Title              string           `json:"title"`
+	ClientID           impulse.UUID     `json:"clientId"`
+	SquadronID         impulse.NullUUID `json:"squadronId"`
+	KindID             string           `json:"kindId"`
+	StatusID           string           `json:"statusId"`
+	BriefingTemplateID *string          `json:"briefingTemplateId"`
+	Deadline           time.Time        `json:"deadline"`
+	DaysLeft           int64            `json:"daysLeft"`
 }
 
 var missionBoardReadSets resource.SetCache[MissionBoard, missionBoardRead]
@@ -162,6 +163,7 @@ func (c *MissionBoardColumns) All() *MissionBoardColumns {
 		"SquadronID",
 		"KindID",
 		"StatusID",
+		"BriefingTemplateID",
 		"Deadline",
 		"DaysLeft",
 	}
@@ -207,6 +209,12 @@ func (c *MissionBoardColumns) KindID() *MissionBoardColumns {
 
 func (c *MissionBoardColumns) StatusID() *MissionBoardColumns {
 	c.fields = append(c.fields, "StatusID")
+
+	return c
+}
+
+func (c *MissionBoardColumns) BriefingTemplateID() *MissionBoardColumns {
+	c.fields = append(c.fields, "BriefingTemplateID")
 
 	return c
 }
@@ -275,6 +283,10 @@ func (p MissionBoardQueryPartialClause) KindID() MissionBoardQueryIdent[string] 
 
 func (p MissionBoardQueryPartialClause) StatusID() MissionBoardQueryIdent[string] {
 	return MissionBoardQueryIdent[string]{Ident: resource.NewIdent[string]("StatusID", p.partialClause, true)}
+}
+
+func (p MissionBoardQueryPartialClause) BriefingTemplateID() MissionBoardQueryIdent[string] {
+	return MissionBoardQueryIdent[string]{Ident: resource.NewIdent[string]("BriefingTemplateID", p.partialClause, false)}
 }
 
 func (p MissionBoardQueryPartialClause) Deadline() MissionBoardQueryIdent[time.Time] {
@@ -391,6 +403,10 @@ func (c *missionBoardSort) KindID() *MissionBoardSort {
 
 func (c *missionBoardSort) StatusID() *MissionBoardSort {
 	return c.addField("StatusID")
+}
+
+func (c *missionBoardSort) BriefingTemplateID() *MissionBoardSort {
+	return c.addField("BriefingTemplateID")
 }
 
 func (c *missionBoardSort) Deadline() *MissionBoardSort {

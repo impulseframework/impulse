@@ -24,6 +24,12 @@ type (
 	// its metadata says filterable: withIndexed, and the browser offers a days-left
 	// filter only beside one on an indexed column, the rule the database parse enforces.
 	//
+	// BriefingTemplateId is the key of the briefing template the mission was booked with,
+	// a row of the BriefingTemplates catalog. The catalog is computed and declares no name,
+	// so the board shows the key itself, which reads on its own (standard, hazard-first),
+	// and sorts and filters by it. No index answers it, so it is allow_filter, as DaysLeft
+	// is.
+	//
 	// The board's box searches the mission's title: Title names Missions.Title and the SQL
 	// projects its token column, so the box and Title's matches ride MissionsSearch. It is
 	// a box over one index, so it stands anywhere in a filter, inside an OR too. A client
@@ -58,9 +64,11 @@ type (
 		// @enumerate(MissionKinds)
 		KindID string `spanner:"KindId" index:"true"`
 		// @enumerate(MissionStatuses)
-		StatusID string    `spanner:"StatusId" index:"true"`
-		Deadline time.Time `spanner:"Deadline" index:"true"`
-		DaysLeft int64     `spanner:"DaysLeft" allow_filter:"true"`
+		StatusID string `spanner:"StatusId" index:"true"`
+		// @enumerate(BriefingTemplates)
+		BriefingTemplateID *string   `spanner:"BriefingTemplateId" allow_filter:"true"`
+		Deadline           time.Time `spanner:"Deadline"           index:"true"`
+		DaysLeft           int64     `spanner:"DaysLeft"           allow_filter:"true"`
 	}
 )
 

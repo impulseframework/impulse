@@ -2103,6 +2103,7 @@ export namespace MembersUserRoles {
 
 export namespace MissionBoards {
   export const fieldName = {
+    briefingTemplateId: 'briefingTemplateId' as FieldName,
     clientId: 'clientId' as FieldName,
     daysLeft: 'daysLeft' as FieldName,
     deadline: 'deadline' as FieldName,
@@ -2118,6 +2119,7 @@ export namespace MissionBoards {
     statusName: 'statusName' as FieldName,
   };
   export const resourceName = {
+    briefingTemplateId: 'MissionBoards.briefingTemplateId' as Resource,
     clientId: 'MissionBoards.clientId' as Resource,
     daysLeft: 'MissionBoards.daysLeft' as Resource,
     deadline: 'MissionBoards.deadline' as Resource,

@@ -846,6 +846,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
 				Tags: []resource.TagData{
+					{Name: "briefingTemplateId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "clientId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "daysLeft", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "deadline", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
@@ -858,7 +859,7 @@ func Collection() *resource.GeneratedCollection {
 				},
 				Domain:    &resource.DomainBindingData{Column: "SectorId"},
 				Order:     []accesstypes.Tag{"deadline"},
-				QueryKeys: []accesstypes.Tag{"sectorId", "title", "clientId", "squadronId", "kindId", "statusId", "deadline", "daysLeft"},
+				QueryKeys: []accesstypes.Tag{"sectorId", "title", "clientId", "squadronId", "kindId", "statusId", "briefingTemplateId", "deadline", "daysLeft"},
 			},
 			{
 				Name:        "MissionDocuments",
