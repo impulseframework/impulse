@@ -177,17 +177,13 @@ type recordRename struct {
 
 // recordRenames are the renames from the reference's record to the application's, in
 // order: the quoted words the screen shows, then the names the generator derives from
-// the record (its resources, the types of their bodies, the client's properties, the
-// routes, the route parameter, the directories record's tenant field, and the generated methods of the tenant's own:
-// the two that turn the record's directory-only switch, the two that say how it admits
-// its directory's people, and the two that say whether its directory asks for a second
-// factor, each with its route), and last the role a tenant's administrator holds, which
-// the command names for the record (AdministratorRole), so a spec's role and the
-// sentence that says it in words both speak of the application's.
+// the record (its resources, the routes and the route parameter). An entry stands only
+// for a name the reference's menus, routes or test of the dialogs carry: a name one of
+// them comes to carry gets its entry then, held by a test that reads what the command
+// writes.
 func (tn Tenancy) recordRenames() []recordRename {
-	rec, table := tn.Record(), tn.Table
-	r, t := lowerFirst(rec), lowerFirst(table)
-	kr, kt := strcase.ToKebab(rec), strcase.ToKebab(table)
+	table := tn.Table
+	r, kt := lowerFirst(tn.Record()), strcase.ToKebab(table)
 	quoted := func(old, with string) recordRename {
 		return recordRename{regexp.MustCompile(regexp.QuoteMeta("'" + old + "'")), "'" + with + "'"}
 	}
@@ -195,35 +191,9 @@ func (tn Tenancy) recordRenames() []recordRename {
 	return []recordRename{
 		quoted("Tenants", tn.many()),
 		quoted("Tenant", tn.one()),
-		quoted("tenants", kt),
-		{regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9]*?)TenantRoles\b`), "${1}" + rec + "Roles"},
-		{regexp.MustCompile(`-tenant-roles\b`), "-" + kr + "-roles"},
-		{regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9]*?)TenantDirectoryRoles\b`), "${1}" + rec + "DirectoryRoles"},
-		{regexp.MustCompile(`-tenant-directory-roles\b`), "-" + kr + "-directory-roles"},
-		{regexp.MustCompile(`\bTenantDirectories\b`), rec + "Directories"},
-		{regexp.MustCompile(`\btenantDirectories\b`), r + "Directories"},
-		{regexp.MustCompile(`\btenant-directories\b`), kr + "-directories"},
-		{regexp.MustCompile(`\b(Make|End)TenantDirectoryOnly\b`), "${1}" + rec + "DirectoryOnly"},
-		{regexp.MustCompile(`\b(make|end)TenantDirectoryOnly\b`), "${1}" + rec + "DirectoryOnly"},
-		{regexp.MustCompile(`\b(make|end)-tenant-directory-only\b`), "${1}-" + kr + "-directory-only"},
-		{regexp.MustCompile(`\bOpenTenantToDirectory\b`), "Open" + rec + "ToDirectory"},
-		{regexp.MustCompile(`\bopenTenantToDirectory\b`), "open" + rec + "ToDirectory"},
-		{regexp.MustCompile(`\bopen-tenant-to-directory\b`), "open-" + kr + "-to-directory"},
-		{regexp.MustCompile(`\bMakeTenantInviteOnly\b`), "Make" + rec + "InviteOnly"},
-		{regexp.MustCompile(`\bmakeTenantInviteOnly\b`), "make" + rec + "InviteOnly"},
-		{regexp.MustCompile(`\bmake-tenant-invite-only\b`), "make-" + kr + "-invite-only"},
-		{regexp.MustCompile(`\b(VouchFor|StopVouchingFor)TenantDirectorySecondFactor\b`), "${1}" + rec + "DirectorySecondFactor"},
-		{regexp.MustCompile(`\b(vouchFor|stopVouchingFor)TenantDirectorySecondFactor\b`), "${1}" + rec + "DirectorySecondFactor"},
-		{regexp.MustCompile(`\b(vouch-for|stop-vouching-for)-tenant-directory-second-factor\b`), "${1}-" + kr + "-directory-second-factor"},
-		{regexp.MustCompile(`\bTenantsCreate\b`), table + "Create"},
 		{regexp.MustCompile(`\bTenants\b`), table},
-		{regexp.MustCompile(`\.tenants\b`), "." + t},
-		{regexp.MustCompile(`\{ tenants: `), "{ " + t + ": "},
 		{regexp.MustCompile(`\btenants/`), kt + "/"},
-		{regexp.MustCompile(`'/tenants'`), "'/" + kt + "'"},
 		{regexp.MustCompile(`\btenantID\b`), r + "ID"},
-		{regexp.MustCompile(`\btenantId\b`), r + "Id"},
-		{regexp.MustCompile(`\b` + referenceTenantAdministrator + `\b`), tn.AdministratorRole()},
 	}
 }
 

@@ -33,14 +33,16 @@ type (
 	// A person who is there only through a role held in every {{ .TenantWord }}{{ if .KeepsGroups }}, or through a group
 	// kept for the whole application,{{ end }} is not counted.
 	{{- if .TenantDirectory }}
-	// Directory is the kind of directory its people sign in through, with the domain of a
-	// Google Workspace; the name a sign-in registration gives an organization is not said,
-	// since a query does not read the registrations, and a Microsoft Entra tenant's id is
-	// never said.
+	// Directory is the kind of directory its people sign in through, and of a Google
+	// Workspace its connection too: the Workspace's domain, or the name the application's
+	// sign-in registration gives it. No other kind's connection is said: what a person
+	// calls such a directory is said by the sign-in registrations, which a query does not
+	// read, and a Microsoft Entra tenant's id is never said.
 	{{- end }}
 	// Administrators names each person who holds one of the roles the auth's permission
 	// engine names as a {{ .TenantWord }} administrator's in the {{ .TenantWord }} itself, by a role of their
-	// own{{ if .KeepsGroups }} or through one of its groups{{ end }}.{{ with .TenantSinceField }} Since is when the
+	// own{{ if .KeepsGroups }} or through one of its groups{{ end }}. A person whose account is disabled is not named:
+	// a disabled account holds its roles and administers nothing.{{ with .TenantSinceField }} Since is when the
 	// {{ $.TenantWord }} was made: the record's {{ .Name }}, which it marks @tenantSince.{{ end }}{{ if .TenantNameField }} The list filters by the name.{{ end }} It is a view over the
 	// record's table, so a row opens, is changed and is deleted as the record's own.
 	//
@@ -133,6 +135,7 @@ SELECT
         AND {{ .Counting "tm" }}
       {{- end }}
     )
+      AND NOT u.Disabled
     ORDER BY Line
   ) AS Administrators
 FROM {{ .TenantTable }} s

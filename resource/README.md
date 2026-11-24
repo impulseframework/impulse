@@ -4842,14 +4842,16 @@ fields and three facts no table holds. People is how many people hold something 
 tenant itself right now, a role of their own, a place in one of its groups or a sign-in
 through its directory; a person who is there only through a role held in every tenant,
 or through a group kept for the whole application, is not counted. Directory is the kind
-of directory its people sign in through, with the
-domain of a Google Workspace. Administrators names each person who holds a tenant
-administrator's role in the tenant itself. Since is when the tenant was made: the column
-the record marks `@tenantSince`, served as `since` whatever the record calls it; a record
-that marks none has no Since in its list. The view names the record as where its rows
-are written (`@rowsOf`), so a page lists the view and a row opens, is changed and is
-deleted as the record's own. The description names it `tenants`, and the browser
-package's tenants page is drawn from it.
+of directory its people sign in through, and of a Google Workspace its connection too:
+its domain, or the name the application's sign-in registration gives it. Administrators
+names each person who holds a tenant administrator's role in the tenant itself. A person
+whose account is disabled is not named, since a disabled account administers nothing;
+People still counts such a person, as the tenant's own list of people shows them. Since
+is when the tenant was made: the column the record marks `@tenantSince`, served as
+`since` whatever the record calls it; a record that marks none has no Since in its list.
+The view names the record as where its rows are written (`@rowsOf`), so a page lists the
+view and a row opens, is changed and is deleted as the record's own. The description
+names it `tenants`, and the browser package's tenants page is drawn from it.
 
 Sending is held to what the sender could have done by creating the tenant. Beside the
 method's own grant it takes the Create grant on the tenant record, on the record and on
