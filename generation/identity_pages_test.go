@@ -24,6 +24,13 @@ func Test_identityOn(t *testing.T) {
 		tables: map[identityTable]bool{identityMailLinks: true, identityMemberships: true},
 		tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", invitation: &identityTenantInvitation{}},
 	}
+	// The same auth where the outlet serves the tenant record too: its management lists the
+	// tenants.
+	listing := &identityInstance{
+		auth: "Crew", outlets: []string{"console"}, createsTenant: true,
+		tables: map[identityTable]bool{identityUsers: true, identityMailLinks: true, identityMemberships: true},
+		tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", outlets: []string{"console"}, invitation: &identityTenantInvitation{}},
+	}
 	// The auth of an application whose tenants have a directory, a row of the record the
 	// package declares for it.
 	directed := &identityInstance{auth: "Crew", outlets: []string{"console"}, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", directories: "SectorDirectory"}}
@@ -72,8 +79,9 @@ func Test_identityOn(t *testing.T) {
 				// is named, since a page reads a tenant's name from it.
 				"Ships", "HailShip", "Sectors",
 				// The invitation that makes a tenant is no part of this auth's management:
-				// its people create no tenant, so the names are another declaration's.
-				"CrewInvitedSectors", "InviteCrewSector", "WithdrawCrewInvitedSector",
+				// its people create no tenant, so the names are another declaration's, and
+				// so is the list of tenants.
+				"CrewInvitedSectors", "InviteCrewSector", "WithdrawCrewInvitedSector", "CrewListedSectors",
 			},
 			want: []*tsAPIIdentity{{
 				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
@@ -173,6 +181,38 @@ func Test_identityOn(t *testing.T) {
 						Methods: []identityPart{part("inviteTenant", "InviteCrewSector"), part("withdrawInvitedTenant", "WithdrawCrewInvitedSector")},
 					},
 					// A tenant's own side carries none of it: no tenant brings another in.
+					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
+				},
+			}},
+		},
+		{
+			name:      "the auth whose people make the tenants names the list of tenants on the whole application's side, after the invitations",
+			outlet:    "console",
+			instances: []*identityInstance{listing},
+			// The schema holds the accounts and the memberships, so the people are listed with
+			// what each holds.
+			served:    []string{"CrewListedUsers", "CrewInvitedSectors", "CrewListedSectors", "CrewSectorUsers", "Sectors"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+				Sides: []*tsAPIIdentitySide{
+					{
+						Scope: accesstypes.GlobalPermissionScope,
+						Lists: []identityPart{part("users", "CrewListedUsers"), part("invitedTenants", "CrewInvitedSectors"), part("tenants", "CrewListedSectors")},
+					},
+					// No tenant lists the tenants.
+					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
+				},
+			}},
+		},
+		{
+			name:      "the list of tenants is not named where the outlet does not serve it",
+			outlet:    "console",
+			instances: []*identityInstance{listing},
+			served:    []string{"CrewListedUsers", "CrewInvitedSectors", "CrewSectorUsers", "Sectors"},
+			want: []*tsAPIIdentity{{
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+				Sides: []*tsAPIIdentitySide{
+					{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewListedUsers"), part("invitedTenants", "CrewInvitedSectors")}},
 					{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{part("users", "CrewSectorUsers")}},
 				},
 			}},

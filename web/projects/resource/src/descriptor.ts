@@ -128,6 +128,23 @@ export interface DomainRouteDescriptor {
 }
 
 /**
+ * The create-your-tenant route, where the outlet serves it: a signed-in person who holds no
+ * tenant creates one and becomes its administrator. `route` is the route under the API
+ * prefix (POST creates; GET answers `{ offered: boolean }`, whether the person may create
+ * one now), `resource` the tenant record's resource, whose metadata says how each field is
+ * drawn, `key` the name the answer carries the new tenant's id under, and `fields` the
+ * body's fields in order, each with whether the route requires it. Absent where the
+ * application's tenants are not made this way, and on a description from a generator that
+ * predates it.
+ */
+export interface TenantCreationDescriptor {
+  readonly route: string;
+  readonly resource: string;
+  readonly key: string;
+  readonly fields: readonly { readonly name: string; readonly required: boolean }[];
+}
+
+/**
  * Everything the client needs to know about one generated API. The impulse TypeScript
  * generator emits it; the runtime interprets it. Routes carry no API prefix — the
  * client's `baseUrl` supplies it.
@@ -144,6 +161,7 @@ export interface ApiDescriptor {
   resources: Record<string, ResourceDescriptor>;
   methods: Record<string, MethodDescriptor>;
   domainRoute?: DomainRouteDescriptor;
+  tenantCreation?: TenantCreationDescriptor;
   /** The consolidated mutation route (`resources`), when consolidation is enabled. */
   consolidatedRoute?: string;
   permissionDigestRoute: string;
@@ -313,6 +331,16 @@ export interface IdentityLists {
    * may read that field on the record itself.
    */
   readonly invitedTenants?: string;
+  /**
+   * The tenants, on the whole application's side of the Auth whose people make them: a row
+   * for each tenant with the tenant record's own fields and what no table holds of it: how
+   * many people it has (`people`), since when (`since`), the kind of directory its people
+   * sign in through (`directory`) and who administers it (`administrators`). The list is a
+   * view over the tenant record, so a row opens the record. Absent where the Auth makes no
+   * tenants, where the outlet does not serve the record, and on a description from a
+   * generator that predates it; a page then lists the record itself.
+   */
+  readonly tenants?: string;
   /**
    * The roles held for a set time and for a reason, on the whole application's side: what
    * the Break glass page lists, each with whether its time is over (`ended`).

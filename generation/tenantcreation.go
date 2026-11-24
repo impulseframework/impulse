@@ -663,6 +663,9 @@ type tsTenantCreation struct {
 	Fields        []*tsAPIField
 	// KeyWire is the key's name in the answer: the id the route generated.
 	KeyWire string
+	// Resource is the tenant record's resource, whose metadata says how a page draws each
+	// field of the body.
+	Resource string
 }
 
 // tenantCreationClientData is the create-your-tenant block of a client generated for
@@ -683,6 +686,7 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 	out := &tsTenantCreation{
 		Record:        record.Name(),
 		RecordLower:   words.InWords(record.Name()),
+		Resource:      t.pluralize(record.Name()),
 		Route:         tenantCreationRoute(record.Name()),
 		RouteConstant: strcase.ToCamel(tenantCreationHandlerFunc(record.Name())) + "Route",
 		RequestType:   tenantCreationHandlerFunc(record.Name()),

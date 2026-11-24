@@ -41,8 +41,10 @@ const (
 	identityListSignInSettings  = "signInSettings"
 	identityListRememberLengths = "rememberLengths"
 	identityListSignUpRoles     = "signUpRoles"
-	// The invitations that make a tenant and still stand (identity_invitedtenant.go).
+	// The invitations that make a tenant and still stand (identity_invitedtenant.go), and
+	// the tenants, each with what no table holds of it (identity_listedtenant.go).
 	identityListInvitedTenants = "invitedTenants"
+	identityListTenants        = "tenants"
 	// The lists over the groups of people (identity_groups.go): the groups, the people
 	// of a group, the roles a group holds, and the roles people hold through a group.
 	identityListGroups        = "groups"
@@ -156,6 +158,9 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 	}
 	if i.invitesTenants() {
 		parts = append(parts, identityPart{identityListInvitedTenants, i.invitedTenantName()})
+	}
+	if i.listsTenants() {
+		parts = append(parts, identityPart{identityListTenants, i.listedTenantName()})
 	}
 
 	return parts

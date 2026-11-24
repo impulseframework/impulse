@@ -4777,6 +4777,18 @@ schema without it is refused at generation, naming the column.
   stands. An invitation is not edited: staff who want other details withdraw it and
   send another.
 
+The auth whose people make the tenants also lists them: `<Auth>Listed<Record>`
+(`StaffListedTenants`), a view over the tenant record's table with the record's own
+fields and four facts no table holds. People is how many people hold something in the
+tenant itself right now, a role of their own, a place in one of its groups or a sign-in
+through its directory; a person who is there only through a role held in every tenant is
+not counted. Since is when the first role in the tenant was given. Directory is the kind
+of directory its people sign in through, with the domain of a Google Workspace.
+Administrators names each person who holds a tenant administrator's role in the tenant
+itself. The view names the record as where its rows are written (`@rowsOf`), so a page
+lists the view and a row opens, is changed and is deleted as the record's own. The
+description names it `tenants`, and the browser package's tenants page is drawn from it.
+
 Sending is held to what the sender could have done by creating the tenant. Beside the
 method's own grant it takes the Create grant on the tenant record, on the record and on
 each field the invitation carries, with every condition: the details are run through

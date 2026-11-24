@@ -128,30 +128,36 @@ func Test_tenantInvitationIn(t *testing.T) {
 			source: citadelTenantSource,
 			want: &identityTenantInvitation{
 				fields: []identityTenantField{
-					{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true},
-					{Name: "Motto", Type: "*string", Wire: "motto"},
-					{Name: "Founded", Type: "civil.Date", Wire: "founded", Required: true, Text: true},
+					{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true},
+					{Name: "Motto", Type: "*string", Wire: "motto", Column: "Motto"},
+					{Name: "Founded", Type: "civil.Date", Wire: "founded", Column: "Founded", Required: true, Text: true},
 					// A type the resources package declares is written with the package.
-					{Name: "Kind", Type: "resources.CitadelKind", Wire: "kind", Required: true, Text: true},
+					{Name: "Kind", Type: "resources.CitadelKind", Wire: "kind", Column: "Kind", Required: true, Text: true},
 					// A yes or no the create requires is no text a form must fill: its zero is
 					// an answer.
-					{Name: "Walled", Type: "bool", Wire: "walled", Required: true},
+					{Name: "Walled", Type: "bool", Wire: "walled", Column: "Walled", Required: true},
 					// A column with a default is not required.
-					{Name: "Garrison", Type: "int64", Wire: "garrison"},
-					{Name: "Towers", Type: "[]string", Wire: "towers"},
+					{Name: "Garrison", Type: "int64", Wire: "garrison", Column: "Garrison"},
+					{Name: "Towers", Type: "[]string", Wire: "towers", Column: "Towers"},
 				},
 				nameField: "Name", nameColumn: "Name",
-				directoryOnly: &identityTenantField{Name: "Closed", Type: "bool", Wire: "closed"},
+				directoryOnly: &identityTenantField{Name: "Closed", Type: "bool", Wire: "closed", Column: "Closed"},
 				seats:         true,
 				// The packages of the carried fields alone: neither the key's nor the
 				// secret's.
-				imports: []string{`"cloud.google.com/go/civil"`, `"example.com/acme/beacon/pkg/0/resources"`},
+				imports:    []string{`"cloud.google.com/go/civil"`, `"example.com/acme/beacon/pkg/0/resources"`},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
 			},
 		},
 		{
 			name:   "a record that marks no name, declares no switch and has no directories record",
 			source: oneFieldCitadel("", ""),
-			want:   &identityTenantInvitation{fields: []identityTenantField{{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true}}},
+			want: &identityTenantInvitation{
+				fields:     []identityTenantField{{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true}},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
+			},
 		},
 		{
 			name:    "a record whose table the schema does not hold is read as nothing",
@@ -216,10 +222,12 @@ func Test_tenantInvitationIn(t *testing.T) {
 			columns: map[string]columnMeta{"Seal": extra},
 			want: &identityTenantInvitation{
 				fields: []identityTenantField{
-					{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true},
-					{Name: "Seal", Type: "resource.Key[resources.Vault]", Wire: "seal", Required: true, Text: true},
+					{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true},
+					{Name: "Seal", Type: "resource.Key[resources.Vault]", Wire: "seal", Column: "Seal", Required: true, Text: true},
 				},
-				imports: []string{`"example.com/acme/beacon/pkg/12/resources"`, `"github.com/impulseframework/impulse/resource"`},
+				imports:    []string{`"example.com/acme/beacon/pkg/12/resources"`, `"github.com/impulseframework/impulse/resource"`},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
 			},
 		},
 		{
@@ -228,10 +236,12 @@ func Test_tenantInvitationIn(t *testing.T) {
 			columns: map[string]columnMeta{"Dues": {SpannerType: "NUMERIC", IsNullable: true}},
 			want: &identityTenantInvitation{
 				fields: []identityTenantField{
-					{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true},
-					{Name: "Dues", Type: "*money.Amount", Wire: "dues"},
+					{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true},
+					{Name: "Dues", Type: "*money.Amount", Wire: "dues", Column: "Dues"},
 				},
-				imports: []string{`"example.com/lib/money/v5"`},
+				imports:    []string{`"example.com/lib/money/v5"`},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
 			},
 		},
 		{
@@ -240,10 +250,12 @@ func Test_tenantInvitationIn(t *testing.T) {
 			columns: map[string]columnMeta{"Since": {SpannerType: "DATE"}},
 			want: &identityTenantInvitation{
 				fields: []identityTenantField{
-					{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true},
-					{Name: "Since", Type: "cv.Date", Wire: "since", Required: true, Text: true},
+					{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true},
+					{Name: "Since", Type: "cv.Date", Wire: "since", Column: "Since", Required: true, Text: true},
 				},
-				imports: []string{`cv "cloud.google.com/go/civil"`},
+				imports:    []string{`cv "cloud.google.com/go/civil"`},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
 			},
 		},
 	}
@@ -564,14 +576,14 @@ func Test_prepareIdentity_invitedTenant_shapes(t *testing.T) {
 	t.Run("a field's type reached through an alias is written through it, and the written source resolves it", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 
-		source := oneFieldCitadel("\tcv \"cloud.google.com/go/civil\"\n", "\tSince cv.Date `spanner:\"Since\"`\n")
+		source := oneFieldCitadel("\tcv \"cloud.google.com/go/civil\"\n", "\tOpened cv.Date `spanner:\"Opened\"`\n")
 		r := citadelGenerator(t, source, func(r *resourceGenerator) {
-			r.tableMap["Citadels"].Columns["Since"] = columnMeta{SpannerType: "DATE"}
+			r.tableMap["Citadels"].Columns["Opened"] = columnMeta{SpannerType: "DATE"}
 		})
 		if err := r.prepareIdentity(); err != nil {
 			t.Fatalf("prepareIdentity() error = %v", err)
 		}
-		for _, file := range []string{"crewidentity/invite_crew_citadel.go", "crewidentity/crew_invited_citadels.go"} {
+		for _, file := range []string{"crewidentity/invite_crew_citadel.go", "crewidentity/crew_invited_citadels.go", listedCitadelFile} {
 			assertContains(t, file, identitySource(t, file), []string{"cv \"cloud.google.com/go/civil\"", "cv.Date"}, nil)
 		}
 	})

@@ -762,6 +762,11 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if
 	// administers, read by the engine's own names, the ones the methods refuse by.
 	{{ .ResourcesPackage }}.Set{{ .User }}AdministratorRoles(manager.TenantAdministratorRoles())
 	{{- end }}
+	{{- if .ListsTenants }}
+	// The whole application's list of {{ .TenantWord }}s names each one's administrators by the
+	// engine's own names.
+	{{ .ResourcesPackage }}.Set{{ .ListedTenant }}AdministratorRoles(manager.TenantAdministratorRoles())
+	{{- end }}
 	{{- if .Has "sessions" }}
 	// The list of the auth's sessions says which are live by the timeout the Auth judges a
 	// request by.
