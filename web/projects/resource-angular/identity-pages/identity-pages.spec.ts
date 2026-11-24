@@ -2174,8 +2174,7 @@ describe('identityPages, who manages an account', () => {
   // A description of its own: the same request answers the same pages.
   const [accounts] = identityPages({ ...descriptor }, managing, { auth: 'Crew', scope: 'global' });
   const [people] = identityPages({ ...descriptor }, managing, { auth: 'Crew', scope: 'domain' });
-  const managedBy = (config: RootConfig): MultiColumnConfig =>
-    columnOf(list(config), 'managingTenant') as MultiColumnConfig;
+  const managedBy = (config: RootConfig): ColumnConfig => columnOf(list(config), 'managingTenant');
   const directoryLine = "Signs in through another sector's directory";
 
   it('the Accounts list says after State which sector manages each account, by its name', () => {
@@ -2188,12 +2187,14 @@ describe('identityPages, who manages an account', () => {
       ['managingTenant', 'Managed by'],
       ['lastSignInAt', 'Last sign-in'],
     ]);
-    // The sector is read from the tenant record by the key on the row and named with its
-    // word, under a header that is not the word; the key is an id nobody types, so the
-    // column takes no typed filter, as the roles' sector column does.
+    // The column is on the key and names the sector after its word, under a header that is
+    // not the word. The list carries no name beside the key, so a row says the name the
+    // reader's own list of sectors holds (tenantKey), and the list draws the column with
+    // neither a sort nor a filter, as it draws a column whose cells do not say the stored
+    // value; the key is an id nobody reads.
     const by = managedBy(accounts);
-    expect(by.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
-    expect([by.tenantKey, by.filterable]).toEqual([true, false]);
+    expect(by.tenantKey).toBe(true);
+    expect([by.filterable, by.sortable, by.valueGetter]).toEqual([undefined, undefined, undefined]);
     expect(by.said?.('Anvil', {})).toBe('Sector Anvil');
     // Where the reader may not read the sector's name the cell says so, and never shows the key.
     expect(by.fallback?.({ managingTenant: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
