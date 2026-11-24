@@ -240,7 +240,7 @@ function buildTenants(
       ...(waiting ? { above: [waitingAbove(waiting, words)] } : {}),
       elements: [section({ label: words.One, children: formFields(fields, !listed) })],
     }),
-    relatedConfigs: listed ? [summary(listed, listedFields, fields.key, since !== undefined, opens)] : [],
+    relatedConfigs: listed ? [summary(listed, listedFields, fields, since !== undefined, opens)] : [],
     ...(options.rpcConfigs ? { rpcConfigs: options.rpcConfigs } : {}),
   });
 }
@@ -372,10 +372,14 @@ function openButton(fields: RecordFields, words: TenantWords): RowButton {
 function summary(
   listed: Resource,
   carried: Set<string>,
-  key: string,
+  fields: RecordFields,
   saysSince: boolean,
   opens: RowButton,
 ): ChildResourceConfig {
+  const key = fields.key;
+  // The tenant's name rides each row unseen, so the button that opens the tenant names it
+  // in its notice here as on the list.
+  const name = fields.name && carried.has(fields.name) ? fields.name : undefined;
   const fixed = (id: string, header: string, lines = false): ColumnConfig => ({
     id: id as FieldName,
     header,
@@ -392,6 +396,7 @@ function summary(
       ...(carried.has('directory') ? [fixed('directory', 'Directory')] : []),
       fixed('people', 'People'),
       ...(saysSince ? [fixed('since', 'Since')] : []),
+      ...(name ? [{ id: name as FieldName, hidden: true }] : []),
       { id: key as FieldName, hidden: true },
     ],
     showViewButton: false,

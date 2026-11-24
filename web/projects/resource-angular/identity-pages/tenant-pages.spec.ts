@@ -431,7 +431,10 @@ describe('tenantsPage and tenantsRoute', () => {
       ['people', 'People', false, false, false],
       ['since', 'Since', false, false, false],
     ]);
-    expect(hiddenIds(summary.listColumns)).toEqual(['id']);
+    // The tenant's name rides each row unseen, so the button that opens the tenant names it
+    // in its notice on the tenant's page as on the list.
+    expect(hiddenIds(summary.listColumns)).toEqual(['name', 'id']);
+    expect(summary.rowButtons?.[0]).toBe(list(config).rowButtons?.[0]);
     expect(summary.showViewButton).toBe(false);
     expect(summary.showRowCount).toBe(false);
     expect(summary.showSearchBox).toBe(false);
