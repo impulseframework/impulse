@@ -533,18 +533,9 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 			return nil, err
 		}
 		alias := registry.alias()
-		var where ExpressionNode = &loweredComparisonNode{
-			left:  columnComparand(alias, name.KeyColumn),
-			op:    "=",
-			right: columnComparand(string(q.Resource()), key.ColumnName),
-		}
-		if tenant := nameTenantTest(&name.NameField, alias, registry); tenant != nil {
-			where = &LogicalOpNode{Left: where, Operator: OperatorAnd, Right: tenant}
-		}
-		if grant.IsConditional() {
-			if where, err = q.nameGrantCondition(name, grant, alias, where, registry); err != nil {
-				return nil, err
-			}
+		where, err := q.nameLookupWhere(name, grant, alias, key.ColumnName, registry)
+		if err != nil {
+			return nil, err
 		}
 		lookup := subqueryComparand(&scalarSubqueryNode{table: name.Table, query: query, alias: alias, column: name.NameColumn, where: where})
 		sql, err := gen.generateLoweredComparand(&lookup, registry)
@@ -568,6 +559,25 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 	return rendered, nil
 }
 
+// nameLookupWhere is the WHERE of a name's lookup under alias: the pointed-to row's key
+// is the list row's id (keyColumn), in the list row's tenant where the name belongs to
+// one, and under the condition of the name's grant where the grant is held under one.
+func (q *QuerySet[Resource]) nameLookupWhere(name *requestName, grant accesstypes.Decision, alias, keyColumn string, registry *paramRegistry) (ExpressionNode, error) {
+	var where ExpressionNode = &loweredComparisonNode{
+		left:  columnComparand(alias, name.KeyColumn),
+		op:    "=",
+		right: columnComparand(string(q.Resource()), keyColumn),
+	}
+	if tenant := nameTenantTest(&name.NameField, alias, registry); tenant != nil {
+		where = &LogicalOpNode{Left: where, Operator: OperatorAnd, Right: tenant}
+	}
+	if !grant.IsConditional() {
+		return where, nil
+	}
+
+	return q.nameGrantCondition(name, grant, alias, where, registry)
+}
+
 // namesRowName is the alias of the statement's row of names (withNameLookups): no
 // name field's alias is it, since each ends in Name.
 const namesRowName = "zzNames"
@@ -581,7 +591,9 @@ func namesRowItem(dbType DBType, field accesstypes.Field, lookup string) (item, 
 	case SpannerDBType:
 		return fmt.Sprintf("%s AS %s", lookup, alias), namesRowName + "." + alias, nil
 	case PostgresDBType:
-		return fmt.Sprintf(`%s AS "%s"`, lookup, alias), fmt.Sprintf(`"%s"."%s"`, namesRowName, alias), nil
+		quoted := `"` + alias + `"`
+
+		return lookup + " AS " + quoted, `"` + namesRowName + `".` + quoted, nil
 	default:
 		return "", "", errors.Newf("unsupported dbType: %s", dbType)
 	}
@@ -602,7 +614,7 @@ func (r *renderedReadConditions) namesRowFrom(dbType DBType, from string) (strin
 	case SpannerDBType:
 		return fmt.Sprintf("%s, UNNEST(ARRAY(SELECT AS STRUCT %s)) AS %s", from, items, namesRowName), nil
 	case PostgresDBType:
-		return fmt.Sprintf(`%s CROSS JOIN LATERAL (SELECT %s) AS "%s"`, from, items, namesRowName), nil
+		return fmt.Sprintf("%s CROSS JOIN LATERAL (SELECT %s) AS ", from, items) + `"` + namesRowName + `"`, nil
 	default:
 		return "", errors.Newf("unsupported dbType: %s", dbType)
 	}

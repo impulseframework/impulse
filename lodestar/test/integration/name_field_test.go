@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewhandlers"
@@ -230,6 +231,8 @@ func walkByName(t *testing.T, h http.Handler, user accesstypes.User, sector, lis
 
 	for _, direction := range []string{"asc", "desc"} {
 		t.Run(nameField+" "+direction, func(t *testing.T) {
+			t.Parallel()
+
 			want := byName(rows, direction)
 			target := sectorPath(sector, fmt.Sprintf("%s?columns=id,%s&sort=%s:%s&limit=2&filter=%s", list, nameField, nameField, direction, url.QueryEscape(heldTo(rows))))
 			forward, backward, pages := walkBothWays(t, h, user, target, idsBesideName(nameField))
@@ -246,14 +249,14 @@ func walkByName(t *testing.T, h http.Handler, user accesstypes.User, sector, lis
 	}
 }
 
-// filteredIDs is the ids of a sector's list under a filter, held to the rows given,
-// sorted.
-func filteredIDs(t *testing.T, h http.Handler, user accesstypes.User, sector, list, filter string, rows []namedRow) []string {
+// filteredIDs is the ids of one of Anvil's lists under a filter, as the marshal reads
+// it, held to the rows given, sorted.
+func filteredIDs(t *testing.T, h http.Handler, list, filter string, rows []namedRow) []string {
 	t.Helper()
 
-	target := sectorPath(sector, list+"?columns=id&limit=200&filter="+url.QueryEscape(heldTo(rows)+","+filter))
+	target := sectorPath(anvil, list+"?columns=id&limit=200&filter="+url.QueryEscape(heldTo(rows)+","+filter))
 
-	return idsOf(t, listRows(t, h, user, target))
+	return idsOf(t, listRows(t, h, "marshal", target))
 }
 
 // idsWhere is the ids of the rows that hold, sorted.
@@ -269,13 +272,13 @@ func idsWhere(rows []namedRow, holds func(namedRow) bool) []string {
 	return ids
 }
 
-// namesByID reads a list's rows as the person, the name of each by its key.
-func namesByID(t *testing.T, h http.Handler, user accesstypes.User, target, key, name string) map[string]string {
+// namesByID reads a list's rows as the person, the name of each by its id.
+func namesByID(t *testing.T, h http.Handler, user accesstypes.User, target, name string) map[string]string {
 	t.Helper()
 
 	names := make(map[string]string)
 	for _, row := range listRows(t, h, user, target) {
-		names[cell[string](t, row, key)] = cell[string](t, row, name)
+		names[cell[string](t, row, "id")] = cell[string](t, row, name)
 	}
 
 	return names
@@ -294,7 +297,7 @@ func TestNameField_passesBySquadron(t *testing.T) {
 
 	_, h, _ := sharedWorld(t)
 
-	squadrons := namesByID(t, h, "marshal", sectorPath(anvil, "squadrons?columns=id,name&limit=200"), "id", "name")
+	squadrons := namesByID(t, h, "marshal", sectorPath(anvil, "squadrons?columns=id,name&limit=200"), "name")
 	passes := namedRows(t, h, "marshal", sectorPath(anvil, "hangar-passes?columns=id,squadronId,squadronName&sort=id&limit=200"), "squadronId", "squadronName")
 	perSquadron := make(map[string]int)
 	unnamed := 0
@@ -319,19 +322,23 @@ func TestNameField_passesBySquadron(t *testing.T) {
 	walkByName(t, h, "marshal", anvil, "hangar-passes", "squadronName", passes)
 
 	t.Run("contains, through the squadrons' search index", func(t *testing.T) {
+		t.Parallel()
+
 		const part = "ong"
 		want := idsWhere(passes, func(p namedRow) bool { return strings.Contains(strings.ToLower(p.name), part) })
 		if len(want) == 0 || len(want) == len(passes) {
 			t.Fatalf("%q is in the names of %d of %d passes; the filter needs some in and some out", part, len(want), len(passes))
 		}
-		if got := filteredIDs(t, h, "marshal", anvil, "hangar-passes", "squadronName:contains:"+part, passes); !slices.Equal(got, want) {
+		if got := filteredIDs(t, h, "hangar-passes", "squadronName:contains:"+part, passes); !slices.Equal(got, want) {
 			t.Errorf("squadronName:contains:%s = %v, want %v", part, got, want)
 		}
 	})
 	t.Run("the filter by the id, and a squadron's own list of its passes", func(t *testing.T) {
+		t.Parallel()
+
 		want := idsWhere(passes, func(p namedRow) bool { return p.key == squadronTongsID })
 		for _, filter := range []string{"squadronId:in:(" + squadronTongsID + ")", "squadronId:eq:" + squadronTongsID} {
-			if got := filteredIDs(t, h, "marshal", anvil, "hangar-passes", filter, passes); !slices.Equal(got, want) {
+			if got := filteredIDs(t, h, "hangar-passes", filter, passes); !slices.Equal(got, want) {
 				t.Errorf("%s = %v, want %v", filter, got, want)
 			}
 		}
@@ -379,7 +386,7 @@ func TestNameField_passesByPersonAndGroup(t *testing.T) {
 	if err := w.engine.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(anvil), nameless, "Armorer"); err != nil {
 		t.Fatalf("access.UserManager.AddUserRoles(%s, Armorer, Anvil) error = %v", username, err)
 	}
-	groups := namesByID(t, w.h, "marshal", sectorPath(anvil, sectorGroupsPath+"?columns=id,name&limit=200"), "id", "name")
+	groups := namesByID(t, w.h, "marshal", sectorPath(anvil, sectorGroupsPath+"?columns=id,name&limit=200"), "name")
 	if len(groups) < 2 {
 		t.Fatalf("Anvil keeps %d groups; the walk needs two", len(groups))
 	}
@@ -388,7 +395,7 @@ func TestNameField_passesByPersonAndGroup(t *testing.T) {
 		createPassAs(t, w.h, "marshal", passValue("groupId", id))
 	}
 
-	people := namesByID(t, w.h, "marshal", sectorPath(anvil, "crew-sector-users?columns=id,displayName&limit=200"), "id", "displayName")
+	people := namesByID(t, w.h, "marshal", sectorPath(anvil, "crew-sector-users?columns=id,displayName&limit=200"), "displayName")
 	if got := people[string(nameless)]; got != username {
 		t.Errorf("the sector's people list the nameless person as %q, want the username %q", got, username)
 	}
@@ -424,7 +431,7 @@ func TestNameField_passesByPersonAndGroup(t *testing.T) {
 		for name := range held {
 			want := idsWhere(passes, func(p namedRow) bool { return p.name == name })
 			filter := fmt.Sprintf("%s:eq:%q", tt.nameField, name)
-			if got := filteredIDs(t, w.h, "marshal", anvil, "hangar-passes", filter, passes); !slices.Equal(got, want) {
+			if got := filteredIDs(t, w.h, "hangar-passes", filter, passes); !slices.Equal(got, want) {
 				t.Errorf("%s = %v, want %v", filter, got, want)
 			}
 		}
@@ -457,7 +464,7 @@ func TestNameField_aSquadronOfAnotherSector(t *testing.T) {
 		t.Errorf("the pass for Portcullis shows squadronId %q and squadronName %q, want %s and no name", got.key, got.name, squadronPortcullisID)
 	}
 	want := idsWhere(passes, func(p namedRow) bool { return p.name == "" })
-	if got := filteredIDs(t, w.h, "marshal", anvil, "hangar-passes", "squadronName:isnull", passes); !slices.Equal(got, want) || !slices.Contains(got, stray) {
+	if got := filteredIDs(t, w.h, "hangar-passes", "squadronName:isnull", passes); !slices.Equal(got, want) || !slices.Contains(got, stray) {
 		t.Errorf("squadronName:isnull = %v, want %v, the pass for Portcullis among them", got, want)
 	}
 }
@@ -569,8 +576,8 @@ func TestNameField_rostersAndAssignments(t *testing.T) {
 
 	_, h, _ := sharedWorld(t)
 
-	squadrons := namesByID(t, h, "marshal", sectorPath(anvil, "squadrons?columns=id,name&limit=200"), "id", "name")
-	pilots := namesByID(t, h, "marshal", consoleAPI+"/pilots?columns=id,displayName&limit=all", "id", "displayName")
+	squadrons := namesByID(t, h, "marshal", sectorPath(anvil, "squadrons?columns=id,name&limit=200"), "name")
+	pilots := namesByID(t, h, "marshal", consoleAPI+"/pilots?columns=id,displayName&limit=all", "displayName")
 	for _, tt := range []struct {
 		list    string
 		columns string
@@ -696,6 +703,8 @@ func TestNameField_aNameThePersonMayNotList(t *testing.T) {
 		{name: "a filter by the name", query: "columns=id,squadronId&filter=" + url.QueryEscape(held+`,squadronName:eq:"Tongs"`), want: askBy},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			status, body := doRequestAs(t, h, "marshal", http.MethodGet, asked(tt.query), "")
 			assertStatus(t, status, http.StatusForbidden, body)
 			var refusal struct {
@@ -711,6 +720,8 @@ func TestNameField_aNameThePersonMayNotList(t *testing.T) {
 	}
 
 	t.Run("no columns named: the id and no name", func(t *testing.T) {
+		t.Parallel()
+
 		rows := listRows(t, h, "marshal", asked("filter="+url.QueryEscape(held)))
 		if len(rows) != len(passes) {
 			t.Fatalf("got %d passes, want %d", len(rows), len(passes))
@@ -739,7 +750,7 @@ func TestNameField_clientsByPartOfTheName(t *testing.T) {
 
 	_, h, _ := sharedWorld(t)
 
-	clients := namesByID(t, h, "marshal", sectorPath(anvil, "client-rosters?columns=id,name&limit=200"), "id", "name")
+	clients := namesByID(t, h, "marshal", sectorPath(anvil, "client-rosters?columns=id,name&limit=200"), "name")
 	const part = "halvard"
 	for _, list := range []string{"mission-boards"} {
 		rows := namedRows(t, h, "marshal", sectorPath(anvil, list+"?columns=id,clientId,clientName&sort=id&limit=200"), "clientId", "clientName")
@@ -752,7 +763,7 @@ func TestNameField_clientsByPartOfTheName(t *testing.T) {
 		if len(want) == 0 || len(want) == len(rows) {
 			t.Fatalf("%q is in the client names of %d of %d %s; the filter needs some in and some out", part, len(want), len(rows), list)
 		}
-		if got := filteredIDs(t, h, "marshal", anvil, list, "clientName:contains:"+part, rows); !slices.Equal(got, want) {
+		if got := filteredIDs(t, h, list, "clientName:contains:"+part, rows); !slices.Equal(got, want) {
 			t.Errorf("%s clientName:contains:%s = %v, want %v", list, part, got, want)
 		}
 	}
@@ -769,7 +780,7 @@ func TestNameField_groupsKeptIn(t *testing.T) {
 	status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/create-crew-group", `{"name":"Fleet inspectors","description":"Headquarters' inspectors."}`)
 	assertStatus(t, status, http.StatusOK, body)
 	whole := cell[string](t, decodeRow(t, body), "id")
-	sectors := namesByID(t, w.h, "governor", consoleAPI+"/sectors?columns=id,name", "id", "name")
+	sectors := namesByID(t, w.h, "governor", consoleAPI+"/sectors?columns=id,name", "name")
 
 	groups := namedRows(t, w.h, "governor", consoleAPI+"/crew-listed-groups?columns=id,domainId,domainName&limit=200", "domainId", "domainName")
 	kept := make(map[string]int)
@@ -830,7 +841,7 @@ func TestNameField_peopleNameQuery(t *testing.T) {
 				if err := iter.Do(func(row *spanner.Row) error {
 					var id, domain, name string
 					if err := row.Columns(&id, &domain, &name); err != nil {
-						return err
+						return errors.Wrap(err, "spanner.Row.Columns()")
 					}
 					rows = append(rows, id+" "+domain+" "+name)
 
