@@ -20,7 +20,7 @@ import (
 
 func (a *App) Ships() http.HandlerFunc {
 	type ship struct {
-		ID             impulse.UUID     `json:"id"          index:"true" perm:"-"`
+		ID             impulse.UUID     `json:"id"          index:"true"      perm:"-"`
 		HangarID       impulse.UUID     `json:"hangarId"    index:"true"`
 		ClassID        impulse.UUID     `json:"classId"     index:"true"`
 		Registry       string           `json:"registry"    index:"true"`
@@ -29,6 +29,8 @@ func (a *App) Ships() http.HandlerFunc {
 		UpdatedAt      *time.Time       `json:"updatedAt"`
 		CargoBays      []int64          `json:"cargoBays"`
 		TransponderKey *resource.Secret `json:"-"`
+		HangarName     *string          `json:"hangarName"  nameof:"HangarID" index:"true" search:"lower=Name_Lower"`
+		ClassName      *string          `json:"className"   nameof:"ClassID"  index:"true"`
 	}
 
 	type response []map[string]any
@@ -68,7 +70,7 @@ func (a *App) Ships() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*ship)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -106,6 +108,11 @@ func (a *App) Ships() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -127,7 +134,7 @@ func (a *App) Ships() http.HandlerFunc {
 
 func (a *App) Ship() http.HandlerFunc {
 	type response struct {
-		ID             impulse.UUID     `json:"id"          index:"true" perm:"-"`
+		ID             impulse.UUID     `json:"id"          index:"true"      perm:"-"`
 		HangarID       impulse.UUID     `json:"hangarId"`
 		ClassID        impulse.UUID     `json:"classId"`
 		Registry       string           `json:"registry"    index:"true"`
@@ -136,6 +143,8 @@ func (a *App) Ship() http.HandlerFunc {
 		UpdatedAt      *time.Time       `json:"updatedAt"`
 		CargoBays      []int64          `json:"cargoBays"`
 		TransponderKey *resource.Secret `json:"-"`
+		HangarName     *string          `json:"hangarName"  nameof:"HangarID"`
+		ClassName      *string          `json:"className"   nameof:"ClassID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Ship, response](a, accesstypes.Read)
@@ -163,7 +172,7 @@ func (a *App) Ship() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -199,6 +208,11 @@ func (a *App) Ship() http.HandlerFunc {
 				if !row.Masked("cargoBays") {
 					rmap["cargoBays"] = rec.CargoBays
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

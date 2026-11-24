@@ -9,7 +9,9 @@ import (
 type (
 	// SquadronRoster is the squadron page's list: one row per membership, carrying the
 	// pilot's display name from the personnel registry and the pilot's id, which names
-	// Pilots so a row opens the pilot's page. The view declares its backing table, a
+	// Pilots so a row opens the pilot's page. The pilot's name is the generated PilotName,
+	// read from Pilots by the id (@name on Pilot.DisplayName); the view joins it no
+	// longer. The view declares its backing table, a
 	// create goes into the table, and the new row shows up in the view on the next list
 	// because the view's SQL reads that table. Its key is SquadronMemberships' compound
 	// key under the table's own column names, so a row is deleted from the list through
@@ -31,7 +33,6 @@ type (
 		// @domain
 		SectorID     impulse.UUID `spanner:"SectorId"     index:"true"`
 		SquadronName string       `spanner:"SquadronName" index:"true"`
-		PilotName    *string      `spanner:"PilotName"    index:"true"`
 		// @enumerate(Pilots)
 		PilotID impulse.NullUUID `spanner:"PilotId"`
 	}

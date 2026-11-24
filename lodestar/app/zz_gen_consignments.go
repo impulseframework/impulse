@@ -30,6 +30,7 @@ func (a *App) Consignments() http.HandlerFunc {
 		ExpiresOn   civil.Date   `json:"expiresOn"   allow_filter:"true"`
 		ReleasedAt  *time.Time   `json:"releasedAt"  index:"true"`
 		SectorName  *string      `json:"sectorName"  nameof:"SectorID"   index:"true"`
+		ClientName  *string      `json:"clientName"  nameof:"ClientID"   index:"true" search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
 	}
 
 	type response []map[string]any
@@ -142,6 +143,7 @@ func (a *App) Consignment() http.HandlerFunc {
 		ExpiresOn   civil.Date   `json:"expiresOn"`
 		ReleasedAt  *time.Time   `json:"releasedAt"`
 		SectorName  *string      `json:"sectorName"  nameof:"SectorID"`
+		ClientName  *string      `json:"clientName"  nameof:"ClientID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Consignment, response](a, accesstypes.Read)

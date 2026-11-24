@@ -30,7 +30,8 @@ type (
 		// @subjectValue(clearance, value: Clearance)
 		// @subjectValue(feeLimit, value: FeeLimit)
 		// @enumerate(CrewSessionUsers)
-		UserID      string          `spanner:"UserId"`
+		UserID string `spanner:"UserId"`
+		// @name
 		DisplayName string          `spanner:"DisplayName"`
 		Clearance   int64           `spanner:"Clearance"`
 		FeeLimit    decimal.Decimal `spanner:"FeeLimit"`

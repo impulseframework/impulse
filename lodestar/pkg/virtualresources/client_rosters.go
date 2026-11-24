@@ -39,11 +39,12 @@ type (
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
 		// @domain
-		SectorID       impulse.UUID `spanner:"SectorId"       index:"true"`
-		Name           string       `spanner:"Name"           index:"true" search:"Clients.Name"`
-		Trusted        bool         `spanner:"Trusted"`
-		ContactCount   int64        `spanner:"ContactCount"`
-		SectorMissions int64        `spanner:"SectorMissions"`
+		SectorID impulse.UUID `spanner:"SectorId" index:"true"`
+		// @name
+		Name           string `spanner:"Name"           index:"true" search:"Clients.Name"`
+		Trusted        bool   `spanner:"Trusted"`
+		ContactCount   int64  `spanner:"ContactCount"`
+		SectorMissions int64  `spanner:"SectorMissions"`
 	}
 )
 

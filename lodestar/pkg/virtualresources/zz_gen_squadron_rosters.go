@@ -21,6 +21,15 @@ func (SquadronRoster) DefaultConfig() resource.Config {
 	return resource.Config{}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (SquadronRoster) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "PilotName", Key: "PilotID", Resource: "Pilots", Tag: "displayName", Table: "Pilots", KeyColumn: "Id", NameColumn: "DisplayName", TenantColumn: ""},
+	}
+}
+
 // squadronRosterRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; squadronRosterReadSets holds one Set per read operation.
@@ -29,7 +38,6 @@ type squadronRosterRead struct {
 	UserID       string           `json:"userId"       perm:"-"`
 	SectorID     impulse.UUID     `json:"sectorId"`
 	SquadronName string           `json:"squadronName"`
-	PilotName    *string          `json:"pilotName"`
 	PilotID      impulse.NullUUID `json:"pilotId"`
 }
 
@@ -155,7 +163,6 @@ func (c *SquadronRosterColumns) All() *SquadronRosterColumns {
 		"UserID",
 		"SectorID",
 		"SquadronName",
-		"PilotName",
 		"PilotID",
 	}
 
@@ -182,12 +189,6 @@ func (c *SquadronRosterColumns) SectorID() *SquadronRosterColumns {
 
 func (c *SquadronRosterColumns) SquadronName() *SquadronRosterColumns {
 	c.fields = append(c.fields, "SquadronName")
-
-	return c
-}
-
-func (c *SquadronRosterColumns) PilotName() *SquadronRosterColumns {
-	c.fields = append(c.fields, "PilotName")
 
 	return c
 }
@@ -224,10 +225,6 @@ func (p SquadronRosterQueryPartialClause) SectorID() SquadronRosterQueryIdent[im
 
 func (p SquadronRosterQueryPartialClause) SquadronName() SquadronRosterQueryIdent[string] {
 	return SquadronRosterQueryIdent[string]{Ident: resource.NewIdent[string]("SquadronName", p.partialClause, true)}
-}
-
-func (p SquadronRosterQueryPartialClause) PilotName() SquadronRosterQueryIdent[string] {
-	return SquadronRosterQueryIdent[string]{Ident: resource.NewIdent[string]("PilotName", p.partialClause, true)}
 }
 
 type SquadronRosterQueryClause struct {
@@ -310,10 +307,6 @@ func (c *squadronRosterSort) SectorID() *SquadronRosterSort {
 
 func (c *squadronRosterSort) SquadronName() *SquadronRosterSort {
 	return c.addField("SquadronName")
-}
-
-func (c *squadronRosterSort) PilotName() *SquadronRosterSort {
-	return c.addField("PilotName")
 }
 
 func (c *squadronRosterSort) PilotID() *SquadronRosterSort {

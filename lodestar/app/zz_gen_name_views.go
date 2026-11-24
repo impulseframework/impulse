@@ -6,6 +6,7 @@ package app
 import (
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewhandlers"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/membershandlers"
+	"github.com/impulseframework/impulse/lodestar/pkg/virtualresources"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -13,6 +14,7 @@ import (
 // package and of every auth's generated management, merged into the one value the
 // generated query decoders are handed.
 var nameViews = resource.MergeNameViews(
+	virtualresources.NameViews,
 	crewhandlers.NameViews,
 	membershandlers.NameViews,
 )

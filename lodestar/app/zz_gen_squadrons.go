@@ -19,10 +19,11 @@ import (
 
 func (a *App) Squadrons() http.HandlerFunc {
 	type squadron struct {
-		ID        impulse.UUID `json:"id"        index:"true" perm:"-"`
+		ID        impulse.UUID `json:"id"        index:"true"    perm:"-"`
 		WingID    impulse.UUID `json:"wingId"    index:"true"`
 		Name      string       `json:"name"      index:"true"`
 		Callsigns []string     `json:"callsigns"`
+		WingName  *string      `json:"wingName"  nameof:"WingID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -62,7 +63,7 @@ func (a *App) Squadrons() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*squadron)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -82,6 +83,11 @@ func (a *App) Squadrons() http.HandlerFunc {
 					if !row.Masked("callsigns") {
 						rmap["callsigns"] = rec.Callsigns
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -105,10 +111,11 @@ func (a *App) Squadrons() http.HandlerFunc {
 
 func (a *App) Squadron() http.HandlerFunc {
 	type response struct {
-		ID        impulse.UUID `json:"id"        index:"true" perm:"-"`
+		ID        impulse.UUID `json:"id"        index:"true"    perm:"-"`
 		WingID    impulse.UUID `json:"wingId"`
 		Name      string       `json:"name"`
 		Callsigns []string     `json:"callsigns"`
+		WingName  *string      `json:"wingName"  nameof:"WingID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Squadron, response](a, accesstypes.Read)
@@ -136,7 +143,7 @@ func (a *App) Squadron() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -156,6 +163,11 @@ func (a *App) Squadron() http.HandlerFunc {
 				if !row.Masked("callsigns") {
 					rmap["callsigns"] = rec.Callsigns
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

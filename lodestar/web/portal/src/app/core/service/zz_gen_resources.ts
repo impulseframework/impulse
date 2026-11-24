@@ -8,6 +8,7 @@ export interface ClientContacts {
   userId?: string;
   clientId?: string;
   displayName?: string;
+  clientName?: string;
 }
 
 export interface ClientRosters {
@@ -276,6 +277,7 @@ export interface MissionDocuments {
   uploadedAt?: Date;
   provenance?: MissionDocuments.Provenance;
   digest?: string;
+  missionName?: string;
 }
 export namespace MissionDocuments {
   export interface Provenance {
@@ -369,11 +371,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', search: ['contains'] },
     ],
     searchFields: ['displayName'],
+    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }],
   },
   [Resources.ClientRosters]: {
     route: 'sectors/{sectorID}/client-rosters',
     live: true,
     rowWords: { one: 'client', many: 'clients' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
@@ -714,6 +718,7 @@ const resourceMap = defineResourceMap({
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'mission', many: 'missions' },
+    nameField: 'title',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always', readOnly: true },
@@ -755,6 +760,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'provenance', displayType: 'object', required: false, isIndex: false, sortable: false },
       { fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false },
     ],
+    nameFields: [{ fieldName: 'missionName', of: 'missionId', filterable: 'withIndexed', search: ['contains'] }],
   },
   [Resources.BriefingTemplates]: {
     route: 'briefing-templates',

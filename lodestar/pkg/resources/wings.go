@@ -23,6 +23,7 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
 		SectorID impulse.UUID `spanner:"SectorId"`
-		Name     string       `spanner:"Name"`
+		// @name
+		Name string `spanner:"Name"`
 	}
 )

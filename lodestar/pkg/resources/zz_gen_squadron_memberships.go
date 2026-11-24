@@ -34,6 +34,7 @@ func (SquadronMembership) TenantBinding() resource.TenantBinding {
 // looked up in the pointed-to table by the id; it is no column of this resource.
 func (SquadronMembership) NameFields() []resource.NameField {
 	return []resource.NameField{
+		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
 		{Field: "UserName", Key: "UserID", Resource: "CrewSectorUsers", Tag: "displayName", Table: "CrewSectorUsers", KeyColumn: "Id", NameColumn: "DisplayName", View: true, TenantColumn: "DomainId"},
 	}
 }

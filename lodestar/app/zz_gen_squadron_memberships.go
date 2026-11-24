@@ -19,9 +19,10 @@ import (
 
 func (a *App) SquadronMemberships() http.HandlerFunc {
 	type squadronMembership struct {
-		SquadronID impulse.UUID `json:"squadronId" index:"true"    perm:"-"`
-		UserID     string       `json:"userId"     index:"true"    perm:"-"`
-		UserName   *string      `json:"userName"   nameof:"UserID" allow_filter:"true"`
+		SquadronID   impulse.UUID `json:"squadronId"   index:"true"        perm:"-"`
+		UserID       string       `json:"userId"       index:"true"        perm:"-"`
+		SquadronName *string      `json:"squadronName" nameof:"SquadronID" index:"true"`
+		UserName     *string      `json:"userName"     nameof:"UserID"     allow_filter:"true"`
 	}
 
 	type response []map[string]any
@@ -101,9 +102,10 @@ func (a *App) SquadronMemberships() http.HandlerFunc {
 
 func (a *App) SquadronMembership() http.HandlerFunc {
 	type response struct {
-		SquadronID impulse.UUID `json:"squadronId" index:"true"    perm:"-"`
-		UserID     string       `json:"userId"     index:"true"    perm:"-"`
-		UserName   *string      `json:"userName"   nameof:"UserID"`
+		SquadronID   impulse.UUID `json:"squadronId"   index:"true"        perm:"-"`
+		UserID       string       `json:"userId"       index:"true"        perm:"-"`
+		SquadronName *string      `json:"squadronName" nameof:"SquadronID"`
+		UserName     *string      `json:"userName"     nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[resources.SquadronMembership, response](a, accesstypes.Read)

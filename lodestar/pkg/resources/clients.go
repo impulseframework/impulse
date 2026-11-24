@@ -57,10 +57,11 @@ type (
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	Client struct {
-		ID           impulse.UUID `spanner:"Id"`
-		Name         string       `spanner:"Name"`
-		ContactName  string       `spanner:"ContactName"  conditions:"pii"`
-		ContactEmail string       `spanner:"ContactEmail" allow_filter:"true" conditions:"pii"`
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Name         string `spanner:"Name"`
+		ContactName  string `spanner:"ContactName"  conditions:"pii"`
+		ContactEmail string `spanner:"ContactEmail" allow_filter:"true" conditions:"pii"`
 		// @attribute(trusted)
 		Trusted bool `spanner:"Trusted"`
 		// @attribute(insured)

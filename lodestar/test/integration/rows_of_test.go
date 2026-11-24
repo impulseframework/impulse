@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -139,10 +140,14 @@ func TestRowsOfWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The pilot's and the squadron's names are read from Pilots and Squadrons by the ids
+	// the views carry, under the List grant on each name.
 	h := newTestApp(db, grants{
-		accesstypes.List: append(
-			withFields("SquadronRosters", "squadronName", "pilotName", "pilotId"),
-			withFields("PilotAssignments", "squadronName", "wingName")...,
+		accesstypes.List: slices.Concat(
+			withFields("SquadronRosters", "squadronName", "pilotId"),
+			withFields("PilotAssignments", "wingName"),
+			withFields("Pilots", "displayName"),
+			withFields("Squadrons", "name"),
 		),
 		accesstypes.Create: {"SquadronMemberships"},
 		accesstypes.Delete: {"SquadronMemberships"},

@@ -31,10 +31,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: resources.Mission{}.Resource()},
 		}},
 		// MissionBoards: the tables its query reads.
-		{Resource: MissionBoard{}.Resource(), Root: resources.Mission{}.Resource(), Tables: []live.SourceTable{
-			{Name: resources.Client{}.Resource(), Global: true},
-			{Name: resources.Squadron{}.Resource()},
-		}},
+		{Resource: MissionBoard{}.Resource(), Root: resources.Mission{}.Resource()},
 		// OpenMissionsBySquadrons: the tables its query reads.
 		{Resource: OpenMissionsBySquadron{}.Resource(), Tables: []live.SourceTable{
 			{Name: resources.Mission{}.Resource()},
