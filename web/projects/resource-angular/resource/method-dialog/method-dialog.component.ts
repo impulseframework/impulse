@@ -212,12 +212,14 @@ export class MethodDialogComponent {
   /**
    * Whether the call may be confirmed: always for a method that does not warn; for one
    * that does, once the server's warning is on the screen and, where the method declares
-   * a word, the word is typed, in any case and with spaces around it or not.
+   * a word or a phrase, it is typed, in any case on either side and with spaces around it
+   * or not.
    */
   readonly confirmed = computed(
     () =>
       !this.meta.warning ||
-      (this.warned() !== undefined && (!this.typedWord || this.typedValue().trim().toLowerCase() === this.typedWord)),
+      (this.warned() !== undefined &&
+        (!this.typedWord || this.typedValue().trim().toLowerCase() === this.typedWord.toLowerCase())),
   );
   /** The words on the button that runs the method: the server's for a method that warns, the page's label otherwise. */
   readonly runLabel = computed(() => this.warned()?.confirm ?? this.data.label);

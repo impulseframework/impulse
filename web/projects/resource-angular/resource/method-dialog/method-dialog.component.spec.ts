@@ -112,6 +112,13 @@ const descriptor: ApiDescriptor = {
       scope: 'global',
       statuses: [204],
     },
+    TakeDirectory: {
+      method: 'TakeDirectory' as Method,
+      property: 'takeDirectory',
+      route: 'take-directory',
+      scope: 'global',
+      statuses: [204],
+    },
     DeleteArchive: {
       method: 'DeleteArchive' as Method,
       property: 'deleteArchive',
@@ -239,6 +246,12 @@ const methodMeta: Record<string, MethodMeta> = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: 'CrewGivableRoles' as Resource },
     ],
+  },
+  // Warns before it runs, and the confirmation is a phrase with a capital in it.
+  TakeDirectory: {
+    route: 'take-directory',
+    warning: { typed: 'I am authorized' },
+    fields: [],
   },
   // Warns before it runs, and requires an input the row does not carry.
   DeleteArchive: {
@@ -1258,6 +1271,39 @@ describe('MethodDialogComponent running a method that warns', () => {
       ['real', { method: 'google' }],
     ]);
     expect(o.closed).toEqual([{ answer: undefined }]);
+  });
+
+  it('holds the button until a declared phrase is typed, in any case and with spaces around it', async () => {
+    warning = () => ({
+      status: 200,
+      body: {
+        consequence: 'You are stating that you are authorized to act on behalf of lakeside.edu.',
+        confirm: "Make lakeside.edu this sector's directory",
+      },
+    });
+    const o = await open({ method: 'TakeDirectory', label: 'Take the directory', preset: {} }, server());
+    await settle(o);
+
+    expect(text(o, '.typed-word mat-label')).toBe('Type I am authorized to confirm');
+    for (const held of ['', 'i am', 'I am authorize']) {
+      o.component.typed.setValue(held);
+      o.fixture.detectChanges();
+      expect(runButton(o).disabled).toBe(true);
+    }
+    for (const freed of ['I am authorized', 'i am authorized', ' I AM AUTHORIZED ']) {
+      o.component.typed.setValue(freed);
+      o.fixture.detectChanges();
+      expect(runButton(o).disabled).toBe(false);
+    }
+  });
+
+  it('frees a word declared in lower case by the word as declared', async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+
+    o.component.typed.setValue('open');
+    o.fixture.detectChanges();
+    expect(runButton(o).disabled).toBe(false);
   });
 
   it('asks again after a change, for the request as filled, and shows the newer answer', async () => {
