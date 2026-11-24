@@ -312,6 +312,7 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 			"    WHERE cr.GroupId = g.Id AND " + standingSQL("cr") + "\n    ORDER BY cr.Role, cr.Kind, cr.DomainId\n  ) AS Roles\nFROM CrewGroups g\nWHERE g.Kind = 'domain' AND g.Axis = ''",
 		},
 		"internal/crewresources/crew_listed_groups.go": {
+			"// @enumerate(Ships)\n\t\tDomainID",
 			"      WHEN cr.Kind = 'every' THEN CONCAT(cr.Role, ' in every ship')\n      WHEN cr.Kind = 'domain' THEN CONCAT(cr.Role, ' in ship ', cr.DomainId)\n      ELSE CONCAT(cr.Role, ' for the whole application')\n    END\n    FROM CrewGroupRoles cr\n",
 		},
 		// A line of the whole application's accounts says where a role is held, in the words
@@ -330,6 +331,14 @@ func Test_prepareIdentity_holdings_tenant(t *testing.T) {
 			"scope := accesstypes.DomainPolicyScope(accesstypes.Domain(m.Domain))\n\tif err := client.manager.TakeRole(ctx, txn, scope, accesstypes.Role(m.Role), identity.TakeLength(m.Length), m.Reason); err != nil {",
 		},
 		"crewidentity/crew_takeable_roles.go": {"a role that exists in every ship", "roles, err := client.manager.RolesToTake(ctx, AssignCrewRole{}.Method(), true)"},
+		// The whole application's lists that say which tenant a row is held in point that id
+		// to the tenant record, so a list shows the tenant by its name (as the list of groups
+		// does for the tenant a group is kept in, above).
+		"internal/crewresources/crew_held_roles.go":         {"// @primarykey\n\t\t// @enumerate(Ships)\n\t\tDomainID string"},
+		"internal/crewresources/crew_listed_group_roles.go": {"// @primarykey\n\t\t// @enumerate(Ships)\n\t\tDomainID string"},
+		"internal/crewresources/crew_taken_roles.go":        {"// @primarykey\n\t\t// @enumerate(Ships)\n\t\tDomainID string"},
+		"internal/crewresources/crew_user_group_roles.go":   {"// @primarykey\n\t\t// @enumerate(Ships)\n\t\tDomainID string"},
+		"internal/crewresources/crew_session_mail_links.go": {"// @enumerate(Ships)\n\t\tTenantID"},
 	})
 }
 

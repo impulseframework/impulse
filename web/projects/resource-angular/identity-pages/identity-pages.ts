@@ -427,7 +427,7 @@ class SideBuilder {
           // application without tenants keeps every group in the one place.
           ...(this.has(groups, 'kind') && this.identity.tenant
             ? [
-                this.tenantNamed('domainId' as FieldName, 'Kept in', (row) => this.heldIn(row)),
+                this.tenantNamed(groups, 'domainId' as FieldName, 'Kept in', (row) => this.heldIn(row)),
                 { id: 'kind' as FieldName, hidden: true },
               ]
             : []),
@@ -570,7 +570,7 @@ class SideBuilder {
         listColumns: [
           ...this.columns(resource, fields).map((column) => {
             if (column.id === 'tenantId') {
-              return this.tenantNamed(column.id, column.header ?? '', into);
+              return this.tenantNamed(resource, column.id, column.header ?? '', into);
             }
             return unmailed ? this.unmailedCell(column) : column;
           }),
@@ -998,7 +998,7 @@ class SideBuilder {
         ['name', 'Name'],
       ]),
       ...(this.identity.tenant && this.has(taken, 'kind')
-        ? [this.tenantNamed('domainId' as FieldName, tenant, (row) => this.heldIn(row))]
+        ? [this.tenantNamed(taken, 'domainId' as FieldName, tenant, (row) => this.heldIn(row))]
         : []),
       ...this.columns(taken, [
         ['role', 'Role'],
@@ -1260,7 +1260,7 @@ class SideBuilder {
         // An application without tenants holds every role in one place, and says none.
         ...(this.has(resource, 'kind') && this.identity.tenant
           ? [
-              this.tenantNamed('domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
+              this.tenantNamed(resource, 'domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
               // Read with each row and not drawn: what the words and the methods are filled from.
               { id: 'kind' as FieldName, hidden: true },
             ]
@@ -1320,7 +1320,7 @@ class SideBuilder {
             ...this.columns(resource, named),
             ...(this.has(resource, 'kind') && this.identity.tenant
               ? [
-                  this.tenantNamed('domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
+                  this.tenantNamed(resource, 'domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
                   { id: 'kind' as FieldName, hidden: true },
                 ]
               : []),
@@ -1437,7 +1437,7 @@ class SideBuilder {
         ...this.columns(resource, [['role', 'Role']]),
         ...(this.has(resource, 'kind') && this.identity.tenant
           ? [
-              this.tenantNamed('domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
+              this.tenantNamed(resource, 'domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
               { id: 'kind' as FieldName, hidden: true },
             ]
           : []),
@@ -1948,20 +1948,29 @@ class SideBuilder {
   }
 
   /**
-   * A column over a field that holds a tenant's key, showing the tenant's name: the
-   * tenant record's row is read by the keys on the page (the list's related-record
-   * column) and its name field shown; a reader who may not read the record is shown the
-   * name their own list of tenants holds, for a tenant they hold a role in
-   * (`tenantKey`). Under a heading that is not the tenant's word the name follows the
-   * word ("Sector Anvil" under "Held in"), and under the word itself it stands alone. A
-   * tenant's key is an id nobody reads, so a row whose tenant's name the reader may not
-   * read says that in words (tenantUnseen) and never shows the key. Where the outlet's
-   * description names no tenant record there is none to read, and the reader's own list
-   * of tenants and those words are what a row shows. `otherwise` says what a row shows
-   * that names no tenant; it is all a row shows where the record marks no name, since
-   * the key is then all there is.
+   * A column over a field that holds a tenant's key, showing the tenant's name. Where the
+   * list carries the name beside the key (the generator points the key to the tenant
+   * record, so the name is the row's own name field, read by the server with the list),
+   * the column is a plain column on the key: the list shows the name, sorts by it and
+   * filters by it where the person may list it, and where they may not, the name their
+   * own list of tenants holds, for a tenant they hold a role in (`tenantKey`). Where the
+   * list carries no name beside the key, the tenant record's row is read by the keys on
+   * the page (the list's related-record column) and its name field shown, with the same
+   * fall back to the person's own list of tenants. Under a heading that is not the
+   * tenant's word the name follows the word ("Sector Anvil" under "Held in"), and under
+   * the word itself it stands alone. A tenant's key is an id nobody reads, so a row whose
+   * tenant's name the reader may not read says that in words (tenantUnseen) and never
+   * shows the key. Where the outlet's description names no tenant record there is none
+   * to read, and the reader's own list of tenants and those words are what a row shows.
+   * `otherwise` says what a row shows that names no tenant; it is all a row shows where
+   * the record marks no name, since the key is then all there is.
    */
-  private tenantNamed(id: FieldName, header: string, otherwise: (row: RecordData) => string): ColumnConfig {
+  private tenantNamed(
+    resource: Resource,
+    id: FieldName,
+    header: string,
+    otherwise: (row: RecordData) => string,
+  ): ColumnConfig {
     const record = this.identity.tenantResource as Resource | undefined;
     const meta = record ? this.resourceMeta(record) : undefined;
     const key = meta?.fields.find((candidate) => candidate.primaryKey)?.fieldName;
@@ -1972,6 +1981,15 @@ class SideBuilder {
     }
     const word = nameInWords(this.identity.tenant ?? 'Tenant');
     const worded = header.trim().toLowerCase() !== word.toLowerCase();
+    const words = {
+      tenantKey: true,
+      ...(worded ? { said: (name: string) => `${word} ${name}` } : {}),
+      fallback: (row: RecordData) => (String(row[id] ?? '') === '' ? otherwise(row) : this.tenantUnseen()),
+    };
+    const named = (this.resourceMeta(resource)?.nameFields ?? []).some((name) => name.of === id);
+    if (record && named) {
+      return { id, header, ...words };
+    }
     return multiColumnConfig({
       id,
       header,
@@ -1982,9 +2000,7 @@ class SideBuilder {
           ? [{ resource: record, id: key as FieldName, field: meta.nameField as FieldName }]
           : [],
       concatFn: 'hyphen-concat',
-      tenantKey: true,
-      ...(worded ? { said: (name: string) => `${word} ${name}` } : {}),
-      fallback: (row: RecordData) => (String(row[id] ?? '') === '' ? otherwise(row) : this.tenantUnseen()),
+      ...words,
       // The field holds the key: a filter typed over the column would be asked for an id.
       filterable: false,
     });

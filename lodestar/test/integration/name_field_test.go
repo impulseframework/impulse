@@ -620,3 +620,44 @@ func TestNameField_rostersAndAssignments(t *testing.T) {
 		}
 	}
 }
+
+// TestNameField_groupsKeptIn pins the whole application's list of groups shown with the
+// sector each is kept in by name: the governor reads every group with the sector's name
+// beside its id, as the sectors' list gives it, and none beside a group of the whole
+// application; and the list filtered by a sector's name gives that sector's groups.
+func TestNameField_groupsKeptIn(t *testing.T) {
+	t.Parallel()
+
+	w := newIdentityWorld(t)
+	status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/create-crew-group", `{"name":"Fleet inspectors","description":"Headquarters' inspectors."}`)
+	assertStatus(t, status, http.StatusOK, body)
+	whole := cell[string](t, decodeRow(t, body), "id")
+	sectors := namesByID(t, w.h, "governor", consoleAPI+"/sectors?columns=id,name", "id", "name")
+
+	groups := namedRows(t, w.h, "governor", consoleAPI+"/crew-listed-groups?columns=id,domainId,domainName&limit=200", "domainId", "domainName")
+	kept := make(map[string]int)
+	for _, g := range groups {
+		if want := sectors[g.key]; g.name != want {
+			t.Errorf("group %s kept in %q shows domainName %q, want %q", g.id, g.key, g.name, want)
+		}
+		if g.id == whole && (g.key != "" || g.name != "") {
+			t.Errorf("the whole application's group %s shows domainId %q, domainName %q, want neither", g.id, g.key, g.name)
+		}
+		kept[g.key]++
+	}
+	if kept[""] == 0 || kept[anvil] == 0 {
+		t.Fatalf("the groups are kept in %v; the test needs a group of the whole application and one of Anvil's", kept)
+	}
+
+	filter := fmt.Sprintf("domainName:eq:%q", sectors[anvil])
+	status, body = doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-groups?columns=id,domainId&limit=200&filter="+url.QueryEscape(filter), "")
+	assertStatus(t, status, http.StatusOK, body)
+	var got []string
+	for _, row := range decodeRows(t, body) {
+		got = append(got, cell[string](t, row, "id"))
+	}
+	slices.Sort(got)
+	if want := idsWhere(groups, func(g namedRow) bool { return g.key == anvil }); !slices.Equal(got, want) {
+		t.Errorf("%s = %v, want Anvil's groups %v", filter, got, want)
+	}
+}

@@ -473,6 +473,7 @@ export namespace CrewHeldRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewHeldRoles.axis' as Resource,
@@ -541,6 +542,7 @@ export namespace CrewListedGroupRoles {
     losing: 'losing' as FieldName,
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewListedGroupRoles.axis' as Resource,
@@ -566,6 +568,7 @@ export namespace CrewListedGroups {
     people: 'people' as FieldName,
     roles: 'roles' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewListedGroups.axis' as Resource,
@@ -1085,6 +1088,7 @@ export namespace CrewSessionMailLinks {
     roleNames: 'roleNames' as FieldName,
     tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
+    tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
     consumedAt: 'CrewSessionMailLinks.consumedAt' as Resource,
@@ -1312,6 +1316,7 @@ export namespace CrewTakenRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewTakenRoles.axis' as Resource,
@@ -1341,6 +1346,7 @@ export namespace CrewUserGroupRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewUserGroupRoles.axis' as Resource,

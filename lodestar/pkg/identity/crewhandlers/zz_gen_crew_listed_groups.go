@@ -20,7 +20,7 @@ import (
 
 func (h *Handlers) CrewListedGroups() http.HandlerFunc {
 	type crewListedGroup struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
 		Kind        string       `json:"kind"        index:"true"`
 		Axis        string       `json:"axis"        index:"true"`
 		DomainID    string       `json:"domainId"    index:"true"`
@@ -29,6 +29,7 @@ func (h *Handlers) CrewListedGroups() http.HandlerFunc {
 		UpdatedAt   time.Time    `json:"updatedAt"`
 		People      int64        `json:"people"`
 		Roles       []string     `json:"roles"`
+		DomainName  *string      `json:"domainName"  nameof:"DomainID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -67,7 +68,7 @@ func (h *Handlers) CrewListedGroups() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*crewListedGroup)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -109,6 +110,11 @@ func (h *Handlers) CrewListedGroups() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -130,7 +136,7 @@ func (h *Handlers) CrewListedGroups() http.HandlerFunc {
 
 func (h *Handlers) CrewListedGroup() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
 		Kind        string       `json:"kind"`
 		Axis        string       `json:"axis"`
 		DomainID    string       `json:"domainId"`
@@ -139,6 +145,7 @@ func (h *Handlers) CrewListedGroup() http.HandlerFunc {
 		UpdatedAt   time.Time    `json:"updatedAt"`
 		People      int64        `json:"people"`
 		Roles       []string     `json:"roles"`
+		DomainName  *string      `json:"domainName"  nameof:"DomainID"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewListedGroup, response](h, accesstypes.Read)
@@ -165,7 +172,7 @@ func (h *Handlers) CrewListedGroup() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -205,6 +212,11 @@ func (h *Handlers) CrewListedGroup() http.HandlerFunc {
 				if !row.Masked("roles") {
 					rmap["roles"] = rec.Roles
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

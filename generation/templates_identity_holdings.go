@@ -56,6 +56,9 @@ type (
 		// @primarykey
 		Axis string ` + "`spanner:\"Axis\"`" + `
 		// @primarykey
+		{{- if .TenantPicker }}
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
 		// @roleOf({{ .Auth }})
@@ -324,6 +327,9 @@ type (
 		ID          impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `
 		Kind        string       ` + "`spanner:\"Kind\" index:\"true\"`" + `
 		Axis        string       ` + "`spanner:\"Axis\" index:\"true\"`" + `
+		{{- if .TenantPicker }}
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		DomainID    string       ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		Name        string       ` + "`spanner:\"Name\" index:\"true\"`" + `
 		Description string       ` + "`spanner:\"Description\"`" + `
@@ -506,6 +512,9 @@ type (
 		// @primarykey
 		Axis string ` + "`spanner:\"Axis\"`" + `
 		// @primarykey
+		{{- if .TenantPicker }}
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
 		// @roleOf({{ .Auth }})
@@ -712,6 +721,9 @@ type (
 		// @primarykey
 		Axis string ` + "`spanner:\"Axis\"`" + `
 		// @primarykey
+		{{- if .TenantPicker }}
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
 		// @roleOf({{ .Auth }})

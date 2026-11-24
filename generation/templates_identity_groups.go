@@ -1060,6 +1060,9 @@ type (
 		// @primarykey
 		Axis string ` + "`spanner:\"Axis\"`" + `
 		// @primarykey
+		{{- if .TenantPicker }}
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
 		// @roleOf({{ .Auth }})

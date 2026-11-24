@@ -33,6 +33,15 @@ const fields = (...names: string[]): ResourceMeta =>
     ),
   }) as ResourceMeta;
 
+/**
+ * A list's metadata with the tenant's name beside the field that holds its key, as the
+ * generator writes it for a list whose key it points to the tenant record.
+ */
+const withTenantName = (meta: ResourceMeta, of: string): ResourceMeta => ({
+  ...meta,
+  nameFields: [{ fieldName: `${of.replace(/Id$/, '')}Name`, of, filterable: 'always' }],
+});
+
 const metas: Record<string, ResourceMeta> = {
   CrewSessionUsers: fields(
     'id',
@@ -45,22 +54,25 @@ const metas: Record<string, ResourceMeta> = {
     'createdAt',
     'lastSignInAt',
   ),
-  CrewUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
+  CrewUserRoles: withTenantName(fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'), 'domainId'),
   // The lists a role is picked from: each answers for the method its filter names.
   CrewGivableRoles: fields('name', 'description', 'method', 'group', 'domain', 'everyDomain'),
   CrewSectorRoles: fields('name', 'description', 'method'),
   CrewSessionIdentities: fields('id', 'userId', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
-  CrewSessionMailLinks: fields(
-    'id',
-    'kind',
-    'email',
-    'name',
+  CrewSessionMailLinks: withTenantName(
+    fields(
+      'id',
+      'kind',
+      'email',
+      'name',
+      'tenantId',
+      'everyTenant',
+      'roleNames',
+      'createdAt',
+      'expiresAt',
+      'consumedAt',
+    ),
     'tenantId',
-    'everyTenant',
-    'roleNames',
-    'createdAt',
-    'expiresAt',
-    'consumedAt',
   ),
   CrewSessions: fields('id', 'userId', 'username', 'expired', 'authenticatedAt', 'updatedAt'),
   CrewSessionSignInAttempts: fields('name', 'failures', 'lockedUntil', 'updatedAt'),
@@ -911,17 +923,19 @@ describe("identityPages, the whole application's side", () => {
       ['kind', undefined],
       ['createdAt', 'Given'],
     ]);
-    // The sector a role is held in is named: the list reads the sector record's row by the
-    // key the membership carries and shows its name after the sector's word, since the
-    // heading does not say what the name is a name of. A reader who may not read the
-    // record is shown the name their own list of sectors holds (tenantKey). The words
-    // below are what a row says that names no sector, or whose sector's name the reader
-    // may not read: words a person reads, and never the sector's key.
-    const where = roles.listColumns[1] as MultiColumnConfig;
-    expect(where.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    // The sector a role is held in is named: the list carries the sector's name beside the
+    // key the membership carries, and the column on the key shows it after the sector's
+    // word, since the heading does not say what the name is a name of, and sorts and
+    // filters by it. A reader who may not read the name is shown the name their own list
+    // of sectors holds (tenantKey). The words below are what a row says that names no
+    // sector, or whose sector's name the reader may not read: words a person reads, and
+    // never the sector's key.
+    const where = roles.listColumns[1];
+    expect(where.id).toBe('domainId');
+    expect('additionalIds' in where).toBe(false);
     expect(where.tenantKey).toBe(true);
     expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
-    expect(where.filterable).toBe(false);
+    expect(where.filterable).toBeUndefined();
     expect(roles.listColumns[2].hidden).toBe(true);
     const heldIn = where.fallback as (row: RecordData) => string;
     const remove = presentation(roles.rowMethods, 'RemoveCrewRole');
@@ -1009,6 +1023,18 @@ describe("identityPages, the whole application's side", () => {
     const where = children(unnamedPeople)[0].listColumns[1] as { valueGetter?: (row: RecordData) => string };
     expect(where.valueGetter?.({ kind: 'domain', domainId: 's-1' })).toBe('Sector s-1');
     expect(where.valueGetter?.({ kind: 'every', domainId: '' })).toBe('Every sector');
+  });
+
+  it("where the list carries no sector's name beside the key, reads the sector record's row by the keys on the page", () => {
+    const unnamed = (resource: Resource): ResourceMeta =>
+      resource === 'CrewUserRoles' ? { ...metas[resource], nameFields: undefined } : metas[resource];
+    const [unnamedPeople] = identityPages({ ...descriptor }, unnamed, { auth: 'Crew', scope: 'global' });
+    const where = children(unnamedPeople)[0].listColumns[1] as MultiColumnConfig;
+    expect(where.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    expect(where.tenantKey).toBe(true);
+    expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
+    expect(where.filterable).toBe(false);
+    expect(where.fallback?.({ kind: 'domain', domainId: 's-1' })).toBe('A sector you cannot see');
   });
 
   it("where the outlet serves no sector record there is none to read: a row names the sector from the person's own list of tenants, or says the page's words, and never the key", () => {
@@ -1104,8 +1130,10 @@ describe("identityPages, the whole application's side", () => {
     // The sector a link invites into is named the same way, under a heading that is the
     // sector's word already, so the name stands alone. Where the reader may not read the
     // sector's name the cell says so, and never shows the key.
-    const into = list(invitations).listColumns[3] as MultiColumnConfig;
-    expect(into.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    const into = list(invitations).listColumns[3];
+    expect(into.id).toBe('tenantId');
+    expect('additionalIds' in into).toBe(false);
+    expect(into.filterable).toBeUndefined();
     expect(into.tenantKey).toBe(true);
     expect(into.said).toBeUndefined();
     expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
@@ -2033,7 +2061,10 @@ describe('identityPages, the people lists say what each person holds, and a lock
 describe('identityPages, an Auth that keeps groups', () => {
   const groupMetas: Record<string, ResourceMeta> = {
     ...metas,
-    CrewGroups: fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+    CrewGroups: withTenantName(
+      fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+      'domainId',
+    ),
     CrewGroupUsers: fields('groupId', 'userId', 'username', 'name', 'groupName', 'createdAt'),
     CrewGroupRoles: fields('groupId', 'kind', 'axis', 'domainId', 'role', 'createdAt'),
     CrewUserGroupRoles: fields('userId', 'username', 'groupId', 'groupName', 'kind', 'axis', 'domainId', 'role'),
@@ -2154,8 +2185,10 @@ describe('identityPages, an Auth that keeps groups', () => {
       ['domainId', 'Kept in'],
       ['kind', undefined],
     ]);
-    const kept = groups.listColumns[2] as MultiColumnConfig;
-    expect(kept.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    const kept = groups.listColumns[2];
+    expect(kept.id).toBe('domainId');
+    expect('additionalIds' in kept).toBe(false);
+    expect(kept.filterable).toBeUndefined();
     expect(kept.tenantKey).toBe(true);
     expect(kept.said?.('Anvil', {})).toBe('Sector Anvil');
     const keptIn = kept.fallback as (row: RecordData) => string;
