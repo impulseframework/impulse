@@ -1,0 +1,467 @@
+package resource
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
+	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
+)
+
+// forkRowRead is the read route's request type of forkRow, a resource that keeps no
+// change records.
+type forkRowRead struct {
+	ID        string `json:"id"        perm:"-"`
+	Title     string `json:"title"`
+	CreatedBy string `json:"createdBy"`
+	UpdatedBy string `json:"updatedBy"`
+}
+
+// historyWriter writes trackedForkRow rows through the patch set, each write one change
+// record, the way a generated handler writes them.
+type historyWriter struct {
+	t      *testing.T
+	client *SpannerClient
+}
+
+// patch is a patch of one trackedForkRow row that sets its title; a create sets its key
+// as a field too, so its change record names it.
+func (w historyWriter) patch(patchType PatchType, id, title string) *PatchSet[trackedForkRow] {
+	p := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(patchType)
+	p.SetKey("ID", id)
+	if patchType == CreatePatchType {
+		p.Set("ID", id)
+	}
+	if patchType != DeletePatchType {
+		p.Set("Title", title)
+	}
+
+	return p
+}
+
+// write applies one patch, in a transaction of its own.
+func (w historyWriter) write(patchType PatchType, id, title string) {
+	w.t.Helper()
+
+	if err := w.patch(patchType, id, title).Apply(w.t.Context(), w.client, "test"); err != nil {
+		w.t.Fatalf("Apply(%s %s %q) error = %v", patchType, id, title, err)
+	}
+}
+
+// writeTogether applies two updates of one row in one transaction: two change records
+// of one commit, one time and two sequences.
+func (w historyWriter) writeTogether(id, first, second string) {
+	w.t.Helper()
+
+	if err := w.client.ExecuteFunc(w.t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
+		if err := w.patch(UpdatePatchType, id, first).Buffer(ctx, txn, "test"); err != nil {
+			return err
+		}
+
+		return w.patch(UpdatePatchType, id, second).Buffer(ctx, txn, "test")
+	}); err != nil {
+		w.t.Fatalf("ExecuteFunc() of two updates of %s error = %v", id, err)
+	}
+}
+
+// storedChangeRecord is a change record of one row as the table holds it, read past the
+// library.
+type storedChangeRecord struct {
+	at        time.Time
+	sequence  int64
+	changeSet map[string]json.RawMessage
+}
+
+// storedChangeRecords reads every change record of one TrackedForkRows row, newest
+// first.
+func storedChangeRecords(t *testing.T, db *spanner.Client, id string) []storedChangeRecord {
+	t.Helper()
+
+	stmt := spanner.NewStatement(`SELECT EventTime, Sequence, TO_JSON_STRING(ChangeSet) FROM DataChangeEvents
+		WHERE TableName = 'TrackedForkRows' AND RowId = @id ORDER BY EventTime DESC, Sequence DESC`)
+	stmt.Params["id"] = id
+	var records []storedChangeRecord
+	if err := db.Single().Query(t.Context(), stmt).Do(func(row *spanner.Row) error {
+		var record storedChangeRecord
+		var changeSet string
+		if err := row.Columns(&record.at, &record.sequence, &changeSet); err != nil {
+			return err
+		}
+		if err := json.Unmarshal([]byte(changeSet), &record.changeSet); err != nil {
+			return err
+		}
+		records = append(records, record)
+
+		return nil
+	}); err != nil {
+		t.Fatalf("reading the change records of %s: %v", id, err)
+	}
+
+	return records
+}
+
+// keyedHistory is the history of one trackedForkRow row as a generated handler names it,
+// read with no grant: the tests of the statement give the fields the reader may see.
+func keyedHistory(id string) *ChangeHistoryQuery[trackedForkRow] {
+	q := NewQuerySet(NewMetadata[trackedForkRow]())
+	q.SetKey("ID", id)
+
+	return &ChangeHistoryQuery[trackedForkRow]{querySet: q}
+}
+
+// readWholeHistory reads every page of a history by next, and the size of each page.
+func readWholeHistory(t *testing.T, client Client, history *ChangeHistoryQuery[trackedForkRow], visible []accesstypes.Field) (records []ChangeRecord, sizes []int) {
+	t.Helper()
+
+	for {
+		page, err := history.readPage(t.Context(), client, visible, nil)
+		if err != nil {
+			t.Fatalf("readPage() error = %v", err)
+		}
+		records = append(records, page.Changes...)
+		sizes = append(sizes, len(page.Changes))
+		if page.Next == "" {
+			return records, sizes
+		}
+		after, err := parseChangeHistoryToken(page.Next)
+		if err != nil {
+			t.Fatalf("parseChangeHistoryToken(%q) error = %v", page.Next, err)
+		}
+		history.after = &after
+	}
+}
+
+// TestChangeHistoryRead pins the read of one record's change records over the emulator:
+// a page at a time by next, newest first, with no record twice and none missed, two
+// records of one commit on either side of a page's end; the records of one field; never
+// another row's; the records of one tenant; and a record that is not there.
+func TestChangeHistoryRead(t *testing.T) {
+	t.Parallel()
+
+	db := forkDatabase(t, "change-history-read")
+	client := NewSpannerClient(db)
+	w := historyWriter{t: t, client: client}
+	visible := []accesstypes.Field{"ID", "Title"}
+
+	// 120 records of one row: written oldest first, the 70th and 71st in one commit, so
+	// that newest first they are the 50th and the 51st, the last of the first page and
+	// the first of the second.
+	w.write(CreatePatchType, "paged", "title 0")
+	for i := 1; i <= 68; i++ {
+		w.write(UpdatePatchType, "paged", fmt.Sprintf("title %d", i))
+	}
+	w.writeTogether("paged", "title 69", "title 70")
+	for i := 71; i <= 119; i++ {
+		w.write(UpdatePatchType, "paged", fmt.Sprintf("title %d", i))
+	}
+	// Another row's records, written among them.
+	w.write(CreatePatchType, "neighbor", "neighbor 0")
+	w.write(UpdatePatchType, "neighbor", "neighbor 1")
+
+	t.Run("a page at a time, newest first, each record once", func(t *testing.T) {
+		t.Parallel()
+
+		records, sizes := readWholeHistory(t, client, keyedHistory("paged"), visible)
+		if diff := cmp.Diff([]int{50, 50, 20}, sizes); diff != "" {
+			t.Errorf("page sizes mismatch (-want +got):\n%s", diff)
+		}
+		stored := storedChangeRecords(t, db, "paged")
+		if len(stored) != 120 {
+			t.Fatalf("the row has %d change records, want 120", len(stored))
+		}
+		if len(records) != len(stored) {
+			t.Fatalf("the pages hold %d records, want the %d the row has", len(records), len(stored))
+		}
+		for i, record := range records {
+			if !record.At.Equal(stored[i].at) || record.Sequence != stored[i].sequence {
+				t.Errorf("record %d is %s/%d, want %s/%d", i, record.At, record.Sequence, stored[i].at, stored[i].sequence)
+			}
+			if want := fmt.Sprintf("%q", fmt.Sprintf("title %d", 119-i)); len(record.Fields) == 0 || string(record.Fields[len(record.Fields)-1].New) != want {
+				t.Errorf("record %d holds %v, want the title set to %s", i, record.Fields, want)
+			}
+		}
+		last, first := records[49], records[50]
+		if !last.At.Equal(first.At) || last.Sequence != first.Sequence+1 {
+			t.Errorf("the first page ends at %s/%d and the second starts at %s/%d, want one commit's two records, the later first", last.At, last.Sequence, first.At, first.Sequence)
+		}
+	})
+
+	t.Run("the records of one field", func(t *testing.T) {
+		t.Parallel()
+
+		w.write(CreatePatchType, "filtered", "first")
+		w.write(UpdatePatchType, "filtered", "second")
+		w.write(UpdatePatchType, "filtered", "third")
+		stored := storedChangeRecords(t, db, "filtered")
+		for _, field := range []accesstypes.Field{"ID", "Title"} {
+			var want []int64
+			for _, record := range stored {
+				if _, named := record.changeSet[string(field)]; named {
+					want = append(want, record.at.UnixMicro())
+				}
+			}
+			history := keyedHistory("filtered")
+			history.field = field
+			records, _ := readWholeHistory(t, client, history, visible)
+			var got []int64
+			for _, record := range records {
+				got = append(got, record.At.UnixMicro())
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("the records of %s mismatch (-want +got):\n%s", field, diff)
+			}
+		}
+		history := keyedHistory("filtered")
+		history.field = "ID"
+		if records, _ := readWholeHistory(t, client, history, visible); len(records) != 1 || len(stored) != 3 {
+			t.Errorf("the records of the key: %d of %d, want the create's alone of 3", len(records), len(stored))
+		}
+	})
+
+	t.Run("one tenant's records", func(t *testing.T) {
+		t.Parallel()
+
+		// Two records of one row under two tenants, as a row moved between them leaves.
+		for _, tenant := range []string{"north", "south"} {
+			if _, err := db.Apply(t.Context(), []*spanner.Mutation{spanner.Insert("DataChangeEvents",
+				[]string{"TableName", "RowId", "Sequence", "EventTime", "EventSource", "ChangeSet", "TenantId"},
+				[]any{"TrackedForkRows", "moved", int64(0), spanner.CommitTimestamp, "test", spanner.NullJSON{Valid: true, Value: map[string]any{"Title": map[string]any{"Old": nil, "New": tenant}}}, tenant},
+			)}); err != nil {
+				t.Fatalf("writing a record of tenant %s: %v", tenant, err)
+			}
+		}
+		txn := client.ReadOnlyTransaction()
+		defer txn.Close()
+		for _, tt := range []struct {
+			tenant string
+			want   []string
+		}{
+			{tenant: "north", want: []string{`{"Title":{"New":"north","Old":null}}`}},
+			{tenant: "south", want: []string{`{"Title":{"New":"south","Old":null}}`}},
+			{tenant: "", want: []string{`{"Title":{"New":"south","Old":null}}`, `{"Title":{"New":"north","Old":null}}`}},
+		} {
+			rows, err := readChangeRecords(t.Context(), txn, changeRecordsQuery{table: "TrackedForkRows", rowID: "moved", tenant: tt.tenant})
+			if err != nil {
+				t.Fatalf("readChangeRecords(%q) error = %v", tt.tenant, err)
+			}
+			var got []string
+			for _, row := range rows {
+				got = append(got, row.ChangeSet.StringVal)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("the records held to tenant %q mismatch (-want +got):\n%s", tt.tenant, diff)
+			}
+		}
+
+		// A resource that belongs to no tenant is not held to the request's tenant where
+		// its record is there, and where it is not, nothing ties its records to the
+		// tenant: it is not found.
+		history := keyedHistory("moved")
+		history.querySet.scope = accesstypes.DomainScope("north")
+		page, err := history.readPage(t.Context(), client, visible, nil)
+		if err != nil {
+			t.Fatalf("readPage() in a tenant's request error = %v", err)
+		}
+		if len(page.Changes) != 2 {
+			t.Errorf("a record of no tenant, there, in a tenant's request: %d records, want both", len(page.Changes))
+		}
+		notFound := recordNotFound[trackedForkRow]("moved")
+		if _, err := history.readPage(t.Context(), client, visible, notFound); !errors.Is(err, notFound) {
+			t.Errorf("a record of no tenant, not there, in a tenant's request: readPage() error = %v, want its not found", err)
+		}
+	})
+
+	t.Run("a record that is not there", func(t *testing.T) {
+		t.Parallel()
+
+		w.write(CreatePatchType, "gone", "here")
+		w.write(DeletePatchType, "gone", "")
+		notFound := recordNotFound[trackedForkRow]("gone")
+
+		if _, err := keyedHistory("never").readPage(t.Context(), client, visible, notFound); !errors.Is(err, notFound) {
+			t.Errorf("a record with no change record: readPage() error = %v, want its not found", err)
+		}
+		page, err := keyedHistory("gone").readPage(t.Context(), client, visible, notFound)
+		if err != nil {
+			t.Fatalf("a deleted record: readPage() error = %v", err)
+		}
+		if len(page.Changes) != 2 {
+			t.Errorf("a deleted record: %d records, want its create and its delete", len(page.Changes))
+		}
+		older := keyedHistory("gone")
+		older.after = &changeHistoryToken{at: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)}
+		page, err = older.readPage(t.Context(), client, visible, notFound)
+		if err != nil {
+			t.Fatalf("a deleted record, past its oldest record: readPage() error = %v", err)
+		}
+		if len(page.Changes) != 0 {
+			t.Errorf("a deleted record, past its oldest record: %d records, want none", len(page.Changes))
+		}
+	})
+}
+
+// TestChangeHistoryRead_grants pins what the read answers each caller over the emulator:
+// a caller the record's read refuses is refused; a resource that keeps no change records
+// is not found to every caller the read admits; a masked cell's field is left out of a
+// record that is there and asking for its changes is refused; and a record that is not
+// there is read under a grant whose condition stands on a field alone, without that
+// field, and not found under one whose condition stands on the resource.
+func TestChangeHistoryRead_grants(t *testing.T) {
+	t.Parallel()
+
+	db := forkDatabase(t, "change-history-grants")
+	client := NewSpannerClient(db)
+	w := historyWriter{t: t, client: client}
+	w.write(CreatePatchType, "plain", "draft")
+	w.write(UpdatePatchType, "plain", "plain")
+	w.write(CreatePatchType, "secretive", "secretive")
+	w.write(CreatePatchType, "gone", "plain")
+	w.write(DeletePatchType, "gone", "")
+	// A row of a resource that keeps no change records, created and then updated so that
+	// every column holds a value the read scans.
+	for _, patchType := range []PatchType{CreatePatchType, UpdatePatchType} {
+		if err := forkPatchOf(patchType, "untracked", string(patchType)).Apply(t.Context(), client, "test"); err != nil {
+			t.Fatalf("Apply() of an untracked row error = %v", err)
+		}
+	}
+
+	collection, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{{
+		Name:        "TrackedForkRows",
+		Scope:       accesstypes.GlobalPermissionScope,
+		Permissions: []accesstypes.Permission{accesstypes.Read},
+		Attributes:  []AttributeData{{Name: "title", Column: "Title", Type: AttributeTypeString}},
+	}}})
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+	every := &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {"TrackedForkRows", "TrackedForkRows.id", "TrackedForkRows.title", "ForkRows", "ForkRows.title", "ForkRows.createdBy", "ForkRows.updatedBy"}}}
+	// The key granted outright and the title on the rows whose title is plain: the
+	// title's cell is masked on every other row, which is read for its key.
+	titleOfPlain := &fakeUserPermissions{
+		granted:    map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {"TrackedForkRows", "TrackedForkRows.id"}},
+		conditions: map[accesstypes.Resource]string{"TrackedForkRows.title": "title = 'plain'"},
+	}
+	plainAlone := &fakeUserPermissions{conditions: map[accesstypes.Resource]string{"TrackedForkRows": "title = 'plain'", "TrackedForkRows.id": "title = 'plain'", "TrackedForkRows.title": "title = 'plain'"}}
+
+	read := func(perms UserPermissions, target string) (*ChangeHistoryPage, error) {
+		t.Helper()
+
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
+		history, err := trackedForkRowHistoryDecoder(collection).DecodeChangeHistory(request, perms, accesstypes.GlobalScope())
+		if err != nil {
+			t.Fatalf("DecodeChangeHistory() error = %v", err)
+		}
+		history.QuerySet().SetKey("ID", request.URL.Path[1:])
+
+		return history.Read(t.Context(), client)
+	}
+	fieldsOf := func(page *ChangeHistoryPage) [][]string {
+		fields := [][]string{}
+		for _, record := range page.Changes {
+			names := []string{}
+			for _, field := range record.Fields {
+				names = append(names, field.Field)
+			}
+			fields = append(fields, names)
+		}
+
+		return fields
+	}
+
+	t.Run("a caller the record's read refuses is refused", func(t *testing.T) {
+		t.Parallel()
+
+		if _, err := read(&fakeUserPermissions{}, "/plain"); !httpio.HasForbidden(err) {
+			t.Errorf("Read() error = %v, want a 403", err)
+		}
+	})
+	t.Run("a resource that keeps no change records is not found, after the grant", func(t *testing.T) {
+		t.Parallel()
+
+		decoder := MustNewQueryDecoder[forkRow, forkRowRead](nil, accesstypes.Read)
+		for _, tt := range []struct {
+			perms UserPermissions
+			want  func(error) bool
+		}{
+			{perms: every, want: httpio.HasNotFound},
+			{perms: &fakeUserPermissions{}, want: httpio.HasForbidden},
+		} {
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/untracked", http.NoBody)
+			history, err := decoder.DecodeChangeHistory(request, tt.perms, accesstypes.GlobalScope())
+			if err != nil {
+				t.Fatalf("DecodeChangeHistory() error = %v", err)
+			}
+			history.QuerySet().SetKey("ID", "untracked")
+			if _, err := history.Read(t.Context(), client); !tt.want(err) {
+				t.Errorf("Read() error = %v", err)
+			}
+		}
+	})
+	t.Run("a record that is there: every field the reader sees", func(t *testing.T) {
+		t.Parallel()
+
+		page, err := read(every, "/plain")
+		if err != nil {
+			t.Fatalf("Read() error = %v", err)
+		}
+		if diff := cmp.Diff([][]string{{"title"}, {"id", "title"}}, fieldsOf(page)); diff != "" {
+			t.Errorf("fields mismatch (-want +got):\n%s", diff)
+		}
+	})
+	t.Run("a record that is there: a masked cell's field is left out, and its changes are refused", func(t *testing.T) {
+		t.Parallel()
+
+		page, err := read(titleOfPlain, "/secretive")
+		if err != nil {
+			t.Fatalf("Read() error = %v", err)
+		}
+		if diff := cmp.Diff([][]string{{"id"}}, fieldsOf(page)); diff != "" {
+			t.Errorf("fields mismatch (-want +got):\n%s", diff)
+		}
+		if _, err := read(titleOfPlain, "/secretive?field=title"); !httpio.HasForbidden(err) {
+			t.Errorf("the changes of a masked field: Read() error = %v, want a 403", err)
+		}
+		page, err = read(titleOfPlain, "/plain?field=title")
+		if err != nil {
+			t.Fatalf("the changes of a field the reader sees: Read() error = %v", err)
+		}
+		if diff := cmp.Diff([][]string{{"title"}, {"id", "title"}}, fieldsOf(page)); diff != "" {
+			t.Errorf("fields mismatch (-want +got):\n%s", diff)
+		}
+	})
+	t.Run("a record that is not there: the fields granted without a condition", func(t *testing.T) {
+		t.Parallel()
+
+		page, err := read(every, "/gone")
+		if err != nil {
+			t.Fatalf("Read() error = %v", err)
+		}
+		if diff := cmp.Diff([][]string{{"id", "title"}, {"id", "title"}}, fieldsOf(page)); diff != "" {
+			t.Errorf("fields under a grant with no condition mismatch (-want +got):\n%s", diff)
+		}
+		page, err = read(titleOfPlain, "/gone")
+		if err != nil {
+			t.Fatalf("Read() error = %v", err)
+		}
+		if diff := cmp.Diff([][]string{{"id"}, {"id"}}, fieldsOf(page)); diff != "" {
+			t.Errorf("fields under a condition on the title mismatch (-want +got):\n%s", diff)
+		}
+		if _, err := read(titleOfPlain, "/gone?field=title"); !httpio.HasForbidden(err) {
+			t.Errorf("the changes of a field granted under a condition: Read() error = %v, want a 403", err)
+		}
+		if _, err := read(plainAlone, "/gone"); !httpio.HasNotFound(err) {
+			t.Errorf("a grant whose condition stands on the resource: Read() error = %v, want a 404", err)
+		}
+		if page, err := read(plainAlone, "/plain"); err != nil || len(page.Changes) != 2 {
+			t.Errorf("the same grant, on a record it reaches: Read() = %v, %v, want both records", page, err)
+		}
+	})
+}

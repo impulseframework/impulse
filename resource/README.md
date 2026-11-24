@@ -6341,6 +6341,29 @@ update of it, which is answered 404; a second delete of it writes no second reco
 row the transaction created, a field no patch set reads as empty: a default the database
 gives the column is not known before the commit.
 
+**One record's history.** `GET <the record's read route>/changes` answers a page of the
+record's change records, newest first: `{"changes": [{"at", "sequence", "source",
+"fields": [{"field", "old", "new"}]}], "next"}`. A page holds 50 records; `next` is there
+when older ones exist, and `?after=<next>` reads the page after it. `?field=<name>` keeps
+only the records that changed that field, so "when was this account's email last
+changed" is the first record of `?field=email`. The generator writes the route for every
+table-backed resource that has a read route, and it answers 404 for a resource that does
+not track its changes.
+
+The route asks no grant of its own: whoever may read the record may read its history, and
+sees in it the fields they can see on the record as it stands now. A field the caller's
+grant leaves out, or whose cell is masked on this row, is left out of every change
+record; a record none of whose fields the caller may see is still listed, with when and
+by whom. A secret field is listed as changed with neither value, and a field the server
+never returns (`input_only`) is not listed. A record's history outlives the record: once
+the record is deleted, its history is read by a caller whose `Read` grant on the resource
+carries no condition, with the fields granted to them without one, since a condition is
+judged on the row and the row is gone; anyone else is answered 404, as the record's own
+read answers. In a tenant's request only the change records written while the record was
+that tenant's are read. A record's history holds that record's own changes, not those of
+the records under it. Questions across records (everything one person changed) are not
+asked here: they belong to a copy of the table in a warehouse.
+
 **How long records are kept.** A change record is kept until something removes it, and
 the library removes none. An application made by `impulse new` declares
 `resource.KeepChangeHistoryForever()`: it keeps every record it has ever written, and the
