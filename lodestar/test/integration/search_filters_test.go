@@ -4,18 +4,20 @@ package integration
 // list page composes when both are on the screen, the page's own filter, the complete
 // column filters and the box as conjuncts of one top-level AND, the first two
 // parenthesized and the box bare, (page),(columns),*:search:"…". Over the mission board,
-// as the Missions page sends it, the box narrows beside a status filter, beside a
-// deadline comparison (an RFC 3339 instant; the written forms are filter_dates_test.go's), and
-// beside the days-left companion, which the box alone admits as the filter's indexed
-// touch while days left alone stays refused; two parenthesized groups ride before the
-// box the way a page filter does; the count and the cursor pages carry the whole filter,
-// in the view's declared order. Over Clients, as the Clients page sends it, the filter is
-// placed as a whole: headquarters, whose box reaches the contact fields, posts the box
-// beside a name filter or a contact-name match and is refused the URL, while the
-// ClientBrowser role, whose grants deny every PII field the box would search, keeps the
-// same shape in the URL; a field the caller may not read drops out of the box beside a
-// filter as it does alone; and the child-table branch rides beside a filter. The expected
-// rows are computed from the unfiltered lists wherever the list carries the matched text.
+// as the Missions page sends it, whose box searches the mission's title, the box narrows
+// beside a status filter, beside a deadline comparison (an RFC 3339 instant; the written
+// forms are filter_dates_test.go's), and beside the days-left companion, which the box
+// alone admits as the filter's indexed touch while days left alone stays refused; two
+// parenthesized groups ride before the box the way a page filter does. Over Clients, as
+// the Clients page sends it, the filter is placed as a whole: headquarters, whose box
+// reaches the contact fields, posts the box beside a name filter or a contact-name match
+// and is refused the URL, while the ClientBrowser role, whose grants deny every PII field
+// the box would search, keeps the same shape in the URL; a field the caller may not read
+// drops out of the box beside a filter as it does alone; the child-table branch rides
+// beside a filter; and the count and the cursor pages carry the whole filter over the
+// box's key sets (the box spans the clients' index and the contacts'), in the declared
+// order. The expected rows are computed from the unfiltered lists wherever the list
+// carries the matched text.
 //
 // Demonstrates: search.beside-filters, search.beside-filters.pii.
 
@@ -61,7 +63,7 @@ func TestSearchBesideFilters(t *testing.T) {
 	}
 
 	boardMatch := func(term string) func(map[string]any) bool {
-		return func(row map[string]any) bool { return has(row, "title", term) || has(row, "clientName", term) }
+		return func(row map[string]any) bool { return has(row, "title", term) }
 	}
 	clientMatch := func(term string) func(map[string]any) bool {
 		return func(row map[string]any) bool {
@@ -111,11 +113,11 @@ func TestSearchBesideFilters(t *testing.T) {
 	idKey := func(row map[string]any) string { return cell[string](t, row, "id") }
 	nameKey := func(row map[string]any) string { return cell[string](t, row, "name") }
 
-	// The board's term, station, meets both indexes: the relay station's missions through
-	// the client's name and one title through the missions' index.
-	surveyed := selectRows(boards, boardMatch("station"))
+	// The board's term, escort, is a word of the missions' titles, which the board's box
+	// searches.
+	surveyed := selectRows(boards, boardMatch("escort"))
 	if len(surveyed) < 4 {
-		t.Fatalf("the seed holds %d Anvil boards naming station, want at least 4", len(surveyed))
+		t.Fatalf("the seed holds %d Anvil boards titled with escort, want at least 4", len(surveyed))
 	}
 
 	// The deadline bound the comparison case types, the middle of those boards' deadlines
@@ -171,11 +173,11 @@ func TestSearchBesideFilters(t *testing.T) {
 	}{
 		// The mission board, as the marshal: the box beside the column filters, the
 		// column filters parenthesized and the box bare, as the page composes them.
-		{name: "the box beside a status filter", user: "marshal", target: boardsURL(`(statusId:eq:open),*:search:"station"`), wantStatus: http.StatusOK, wantRows: selectRows(boards, all(open, boardMatch("station"))), key: idKey},
-		{name: "the box beside a deadline comparison, the timestamp as the grid sends what is typed", user: "marshal", target: boardsURL(`(deadline:gte:` + bound.Format(time.RFC3339) + `),*:search:"station"`), wantStatus: http.StatusOK, wantRows: selectRows(boards, all(fromBound, boardMatch("station"))), key: idKey},
-		{name: "the box alone admits the days-left companion: the box is the filter's indexed touch", user: "marshal", target: boardsURL(fmt.Sprintf(`(daysLeft:gte:%d),*:search:"station"`, int(daysThreshold))), wantStatus: http.StatusOK, wantRows: selectRows(boards, all(daysLeftAtLeast(daysThreshold), boardMatch("station"))), key: idKey},
+		{name: "the box beside a status filter", user: "marshal", target: boardsURL(`(statusId:eq:open),*:search:"escort"`), wantStatus: http.StatusOK, wantRows: selectRows(boards, all(open, boardMatch("escort"))), key: idKey},
+		{name: "the box beside a deadline comparison, the timestamp as the grid sends what is typed", user: "marshal", target: boardsURL(`(deadline:gte:` + bound.Format(time.RFC3339) + `),*:search:"escort"`), wantStatus: http.StatusOK, wantRows: selectRows(boards, all(fromBound, boardMatch("escort"))), key: idKey},
+		{name: "the box alone admits the days-left companion: the box is the filter's indexed touch", user: "marshal", target: boardsURL(fmt.Sprintf(`(daysLeft:gte:%d),*:search:"escort"`, int(daysThreshold))), wantStatus: http.StatusOK, wantRows: selectRows(boards, all(daysLeftAtLeast(daysThreshold), boardMatch("escort"))), key: idKey},
 		{name: "days left alone stays refused", user: "marshal", target: boardsURL(`daysLeft:gte:10`), wantStatus: http.StatusBadRequest, wantBody: "at least one column that is indexed"},
-		{name: "two parenthesized groups before the box, the shape a page filter makes", user: "marshal", target: boardsURL(`(kindId:in:(escort,courier)),(statusId:eq:open),*:search:"station"`), wantStatus: http.StatusOK, wantRows: selectRows(boards, all(kindOf("escort", "courier"), open, boardMatch("station"))), key: idKey},
+		{name: "two parenthesized groups before the box, the shape a page filter makes", user: "marshal", target: boardsURL(`(kindId:in:(escort,courier)),(statusId:eq:open),*:search:"escort"`), wantStatus: http.StatusOK, wantRows: selectRows(boards, all(kindOf("escort", "courier"), open, boardMatch("escort"))), key: idKey},
 		// Clients, as headquarters: the box reaches the contact fields, so the whole
 		// filter travels in the body, and the URL form is refused. The column filters are
 		// the page's: the name (indexed) and the contact name (a listed match); trusted is
@@ -228,35 +230,42 @@ func TestSearchBesideFilters(t *testing.T) {
 		})
 	}
 
-	t.Run("the count and the cursor carry the whole filter, in the declared order", func(t *testing.T) {
+	t.Run("the count and the cursor carry the whole filter over the box's key sets, in the declared order", func(t *testing.T) {
 		t.Parallel()
 
-		want := keysOf(selectRows(boards, all(open, boardMatch("station"))), idKey)
-		target := sectorPath(anvil, "mission-boards?"+boardColumns+"&count=true&limit=2&"+filter(`(statusId:eq:open),*:search:"station"`))
-		page := doRequestRecordedAs(t, h, "marshal", http.MethodGet, target, "")
+		// Three clients by name, beside a term every client meets: the box spans the
+		// clients' index and the contacts', so each page reads its rows through the key sets.
+		three := []string{"Halvard Freight", "Meridian Survey Office", "Vellum Medical Cooperative"}
+		named := func(row map[string]any) bool { return slices.Contains(three, cell[string](t, row, "name")) }
+		want := keysOf(selectRows(clients, all(named, clientMatch("example"))), nameKey)
+		if len(want) != len(three) {
+			t.Fatalf("the seed's clients named %v that the box meets are %v; the case needs all three", three, want)
+		}
+		body := posted(`(name:in:(` + strings.Join(three, ",") + `)),*:search:"example"`)
+		page := doRequestRecordedAs(t, h, "governor", http.MethodPost, consoleAPI+"/clients?"+clientColumns+"&count=true&limit=2", body)
 		assertStatus(t, page.Code, http.StatusOK, page.Body.Bytes())
 		if got := page.Header().Get(resource.TotalCountHeader); got != fmt.Sprint(len(want)) {
 			t.Errorf("Total-Count = %q, want %d", got, len(want))
 		}
 		var got []string
-		var last time.Time
+		last := ""
 		for pages := 1; ; pages++ {
 			if pages > len(want) {
 				t.Fatalf("the cursor never ends: %d pages over %d rows", pages, len(want))
 			}
 			for _, row := range decodeRows(t, page.Body.Bytes()) {
-				if at := deadlineOf(row); at.Before(last) {
-					t.Errorf("row %v breaks the declared deadline order: %v after %v", row["title"], at, last)
-				} else {
-					last = at
+				name := nameKey(row)
+				if name < last {
+					t.Errorf("client %q breaks the declared name order: after %q", name, last)
 				}
-				got = append(got, idKey(row))
+				last = name
+				got = append(got, name)
 			}
 			next, ok := linkRelations(t, page.Header().Get(resource.LinkHeader))["next"]
 			if !ok {
 				break
 			}
-			page = doRequestRecordedAs(t, h, "marshal", http.MethodGet, next, "")
+			page = doRequestRecordedAs(t, h, "governor", http.MethodPost, next, body)
 			assertStatus(t, page.Code, http.StatusOK, page.Body.Bytes())
 		}
 		slices.Sort(got)

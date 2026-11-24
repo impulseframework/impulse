@@ -929,6 +929,7 @@ export namespace MembersTenantHeldRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    groupPageName: 'groupPageName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'MembersTenantHeldRoles.createdAt' as Resource,
@@ -1089,6 +1090,7 @@ export namespace MembersTenantUsers {
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
+    displayName: 'displayName' as FieldName,
     domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
@@ -1111,6 +1113,7 @@ export namespace MembersTenantUsers {
     cannotEnter: 'MembersTenantUsers.cannotEnter' as Resource,
     createdAt: 'MembersTenantUsers.createdAt' as Resource,
     disabled: 'MembersTenantUsers.disabled' as Resource,
+    displayName: 'MembersTenantUsers.displayName' as Resource,
     domainId: 'MembersTenantUsers.domainId' as Resource,
     email: 'MembersTenantUsers.email' as Resource,
     emailVerifiedAt: 'MembersTenantUsers.emailVerifiedAt' as Resource,

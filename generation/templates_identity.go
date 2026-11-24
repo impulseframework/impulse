@@ -328,6 +328,9 @@ type (
 		Email      string        ` + "`spanner:\"Email\"`" + `
 		Name       *string       ` + "`spanner:\"Name\"`" + `
 		UserID     *impulse.UUID ` + "`spanner:\"UserId\"`" + `
+		{{- if .TenantPicker }}
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		TenantID   *string       ` + "`spanner:\"TenantId\"`" + `
 		EveryTenant bool         ` + "`spanner:\"EveryTenant\"`" + `
 		// @roleOf({{ .Auth }})

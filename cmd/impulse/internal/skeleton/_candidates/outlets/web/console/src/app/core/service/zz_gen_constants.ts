@@ -291,6 +291,7 @@ export namespace StaffHeldRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'StaffHeldRoles.axis' as Resource,
@@ -355,6 +356,7 @@ export namespace StaffListedGroupRoles {
     losing: 'losing' as FieldName,
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'StaffListedGroupRoles.axis' as Resource,
@@ -380,6 +382,7 @@ export namespace StaffListedGroups {
     people: 'people' as FieldName,
     roles: 'roles' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'StaffListedGroups.axis' as Resource,
@@ -680,6 +683,7 @@ export namespace StaffSessionMailLinks {
     tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
     withdrawnAt: 'withdrawnAt' as FieldName,
+    tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
     consumedAt: 'StaffSessionMailLinks.consumedAt' as Resource,
@@ -908,6 +912,7 @@ export namespace StaffTakenRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'StaffTakenRoles.axis' as Resource,
@@ -1019,6 +1024,7 @@ export namespace StaffTenantHeldRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    groupPageName: 'groupPageName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'StaffTenantHeldRoles.createdAt' as Resource,
@@ -1207,6 +1213,7 @@ export namespace StaffTenantUsers {
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
+    displayName: 'displayName' as FieldName,
     domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
@@ -1230,6 +1237,7 @@ export namespace StaffTenantUsers {
     cannotEnter: 'StaffTenantUsers.cannotEnter' as Resource,
     createdAt: 'StaffTenantUsers.createdAt' as Resource,
     disabled: 'StaffTenantUsers.disabled' as Resource,
+    displayName: 'StaffTenantUsers.displayName' as Resource,
     domainId: 'StaffTenantUsers.domainId' as Resource,
     email: 'StaffTenantUsers.email' as Resource,
     emailVerifiedAt: 'StaffTenantUsers.emailVerifiedAt' as Resource,
@@ -1263,6 +1271,7 @@ export namespace StaffUserGroupRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'StaffUserGroupRoles.axis' as Resource,

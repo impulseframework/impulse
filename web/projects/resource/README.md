@@ -120,12 +120,10 @@ whole and resolves the chosen row from the list, so a source with no read route 
 it. A maximum: the resource is read one server page at a time and never whole; a
 picker pages it with Previous and Next by the server's cursors, sorted by its `@order`
 or else by the picker's display column, and reads the chosen row by key (a source with a
-maximum serves a read; the generator refuses one that does not); a lookup that resolves
-display values for a page of keys asks for one `filter=id:in:(…)` page over them, served
-by the key's index. None of these readers walks past a page.
-`readMode(descriptor)` answers `'whole'` or `'paged'`, and `wholeListQuery`,
-`pickerSort`, `keyBatches`, and `keyLookupQuery` are the requests each side makes,
-shared by every reader.
+maximum serves a read; the generator refuses one that does not). None of these readers
+walks past a page. `readMode(descriptor)` answers `'whole'` or `'paged'`, and
+`wholeListQuery` and `pickerSort` are the requests each side makes, shared by every
+reader.
 
 `every` is the one reader of every row, for a page whose answer is wrong with a part
 of them: a board that counts what is open, a picker that must offer each choice. It

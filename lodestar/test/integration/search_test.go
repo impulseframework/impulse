@@ -10,9 +10,11 @@ package integration
 // (the deadline's day as YYYYMMDD) and the partitioned index (the same term in two
 // sectors answers each sector's own rows); Hangars the prefix fact alone (a case-folded
 // startswith and nothing else, no box); ClientRosters the view whose field names the
-// table column it projects; MissionBoards the view over two tables' indexes, read
-// through one key set per term, so its box joins the rest of the filter with AND alone;
-// SectorHazardBoards the computed resource, whose text fields match in memory. The
+// table column it projects; MissionBoards the view over one table's index, whose box
+// searches the mission's title; the clients' box, over two indexes (the clients' and,
+// through @searchAlso, the contacts'), read through one key set per term, so it joins
+// the rest of the filter with AND alone; SectorHazardBoards the computed resource, whose
+// text fields match in memory. The
 // expected rows are computed from the unfiltered lists with a plain substring, so the
 // suite pins the box against the data, never a row count typed in. The generated
 // TypeScript metadata is pinned last.
@@ -79,9 +81,6 @@ func TestSearch(t *testing.T) {
 	either := func(a, b func(map[string]any) bool) func(map[string]any) bool {
 		return func(row map[string]any) bool { return a(row) || b(row) }
 	}
-	boardMatch := func(term string) func(map[string]any) bool {
-		return func(row map[string]any) bool { return has(row, "title", term) || has(row, "clientName", term) }
-	}
 	shipNamed := func(term string) func(map[string]any) bool {
 		return func(row map[string]any) bool { return has(row, "shipName", term) }
 	}
@@ -93,9 +92,6 @@ func TestSearch(t *testing.T) {
 
 	if n := len(selectRows(missions, titled("escort"))); n < 3 {
 		t.Fatalf("the seed holds %d Anvil missions titled with escort, want at least 3 for the paging case", n)
-	}
-	if n := len(selectRows(boards, boardMatch("halvard"))); n < 2 {
-		t.Fatalf("the seed holds %d Anvil boards naming halvard, want at least 2", n)
 	}
 
 	tests := []struct {
@@ -121,6 +117,8 @@ func TestSearch(t *testing.T) {
 		{name: "a term nothing holds answers an empty list", user: "governor", method: http.MethodPost, target: consoleAPI + "/clients", body: box("zephyr"), wantStatus: http.StatusOK, wantNames: []string{}},
 		{name: "a second box in one filter is refused", user: "governor", method: http.MethodPost, target: consoleAPI + "/clients", body: `{"filter":"*:search:\"a\",*:search:\"b\""}`, wantStatus: http.StatusBadRequest},
 		{name: "the box joins the rest of the filter with AND: a term every client meets, narrowed by a match on the name", user: "governor", method: http.MethodPost, target: consoleAPI + "/clients", body: `{"filter":"name:startswith:merid,*:search:\"example\""}`, wantStatus: http.StatusOK, wantNames: []string{"Meridian Survey Office"}},
+		{name: "two terms over two indexes: halvard in the client's name, client in its contact's display name alone", user: "governor", method: http.MethodPost, target: consoleAPI + "/clients", body: box("halvard client"), wantStatus: http.StatusOK, wantNames: []string{"Halvard Freight"}},
+		{name: "a box over two indexes inside an OR is refused, naming the way out", user: "governor", method: http.MethodPost, target: consoleAPI + "/clients", body: `{"filter":"name:startswith:merid|*:search:\"example\""}`, wantStatus: http.StatusBadRequest, wantBody: "move the box out of the OR"},
 		// The PII placement: the box searches ContactEmail, so a filter carrying it posts,
 		// unless the caller's grants deny every PII field it would search.
 		{name: "a box over a resource whose box searches a PII field is refused in the URL", user: "governor", target: consoleAPI + "/clients?" + filter(`*:search:"halvard"`), wantStatus: http.StatusBadRequest, wantBody: "request body"},
@@ -161,12 +159,9 @@ func TestSearch(t *testing.T) {
 		// ClientRosters: the view names the table column it projects.
 		{name: "the box over a view rides the table's index", user: "marshal", target: sectorPath(anvil, "client-rosters?"+filter(`*:search:"meridian"`)), wantStatus: http.StatusOK, wantNames: []string{"Meridian Survey Office"}},
 		{name: "the view's field answers the table column's anchored matches", user: "marshal", target: sectorPath(anvil, "client-rosters?"+filter(`name:endswith:office`)), wantStatus: http.StatusOK, wantNames: []string{"Meridian Survey Office"}},
-		// MissionBoards: two indexes, one key set per term.
-		{name: "a box over two indexes: a term met in the client's name or the title", user: "marshal", target: sectorPath(anvil, "mission-boards?"+filter(`*:search:"halvard"`)), wantStatus: http.StatusOK, wantRows: selectRows(boards, boardMatch("halvard")), key: idKey},
-		{name: "two terms over two indexes", user: "marshal", target: sectorPath(anvil, "mission-boards?"+filter(`*:search:"escort meridian"`)), wantStatus: http.StatusOK, wantRows: selectRows(boards, both(boardMatch("escort"), boardMatch("meridian"))), key: idKey},
-		{name: "a word inside the client's name reaches the board through the clients' index: the survey office's missions and the titles holding the word", user: "marshal", target: sectorPath(anvil, "mission-boards?"+filter(`*:search:"survey"`)), wantStatus: http.StatusOK, wantRows: selectRows(boards, boardMatch("survey")), key: idKey},
-		{name: "the key set joins the rest of the filter with AND", user: "marshal", target: sectorPath(anvil, "mission-boards?"+filter(`statusId:eq:open,*:search:"halvard"`)), wantStatus: http.StatusOK, wantRows: selectRows(boards, both(open, boardMatch("halvard"))), key: idKey},
-		{name: "a box over two indexes inside an OR is refused, naming the way out", user: "marshal", target: sectorPath(anvil, "mission-boards?"+filter(`statusId:eq:open|*:search:"halvard"`)), wantStatus: http.StatusBadRequest, wantBody: "move the box out of the OR"},
+		// MissionBoards: the view over one table's index.
+		{name: "the board's box searches the mission's title", user: "marshal", target: sectorPath(anvil, "mission-boards?"+filter(`*:search:"escort"`)), wantStatus: http.StatusOK, wantRows: selectRows(boards, titled("escort")), key: idKey},
+		{name: "the board's box, over one index, may sit inside an OR", user: "marshal", target: sectorPath(anvil, "mission-boards?"+filter(`statusId:eq:open|*:search:"escort"`)), wantStatus: http.StatusOK, wantRows: selectRows(boards, either(open, titled("escort"))), key: idKey},
 		// SectorHazardBoards: in memory.
 		{name: "a computed resource's text field matches in memory", user: "marshal", target: sectorPath(anvil, "sector-hazard-boards?limit=all&"+filter(`shipName:contains:KING`)), wantStatus: http.StatusOK, wantRows: selectRows(hazards, shipNamed("king")), key: hazardKey},
 		{name: "a computed resource's box, every term in some text field", user: "marshal", target: sectorPath(anvil, "sector-hazard-boards?limit=all&"+filter(`*:search:"king hull"`)), wantStatus: http.StatusOK, wantRows: selectRows(hazards, both(shipNamed("king"), func(row map[string]any) bool { return has(row, "subsystem", "hull") })), key: hazardKey},
@@ -259,8 +254,8 @@ func TestSearch(t *testing.T) {
 			"{ fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['startswith'] }",
 			// A date joins the box and answers no match.
 			"searchFields: ['title', 'deadline'],",
-			// The view over two tables' indexes.
-			"searchFields: ['title', 'clientName'],",
+			// The view over one table's index.
+			"searchFields: ['title'],",
 			// A computed resource's text fields answer the three matches in memory.
 			"{ fieldName: 'shipName', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] }",
 			"searchFields: ['subsystem', 'shipName'],",

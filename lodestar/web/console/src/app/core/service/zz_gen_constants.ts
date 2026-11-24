@@ -271,6 +271,7 @@ export namespace ClientContacts {
     displayName: 'displayName' as FieldName,
     id: 'id' as FieldName,
     userId: 'userId' as FieldName,
+    clientName: 'clientName' as FieldName,
   };
   export const resourceName = {
     clientId: 'ClientContacts.clientId' as Resource,
@@ -328,6 +329,7 @@ export namespace Commendations {
     citation: 'citation' as FieldName,
     id: 'id' as FieldName,
     pilotId: 'pilotId' as FieldName,
+    pilotName: 'pilotName' as FieldName,
   };
   export const resourceName = {
     awardedAt: 'Commendations.awardedAt' as Resource,
@@ -350,6 +352,7 @@ export namespace Consignments {
     releasedAt: 'releasedAt' as FieldName,
     sectorId: 'sectorId' as FieldName,
     sectorName: 'sectorName' as FieldName,
+    clientName: 'clientName' as FieldName,
   };
   export const resourceName = {
     bondCode: 'Consignments.bondCode' as Resource,
@@ -480,6 +483,7 @@ export namespace CrewHeldRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewHeldRoles.axis' as Resource,
@@ -548,6 +552,7 @@ export namespace CrewListedGroupRoles {
     losing: 'losing' as FieldName,
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewListedGroupRoles.axis' as Resource,
@@ -573,6 +578,7 @@ export namespace CrewListedGroups {
     people: 'people' as FieldName,
     roles: 'roles' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewListedGroups.axis' as Resource,
@@ -908,6 +914,7 @@ export namespace CrewSectorHeldRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    groupPageName: 'groupPageName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'CrewSectorHeldRoles.createdAt' as Resource,
@@ -1096,6 +1103,7 @@ export namespace CrewSectorUsers {
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
+    displayName: 'displayName' as FieldName,
     domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
@@ -1119,6 +1127,7 @@ export namespace CrewSectorUsers {
     cannotEnter: 'CrewSectorUsers.cannotEnter' as Resource,
     createdAt: 'CrewSectorUsers.createdAt' as Resource,
     disabled: 'CrewSectorUsers.disabled' as Resource,
+    displayName: 'CrewSectorUsers.displayName' as Resource,
     domainId: 'CrewSectorUsers.domainId' as Resource,
     email: 'CrewSectorUsers.email' as Resource,
     emailVerifiedAt: 'CrewSectorUsers.emailVerifiedAt' as Resource,
@@ -1236,6 +1245,7 @@ export namespace CrewSessionMailLinks {
     tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
     withdrawnAt: 'withdrawnAt' as FieldName,
+    tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
     consumedAt: 'CrewSessionMailLinks.consumedAt' as Resource,
@@ -1464,6 +1474,7 @@ export namespace CrewTakenRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewTakenRoles.axis' as Resource,
@@ -1493,6 +1504,7 @@ export namespace CrewUserGroupRoles {
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
+    domainName: 'domainName' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewUserGroupRoles.axis' as Resource,
@@ -1574,6 +1586,7 @@ export namespace DistressRelays {
     relayedByName: 'relayedByName' as FieldName,
     sectorId: 'sectorId' as FieldName,
     sectorName: 'sectorName' as FieldName,
+    answersRelayName: 'answersRelayName' as FieldName,
   };
   export const resourceName = {
     answersRelayId: 'DistressRelays.answersRelayId' as Resource,
@@ -1648,6 +1661,10 @@ export namespace HangarPasses {
     squadronId: 'squadronId' as FieldName,
     userId: 'userId' as FieldName,
     sectorName: 'sectorName' as FieldName,
+    hangarName: 'hangarName' as FieldName,
+    userName: 'userName' as FieldName,
+    squadronName: 'squadronName' as FieldName,
+    groupName: 'groupName' as FieldName,
     levelName: 'levelName' as FieldName,
   };
   export const resourceName = {
@@ -2066,6 +2083,7 @@ export namespace MembersSectorUsers {
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
+    displayName: 'displayName' as FieldName,
     domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
@@ -2088,6 +2106,7 @@ export namespace MembersSectorUsers {
     cannotEnter: 'MembersSectorUsers.cannotEnter' as Resource,
     createdAt: 'MembersSectorUsers.createdAt' as Resource,
     disabled: 'MembersSectorUsers.disabled' as Resource,
+    displayName: 'MembersSectorUsers.displayName' as Resource,
     domainId: 'MembersSectorUsers.domainId' as Resource,
     email: 'MembersSectorUsers.email' as Resource,
     emailVerifiedAt: 'MembersSectorUsers.emailVerifiedAt' as Resource,
@@ -2338,26 +2357,30 @@ export namespace MembersUserRoles {
 
 export namespace MissionBoards {
   export const fieldName = {
-    clientName: 'clientName' as FieldName,
+    briefingTemplateId: 'briefingTemplateId' as FieldName,
+    clientId: 'clientId' as FieldName,
     daysLeft: 'daysLeft' as FieldName,
     deadline: 'deadline' as FieldName,
     id: 'id' as FieldName,
     kindId: 'kindId' as FieldName,
     sectorId: 'sectorId' as FieldName,
-    squadronName: 'squadronName' as FieldName,
+    squadronId: 'squadronId' as FieldName,
     statusId: 'statusId' as FieldName,
     title: 'title' as FieldName,
+    clientName: 'clientName' as FieldName,
+    squadronName: 'squadronName' as FieldName,
     kindName: 'kindName' as FieldName,
     statusName: 'statusName' as FieldName,
   };
   export const resourceName = {
-    clientName: 'MissionBoards.clientName' as Resource,
+    briefingTemplateId: 'MissionBoards.briefingTemplateId' as Resource,
+    clientId: 'MissionBoards.clientId' as Resource,
     daysLeft: 'MissionBoards.daysLeft' as Resource,
     deadline: 'MissionBoards.deadline' as Resource,
     id: 'MissionBoards.id' as Resource,
     kindId: 'MissionBoards.kindId' as Resource,
     sectorId: 'MissionBoards.sectorId' as Resource,
-    squadronName: 'MissionBoards.squadronName' as Resource,
+    squadronId: 'MissionBoards.squadronId' as Resource,
     statusId: 'MissionBoards.statusId' as Resource,
     title: 'MissionBoards.title' as Resource,
   };
@@ -2377,6 +2400,7 @@ export namespace MissionDocuments {
     uploadedAt: 'uploadedAt' as FieldName,
     uploadedByName: 'uploadedByName' as FieldName,
     uploadedByUserId: 'uploadedByUserId' as FieldName,
+    missionName: 'missionName' as FieldName,
   };
   export const resourceName = {
     content: 'MissionDocuments.content' as Resource,
@@ -2460,14 +2484,13 @@ export namespace PilotAssignments {
   export const fieldName = {
     sectorId: 'sectorId' as FieldName,
     squadronId: 'squadronId' as FieldName,
-    squadronName: 'squadronName' as FieldName,
     userId: 'userId' as FieldName,
     wingName: 'wingName' as FieldName,
+    squadronName: 'squadronName' as FieldName,
   };
   export const resourceName = {
     sectorId: 'PilotAssignments.sectorId' as Resource,
     squadronId: 'PilotAssignments.squadronId' as Resource,
-    squadronName: 'PilotAssignments.squadronName' as Resource,
     userId: 'PilotAssignments.userId' as Resource,
     wingName: 'PilotAssignments.wingName' as Resource,
   };
@@ -2552,6 +2575,7 @@ export namespace Refits {
     openedByUserId: 'openedByUserId' as FieldName,
     shipId: 'shipId' as FieldName,
     statusId: 'statusId' as FieldName,
+    shipName: 'shipName' as FieldName,
     statusName: 'statusName' as FieldName,
   };
   export const resourceName = {
@@ -2693,6 +2717,8 @@ export namespace Ships {
     registry: 'registry' as FieldName,
     transponderKey: 'transponderKey' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
+    hangarName: 'hangarName' as FieldName,
+    className: 'className' as FieldName,
   };
   export const resourceName = {
     cargoBays: 'Ships.cargoBays' as Resource,
@@ -2733,6 +2759,8 @@ export namespace Sorties {
     pilotUserId: 'pilotUserId' as FieldName,
     returnedAt: 'returnedAt' as FieldName,
     shipId: 'shipId' as FieldName,
+    missionName: 'missionName' as FieldName,
+    shipName: 'shipName' as FieldName,
   };
   export const resourceName = {
     debrief: 'Sorties.debrief' as Resource,
@@ -2749,6 +2777,8 @@ export namespace SquadronMemberships {
   export const fieldName = {
     squadronId: 'squadronId' as FieldName,
     userId: 'userId' as FieldName,
+    squadronName: 'squadronName' as FieldName,
+    userName: 'userName' as FieldName,
   };
   export const resourceName = {
     squadronId: 'SquadronMemberships.squadronId' as Resource,
@@ -2759,15 +2789,14 @@ export namespace SquadronMemberships {
 export namespace SquadronRosters {
   export const fieldName = {
     pilotId: 'pilotId' as FieldName,
-    pilotName: 'pilotName' as FieldName,
     sectorId: 'sectorId' as FieldName,
     squadronId: 'squadronId' as FieldName,
     squadronName: 'squadronName' as FieldName,
     userId: 'userId' as FieldName,
+    pilotName: 'pilotName' as FieldName,
   };
   export const resourceName = {
     pilotId: 'SquadronRosters.pilotId' as Resource,
-    pilotName: 'SquadronRosters.pilotName' as Resource,
     sectorId: 'SquadronRosters.sectorId' as Resource,
     squadronId: 'SquadronRosters.squadronId' as Resource,
     squadronName: 'SquadronRosters.squadronName' as Resource,
@@ -2781,6 +2810,7 @@ export namespace Squadrons {
     id: 'id' as FieldName,
     name: 'name' as FieldName,
     wingId: 'wingId' as FieldName,
+    wingName: 'wingName' as FieldName,
   };
   export const resourceName = {
     callsigns: 'Squadrons.callsigns' as Resource,

@@ -23,6 +23,15 @@ func (CrewSessionMailLink) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (CrewSessionMailLink) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "TenantName", Key: "TenantID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
 // crewSessionMailLinkRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewSessionMailLinkReadSets holds one Set per read operation.

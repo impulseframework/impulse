@@ -46,6 +46,10 @@ func (HangarPass) TenantBinding() resource.TenantBinding {
 func (HangarPass) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "HangarName", Key: "HangarID", Resource: "Hangars", Tag: "name", Table: "Hangars", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "UserName", Key: "UserID", Resource: "CrewSectorUsers", Tag: "displayName", Table: "CrewSectorUsers", KeyColumn: "Id", NameColumn: "DisplayName", View: true, TenantColumn: "DomainId"},
+		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "GroupName", Key: "GroupID", Resource: "CrewSectorGroups", Tag: "name", Table: "CrewSectorGroups", KeyColumn: "Id", NameColumn: "Name", View: true, TenantColumn: "DomainId"},
 		{Field: "LevelName", Key: "LevelID", Resource: "", Tag: "", Table: "PassLevels", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 	}
 }

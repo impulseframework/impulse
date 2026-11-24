@@ -487,6 +487,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "cannotEnter", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "disabled", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "displayName", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "domainId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "email", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "emailVerifiedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
@@ -515,7 +516,7 @@ func Collection() *resource.GeneratedCollection {
 				},
 				Domain:    &resource.DomainBindingData{Column: "DomainId"},
 				Order:     []accesstypes.Tag{"username"},
-				QueryKeys: []accesstypes.Tag{"domainId", "username", "heldElsewhere", "heldGlobally", "heldHere", "heldInEveryTenant", "managedHere", "managedByAnotherDirectory", "outsideDirectory", "administratorWithPassword"},
+				QueryKeys: []accesstypes.Tag{"domainId", "username", "displayName", "heldElsewhere", "heldGlobally", "heldHere", "heldInEveryTenant", "managedHere", "managedByAnotherDirectory", "outsideDirectory", "administratorWithPassword"},
 			},
 			{
 				Name:        "StopVouchingForTenantDirectorySecondFactor",

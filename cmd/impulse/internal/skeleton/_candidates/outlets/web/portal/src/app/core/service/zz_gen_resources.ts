@@ -333,6 +333,7 @@ export interface MembersTenantHeldRoles {
   startsAt?: Date;
   endsAt?: Date;
   reason?: string;
+  groupPageName?: string;
 }
 
 export interface MembersTenantIdentities {
@@ -374,6 +375,7 @@ export interface MembersTenantUsers {
   domainId?: string;
   username?: string;
   name?: string;
+  displayName?: string;
   email?: string;
   emailVerifiedAt?: Date;
   disabled?: boolean;
@@ -959,6 +961,7 @@ const resourceMap = defineResourceMap({
     route: 'tenants/{tenantID}/members-tenant-groups',
     live: true,
     rowWords: { one: 'group', many: 'groups' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1020,6 +1023,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'groupPageName', of: 'groupPage' }],
   },
   [Resources.MembersTenantIdentities]: {
     route: 'tenants/{tenantID}/members-tenant-identities',
@@ -1067,11 +1071,13 @@ const resourceMap = defineResourceMap({
     route: 'tenants/{tenantID}/members-tenant-users',
     live: true,
     rowWords: { one: 'person', many: 'people' },
+    nameField: 'displayName',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },

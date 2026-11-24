@@ -26,6 +26,10 @@ type (
 	// and a call's delete follows the same link, so an answer goes with the call even
 	// where it names another call's case number.
 	//
+	// A relay is known by its message (@name): the list of a call's relays shows the relay
+	// an answer answers by its message, which the server reads beside the id, and sorts and
+	// filters by it.
+	//
 	// RelayedByName and RelayedAt are the server's: the session's username as it was then
 	// and the commit timestamp, written at create and never by the wire.
 	//
@@ -42,8 +46,9 @@ type (
 		SectorID       impulse.UUID     `spanner:"SectorId"`
 		CaseNumber     string           `spanner:"CaseNumber"     conditions:"immutable"`
 		AnswersRelayID impulse.NullUUID `spanner:"AnswersRelayId" conditions:"immutable"`
-		Message        string           `spanner:"Message"`
-		RelayedByName  string           `spanner:"RelayedByName"  conditions:"output_only" default_create_fn:"currentUserName"`
-		RelayedAt      time.Time        `spanner:"RelayedAt"      conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
+		// @name
+		Message       string    `spanner:"Message"`
+		RelayedByName string    `spanner:"RelayedByName" conditions:"output_only" default_create_fn:"currentUserName"`
+		RelayedAt     time.Time `spanner:"RelayedAt"     conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
 	}
 )

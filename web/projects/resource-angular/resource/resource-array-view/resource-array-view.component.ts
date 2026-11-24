@@ -33,6 +33,7 @@ import {
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
 import { listEmptyMessage, listSorts, pageLabel, sameSorts } from '../resource-list/list-request';
+import { listableNames, namesListableOf } from '../resource-list/name-columns';
 import { ResourceStore } from '../resource-store.service';
 import { listableFieldsOf } from '../search-box/search-fields';
 
@@ -67,6 +68,12 @@ export class ResourceArrayViewComponent implements OnInit {
   private auth = inject(AuthService);
   /** The digest's List field set for any resource (listableFieldsOf): the children's own. */
   private readonly listableOf = listableFieldsOf(this.auth);
+  /**
+   * The digest's List field set for a resource an id of the children points to, as its
+   * name is judged (namesListableOf): the empty set once a digest has answered and names
+   * no field.
+   */
+  private readonly namesOf = namesListableOf(this.auth);
 
   resourceConfig = input.required<ArrayConfig>();
   /**
@@ -91,18 +98,21 @@ export class ResourceArrayViewComponent implements OnInit {
 
   /**
    * The sorts the children are asked in (listSorts): the config's sorts as the server
-   * answers them for this caller, following the digest.
+   * answers them for this caller, following the digest. A sort by a name field is asked
+   * only where the person may list the name (listableNames), as the list asks it.
    */
   private askedSorts = computed(
     () => {
       const config = this.resourceConfig();
       const listed = config.connectorResource || config.primaryResource;
+      const meta = this.resourceMeta(listed);
       return listSorts(
         config.sorts,
-        this.resourceMeta(listed),
+        meta,
         this.auth.fieldPermissionStates({ resource: listed, permission: ListPermission }),
         this.descriptor(),
         this.listableOf(listed),
+        listableNames(meta, this.namesOf, this.resourceMeta),
       );
     },
     { equal: sameSorts },

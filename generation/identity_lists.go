@@ -246,7 +246,10 @@ func (d *identitySourceData) TenantWord() string {
 // a picker of it, for the field that says which tenant a role is given in: the record is
 // served on every outlet the instance's methods are on, since a picker lists a resource
 // of the method's own outlet. It is empty otherwise, and in an application with no
-// tenant record, and the field is then typed.
+// tenant record, and the field is then typed. The whole application's lists that carry
+// a tenant's key point it to the record under the same condition, since a declared
+// pointer names a resource of the list's own outlet: the server then reads the tenant's
+// name with each row. Where the condition fails the lists carry no name.
 func (d *identitySourceData) TenantPicker() string {
 	if d.tenant == nil {
 		return ""

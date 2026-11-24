@@ -24,7 +24,6 @@ import {
   Method,
   MethodPresentation,
   momentFormat,
-  multiColumnConfig,
   nameInLowerWords,
   nameInWords,
   PermissionScope,
@@ -2036,18 +2035,19 @@ class SideBuilder {
   }
 
   /**
-   * A column over a field that holds a tenant's key, showing the tenant's name: the
-   * tenant record's row is read by the keys on the page (the list's related-record
-   * column) and its name field shown; a reader who may not read the record is shown the
-   * name their own list of tenants holds, for a tenant they hold a role in
-   * (`tenantKey`). Under a heading that is not the tenant's word the name follows the
-   * word ("Sector Anvil" under "Held in"), and under the word itself it stands alone. A
-   * tenant's key is an id nobody reads, so a row whose tenant's name the reader may not
-   * read says that in words (tenantUnseen) and never shows the key. Where the outlet's
-   * description names no tenant record there is none to read, and the reader's own list
-   * of tenants and those words are what a row shows. `otherwise` says what a row shows
-   * that names no tenant; it is all a row shows where the record marks no name, since
-   * the key is then all there is.
+   * A column over a field that holds a tenant's key, showing the tenant's name: a plain
+   * column on the key that says how it words a row with no name. Where the list carries
+   * the name beside the key (the generator points the key to the tenant record where
+   * every outlet that serves the Auth's management serves the record, and the server then
+   * reads the name with each row), the list shows the name, sorts by it and filters by
+   * it, where the person may list it. Where the list carries none, or the person may not
+   * list it, a row says the name the person's own list of tenants holds, for a tenant they
+   * hold a role in (`tenantKey`), and otherwise says in words that the reader cannot see
+   * the tenant (tenantUnseen), never the key, an id nobody reads; the column then neither
+   * sorts nor filters. Under a heading that is not the tenant's word the name follows the
+   * word ("Sector Anvil" under "Held in"), and under the word itself it stands alone.
+   * `otherwise` says what a row shows that names no tenant; it is all a row shows where
+   * the record marks no name, since the key is then all there is.
    */
   private tenantNamed(id: FieldName, header: string, otherwise: (row: RecordData) => string): ColumnConfig {
     const record = this.identity.tenantResource as Resource | undefined;
@@ -2060,22 +2060,13 @@ class SideBuilder {
     }
     const word = nameInWords(this.identity.tenant ?? 'Tenant');
     const worded = header.trim().toLowerCase() !== word.toLowerCase();
-    return multiColumnConfig({
+    return {
       id,
       header,
-      // Where the outlet serves no tenant record there is none to read: the person's own
-      // list of tenants names the tenant, or the page's words stand.
-      additionalIds:
-        record && meta?.nameField && key
-          ? [{ resource: record, id: key as FieldName, field: meta.nameField as FieldName }]
-          : [],
-      concatFn: 'hyphen-concat',
       tenantKey: true,
       ...(worded ? { said: (name: string) => `${word} ${name}` } : {}),
       fallback: (row: RecordData) => (String(row[id] ?? '') === '' ? otherwise(row) : this.tenantUnseen()),
-      // The field holds the key: a filter typed over the column would be asked for an id.
-      filterable: false,
-    });
+    };
   }
 
   /**

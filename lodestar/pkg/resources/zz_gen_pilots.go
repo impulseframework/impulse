@@ -33,7 +33,7 @@ func (Pilot) DeleteTree() *resource.DeleteTree {
 		Record: "Pilots",
 		Words:  resource.DeleteWords{One: "pilot", Many: "pilots"},
 		Key:    []string{"Id"},
-		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
 		Under: []resource.DeleteKind{
 			{
 				Resource: "Commendations",
@@ -250,6 +250,10 @@ func (p PilotQueryPartialClause) ID() PilotQueryIdent[impulse.UUID] {
 
 func (p PilotQueryPartialClause) UserID() PilotQueryIdent[string] {
 	return PilotQueryIdent[string]{Ident: resource.NewIdent[string]("UserID", p.partialClause, true)}
+}
+
+func (p PilotQueryPartialClause) DisplayName() PilotQueryIdent[string] {
+	return PilotQueryIdent[string]{Ident: resource.NewIdent[string]("DisplayName", p.partialClause, true)}
 }
 
 type PilotQueryClause struct {

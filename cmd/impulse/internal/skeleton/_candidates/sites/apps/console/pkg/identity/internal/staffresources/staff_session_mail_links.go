@@ -35,13 +35,14 @@ type (
 	// @page(default: 25, max: 200)
 	// @rowWord(mailed link)
 	StaffSessionMailLink struct {
-		ID          impulse.UUID  `spanner:"Id"`
-		Kind        string        `spanner:"Kind"`
-		Email       string        `spanner:"Email"`
-		Name        *string       `spanner:"Name"`
-		UserID      *impulse.UUID `spanner:"UserId"`
-		TenantID    *string       `spanner:"TenantId"`
-		EveryTenant bool          `spanner:"EveryTenant"`
+		ID     impulse.UUID  `spanner:"Id"`
+		Kind   string        `spanner:"Kind"`
+		Email  string        `spanner:"Email"`
+		Name   *string       `spanner:"Name"`
+		UserID *impulse.UUID `spanner:"UserId"`
+		// @enumerate(Tenants)
+		TenantID    *string `spanner:"TenantId"`
+		EveryTenant bool    `spanner:"EveryTenant"`
 		// @roleOf(Staff)
 		RoleNames       []string      `spanner:"RoleNames"`
 		InvitedByUserID *impulse.UUID `spanner:"InvitedByUserId"`

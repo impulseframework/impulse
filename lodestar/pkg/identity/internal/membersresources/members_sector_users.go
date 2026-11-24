@@ -41,7 +41,10 @@ type (
 	// uses the facts to say what a tenant may see and do of a person whose account it
 	// does not manage. The list filters and sorts by the username and by the six facts;
 	// the account's other columns are no filter keys, so a role file may grant any of
-	// them under a condition at no cost to a page.
+	// them under a condition at no cost to a page. DisplayName is what a list that points
+	// to a person shows them by: their name, or their username when they have none. It is
+	// the view's name (@name), so a field of another resource that holds a person's id
+	// gets a name field read from it.
 	//
 	// Roles (roles) is what the person holds in this tenant itself: the name of each role
 	// once, in alphabetical order, of the roles MembersSectorHeldRole lists for the person
@@ -77,9 +80,11 @@ type (
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
 		// @domain
-		DomainID               string     `spanner:"DomainId"               index:"true"`
-		Username               string     `spanner:"Username"               index:"true"`
-		Name                   *string    `spanner:"Name"`
+		DomainID string  `spanner:"DomainId" index:"true"`
+		Username string  `spanner:"Username" index:"true"`
+		Name     *string `spanner:"Name"`
+		// @name
+		DisplayName            string     `spanner:"DisplayName"            allow_filter:"true"`
 		Email                  *string    `spanner:"Email"`
 		EmailVerifiedAt        *time.Time `spanner:"EmailVerifiedAt"`
 		Disabled               bool       `spanner:"Disabled"`
@@ -123,6 +128,7 @@ SELECT
   t.DomainId AS DomainId,
   u.Username AS Username,
   u.Name AS Name,
+  COALESCE(NULLIF(u.Name, ''), u.Username) AS DisplayName,
   u.Email AS Email,
   u.EmailVerifiedAt AS EmailVerifiedAt,
   u.Disabled AS Disabled,
@@ -222,10 +228,50 @@ LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id
 ) p
 `
 
+// membersSectorUserNameQuery selects, for every sector, its people's ids and the name each is
+// shown by: the rows of membersSectorUserQuery, one for one, from the same people and their
+// accounts, without the facts of where a person holds roles and who manages the account. A list
+// that shows a person by name reads the name from it (NameSubquery): a name's query is written
+// into the statement of the list that shows it, the facts' joins are the larger part of the
+// list's own query, and Spanner refuses a statement of more than twenty joins.
+const membersSectorUserNameQuery = `
+SELECT
+  u.Id AS Id,
+  t.DomainId AS DomainId,
+  COALESCE(NULLIF(u.Name, ''), u.Username) AS DisplayName
+FROM (
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId
+  FROM MembersUserRoles m
+  WHERE m.Kind = 'domain' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT s.Id AS DomainId, m.UserId AS UserId
+  FROM MembersUserRoles@{FORCE_INDEX=_BASE_TABLE} m
+  CROSS JOIN Sectors s
+  WHERE m.Kind = 'every' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT dr.SectorId AS DomainId, du AS UserId
+  FROM SectorDirectories dr, UNNEST(ARRAY(
+    SELECT dl.UserId FROM MembersSessionIdentities dl
+    WHERE dl.Method = dr.Method AND dl.Connection = dr.Connection
+  )) AS du
+) t
+JOIN MembersSessionUsers u ON u.Id = t.UserId
+`
+
 // Subquery is the query the rows are read from.
 func (MembersSectorUser) Subquery() (query string, params map[string]any) {
 	return membersSectorUserQuery, nil
 }
+
+// NameSubquery is the query a list that points to a person reads the person's name from
+// (resource.NameSubqueryer): the person's id, the sector and DisplayName.
+func (MembersSectorUser) NameSubquery() (query string, params map[string]any) {
+	return membersSectorUserNameQuery, nil
+}
+
+var _ resource.NameSubqueryer = MembersSectorUser{}
 
 // TenantsToEnter names the sectors the person administers: a caller whose session
 // does not enter one of them is not offered the methods that change how the person signs

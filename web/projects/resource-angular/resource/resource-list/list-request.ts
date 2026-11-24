@@ -27,11 +27,37 @@ import {
 
 // The list page's pure parts around the server's page: which columns the server filters,
 // where the page sits after a turn, what an empty table says, and what a page refuses: a
-// key-less resource's page size or row expansion, and a column over a write-only field.
+// key-less resource's page size or row expansion, a column over a write-only field, and a
+// column on a name field.
 
 /**
- * Refuses a list configuration naming a write-only field as a column, alone or among a
- * concatenated column's own fields (`additionalIds` on this resource). The server never
+ * Refuses a list configuration naming a generated name field (`nameFields`) as a column,
+ * shown or hidden. A column is on the id: the list asks for the name beside it, draws it,
+ * and sorts and filters by it. A column on the name field itself names nothing the
+ * person's grants list, so it is a configuration error, thrown when the page is built
+ * naming the resource, the name field and the id to put the column on.
+ */
+export function refuseNameColumns(
+  resource: Resource,
+  columns: readonly ColumnConfig[],
+  meta: ResourceMeta | undefined,
+): void {
+  const named = new Map((meta?.nameFields ?? []).map((name) => [name.fieldName, name.of]));
+  if (named.size === 0) {
+    return;
+  }
+  for (const column of columns) {
+    const of = named.get(column.id);
+    if (of !== undefined) {
+      throw new Error(
+        `${resource}: listColumns names ${column.id}, the name beside ${of}. Put the column on ${of}: the list shows the name there, and sorts and filters by it`,
+      );
+    }
+  }
+}
+
+/**
+ * Refuses a list configuration naming a write-only field as a column. The server never
  * returns such a field and refuses a `columns=` that names it with a 400, so the column
  * is a configuration error, thrown when the page is built naming the resource and the
  * field, never a silently empty cell.
@@ -46,18 +72,8 @@ export function refuseWriteOnlyColumns(
     return;
   }
   for (const column of columns) {
-    const named: string[] = [column.id];
-    if ('additionalIds' in column) {
-      for (const additional of column.additionalIds) {
-        if (additional.resource === undefined) {
-          named.push(additional.id);
-        }
-      }
-    }
-    for (const field of named) {
-      if (writeOnly.has(field)) {
-        throw new Error(`${resource}: listColumns names ${field}, which is write-only: a list never returns it`);
-      }
+    if (writeOnly.has(column.id)) {
+      throw new Error(`${resource}: listColumns names ${column.id}, which is write-only: a list never returns it`);
     }
   }
 }
@@ -93,20 +109,34 @@ export function refuseKeylessConfig(
 
 /**
  * Which of the table's columns the server filters: the generated metadata's `filterable`
- * for the field each column shows, keyed by column id. A column whose id is not a field
- * of the listed resource (an action column, a renamed duplicate) is absent, so it draws
- * no control.
+ * for the field each column shows, keyed by column id, a name field's beside the fields'
+ * (`nameFields`, for a column drawn by the name beside an id). A column whose id is
+ * neither (an action column, a renamed duplicate) is absent, so it draws no control. The
+ * fields the page's own filter names (`pageFields`: the config's `filter`, and on a list
+ * under a record the key of that record) are answered the same way though no column shows
+ * them: the grid asks of each whether it is the indexed filter a companion-only column
+ * waits for. An id that is no column's draws no control.
  */
 export function filterEligibility(
   meta: ResourceMeta | undefined,
   columns: readonly { id: string }[],
+  pageFields: readonly string[] = [],
 ): ColumnFilterability {
-  const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field.filterable]));
+  const byField = new Map([
+    ...(meta?.fields ?? []).map((field) => [field.fieldName, field.filterable] as const),
+    ...(meta?.nameFields ?? []).map((name) => [name.fieldName, name.filterable] as const),
+  ]);
   const eligibility: Record<string, ColumnFilterability[string]> = {};
   for (const column of columns) {
     const filterable = byField.get(column.id);
     if (filterable !== undefined) {
       eligibility[column.id] = filterable;
+    }
+  }
+  for (const field of pageFields) {
+    const filterable = byField.get(field);
+    if (filterable !== undefined && !(field in eligibility)) {
+      eligibility[field] = filterable;
     }
   }
   return eligibility;
@@ -157,21 +187,35 @@ export function queryableMeta(
  * The sorts the server answers this caller. Where the digest's List field set for the
  * resource is given (`listable`), a sort by a field it does not name is dropped, a key
  * field apart, which takes no grant: the server refuses the whole list for a sort by a
- * field the caller may not list, on a table, a view and a computed resource alike. Not
- * given (nothing is known, or a list across tenants), nothing is dropped for it. Then,
- * on a computed resource, each sort by a field the digest lists as conditional is
- * dropped, which the server refuses as it refuses a filter by it (queryableMeta).
+ * field the caller may not list, on a table, a view and a computed resource alike. A
+ * name field is in no digest of the resource: a sort by it is judged by the id it stands
+ * beside (`nameFields`) and by whether the person may list the name, as a column drawn
+ * by the name is. The name fields the person may list are given apart (`names`,
+ * listableNames), and a sort by a name field outside them is dropped. Where either is
+ * not given, nothing is dropped for it: the resource's own set is not given while
+ * nothing is known of it, nor across tenants. Then, on a computed resource, each sort by
+ * a field the digest lists as conditional is dropped, which the server refuses as it
+ * refuses a filter by it (queryableMeta).
  */
 export function answeredSorts<S extends { readonly field: string }>(
   sorts: readonly S[],
   meta: ResourceMeta | undefined,
   listStates: Readonly<Record<string, PermissionDigestState>>,
   listable?: ReadonlySet<string>,
+  names?: ReadonlySet<string>,
 ): S[] {
   let answered = [...sorts];
+  if (names !== undefined) {
+    const named = new Set((meta?.nameFields ?? []).map((name) => name.fieldName));
+    answered = answered.filter((sort) => !named.has(sort.field) || names.has(sort.field));
+  }
   if (listable !== undefined) {
     const keys = new Set<string>(keyFields(meta).map((key) => key.fieldName));
-    answered = answered.filter((sort) => listable.has(sort.field) || keys.has(sort.field));
+    const ids = new Map((meta?.nameFields ?? []).map((name) => [name.fieldName, name.of]));
+    answered = answered.filter((sort) => {
+      const field = ids.get(sort.field) ?? sort.field;
+      return listable.has(field) || keys.has(field);
+    });
   }
   if (meta?.computed !== true) {
     return answered;
@@ -181,13 +225,14 @@ export function answeredSorts<S extends { readonly field: string }>(
 
 /**
  * The sorts a list over the resource is asked in for this caller: the sorts the server
- * answers (answeredSorts, given the digest's List field set where it is known) and, where
- * that leaves none of the sorts that were asked for and
- * the resource declares no order, its first key field ascending, which takes no grant. The
- * server refuses a paged request with no sort for a resource with no declared order, so
- * without the key a person whose role does not always see the fields a page sorts by would
- * get no list. Where no sort was asked for none comes back: the declared order applies, or
- * the page's author names one. A resource with no key is read whole and needs no order.
+ * answers (answeredSorts, given the digest's List field set where it is known and the
+ * name fields the person may list) and, where that leaves none of the sorts that were
+ * asked for and the resource declares no order, its first key field ascending, which
+ * takes no grant. The server refuses a paged request with no sort for a resource with no
+ * declared order, so without the key a person whose role does not always see the fields
+ * a page sorts by would get no list. Where no sort was asked for none comes back: the
+ * declared order applies, or the page's author names one. A resource with no key is read
+ * whole and needs no order.
  */
 export function listSorts(
   sorts: readonly FieldSort[],
@@ -195,8 +240,9 @@ export function listSorts(
   listStates: Readonly<Record<string, PermissionDigestState>>,
   descriptor: ResourceDescriptor | undefined,
   listable?: ReadonlySet<string>,
+  names?: ReadonlySet<string>,
 ): FieldSort[] {
-  const answered = answeredSorts(sorts, meta, listStates, listable);
+  const answered = answeredSorts(sorts, meta, listStates, listable, names);
   const key = keyFields(meta)[0];
   if (answered.length > 0 || sorts.length === 0 || key === undefined || (descriptor?.order?.length ?? 0) > 0) {
     return answered;
@@ -212,11 +258,15 @@ export function sameSorts(a: readonly FieldSort[], b: readonly FieldSort[]): boo
 
 /**
  * Which text matches each of the table's columns answers: the generated metadata's
- * `search` for the field each column shows, keyed by column id. A column whose field
- * lists none, or whose id is not a field of the listed resource, is absent.
+ * `search` for the field each column shows, keyed by column id, a name field's beside the
+ * fields' (`nameFields`). A column whose field lists none, or whose id is neither a field
+ * nor a name field of the listed resource, is absent.
  */
 export function searchEligibility(meta: ResourceMeta | undefined, columns: readonly { id: string }[]): ColumnSearches {
-  const byField = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field.search]));
+  const byField = new Map([
+    ...(meta?.fields ?? []).map((field) => [field.fieldName, field.search] as const),
+    ...(meta?.nameFields ?? []).map((name) => [name.fieldName, name.search] as const),
+  ]);
   const searches: Record<string, ColumnSearches[string]> = {};
   for (const column of columns) {
     const search = byField.get(column.id);
@@ -412,24 +462,4 @@ export function listEmptyMessage(error: unknown, noListableColumns: boolean, emp
     return 'This list could not be loaded.';
   }
   return empty || noRecordsFound;
-}
-
-/**
- * What a list says above its rows when it could not read the records some of its columns
- * name (a related record's name, read by the keys the rows carry): the columns, by their
- * headings, and which of the two it was, that the person may not see those records (the
- * server refused the read with a 403: the caller holds no List on the record) or that the
- * read failed. The words are the page's, never the server's, as the empty table's are. The
- * rows are drawn all the same, each such cell saying what the page gives for a row whose
- * record is not read.
- */
-export function relatedUnreadMessage(error: unknown, headings: readonly string[]): string {
-  const columns =
-    headings.length === 1
-      ? `the ${headings[0]} column`
-      : `the ${headings.slice(0, -1).join(', ')} and ${headings.at(-1)} columns`;
-  if (error instanceof ApiError && error.status === 403) {
-    return `You do not have permission to see the records named in ${columns}.`;
-  }
-  return `The records named in ${columns} could not be loaded.`;
 }

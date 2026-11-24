@@ -454,9 +454,9 @@ func Test_nameFieldFilterTemplates(t *testing.T) {
 
 // Test_nameFieldFromView pins what a filter may do with a name read from a view: the
 // list request types' tag follows the view's name field, index:"true" where it is
-// indexed and allow_filter:"true" where it allows a filter, and never carries a search
-// fact, which names a table's token column the view's projection does not carry; the
-// metadata says the same.
+// indexed and allow_filter:"true" where it allows a filter, and carries the view's
+// search fact where its name field says which table column it projects, as a name read
+// from a table does; the metadata says the same.
 func Test_nameFieldFromView(t *testing.T) {
 	t.Parallel()
 
@@ -482,6 +482,7 @@ func Test_nameFieldFromView(t *testing.T) {
 		field          string
 		wantTag        string
 		wantFilterable string
+		wantSearch     string
 	}{
 		{
 			name:           "an indexed id to a view's name that allows a filter",
@@ -492,8 +493,9 @@ func Test_nameFieldFromView(t *testing.T) {
 		{
 			name:           "an indexed id to a view's indexed name that carries a table's search fact",
 			field:          "BeaconName",
-			wantTag:        `json:"beaconName" nameof:"BeaconID" index:"true"`,
+			wantTag:        `json:"beaconName" nameof:"BeaconID" index:"true" search:"token=Motto_Search;index=SealsSearch;role=text;contains"`,
 			wantFilterable: "always",
+			wantSearch:     "'contains'",
 		},
 	}
 	for _, tt := range tests {
@@ -510,8 +512,8 @@ func Test_nameFieldFromView(t *testing.T) {
 			if got := name.TypescriptFilterable(); got != tt.wantFilterable {
 				t.Errorf("TypescriptFilterable() = %q, want %q", got, tt.wantFilterable)
 			}
-			if got := name.TypescriptSearch(); got != "" {
-				t.Errorf("TypescriptSearch() = %q, want none", got)
+			if got := name.TypescriptSearch(); got != tt.wantSearch {
+				t.Errorf("TypescriptSearch() = %q, want %q", got, tt.wantSearch)
 			}
 		})
 	}

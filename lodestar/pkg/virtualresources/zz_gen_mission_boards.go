@@ -27,6 +27,8 @@ func (MissionBoard) DefaultConfig() resource.Config {
 // looked up in the pointed-to table by the id; it is no column of this resource.
 func (MissionBoard) NameFields() []resource.NameField {
 	return []resource.NameField{
+		{Field: "ClientName", Key: "ClientID", Resource: "ClientRosters", Tag: "name", Table: "ClientRosters", KeyColumn: "Id", NameColumn: "Name", View: true, TenantColumn: "SectorId"},
+		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
 		{Field: "KindName", Key: "KindID", Resource: "", Tag: "", Table: "MissionKinds", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 		{Field: "StatusName", Key: "StatusID", Resource: "", Tag: "", Table: "MissionStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 	}
@@ -36,15 +38,16 @@ func (MissionBoard) NameFields() []resource.NameField {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; missionBoardReadSets holds one Set per read operation.
 type missionBoardRead struct {
-	ID           impulse.UUID `json:"id"           perm:"-"`
-	SectorID     impulse.UUID `json:"sectorId"`
-	Title        string       `json:"title"`
-	ClientName   string       `json:"clientName"`
-	SquadronName *string      `json:"squadronName"`
-	KindID       string       `json:"kindId"`
-	StatusID     string       `json:"statusId"`
-	Deadline     time.Time    `json:"deadline"`
-	DaysLeft     int64        `json:"daysLeft"`
+	ID                 impulse.UUID     `json:"id"                 perm:"-"`
+	SectorID           impulse.UUID     `json:"sectorId"`
+	Title              string           `json:"title"`
+	ClientID           impulse.UUID     `json:"clientId"`
+	SquadronID         impulse.NullUUID `json:"squadronId"`
+	KindID             string           `json:"kindId"`
+	StatusID           string           `json:"statusId"`
+	BriefingTemplateID *string          `json:"briefingTemplateId"`
+	Deadline           time.Time        `json:"deadline"`
+	DaysLeft           int64            `json:"daysLeft"`
 }
 
 var missionBoardReadSets resource.SetCache[MissionBoard, missionBoardRead]
@@ -156,10 +159,11 @@ func (c *MissionBoardColumns) All() *MissionBoardColumns {
 		"ID",
 		"SectorID",
 		"Title",
-		"ClientName",
-		"SquadronName",
+		"ClientID",
+		"SquadronID",
 		"KindID",
 		"StatusID",
+		"BriefingTemplateID",
 		"Deadline",
 		"DaysLeft",
 	}
@@ -185,14 +189,14 @@ func (c *MissionBoardColumns) Title() *MissionBoardColumns {
 	return c
 }
 
-func (c *MissionBoardColumns) ClientName() *MissionBoardColumns {
-	c.fields = append(c.fields, "ClientName")
+func (c *MissionBoardColumns) ClientID() *MissionBoardColumns {
+	c.fields = append(c.fields, "ClientID")
 
 	return c
 }
 
-func (c *MissionBoardColumns) SquadronName() *MissionBoardColumns {
-	c.fields = append(c.fields, "SquadronName")
+func (c *MissionBoardColumns) SquadronID() *MissionBoardColumns {
+	c.fields = append(c.fields, "SquadronID")
 
 	return c
 }
@@ -205,6 +209,12 @@ func (c *MissionBoardColumns) KindID() *MissionBoardColumns {
 
 func (c *MissionBoardColumns) StatusID() *MissionBoardColumns {
 	c.fields = append(c.fields, "StatusID")
+
+	return c
+}
+
+func (c *MissionBoardColumns) BriefingTemplateID() *MissionBoardColumns {
+	c.fields = append(c.fields, "BriefingTemplateID")
 
 	return c
 }
@@ -259,34 +269,12 @@ func (i MissionBoardTitleQueryIdent) Contains(term string) MissionBoardQueryClau
 	return MissionBoardQueryClause{clause: i.text.Contains(term)}
 }
 
-func (p MissionBoardQueryPartialClause) ClientName() MissionBoardClientNameQueryIdent {
-	return MissionBoardClientNameQueryIdent{
-		MissionBoardQueryIdent: MissionBoardQueryIdent[string]{Ident: resource.NewIdent[string]("ClientName", p.partialClause, true)},
-		text:                   resource.NewTextIdent("ClientName", p.partialClause, true, "token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"),
-	}
+func (p MissionBoardQueryPartialClause) ClientID() MissionBoardQueryIdent[impulse.UUID] {
+	return MissionBoardQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ClientID", p.partialClause, true)}
 }
 
-// MissionBoardClientNameQueryIdent is ClientName's identifier with the text
-// matches its schema answers ('contains', 'startswith', 'endswith'); a match it does not answer is not here.
-type MissionBoardClientNameQueryIdent struct {
-	MissionBoardQueryIdent[string]
-	text resource.TextIdent
-}
-
-func (i MissionBoardClientNameQueryIdent) Contains(term string) MissionBoardQueryClause {
-	return MissionBoardQueryClause{clause: i.text.Contains(term)}
-}
-
-func (i MissionBoardClientNameQueryIdent) StartsWith(term string) MissionBoardQueryClause {
-	return MissionBoardQueryClause{clause: i.text.StartsWith(term)}
-}
-
-func (i MissionBoardClientNameQueryIdent) EndsWith(term string) MissionBoardQueryClause {
-	return MissionBoardQueryClause{clause: i.text.EndsWith(term)}
-}
-
-func (p MissionBoardQueryPartialClause) SquadronName() MissionBoardQueryIdent[string] {
-	return MissionBoardQueryIdent[string]{Ident: resource.NewIdent[string]("SquadronName", p.partialClause, true)}
+func (p MissionBoardQueryPartialClause) SquadronID() MissionBoardQueryIdent[impulse.UUID] {
+	return MissionBoardQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SquadronID", p.partialClause, true)}
 }
 
 func (p MissionBoardQueryPartialClause) KindID() MissionBoardQueryIdent[string] {
@@ -295,6 +283,10 @@ func (p MissionBoardQueryPartialClause) KindID() MissionBoardQueryIdent[string] 
 
 func (p MissionBoardQueryPartialClause) StatusID() MissionBoardQueryIdent[string] {
 	return MissionBoardQueryIdent[string]{Ident: resource.NewIdent[string]("StatusID", p.partialClause, true)}
+}
+
+func (p MissionBoardQueryPartialClause) BriefingTemplateID() MissionBoardQueryIdent[string] {
+	return MissionBoardQueryIdent[string]{Ident: resource.NewIdent[string]("BriefingTemplateID", p.partialClause, false)}
 }
 
 func (p MissionBoardQueryPartialClause) Deadline() MissionBoardQueryIdent[time.Time] {
@@ -307,11 +299,10 @@ func (p MissionBoardQueryPartialClause) DaysLeft() MissionBoardQueryIdent[int64]
 
 // Search creates the search box over MissionBoard's searchable fields, as the
 // filter grammar's *:search:"…" does: every term of the text must be found in one of
-// them ('title', 'clientName').
+// them ('title').
 func (p MissionBoardQueryPartialClause) Search(text string) (MissionBoardQueryClause, error) {
 	clause, err := p.partialClause.Search(text, "ID", []resource.SearchColumn{
 		{Column: "Title", Tag: "token=Title_Search;index=MissionsSearch;role=text;contains"},
-		{Column: "ClientName", Tag: "token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"},
 	}, nil)
 	if err != nil {
 		return MissionBoardQueryClause{}, err
@@ -398,12 +389,12 @@ func (c *missionBoardSort) Title() *MissionBoardSort {
 	return c.addField("Title")
 }
 
-func (c *missionBoardSort) ClientName() *MissionBoardSort {
-	return c.addField("ClientName")
+func (c *missionBoardSort) ClientID() *MissionBoardSort {
+	return c.addField("ClientID")
 }
 
-func (c *missionBoardSort) SquadronName() *MissionBoardSort {
-	return c.addField("SquadronName")
+func (c *missionBoardSort) SquadronID() *MissionBoardSort {
+	return c.addField("SquadronID")
 }
 
 func (c *missionBoardSort) KindID() *MissionBoardSort {
@@ -412,6 +403,10 @@ func (c *missionBoardSort) KindID() *MissionBoardSort {
 
 func (c *missionBoardSort) StatusID() *MissionBoardSort {
 	return c.addField("StatusID")
+}
+
+func (c *missionBoardSort) BriefingTemplateID() *MissionBoardSort {
+	return c.addField("BriefingTemplateID")
 }
 
 func (c *missionBoardSort) Deadline() *MissionBoardSort {

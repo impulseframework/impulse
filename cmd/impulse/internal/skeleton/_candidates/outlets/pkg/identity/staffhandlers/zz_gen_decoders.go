@@ -19,7 +19,7 @@ import (
 // construction inside the generated universe: a decoder over any other struct is a
 // compile error.
 func NewQueryDecoder[Resource Resourcer, Request any](h *Handlers, permissions ...accesstypes.Permission) *resource.QueryDecoder[Resource, Request] {
-	return resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet()).WithNameViews(nil)
+	return resource.MustNewQueryDecoder[Resource, Request](router.Collection(), permissions...).WithCursorKey(h.CursorKey()).WithFeatures(h.FeatureSet()).WithNameViews(NameViews)
 }
 
 // NewComputedQueryDecoder builds a query decoder for a generated computed resource

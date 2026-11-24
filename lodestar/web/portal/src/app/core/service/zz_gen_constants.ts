@@ -103,6 +103,7 @@ export namespace ClientContacts {
     displayName: 'displayName' as FieldName,
     id: 'id' as FieldName,
     userId: 'userId' as FieldName,
+    clientName: 'clientName' as FieldName,
   };
   export const resourceName = {
     clientId: 'ClientContacts.clientId' as Resource,
@@ -566,6 +567,7 @@ export namespace MembersSectorUsers {
     cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
+    displayName: 'displayName' as FieldName,
     domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
@@ -588,6 +590,7 @@ export namespace MembersSectorUsers {
     cannotEnter: 'MembersSectorUsers.cannotEnter' as Resource,
     createdAt: 'MembersSectorUsers.createdAt' as Resource,
     disabled: 'MembersSectorUsers.disabled' as Resource,
+    displayName: 'MembersSectorUsers.displayName' as Resource,
     domainId: 'MembersSectorUsers.domainId' as Resource,
     email: 'MembersSectorUsers.email' as Resource,
     emailVerifiedAt: 'MembersSectorUsers.emailVerifiedAt' as Resource,
@@ -850,6 +853,7 @@ export namespace MissionDocuments {
     uploadedAt: 'uploadedAt' as FieldName,
     uploadedByName: 'uploadedByName' as FieldName,
     uploadedByUserId: 'uploadedByUserId' as FieldName,
+    missionName: 'missionName' as FieldName,
   };
   export const resourceName = {
     content: 'MissionDocuments.content' as Resource,

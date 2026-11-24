@@ -40,8 +40,9 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @domain(via: SectorID)
 		// @attribute(wing)
-		WingID    impulse.UUID `spanner:"WingId"`
-		Name      string       `spanner:"Name"`
-		Callsigns []string     `spanner:"Callsigns"`
+		WingID impulse.UUID `spanner:"WingId"`
+		// @name
+		Name      string   `spanner:"Name"`
+		Callsigns []string `spanner:"Callsigns"`
 	}
 )
