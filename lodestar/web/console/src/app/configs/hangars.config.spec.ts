@@ -61,9 +61,19 @@ function server(request: TransportRequest): TransportResponse {
     case `${environment.apiUrl}/permission-digest`:
       return {
         status: 200,
+        // The sector's digest names each pointed-to resource's name under List: the list asks
+        // for a name only where the digest names it.
         body:
           url.searchParams.get('domain') === anvilID
-            ? { HangarPasses: listed, CrewSectorUsers: listed, Squadrons: listed, CrewSectorGroups: listed }
+            ? {
+                HangarPasses: listed,
+                CrewSectorUsers: listed,
+                'CrewSectorUsers.displayName': { List: 'granted' },
+                Squadrons: listed,
+                'Squadrons.name': { List: 'granted' },
+                CrewSectorGroups: listed,
+                'CrewSectorGroups.name': { List: 'granted' },
+              }
             : {},
       };
     case `${environment.apiUrl}/user-domains`:

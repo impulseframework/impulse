@@ -178,18 +178,26 @@ export function queryableMeta(
  * field apart, which takes no grant: the server refuses the whole list for a sort by a
  * field the caller may not list, on a table, a view and a computed resource alike. A
  * name field is in no digest of the resource: a sort by it is judged by the id it stands
- * beside (`nameFields`). Not given (nothing is known, or a list across tenants), nothing
- * is dropped for it. Then, on a computed resource, each sort by a field the digest lists
- * as conditional is dropped, which the server refuses as it refuses a filter by it
- * (queryableMeta).
+ * beside (`nameFields`) and by whether the person may list the name, as a column drawn
+ * by the name is. The name fields the person may list are given apart (`names`,
+ * listableNames), and a sort by a name field outside them is dropped. Where either is
+ * not given, nothing is dropped for it: the resource's own set is not given while
+ * nothing is known of it, nor across tenants. Then, on a computed resource, each sort by
+ * a field the digest lists as conditional is dropped, which the server refuses as it
+ * refuses a filter by it (queryableMeta).
  */
 export function answeredSorts<S extends { readonly field: string }>(
   sorts: readonly S[],
   meta: ResourceMeta | undefined,
   listStates: Readonly<Record<string, PermissionDigestState>>,
   listable?: ReadonlySet<string>,
+  names?: ReadonlySet<string>,
 ): S[] {
   let answered = [...sorts];
+  if (names !== undefined) {
+    const named = new Set((meta?.nameFields ?? []).map((name) => name.fieldName));
+    answered = answered.filter((sort) => !named.has(sort.field) || names.has(sort.field));
+  }
   if (listable !== undefined) {
     const keys = new Set<string>(keyFields(meta).map((key) => key.fieldName));
     const ids = new Map((meta?.nameFields ?? []).map((name) => [name.fieldName, name.of]));
@@ -206,13 +214,14 @@ export function answeredSorts<S extends { readonly field: string }>(
 
 /**
  * The sorts a list over the resource is asked in for this caller: the sorts the server
- * answers (answeredSorts, given the digest's List field set where it is known) and, where
- * that leaves none of the sorts that were asked for and
- * the resource declares no order, its first key field ascending, which takes no grant. The
- * server refuses a paged request with no sort for a resource with no declared order, so
- * without the key a person whose role does not always see the fields a page sorts by would
- * get no list. Where no sort was asked for none comes back: the declared order applies, or
- * the page's author names one. A resource with no key is read whole and needs no order.
+ * answers (answeredSorts, given the digest's List field set where it is known and the
+ * name fields the person may list) and, where that leaves none of the sorts that were
+ * asked for and the resource declares no order, its first key field ascending, which
+ * takes no grant. The server refuses a paged request with no sort for a resource with no
+ * declared order, so without the key a person whose role does not always see the fields
+ * a page sorts by would get no list. Where no sort was asked for none comes back: the
+ * declared order applies, or the page's author names one. A resource with no key is read
+ * whole and needs no order.
  */
 export function listSorts(
   sorts: readonly FieldSort[],
@@ -220,8 +229,9 @@ export function listSorts(
   listStates: Readonly<Record<string, PermissionDigestState>>,
   descriptor: ResourceDescriptor | undefined,
   listable?: ReadonlySet<string>,
+  names?: ReadonlySet<string>,
 ): FieldSort[] {
-  const answered = answeredSorts(sorts, meta, listStates, listable);
+  const answered = answeredSorts(sorts, meta, listStates, listable, names);
   const key = keyFields(meta)[0];
   if (answered.length > 0 || sorts.length === 0 || key === undefined || (descriptor?.order?.length ?? 0) > 0) {
     return answered;

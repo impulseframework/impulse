@@ -1,12 +1,24 @@
-import { FieldMeta, Resource, ResourceMeta } from '@impulseframework/resource';
+import { FieldMeta, PermissionDigestState, Resource, ResourceMeta } from '@impulseframework/resource';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { ColumnConfig, FieldName } from '@impulseframework/resource-angular/types';
 
-import { askedNames, cellText, ListedColumn, listedColumns, requestSorts, tableSorts } from './name-columns';
+import {
+  askedNames,
+  cellText,
+  ListedColumn,
+  listedColumns,
+  listableNames,
+  namesListableOf,
+  requestSorts,
+  tableSorts,
+} from './name-columns';
 
 // A list over hangar passes, whose ids point to a squadron, a person, a pass code (a
 // resource whose rows are known by their key), a sector (the tenant), a hangar (which
 // declares no name) and a fixed level. A pass also holds the key of its home sector, which
-// the list carries no name beside, and a grade, one of a fixed set with no name field. The
+// the list carries no name beside, a grade, one of a fixed set with no name field, and a
+// berth, whose id names no resource (the outlet does not serve it) though the list's
+// metadata carries a name beside it. The
 // metadata's nameFields say which ids have a name beside them; the digest says, for each
 // pointed-to resource, whether the person may list the name.
 
@@ -44,6 +56,7 @@ const passes: ResourceMeta = {
     }),
     field('bay'),
     field('homeSectorId', { isIndex: true, filterable: 'always' }),
+    field('berthId', { displayType: 'uuid' }),
     field('gradeId', {
       displayType: 'enumerated',
       enumeration: [
@@ -58,6 +71,7 @@ const passes: ResourceMeta = {
     { fieldName: 'codeName', of: 'codeId' },
     { fieldName: 'sectorName', of: 'sectorId' },
     { fieldName: 'levelName', of: 'levelId', filterable: 'always' },
+    { fieldName: 'berthName', of: 'berthId' },
   ],
 };
 
@@ -148,6 +162,30 @@ describe('listedColumns', () => {
       },
     },
     {
+      name: 'a named id whose field names no resource stays on the id and asks for no name: there is no digest to ask',
+      column: column('berthId'),
+      listable: {},
+      want: {
+        kind: 'field',
+        tableId: 'berthId' as FieldName,
+        asks: ['berthId'] as FieldName[],
+        sortField: 'berthId' as FieldName,
+        header: undefined,
+      },
+    },
+    {
+      name: 'a named id whose digest answered and names no field stays on the id and asks for no name',
+      column: column('squadronId'),
+      listable: { [squadrons]: new Set<string>() },
+      want: {
+        kind: 'field',
+        tableId: 'squadronId' as FieldName,
+        asks: ['squadronId'] as FieldName[],
+        sortField: 'squadronId' as FieldName,
+        header: undefined,
+      },
+    },
+    {
       name: "a name that is the pointed-to resource's key is listed wherever the digest holds List on it",
       column: column('codeId'),
       listable: { [codes]: new Set(['label']) },
@@ -160,7 +198,7 @@ describe('listedColumns', () => {
       },
     },
     {
-      name: "a name that is the pointed-to resource's key is not listed where the digest holds no List on it",
+      name: "a name that is the pointed-to resource's key is not listed where the digest answered and names no field (no List on it, or one that covers the keys alone)",
       column: column('codeId'),
       listable: { [codes]: new Set<string>() },
       want: {
@@ -502,5 +540,56 @@ describe('askedNames', () => {
       metaOf,
     );
     expect(askedNames(listed)).toEqual(['squadronName']);
+  });
+});
+
+describe('namesListableOf', () => {
+  // An auth service that answers, for each resource, the field states its List names,
+  // whether a digest has answered for its scope, and whether it holds List on it.
+  const authOf = (
+    answers: Partial<
+      Record<string, { fields?: Record<string, PermissionDigestState>; digest: boolean; list: boolean }>
+    >,
+  ): AuthService =>
+    ({
+      fieldPermissionStates: ({ resource }: { resource: Resource }) => answers[resource]?.fields ?? {},
+      hasDigestFor: ({ resource }: { resource: Resource }) => answers[resource]?.digest ?? false,
+      hasPermission: ({ resource }: { resource: Resource }) => answers[resource]?.list ?? false,
+    }) as unknown as AuthService;
+
+  it('the fields the digest names under List, where it names any', () => {
+    const listableOf = namesListableOf(
+      authOf({ [squadrons]: { fields: { name: 'granted' }, digest: true, list: true } }),
+    );
+    expect(listableOf(squadrons)).toEqual(new Set(['name']));
+  });
+
+  it('the empty set where the digest answered and names no field: a List that covers the keys alone, or none', () => {
+    const listableOf = namesListableOf(
+      authOf({ [codes]: { digest: true, list: true }, [squadrons]: { digest: true, list: false } }),
+    );
+    expect(listableOf(codes)).toEqual(new Set());
+    expect(listableOf(squadrons)).toEqual(new Set());
+  });
+
+  it('undefined while no digest has answered for the scope: nothing narrows', () => {
+    const listableOf = namesListableOf(authOf({}));
+    expect(listableOf(squadrons)).toBeUndefined();
+  });
+});
+
+describe('listableNames', () => {
+  it('the name fields the person may list, judged as a name column is, whatever the columns: a name beside a fixed set always', () => {
+    const listable: Partial<Record<string, ReadonlySet<string>>> = {
+      [squadrons]: new Set(['name']),
+      [people]: new Set<string>(),
+      [sectors]: new Set(['name']),
+    };
+    const got = listableNames(passes, (resource) => listable[resource], metaOf);
+    expect([...got].sort()).toEqual(['codeName', 'levelName', 'sectorName', 'squadronName']);
+  });
+
+  it('with no metadata, none', () => {
+    expect(listableNames(undefined, () => undefined, metaOf).size).toBe(0);
   });
 });

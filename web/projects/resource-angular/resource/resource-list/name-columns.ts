@@ -1,4 +1,5 @@
-import { FieldMeta, NameFieldMeta, Resource, ResourceMeta } from '@impulseframework/resource';
+import { FieldMeta, ListPermission, NameFieldMeta, Resource, ResourceMeta } from '@impulseframework/resource';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
 import { ColumnConfig, FieldName } from '@impulseframework/resource-angular/types';
 
@@ -12,12 +13,13 @@ import { ListableFields, MetaOf } from '../search-box/search-fields';
 // the id, sorts by it and filters by it. A column on such an id asks for the name, draws
 // it, and is the table's column under the name field's id, so a header click sorts by the
 // name and the column's filter names it, where the person may list the name. Where they
-// may not, the column stays on the id and asks for no name, since the server refuses a
-// list that asks for a field the person may not list. A column which shows no name (the
-// list carries none beside its id, or the person may not list it) and has the page's
-// words for a tenant or a row (`tenantKey`, `fallback`) says those words on the id in
-// place of the stored value, and so offers neither sort nor filter. The list component
-// and its store wire what these answer; nothing else in them learns what a name is.
+// may not, or the outlet does not serve the resource the id points to, the column stays
+// on the id and asks for no name, since the server refuses a list that asks for a field
+// the person may not list. A column which shows no name (the list carries none beside its
+// id, or the person may not list it) and has the page's words for a tenant or a row
+// (`tenantKey`, `fallback`) says those words on the id in place of the stored value, and
+// so offers neither sort nor filter. The list component and its store wire what these
+// answer; nothing else in them learns what a name is.
 
 const title = new CamelCaseToTitlePipe();
 
@@ -67,14 +69,14 @@ export interface ListedColumn {
 /**
  * How the list draws each of the configured columns the digest passed (`listableColumns`
  * runs first, on the configured ids), over the listed resource's metadata. `listableOf`
- * answers the digest's List field set for a pointed-to resource, and `metaOf` its
- * metadata, which says what its rows are known by (`nameField`) and its key. A column is a
- * name column when it is a field column, shown, reads no cell of its own, and its field
- * has a name beside it, takes no fixed set of values, and points to a resource whose name
- * the person may list: nothing narrows the digest's set for it, or the set names the
- * name, or the name is the resource's key and the set is not empty. Any other such column
- * on a field that takes no fixed set of values is worded where it has the page's words for
- * a tenant or a row, with a name field beside its field or none.
+ * answers the digest's List field set for a pointed-to resource (namesListableOf), and
+ * `metaOf` its metadata, which says what its rows are known by (`nameField`) and its key.
+ * A column is a name column when it is a field column, shown, reads no cell of its own,
+ * and its field has a name beside it, takes no fixed set of values, and names a resource
+ * whose name the person may list (nameListed): no digest has answered for it yet, or the
+ * set names the name, or the name is the resource's key and the set is not empty. Any
+ * other such column on a field that takes no fixed set of values is worded where it has
+ * the page's words for a tenant or a row, with a name field beside its field or none.
  */
 export function listedColumns(
   columns: readonly ColumnConfig[],
@@ -141,13 +143,14 @@ function drawnFromField(column: ColumnConfig): boolean {
 
 /**
  * Whether the person may list the name of the resource an id points to, by the digest's
- * List field set for it: nothing narrows where the set is unknown or the field names no
- * resource; otherwise the set names the resource's name field, or the name is the
- * resource's key and the set is not empty (a key takes no grant of its own).
+ * List field set for it. A field that names no resource (the outlet does not serve it)
+ * has no digest to ask, so its name is not asked for. Nothing narrows only while no
+ * digest has answered; once one has, the set names the resource's name field, or the name
+ * is the resource's key and the set is not empty (a key takes no grant of its own).
  */
 function nameListed(resource: Resource | undefined, listableOf: ListableFields, metaOf: MetaOf): boolean {
   if (resource === undefined) {
-    return true;
+    return false;
   }
   const fields = listableOf(resource);
   if (fields === undefined) {
@@ -159,6 +162,47 @@ function nameListed(resource: Resource | undefined, listableOf: ListableFields, 
     return false;
   }
   return keyField(meta, named) ? fields.size > 0 : fields.has(named);
+}
+
+/**
+ * The digest's List field set for a resource an id points to, as a name column asks it,
+ * read through the auth service: the fields the digest names under List, where it names
+ * any; the empty set where the digest for the resource's scope has answered and names
+ * none (the person holds no List on it, or a List that covers the keys alone); undefined
+ * only while no digest has answered for that scope, which narrows nothing. Across tenants
+ * the names a list carries point outside every tenant, and the auth service asks the whole
+ * application's digest for them. Signal-backed through the service, so a computed calling
+ * it re-evaluates when a digest lands.
+ */
+export function namesListableOf(auth: AuthService): ListableFields {
+  return (resource) => {
+    const scope = { resource, permission: ListPermission };
+    const fields = Object.keys(auth.fieldPermissionStates(scope));
+    if (fields.length > 0) {
+      return new Set(fields);
+    }
+    return auth.hasDigestFor(scope) ? new Set<string>() : undefined;
+  };
+}
+
+/**
+ * The name fields of the listed resource the person may list, whatever the page's
+ * columns: each entry of its `nameFields`, judged as a name column's is. A name beside a
+ * field that takes a fixed set of values is the metadata's, and always listed; any other
+ * by whether the person may list the name of the resource its id points to (nameListed).
+ * A sort by a name field outside the set is not asked (answeredSorts).
+ */
+export function listableNames(
+  meta: ResourceMeta | undefined,
+  listableOf: ListableFields,
+  metaOf: MetaOf,
+): ReadonlySet<string> {
+  const fields = new Map((meta?.fields ?? []).map((field) => [field.fieldName, field]));
+  const listable = (meta?.nameFields ?? []).filter((name) => {
+    const field = fields.get(name.of);
+    return field?.enumeration !== undefined || nameListed(field?.enumeratedResource, listableOf, metaOf);
+  });
+  return new Set(listable.map((name) => name.fieldName));
 }
 
 /** Whether a field is part of its resource's key. */

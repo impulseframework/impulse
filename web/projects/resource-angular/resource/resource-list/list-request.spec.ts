@@ -243,6 +243,20 @@ describe('answeredSorts', () => {
     expect(answeredSorts(byBayName, named, {}, new Set(['holder', 'bayName']))).toEqual([sorts[4]]);
   });
 
+  it('a sort by a name field is dropped where the id is listed and the name is not, and answered where both are', () => {
+    const named: ResourceMeta = { ...table, nameFields: [{ fieldName: 'bayName', of: 'bay' }] };
+    const byBayName = [{ field: 'bayName', direction: 'asc' as const }, sorts[4]];
+
+    expect(answeredSorts(byBayName, named, {}, new Set(['bay']), new Set())).toEqual([sorts[4]]);
+    expect(answeredSorts(byBayName, named, {}, undefined, new Set())).toEqual([sorts[4]]);
+    expect(answeredSorts(byBayName, named, {}, new Set(['bay']), new Set(['bayName']))).toEqual(byBayName);
+    const asked = [
+      { field: 'bayName' as FieldName, direction: 'asc' as const },
+      { field: 'id' as FieldName, direction: 'asc' as const },
+    ];
+    expect(listSorts(asked, named, {}, undefined, new Set(['bay']), new Set())).toEqual([asked[1]]);
+  });
+
   it('the sorts handed in are not changed, and a new array comes back', () => {
     const handed = [...sorts];
     const got = answeredSorts(handed, passes, states);

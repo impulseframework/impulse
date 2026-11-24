@@ -41,9 +41,15 @@ function server(request: TransportRequest): TransportResponse {
   const url = new URL(request.url, 'http://lodestar.test');
   switch (url.pathname) {
     case `${environment.apiUrl}/permission-digest`:
+      // The digest names the pilot's name under List: the list asks for a name only where
+      // the digest names it.
       return {
         status: 200,
-        body: { Commendations: { List: 'granted', Read: 'granted' }, Pilots: { List: 'granted', Read: 'granted' } },
+        body: {
+          Commendations: { List: 'granted', Read: 'granted' },
+          Pilots: { List: 'granted', Read: 'granted' },
+          'Pilots.displayName': { List: 'granted' },
+        },
       };
     case `${environment.apiUrl}/user-domains`:
       return { status: 200, body: [] };

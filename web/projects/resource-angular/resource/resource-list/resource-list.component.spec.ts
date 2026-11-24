@@ -716,6 +716,38 @@ describe('ResourceListComponent', () => {
       ).map((cell) => cell.textContent?.trim());
       expect(cells).toEqual(['Meridian', 'Halyard']);
     });
+
+    it('asks for no configured sort by a name field the digest does not list, though it lists the id beside it', async () => {
+      // The digest lists the patrol's squadron and not the squadron's name, so the server
+      // refuses a sort by the name; the patrols' declared order applies.
+      const digest: PermissionDigest = {
+        [patrols]: { List: 'granted' },
+        [`${patrols}.name`]: { List: 'granted' },
+        [`${patrols}.squadronId`]: { List: 'granted' },
+        [squadrons]: { List: 'granted' },
+        [`${squadrons}.callSign`]: { List: 'granted' },
+      };
+      await create(
+        {
+          primaryResource: patrols,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'squadronId' as FieldName }],
+          sorts: [{ field: 'squadronName' as FieldName, direction: 'asc' }],
+        },
+        [],
+        (request) =>
+          request.url.startsWith('/api/permission-digest')
+            ? { status: 200, body: digest }
+            : { status: 200, body: [], headers: { 'total-count': '0' } },
+      );
+      await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+      fixture.detectChanges();
+      await settle();
+
+      const asked = transport.requests
+        .filter((request) => request.url.split('?')[0] === '/api/patrols')
+        .map((request) => new URL(request.url, 'http://list.test').searchParams.get('sort'));
+      expect(asked).toEqual([null]);
+    });
   });
 
   describe('draws its heading once it knows what the heading says', () => {
@@ -2318,6 +2350,8 @@ describe('ResourceListComponent', () => {
     const bastion = 'b2222222-2222-4222-8222-222222222222';
     const acrossMetas: Record<string, ResourceMeta> = {
       ...metas,
+      // A mission's client is a row of the whole application, known by its name, which
+      // the list carries beside the id.
       [missions]: {
         route: 'sectors/{sectorID}/missions',
         live: true,
@@ -2325,8 +2359,11 @@ describe('ResourceListComponent', () => {
           field('id', { primaryKey: { ordinalPosition: 0 } }),
           field('title', { isIndex: true, filterable: 'always' }),
           field('fee'),
+          field('clientId', { displayType: 'enumerated', enumeratedResource: clients }),
         ],
+        nameFields: [{ fieldName: 'clientName', of: 'clientId' }],
       } as ResourceMeta,
+      [clients]: { ...metas[clients], nameField: 'name' } as ResourceMeta,
       [refits]: {
         route: 'sectors/{sectorID}/refits',
         fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')],
@@ -2392,6 +2429,8 @@ describe('ResourceListComponent', () => {
     let digestHeld: { domain: string; until: Promise<void> } | undefined;
     /** What the server waits for before it answers a tenant's digest, when a spec holds the digests. */
     let digestsHeld: Promise<void> | undefined;
+    /** The whole application's digest, which the server answers where no tenant is named, when a spec gives one. */
+    let wholeDigest: PermissionDigest | undefined;
 
     const server = (request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
       const url = new URL(request.url, 'http://missions.test');
@@ -2422,6 +2461,9 @@ describe('ResourceListComponent', () => {
             { domain: bastion, name: 'Bastion' },
           ],
         };
+      }
+      if (url.pathname === '/api/permission-digest' && !url.searchParams.has('domain') && wholeDigest) {
+        return { status: 200, body: wholeDigest };
       }
       if (url.pathname === '/api/permission-digest') {
         // One tenant's digest, when something asks it: the title alone, no fee. In Anvil
@@ -2460,6 +2502,7 @@ describe('ResourceListComponent', () => {
       digestRefused = undefined;
       digestHeld = undefined;
       digestsHeld = undefined;
+      wholeDigest = undefined;
       domain = signal<Domain | undefined>(undefined);
       transport = scriptedTransport(async (request: TransportRequest): Promise<TransportResponse> => {
         if (digestsHeld && request.url.includes('permission-digest')) {
@@ -2781,6 +2824,33 @@ describe('ResourceListComponent', () => {
         '/api/missions?sort=title:desc&limit=10&count=true',
         '/api/missions?limit=10&count=true',
       ]);
+    });
+
+    describe("names a row of the whole application by the whole application's digest", () => {
+      // A mission's client is outside every tenant: the whole application's digest says
+      // whether the person may list the client's name, and the column is drawn by it where
+      // they may and stays on the id where they may not.
+      const clientColumn = async (digest: PermissionDigest): Promise<string[]> => {
+        await page(missions, { listColumns: [{ id: 'title' as FieldName }, { id: 'clientId' as FieldName }] });
+        wholeDigest = digest;
+        await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+        fixture.detectChanges();
+        await settle();
+        await settle();
+        return fixture.componentInstance.columns().map((col) => col.id);
+      };
+
+      it("stays on the id where the digest does not list the client's name", async () => {
+        const cols = await clientColumn({ [clients]: { List: 'granted' }, [`${clients}.notes`]: { List: 'granted' } });
+
+        expect(cols).toEqual(['title', 'zzTenant', 'clientId', 'view']);
+      });
+
+      it("is drawn by the name where the digest lists the client's name", async () => {
+        const cols = await clientColumn({ [clients]: { List: 'granted' }, [`${clients}.name`]: { List: 'granted' } });
+
+        expect(cols).toEqual(['title', 'zzTenant', 'clientName', 'view']);
+      });
     });
 
     it('reads alone: no create, no delete, no method, whatever the page configures', async () => {

@@ -130,7 +130,15 @@ import {
   unorderedFields,
 } from './list-request';
 import { listableColumns, sameColumns } from './listable-columns';
-import { askedNames, cellText, listedColumns, requestSorts, tableSorts } from './name-columns';
+import {
+  askedNames,
+  cellText,
+  listableNames,
+  listedColumns,
+  namesListableOf,
+  requestSorts,
+  tableSorts,
+} from './name-columns';
 import { filterParam, readAddressFilter, sameFilters, standingFilters, writeAddressFilter } from './address-filters';
 import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
 
@@ -497,6 +505,12 @@ export class ResourceListComponent implements OnInit {
   private readonly listableOf = listableFieldsOf(this.auth);
 
   /**
+   * The digest's List field set for a resource an id points to, as its name is judged
+   * (namesListableOf): the empty set once a digest has answered and names no field.
+   */
+  private readonly namesOf = namesListableOf(this.auth);
+
+  /**
    * The configured columns the caller may list: every column when nothing narrows,
    * otherwise those whose fields the digest grants. Key fields are structural, never
    * grant-bearing, and always pass. Equal while the same columns: every digest load
@@ -699,7 +713,14 @@ export class ResourceListComponent implements OnInit {
     (): FieldSort[] => {
       const resource = this.config().primaryResource;
       const descriptor = resource ? this.store.client.descriptor.resources[resource] : undefined;
-      return listSorts(this.wantedSorts(), this.meta(), this.listStates(), descriptor, this.listableFields());
+      return listSorts(
+        this.wantedSorts(),
+        this.meta(),
+        this.listStates(),
+        descriptor,
+        this.listableFields(),
+        listableNames(this.meta(), this.namesOf, this.resourceMeta),
+      );
     },
     { equal: sameSorts },
   );
@@ -1089,16 +1110,11 @@ export class ResourceListComponent implements OnInit {
    * How the list draws each of its columns (listedColumns): on its field's stored value,
    * or, on a field that holds another row's id, by the name the server answers beside the
    * id, where the pointed-to resource declares one and the person may list it. Across
-   * tenants no one digest speaks for the rows, and nothing narrows the names either: the
-   * server decides, tenant by tenant, what a row shows.
+   * tenants the names a list carries point outside every tenant, and the whole
+   * application's digest speaks for them.
    */
   private readonly listed = computed(() =>
-    listedColumns(
-      this.rootColumns(),
-      this.meta(),
-      (resource) => (this.across() ? undefined : this.listableOf(resource)),
-      this.resourceMeta,
-    ),
+    listedColumns(this.rootColumns(), this.meta(), this.namesOf, this.resourceMeta),
   );
 
   /**

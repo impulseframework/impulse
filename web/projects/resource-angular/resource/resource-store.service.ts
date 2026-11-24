@@ -223,21 +223,30 @@ export class ResourceStore {
   });
 
   /**
+   * The fields and the name fields the metadata marks PII (the name beside an id is PII
+   * where the pointed-to name is): a filter that names one travels in the body, the
+   * page's (sensitive) and a read beside the page's (rowsBesidePage) alike.
+   */
+  private readonly piiFields = computed(
+    () =>
+      new Set([
+        ...(this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
+        ...(this.resourceMeta().nameFields ?? []).filter((name) => name.pii).map((name) => name.fieldName),
+      ]),
+  );
+
+  /**
    * Whether the request must travel in the body: the page asked for it
-   * (disableCacheForFilterPii), the page's filter or a column filter names a field the
-   * metadata marks PII, or a name field it marks so (the name beside an id is PII where
-   * the pointed-to name is), or the search box reaches one. The server refuses a PII
-   * field in a URL with a 400, so the store posts on its own wherever the metadata lets
-   * it tell.
+   * (disableCacheForFilterPii), the page's filter or a column filter names a field or a
+   * name field the metadata marks PII (piiFields), or the search box reaches one. The
+   * server refuses a PII field in a URL with a 400, so the store posts on its own
+   * wherever the metadata lets it tell.
    */
   private readonly sensitive = computed(() => {
     if (this.disableCacheForFilterPii()) {
       return true;
     }
-    const pii = new Set([
-      ...(this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
-      ...(this.resourceMeta().nameFields ?? []).filter((name) => name.pii).map((name) => name.fieldName),
-    ]);
+    const pii = this.piiFields();
     if (
       pii.size > 0 &&
       (filterFields(this.filter()).some((f) => pii.has(f)) ||
@@ -329,8 +338,8 @@ export class ResourceStore {
    * page's own filter (the conditions the person did not choose: the config's filter, a
    * child list's parent key) joined with the condition given, and never under the person's
    * column filters or search text. One request with the columns, the sort and the limit
-   * given: no count, not live, and no capability asked. A filter that names a PII field
-   * travels in the body, as the page's does.
+   * given: no count, not live, and no capability asked. A filter that names a field or a
+   * name field the metadata marks PII (piiFields) travels in the body, as the page's does.
    */
   async rowsBesidePage(query: {
     condition: string;
@@ -341,9 +350,7 @@ export class ResourceStore {
     const route = this.route();
     const clauses = [this.filter().trim(), query.condition.trim()].filter((clause) => clause !== '');
     const filter = clauses.length > 1 ? clauses.map((clause) => `(${clause})`).join(',') : clauses[0];
-    const pii = new Set(
-      (this.resourceMeta().fields ?? []).filter((field) => field.pii).map((field) => field.fieldName),
-    );
+    const pii = this.piiFields();
     const sensitive =
       this.disableCacheForFilterPii() || (filter !== undefined && filterFields(filter).some((field) => pii.has(field)));
     const sort = query.sorts.map((s) => ({ field: s.field as string, direction: s.direction }));

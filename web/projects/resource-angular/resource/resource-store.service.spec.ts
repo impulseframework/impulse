@@ -246,6 +246,21 @@ describe('ResourceStore list page', () => {
     );
     expect(script.requests.at(-1)?.body).toEqual({ filter: 'builderName:eq:Ada' });
   });
+
+  it('posts a read beside the page whose filter names a name field the metadata marks PII', async () => {
+    const script = scripted({});
+    const store = storeOver(script);
+    store.resourceMeta.set(shipClasses);
+    store.resourceName.set('ShipClasses' as Resource);
+
+    await store
+      .rowsBesidePage({ condition: 'builderName:eq:Ada', columns: ['id'], sorts: [], limit: 5 })
+      .catch(() => undefined);
+    expect(`${script.requests.at(-1)?.method} ${script.requests.at(-1)?.url}`).toBe(
+      'POST /api/ship-classes?columns=id&limit=5',
+    );
+    expect(script.requests.at(-1)?.body).toEqual({ filter: 'builderName:eq:Ada' });
+  });
 });
 
 describe('ResourceStore row reader', () => {
