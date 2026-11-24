@@ -51,7 +51,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 
 	// Invite only, with no row: the list says so, the sign-up routes are not found, and
 	// no account is written for the stranger.
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || got[0].Name != "password" || got[0].OpenSignUp || got[0].Says != inviteOnlySays || got[0].Admits != "Anyone with an email address" {
+	if got := passwordMethod(ctx, t, admin); got.OpenSignUp || got.Says != inviteOnlySays || got.Admits != "Anyone with an email address" {
 		t.Fatalf("the sign-in methods before anyone chose = %+v, want the password method, invite only", got)
 	}
 	stranger := newBrowser(t, s)
@@ -96,7 +96,9 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	}
 
 	// Refused at the save: no default role, the Super Administrator's role, a role the
-	// application does not have, and a method the auth does not register.
+	// application does not have, and a method the auth does not register. That one is named
+	// as no registration can be (a registration's name is letters, digits and hyphens), so
+	// the refusal holds whichever sign-in methods the application adds.
 	refused := []struct {
 		name       string
 		body       string
@@ -106,7 +108,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 		{name: "no default role", body: `{"name":"password"}`, wantStatus: http.StatusBadRequest, wantBody: "Choose the default role. Each person who signs up is given one, so a sign-in method cannot be opened without it."},
 		{name: "the Super Administrator's role", body: `{"name":"password","defaultRole":"SuperAdministrator"}`, wantStatus: http.StatusBadRequest, wantBody: "The Super administrator role is never a default role, because every person who signed up would administer the application. Choose another role."},
 		{name: "a role the application does not have", body: `{"name":"password","defaultRole":"Nobody"}`, wantStatus: http.StatusBadRequest, wantBody: "Nobody is not a role held for the whole application. Choose one of the roles the picker lists."},
-		{name: "a method the auth does not register", body: `{"name":"google","defaultRole":"FeatureAdministrator"}`, wantStatus: http.StatusNotFound, wantBody: "This way to sign in does not exist."},
+		{name: "a method the auth does not register", body: `{"name":"no such method","defaultRole":"FeatureAdministrator"}`, wantStatus: http.StatusNotFound, wantBody: "This way to sign in does not exist."},
 	}
 	for _, call := range refused {
 		if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(call.body)); status != call.wantStatus || !strings.Contains(string(body), call.wantBody) {
@@ -123,7 +125,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(`{"name":"password","defaultRole":"FeatureAdministrator"}`)); status != http.StatusNoContent {
 		t.Fatalf("POST /api/open-staff-sign-up: status %d: %s", status, body)
 	}
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || !got[0].OpenSignUp || got[0].DefaultRole != "FeatureAdministrator" || got[0].Says != "Open: "+openConsequence {
+	if got := passwordMethod(ctx, t, admin); !got.OpenSignUp || got.DefaultRole != "FeatureAdministrator" || got.Says != "Open: "+openConsequence {
 		t.Errorf("the sign-in methods once the password method is open = %+v, want it open with the role, saying what the warning said", got)
 	}
 	roles := signUpRoles(ctx, t, admin)
@@ -166,7 +168,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 			t.Errorf("%s as a person without the grant: status %d, want 403: %s", call.name, status, body)
 		}
 	}
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || !got[0].OpenSignUp || got[0].DefaultRole != "FeatureAdministrator" {
+	if got := passwordMethod(ctx, t, admin); !got.OpenSignUp || got.DefaultRole != "FeatureAdministrator" {
 		t.Errorf("the sign-in methods after the refused calls = %+v, want the method open with the role the administrator chose", got)
 	}
 
@@ -180,7 +182,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	if status, body := admin.do(ctx, http.MethodPost, "/api/make-staff-invite-only", []byte(`{"name":"password"}`)); status != http.StatusNoContent {
 		t.Fatalf("POST /api/make-staff-invite-only: status %d: %s", status, body)
 	}
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || got[0].OpenSignUp || got[0].DefaultRole != "" || got[0].Says != inviteOnlySays {
+	if got := passwordMethod(ctx, t, admin); got.OpenSignUp || got.DefaultRole != "" || got.Says != inviteOnlySays {
 		t.Errorf("the sign-in methods once made invite only = %+v, want invite only, naming no role", got)
 	}
 	if sources := changeSources(ctx, t, s, "StaffSessionSignInMethods"); len(sources) != 2 {
@@ -216,8 +218,9 @@ type signInMethod struct {
 	Says        string `json:"says"`
 }
 
-// signInMethods reads the auth's sign-in methods as the Sign-in page lists them.
-func signInMethods(ctx context.Context, t *testing.T, b *browser) []signInMethod {
+// passwordMethod reads the password method's row of the list the Sign-in page draws,
+// whichever other sign-in methods the auth registers.
+func passwordMethod(ctx context.Context, t *testing.T, b *browser) signInMethod {
 	t.Helper()
 
 	status, body := b.do(ctx, http.MethodGet, "/api/staff-sign-in-methods", nil)
@@ -228,8 +231,14 @@ func signInMethods(ctx context.Context, t *testing.T, b *browser) []signInMethod
 	if err := json.Unmarshal(body, &methods); err != nil {
 		t.Fatalf("decoding the sign-in methods: %v: %s", err, body)
 	}
+	for i := range methods {
+		if methods[i].Name == "password" {
+			return methods[i]
+		}
+	}
+	t.Fatalf("the sign-in methods list carries no password method: %s", body)
 
-	return methods
+	return signInMethod{}
 }
 
 // signUpRoles reads the roles the Open sign-up dialog's picker lists, each with its
