@@ -30,9 +30,6 @@
               "condition": "pending = true"
             },
             {
-              "resource": "ResendMembersTenantInvitation"
-            },
-            {
               "resource": "AssignMembersTenantRole"
             },
             {

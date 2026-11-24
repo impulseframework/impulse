@@ -22,6 +22,13 @@ type (
 	// accepted or withdrawn is refused, and one that makes a tenant is not found here,
 	// as a link of another kind is.
 	//
+	// No role is given the method, and no role file grants it: whoever may run
+	// InviteStaffUser for the roles the invitation gives may send it again. The
+	// frame asks that method's Execute grant, a condition on it that reads new.role read
+	// over the roles of the invitation's row, and the row's Execute answer follows the
+	// same check, so a page offers the method where the caller could send the invitation
+	// new.
+	//
 	// @rpc
 	// @outlet(default)
 	// @class(access)

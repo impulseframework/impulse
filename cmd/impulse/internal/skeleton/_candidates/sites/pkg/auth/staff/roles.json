@@ -103,9 +103,6 @@
               "resource": "WithdrawStaffInvitation"
             },
             {
-              "resource": "ResendStaffInvitation"
-            },
-            {
               "resource": "InviteStaffTenant"
             },
             {
@@ -791,9 +788,6 @@
             {
               "resource": "WithdrawStaffTenantInvitation",
               "condition": "pending = true"
-            },
-            {
-              "resource": "ResendStaffTenantInvitation"
             },
             {
               "resource": "AssignStaffTenantRole"
