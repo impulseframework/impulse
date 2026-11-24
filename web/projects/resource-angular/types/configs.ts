@@ -323,8 +323,11 @@ interface ColumnConfigBase {
   /**
    * Draws a list field's items a line each, in place of one line of them joined by
    * commas and cut short: for a short list a person reads whole (the roles a group
-   * holds). A row is as tall as its longest list. On a field that holds no list it
-   * changes nothing.
+   * holds). A row is as tall as its longest list. The column does not grow wide for a
+   * long line: where the list has room left over it takes its share and no more, as wide
+   * as the columns that share beside it, and a line longer than that is cut short and
+   * offered whole with the cell's other lines. On a field that holds no list the cell is
+   * drawn as any other, and the column keeps to its share all the same.
    */
   lines?: boolean;
   /**
