@@ -864,7 +864,12 @@ release whose default roles are wrong does not start.
 A collection may mark an action as one no role is given, as the generator marks the
 action of the create-your-tenant route (`NoRole: true` in the generated collection).
 Nothing asks for a grant of such an action: it is registered only so that a permission
-mask can refuse it to a session that acts as someone. A role file that grants one is
+mask can refuse it to a session that acts as someone. A method that another method's
+grant judges is marked the same way, for another reason (`JudgedBy` beside
+`NoRole: true`, as the generator marks sending an invitation again, judged by the grant
+on the invitation): whoever may run the other method may run it, so nothing asks for a
+grant of it either, and a permission mask is asked about the other method, so a mask
+that names the action itself refuses nothing. A role file that grants one is
 refused, in a sentence that names the role and the action and says to remove the grant,
 and a grant of one that the store already holds for a custom role is skipped at the load
 and reported by `CheckPolicy`, as a grant on a name this release does not declare. The

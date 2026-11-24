@@ -200,7 +200,9 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				NoRole:      true,
 				Target:      "StaffTenantInvitations",
+				JudgedBy:    "InviteStaffTenantUser",
 			},
 			{
 				Name:        "RevokeStaffTenantUserTrustedDevices",
@@ -749,7 +751,9 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+				NoRole:      true,
 				Target:      "StaffListedMailLinks",
+				JudgedBy:    "InviteStaffUser",
 			},
 			{
 				Name:        "RevokeStaffSessionToken",

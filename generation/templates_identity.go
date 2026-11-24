@@ -2810,7 +2810,14 @@ type (
 	// as it is. The new invitation is held to every rule an invitation is held to, as
 	// the caller's own, and names the caller as its sender. An invitation that was
 	// accepted or withdrawn is refused, and one that makes a tenant is not found here,
-	// as a link of another kind is.` + identityTenantInvitationNote + `
+	// as a link of another kind is.
+	//
+	// No role is given the method, and no role file grants it: whoever may run
+	// Invite{{ .Subject }}User for the roles the invitation gives may send it again. The
+	// frame asks that method's Execute grant, a condition on it that reads new.role read
+	// over the roles of the invitation's row, and the row's Execute answer follows the
+	// same check, so a page offers the method where the caller could send the invitation
+	// new.` + identityTenantInvitationNote + `
 	//
 	// @rpc` + identityTenantScope + `
 	// @outlet({{ .Outlets }})` + identityAccessClass + `

@@ -5087,6 +5087,9 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .NotOnOwnAccount }}
 				NotOnOwnAccount: "{{ . }}",
 				{{- end }}
+				{{- with .JudgedBy }}
+				JudgedBy: "{{ . }}",
+				{{- end }}
 				{{- with .OfferedOn }}
 				OfferedOn: []accesstypes.Resource{ {{- range $i, $r := . }}{{ if $i }}, {{ end }}"{{ $r }}"{{ end -}} },
 				{{- end }}
