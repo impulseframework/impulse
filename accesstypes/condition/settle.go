@@ -46,6 +46,48 @@ func PostImageBindings(e Expr) []string {
 	return sortedKeys(set)
 }
 
+// PostImageAsRow returns the expression with every reference under the new. prefix
+// read off the row instead: the same name without the prefix, on the left of each
+// comparison, membership test and null test. Every other node stays as it is, and the
+// logic is rebuilt around them, so the expression handed in is not changed. A method
+// that no role is given and that another method's grant judges reads that grant this
+// way over the row it names, whose attributes hold what the other method's request
+// would. An expression that reads nothing under new. comes back equal to itself.
+func PostImageAsRow(e Expr) Expr {
+	switch n := e.(type) {
+	case And:
+		operands := make([]Expr, 0, len(n.Operands))
+		for _, operand := range n.Operands {
+			operands = append(operands, PostImageAsRow(operand))
+		}
+
+		return And{Operands: operands}
+	case Or:
+		operands := make([]Expr, 0, len(n.Operands))
+		for _, operand := range n.Operands {
+			operands = append(operands, PostImageAsRow(operand))
+		}
+
+		return Or{Operands: operands}
+	case Not:
+		return Not{Operand: PostImageAsRow(n.Operand)}
+	case Comparison:
+		n.Left.PostImage = false
+
+		return n
+	case In:
+		n.Left.PostImage = false
+
+		return n
+	case NullTest:
+		n.Left.PostImage = false
+
+		return n
+	default:
+		return e
+	}
+}
+
 // PostImageAgainstLiteralsOnly reports whether every atom that reads new.
 // compares against literals alone: no subject, no subject value, no subject set,
 // no now, no attribute. Only such an atom can be settled against a decoded request

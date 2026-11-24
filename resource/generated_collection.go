@@ -274,6 +274,17 @@ type CollectionResource struct {
 	// Target carries it.
 	NotOnOwnAccount string
 
+	// JudgedBy is, for an RPC method that names a row and that no role is given (NoRole),
+	// the method whose Execute grant judges it: whoever may run that method may run this
+	// one on a row. The request's own check and the row's Execute answer
+	// (capabilities=Execute) ask that method's grant in the scope the request is checked
+	// in, and a term of the grant's condition that reads that method's request
+	// (new.<name>) reads the attribute <name> of the row this method names. A permission
+	// mask is asked about that method too, and logs its denial under that method's name:
+	// naming this method in a mask changes nothing. Empty for a method its own grant
+	// judges.
+	JudgedBy accesstypes.Resource
+
 	// Parent is a workflow member's immediate parent: the resource its
 	// @stateRoot foreign key references (the root, or another member on the
 	// chain); empty for everything else. The create-under-parent affordance
@@ -490,6 +501,13 @@ func (b *CollectionBuilder) SetMethodNotOnOwnAccount(scope accesstypes.Permissio
 	b.g.setMethodNotOnOwnAccount(scope, method, column)
 }
 
+// SetMethodJudgedBy records, for an RPC method resource that names a row within scope and
+// that no role is given, the method whose Execute grant judges it (see
+// CollectionResource.JudgedBy). A second call for the method replaces the first.
+func (b *CollectionBuilder) SetMethodJudgedBy(scope accesstypes.PermissionScope, method, by accesstypes.Resource) {
+	b.g.setMethodJudgedBy(scope, method, by)
+}
+
 // SetResourceParent records a workflow member's immediate parent within scope:
 // the resource its @stateRoot foreign key references.
 func (b *CollectionBuilder) SetResourceParent(scope accesstypes.PermissionScope, member, parent accesstypes.Resource) {
@@ -551,6 +569,9 @@ type GeneratedCollection struct {
 	// whose own account it is, the row's column that holds the account's id, by method,
 	// within scope.
 	notOnOwnAccount map[accesstypes.PermissionScope]map[accesstypes.Resource]string
+	// judgedBy are, for the methods no role is given that another method's grant judges,
+	// that method, by method, within scope.
+	judgedBy map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource
 	// requiredTags are the fields a create of a resource must be given by the client.
 	requiredTags map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Tag
 	// formerTags are the renamed fields' former wire names by tag, and formerNames
@@ -589,6 +610,7 @@ func newGeneratedCollection() *GeneratedCollection {
 		callerEnters:    make(map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}, 2),
 		offeredOn:       make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Resource, 2),
 		notOnOwnAccount: make(map[accesstypes.PermissionScope]map[accesstypes.Resource]string, 2),
+		judgedBy:        make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		parents:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		masking:         make(map[accesstypes.PermissionScope]maskingMap, 2),
 		queryKeys:       make(map[accesstypes.PermissionScope]map[accesstypes.Resource]queryKeys, 2),
@@ -690,6 +712,9 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 		if err := g.addResourceDeclarations(res); err != nil {
 			return nil, err
 		}
+	}
+	if err := g.refuseJudgedBy(); err != nil {
+		return nil, err
 	}
 	for _, permission := range data.Permissions {
 		if err := g.addPermission(permission); err != nil {
@@ -793,6 +818,10 @@ func (g *GeneratedCollection) addMethodDeclarations(res *CollectionResource) err
 			return errors.Newf("method resource %q is kept off the row of the caller's own account but names no target row", res.Name)
 		}
 		g.setMethodNotOnOwnAccount(res.Scope, res.Name, res.NotOnOwnAccount)
+	}
+
+	if res.JudgedBy != "" {
+		g.setMethodJudgedBy(res.Scope, res.Name, res.JudgedBy)
 	}
 
 	return nil
@@ -1121,6 +1150,22 @@ func (g *GeneratedCollection) IsNoRoleAction(action accesstypes.Resource) bool {
 	return false
 }
 
+// JudgedBy reports the method whose Execute grant judges method, in either scope
+// (CollectionResource.JudgedBy), and whether another method's grant judges it at all. The
+// request's own check and the row's Execute answer ask it. A nil collection marks none.
+func (g *GeneratedCollection) JudgedBy(method accesstypes.Resource) (by accesstypes.Resource, judged bool) {
+	if g == nil {
+		return "", false
+	}
+	for _, marked := range g.judgedBy {
+		if judging, ok := marked[method]; ok {
+			return judging, true
+		}
+	}
+
+	return "", false
+}
+
 // NoRoleActions reports the actions no role is given, in either scope, sorted. A nil
 // collection marks none.
 func (g *GeneratedCollection) NoRoleActions() []accesstypes.Resource {
@@ -1407,6 +1452,80 @@ func (g *GeneratedCollection) setMethodNotOnOwnAccount(scope accesstypes.Permiss
 		g.notOnOwnAccount[scope] = make(map[accesstypes.Resource]string)
 	}
 	g.notOnOwnAccount[scope][method] = column
+}
+
+// setMethodJudgedBy records the method whose Execute grant judges an RPC method resource
+// within scope, replacing any recorded before.
+func (g *GeneratedCollection) setMethodJudgedBy(scope accesstypes.PermissionScope, method, by accesstypes.Resource) {
+	if g.judgedBy[scope] == nil {
+		g.judgedBy[scope] = make(map[accesstypes.Resource]accesstypes.Resource)
+	}
+	g.judgedBy[scope][method] = by
+}
+
+// refuseJudgedBy holds each method another method's grant judges, once every resource is
+// read, to what lets that grant judge it: the method is an action no role is given and
+// names a row; the judging method registers Execute in the same scope, is granted by a
+// role file, names no row, and declares no request field the row lacks, so a condition
+// on its grant has something to read on the row. The methods are taken in the order of
+// their scope and their name, so the same data is refused with the same error.
+func (g *GeneratedCollection) refuseJudgedBy() error {
+	type judged struct {
+		scope      accesstypes.PermissionScope
+		method, by accesstypes.Resource
+	}
+	var all []judged
+	for scope, methods := range g.judgedBy {
+		for method, by := range methods {
+			all = append(all, judged{scope: scope, method: method, by: by})
+		}
+	}
+	slices.SortFunc(all, func(a, b judged) int {
+		if c := strings.Compare(string(a.scope), string(b.scope)); c != 0 {
+			return c
+		}
+
+		return strings.Compare(string(a.method), string(b.method))
+	})
+
+	for _, j := range all {
+		if _, noRole := g.noRole[j.scope][j.method]; !noRole {
+			return errors.Newf("method resource %q is judged by the grant of %q and is not marked an action no role is given: a grant of its own would be asked by nothing", j.method, j.by)
+		}
+		target := g.targets[j.scope][j.method]
+		if transition, ok := g.transitions[j.scope][j.method]; ok && target == "" {
+			target = transition.Target
+		}
+		if target == "" {
+			return errors.Newf("method resource %q is judged by the grant of %q and names no target row: the grant's request fields are read from the row the method names", j.method, j.by)
+		}
+		if !g.HasPermission(j.scope, accesstypes.Execute, j.by) {
+			return errors.Newf("method resource %q is judged by the grant of %q, which registers no Execute in the same scope", j.method, j.by)
+		}
+		_, byNoRole := g.noRole[j.scope][j.by]
+		_, byJudged := g.judgedBy[j.scope][j.by]
+		if byNoRole || byJudged {
+			return errors.Newf("method resource %q is judged by the grant of %q, which no role is given: a method is judged by one a role file grants", j.method, j.by)
+		}
+		_, byTarget := g.targets[j.scope][j.by]
+		_, byTransition := g.transitions[j.scope][j.by]
+		if byTarget || byTransition {
+			return errors.Newf("method resource %q is judged by the grant of %q, which names a target row of its own: a method that names no row judges another", j.method, j.by)
+		}
+		row := g.bindings[j.scope][target]
+		for _, field := range g.bindings[j.scope][j.by].Attributes {
+			if !slices.ContainsFunc(row.Attributes, func(attr AttributeData) bool {
+				return attr.Name == field.Name && attr.Type == field.Type && attr.List == field.List
+			}) {
+				return errors.Newf(
+					"method resource %q is judged by the grant of %q, whose request field %s is no attribute of the same type on %s: a condition that reads new.%s would have nothing to read on the row",
+					j.method, j.by, field.Name, target, field.Name,
+				)
+			}
+		}
+	}
+
+	return nil
 }
 
 // refuseOfferedOn refuses the rows a method that names no row is offered on where the
@@ -2024,6 +2143,7 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 			res.OfferedOn = slices.Sorted(slices.Values(rows))
 		}
 		res.NotOnOwnAccount = g.notOnOwnAccount[key.scope][key.name]
+		res.JudgedBy = g.judgedBy[key.scope][key.name]
 
 		if parent, ok := g.parents[key.scope][key.name]; ok {
 			res.Parent = parent

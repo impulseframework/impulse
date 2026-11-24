@@ -103,7 +103,7 @@ func (s *TargetedRPCDecoder[Request]) Decode(request *http.Request, scope access
 // the target row and rides the gate; a constant FALSE rides it too, so the row is
 // still looked for and a missing row is still NotFound.
 func (c *Caller) gateFor(ctx context.Context, method accesstypes.Resource, perm accesstypes.Permission, request any) (*ExecuteGate, error) {
-	decisions, err := c.Permissions.Check(ctx, c.Env, c.Scope, perm, method)
+	decisions, err := judgedDecisions(ctx, c.Permissions, c.collection, c.Env, c.Scope, perm, method)
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
