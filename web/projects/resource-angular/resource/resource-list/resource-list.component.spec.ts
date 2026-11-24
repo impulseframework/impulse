@@ -2128,6 +2128,90 @@ describe('ResourceListComponent', () => {
       expect(leftOutNotice()).toBe(leftOutWords);
     });
 
+    describe('opens with filters of its own where its address names none', () => {
+      const opening = { ...options, opensWith: [{ field: 'homePort', operator: 'eq', value: 'Anvil' }] };
+      const openWith = async (config: typeof opening, url: string): Promise<void> => {
+        await create(config, rows);
+        await TestBed.inject(Router).navigateByUrl(url);
+        fixture.detectChanges();
+        await settle();
+      };
+
+      it('opened at an address with no filter, asks once with them, holds them in their columns, and writes them into the address in place', async () => {
+        await openWith(opening, '/?tab=2');
+        expect(shipsFilters()).toEqual(['homePort:eq:Anvil']);
+        expect(grid().filters()).toEqual([{ field: 'homePort', operator: 'eq', value: 'Anvil' }]);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+        expect(address().queryParamMap.get('tab')).toBe('2');
+        expect(TestBed.inject(Router).lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+        expect(leftOutNotice()).toBeUndefined();
+      });
+
+      it('opened at an address naming filters, holds those and not its own', async () => {
+        await openWith(opening, '/?filter=statusId:eq:docked');
+        expect(shipsFilters()).toEqual(['statusId:eq:docked']);
+        expect(fixture.componentInstance.store.columnFilters()).toEqual([
+          { field: 'statusId', operator: 'eq', value: 'docked' },
+        ]);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['statusId:eq:docked']);
+      });
+
+      it('holds what the person sets, and, every filter cleared, lists every row with no filter in the address', async () => {
+        await openWith(opening, '/');
+        fixture.componentInstance.onFilterChange([{ field: 'statusId', operator: 'eq', value: 'docked' }]);
+        await settle();
+        expect(address().queryParamMap.getAll('filter')).toEqual(['statusId:eq:docked']);
+
+        fixture.componentInstance.onFilterChange([]);
+        await settle();
+        await settle();
+        expect(fixture.componentInstance.store.columnFilters()).toEqual([]);
+        expect(address().queryParamMap.has('filter')).toBe(false);
+        expect(shipsFilters()).toEqual(['homePort:eq:Anvil', 'statusId:eq:docked', null]);
+      });
+
+      it('takes them again from a link to the page, and from the page’s own entry, that names no filter', async () => {
+        await openWith(opening, '/');
+        fixture.componentInstance.onFilterChange([]);
+        await settle();
+        const router = TestBed.inject(Router);
+
+        // A link to the page with another parameter and no filter.
+        await router.navigateByUrl('/?tab=1');
+        await settle();
+        expect(fixture.componentInstance.store.columnFilters()).toEqual([
+          { field: 'homePort', operator: 'eq', value: 'Anvil' },
+        ]);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+
+        // Cleared again, the page's own menu entry brings the very address the list wrote.
+        fixture.componentInstance.onFilterChange([]);
+        await settle();
+        await router.navigateByUrl(router.url);
+        await settle();
+        expect(fixture.componentInstance.store.columnFilters()).toEqual([
+          { field: 'homePort', operator: 'eq', value: 'Anvil' },
+        ]);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+      });
+
+      it('leaves out a filter of its own it cannot show the person, and says nothing', async () => {
+        await openWith(
+          {
+            ...opening,
+            opensWith: [
+              { field: 'registry', operator: 'eq', value: 'Civil' },
+              { field: 'homePort', operator: 'eq', value: 'Anvil' },
+            ],
+          },
+          '/',
+        );
+        expect(shipsFilters()).toEqual(['homePort:eq:Anvil']);
+        expect(address().queryParamMap.getAll('filter')).toEqual(['homePort:eq:Anvil']);
+        expect(leftOutNotice()).toBeUndefined();
+      });
+    });
+
     it("takes the notice away at the person's next commit", async () => {
       await open('/?filter=registry:eq:Civil');
       expect(leftOutNotice()).toBe(leftOutWords);

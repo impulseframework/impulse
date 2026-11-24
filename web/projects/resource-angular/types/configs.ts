@@ -1153,6 +1153,15 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    */
   more?: (parent: RecordData | undefined) => ListLink | undefined;
   /**
+   * The column filters the page opens with where its address names none: for a page that
+   * shows first the part of its list a person most often wants (the sessions that are
+   * live). They are filters like any the person set, shown in their columns' menus and
+   * written into the address, and the person changes or clears them. An address with no
+   * filter opens the list on them again, except the one the list writes when the person
+   * clears every filter. Only the list a page is built on reads it.
+   */
+  opensWith?: readonly { field: string; operator: string; value: string }[];
+  /**
    * The buttons every row carries ahead of its menu of methods; see RowButton. None by
    * default.
    */
@@ -1247,6 +1256,8 @@ export interface ListViewConfig extends BaseConfig {
   emptyMessage?: string;
   /** The link under the list; see ListViewConfigOptions.more. */
   more?: (parent: RecordData | undefined) => ListLink | undefined;
+  /** The column filters the page opens with; see ListViewConfigOptions.opensWith. */
+  opensWith?: readonly { field: string; operator: string; value: string }[];
   /** The buttons every row carries; see ListViewConfigOptions.rowButtons. */
   rowButtons?: RowButton[];
   /** Whether the page draws the search box; see ListViewConfigOptions.showSearchBox. */
@@ -1304,6 +1315,7 @@ export const listViewConfigDefaults = {
   },
   showRowCount: true,
   showSearchBox: true,
+  opensWith: [],
 } satisfies ListViewConfig;
 
 export type ViewType = 'OneToOne' | 'OneToMany';
