@@ -24,7 +24,7 @@ import (
 // counts, so a page offers the removal for a person the list shows both of, and says
 // what the removal leaves by the rows.
 //
-// A row says of an identity what CrewSessionIdentity shows of it, its method and its
+// A row says of an identity what CrewListedIdentity shows of it, its method and its
 // connection, and the words the login page's button carries for the sign-in it comes
 // through; of the password it says that the person holds one. Nothing else of either is
 // read: no subject, no address, no hash.
@@ -56,7 +56,7 @@ type CrewSignInWay struct {
 	// Password says the way is the person's password. The list is ordered by it, the
 	// password first.
 	Password bool `spanner:"Password"`
-	// Method and Connection are the identity's, as CrewSessionIdentity shows them. The
+	// Method and Connection are the identity's, as CrewListedIdentity shows them. The
 	// password's are "password" and no connection.
 	Method     string `spanner:"Method"`
 	Connection string `spanner:"Connection"`

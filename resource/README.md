@@ -4282,7 +4282,7 @@ POST <prefix>/end-crew-user-sessions          {"userId"}                       E
 POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewListedUsers
 POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewSessions
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
-POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
+POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewListedIdentities
 POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewListedUsers
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain","startsAt","endsAt","reason"}   Execute on AssignCrewRole
@@ -4999,8 +4999,10 @@ grants each like any resource.
 - `CrewListedIdentities` is the sign-in identities with who manages each account,
   declared where the application has a tenant record: a row for each identity link, with
   the columns of `CrewSessionIdentities`, the person's `username`, and the person's
-  `managedByTenant` and `managingTenant`. `CrewSessionIdentities`, the identities table's
-  own list, stays.
+  `managedByTenant` and `managingTenant`. A person's page lists it, and the whole
+  application's unlink names an identity by its row, so a role file gives the unlink under
+  the same condition as the methods on the account. `CrewSessionIdentities`, the
+  identities table's own list, stays.
 - `CrewListedGroups` is the groups with what each holds: `people`, how many people are
   in the group, and `roles`, the roles it holds, a line each: the role's name, and where
   it is held when that is not where the group is kept ("Engineer in sector Anvil",

@@ -64,6 +64,13 @@ const (
 	identityMethodTakeRole = "takeRole"
 )
 
+// listsIdentities reports whether the instance declares the whole application's list of
+// the sign-in identities that says who manages each account: the application has a tenant
+// record, and the schema holds the accounts, the memberships and the identities.
+func (i *identityInstance) listsIdentities() bool {
+	return i.tenant != nil && i.has(identityUsers) && i.has(identityMemberships) && i.has(identityIdentities)
+}
+
 // listsHeldRoles reports whether the instance declares the whole application's one list
 // of a person's roles: the schema holds the accounts and the memberships.
 func (i *identityInstance) listsHeldRoles() bool {
@@ -99,7 +106,7 @@ func (r *resourceGenerator) holdingSources(inst *identityInstance) []identitySou
 		view(listedGroupRoleSuffix, identityListedGroupRolesTemplate, listed...),
 		{dir: inst.methods, name: fileStem(r.pluralize(inst.auth + listedRoleGrantSuffix)), template: identityListedRoleGrantsTemplate, needs: []identityTable{identityRoleGrants}},
 	}
-	if inst.tenant != nil {
+	if inst.listsIdentities() {
 		files = append(files, view(listedIdentitySuffix, identityListedIdentitiesTemplate, identityUsers, identityMemberships, identityIdentities))
 	}
 	if inst.takesRoles() {

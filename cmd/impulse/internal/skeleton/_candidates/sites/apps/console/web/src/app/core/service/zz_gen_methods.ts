@@ -1345,7 +1345,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkStaffSessionIdentity]: {
     route: 'unlink-staff-session-identity',
-    target: { resource: Resources.StaffSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.StaffListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

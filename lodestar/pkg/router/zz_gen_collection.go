@@ -2809,7 +2809,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:        accesstypes.GlobalPermissionScope,
 				Permissions:  []accesstypes.Permission{accesstypes.Execute},
 				Classes:      []accesstypes.ActionClass{ClassCredential},
-				Target:       "CrewSessionIdentities",
+				Target:       "CrewListedIdentities",
 				CallerEnters: true,
 			},
 			{
@@ -2817,7 +2817,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:        accesstypes.GlobalPermissionScope,
 				Permissions:  []accesstypes.Permission{accesstypes.Execute},
 				Classes:      []accesstypes.ActionClass{ClassCredential},
-				Target:       "MembersSessionIdentities",
+				Target:       "MembersListedIdentities",
 				CallerEnters: true,
 			},
 			{

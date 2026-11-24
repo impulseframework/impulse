@@ -455,6 +455,83 @@ func Test_prepareIdentity_whoManagesEachAccount(t *testing.T) {
 	})
 }
 
+// Test_prepareIdentity_unlinkNamesTheListedIdentity pins the row the whole application's
+// unlink of a sign-in identity names: the list of the identities that says who manages
+// each account where the application has a tenant record, so a grant's condition reads
+// the person's facts off the row, and the identities table's declaration where it has
+// none. A tenant's unlink names the tenant's list, as before.
+func Test_prepareIdentity_unlinkNamesTheListedIdentity(t *testing.T) {
+	t.Run("a tenant record", func(t *testing.T) {
+		// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+		t.Chdir(t.TempDir())
+
+		r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables)...)
+		r.resource = "pkg/resources"
+		r.tableMap["Ships"] = shipsTable()
+		writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": shipTenantSource})
+		if err := r.prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+
+		requireLines(t, map[string][]string{
+			"crewidentity/unlink_crew_session_identity.go":      {"// @target(CrewListedIdentity)\n"},
+			"crewidentity/unlink_crew_ship_session_identity.go": {"// @target(CrewShipIdentity)\n"},
+		})
+	})
+
+	t.Run("no tenant record", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+
+		if err := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables)...).prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+
+		requireLines(t, map[string][]string{"crewidentity/unlink_crew_session_identity.go": {"// @target(CrewSessionIdentity)\n"}})
+	})
+}
+
+// Test_identityOn_identities pins the whole application's identities in the generated API
+// description: the list that says who manages each account where the application has a
+// tenant record and the schema holds the accounts, the memberships and the identities,
+// the identities table's declaration where it has no tenant record, and a tenant's own
+// list on the tenant's side.
+func Test_identityOn_identities(t *testing.T) {
+	t.Parallel()
+
+	tables := map[identityTable]bool{identityUsers: true, identityMemberships: true, identityIdentities: true}
+	tenanted := &identityInstance{auth: "Crew", outlets: []string{"console"}, tables: tables, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id"}}
+	solo := &identityInstance{auth: "Staff", outlets: []string{"console"}, tables: tables}
+	data := &tsAPIData{}
+	// A side is described where the outlet serves its list of people, so each list of
+	// people is served with the identities.
+	for _, name := range []string{
+		"CrewListedUsers", "CrewSectorUsers", "StaffListedUsers",
+		"CrewListedIdentities", "CrewSessionIdentities", "CrewSectorIdentities", "StaffSessionIdentities",
+	} {
+		data.Resources = append(data.Resources, &tsAPIResource{Name: name})
+	}
+	generator := &typescriptGenerator{client: &client{identity: []*identityInstance{tenanted, solo}}, outletName: "console"}
+
+	got := make(map[string]string)
+	for _, identity := range generator.identityOn(data) {
+		for _, side := range identity.Sides {
+			for _, list := range side.Lists {
+				if list.Key == identityListIdentities {
+					got[identity.Auth+" "+string(side.Scope)] = list.Name
+				}
+			}
+		}
+	}
+	want := map[string]string{
+		"Crew " + string(accesstypes.GlobalPermissionScope):  "CrewListedIdentities",
+		"Crew " + string(accesstypes.DomainPermissionScope):  "CrewSectorIdentities",
+		"Staff " + string(accesstypes.GlobalPermissionScope): "StaffSessionIdentities",
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("identityOn() names the identities (-want +got):\n%s", diff)
+	}
+}
+
 // Test_identityInstance_rolesFrom pins the words of the directories that decide an
 // auth's roles: the labels of the registrations that write the roles of the people they
 // sign in, each once and in declaration order, joined as a sentence says them, and

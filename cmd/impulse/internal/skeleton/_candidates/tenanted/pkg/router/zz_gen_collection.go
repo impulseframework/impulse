@@ -1374,7 +1374,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:        accesstypes.GlobalPermissionScope,
 				Permissions:  []accesstypes.Permission{accesstypes.Execute},
 				Classes:      []accesstypes.ActionClass{ClassCredential},
-				Target:       "StaffSessionIdentities",
+				Target:       "StaffListedIdentities",
 				CallerEnters: true,
 			},
 			{

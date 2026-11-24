@@ -283,10 +283,10 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	if got := acts(offeredOnRow(ctx, t, governor, crewListedAccountsPath, riggerID)); !slices.Equal(got, accountActs) {
 		t.Errorf("the rigger's row of the fleet's accounts, as the governor reads it, offers the acts on an account %v, want %v", got, accountActs)
 	}
-	if offered := offeredOnRow(ctx, t, pilot, "crew-session-identities", riggersLink); slices.Contains(offered, unlink) {
+	if offered := offeredOnRow(ctx, t, pilot, "crew-listed-identities", riggersLink); slices.Contains(offered, unlink) {
 		t.Errorf("the rigger's sign-in identity, as the pilot reads it, offers %v, want no %s", offered, unlink)
 	}
-	if offered := offeredOnRow(ctx, t, governor, "crew-session-identities", riggersLink); !slices.Contains(offered, unlink) {
+	if offered := offeredOnRow(ctx, t, governor, "crew-listed-identities", riggersLink); !slices.Contains(offered, unlink) {
 		t.Errorf("the rigger's sign-in identity, as the governor reads it, offers %v, want %s", offered, unlink)
 	}
 	for _, refused := range []struct {

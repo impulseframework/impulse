@@ -18,8 +18,9 @@ type (
 	// person's row in StaffListedUser, under the same names (managedByTenant,
 	// managingTenant): an identity is the account's, so who may unlink one is who may
 	// manage the account. Tenant is the link's own column, the organization its directory
-	// vouched for, and is not the tenant that manages the account.
-	// StaffSessionIdentity, the declaration over the table, stays for what reads the table.
+	// vouched for, and is not the tenant that manages the account. The whole
+	// application's unlink names an identity by its row here. StaffSessionIdentity, the
+	// declaration over the table, stays for what reads the table.
 	//
 	// @virtual
 	// @outlet(default)

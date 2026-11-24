@@ -582,6 +582,42 @@ func TestGeneratedIdentityWhoManagesEachAccount(t *testing.T) {
 	})
 }
 
+// TestGeneratedIdentityUnlinkNamesTheListedIdentity holds the whole application's unlink
+// of a sign-in identity on the list of the identities that says who manages each account:
+// the row offers the unlink to a caller whose role gives it, the unlink answers as it did
+// on the identities table's row, and the row is then gone from the list.
+func TestGeneratedIdentityUnlinkNamesTheListedIdentity(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newTenantListsWorld(t)
+	// rae holds a password, so the identity is not her last way in.
+	link := w.directoryPerson(ctx, t, "rae", cinder)
+	listed := func() map[string]map[string]any {
+		t.Helper()
+
+		status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-identities?limit=200&filter=userId:eq:"+w.ids["rae"], "")
+		assertStatus(t, status, http.StatusOK, body)
+
+		return rowsByID(t, decodeRows(t, body), "id")
+	}
+	if _, ok := listed()[link]; !ok {
+		t.Fatalf("rae's identities = %v, want the one her sign-in through Cinder's directory linked (%s)", listed(), link)
+	}
+
+	status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-identities/"+link+"?capabilities=Execute", "")
+	assertStatus(t, status, http.StatusOK, body)
+	capabilities, _ := decodeRow(t, body)["zzCapabilities"].(map[string]any)
+	if offered, _ := capabilities["Execute"].([]any); !slices.Contains(offered, any("UnlinkCrewSessionIdentity")) {
+		t.Errorf("the Execute answer for rae's identity = %v, want it to list UnlinkCrewSessionIdentity for headquarters", offered)
+	}
+
+	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/unlink-crew-session-identity", fmt.Sprintf(`{"identityId":%q}`, link))
+	assertStatus(t, status, http.StatusNoContent, body)
+	if left := listed(); len(left) != 0 {
+		t.Errorf("rae's identities after the unlink = %v, want none", left)
+	}
+}
+
 // TestGeneratedIdentitySectorUserRoles holds the roles held in a sector: one row per role a
 // person holds there, keyed by the account's id and the role, the fact everyDomain true
 // where the role is held through a membership in every sector alone, and the
