@@ -179,6 +179,7 @@ func generatedRouteParameters() []string {
 		"staffGroupUserGroupID",
 		"staffGroupUserUserID",
 		"staffListedGroupID",
+		"staffListedMailLinkID",
 		"staffListedSessionID",
 		"staffListedUserID",
 		"staffSessionID",
@@ -324,6 +325,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/staff-listed-mail-links", method: http.MethodGet,
+			handlerFunc: "StaffListedMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-mail-links", method: http.MethodPost,
+			handlerFunc: "StaffListedMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodGet,
+			handlerFunc: "StaffListedMailLink",
+			parameters:  map[string]string{"staffListedMailLinkID": "testStaffListedMailLinkID"},
+		},
+		{
+			url: "/api/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodPost,
+			handlerFunc: "StaffListedMailLink",
+			parameters:  map[string]string{"staffListedMailLinkID": "testStaffListedMailLinkID"},
+		},
+		{
 			url: "/api/staff-listed-sessions", method: http.MethodGet,
 			handlerFunc: "StaffListedSessions",
 			parameters:  map[string]string{},
@@ -342,6 +363,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost,
 			handlerFunc: "StaffListedSession",
 			parameters:  map[string]string{"staffListedSessionID": "testStaffListedSessionID"},
+		},
+		{
+			url: "/api/staff-listed-sign-in-attempts", method: http.MethodGet,
+			handlerFunc: "StaffListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-sign-in-attempts", method: http.MethodPost,
+			handlerFunc: "StaffListedSignInAttempts",
+			parameters:  map[string]string{},
 		},
 		{
 			url: "/api/staff-listed-users", method: http.MethodGet,
@@ -810,6 +841,10 @@ func (s *generatedHandlersStub) RequireStaffSecondFactor() http.HandlerFunc {
 	return s.record("RequireStaffSecondFactor")
 }
 
+func (s *generatedHandlersStub) ResendStaffInvitation() http.HandlerFunc {
+	return s.record("ResendStaffInvitation")
+}
+
 func (s *generatedHandlersStub) RevokeStaffSessionToken() http.HandlerFunc {
 	return s.record("RevokeStaffSessionToken")
 }
@@ -886,6 +921,14 @@ func (s *generatedHandlersStub) StaffListedGroupRoles() http.HandlerFunc {
 	return s.record("StaffListedGroupRoles")
 }
 
+func (s *generatedHandlersStub) StaffListedMailLinks() http.HandlerFunc {
+	return s.record("StaffListedMailLinks")
+}
+
+func (s *generatedHandlersStub) StaffListedMailLink() http.HandlerFunc {
+	return s.record("StaffListedMailLink")
+}
+
 func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
 	return s.record("StaffListedRoleGrants")
 }
@@ -896,6 +939,10 @@ func (s *generatedHandlersStub) StaffListedSessions() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffListedSession() http.HandlerFunc {
 	return s.record("StaffListedSession")
+}
+
+func (s *generatedHandlersStub) StaffListedSignInAttempts() http.HandlerFunc {
+	return s.record("StaffListedSignInAttempts")
 }
 
 func (s *generatedHandlersStub) StaffListedUsers() http.HandlerFunc {

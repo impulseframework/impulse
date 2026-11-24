@@ -169,6 +169,12 @@ func (noSessionAPI) SessionTimeout() time.Duration {
 	return 10 * time.Minute
 }
 
+// SignInFailureLimit answers five failed sign-ins, the session library's own default:
+// this suite sets none.
+func (noSessionAPI) SignInFailureLimit() int {
+	return 5
+}
+
 // RequestAddressChange and SendPasswordReset mail nobody: there is no session manager
 // here to mail through, and each says so.
 func (noSessionAPI) RequestAddressChange(context.Context, impulse.UUID, string, session.AskedBy) error {

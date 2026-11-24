@@ -150,10 +150,16 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/members-listed-identities", method: http.MethodPost},
 		{url: "/console/api/members-listed-identities/testMembersListedIdentityID", method: http.MethodGet},
 		{url: "/console/api/members-listed-identities/testMembersListedIdentityID", method: http.MethodPost},
+		{url: "/console/api/members-listed-mail-links", method: http.MethodGet},
+		{url: "/console/api/members-listed-mail-links", method: http.MethodPost},
+		{url: "/console/api/members-listed-mail-links/testMembersListedMailLinkID", method: http.MethodGet},
+		{url: "/console/api/members-listed-mail-links/testMembersListedMailLinkID", method: http.MethodPost},
 		{url: "/console/api/members-listed-sessions", method: http.MethodGet},
 		{url: "/console/api/members-listed-sessions", method: http.MethodPost},
 		{url: "/console/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet},
 		{url: "/console/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost},
+		{url: "/console/api/members-listed-sign-in-attempts", method: http.MethodGet},
+		{url: "/console/api/members-listed-sign-in-attempts", method: http.MethodPost},
 		{url: "/console/api/members-listed-users", method: http.MethodGet},
 		{url: "/console/api/members-listed-users", method: http.MethodPost},
 		{url: "/console/api/members-listed-users/testMembersListedUserID", method: http.MethodGet},
@@ -281,6 +287,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/rename-members-tenant-user", method: http.MethodPost},
 		{url: "/console/api/rename-members-user", method: http.MethodPost},
 		{url: "/console/api/require-members-second-factor", method: http.MethodPost},
+		{url: "/console/api/resend-members-invitation", method: http.MethodPost},
+		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/resend-members-tenant-invitation", method: http.MethodPost},
 		{url: "/console/api/revoke-members-session-token", method: http.MethodPost},
 		{url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-members-tenant-user-trusted-devices", method: http.MethodPost},
 		{url: "/console/api/revoke-members-user-trusted-devices", method: http.MethodPost},
@@ -326,10 +334,16 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/staff-listed-identities", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-identities/testStaffListedIdentityID", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-identities/testStaffListedIdentityID", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-mail-links", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-mail-links", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-sessions", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-sessions", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-sign-in-attempts", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-sign-in-attempts", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-users", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-users", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-users/testStaffListedUserID", method: http.MethodGet},
@@ -478,6 +492,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/require-staff-password-change", method: http.MethodPost},
 		{url: "/portal/api/require-staff-second-factor", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/require-staff-tenant-password-change", method: http.MethodPost},
+		{url: "/portal/api/resend-staff-invitation", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/resend-staff-tenant-invitation", method: http.MethodPost},
 		{url: "/portal/api/revoke-staff-session-token", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		{url: "/portal/api/revoke-staff-user-trusted-devices", method: http.MethodPost},
@@ -538,10 +554,16 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/members-listed-identities", method: http.MethodPost},
 		{url: "/devices/members-listed-identities/testMembersListedIdentityID", method: http.MethodGet},
 		{url: "/devices/members-listed-identities/testMembersListedIdentityID", method: http.MethodPost},
+		{url: "/devices/members-listed-mail-links", method: http.MethodGet},
+		{url: "/devices/members-listed-mail-links", method: http.MethodPost},
+		{url: "/devices/members-listed-mail-links/testMembersListedMailLinkID", method: http.MethodGet},
+		{url: "/devices/members-listed-mail-links/testMembersListedMailLinkID", method: http.MethodPost},
 		{url: "/devices/members-listed-sessions", method: http.MethodGet},
 		{url: "/devices/members-listed-sessions", method: http.MethodPost},
 		{url: "/devices/members-listed-sessions/testMembersListedSessionID", method: http.MethodGet},
 		{url: "/devices/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost},
+		{url: "/devices/members-listed-sign-in-attempts", method: http.MethodGet},
+		{url: "/devices/members-listed-sign-in-attempts", method: http.MethodPost},
 		{url: "/devices/members-listed-users", method: http.MethodGet},
 		{url: "/devices/members-listed-users", method: http.MethodPost},
 		{url: "/devices/members-listed-users/testMembersListedUserID", method: http.MethodGet},
@@ -642,10 +664,16 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/staff-listed-identities", method: http.MethodPost},
 		{url: "/devices/staff-listed-identities/testStaffListedIdentityID", method: http.MethodGet},
 		{url: "/devices/staff-listed-identities/testStaffListedIdentityID", method: http.MethodPost},
+		{url: "/devices/staff-listed-mail-links", method: http.MethodGet},
+		{url: "/devices/staff-listed-mail-links", method: http.MethodPost},
+		{url: "/devices/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodGet},
+		{url: "/devices/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodPost},
 		{url: "/devices/staff-listed-sessions", method: http.MethodGet},
 		{url: "/devices/staff-listed-sessions", method: http.MethodPost},
 		{url: "/devices/staff-listed-sessions/testStaffListedSessionID", method: http.MethodGet},
 		{url: "/devices/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost},
+		{url: "/devices/staff-listed-sign-in-attempts", method: http.MethodGet},
+		{url: "/devices/staff-listed-sign-in-attempts", method: http.MethodPost},
 		{url: "/devices/staff-listed-users", method: http.MethodGet},
 		{url: "/devices/staff-listed-users", method: http.MethodPost},
 		{url: "/devices/staff-listed-users/testStaffListedUserID", method: http.MethodGet},
@@ -841,6 +869,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/require-staff-password-change", method: http.MethodPost},
 		{url: "/devices/require-staff-second-factor", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/require-staff-tenant-password-change", method: http.MethodPost},
+		{url: "/devices/resend-members-invitation", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/resend-members-tenant-invitation", method: http.MethodPost},
+		{url: "/devices/resend-staff-invitation", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/resend-staff-tenant-invitation", method: http.MethodPost},
 		{url: "/devices/revoke-members-session-token", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/revoke-members-tenant-user-trusted-devices", method: http.MethodPost},
 		{url: "/devices/revoke-members-user-trusted-devices", method: http.MethodPost},
@@ -1000,6 +1032,7 @@ func generatedRouteParameters() []string {
 		"membersGroupUserUserID",
 		"membersListedGroupID",
 		"membersListedIdentityID",
+		"membersListedMailLinkID",
 		"membersListedSessionID",
 		"membersListedUserID",
 		"membersSessionID",
@@ -1033,6 +1066,7 @@ func generatedRouteParameters() []string {
 		"staffGroupUserUserID",
 		"staffListedGroupID",
 		"staffListedIdentityID",
+		"staffListedMailLinkID",
 		"staffListedSessionID",
 		"staffListedUserID",
 		"staffSessionID",
@@ -1253,6 +1287,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersListedIdentityID": "testMembersListedIdentityID"},
 		},
 		{
+			url: "/portal/api/members-listed-mail-links", method: http.MethodGet,
+			handlerFunc: "MembersListedMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-mail-links", method: http.MethodPost,
+			handlerFunc: "MembersListedMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-mail-links/testMembersListedMailLinkID", method: http.MethodGet,
+			handlerFunc: "MembersListedMailLink",
+			parameters:  map[string]string{"membersListedMailLinkID": "testMembersListedMailLinkID"},
+		},
+		{
+			url: "/portal/api/members-listed-mail-links/testMembersListedMailLinkID", method: http.MethodPost,
+			handlerFunc: "MembersListedMailLink",
+			parameters:  map[string]string{"membersListedMailLinkID": "testMembersListedMailLinkID"},
+		},
+		{
 			url: "/portal/api/members-listed-sessions", method: http.MethodGet,
 			handlerFunc: "MembersListedSessions",
 			parameters:  map[string]string{},
@@ -1271,6 +1325,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/members-listed-sessions/testMembersListedSessionID", method: http.MethodPost,
 			handlerFunc: "MembersListedSession",
 			parameters:  map[string]string{"membersListedSessionID": "testMembersListedSessionID"},
+		},
+		{
+			url: "/portal/api/members-listed-sign-in-attempts", method: http.MethodGet,
+			handlerFunc: "MembersListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-sign-in-attempts", method: http.MethodPost,
+			handlerFunc: "MembersListedSignInAttempts",
+			parameters:  map[string]string{},
 		},
 		{
 			url: "/portal/api/members-listed-users", method: http.MethodGet,
@@ -1793,6 +1857,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffListedIdentityID": "testStaffListedIdentityID"},
 		},
 		{
+			url: "/console/api/staff-listed-mail-links", method: http.MethodGet,
+			handlerFunc: "StaffListedMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-mail-links", method: http.MethodPost,
+			handlerFunc: "StaffListedMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodGet,
+			handlerFunc: "StaffListedMailLink",
+			parameters:  map[string]string{"staffListedMailLinkID": "testStaffListedMailLinkID"},
+		},
+		{
+			url: "/console/api/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodPost,
+			handlerFunc: "StaffListedMailLink",
+			parameters:  map[string]string{"staffListedMailLinkID": "testStaffListedMailLinkID"},
+		},
+		{
 			url: "/console/api/staff-listed-sessions", method: http.MethodGet,
 			handlerFunc: "StaffListedSessions",
 			parameters:  map[string]string{},
@@ -1811,6 +1895,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/console/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost,
 			handlerFunc: "StaffListedSession",
 			parameters:  map[string]string{"staffListedSessionID": "testStaffListedSessionID"},
+		},
+		{
+			url: "/console/api/staff-listed-sign-in-attempts", method: http.MethodGet,
+			handlerFunc: "StaffListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-sign-in-attempts", method: http.MethodPost,
+			handlerFunc: "StaffListedSignInAttempts",
+			parameters:  map[string]string{},
 		},
 		{
 			url: "/console/api/staff-listed-users", method: http.MethodGet,
@@ -2851,6 +2945,14 @@ func (s *generatedHandlersStub) RequireStaffTenantPasswordChange() http.HandlerF
 	return s.record("RequireStaffTenantPasswordChange")
 }
 
+func (s *generatedHandlersStub) ResendStaffInvitation() http.HandlerFunc {
+	return s.record("ResendStaffInvitation")
+}
+
+func (s *generatedHandlersStub) ResendStaffTenantInvitation() http.HandlerFunc {
+	return s.record("ResendStaffTenantInvitation")
+}
+
 func (s *generatedHandlersStub) RevokeStaffSessionToken() http.HandlerFunc {
 	return s.record("RevokeStaffSessionToken")
 }
@@ -2959,6 +3061,14 @@ func (s *generatedHandlersStub) StaffListedIdentity() http.HandlerFunc {
 	return s.record("StaffListedIdentity")
 }
 
+func (s *generatedHandlersStub) StaffListedMailLinks() http.HandlerFunc {
+	return s.record("StaffListedMailLinks")
+}
+
+func (s *generatedHandlersStub) StaffListedMailLink() http.HandlerFunc {
+	return s.record("StaffListedMailLink")
+}
+
 func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
 	return s.record("StaffListedRoleGrants")
 }
@@ -2969,6 +3079,10 @@ func (s *generatedHandlersStub) StaffListedSessions() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffListedSession() http.HandlerFunc {
 	return s.record("StaffListedSession")
+}
+
+func (s *generatedHandlersStub) StaffListedSignInAttempts() http.HandlerFunc {
+	return s.record("StaffListedSignInAttempts")
 }
 
 func (s *generatedHandlersStub) StaffListedUsers() http.HandlerFunc {
@@ -3363,6 +3477,14 @@ func (s *generatedHandlersStub) MembersListedIdentity() http.HandlerFunc {
 	return s.record("MembersListedIdentity")
 }
 
+func (s *generatedHandlersStub) MembersListedMailLink() http.HandlerFunc {
+	return s.record("MembersListedMailLink")
+}
+
+func (s *generatedHandlersStub) MembersListedMailLinks() http.HandlerFunc {
+	return s.record("MembersListedMailLinks")
+}
+
 func (s *generatedHandlersStub) MembersListedRoleGrants() http.HandlerFunc {
 	return s.record("MembersListedRoleGrants")
 }
@@ -3373,6 +3495,10 @@ func (s *generatedHandlersStub) MembersListedSession() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MembersListedSessions() http.HandlerFunc {
 	return s.record("MembersListedSessions")
+}
+
+func (s *generatedHandlersStub) MembersListedSignInAttempts() http.HandlerFunc {
+	return s.record("MembersListedSignInAttempts")
 }
 
 func (s *generatedHandlersStub) MembersListedUser() http.HandlerFunc {
@@ -3597,6 +3723,14 @@ func (s *generatedHandlersStub) RenameMembersUser() http.HandlerFunc {
 
 func (s *generatedHandlersStub) RequireMembersSecondFactor() http.HandlerFunc {
 	return s.record("RequireMembersSecondFactor")
+}
+
+func (s *generatedHandlersStub) ResendMembersInvitation() http.HandlerFunc {
+	return s.record("ResendMembersInvitation")
+}
+
+func (s *generatedHandlersStub) ResendMembersTenantInvitation() http.HandlerFunc {
+	return s.record("ResendMembersTenantInvitation")
 }
 
 func (s *generatedHandlersStub) RevokeMembersSessionToken() http.HandlerFunc {

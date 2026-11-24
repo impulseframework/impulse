@@ -69,12 +69,24 @@ func (a *App) StaffListedGroupRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedGroupRoles()
 }
 
+func (a *App) StaffListedMailLinks() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedMailLinks()
+}
+
+func (a *App) StaffListedMailLink() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedMailLink()
+}
+
 func (a *App) StaffListedSessions() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedSessions()
 }
 
 func (a *App) StaffListedSession() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedSession()
+}
+
+func (a *App) StaffListedSignInAttempts() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedSignInAttempts()
 }
 
 func (a *App) StaffListedUsers() http.HandlerFunc {
@@ -275,6 +287,10 @@ func (a *App) RequireStaffPasswordChange() http.HandlerFunc {
 
 func (a *App) RequireStaffSecondFactor() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RequireStaffSecondFactor()
+}
+
+func (a *App) ResendStaffInvitation() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).ResendStaffInvitation()
 }
 
 func (a *App) RevokeStaffSessionToken() http.HandlerFunc {

@@ -379,6 +379,30 @@ export interface RequireMembersSecondFactor {}
 /** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
 export type RequireMembersSecondFactorStatus = 204;
 
+export interface ResendMembersInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendMembersInvitation {
+  invitationId: string;
+}
+/** The result ResendMembersInvitation answers with. */
+export interface ResendMembersInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
+export interface ResendMembersTenantInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendMembersTenantInvitation {
+  invitationId: string;
+}
+/** The result ResendMembersTenantInvitation answers with. */
+export interface ResendMembersTenantInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
 export interface RevokeMembersSessionTokenConfig {
   tokenId: string | FieldPointer;
 }
@@ -841,6 +865,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.MembersListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -994,6 +1019,24 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [],
   },
+  [Methods.ResendMembersInvitation]: {
+    route: 'resend-members-invitation',
+    target: { resource: Resources.MembersListedMailLinks, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.ResendMembersTenantInvitation]: {
+    route: 'resend-members-tenant-invitation',
+    target: { resource: Resources.MembersTenantInvitations, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
   [Methods.RevokeMembersSessionToken]: {
     route: 'revoke-members-session-token',
     target: { resource: Resources.MembersSessionTokens, key: { tokenId: 'id' } },
@@ -1129,7 +1172,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockMembersSignIn]: {
     route: 'unlock-members-sign-in',
-    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.MembersListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1138,7 +1181,7 @@ const methodMap: MethodMap = {
   },
   [Methods.WithdrawMembersInvitation]: {
     route: 'withdraw-members-invitation',
-    target: { resource: Resources.MembersSessionMailLinks, key: { invitationId: 'id' } },
+    target: { resource: Resources.MembersListedMailLinks, key: { invitationId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
