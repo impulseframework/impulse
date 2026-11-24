@@ -1107,7 +1107,7 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "resources.go"), []byte(source), 0o600); err != nil {
 				t.Fatalf("os.WriteFile() error = %v", err)
 			}
-			got, gotSeated, directoriesRecord, seat, outlets, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
+			got, directories, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
 				return strings.TrimSuffix(name, "y") + "ies"
 			})
 			if err != nil {
@@ -1116,16 +1116,16 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("tenantDirectoryIn() mismatch (-want +got):\n%s", diff)
 			}
-			if seat != tt.wantSeat {
-				t.Errorf("tenantDirectoryIn() default seat column = %q, want %q", seat, tt.wantSeat)
+			if directories.seat != tt.wantSeat {
+				t.Errorf("tenantDirectoryIn() default seat column = %q, want %q", directories.seat, tt.wantSeat)
 			}
-			if diff := cmp.Diff(tt.wantSeated, gotSeated); diff != "" {
+			if diff := cmp.Diff(tt.wantSeated, directories.seated); diff != "" {
 				t.Errorf("tenantDirectoryIn() where the default seat is kept (-want +got):\n%s", diff)
 			}
-			if directoriesRecord != tt.wantRecord {
-				t.Errorf("tenantDirectoryIn() directories record = %q, want %q", directoriesRecord, tt.wantRecord)
+			if directories.record != tt.wantRecord {
+				t.Errorf("tenantDirectoryIn() directories record = %q, want %q", directories.record, tt.wantRecord)
 			}
-			if diff := cmp.Diff(tt.wantOutlets, outlets); diff != "" {
+			if diff := cmp.Diff(tt.wantOutlets, directories.outlets); diff != "" {
 				t.Errorf("tenantDirectoryIn() outlets of the directories record (-want +got):\n%s", diff)
 			}
 		})

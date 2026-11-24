@@ -180,7 +180,7 @@ func TestSelfServiceSector_pioneerChartsHerOwn(t *testing.T) {
 	// users table and nothing else. The seat the route gives her is held by its id. Her
 	// sessions signed in through that registration.
 	makeCrewAccount(ctx, t, db, pioneerUser)
-	signedInThrough(t, pioneerUser, signedUpWithGoogle)
+	signedInThrough(t, pioneerUser, &signedUpWithGoogle)
 
 	fake := live.NewFake()
 	first := startSelfServiceInstance(t, "the first instance", db, crewEngine, membersEngine, fake)
@@ -282,9 +282,9 @@ func TestSelfServiceSector_theSessionsOwnMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 	makeCrewAccount(ctx, t, db, pioneerUser)
-	signedInThrough(t, pioneerUser, signedUpWithGoogle)
+	signedInThrough(t, pioneerUser, &signedUpWithGoogle)
 	makeCrewAccount(ctx, t, db, homesteaderUser)
-	signedInThrough(t, homesteaderUser, signedInByPassword)
+	signedInThrough(t, homesteaderUser, &signedInByPassword)
 	makeCrewAccount(ctx, t, db, stowawayUser)
 
 	on := startSelfServiceInstance(t, "the instance", db, crewEngine, membersEngine, live.NewFake())
@@ -374,7 +374,7 @@ func TestSelfServiceSector_twoAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	pioneer := makeCrewAccount(ctx, t, db, pioneerUser)
-	signedInThrough(t, pioneerUser, signedUpWithGoogle)
+	signedInThrough(t, pioneerUser, &signedUpWithGoogle)
 
 	fake := live.NewFake()
 	first := startSelfServiceInstance(t, "the first instance", db, crewEngine, membersEngine, fake)

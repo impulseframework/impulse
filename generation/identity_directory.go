@@ -40,6 +40,30 @@ type identityTenantDirectory struct {
 	ConnectionColumn string
 }
 
+// identityDirectoriesRecord is the tenant's directories record (@tenantDirectory) as
+// the reading before the load finds it in a package's sources (tenantDirectoryIn). Each
+// part is read whether the tenant record declares the directory-only switch or not.
+type identityDirectoriesRecord struct {
+	// record is the record's struct name, "" where the package declares none.
+	record string
+	// seat is the record's default seat column (@directoryDefaultSeat), "" where the
+	// package declares no directories record or the record no such column: the role a
+	// tenant is opened to its directory's people with is judged by the role file's
+	// grants, which the sources written before the load must carry (seatsDirectory).
+	seat string
+	// seated is where the record keeps its default seat with its table, tenant, method
+	// and connection columns, nil where the package declares no directories record, the
+	// record no default seat column, or one of those columns cannot be read off the
+	// syntax (identityDirectorySeat).
+	seated *identityDirectorySeat
+	// outlets are the outlets the record is served on, as its @outlet names them, nil
+	// where the package declares no directories record: the two methods that say how a
+	// tenant admits its directory's people are served there, and the list their role is
+	// picked from is written for the auth those outlets sign people in through
+	// (identityOpensToDirectory).
+	outlets []string
+}
+
 // identityDirectorySeat names where the tenant's directories record keeps its default
 // seat, as the generated identity client reads whether a person removed from a tenant is
 // given its starting role again at their next sign-in (SeatedAgainBySignIn): the
@@ -229,27 +253,12 @@ func fieldAnnotation(keyword string) *regexp.Regexp {
 // packages are loaded, with the struct's place, and holdIdentityTenantDirectory holds
 // this reading to the loaded one. Only the syntax is read, as tenantRecordIn reads it.
 //
-// seated is where the directories record keeps its default seat with its table, tenant,
-// method and connection columns, nil where the package declares no directories record,
-// the record no default seat column, or one of those columns cannot be read off the
-// syntax; it is read whether the tenant record declares the switch or not
-// (identityDirectorySeat).
-//
-// record is the directories record's struct name, "" where the package declares none,
-// read whether the tenant record declares the switch or not. seat is the directories
-// record's default seat column (@directoryDefaultSeat), "" where the package declares
-// no directories record or the record no such column. It is read whether the tenant
-// record declares the switch or not: the role a tenant is opened to its directory's
-// people with is judged by the role file's grants, which the sources written before the
-// load must carry (seatsDirectory). outlets are the outlets the directories record is
-// served on, as its @outlet names them, nil where the package declares no directories
-// record: the two methods that say how a tenant admits its directory's people are
-// served there, and the list their role is picked from is written for the auth those
-// outlets sign people in through (identityOpensToDirectory).
-func tenantDirectoryIn(dir, tenant string, pluralize func(string) string) (directory *identityTenantDirectory, seated *identityDirectorySeat, record, seat string, outlets []string, err error) {
+// directories is the directories record as the sources declare it, read whether the
+// tenant record declares the switch or not (identityDirectoriesRecord).
+func tenantDirectoryIn(dir, tenant string, pluralize func(string) string) (directory *identityTenantDirectory, directories identityDirectoriesRecord, err error) {
 	pkg, err := build.ImportDir(dir, 0)
 	if err != nil {
-		return nil, nil, "", "", nil, errors.Wrap(err, "build.ImportDir()")
+		return nil, identityDirectoriesRecord{}, errors.Wrap(err, "build.ImportDir()")
 	}
 
 	out := &identityTenantDirectory{}
@@ -257,7 +266,7 @@ func tenantDirectoryIn(dir, tenant string, pluralize func(string) string) (direc
 	for _, name := range pkg.GoFiles {
 		file, err := goparser.ParseFile(fset, filepath.Join(dir, name), nil, goparser.ParseComments|goparser.SkipObjectResolution)
 		if err != nil {
-			return nil, nil, "", "", nil, errors.Wrap(err, "parser.ParseFile()")
+			return nil, identityDirectoriesRecord{}, errors.Wrap(err, "parser.ParseFile()")
 		}
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -277,25 +286,25 @@ func tenantDirectoryIn(dir, tenant string, pluralize func(string) string) (direc
 				case typeSpec.Name.Name == tenant:
 					out.OnlyColumn = annotatedColumn(structType, fieldDirectoryOnly)
 				case structCommentHas(gen, typeSpec, tenantDirectoryKeyword):
-					record = typeSpec.Name.Name
+					directories.record = typeSpec.Name.Name
 					out.Table = pluralize(typeSpec.Name.Name)
 					out.TenantColumn = annotatedColumn(structType, fieldBareDomain)
 					out.MethodColumn = annotatedColumn(structType, fieldDirectoryMethod)
 					out.ConnectionColumn = annotatedColumn(structType, fieldDirectoryConnection)
-					seat = annotatedColumn(structType, fieldDirectorySeat)
-					outlets = structCommentOutlets(gen, typeSpec)
+					directories.seat = annotatedColumn(structType, fieldDirectorySeat)
+					directories.outlets = structCommentOutlets(gen, typeSpec)
 				}
 			}
 		}
 	}
-	if seat != "" && out.Table != "" && out.TenantColumn != "" && out.MethodColumn != "" && out.ConnectionColumn != "" {
-		seated = &identityDirectorySeat{Table: out.Table, TenantColumn: out.TenantColumn, MethodColumn: out.MethodColumn, ConnectionColumn: out.ConnectionColumn, SeatColumn: seat}
+	if directories.seat != "" && out.Table != "" && out.TenantColumn != "" && out.MethodColumn != "" && out.ConnectionColumn != "" {
+		directories.seated = &identityDirectorySeat{Table: out.Table, TenantColumn: out.TenantColumn, MethodColumn: out.MethodColumn, ConnectionColumn: out.ConnectionColumn, SeatColumn: directories.seat}
 	}
 	if out.OnlyColumn == "" || out.Table == "" || out.TenantColumn == "" || out.MethodColumn == "" || out.ConnectionColumn == "" {
-		return nil, seated, record, seat, outlets, nil
+		return nil, directories, nil
 	}
 
-	return out, seated, record, seat, outlets, nil
+	return out, directories, nil
 }
 
 // seatsDirectory reports whether the instance's client judges the role a tenant is

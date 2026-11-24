@@ -475,7 +475,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 			t.Fatal(err)
 		}
 		inBastion := access.NewMembershipKey(accesstypes.DomainPolicyScope(accesstypes.Domain(bastion)), "", "")
-		if _, err := s.db.Client.Apply(ctx, []*spanner.Mutation{
+		if _, err := s.db.Apply(ctx, []*spanner.Mutation{
 			spanner.InsertMap("CrewGroups", map[string]any{
 				"Id": group.String(), "Kind": inBastion.Kind, "Axis": inBastion.Axis, "DomainId": inBastion.Domain, "Name": "Night watch " + suffix,
 				"Description": "Bastion's night watch, for the move.", "UpdatedAt": spanner.CommitTimestamp,

@@ -221,6 +221,10 @@ func (m *Manager) DirectoryName(directory signin.Directory) (name, label string)
 // the generated identity client's to answer (SeatedAgainBySignIn).
 func (t *Tenant) SeatedAgainNote() resource.WarningNote {
 	return resource.WarningNote{
-		Says: fmt.Sprintf("This %s is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. A role with no privileges keeps them out.", t.manager.tenantWord),
+		Says: fmt.Sprintf(
+			"This %s is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. A role with no privileges keeps them out.",
+			t.manager.tenantWord,
+		),
+		Names: nil,
 	}
 }

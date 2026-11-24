@@ -349,7 +349,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	directory, seated, directories, seat, directoryOutlets, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
+	directory, directories, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
 	if err != nil {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the directory-only switch (@%s) and the directories record (@%s) from the sources of %s", r.identityTree.Dir(), directoryOnlyKeyword, tenantDirectoryKeyword, r.resource.Dir())
 	}
@@ -361,7 +361,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 
 	return &identityTenant{
 		name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label),
-		directory: directory, directorySeat: seat, seated: seated, directoryOutlets: directoryOutlets, directories: directories,
+		directory: directory, directorySeat: directories.seat, seated: directories.seated, directoryOutlets: directories.outlets, directories: directories.record,
 		invitation: invitation, unreadable: unreadable,
 	}, nil
 }

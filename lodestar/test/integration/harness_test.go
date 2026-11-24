@@ -811,18 +811,20 @@ func sessionContext(t *testing.T, user accesstypes.User) context.Context {
 // signedInEvents holds how the people of the tests signed in: a test that says how a
 // person's synthetic session came in (signedInThrough) has it carry that sign-in event
 // from then on. A pair belongs to the top-level test that named it, as madeAccounts'
-// do. Each event is held by its address: an event carries a list (IDPAMR), so it is no
-// value a map compares.
+// do. Each event is held by the address of a copy of its own: an event carries a list
+// (IDPAMR), so it is no value a map compares, and two tests that name one event each
+// hold their own copy.
 var signedInEvents sync.Map
 
 // signedInThrough tells the harness that the person's synthetic sessions signed in by the
 // event from here on, as the session's first auth event records the way a person came in
 // (sessioninfo.SessionData.EstablishedBy), and forgets it when the test ends.
-func signedInThrough(t *testing.T, username accesstypes.User, event sessioninfo.AuthEvent) {
+func signedInThrough(t *testing.T, username accesstypes.User, event *sessioninfo.AuthEvent) {
 	t.Helper()
 
 	key := madeAccount{test: topLevelTest(t), username: username}
-	held := &event
+	held := new(sessioninfo.AuthEvent)
+	*held = *event
 	signedInEvents.Store(key, held)
 	t.Cleanup(func() { signedInEvents.CompareAndDelete(key, held) })
 }
