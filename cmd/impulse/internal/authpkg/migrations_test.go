@@ -176,3 +176,21 @@ func TestMigrations_signInSettings(t *testing.T) {
 		t.Errorf("the down migrations lack %q", drops)
 	}
 }
+
+// TestMigrations_withdrawnLinks holds the column a mail link that was taken back is
+// marked in: the session library's SessionWithdrawnLinks migration, in the mail links
+// table under the auth's prefix, where the generator asks for it.
+func TestMigrations_withdrawnLinks(t *testing.T) {
+	t.Parallel()
+
+	var up strings.Builder
+	for _, m := range Migrations("Staff", "staff", false) {
+		up.WriteString(m.Up)
+	}
+	const column = "    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),\n"
+	table := up.String()[strings.Index(up.String(), "CREATE TABLE StaffSessionMailLinks ("):]
+	table = table[:strings.Index(table, ") PRIMARY KEY (Id);")]
+	if !strings.Contains(table, column) {
+		t.Errorf("the mail links table lacks %q:\n%s", column, table)
+	}
+}

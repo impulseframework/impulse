@@ -306,7 +306,8 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -424,7 +425,8 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -762,7 +764,8 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -810,7 +813,8 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
               ]
             },
             {

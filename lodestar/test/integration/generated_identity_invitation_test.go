@@ -61,6 +61,13 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	consumed := func(id string) bool {
 		return readColumn[spanner.NullTime](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{id}, "ConsumedAt").Valid
 	}
+	// ended reads when the link id was consumed and when it was withdrawn.
+	ended := func(id string) (consumedAt, withdrawnAt spanner.NullTime) {
+		consumedAt = readColumn[spanner.NullTime](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{id}, "ConsumedAt")
+		withdrawnAt = readColumn[spanner.NullTime](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{id}, "WithdrawnAt")
+
+		return consumedAt, withdrawnAt
+	}
 
 	// A cadet holds no grant on the method; an invitation gives a role, which exists
 	// where the invitation gives it.
@@ -160,6 +167,9 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	if !consumed(answer.ID) {
 		t.Error("the accepted invitation still stands")
 	}
+	if _, withdrawnAt := ended(answer.ID); withdrawnAt.Valid {
+		t.Errorf("the accepted invitation's WithdrawnAt = %v, want none: it was accepted, not taken back", withdrawnAt)
+	}
 
 	// An invitation into a sector carries the sector.
 	sector := inviteCrew(ctx, t, hq, `{"email":"wingman@example.com","roles":["Pilot"],"domain":"`+anvil+`"}`)
@@ -242,6 +252,9 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	assertStatus(t, status, http.StatusNoContent, body)
 	if !consumed(withdrawn.ID) {
 		t.Error("the withdrawn invitation still stands")
+	}
+	if consumedAt, withdrawnAt := ended(withdrawn.ID); !withdrawnAt.Valid || !withdrawnAt.Time.Equal(consumedAt.Time) {
+		t.Errorf("the withdrawn invitation's WithdrawnAt = %v and ConsumedAt = %v, want one time in both: it was taken back", withdrawnAt, consumedAt)
 	}
 	other := newBrowser(t, s, consoleAPI)
 	if status, body := other.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {

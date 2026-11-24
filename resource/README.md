@@ -5444,8 +5444,9 @@ an invitation into every tenant from one into the whole application. A link whos
 could not be mailed ends where the mail failed, and its row says so: the table carries
 `MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true)`, a schema without it is
 refused at generation the same way, and the list serves it as `mailFailedAt`, so a page
-tells such a link from one that was used or withdrawn. An invitation is held to
-its place when it is sent. One that says every tenant takes roles that exist in every
+tells such a link from one that was used or withdrawn. A link that was taken back is
+consumed with `WithdrawnAt` set, so a list tells Withdrawn from Accepted. An invitation is
+held to its place when it is sent. One that says every tenant takes roles that exist in every
 tenant: a role of the whole application alone is refused (400), and a custom role whose
 name a role of the whole application carries too is invited like any other, the person
 being given the tenants' one. One that says neither takes roles of the

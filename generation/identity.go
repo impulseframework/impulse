@@ -392,6 +392,9 @@ func (r *resourceGenerator) prepareIdentity() error {
 		if err := r.requireMailFailedColumn(inst); err != nil {
 			return err
 		}
+		if err := r.requireWithdrawnColumn(inst); err != nil {
+			return err
+		}
 		if err := r.refuseReservedRole(inst); err != nil {
 			return err
 		}

@@ -33,6 +33,7 @@ func (h *Handlers) CrewSessionMailLinks() http.HandlerFunc {
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
+		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
 	}
 
 	type response []map[string]any
@@ -127,6 +128,10 @@ func (h *Handlers) CrewSessionMailLinks() http.HandlerFunc {
 					if !row.Masked("mailFailedAt") {
 						rmap["mailFailedAt"] = rec.MailFailedAt
 					}
+				case "WithdrawnAt":
+					if !row.Masked("withdrawnAt") {
+						rmap["withdrawnAt"] = rec.WithdrawnAt
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -163,6 +168,7 @@ func (h *Handlers) CrewSessionMailLink() http.HandlerFunc {
 		ExpiresAt       time.Time     `json:"expiresAt"`
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
+		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSessionMailLink, response](h, accesstypes.Read)
@@ -244,6 +250,10 @@ func (h *Handlers) CrewSessionMailLink() http.HandlerFunc {
 			case "MailFailedAt":
 				if !row.Masked("mailFailedAt") {
 					rmap["mailFailedAt"] = rec.MailFailedAt
+				}
+			case "WithdrawnAt":
+				if !row.Masked("withdrawnAt") {
+					rmap["withdrawnAt"] = rec.WithdrawnAt
 				}
 			}
 		}

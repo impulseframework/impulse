@@ -435,8 +435,9 @@ type AuthStore[Tx any] interface {
 	// ConsumeMailLink consumes the live mail link holding tokenHash by a conditional
 	// update, so it is consumed once; a link that is not live is NotFound.
 	ConsumeMailLink(ctx context.Context, tokenHash []byte) error
-	// RevokeMailLink consumes the live mail link id: an invitation withdrawn by hand.
-	// A link that is not live is NotFound.
+	// RevokeMailLink marks the live mail link id consumed and withdrawn, both at the
+	// database's time: a link taken back before anyone followed it. A link that is not
+	// live is NotFound.
 	RevokeMailLink(ctx context.Context, id impulse.UUID) error
 	// FailMailLink ends the live mail link id whose message could not be mailed. The
 	// link is consumed, as a withdrawn one is, and its row says the mail failed, so a

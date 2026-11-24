@@ -167,7 +167,8 @@ type Store interface {
 	// MailLink reads one link the auth mailed; found is false where no link holds the
 	// id.
 	MailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (link *MailLink, found bool, err error)
-	// ConsumeMailLink buffers the consumption of one link: it is then dead.
+	// ConsumeMailLink buffers the withdrawal of one link: it is consumed and marked
+	// withdrawn, and is then dead.
 	ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 	// TenantInvitations lists the invitations into one tenant that are not consumed:
 	// neither accepted nor withdrawn. An auth that mails no links answers none.

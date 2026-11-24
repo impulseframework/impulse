@@ -334,9 +334,11 @@ func mailLinksUp(p, who string) string {
 -- update so one link completes once. A revoked invitation is consumed by hand, and a
 -- link whose message could not be mailed is consumed where the mail failed, with
 -- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
--- verification link, a first-password code, a reset link and an address confirmation
--- go with their user. CreatedAt, ConsumedAt and MailFailedAt take the commit time;
--- ExpiresAt is the library's deadline, written as given.
+-- link that was taken back is consumed too, with WithdrawnAt set: it tells a
+-- withdrawal from an acceptance. A verification link, a first-password code, a reset
+-- link and an address confirmation go with their user. CreatedAt, ConsumedAt,
+-- MailFailedAt and WithdrawnAt take the commit time; ExpiresAt is the library's
+-- deadline, written as given.
 CREATE TABLE %[1]sSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -353,6 +355,7 @@ CREATE TABLE %[1]sSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_%[1]sSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
     CONSTRAINT CK_%[1]sSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_%[1]sSessionMailLinks_%[1]sSessionUsers FOREIGN KEY (UserId) REFERENCES %[1]sSessionUsers (Id) ON DELETE CASCADE,

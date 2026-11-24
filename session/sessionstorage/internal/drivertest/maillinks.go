@@ -570,6 +570,62 @@ func testMailLinkMailFailed(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 }
 
+func testMailLinkWithdrawn(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+	withdrawn := insertInvitation(ctx, t, in.Driver, "withdrawn@lakeside.edu", "lakeside", nil, tokenHash(1))
+	followed := insertInvitation(ctx, t, in.Driver, "followed@lakeside.edu", "lakeside", nil, tokenHash(2))
+	unmailed := insertInvitation(ctx, t, in.Driver, "unmailed@lakeside.edu", "lakeside", nil, tokenHash(3))
+
+	// A standing link says nothing of a withdrawal.
+	if withdrawnAt := h.MailLinkWithdrawnAt(ctx, t, in.Raw, withdrawn.TokenHash); withdrawnAt != nil {
+		t.Errorf("WithdrawnAt of a standing link = %v, want nil", withdrawnAt)
+	}
+
+	// The link taken back is consumed and marked withdrawn, in one write at the
+	// database's time.
+	w := startWindow(h.ClockLead)
+	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now()); err != nil {
+		t.Fatalf("RevokeMailLink() error = %v", err)
+	}
+	w.done()
+	withdrawnAt, consumedAt := h.MailLinkWithdrawnAt(ctx, t, in.Raw, withdrawn.TokenHash), h.MailLinkConsumedAt(ctx, t, in.Raw, withdrawn.TokenHash)
+	if withdrawnAt == nil || consumedAt == nil {
+		t.Fatalf("WithdrawnAt, ConsumedAt after RevokeMailLink() = %v, %v; want the database's time in both", withdrawnAt, consumedAt)
+	}
+	w.assertStamped(t, "WithdrawnAt", *withdrawnAt)
+	if !withdrawnAt.Equal(*consumedAt) {
+		t.Errorf("WithdrawnAt = %v and ConsumedAt = %v, want one time: one write stamps both", withdrawnAt, consumedAt)
+	}
+
+	// Once: a second withdrawal is NotFound and moves neither time.
+	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now()); !httpio.HasNotFound(err) {
+		t.Errorf("second RevokeMailLink() error = %v, want NotFound", err)
+	}
+	if again := h.MailLinkWithdrawnAt(ctx, t, in.Raw, withdrawn.TokenHash); again == nil || !again.Equal(*withdrawnAt) {
+		t.Errorf("WithdrawnAt after a second RevokeMailLink() = %v, want %v unchanged", again, withdrawnAt)
+	}
+	if again := h.MailLinkConsumedAt(ctx, t, in.Raw, withdrawn.TokenHash); again == nil || !again.Equal(*consumedAt) {
+		t.Errorf("ConsumedAt after a second RevokeMailLink() = %v, want %v unchanged", again, consumedAt)
+	}
+
+	// A link that was followed and one whose message could not be mailed are ended and
+	// say nothing of a withdrawal.
+	if err := in.Driver.ConsumeMailLink(ctx, followed.TokenHash, time.Now()); err != nil {
+		t.Fatalf("ConsumeMailLink() error = %v", err)
+	}
+	if err := in.Driver.FailMailLink(ctx, unmailed.ID, time.Now()); err != nil {
+		t.Fatalf("FailMailLink() error = %v", err)
+	}
+	for _, link := range []*dbtype.MailLink{followed, unmailed} {
+		if h.MailLinkConsumedAt(ctx, t, in.Raw, link.TokenHash) == nil {
+			t.Errorf("ConsumedAt of the link to %s = nil, want the time it ended", link.Email)
+		}
+		if withdrawnAt := h.MailLinkWithdrawnAt(ctx, t, in.Raw, link.TokenHash); withdrawnAt != nil {
+			t.Errorf("WithdrawnAt of the link to %s = %v, want nil: it was not taken back", link.Email, withdrawnAt)
+		}
+	}
+}
+
 func testMailLinkExpired(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	link := insertInvitation(ctx, t, in.Driver, "pat@lakeside.edu", "lakeside", nil, tokenHash(1))

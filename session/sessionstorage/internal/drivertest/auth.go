@@ -615,6 +615,9 @@ type AuthHarness struct {
 	// MailLinkMailFailedAt reads the MailFailedAt of the mail link holding tokenHash
 	// directly: nil unless the link's message could not be mailed.
 	MailLinkMailFailedAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
+	// MailLinkWithdrawnAt reads the WithdrawnAt of the mail link holding tokenHash
+	// directly: nil unless the link was taken back.
+	MailLinkWithdrawnAt func(ctx context.Context, t *testing.T, raw any, tokenHash []byte) *time.Time
 	// AttemptsEndsAt reads the EndsAt of the sign-in attempts row under name directly:
 	// the moment the database worked out that the row stops counting.
 	AttemptsEndsAt func(ctx context.Context, t *testing.T, raw any, name string) time.Time
@@ -754,6 +757,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a mail link is read back by its token hash with everything it carried", run: testMailLinkRoundTrip},
 		{name: "a mail link is consumed once, by token or by id, and listed while it stands", run: testMailLinkConsumedOnce},
 		{name: "a mail link whose message could not be mailed is ended and says so, once, and no other end says it", run: testMailLinkMailFailed},
+		{name: "a mail link taken back is consumed and marked withdrawn at one time, once, and no other end marks it", run: testMailLinkWithdrawn},
 		{name: "an expired mail link is neither read, consumed nor listed", run: testMailLinkExpired},
 		{name: "a verification link goes with its user", run: testMailLinkCascade},
 		{name: "a sign-in that carries an invitation accepts it in the resolution's transaction: consumed, the address set, the hook's writes committed with the user", run: testInvitationSignIn},

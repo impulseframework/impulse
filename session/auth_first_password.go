@@ -432,12 +432,12 @@ func (a *Auth[S, U, Tx]) proveFirstPasswordCode(ctx context.Context, userID impu
 
 		return nil, httpio.NewBadRequestMessage("That is not the code we sent. Check it and try again")
 	}
-	if err := a.storage.RevokeMailLink(ctx, standing.ID); err != nil {
+	if err := a.storage.ConsumeMailLink(ctx, standing.TokenHash); err != nil {
 		if httpio.HasNotFound(err) {
 			return nil, errFirstPasswordCodeDead()
 		}
 
-		return nil, errors.Wrap(err, "sessionstorage.AuthStore.RevokeMailLink()")
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.ConsumeMailLink()")
 	}
 	// The attempt the right code took is given back with the wrong ones before it:
 	// nothing is held against an account for a code its person entered.

@@ -1106,6 +1106,7 @@ export namespace CrewSessionMailLinks {
     roleNames: 'roleNames' as FieldName,
     tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
+    withdrawnAt: 'withdrawnAt' as FieldName,
   };
   export const resourceName = {
     consumedAt: 'CrewSessionMailLinks.consumedAt' as Resource,
@@ -1121,6 +1122,7 @@ export namespace CrewSessionMailLinks {
     roleNames: 'CrewSessionMailLinks.roleNames' as Resource,
     tenantId: 'CrewSessionMailLinks.tenantId' as Resource,
     userId: 'CrewSessionMailLinks.userId' as Resource,
+    withdrawnAt: 'CrewSessionMailLinks.withdrawnAt' as Resource,
   };
 }
 
@@ -1915,6 +1917,7 @@ export namespace MembersSessionMailLinks {
     roleNames: 'roleNames' as FieldName,
     tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
+    withdrawnAt: 'withdrawnAt' as FieldName,
   };
   export const resourceName = {
     consumedAt: 'MembersSessionMailLinks.consumedAt' as Resource,
@@ -1930,6 +1933,7 @@ export namespace MembersSessionMailLinks {
     roleNames: 'MembersSessionMailLinks.roleNames' as Resource,
     tenantId: 'MembersSessionMailLinks.tenantId' as Resource,
     userId: 'MembersSessionMailLinks.userId' as Resource,
+    withdrawnAt: 'MembersSessionMailLinks.withdrawnAt' as Resource,
   };
 }
 
