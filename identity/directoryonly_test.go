@@ -183,3 +183,83 @@ func TestManager_CallerPassword(t *testing.T) {
 		})
 	}
 }
+
+// TestManager_AuthSecondFactor pins what the rule that a tenant vouches for its
+// directory's own second factor is told of the auth: whether its sign-in settings ask
+// everyone for a second factor now, an auth with no settings row asking everyone; and
+// that the rule asks nothing of this auth outside a request or for a request that came
+// through another auth.
+func TestManager_AuthSecondFactor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		ctx          func(context.Context) context.Context
+		row          *SignInSettingsRow
+		failRead     bool
+		wantRequired bool
+		wantApplies  bool
+		wantErr      bool
+	}{
+		{
+			name:         "an auth with no settings row asks everyone",
+			ctx:          func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, dana) },
+			wantRequired: true,
+			wantApplies:  true,
+		},
+		{
+			name:         "a row that asks everyone",
+			ctx:          func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, dana) },
+			row:          &SignInSettingsRow{RequireSecondFactor: true, RememberBrowserDays: 30},
+			wantRequired: true,
+			wantApplies:  true,
+		},
+		{
+			name:        "a row that asks nobody",
+			ctx:         func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, dana) },
+			row:         &SignInSettingsRow{RememberBrowserDays: 30},
+			wantApplies: true,
+		},
+		{
+			name: "a request that came through another auth is not this auth's to answer",
+			ctx:  func(ctx context.Context) context.Context { return asCallerThrough(ctx, otherAuth, dana) },
+			row:  &SignInSettingsRow{RequireSecondFactor: true, RememberBrowserDays: 30},
+		},
+		{
+			name: "a call outside any request is the application's own",
+			ctx:  func(ctx context.Context) context.Context { return ctx },
+			row:  &SignInSettingsRow{RequireSecondFactor: true, RememberBrowserDays: 30},
+		},
+		{
+			name:     "a failed read is the answer's error",
+			ctx:      func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, dana) },
+			failRead: true,
+			wantErr:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{settingsRow: tt.row}
+			if tt.failRead {
+				store.failOn = "SignInSettingsRow"
+			}
+			m := directoryOnlyManager(t, store, []accesstypes.Role{"Warden"}, sessioninfo.MethodPassword, sessioninfo.MethodGoogle)
+
+			var required, applies bool
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				var err error
+				required, applies, err = m.AuthSecondFactor(tt.ctx(ctx), txn)
+
+				return err
+			})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("AuthSecondFactor() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if required != tt.wantRequired || applies != tt.wantApplies {
+				t.Errorf("AuthSecondFactor() = (required %v, applies %v), want (required %v, applies %v)", required, applies, tt.wantRequired, tt.wantApplies)
+			}
+		})
+	}
+}

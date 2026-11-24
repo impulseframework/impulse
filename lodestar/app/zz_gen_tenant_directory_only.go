@@ -90,7 +90,7 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 	// The rules' sentences say the sector's directory as each auth's sign-in
 	// registrations call it, never by its connection, and the rules ask each auth's
 	// client whether the caller has a password.
-	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword).CountedBy(resource.DirectoryCounter{Seated: a.CrewIdentity().SeatedCount, Outsiders: a.CrewIdentity().DirectoryOutsiders}, resource.DirectoryCounter{Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders})
+	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword).CountedBy(resource.DirectoryPeople{Label: "Crew", List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.CrewIdentity().SeatedCount, Outsiders: a.CrewIdentity().DirectoryOutsiders, AdministratorsEnter: a.CrewIdentity().AdministratorsEnterWithPassword, Administrators: a.CrewIdentity().DirectoryAdministrators, InvitationList: "CrewSectorInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.CrewIdentity().DirectoryInvitations}, resource.DirectoryPeople{Label: "Members", List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword}).SecondFactorsBy(a.CrewIdentity().AuthSecondFactor, a.MembersIdentity().AuthSecondFactor)
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -133,10 +133,7 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		}
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if asksWarning {
-				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
-					resource.DirectoryPeople{List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.CrewIdentity().DirectoryOutsiders, AdministratorsEnter: a.CrewIdentity().AdministratorsEnterWithPassword(), Administrators: a.CrewIdentity().DirectoryAdministrators, InvitationList: "CrewSectorInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.CrewIdentity().DirectoryInvitations},
-					resource.DirectoryPeople{List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword()},
-				)
+				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)
 				if err != nil {
 					return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnlyWarning()")
 				}
@@ -181,16 +178,4 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 
 		return httpio.NewEncoder(w).Ok(nil)
 	})
-}
-
-// DirectoryOnly serves a sector's directory-only switch as it stands, GET
-// <prefix>/sectors/{sectorID}/directory-only: what the sector's Sign-in page shows the person
-// who may turn it, who does not read the global Sector record. It is asked under the
-// grant of either method that turns it, Execute on MakeSectorDirectoryOnly or on EndSectorDirectoryOnly in the
-// sector, and writes nothing (resource.DirectoryOnlyStateHandler). It is given the
-// rules the two methods are given, each auth's answer about the caller's password
-// with them, so it says what turning the switch on takes of the caller in the words
-// the method refuses in.
-func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword).CountedBy(resource.DirectoryCounter{Seated: a.CrewIdentity().SeatedCount, Outsiders: a.CrewIdentity().DirectoryOutsiders}, resource.DirectoryCounter{Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders}), a.UserPermissions, router.Domain, "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly")
 }

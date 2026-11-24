@@ -19,7 +19,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type EndCrewUserSessions struct {
-	// @target(CrewSessionUser)
+	// @target(CrewListedUser)
 	UserID impulse.UUID
 }
 

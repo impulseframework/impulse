@@ -146,6 +146,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/members-listed-groups/testMembersListedGroupID", method: http.MethodPost},
 		{url: "/console/api/members-listed-group-roles", method: http.MethodGet},
 		{url: "/console/api/members-listed-group-roles", method: http.MethodPost},
+		{url: "/console/api/members-listed-users", method: http.MethodGet},
+		{url: "/console/api/members-listed-users", method: http.MethodPost},
+		{url: "/console/api/members-listed-users/testMembersListedUserID", method: http.MethodGet},
+		{url: "/console/api/members-listed-users/testMembersListedUserID", method: http.MethodPost},
 		{url: "/console/api/members-roles", method: http.MethodGet},
 		{url: "/console/api/members-roles", method: http.MethodPost},
 		{url: "/console/api/members-sessions", method: http.MethodGet},
@@ -310,6 +314,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/staff-listed-groups/testStaffListedGroupID", method: http.MethodPost},
 		{url: "/portal/api/staff-listed-group-roles", method: http.MethodGet},
 		{url: "/portal/api/staff-listed-group-roles", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-users", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-users", method: http.MethodPost},
+		{url: "/portal/api/staff-listed-users/testStaffListedUserID", method: http.MethodGet},
+		{url: "/portal/api/staff-listed-users/testStaffListedUserID", method: http.MethodPost},
 		{url: "/portal/api/staff-roles", method: http.MethodGet},
 		{url: "/portal/api/staff-roles", method: http.MethodPost},
 		{url: "/portal/api/staff-sessions", method: http.MethodGet},
@@ -510,6 +518,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/members-listed-groups/testMembersListedGroupID", method: http.MethodPost},
 		{url: "/devices/members-listed-group-roles", method: http.MethodGet},
 		{url: "/devices/members-listed-group-roles", method: http.MethodPost},
+		{url: "/devices/members-listed-users", method: http.MethodGet},
+		{url: "/devices/members-listed-users", method: http.MethodPost},
+		{url: "/devices/members-listed-users/testMembersListedUserID", method: http.MethodGet},
+		{url: "/devices/members-listed-users/testMembersListedUserID", method: http.MethodPost},
 		{url: "/devices/members-roles", method: http.MethodGet},
 		{url: "/devices/members-roles", method: http.MethodPost},
 		{url: "/devices/members-sessions", method: http.MethodGet},
@@ -602,6 +614,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/staff-listed-groups/testStaffListedGroupID", method: http.MethodPost},
 		{url: "/devices/staff-listed-group-roles", method: http.MethodGet},
 		{url: "/devices/staff-listed-group-roles", method: http.MethodPost},
+		{url: "/devices/staff-listed-users", method: http.MethodGet},
+		{url: "/devices/staff-listed-users", method: http.MethodPost},
+		{url: "/devices/staff-listed-users/testStaffListedUserID", method: http.MethodGet},
+		{url: "/devices/staff-listed-users/testStaffListedUserID", method: http.MethodPost},
 		{url: "/devices/staff-roles", method: http.MethodGet},
 		{url: "/devices/staff-roles", method: http.MethodPost},
 		{url: "/devices/staff-sessions", method: http.MethodGet},
@@ -951,6 +967,7 @@ func generatedRouteParameters() []string {
 		"membersGroupUserGroupID",
 		"membersGroupUserUserID",
 		"membersListedGroupID",
+		"membersListedUserID",
 		"membersSessionID",
 		"membersSessionIdentityID",
 		"membersSessionMailLinkID",
@@ -981,6 +998,7 @@ func generatedRouteParameters() []string {
 		"staffGroupUserGroupID",
 		"staffGroupUserUserID",
 		"staffListedGroupID",
+		"staffListedUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
 		"staffSessionMailLinkID",
@@ -1177,6 +1195,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/portal/api/members-listed-group-roles", method: http.MethodPost,
 			handlerFunc: "MembersListedGroupRoles",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-users", method: http.MethodGet,
+			handlerFunc: "MembersListedUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-users", method: http.MethodPost,
+			handlerFunc: "MembersListedUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/portal/api/members-listed-users/testMembersListedUserID", method: http.MethodGet,
+			handlerFunc: "MembersListedUser",
+			parameters:  map[string]string{"membersListedUserID": "testMembersListedUserID"},
+		},
+		{
+			url: "/portal/api/members-listed-users/testMembersListedUserID", method: http.MethodPost,
+			handlerFunc: "MembersListedUser",
+			parameters:  map[string]string{"membersListedUserID": "testMembersListedUserID"},
 		},
 		{
 			url: "/portal/api/members-roles", method: http.MethodGet,
@@ -1657,6 +1695,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/console/api/staff-listed-group-roles", method: http.MethodPost,
 			handlerFunc: "StaffListedGroupRoles",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-users", method: http.MethodGet,
+			handlerFunc: "StaffListedUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-users", method: http.MethodPost,
+			handlerFunc: "StaffListedUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/staff-listed-users/testStaffListedUserID", method: http.MethodGet,
+			handlerFunc: "StaffListedUser",
+			parameters:  map[string]string{"staffListedUserID": "testStaffListedUserID"},
+		},
+		{
+			url: "/console/api/staff-listed-users/testStaffListedUserID", method: http.MethodPost,
+			handlerFunc: "StaffListedUser",
+			parameters:  map[string]string{"staffListedUserID": "testStaffListedUserID"},
 		},
 		{
 			url: "/console/api/staff-roles", method: http.MethodGet,
@@ -2354,8 +2412,8 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only", method: http.MethodGet,
-			handlerFunc: "DirectoryOnly",
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/sign-in-settings", method: http.MethodGet,
+			handlerFunc: "TenantSignInSettings",
 			parameters:  map[string]string{},
 		},
 		{
@@ -2376,6 +2434,16 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-invite-only", method: http.MethodPost,
 			handlerFunc: "MakeTenantInviteOnly", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/vouch-for-tenant-directory-second-factor", method: http.MethodPost,
+			handlerFunc: "VouchForTenantDirectorySecondFactor", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-tenant-directory-second-factor", method: http.MethodPost,
+			handlerFunc: "StopVouchingForTenantDirectorySecondFactor", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
 		},
 		{
@@ -2519,8 +2587,8 @@ func (s *generatedHandlersStub) DescribeStaffTenantGroup() http.HandlerFunc {
 	return s.record("DescribeStaffTenantGroup")
 }
 
-func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
-	return s.record("DirectoryOnly")
+func (s *generatedHandlersStub) TenantSignInSettings() http.HandlerFunc {
+	return s.record("TenantSignInSettings")
 }
 
 func (s *generatedHandlersStub) MakeTenantDirectoryOnly() http.HandlerFunc {
@@ -2537,6 +2605,14 @@ func (s *generatedHandlersStub) OpenTenantToDirectory() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MakeTenantInviteOnly() http.HandlerFunc {
 	return s.record("MakeTenantInviteOnly")
+}
+
+func (s *generatedHandlersStub) VouchForTenantDirectorySecondFactor() http.HandlerFunc {
+	return s.record("VouchForTenantDirectorySecondFactor")
+}
+
+func (s *generatedHandlersStub) StopVouchingForTenantDirectorySecondFactor() http.HandlerFunc {
+	return s.record("StopVouchingForTenantDirectorySecondFactor")
 }
 
 func (s *generatedHandlersStub) DisableStaffTenantUser() http.HandlerFunc {
@@ -2761,6 +2837,14 @@ func (s *generatedHandlersStub) StaffListedGroupRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
 	return s.record("StaffListedRoleGrants")
+}
+
+func (s *generatedHandlersStub) StaffListedUsers() http.HandlerFunc {
+	return s.record("StaffListedUsers")
+}
+
+func (s *generatedHandlersStub) StaffListedUser() http.HandlerFunc {
+	return s.record("StaffListedUser")
 }
 
 func (s *generatedHandlersStub) StaffRememberLengths() http.HandlerFunc {
@@ -3141,6 +3225,14 @@ func (s *generatedHandlersStub) MembersListedGroups() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MembersListedRoleGrants() http.HandlerFunc {
 	return s.record("MembersListedRoleGrants")
+}
+
+func (s *generatedHandlersStub) MembersListedUser() http.HandlerFunc {
+	return s.record("MembersListedUser")
+}
+
+func (s *generatedHandlersStub) MembersListedUsers() http.HandlerFunc {
+	return s.record("MembersListedUsers")
 }
 
 func (s *generatedHandlersStub) MembersRememberLengths() http.HandlerFunc {

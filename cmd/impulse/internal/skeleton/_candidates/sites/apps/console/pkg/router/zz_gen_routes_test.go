@@ -181,6 +181,7 @@ func generatedRouteParameters() []string {
 		"staffGroupUserGroupID",
 		"staffGroupUserUserID",
 		"staffListedGroupID",
+		"staffListedUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
 		"staffSessionMailLinkID",
@@ -357,6 +358,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/api/staff-listed-group-roles", method: http.MethodPost,
 			handlerFunc: "StaffListedGroupRoles",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-users", method: http.MethodGet,
+			handlerFunc: "StaffListedUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-users", method: http.MethodPost,
+			handlerFunc: "StaffListedUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-users/testStaffListedUserID", method: http.MethodGet,
+			handlerFunc: "StaffListedUser",
+			parameters:  map[string]string{"staffListedUserID": "testStaffListedUserID"},
+		},
+		{
+			url: "/api/staff-listed-users/testStaffListedUserID", method: http.MethodPost,
+			handlerFunc: "StaffListedUser",
+			parameters:  map[string]string{"staffListedUserID": "testStaffListedUserID"},
 		},
 		{
 			url: "/api/staff-roles", method: http.MethodGet,
@@ -934,8 +955,8 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only", method: http.MethodGet,
-			handlerFunc: "DirectoryOnly",
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/sign-in-settings", method: http.MethodGet,
+			handlerFunc: "TenantSignInSettings",
 			parameters:  map[string]string{},
 		},
 		{
@@ -956,6 +977,16 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-invite-only", method: http.MethodPost,
 			handlerFunc: "MakeTenantInviteOnly", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/vouch-for-tenant-directory-second-factor", method: http.MethodPost,
+			handlerFunc: "VouchForTenantDirectorySecondFactor", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/stop-vouching-for-tenant-directory-second-factor", method: http.MethodPost,
+			handlerFunc: "StopVouchingForTenantDirectorySecondFactor", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
 		},
 		{
@@ -1068,8 +1099,8 @@ func (s *generatedHandlersStub) DescribeStaffTenantGroup() http.HandlerFunc {
 	return s.record("DescribeStaffTenantGroup")
 }
 
-func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
-	return s.record("DirectoryOnly")
+func (s *generatedHandlersStub) TenantSignInSettings() http.HandlerFunc {
+	return s.record("TenantSignInSettings")
 }
 
 func (s *generatedHandlersStub) MakeTenantDirectoryOnly() http.HandlerFunc {
@@ -1086,6 +1117,14 @@ func (s *generatedHandlersStub) OpenTenantToDirectory() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MakeTenantInviteOnly() http.HandlerFunc {
 	return s.record("MakeTenantInviteOnly")
+}
+
+func (s *generatedHandlersStub) VouchForTenantDirectorySecondFactor() http.HandlerFunc {
+	return s.record("VouchForTenantDirectorySecondFactor")
+}
+
+func (s *generatedHandlersStub) StopVouchingForTenantDirectorySecondFactor() http.HandlerFunc {
+	return s.record("StopVouchingForTenantDirectorySecondFactor")
 }
 
 func (s *generatedHandlersStub) DisableStaffTenantUser() http.HandlerFunc {
@@ -1310,6 +1349,14 @@ func (s *generatedHandlersStub) StaffListedGroupRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
 	return s.record("StaffListedRoleGrants")
+}
+
+func (s *generatedHandlersStub) StaffListedUsers() http.HandlerFunc {
+	return s.record("StaffListedUsers")
+}
+
+func (s *generatedHandlersStub) StaffListedUser() http.HandlerFunc {
+	return s.record("StaffListedUser")
 }
 
 func (s *generatedHandlersStub) StaffRememberLengths() http.HandlerFunc {

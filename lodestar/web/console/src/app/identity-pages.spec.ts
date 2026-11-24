@@ -144,7 +144,7 @@ describe("the library's pages over an auth's generated management", () => {
         ways: Resources.CrewSignInWays,
         remove: Methods.RemoveCrewPassword,
         unlink: Methods.UnlinkCrewSessionIdentity,
-        people: Resources.CrewSessionUsers,
+        people: Resources.CrewListedUsers,
       },
       {
         scope: 'domain' as const,

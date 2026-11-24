@@ -446,6 +446,9 @@ func commandEnvironment(t *testing.T) {
 	t.Setenv("APP_CREW_OIDC_CONNECTION", "example")
 	t.Setenv("APP_CREW_OIDC_HOSTED_DOMAIN", "example.com")
 	t.Setenv("APP_PUBLIC_URL", "http://lodestar.test")
+	// No run names a mailbox, and the data level opens without one in development alone,
+	// where the log takes the mail, so the runs say they are in development.
+	t.Setenv("APP_ENVIRONMENT", "development")
 }
 
 // database creates a fresh database for the case and drops it when the case ends.

@@ -3201,6 +3201,102 @@ describe('a list and the width of its frame', () => {
         frameIs(wide + 100);
         expect(reads).toBe(whole);
       });
+
+      describe('beside a column that draws its list a line each', () => {
+        // Groups, the roles each holds a line each, and how many people are in it. "Inspectors
+        // of the far harbor" is twenty-eight characters, a Name the column cuts at its
+        // narrowest. "Harbormaster in sector Bastion", thirty, is the longest line: as a column
+        // of text it would need more than the library's width as well.
+        const groups: RecordData[] = [
+          { name: 'Inspectors of the far harbor', roles: ['Harbormaster in sector Bastion', 'Pilot'], members: 2 },
+          { name: 'Pilots', roles: ['Pilot'], members: 1 },
+        ];
+        const groupName = cellOf(28);
+        const longestLine = cellOf(30);
+        // "Members" is seven characters, more than "2" needs.
+        const members = headingOf(7);
+        /** The list of groups, its Roles column drawn a line each unless a case says otherwise. */
+        const listOfGroups = async (roles: { lines?: boolean; width?: number } = { lines: true }): Promise<void> => {
+          const fixture = TestBed.createComponent(AppGridComponent);
+          fixture.componentRef.setInput('rowData', groups);
+          fixture.componentRef.setInput('columnDefs', [{ id: 'name' }, { id: 'roles', ...roles }, { id: 'members' }]);
+          element = fixture.nativeElement as HTMLElement;
+          detect = (): void => fixture.detectChanges();
+          give = (name, value): void => fixture.componentRef.setInput(name, value);
+          leave = (): void => fixture.destroy();
+          await settle(fixture);
+          // A line's box is as wide as the column is drawn, the library's width until it is read.
+          lineBox = text - aroundCell;
+        };
+
+        it('gives a long line no room of its own: the column that cuts a value is given what it needs, and the column of lines shares what is left as a column that cuts nothing', async () => {
+          await listOfGroups();
+          expect(groupName).toBeGreaterThan(text);
+          expect(longestLine).toBeGreaterThan(text);
+          // Room for the Name whole and more. An equal share of the frame is less than the Name
+          // needs, which keeps what it needs; Roles and Members share the rest, each more than
+          // Roles' narrowest and less than its longest line.
+          frameIs(700);
+
+          expect(held()).toBe(false);
+          expect(widths()).toEqual([`${groupName}px`, '', '']);
+          expect((700 - groupName) / 2).toBeGreaterThan(text);
+          expect((700 - groupName) / 2).toBeLessThan(longestLine);
+          expect(Array.from(cells(0)[1].querySelectorAll('.cell-line')).map((line) => line.textContent)).toEqual([
+            'Harbormaster in sector Bastion',
+            'Pilot',
+          ]);
+        });
+
+        it('is whole by its share alone: in a frame whose equal share holds the long line no column is given a width, and a pixel under it the column of lines is given none still', async () => {
+          await listOfGroups();
+          frameIs(3 * longestLine);
+          expect(widths()).toEqual(['', '', '']);
+          // As a column of text, the long line would ask for its width here.
+          frameIs(3 * longestLine - 1);
+          expect(held()).toBe(false);
+          expect(widths()).toEqual(['', '', '']);
+        });
+
+        it('stays at its narrowest where not every value can be whole: the room goes to the column of text that cuts', async () => {
+          await listOfGroups();
+          // Fifty over the columns at their narrowest. Roles and Members keep their narrowest,
+          // and the Name, the one column that cuts a value, takes all fifty: the last to take,
+          // it is given no width and takes what is left.
+          frameIs(text + text + members + 50);
+
+          expect(held()).toBe(false);
+          expect(widths()).toEqual(['', `${text}px`, `${members}px`]);
+        });
+
+        it('is a rule of the lines: the same column drawn on one line, its items joined, is given what the joined text needs', async () => {
+          await listOfGroups({});
+          frameIs(700);
+
+          const joined = 'Harbormaster in sector Bastion,Pilot';
+          expect(cells(0)[1].textContent?.trim()).toBe(joined);
+          expect(widths()).toEqual([`${groupName}px`, `${cellOf(joined.length)}px`, '']);
+        });
+
+        it('keeps a width the page declares and one a person dragged', async () => {
+          await listOfGroups({ lines: true, width: 120 });
+          frameIs(700);
+          expect(widths()[1]).toBe('120px');
+          frameIs(3 * longestLine);
+          expect(widths()[1]).toBe('120px');
+
+          leave();
+          await listOfGroups();
+          frameIs(701);
+          // The drag starts from the width the column is drawn at, its share of what the Name leaves.
+          expect((701 - groupName) / 2).toBe(225);
+          placed.set(headers()[1], { left: 0, right: 225 });
+          drag(1, 60);
+          expect(widths()[1]).toBe('285px');
+          frameIs(3 * longestLine);
+          expect(widths()[1]).toBe('285px');
+        });
+      });
     });
 
     describe('reading what is drawn', () => {

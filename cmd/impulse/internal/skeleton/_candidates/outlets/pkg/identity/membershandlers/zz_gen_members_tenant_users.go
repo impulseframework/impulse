@@ -20,22 +20,26 @@ import (
 
 func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 	type membersTenantUser struct {
-		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
-		DomainID               string       `json:"domainId"               index:"true"`
-		Username               string       `json:"username"               index:"true"`
-		Name                   *string      `json:"name"`
-		Email                  *string      `json:"email"`
-		EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-		Disabled               bool         `json:"disabled"`
-		PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-		CreatedAt              time.Time    `json:"createdAt"`
-		LastSignInAt           *time.Time   `json:"lastSignInAt"`
-		HeldElsewhere          bool         `json:"heldElsewhere"          index:"true"`
-		HeldGlobally           bool         `json:"heldGlobally"           index:"true"`
-		HeldHere               bool         `json:"heldHere"               index:"true"`
-		HeldInEveryTenant      bool         `json:"heldInEveryTenant"      index:"true"`
-		OutsideDirectory       bool         `json:"outsideDirectory"       index:"true"`
-		CannotEnter            *string      `json:"cannotEnter"`
+		ID                        impulse.UUID `json:"id"                        index:"true" perm:"-"`
+		DomainID                  string       `json:"domainId"                  index:"true"`
+		Username                  string       `json:"username"                  index:"true"`
+		Name                      *string      `json:"name"`
+		Email                     *string      `json:"email"`
+		EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+		Disabled                  bool         `json:"disabled"`
+		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+		CreatedAt                 time.Time    `json:"createdAt"`
+		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		Roles                     []string     `json:"roles"`
+		LockedUntil               *time.Time   `json:"lockedUntil"`
+		HeldElsewhere             bool         `json:"heldElsewhere"             index:"true"`
+		HeldGlobally              bool         `json:"heldGlobally"              index:"true"`
+		HeldHere                  bool         `json:"heldHere"                  index:"true"`
+		HeldInEveryTenant         bool         `json:"heldInEveryTenant"         index:"true"`
+		ManagedHere               bool         `json:"managedHere"               index:"true"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory" index:"true"`
+		OutsideDirectory          bool         `json:"outsideDirectory"          index:"true"`
+		CannotEnter               *string      `json:"cannotEnter"`
 	}
 
 	type response []map[string]any
@@ -119,6 +123,14 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 					if !row.Masked("lastSignInAt") {
 						rmap["lastSignInAt"] = rec.LastSignInAt
 					}
+				case "Roles":
+					if !row.Masked("roles") {
+						rmap["roles"] = rec.Roles
+					}
+				case "LockedUntil":
+					if !row.Masked("lockedUntil") {
+						rmap["lockedUntil"] = rec.LockedUntil
+					}
 				case "HeldElsewhere":
 					if !row.Masked("heldElsewhere") {
 						rmap["heldElsewhere"] = rec.HeldElsewhere
@@ -134,6 +146,14 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 				case "HeldInEveryTenant":
 					if !row.Masked("heldInEveryTenant") {
 						rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
+					}
+				case "ManagedHere":
+					if !row.Masked("managedHere") {
+						rmap["managedHere"] = rec.ManagedHere
+					}
+				case "ManagedByAnotherDirectory":
+					if !row.Masked("managedByAnotherDirectory") {
+						rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 					}
 				case "OutsideDirectory":
 					if !row.Masked("outsideDirectory") {
@@ -166,22 +186,26 @@ func (h *Handlers) MembersTenantUsers() http.HandlerFunc {
 
 func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 	type response struct {
-		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
-		DomainID               string       `json:"domainId"`
-		Username               string       `json:"username"`
-		Name                   *string      `json:"name"`
-		Email                  *string      `json:"email"`
-		EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
-		Disabled               bool         `json:"disabled"`
-		PasswordChangeRequired bool         `json:"passwordChangeRequired"`
-		CreatedAt              time.Time    `json:"createdAt"`
-		LastSignInAt           *time.Time   `json:"lastSignInAt"`
-		HeldElsewhere          bool         `json:"heldElsewhere"`
-		HeldGlobally           bool         `json:"heldGlobally"`
-		HeldHere               bool         `json:"heldHere"`
-		HeldInEveryTenant      bool         `json:"heldInEveryTenant"`
-		OutsideDirectory       bool         `json:"outsideDirectory"`
-		CannotEnter            *string      `json:"cannotEnter"`
+		ID                        impulse.UUID `json:"id"                        index:"true" perm:"-"`
+		DomainID                  string       `json:"domainId"`
+		Username                  string       `json:"username"`
+		Name                      *string      `json:"name"`
+		Email                     *string      `json:"email"`
+		EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
+		Disabled                  bool         `json:"disabled"`
+		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
+		CreatedAt                 time.Time    `json:"createdAt"`
+		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		Roles                     []string     `json:"roles"`
+		LockedUntil               *time.Time   `json:"lockedUntil"`
+		HeldElsewhere             bool         `json:"heldElsewhere"`
+		HeldGlobally              bool         `json:"heldGlobally"`
+		HeldHere                  bool         `json:"heldHere"`
+		HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
+		ManagedHere               bool         `json:"managedHere"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
+		OutsideDirectory          bool         `json:"outsideDirectory"`
+		CannotEnter               *string      `json:"cannotEnter"`
 	}
 
 	decoder := NewQueryDecoder[membersresources.MembersTenantUser, response](h, accesstypes.Read)
@@ -253,6 +277,14 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 				if !row.Masked("lastSignInAt") {
 					rmap["lastSignInAt"] = rec.LastSignInAt
 				}
+			case "Roles":
+				if !row.Masked("roles") {
+					rmap["roles"] = rec.Roles
+				}
+			case "LockedUntil":
+				if !row.Masked("lockedUntil") {
+					rmap["lockedUntil"] = rec.LockedUntil
+				}
 			case "HeldElsewhere":
 				if !row.Masked("heldElsewhere") {
 					rmap["heldElsewhere"] = rec.HeldElsewhere
@@ -268,6 +300,14 @@ func (h *Handlers) MembersTenantUser() http.HandlerFunc {
 			case "HeldInEveryTenant":
 				if !row.Masked("heldInEveryTenant") {
 					rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
+				}
+			case "ManagedHere":
+				if !row.Masked("managedHere") {
+					rmap["managedHere"] = rec.ManagedHere
+				}
+			case "ManagedByAnotherDirectory":
+				if !row.Masked("managedByAnotherDirectory") {
+					rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 				}
 			case "OutsideDirectory":
 				if !row.Masked("outsideDirectory") {

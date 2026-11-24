@@ -23,6 +23,7 @@ import {
   ListViewConfig,
   Method,
   MethodPresentation,
+  momentFormat,
   multiColumnConfig,
   nameInLowerWords,
   nameInWords,
@@ -35,7 +36,7 @@ import {
   RootConfig,
   section,
 } from '@impulseframework/resource-angular/types';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
 import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-says';
 
 // The pages over an Auth's people, built from the API's own description.
@@ -270,9 +271,11 @@ class SideBuilder {
    * where it comes from: their own, or the group it comes through.
    *
    * A row says the person's state in one column, State, a line for each thing there is
-   * to say (statesOf): Disabled, Must change password, and on a tenant's list that
-   * another tenant or the whole application also holds the person. It is blank when all
-   * is well. Its words come from several fields, so the column neither sorts nor filters.
+   * to say (statesOf): Disabled, Must change password, until when failed tries lock the
+   * person's sign-in, and on a tenant's list that another tenant or the whole application
+   * also holds the person. It is blank when all is well. Its words come from several
+   * fields, so the column neither sorts nor filters. Where the server says what each
+   * person holds, a Roles column lists it, a line for each role.
    * A person's page is headed by the person (personTitle), and says the same state on
    * one line, where there is any, and whether the email address is confirmed
    * (personFields).
@@ -310,6 +313,10 @@ class SideBuilder {
         rowTitle: (row: RecordData) => this.personTitle(row),
         listColumns: [
           ...this.leadingColumns(users),
+          // What the person holds, a line for each role, where the server says it.
+          ...(this.has(users, 'roles')
+            ? [{ id: 'roles' as FieldName, header: 'Roles', lines: true, filterable: false }]
+            : []),
           // The person's state, on the field it says first.
           ...(this.has(users, 'disabled')
             ? [
@@ -334,20 +341,28 @@ class SideBuilder {
             ['cannotEnter', 'Cannot enter'],
           ]),
           // Read with each row and not drawn: what the State column says besides Disabled,
-          // and on a tenant's side whether the person holds something in the tenant itself.
+          // and on a tenant's side whether the person holds something in the tenant itself
+          // and whether the tenant manages the account.
           ...[
             ...this.known(
               users,
               this.stateLines().filter(([name]) => name !== 'disabled'),
             ).map(([name]) => name),
-            ...this.heldHere(users),
+            ...this.lockOf(users),
+            ...this.tenantFacts(users),
           ].map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.onPerson(),
         listMethods: this.present([
           [
             methods.invite,
-            { label: 'Invite', icon: 'send', labels: this.where(), ...this.rolesWhere('roles', methods.invite) },
+            {
+              label: 'Invite',
+              icon: 'send',
+              says: inviteSays,
+              labels: this.where(),
+              ...this.rolesWhere('roles', methods.invite),
+            },
           ],
         ]),
         elements: [
@@ -579,7 +594,10 @@ class SideBuilder {
         ]),
         listMethods: this.tenant
           ? this.present([
-              [methods.invite, { label: 'Invite', icon: 'send', ...this.rolesWhere('roles', methods.invite) }],
+              [
+                methods.invite,
+                { label: 'Invite', icon: 'send', says: inviteSays, ...this.rolesWhere('roles', methods.invite) },
+              ],
             ])
           : [],
         elements: [],
@@ -802,7 +820,7 @@ class SideBuilder {
       page: { label: 'Sign-in', icon: 'login' },
       routeData: { route: this.route('signIn', 'sign-in'), hasViewRoute: false },
       parentConfig: listViewConfig({
-        title: `${this.identity.label} sign-in`,
+        title: this.heading('Sign-in'),
         primaryResource: resource,
         showViewButton: false,
         showRowCount: false,
@@ -1012,8 +1030,10 @@ class SideBuilder {
         ...(this.identity.tenant ? [] : ([['domainId', 'Domain']] as Named[])),
       ]).map((column) => ({ ...column, hidden: true })),
     ];
+    // No format of the page's own: the list writes each as it writes every moment, a
+    // far-off one with its whole year (momentFormat).
     const when = (id: string, header: string): ColumnConfig[] =>
-      this.has(taken, id) ? [{ id: id as FieldName, header, formatType: dayAndTime, filterable: false }] : [];
+      this.has(taken, id) ? [{ id: id as FieldName, header, filterable: false }] : [];
     const ended = listViewConfig({
       title: 'Ended',
       primaryResource: taken,
@@ -1162,7 +1182,8 @@ class SideBuilder {
       // Held by the form for the words above and for the methods offered, and not drawn.
       ...[
         ...this.known(users, [...this.stateLines(), ['emailVerifiedAt', 'Email confirmed']]).map(([name]) => name),
-        ...this.heldHere(users),
+        ...this.lockOf(users),
+        ...this.tenantFacts(users),
       ].map((name) => field({ name: name as FieldName, cols: 4, shouldRender: false })),
     ];
   }
@@ -1732,21 +1753,24 @@ class SideBuilder {
           when: (row) => row['heldHere'] !== false,
         },
       ],
-      // On a tenant's side that has the removal from the tenant, the page does not draw
-      // Delete on a row whose answer lists the removal: on this side the removal stands in
-      // Delete's place. Where such a row says the person holds nothing in the tenant itself
-      // the page draws neither, since there is nothing of the tenant's to take. A row whose
-      // answer does not list the removal keeps Delete.
+      // On a tenant's side that has the removal from the tenant, the removal stands in
+      // Delete's place on a row whose answer lists it: taking a person the tenant holds
+      // alone out of it takes the account. Delete is drawn beside it, or alone, where the
+      // row says the tenant manages the account through its directory (managedHere) and the
+      // removal would leave the account standing: a person of the directory who holds
+      // nothing in the tenant itself, or who holds roles elsewhere too. A row whose answer
+      // does not list the removal keeps Delete.
       [
         methods.delete,
         {
           label: 'Delete',
           icon: 'delete',
           group: 'account',
-          confirm: (row) => `Delete ${named(row)}? The account, its sign-ins and its sessions are removed.`,
-          ...(removal === undefined
-            ? {}
-            : { when: (row: RecordData) => !(rowCapabilities(row)?.Execute ?? []).includes(removal) }),
+          confirm: (row) =>
+            this.identity.tenant
+              ? `Delete ${named(row)}? The account is removed from every ${this.tenantWord}, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.`
+              : `Delete ${named(row)}? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.`,
+          ...(removal === undefined ? {} : { when: (row: RecordData) => deleteBesideRemoval(row, removal) }),
         },
       ],
     ]);
@@ -2111,26 +2135,45 @@ class SideBuilder {
    * What a person's row says of their state, a line each (stateLines): a line for each
    * field the row holds as true, so a field the reader's role leaves out of the row says
    * nothing. A row that says the person holds a role in every tenant does not also say
-   * they are in another: the first says the second. Empty when all is well, and for no
-   * row.
+   * they are in another: the first says the second. A sign-in that failed tries lock says
+   * until when (lockLine), after the account's own lines and before what a tenant's list
+   * says of the other places that hold the person, since the lock is the account's state
+   * as Disabled is. Empty when all is well, and for no row.
    */
   private statesOf(row: RecordData | undefined): string[] {
     if (!row) {
       return [];
     }
-    return this.stateLines()
+    const said = this.stateLines()
       .filter(([name]) => row[name] === true)
-      .filter(([name]) => !(name === 'heldElsewhere' && row['heldInEveryTenant'] === true))
-      .map(([, line]) => line);
+      .filter(([name]) => !(name === 'heldElsewhere' && row['heldInEveryTenant'] === true));
+    const lines = said.map(([, line]) => line);
+    const lock = lockLine(row['lockedUntil'], Date.now());
+    if (lock) {
+      // The account's own lines lead stateLines, so the lock goes after the last of them.
+      const own = said.filter(([name]) => name === 'disabled' || name === 'passwordChangeRequired').length;
+      lines.splice(own, 0, lock);
+    }
+    return lines;
   }
 
   /**
-   * The field a tenant's side reads with a person and does not draw besides the State's:
-   * whether the person holds something in the tenant itself, by which the removal from
-   * the tenant is offered. Only where the list has it.
+   * The field the State reads a lock from, read with a person and not drawn: until when
+   * failed tries lock their sign-in. Only where the list has it.
    */
-  private heldHere(resource: Resource): string[] {
-    return this.tenant && this.has(resource, 'heldHere') ? ['heldHere'] : [];
+  private lockOf(resource: Resource): string[] {
+    return this.has(resource, 'lockedUntil') ? ['lockedUntil'] : [];
+  }
+
+  /**
+   * The fields a tenant's side reads with a person and does not draw besides the State's:
+   * whether the person holds something in the tenant itself, by which the removal from
+   * the tenant is offered, and whether the tenant manages the account (managedHere), by
+   * which Delete is drawn beside the removal (deleteBesideRemoval). Each only where the
+   * list has it.
+   */
+  private tenantFacts(resource: Resource): string[] {
+    return this.tenant ? ['heldHere', 'managedHere'].filter((name) => this.has(resource, name)) : [];
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
@@ -2209,6 +2252,12 @@ function invited(answer: unknown): { message: string; failed?: boolean } {
 const invitations: readonly MethodKind[] = ['invite', 'inviteTenant'];
 
 /**
+ * What Invite's dialog says it does, above what it asks: nothing is chosen for the person,
+ * and nothing is given until they follow the link.
+ */
+const inviteSays = 'The person is mailed a link. They sign in or sign up with it, and are then given the roles.';
+
+/**
  * What the notice says once a method has run, by what the method is: what happened, as a
  * person would say it, in place of the method's label and "done". A method that is not
  * here says its own: the ones that mail a person read their answer, and the Sign-in
@@ -2247,6 +2296,26 @@ const doneWords: Partial<Record<MethodKind, string>> = {
  */
 function decidedElsewhere(row: RecordData): boolean {
   return row['directoryGivesRoles'] === true || row['ownRule'] === true;
+}
+
+/**
+ * Whether a tenant's people page draws Delete on a person's row, where the tenant's side
+ * has the removal from the tenant (removal, its method). A row whose answer does not list
+ * the removal keeps Delete. A row whose answer lists it draws Delete only where the row
+ * says the tenant manages the account (managedHere) and the removal would leave the
+ * account standing: the person holds nothing in the tenant itself, or holds a role in
+ * another tenant or for the whole application too. A row that carries no managedHere is
+ * read as one the tenant does not manage. Whether Delete is offered at all is still the
+ * server's answer for the row.
+ */
+function deleteBesideRemoval(row: RecordData, removal: string): boolean {
+  if (!(rowCapabilities(row)?.Execute ?? []).includes(removal)) {
+    return true;
+  }
+  if (row['managedHere'] !== true) {
+    return false;
+  }
+  return row['heldHere'] === false || row['heldElsewhere'] === true || row['heldGlobally'] === true;
 }
 
 /** What a sign-in method's row says of sign-up: who decides, or what an administrator chose. */
@@ -2431,12 +2500,6 @@ function lastDay(end: unknown): string {
 }
 
 /**
- * How a list writes an instant that matters to the minute: the day and the time of day,
- * in the viewer's time zone. A role taken for an hour ends at a time, not on a day.
- */
-const dayAndTime = 'M/d/yyyy h:mm a';
-
-/**
  * How a page writes the day of an instant, in the viewer's time zone and with the year,
  * so a day of last year is not read as one of this year: "Nov 15, 2026".
  */
@@ -2465,7 +2528,7 @@ function emailConfirmed(values: RecordData | undefined): string {
 
 /**
  * When a role held for a set time ends and how long is left, as a list says it in one
- * cell: the day and the time of day, then the time left in words ("11/18/2026 3:00 PM,
+ * cell: the day and the time of day, then the time left in words ("11/18/26 3:00 PM,
  * 45 minutes left"). The day and time alone once the instant has passed, and empty for
  * no instant.
  */
@@ -2477,9 +2540,27 @@ function endsIn(end: unknown, now: number): string {
   if (Number.isNaN(instant.getTime())) {
     return '';
   }
-  const at = format(instant, dayAndTime);
+  const at = format(instant, momentFormat(instant, now));
   const left = timeLeft(instant.getTime() - now);
   return left ? `${at}, ${left} left` : at;
+}
+
+/**
+ * The State's line for a person whose sign-in failed tries lock: "Locked until" and when
+ * the lock passes, in the viewer's time zone, the time alone where it passes on the day
+ * of `now` ("Locked until 3:15 PM") and with the day otherwise, as every list writes a
+ * moment (momentFormat): a lock that no time ends reads with its whole year. Empty where
+ * the lock is no moment or has passed.
+ */
+function lockLine(until: unknown, now: number): string {
+  if (typeof until !== 'string' && !(until instanceof Date)) {
+    return '';
+  }
+  const instant = new Date(until);
+  if (Number.isNaN(instant.getTime()) || instant.getTime() <= now) {
+    return '';
+  }
+  return `Locked until ${format(instant, isSameDay(instant, now) ? 'h:mm a' : momentFormat(instant, now))}`;
 }
 
 /**

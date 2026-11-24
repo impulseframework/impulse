@@ -30,7 +30,7 @@ type (
 	// @outlet(default)
 	// @class(credential)
 	SetStaffUserEmail struct {
-		// @target(StaffSessionUser)
+		// @target(StaffListedUser)
 		UserID impulse.UUID
 		Email  string `validate:"required"`
 	}

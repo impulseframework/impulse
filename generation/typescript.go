@@ -159,8 +159,9 @@ func (t *typescriptGenerator) validateOutletMemberReferences(resources []*resour
 func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, computedResources []*computedResource) ([]*resourceInfo, []*computedResource, error) {
 	t.outletExcludedTables = make(map[string]struct{})
 	// The methods that turn the tenant record's directory-only switch are served with
-	// the record, and the ones that say how a tenant admits its directory's people with
-	// the directories record, so each leaves the outlet's constants with its record.
+	// the record, and the ones that say how a tenant admits its directory's people and
+	// the ones of its word for its directory's second factor with the directories
+	// record, so each leaves the outlet's constants with its record.
 	// The action of the create-your-tenant route needs nothing here: the collection
 	// marks it an action no role is given, and such an action is in no outlet's
 	// constants (resource.CollectionResource.NoRole).
@@ -178,6 +179,11 @@ func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, compu
 		}
 		if tenant != nil && res.IsTenantDirectory && res.DirectoryDefaultSeatField != nil && !res.OnOutlet(t.targetOutlet()) {
 			for _, method := range directoryRoleMethodsOf(tenant.Name()) {
+				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
+			}
+		}
+		if tenant != nil && res.IsTenantDirectory && res.DirectorySecondFactorField != nil && !res.OnOutlet(t.targetOutlet()) {
+			for _, method := range directoryFactorMethodsOf(tenant.Name()) {
 				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
 			}
 		}

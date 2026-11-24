@@ -182,7 +182,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// state reads the switch as it stands. What the read says turning it on takes of
 	// the reader (its conditions) is left out here: the library's own tests hold it.
 	state := func(b *browser, tenant string) (int, string) {
-		status, body := b.do(ctx, http.MethodGet, consoleAPI+"/tenants/"+tenant+"/directory-only", nil)
+		status, body := b.do(ctx, http.MethodGet, consoleAPI+"/tenants/"+tenant+"/sign-in-settings", nil)
 		var read struct {
 			DirectoryOnly *bool `json:"directoryOnly"`
 		}
@@ -365,12 +365,12 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("the staff member's chart after a fresh sign-in with the password and the code = %v, want [%s]", domains, north)
 	}
 
-	// North's list of its people is made from who holds a role there, not from who can
-	// sign in: the support login stays in it, and while north is directory only their
-	// row says they cannot enter; the staff member's, north's own administrator who has
-	// a password, and the administrator's, a super administrator, say nothing. The
-	// warning a page asks before turning it on has nothing to turn on: it says so, and
-	// names neither the directory nor the people.
+	// North's list of its people keeps everyone who holds a role there, whether or not
+	// they can sign in: the support login stays in it, and while north is directory
+	// only their row says they cannot enter; the staff member's, north's own
+	// administrator who has a password, and the administrator's, a super administrator,
+	// say nothing. The warning a page asks before turning it on has nothing to turn on:
+	// it says so, and names neither the directory nor the people.
 	keptOut := "Has not signed in through this tenant's directory, so cannot enter while this tenant is directory only"
 	people := tenantRows(ctx, t, admin, north, "staff-tenant-users")
 	if got, _ := people[supportID]["cannotEnter"].(string); got != keptOut {

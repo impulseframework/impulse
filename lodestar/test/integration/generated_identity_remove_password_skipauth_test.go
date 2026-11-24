@@ -120,7 +120,7 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	sso := linkThroughDirectory("pilot")
 	// The answer for the pilot's row lists the method for headquarters: what the
 	// person's page draws its Remove password button from.
-	status, body = hq.do(ctx, http.MethodGet, consoleAPI+"/crew-session-users/"+pilotID+"?capabilities=Execute", nil)
+	status, body = hq.do(ctx, http.MethodGet, consoleAPI+"/"+crewListedAccountsPath+"/"+pilotID+"?capabilities=Execute", nil)
 	assertStatus(t, status, http.StatusOK, body)
 	capabilities, _ := decodeRow(t, body)["zzCapabilities"].(map[string]any)
 	offered, _ := capabilities["Execute"].([]any)

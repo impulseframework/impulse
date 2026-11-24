@@ -19,7 +19,7 @@ import (
 // @outlet(portal)
 // @answers(204)
 type EndMembersUserSessions struct {
-	// @target(MembersSessionUser)
+	// @target(MembersListedUser)
 	UserID impulse.UUID
 }
 

@@ -105,6 +105,7 @@ type Ship struct { ... }
 | `@directoryMethod` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the sign-in method a directory is reached through, as `sessioninfo.AuthMethod` spells it: `google`, `azure`, `workos` or `oidc` (an organization's own OpenID Connect provider, named by its registration's connection). The column is output-only: the generated create sets it from the caller's session, and no request writes it. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryConnection` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the connection a directory's identities carry, the value the session's first auth event records beside the method: a Google Workspace by its domain (the registration admitting any Workspace writes the account's domain), a Microsoft Entra tenant by its tenant id, a WorkOS connection by its id. The column is output-only, as the method is. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryDefaultSeat` | field of the `@tenantDirectory` record, a `string` or `*string` column | none | The column names the role a person is given in the tenant at their first sign-in through the tenant's directory, whether their account is created then or stood before, chosen by the tenant's administrator from the tenant's roles on its Sign-in page, with the generated method `Open<Record>ToDirectory` (section 16); NULL (or empty), which `Make<Record>InviteOnly` writes, says the tenant admits the directory's people by invitation only: a stranger is refused with the `invitation_only` refusal and no account is created, and an invitation link is the way in. A directories record without the column admits every stranger by invitation only. The role is given once for the link between the account and the directory: a person whose role an administrator removes is not given it back by signing in, and a link that is deleted and made again gives it again where the person holds no role in the tenant. With it the generated `New<Record>DirectoryReader` answers the tenant whose directory an identity came through with its seat, which the auth's directory admission reads (`session.Auth.SetDirectoryAdmission`) before the method's account rule, and the role is given by the Auth's generated identity client in the transaction that links the account to the directory (section 16). The column is output only on the wire: the two methods write it, and the record's create and update do not. Refused off the directories record, on a column that is neither a string nor a nullable string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@directorySecondFactor` | field of the `@tenantDirectory` record, a `bool` column | none | The column says the tenant says its directory asks its people for a second factor of its own. A person who signs in through the directory is then not asked for the application's mailed code, wherever they work. Output only: the tenant's administrator says it and takes it back with the two methods the generator writes (section 16). |
 | `@page` | `@resource`, `@virtual`, or `@computed` struct | `default: N` and/or `max: M` | Declares the list's page sizes: the page a request without `limit` receives, and the largest page a request may ask for. Both are positive integers; the default never exceeds the maximum, and a maximum alone must be at least the generator-wide default of 50. Undeclared, the list serves pages of 50 with no maximum. A request over the maximum is refused with a 400 naming it, never clamped, and a resource with a maximum refuses `limit=all`. The maximum is also the switch a picker reads: a resource with none is small enough to load whole, read in one request with `limit=all` and sort optional; a resource with a maximum is paged, one server page at a time, so its list needs an order (`@order`, or `sort` on the request) and a picker over it reads the chosen row by key, which is why a bounded picker source may not suppress its read (`@enumerate`). Declaring the maximum is the deliberate choice; nothing decides at runtime from an observed size. Refused on a `@computed` or `@virtual` struct with no `@primarykey`, naming the struct and the two ways out (declare the key, or drop `@page`): without a key the resource is a whole read-only list, with no read route and no paging, so a page size on it is a contradiction. The generated TypeScript descriptor carries both numbers. Example: [Mission](../lodestar/pkg/resources/missions.go). |
 | `@order` | `@resource`, `@virtual`, or `@computed` struct | comma list of `Field [asc\|desc]` | Declares the order a list takes when the request carries no `sort`, naming Go fields of the struct; the direction defaults to `asc`. The primary key is appended at runtime so the order is total, and a request's `sort` replaces the declared order for that request. A declared order never shows a person what they may not read. Where they may not read a field it names, their list comes in the order of the order's other terms and then the key, as if no row had a value in that field. Where they hold the field under a condition, a row whose cell is masked sorts as a row with no value, as it does under a `sort` by that field. A field declared `masking:"positional"` is the exception, as it is under a `sort`: its masked cells keep their real place. Nothing is refused, since the person asked for no sort. A computed resource follows the same rule: its handler sorts and pages the rows by what the person may see of each, and it sorts again a list whose body took the sort where the person holds a field of the order under a condition. The declaration is optional, and every paged request needs an order from somewhere: a resource that declares none serves a request without `sort` only as the whole list (`limit=all`), which is not sorted — its table or view statement carries no `ORDER BY` and the rows arrive in the database's own order, a computed list keeps the order its body yielded — and refuses a bare GET or a `limit` with a 400 naming the resource and the way out (section 4). A nullable column renders as the plain direction and sorts in its database's own `NULL` placement, so an index on the column serves the order: Spanner places `NULL` first ascending and last descending, PostgreSQL last ascending and first descending. A computed resource follows the same placement: its handler sorts and pages the body's rows where the application's database would. On a computed resource only a leaf field may be named (a nested field is opaque). The generated TypeScript descriptor carries the declared order (`order: [{ field, direction }]`, JSON names), so a browser client knows a request without a `sort` is already ordered and pages by cursor; to a resource that declares none it sends a `sort` of its own or asks `limit=all`. On a table-backed resource with a bare `@domain`, generation warns when no index leads with the tenant column and then these columns in this order and direction, naming the index it wants (section 9). Example: [Mission](../lodestar/pkg/resources/missions.go). |
 | `@manualAddPermission` | `accesstypes.Permission` constant of the resources package | none | Declares the constant's value as a permission of the application that no resource registers: one a hand-written route checks for the whole of a scope (`access.Client.CheckUser`, `CheckRole`) and a custom role is given with `AddRolePermission`. The generated Collection lists it with no resource (`CollectionData.Permissions`), which is what makes it a permission the release has: a grant of a permission for the whole of a scope that the Collection does not list is refused when it is written and, when the policy is loaded, left out and reported as a `SkippedGrant`. The annotation stands alone and names no scope: the role a grant is written to decides where it holds. Generation refuses an `@outlet`, `@class` or `@manualAddResource` beside it, any of those three on an `accesstypes.Permission` constant that does not carry it (they are written on a resource's constant; on a permission's constant they would be read by nothing), the annotation on a constant of any other type (an untyped string or an `accesstypes.Resource` among them), a constant whose value is empty, and a permission two constants declare. A permission some resource registers needs no declaration. A declared permission adds nothing to the TypeScript constants, whose `Permissions` are the framework's own. The annotation is read from the comment of the constant it stands above: one in the comment above a `const ( ... )` group is refused, with where to write it. A constant whose type is an alias of `accesstypes.Permission` is read as a permission's. As with `@manualAddResource`, generation refuses it in a comment that is no constant's, and `impulse check` reports it on a constant of another package or in a comment there that is no declaration's. |
@@ -3550,16 +3551,21 @@ nothing to turn on."); who the flag keeps out now is the people list's to say, b
 `End<Record>DirectoryOnly` declares no warning, and a request for one is refused (400)
 and does not run.
 
-The switch as it stands is read in the tenant too:
-`GET /<prefix>/<tenants>/{tenant}/directory-only` answers `{"directoryOnly": false}`
-under the Execute grant of either method in the tenant, held without a condition (a read
-has no request for a condition to judge, so it is Forbidden under a grant that holds on
-one), and writes nothing (`resource.DirectoryOnlyStateHandler`). The tenant's
-administrator does not read the global record, and this is what a Sign-in page shows
-them.
+A tenant's sign-in settings as they stand are read in the tenant too:
+`GET /<prefix>/<tenants>/{tenant}/sign-in-settings` answers them under the Execute grant
+of any of the tenant's own sign-in methods the application serves (the two that turn
+directory only, the two that set the default role, the two that say the directory's
+second factor), held without a condition (a read has no request for a condition to
+judge, so it is Forbidden under a grant that holds on one), and writes nothing
+(`resource.TenantSignInSettingsHandler`). The route is on every session outlet that
+serves at least one of those methods, and one handler answers on all of them, so a
+person who holds a method that only another outlet serves is answered too. The tenant's
+administrator does not read the global record, and this is what a Sign-in settings page
+shows them. It is served for every tenant record that declares a directories record; a
+record with no switch answers `directoryOnly` false and counts nobody.
 
 While the switch is off and the tenant has a directory, the read also says what turning
-it on takes of the caller (`conditions`, `resource.DirectoryOnlyCondition`), in the
+it on takes of the caller (`conditions`, `resource.TenantSignInCondition`), in the
 order the call checks: the sign-in through the tenant's directory, then the password
 where the caller's auth has the password method. Each is the `sentence` the refusal
 above opens with, whether the caller meets it (`met`), and, where they do not, what they
@@ -3590,7 +3596,7 @@ refuses for the second.
 
 A tenant with no directory is refused before anything is asked of the person, and a
 tenant that is directory only already has nothing to turn on, so the read names no
-condition for either. The browser client's `directoryOnlyState(api, tenant)` is the typed read, and the
+condition for either. The browser client's `tenantSignInSettings(api, tenant)` is the typed read, and the
 methods are handles of the tenant's client
 (`api.domain(tenant).make<Record>DirectoryOnly`, `.end<Record>DirectoryOnly`); the
 library's Sign-in settings page runs each through its method dialog
@@ -3600,19 +3606,30 @@ turns it on only where the tenant has a directory and the person meets every con
 of the read, and shows in its place each condition they do not meet.
 
 The read also says what a page of the tenant's sign-in settings shows
-(`DirectoryOnlyState`): `Directory`, the tenant's directory as people know it;
+(`TenantSignInSettings`): `Directory`, the tenant's directory as people know it;
 `DefaultRole`, the role a person gets the first time they sign in through it, in words;
 `Passwords`, whether the caller's auth has a password method; `SignedIn`, a sentence
 that says how the caller signed in; `SessionDirectory`, the organization's directory the
-caller is signed in through; and `People`, how many people hold a role in the tenant
-(`Seated`) and how many of them the switch keeps out (`Outside`), counted as the warning
-counts them. The generated rules are told who counts (`CountedBy`): each auth's identity
-client answers how many people the tenant seats (`SeatedCount`) and who the switch keeps
-out (`DirectoryOutsiders`).
+caller is signed in through; `People`, how many people the tenant's list holds
+(`Seated`: who holds a role in the tenant, and who signs in through its directory) and
+how many of them the switch keeps out (`Outside`), counted as the warning counts them,
+with each auth's share of both (`Shares`: what a page calls the auth's people, the
+tenant's list of them, and its two numbers), so a page that links the count to one
+auth's people never says more people than the link opens; and `SecondFactor`, where the
+directories record carries `@directorySecondFactor` and the tenant has a directory:
+whether the tenant vouches for its directory's second factor (`Vouched`), whether the
+caller's auth asks everyone for one now (`Asked`), the one sentence a page shows for the
+two (`Says`), and what vouching takes of the caller (`Conditions`). The generated rules
+are told who counts (`CountedBy`), one entry for each auth whose people a tenant seats
+(`resource.DirectoryPeople`): the readers of how many people its list of the tenant
+holds (`SeatedCount`), whom the switch keeps out (`DirectoryOutsiders`) and who keeps
+the administrators' way in, and the lists that decide whether a caller is told names.
+The read and the warning that turns the switch on read the same entries.
 
-The tenant's own list of its people (section 21) is made from who holds a role in the
-tenant, never from who can sign in, so a person the flag keeps out stays in it with
-their roles. Where the record declares the flag the list carries one more field,
+The tenant's own list of its people (section 21) holds everyone who holds a role in the
+tenant, whether or not they can sign in, so a person the flag keeps out stays in it with
+their roles; it holds everyone who signs in through the tenant's directory too, whatever
+they hold. Where the record declares the flag the list carries one more field,
 `cannotEnter`: while the tenant is directory only, the row of a person who has no
 sign-in through the tenant's directory says so ("Has not signed in through this
 tenant's directory, so cannot enter while this tenant is directory only"), and it is
@@ -3629,6 +3646,38 @@ connection and not what the sign-in registrations call it, and a connection is n
 said to a person. The library's People page shows it as a column
 ("Cannot enter") to a role that is granted the field, so the tenant's administrator sees
 who the flag keeps out for as long as it is on.
+
+**A tenant's word for its directory's second factor.** The directories record may carry
+a second column of the tenant's own, `@directorySecondFactor` (section 1), a BOOL. Where
+the application asks everyone for a second factor at sign-in, a tenant whose directory
+already asks its people for one can say so, and the application then stops asking the
+people who sign in through that directory for its mailed code. The sign-in reads the
+column in its own transaction, for the directory the person signed in through, so it
+holds in every tenant that gave the person a role and a word taken back holds from the
+next sign-in. It is the tenant's word and nothing checks it: a super administrator, and
+a sign-in an application's own rule holds, are asked as before. An auth whose directory
+writes its roles is not reached by it: such an auth sets no directory admission, no
+tenant's word is read at a sign-in through a method that synchronizes roles, and its
+people are asked as its own setting says. The generator writes two
+methods in the tenant's scope for a record that carries the column, served on every
+session outlet that serves the directories record:
+`VouchFor<Record>DirectorySecondFactor`, at
+`POST /<prefix>/<tenants>/{tenant}/vouch-for-<record>-directory-second-factor` with
+`{}`, and `StopVouchingFor<Record>DirectorySecondFactor`, at
+`POST /<prefix>/<tenants>/{tenant}/stop-vouching-for-<record>-directory-second-factor`
+with `{}`. A role file grants Execute on each to the role that manages the tenant's
+sign-in settings. Vouching declares a warning (section 7), which a person confirms by
+typing `vouch` (`resource.VouchForDirectoryWord`): "You are saying that acme.example
+asks its people for a second factor when they sign in. This application will stop
+asking them for a code.", under the button "Stop asking people who sign in through
+acme.example for a code". It is refused (409) for a tenant with no directory, for a
+caller who is not signed in through that directory, and while the application asks
+nobody for a second factor; the warning is refused in the same words, and for a tenant
+that says so already. Taking the word back is plain, asks nothing of how the caller
+signed in, and holds from the next sign-in. Each writes the column through the
+directories record's update patch, so the record's change events say who said it and
+when, and each carries the class `access`. A record with no such column has no such
+word and no such methods.
 
 **The default seat.** What a person gets at their first sign-in through a tenant's
 directory is the directory row's to say, before the method's account rule is reached.
@@ -4177,6 +4226,7 @@ the schema holds its table, so an Auth that issues no tokens has no tokens list:
 
 ```
 GET  <prefix>/crew-session-users, …/{id}                   List, Read on CrewSessionUsers (sort=username)
+GET  <prefix>/crew-listed-users, …/{id}                    List, Read on CrewListedUsers (the accounts with what each holds, sort=username)
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
@@ -4214,25 +4264,25 @@ GET  <prefix>/sectors/{sectorID}/crew-sector-groups, …/{id}             List, 
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, Read on CrewSectorGroupUsers
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-group-roles, …/{id}   List, Read on CrewSectorUserGroupRoles
-POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
-POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
-POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewSessionUsers
-POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewSessionUsers
-POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewSessionUsers
-POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
+POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewListedUsers
+POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewListedUsers
+POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewListedUsers
+POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewListedUsers
+POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewListedUsers
+POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewListedUsers
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
 POST <prefix>/invite-crew-user                {"email","name","domain","everyDomain","roles"} → {"id","sent"}   Execute on InviteCrewUser
 POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewSessionMailLinks
 POST <prefix>/invite-crew-sector              {"email","name","sectorName",…,"sectorDirectoryOnly","defaultRole"} → {"id","sent"}   Execute on InviteCrewSector, and Create on Sectors
 POST <prefix>/withdraw-crew-invited-sector    {"invitationId"}                 Execute on WithdrawCrewInvitedSector
-POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewSessionUsers
-POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewSessionUsers
-POST <prefix>/end-crew-user-sessions          {"userId"}                       Execute on EndCrewUserSessions, targeting CrewSessionUsers
-POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewSessionUsers
+POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewListedUsers
+POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewListedUsers
+POST <prefix>/end-crew-user-sessions          {"userId"}                       Execute on EndCrewUserSessions, targeting CrewListedUsers
+POST <prefix>/require-crew-password-change    {"userId"}                       Execute on RequireCrewPasswordChange, targeting CrewListedUsers
 POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewSessions
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
 POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
-POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewSessionUsers
+POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewListedUsers
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain","startsAt","endsAt","reason"}   Execute on AssignCrewRole
 POST <prefix>/take-crew-role                  {"domain","role","length","reason"}        Execute on TakeCrewRole (the caller takes the role themselves)
@@ -4377,17 +4427,22 @@ address. In an application with a tenant record (`@tenant`) the generated manage
 declares four views per Auth, each a tenant record like any other (`@virtual`,
 `@permissionScope(domain)`, the tenant in a `domain` column), listed and read under the
 domain pair on the outlets that serve the Auth's management. The whole application's
-lists carry the names of their tables; a tenant's list is named for what it holds, with
-the Auth's name and the application's tenant record's before it. A tenant record whose
-name would give a list the name of one of the tables' declarations (a record named
-`Session` or `User`) is refused at generation:
+lists carry the names of their tables, and its lists of what is held (`CrewHeldRoles`,
+`CrewListedUsers`, `CrewListedGroups`) the Auth's name before what each lists; a tenant's
+list is named for what it holds, with the Auth's name and the application's tenant
+record's before it. A tenant record whose name would give a list one of those names (a
+record named `Session`, `User` or `Listed`) is refused at generation:
 
-- `CrewSectorUsers`, the tenant's people: one row per person who holds a role in
-  the tenant or in every tenant, keyed by the account's id, with the columns of
-  `CrewSessionUsers`. A person who holds a role in two tenants is a row in each. Two
-  facts: `heldElsewhere` (the person also holds a role outside this tenant's own: in
-  another tenant, or in every tenant) and `heldGlobally` (the person holds a role for
-  the whole application).
+- `CrewSectorUsers`, the tenant's people: one row per person who holds a role in the
+  tenant or in every tenant, and, where the tenant has a directory, per person who signs
+  in through it, keyed by the account's id, with the columns of `CrewSessionUsers`. A
+  person who holds a role in two tenants is a row in each. Six facts: `heldElsewhere`
+  (the person also holds a role outside this tenant's own: in another tenant, or in
+  every tenant), `heldGlobally` (the person holds a role for the whole application),
+  `heldHere` (the person holds something in this tenant itself), `heldInEveryTenant`
+  (the person holds a role in every tenant at once), `managedHere` (this tenant manages
+  the person's account) and `managedByAnotherDirectory` (the person signs in through
+  another tenant's directory, and that tenant manages the account).
 - `CrewSectorUserRoles`, the roles held there: one row per person and role, keyed by the
   account's id and the role (`userId`, `role`), with `username` and `createdAt`. Two facts: `role`, the role itself, and `everyDomain`, true
   where the role is held there through a membership in every tenant alone, so it is not
@@ -4398,23 +4453,35 @@ name would give a list the name of one of the tables' declarations (a record nam
   invitation stands (not accepted, not withdrawn, not expired), and `role`, the roles
   it gives: a list, so a condition that reads it is judged once for each role and holds
   only when it holds for every one (section 2, `@attribute` on a list column).
-- `CrewSectorIdentities`, the identities of the tenant's people: one row per
-  identity link of a person of the first list, keyed by the link's id, with the columns
-  of `CrewSessionIdentities` (`tenant` is the link's own, the organization its directory
-  vouched for), the person's `userId` and `username`, and the person's two facts,
-  `heldElsewhere` and `heldGlobally`. The identity of a person who holds a role in two
-  tenants is a row in each. A person's page lists their identities by `userId`.
+- `CrewSectorIdentities`, the identities of the tenant's people: one row per identity
+  link of a person of the first list, keyed by the link's id, with the columns of
+  `CrewSessionIdentities` (`tenant` is the link's own, the organization its directory
+  vouched for), the person's `userId` and `username`, and four of the person's facts,
+  `heldElsewhere`, `heldGlobally`, `managedHere` and `managedByAnotherDirectory`. The
+  identity of a person who holds a role in two tenants is a row in each. A person's page
+  lists their identities by `userId`.
+
+One party manages each account, and the lists say which. The tenant whose directory a
+person signs in through manages their account. A person who signs in through no tenant's
+directory, and holds something in one tenant and nothing anywhere else, is managed by
+that tenant. Every other account is the application's own administrators' to manage.
+`managedHere` is true on the row of the tenant that manages the account. No sign-in
+links an account under a second tenant's directory. An account that came under two all
+the same (its links stood before either tenant took its directory, or the application
+wrote one itself with the store's `LinkIdentity`) is managed by both, and `managedHere`
+is true on both rows.
 
 Each fact is a column of the view under a bare `@attribute`, so a grant's condition reads
-it by name, and the role file says what a tenant's administrator sees of a person who is
-not the tenant's alone. Lodestar's Sector Marshal sees every person of the sector and
-their address only where the sector holds them alone, and its Dispatcher the roles the
-sector itself gave:
+it by name, and the role file says what a tenant's administrator sees of a person whose
+account the tenant does not manage. Lodestar's Sector Marshal sees every person of the
+sector with their name, their address and whether the account is disabled, and the rest
+of the account only where the sector manages it, and its Dispatcher the roles the sector
+itself gave:
 
 ```json
 "List": [
-  { "resource": "CrewSectorUsers", "fields": ["username", "disabled", "createdAt", "lastSignInAt", "heldElsewhere", "heldGlobally"] },
-  { "resource": "CrewSectorUsers", "fields": ["email", "emailVerifiedAt", "passwordChangeRequired"], "condition": "heldElsewhere = false" }
+  { "resource": "CrewSectorUsers", "fields": ["username", "name", "email", "disabled", "heldElsewhere", "heldGlobally", "heldHere", "heldInEveryTenant", "managedHere", "managedByAnotherDirectory", "outsideDirectory", "cannotEnter"] },
+  { "resource": "CrewSectorUsers", "fields": ["emailVerifiedAt", "passwordChangeRequired", "createdAt", "lastSignInAt"], "condition": "managedHere = true" }
 ]
 "List": [{ "resource": "CrewSectorUserRoles", "fields": ["username", "role"], "condition": "everyDomain = false" }]
 ```
@@ -4422,8 +4489,15 @@ sector itself gave:
 So an application where a tenant owns its people and one where the people are shared
 between tenants are two role files over the same lists. A grant names its fields, as on
 any view: a grant with none answers the key alone. The people's list filters and sorts by
-`username` and by the two facts; the account's other columns are no filter keys, so a
+`username` and by the six facts; the account's other columns are no filter keys, so a
 grant may carry any of them under a condition at no cost to a page.
+
+A tenant's people list also says what each person holds in the tenant, `roles`: the name
+of each role once, of their own or through a group. A role held in every tenant at once is
+not among them: `heldInEveryTenant` says it, and a grant gives or keeps back each by
+itself. Where the schema holds the sign-in attempts table the list carries `lockedUntil`
+too: until when the person's sign-in is locked by failed tries, and nothing for a person
+who is not locked. Neither is a filter key.
 
 A view is a query the framework selects from (`FROM (<query>) AS <Resource>`), not a
 database object: nothing is created in the schema and nothing is migrated. The generator
@@ -4458,10 +4532,12 @@ those of the tenant, at any size of the application. (Read through an index by u
 when a membership named its person by username, the people took 0.45 s at 50,000 and the
 roles and identities longer.) The invitations read their own page from the index (26 rows
 at any size).
-Three costs are worth knowing. A filter on `heldElsewhere` or `heldGlobally`,
-or a grant on the list whose condition reads one and so holds every row to it, costs two
-index reads for each person of the tenant (seconds at 50,000 people; a condition on a
-field costs them for the page's rows alone). A row of the roles held is keyed by the
+Three costs are worth knowing. A filter on one of the person's facts (`heldElsewhere`,
+`heldGlobally`, `managedHere`, `managedByAnotherDirectory`), or a grant on the list
+whose condition reads one and so holds every row to it, costs index reads for each
+person of the tenant (two for where a person holds roles, and the person's identities
+besides for who manages them; seconds at 50,000 people; a condition on a field costs
+them for the page's rows alone). A row of the roles held is keyed by the
 user's id and the role, two columns the database looks up, so a read of one row, and the
 check a method makes of the role it names, reads the one person's memberships (2 to 4 ms
 and three rows at 50,000 people; a key that joined the two in one value could not be
@@ -4632,17 +4708,17 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
   record's label or its name in words ("You are the last administrator of this
   sector."): the generated client hands it to the rules (`identity.WithTenantWord`).
 
-What a tenant may do to a person who also holds a role outside it, and which roles its
+What a tenant may do to a person whose account it does not manage, and which roles its
 administrator hands out, the role file says, in the conditions of the Execute grants: over
 the facts of the row, and over the request's own fields (`new.role`, section 2's
 `@attribute` on a field of an `@rpc` struct). Lodestar's Sector Marshal acts on the
-account of a person the sector holds alone, gives every role but the Marshal's own, takes
+account of a person the sector manages, gives every role but the Marshal's own, takes
 a role away where the sector itself gave it, and withdraws an invitation that stands and
 gives no Marshal's role:
 
 ```json
 "Execute": [
-  { "resource": "DisableCrewSectorUser", "condition": "heldElsewhere = false AND heldGlobally = false" },
+  { "resource": "DisableCrewSectorUser", "condition": "managedHere = true" },
   { "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "InviteCrewSectorUser", "condition": "new.role != 'SectorMarshal'" },
   { "resource": "RemoveCrewSectorRole", "condition": "role != 'SectorMarshal' AND everyDomain = false" },
@@ -4899,6 +4975,17 @@ grants each like any resource.
   people hold themselves and is read by a row's key; the one list is read as a list
   alone. An auth whose roles a directory writes has the list too, and every row of it
   is the person's own.
+- `CrewListedUsers` is the accounts with what each holds: the account's columns,
+  `roles`, a line for each role the account holds ("Engineer", "Engineer in sector
+  Anvil", "Pilot in every sector"; the role's name alone where the application has no
+  tenants), and, where the schema holds the sign-in attempts table, `lockedUntil`: until
+  when the account's sign-in is locked by failed tries. A line names the tenant its role
+  is held in by the name people call the tenant by, or by its key where the tenant record
+  marks no name, so a grant of `roles` shows those names whatever the reader is granted
+  on the tenant record, as a line of `CrewListedGroups` does. The Accounts page lists it, it
+  filters by `username`, `name` and `email`, and the whole application's methods on a
+  person name their person by its row. `CrewSessionUsers`, the users table's own list,
+  stays: a picker of a person reads it.
 - `CrewListedGroups` is the groups with what each holds: `people`, how many people are
   in the group, and `roles`, the roles it holds, a line each: the role's name, and where
   it is held when that is not where the group is kept ("Engineer in sector Anvil",
@@ -4960,8 +5047,9 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   request after the end. The sign-in rule and the session's list of tenants read what a
   person holds at the moment, and so do a tenant's list of its people
   (`CrewSectorUsers`) and the list of the identities of those people: a person whose
-  only role in a tenant has ended, or has not begun, is not one of its people. The two
-  facts about a person (`heldElsewhere`, `heldGlobally`) read what has not ended.
+  only role in a tenant has ended, or has not begun, is not one of its people. The
+  facts about where a person holds roles (`heldElsewhere`, `heldGlobally`, `heldHere`,
+  `heldInEveryTenant`), and `managedHere`, which reads them, read what has not ended.
 - The lists of roles and of places carry the period (`startsAt`, `endsAt`) under a
   field grant of their own, leave out a row that has ended and show one that has not
   begun, where it is given another period or taken away: `CrewSectorUserRoles`, the
@@ -5124,17 +5212,16 @@ every policy store's schema holds it).
   the identities, and for a tenant's list the role memberships and the groups too), so a
   page that holds it open reads it again when a sign-in links an identity or an
   administrator removes a password. A tenant's answers for a person of the tenant's own
-  list of people, nothing for anyone else, and carries the two facts of the person's row
-  (`heldElsewhere`, `heldGlobally`) for a grant's condition, with `password`, which says
-  whether the row is the password. A role file grants it to whoever reads the
-  identities. Lodestar's and the skeletons' grant a tenant's administrator the list
-  under `password = false OR heldElsewhere = false`: the identities that count of
-  every person of the tenant, and the password only of a person no other tenant holds,
-  the condition `passwordChangeRequired` is read under. Whether a person another tenant
-  holds too has a password is then not the tenant's to learn, the page offers no
-  removal for them (it offers one by the rows), and the removal is the whole
-  application's administrator's, who reads the password in the whole application's
-  list. Every field of that grant is under the condition, so a tenant's administrator
+  list of people, nothing for anyone else, and carries four facts of the person's row
+  (`heldElsewhere`, `heldGlobally`, `managedHere`, `managedByAnotherDirectory`) for a
+  grant's condition, with `password`, which says whether the row is the password. A role
+  file grants it to whoever reads the identities. Lodestar's and the skeletons' grant a
+  tenant's administrator the list under `managedHere = true`: how a person signs in is
+  read by the tenant that manages their account, the condition `passwordChangeRequired`
+  is read under. Whether a person another party manages has a password is then not the
+  tenant's to learn, the page offers no removal for them (it offers one by the rows), and
+  the removal is the whole application's administrator's, who reads the password in the
+  whole application's list. Every field of that grant is under the condition, so a tenant's administrator
   cannot ask for the list sorted or filtered by one of them (a sort or filter field
   needs a grant with no condition left once the request is checked): the list comes in
   its declared order, the password first.
@@ -5733,7 +5820,10 @@ own, outside any request, has no caller and is the application's act):
   group kept in that tenant, for a caller the method would refuse.
 - The removal of a person's last role anywhere deletes the account, with its identity
   links and sessions, in the same transaction and whoever removed the role: an account
-  nothing admits is not kept.
+  nothing admits is not kept. An account that signs in through a tenant's directory is
+  that tenant's to delete: it goes this way only with the last thing it holds in that
+  tenant itself, and otherwise stays, holding nothing, in that tenant's list of its
+  people.
 
 A caller is named by the id of their account, as the permission store names anyone, and
 the first three rules take the caller for the person acted on only where the request came
@@ -5747,7 +5837,8 @@ id is no account of the one being managed: there nobody is refused as acting on 
 
 **One tenant per person.** In an application whose tenants own their people, a person
 belongs to one tenant: the tenant that created or invited them manages the account, which
-it cannot do for a person another tenant holds too. The application says so where it
+no tenant does for a person two tenants hold, unless the person signs in through one
+tenant's directory. The application says so where it
 builds the client, beside its administrator roles (`identity.WithOneTenantPerPerson()`),
 and every way a person comes to hold a role in a tenant is then held to it:
 
@@ -5778,12 +5869,11 @@ and every way a person comes to hold a role in a tenant is then held to it:
 A refusal says the person belongs to another tenant and never which.
 
 The application's own people are outside the rule. A person who holds a role for the
-whole application or in every tenant is no tenant's to manage, whatever else they hold
-(the role files grant a tenant its account methods on a person it holds alone,
-`heldElsewhere = false AND heldGlobally = false`), so they are given a role in any
-tenant: an operator who is asked into one customer's tenant after another holds a role
-in each. Such a
-role is no tenant's either, so it never counts as one and is never refused. So that
+whole application or in every tenant is no tenant's to manage unless they sign in through
+that tenant's directory (the role files grant a tenant its account methods on a person
+whose account it manages, `managedHere = true`), so they are given a role in any tenant:
+an operator who is asked into one customer's tenant after another holds a role in each.
+Such a role is no tenant's either, so it never counts as one and is never refused. So that
 nobody is left in several tenants with nothing outside them, the last role a person
 holds outside the tenants is not taken away while they hold roles in more than one
 (409): take the roles in all but one tenant away first. A place in a group of the whole
@@ -5847,8 +5937,8 @@ reads, in `generated_identity_invitation_test.go`), `generated_identity_lists_te
 holds a sector's lists (each sector's rows, a person of two sectors in each, the
 facts, and the grants that carry a condition on one),
 `generated_identity_tenant_methods_test.go` a sector's methods (each account method
-allowed on a person the sector holds alone, refused on one it shares and not found for
-another sector's; the roles given and taken; the identities and the unlink) with
+allowed on a person whose account the sector manages, refused on one it does not manage
+and not found for another sector's; the roles given and taken; the identities and the unlink) with
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
 (the invitation, its withdrawal, the required password change),
 `generated_identity_remove_password_test.go` holds the removal of a person's password at a

@@ -113,8 +113,8 @@ func TestTenancy_Apply_leavesTheConditionsWhereNoTestProvesThem(t *testing.T) {
 
 				return withoutResources(t, collection, "DisableStaffTenantUser")
 			},
-			unserved: `Execute on DisableStaffTenantUser under "heldElsewhere = false AND heldGlobally = false"`,
-			wantWhy:  `the test proves Execute on DisableStaffTenantUser under "heldElsewhere = false AND heldGlobally = false", which the role would not carry`,
+			unserved: `Execute on DisableStaffTenantUser under "managedHere = true"`,
+			wantWhy:  `the test proves Execute on DisableStaffTenantUser under "managedHere = true", which the role would not carry`,
 		},
 	}
 	for _, tt := range tests {
@@ -219,7 +219,7 @@ func TestTenancy_Apply_provesTheConditionsWithNoPassword(t *testing.T) {
 		t.Errorf("%s proves %q, want each grant the role holds under a condition and no other: %q", tenantPeopleTest, got, held)
 	}
 	for _, want := range []string{
-		`provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "DisableMembersTenantUser", "heldElsewhere = false AND heldGlobally = false")`,
+		`provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "DisableMembersTenantUser", "managedHere = true")`,
 		"s.auth.SeedCastFile(ctx, io.Discard,", "signIn(ctx, members.PersonaRegistration,", "membersAccount(ctx, t, s, name,", `"/api/assign-members-role"`, `"unlink-members-tenant-session-identity"`,
 	} {
 		if !strings.Contains(proof, want) {

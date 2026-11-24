@@ -244,9 +244,24 @@ func (d *identitySourceData) Subject() string {
 	return d.subject(d.ForTenant)
 }
 
-// SubjectUser is the struct whose row a method names a person by: the users table's for
-// the whole application, and the tenant's list of people for a tenant.
+// SubjectUser is the struct whose row a method names a person by: the list of the
+// accounts a page shows, the whole application's (identity_holdings.go) or the tenant's
+// people. A method so names the row the page offers it on, and the server answers for
+// that row whether the caller may run it.
 func (d *identitySourceData) SubjectUser() string {
+	if d.ForTenant {
+		return d.TenantUser()
+	}
+	if d.listsHeldRoles() {
+		return d.ListedUser()
+	}
+
+	return d.User()
+}
+
+// PickedUser is the struct a method's input picks a person from: the tenant's people for a
+// tenant, and the users table's declaration for the whole application.
+func (d *identitySourceData) PickedUser() string {
 	if d.ForTenant {
 		return d.TenantUser()
 	}

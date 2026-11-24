@@ -828,9 +828,9 @@ The application still sends mail, though it invites nobody. Through Microsoft or
 identity provider, each person's first sign-in stops for a code mailed to the address
 they give, as [The email address on an account](#the-email-address-on-an-account) says.
 Through any directory, a sign-in that carries no second factor of the directory's own
-stops for a code mailed to the person's address. So each deployed environment needs its mailbox,
-although no release asks for one: without it the code is written to the server's log,
-and the person stays on the login page.
+stops for a code mailed to the person's address. So each deployed environment needs its mailbox:
+a deployed environment does not start without its mailbox (`APP_MAIL_MAILBOX`, with the
+secret `APP_MAIL_APP_PASSWORD`).
 
 Where the roles come from depends on the method.
 
@@ -1122,20 +1122,22 @@ A tenant's administrator is a person who holds, in that tenant, a role the appli
 names as an administrator's role of a tenant. In the skeletons that role is
 `TenantAdministrator`, and the person who makes a tenant is given it.
 
-Where a tenant can have a directory, the tenant's administrator makes three choices, on
+Where a tenant can have a directory, the tenant's administrator makes four choices, on
 the tenant's Sign-in page.
 
 | Choice | What it does |
 | --- | --- |
 | The tenant's directory | Makes the directory the administrator is signed in through the tenant's own, or removes it. |
 | Open to the directory, or invite only | Open names the role each person from the directory is given at their first sign-in through it, with no invitation. The role is one of the tenant's roles that the administrator could give directly. Invite only clears it: the directory's people then need an invitation. A tenant starts invite only unless the invitation that made it named a role. |
+| The directory's second factor | Says that the tenant's directory asks its people for a second factor of its own. The application then stops asking the people who sign in through that directory for its mailed code, in this tenant and in every tenant that gave them a role. It is the tenant's word, and nothing checks it. A Super Administrator, and anyone who signs in with a password, are asked as before. Taking it back asks the directory's people again from their next sign-in. The choice is there where the application's directories carry it, and there is something to turn off only while the application asks everyone for a second factor. |
 | Directory only | Closes the tenant to every sign-in but one through its directory: no password, no personal account, no other organization's directory. That keeps out the application's own staff too. Two kinds of people still get in: an administrator of the tenant itself, with a password and a code mailed to their email address, and a Super Administrator. |
 
 A person from a tenant's directory gets in by the tenant's choice, whether or not the
 sign-in method is open to sign-up on the auth's Sign-in page.
 
-Opening the tenant to its directory and making it directory only each warn first, with
-who is affected, and are confirmed by typing a word (`open`, `close`). Removing a
+Opening the tenant to its directory, making it directory only and vouching for the
+directory's second factor each warn first, with who is affected, and are confirmed by
+typing a word (`open`, `close`, `vouch`). Removing a
 tenant's directory asks first too, in a dialog that names the directory.
 
 A tenant's administrator can turn directory only on once the tenant has its directory,
@@ -1151,6 +1153,10 @@ through an organization's directory and no other way. The password rule applies 
 when directory only is turned on from the page: the first administrator of a tenant made
 directory only may have no password until they choose one on the Your account page. The
 directory of a tenant that is directory only cannot be removed.
+
+A tenant's administrator vouches for the directory's second factor while signed in through
+that directory, as with directory only. Taking it back asks nothing of how the person
+signed in.
 
 A tenant's choices restrict who enters that tenant and no other. A tenant that is not
 directory only admits everyone it has given a role, however they signed in.
@@ -1176,13 +1182,23 @@ The application's management of an auth's accounts has two sides.
   tenant's invitations, and changes them. The skeletons grant it to the
   `TenantAdministrator` role, held in a tenant.
 
-Each person in a tenant's list carries two facts that a grant's condition can test.
-`heldElsewhere` says the person also holds a role in every tenant, or holds a role or
-belongs to a group in another tenant. `heldGlobally` says the person holds a role for the
-whole application, or belongs to a group kept for the whole application. (The "globally"
-in that name is the role file's word for the whole application. It is not the "Global" of
-shapes 7 and 8, which is about being in several tenants.) With the skeletons' role file,
-a tenant's administrator can do this much:
+Each person in a tenant's list carries facts that a grant's condition can test.
+`managedHere` says this tenant manages the person's account: the person signs in through
+the tenant's directory, or signs in through no tenant's directory and holds something in
+this tenant and nothing anywhere else. `managedByAnotherDirectory` says the person signs
+in through another tenant's directory, and that tenant manages the account. An account no
+tenant manages is the application's own administrators' to manage. `heldElsewhere` says
+the person also holds a role in every tenant, or holds a role or belongs to a group in
+another tenant. `heldGlobally` says the person holds a role for the whole application, or
+belongs to a group kept for the whole application. (The "globally" in that name is the
+role file's word for the whole application. It is not the "Global" of shapes 7 and 8,
+which is about being in several tenants.) A tenant with a directory lists everyone who
+signs in through it, also a person who holds no role in the tenant, so the tenant that
+manages an account can disable or delete it. Removing a person from a tenant, or taking
+away the last thing they hold, deletes their account only where no other tenant manages
+it: the account of a person who signs in through another tenant's directory stays,
+holding nothing, in that tenant's list. With the skeletons' role file, a tenant's
+administrator can do this much:
 
 | A tenant's administrator can | For whom |
 | --- | --- |
@@ -1190,10 +1206,10 @@ a tenant's administrator can do this much:
 | Give a role in the tenant | A person who already holds a role in the tenant. A person new to the tenant is invited, with a role from the start. |
 | Take away a role held in the tenant | Anyone in the tenant. A role a person holds in every tenant is not one tenant's to take. |
 | Withdraw an invitation | An invitation of the tenant that still stands |
-| See the name a person signs in with and their name, whether the account is disabled, and when it was created and last signed in | Everyone in the tenant |
-| See a person's email address, and whether they must choose a new password | A person who holds no role in another tenant or in every tenant (`heldElsewhere = false`) |
-| Send a password reset link | Everyone in the tenant who has a password and a confirmed email address |
-| Disable and enable the account, delete it, rename it, set its name, ask for a change of its email address (which takes effect once the new address confirms), require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person the tenant holds alone (`heldElsewhere = false AND heldGlobally = false`) |
+| See the name a person signs in with, their name and email address, and whether the account is disabled | Everyone in the tenant's list |
+| See when the account was created and last signed in, whether the email address is confirmed, whether the person must choose a new password, and how the person signs in | A person whose account the tenant manages (`managedHere = true`) |
+| Send a password reset link | Everyone in the tenant's list who has a password and a confirmed email address, except a person another tenant's directory manages (`managedHere = true OR managedByAnotherDirectory = false`) |
+| Disable and enable the account, delete it, rename it, set its name, ask for a change of its email address (which takes effect once the new address confirms), require a new password, sign the person out everywhere, forget the browsers they trusted, unlink a sign-in identity, remove the password | A person whose account the tenant manages (`managedHere = true`) |
 
 A browser a person trusted is one they asked the application to remember, after they
 entered the code the application mails at a sign-in that asks for a second step.

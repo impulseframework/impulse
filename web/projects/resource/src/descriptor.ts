@@ -205,6 +205,14 @@ export interface IdentityDescriptor {
    */
   readonly tenantResource?: string;
   /**
+   * The tenant record's directory-only field, as the wire names it, where the outlet serves
+   * the record and the record declares the switch. A tenant's Sign-in settings page reads it
+   * from the tenant's own row for a reader who holds none of the tenant's sign-in methods,
+   * so the page holds no field name. Absent where there is no such field, and on a
+   * description from a generator that predates it.
+   */
+  readonly tenantDirectoryOnlyField?: string;
+  /**
    * The directories that decide the Auth's roles, in the words of its login page's
    * buttons ("Google", "Google or Microsoft"), where a directory writes them at every
    * sign-in. Such an Auth keeps no groups of its own, and its Groups page says whose
@@ -377,12 +385,16 @@ export interface IdentityMethods {
    * On a tenant's side, how the tenant's people enter: `openToDirectory` names the role a
    * person gets the first time they sign in through the tenant's directory,
    * `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and `endDirectoryOnly`
-   * turn the directory-only switch. None names a row.
+   * turn the directory-only switch, and `vouchForDirectorySecondFactor` and
+   * `stopVouchingForDirectorySecondFactor` say, and take back, that the tenant's
+   * directory asks its people for a second factor of its own. None names a row.
    */
   readonly openToDirectory?: string;
   readonly makeDirectoryInviteOnly?: string;
   readonly makeDirectoryOnly?: string;
   readonly endDirectoryOnly?: string;
+  readonly vouchForDirectorySecondFactor?: string;
+  readonly stopVouchingForDirectorySecondFactor?: string;
 }
 
 /** The route the enabled set of feature flags is read from, under the API prefix like every other route. */

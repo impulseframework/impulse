@@ -17,23 +17,24 @@ import (
 // One tenant per person.
 //
 // In an application whose tenants own their people, a person belongs to one tenant: the
-// tenant that invited them manages the account, which it could not do for a person
-// another tenant holds too. The application says so with WithOneTenantPerPerson, and
-// every way a person comes to hold a role in a tenant is then held to it. All of them
-// write their membership through AssignRole: a role given by hand, an invitation
-// accepted, and a directory's default role. A role is held by an account, never by a
-// name, so a rename moves nothing. An invitation is refused when it is sent too
-// (Invite), where an account another tenant holds has confirmed the address, so the
-// sender is told and the invited person is not left with a link they cannot accept.
+// tenant that invited them manages the account, which no tenant does for a person two
+// tenants hold, unless the person signs in through one's directory. The application says
+// so with WithOneTenantPerPerson, and every way a person comes to hold a role in a tenant
+// is then held to it. All of them write their membership through AssignRole: a role given
+// by hand, an invitation accepted, and a directory's default role. A role is held by an
+// account, never by a name, so a rename moves nothing. An invitation is refused when it
+// is sent too (Invite), where an account another tenant holds has confirmed the address,
+// so the sender is told and the invited person is not left with a link they cannot
+// accept.
 //
 // The application's own people are outside the rule: a person who holds a role for the
-// whole application or in every tenant is no tenant's to manage, whatever else they
-// hold (a role file grants a tenant its account methods on a person it holds alone),
+// whole application or in every tenant is no tenant's to manage, whatever else they hold
+// (a role file grants a tenant its account methods on a person whose account it manages),
 // so they are given a role in any tenant, as an operator who creates one customer's
-// tenant after another is seated as each one's first administrator. Such a role is no tenant's
-// either: it never counts as one, and it is never refused. So that nobody is left in
-// several tenants with nothing outside them, the last role a person holds outside the
-// tenants is not taken away while they hold roles in more than one (RemoveRole).
+// tenant after another is seated as each one's first administrator. Such a role is no
+// tenant's either: it never counts as one, and it is never refused. So that nobody is
+// left in several tenants with nothing outside them, the last role a person holds outside
+// the tenants is not taken away while they hold roles in more than one (RemoveRole).
 //
 // A refusal never says which tenant holds the person. The rule reads what is committed:
 // one transaction of the application's own gives a person roles in one tenant, as every

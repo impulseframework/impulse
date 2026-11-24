@@ -155,12 +155,15 @@ CREATE UNIQUE INDEX SectorsByName ON Sectors(Name);
 -- two unique indexes below hold.
 -- DefaultSeat names the role a person is given in the sector at their first sign-in
 -- through the directory; NULL says the sector admits them by invitation only.
+-- AsksSecondFactor says the sector's marshal has said the directory asks its people for a
+-- second factor of its own, so a sign-in through it is not asked for the mailed code.
 CREATE TABLE SectorDirectories (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
   Method STRING(16) NOT NULL,
   Connection STRING(MAX) NOT NULL,
   DefaultSeat STRING(64),
+  AsksSecondFactor BOOL NOT NULL DEFAULT (FALSE),
 
   CONSTRAINT CK_SectorDirectories_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT CK_SectorDirectories_Method CHECK (Method IN ('google', 'azure', 'workos', 'oidc')),

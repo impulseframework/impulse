@@ -238,10 +238,11 @@ type recordRename struct {
 // the record (its resources, the types of their bodies, the client's properties, the
 // routes, the create-your-tenant route with its body and answer, the route parameter,
 // the directories record's tenant field, and the generated methods of the tenant's own:
-// the two that turn the record's directory-only switch and the two that say how it
-// admits its directory's people, each with its route), and last the role a tenant's
-// administrator holds, which the command names for the record (AdministratorRole), so a
-// spec's role and the sentence that says it in words both speak of the application's.
+// the two that turn the record's directory-only switch, the two that say how it admits
+// its directory's people, and the two that say whether its directory asks for a second
+// factor, each with its route), and last the role a tenant's administrator holds, which
+// the command names for the record (AdministratorRole), so a spec's role and the
+// sentence that says it in words both speak of the application's.
 func (tn Tenancy) recordRenames() []recordRename {
 	rec, table := tn.Record(), tn.Table
 	r, t := lowerFirst(rec), lowerFirst(table)
@@ -271,6 +272,9 @@ func (tn Tenancy) recordRenames() []recordRename {
 		{regexp.MustCompile(`\bMakeTenantInviteOnly\b`), "Make" + rec + "InviteOnly"},
 		{regexp.MustCompile(`\bmakeTenantInviteOnly\b`), "make" + rec + "InviteOnly"},
 		{regexp.MustCompile(`\bmake-tenant-invite-only\b`), "make-" + kr + "-invite-only"},
+		{regexp.MustCompile(`\b(VouchFor|StopVouchingFor)TenantDirectorySecondFactor\b`), "${1}" + rec + "DirectorySecondFactor"},
+		{regexp.MustCompile(`\b(vouchFor|stopVouchingFor)TenantDirectorySecondFactor\b`), "${1}" + rec + "DirectorySecondFactor"},
+		{regexp.MustCompile(`\b(vouch-for|stop-vouching-for)-tenant-directory-second-factor\b`), "${1}-" + kr + "-directory-second-factor"},
 		{regexp.MustCompile(`\bTenantsCreate\b`), table + "Create"},
 		{regexp.MustCompile(`\bCreateTenantAnswer\b`), "Create" + rec + "Answer"},
 		{regexp.MustCompile(`\bCreateTenant\b`), "Create" + rec},

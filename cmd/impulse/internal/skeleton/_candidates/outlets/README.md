@@ -218,14 +218,16 @@ generated router test proves the route sits behind the token check.
   members auth's management, and no role of the whole application, so the members' lists
   and methods for the whole application are served and granted to nobody until a role is
   written for them. An account is one row for the whole application, whichever tenants
-  its person holds a role in, so the methods a tenant changes an account through (a new
-  name, a new address, a delete and the rest) are granted to a tenant's
-  administrator under a condition: the tenant holds the person alone
-  (`heldElsewhere = false AND heldGlobally = false`). Without it one tenant's
-  administrator could rename, disable or delete an account that also manages another
-  tenant or the application. The address and the directory's subject of a person another tenant
-  holds too are left out of the tenant's lists the same way (`heldElsewhere = false`), a
-  role held in every tenant is not one tenant's to take (`everyDomain = false`), and an
+  its person holds a role in.
+  A tenant's administrator sees every person of the tenant with the name they sign in
+  with, their name, their email address and whether the account is disabled. The rest of
+  an account, how its person signs in, and the methods that change it are the
+  administrator's only where the tenant manages the account (`managedHere = true`): the
+  person signs in through the tenant's directory, or signs in through no tenant's
+  directory and holds something in this tenant and nothing anywhere else. A password
+  reset link goes to everyone in the list but a person another tenant's directory
+  manages (`managedHere = true OR managedByAnotherDirectory = false`). A role held in
+  every tenant is not one tenant's to take (`everyDomain = false`), and an
   invitation is withdrawn while it stands (`pending = true`);
   `test/integration/tenant_people_test.go` proves each of them for the staff on the
   console and `tenant_members_test.go` for the members on the portal. A new resource stays invisible until a role in its auth's file is granted

@@ -36,10 +36,14 @@ type crewSectorUserRead struct {
 	PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
 	CreatedAt                 time.Time    `json:"createdAt"`
 	LastSignInAt              *time.Time   `json:"lastSignInAt"`
+	Roles                     []string     `json:"roles"`
+	LockedUntil               *time.Time   `json:"lockedUntil"`
 	HeldElsewhere             bool         `json:"heldElsewhere"`
 	HeldGlobally              bool         `json:"heldGlobally"`
 	HeldHere                  bool         `json:"heldHere"`
 	HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
+	ManagedHere               bool         `json:"managedHere"`
+	ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 	OutsideDirectory          bool         `json:"outsideDirectory"`
 	CannotEnter               *string      `json:"cannotEnter"`
 	AdministratorWithPassword bool         `json:"administratorWithPassword"`
@@ -161,10 +165,14 @@ func (c *CrewSectorUserColumns) All() *CrewSectorUserColumns {
 		"PasswordChangeRequired",
 		"CreatedAt",
 		"LastSignInAt",
+		"Roles",
+		"LockedUntil",
 		"HeldElsewhere",
 		"HeldGlobally",
 		"HeldHere",
 		"HeldInEveryTenant",
+		"ManagedHere",
+		"ManagedByAnotherDirectory",
 		"OutsideDirectory",
 		"CannotEnter",
 		"AdministratorWithPassword",
@@ -233,6 +241,18 @@ func (c *CrewSectorUserColumns) LastSignInAt() *CrewSectorUserColumns {
 	return c
 }
 
+func (c *CrewSectorUserColumns) Roles() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "Roles")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) LockedUntil() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "LockedUntil")
+
+	return c
+}
+
 func (c *CrewSectorUserColumns) HeldElsewhere() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "HeldElsewhere")
 
@@ -253,6 +273,18 @@ func (c *CrewSectorUserColumns) HeldHere() *CrewSectorUserColumns {
 
 func (c *CrewSectorUserColumns) HeldInEveryTenant() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "HeldInEveryTenant")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) ManagedHere() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "ManagedHere")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) ManagedByAnotherDirectory() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "ManagedByAnotherDirectory")
 
 	return c
 }
@@ -313,6 +345,14 @@ func (p CrewSectorUserQueryPartialClause) HeldHere() CrewSectorUserQueryIdent[bo
 
 func (p CrewSectorUserQueryPartialClause) HeldInEveryTenant() CrewSectorUserQueryIdent[bool] {
 	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldInEveryTenant", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) ManagedHere() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedHere", p.partialClause, true)}
+}
+
+func (p CrewSectorUserQueryPartialClause) ManagedByAnotherDirectory() CrewSectorUserQueryIdent[bool] {
+	return CrewSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByAnotherDirectory", p.partialClause, true)}
 }
 
 func (p CrewSectorUserQueryPartialClause) OutsideDirectory() CrewSectorUserQueryIdent[bool] {
@@ -429,6 +469,14 @@ func (c *crewSectorUserSort) LastSignInAt() *CrewSectorUserSort {
 	return c.addField("LastSignInAt")
 }
 
+func (c *crewSectorUserSort) Roles() *CrewSectorUserSort {
+	return c.addField("Roles")
+}
+
+func (c *crewSectorUserSort) LockedUntil() *CrewSectorUserSort {
+	return c.addField("LockedUntil")
+}
+
 func (c *crewSectorUserSort) HeldElsewhere() *CrewSectorUserSort {
 	return c.addField("HeldElsewhere")
 }
@@ -443,6 +491,14 @@ func (c *crewSectorUserSort) HeldHere() *CrewSectorUserSort {
 
 func (c *crewSectorUserSort) HeldInEveryTenant() *CrewSectorUserSort {
 	return c.addField("HeldInEveryTenant")
+}
+
+func (c *crewSectorUserSort) ManagedHere() *CrewSectorUserSort {
+	return c.addField("ManagedHere")
+}
+
+func (c *crewSectorUserSort) ManagedByAnotherDirectory() *CrewSectorUserSort {
+	return c.addField("ManagedByAnotherDirectory")
 }
 
 func (c *crewSectorUserSort) OutsideDirectory() *CrewSectorUserSort {

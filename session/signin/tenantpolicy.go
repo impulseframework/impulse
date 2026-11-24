@@ -24,10 +24,17 @@ type Directory struct {
 // DeclaredDirectory is one tenant's declaration of a directory, as a DirectoryReader
 // answers it for a stranger's first sign-in: the tenant, and the default seat the
 // tenant gives a person its directory vouched for, the role the sign-in seats them
-// with in the tenant, or "" when the tenant admits its people by invitation only.
+// with in the tenant, or "" when the tenant admits its people by invitation only, and
+// whether the tenant says the directory asks for a second factor of its own.
 type DeclaredDirectory struct {
 	Tenant      accesstypes.Domain
 	DefaultSeat accesstypes.Role
+	// SecondFactor says the tenant has said its directory asks its people for a second
+	// factor of its own. A sign-in through the directory is then not held for the
+	// mailed code the Auth's sign-in settings ask of everyone, wherever the person
+	// works; a hold a sign-in policy answers stands, and the word is not read at a
+	// sign-in through a method whose directory writes the roles.
+	SecondFactor bool
 }
 
 // DirectoryReader reads every tenant's declaration of a directory for a stranger's
@@ -36,9 +43,18 @@ type DeclaredDirectory struct {
 // identity came through, each with its default seat. A directory some tenant declares
 // belongs to that tenant, and its declaration decides the stranger before the
 // registration's account rule does; a directory no tenant declares, an empty answer,
-// falls to the registration's rule as it would without the reader. Spanner may retry
-// the transaction, so the reader must not have side effects outside it. Set it on
-// the Auth with SetDirectoryAdmission, beside the hook that seats the person.
+// falls to the registration's rule as it would without the reader. The library asks
+// the reader again at each sign-in, in the transaction that decides it: for the
+// directories of the account's identity links, which the sign-in policy is told
+// (sessioninfo.SignInUser.Directories), and, where the Auth's sign-in settings would
+// hold the sign-in for the mailed code, for the word of the tenant whose directory the
+// sign-in came through (DeclaredDirectory.SecondFactor). The library orders nothing
+// between that read and the application's write of the word: a reader that must not
+// let a sign-in in flight commit on a word taken back meanwhile reads the row under a
+// lock that write waits for, as the library's PostgreSQL driver reads its own sign-in
+// settings row (FOR SHARE). Spanner may retry the transaction, so the reader must not
+// have side effects outside it. Set it on the Auth with SetDirectoryAdmission, beside
+// the hook that seats the person.
 type DirectoryReader[Tx any] func(ctx context.Context, tx Tx, directory Directory) ([]DeclaredDirectory, error)
 
 // DirectorySeat is a seat a first sign-in grants: a role in a tenant, the default seat
@@ -240,10 +256,11 @@ type tenantPolicy[Tx any] struct {
 //     refused. A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect
 //     provider) is refused with connection_not_in_tenant, a sign-in with a personal
 //     account (through Google or Microsoft, with an account that is in no
-//     organization's directory) with directory_only_personal_account, and any other, a
-//     password or a session the application starts itself, with directory_only. The
-//     codes are apart so that a login page says what is true of how the person signed
-//     in: a person who used no password is not told to stop using one.
+//     organization's directory) with directory_only_personal_account, a password with
+//     directory_only, and any other, a session the application starts itself, with
+//     directory_only_session. The codes are apart so that a login page says what is
+//     true of how the person signed in: a person who used no password is not told to
+//     stop using one.
 //
 // A refusal is a sessioninfo.LoginRefusal with its code, and errors.Is matches
 // ErrSignInDenied and the rule's own cause (ErrNoTenant, ErrConnectionNotInTenant,
@@ -401,8 +418,9 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 // closedTo is the refusal of a sign-in that came through none of the directories the
 // tenants keep their people to, with the code that is true of how the person signed
 // in: connection_not_in_tenant through an organization's directory,
-// directory_only_personal_account with a personal account, and directory_only for
-// anything else, a password or a session the application starts itself.
+// directory_only_personal_account with a personal account, directory_only for a
+// password, and directory_only_session for anything else, a session the application
+// starts itself.
 func closedTo(method sessioninfo.AuthMethod, connection string) *Decision {
 	if throughDirectory(method, connection) {
 		return denyBecause(sessioninfo.RefusedConnectionNotInTenant, ErrConnectionNotInTenant)
@@ -412,8 +430,12 @@ func closedTo(method sessioninfo.AuthMethod, connection string) *Decision {
 	if method.ThroughDirectory() {
 		return denyBecause(sessioninfo.RefusedDirectoryOnlyPersonalAccount, ErrDirectoryOnly)
 	}
+	if method == sessioninfo.MethodPassword {
+		return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly)
+	}
 
-	return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly)
+	// The person typed no password: the code says so.
+	return denyBecause(sessioninfo.RefusedDirectoryOnlySession, ErrDirectoryOnly)
 }
 
 // membership reads the person's memberships: outside when a role is held outside any

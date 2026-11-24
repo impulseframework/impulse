@@ -308,8 +308,8 @@ func TestDirectoryStart_Command(t *testing.T) {
 }
 
 // TestDirectoryStart_Meaning_mailbox holds the brief of a Directory roles start to saying
-// that the environment needs its mailbox. A release of such an application invites
-// nobody, so it asks for none, and the application still mails the sign-in code: to every
+// that the environment needs its mailbox: a deployed environment does not start without
+// one. Such an application invites nobody, and it still mails the sign-in code: to every
 // sign-in the directory does not answer for, and, through Microsoft, to each person's
 // first, since that directory vouches for no address, and through another identity
 // provider to each person's first too, whatever the provider's token says of the
@@ -319,9 +319,8 @@ func TestDirectoryStart_Meaning_mailbox(t *testing.T) {
 	t.Parallel()
 
 	const (
-		mailbox  = "Give each deployed environment its mailbox (`APP_MAIL_MAILBOX`, with the secret `APP_MAIL_APP_PASSWORD`) before anybody signs in. No release asks for one, since nobody is invited, and the application mails all the same: "
-		noSender = "Without the mailbox the code is written to the server's log and reaches nobody, and the person is left at the login page's code step."
-		first    = "Each person's first sign-in waits for one whatever the directory says of a second factor: Microsoft Entra ID vouches for no address, so the login page asks the person for theirs, and the code proves it."
+		mailbox = "Give each deployed environment its mailbox (`APP_MAIL_MAILBOX`, with the secret `APP_MAIL_APP_PASSWORD`) before its first release: a deployed environment does not start without its mailbox. Nobody is invited, and the application mails all the same: "
+		first   = "Each person's first sign-in waits for one whatever the directory says of a second factor: Microsoft Entra ID vouches for no address, so the login page asks the person for theirs, and the code proves it."
 	)
 	tests := []struct {
 		name  string
@@ -332,20 +331,20 @@ func TestDirectoryStart_Meaning_mailbox(t *testing.T) {
 		{
 			name: "directory roles through Google", start: directoryRolesStart(app.MethodGoogle, "fleet.example"),
 			wants: []string{
-				mailbox + "a sign-in waits for a code mailed to the person's address unless the Workspace is one the deployment administers (`APP_STAFF_GOOGLE_ADMINISTERED_WORKSPACES`), or the browser is one the person asked to be remembered. " + noSender,
+				mailbox + "a sign-in waits for a code mailed to the person's address unless the Workspace is one the deployment administers (`APP_STAFF_GOOGLE_ADMINISTERED_WORKSPACES`), or the browser is one the person asked to be remembered.",
 			},
 			never: []string{first, "token says"},
 		},
 		{
 			name: "directory roles through Microsoft", start: directoryRolesStart(app.MethodAzure, ""),
 			wants: []string{
-				mailbox + "a sign-in waits for a code mailed to the person's address unless the tenant is one the deployment administers (`APP_STAFF_AZURE_ADMINISTERED_TENANTS`), the directory's token says a second factor was passed, or the browser is one the person asked to be remembered. " + first + " " + noSender,
+				mailbox + "a sign-in waits for a code mailed to the person's address unless the tenant is one the deployment administers (`APP_STAFF_AZURE_ADMINISTERED_TENANTS`), the directory's token says a second factor was passed, or the browser is one the person asked to be remembered. " + first,
 			},
 		},
 		{
 			name: "directory roles through another identity provider", start: providerStart(providerIssuer),
 			wants: []string{
-				mailbox + "a sign-in waits for a code mailed to the person's address unless the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. Each person's first sign-in waits for one whatever the token says, of a second factor or of their address (`email_verified`): the provider's word confirms no address, so the login page asks the person for theirs where the account holds none, and the code proves it. " + noSender,
+				mailbox + "a sign-in waits for a code mailed to the person's address unless the provider's token says a second factor was passed (its `amr` claim names `mfa`), or the browser is one the person asked to be remembered. Each person's first sign-in waits for one whatever the token says, of a second factor or of their address (`email_verified`): the provider's word confirms no address, so the login page asks the person for theirs where the account holds none, and the code proves it.",
 			},
 			never: []string{first, "Workspace", "tenant is one", "administers"},
 		},
@@ -638,7 +637,7 @@ func TestDirectoryStart_Apply_directoryRoles(t *testing.T) {
 			},
 			baseDataLevel: {
 				"MailAppPassword string `env:\"APP_MAIL_APP_PASSWORD\" secret:\"true\"`\n", "StaffGoogleHostedDomain", "func (c *DataConfiguration) Staff() *staff.Auth {",
-				"// relay takes over once the version is pinned; a release to any other environment is\n// refused until it is.\nfunc openMailSender(",
+				"// application with no mailbox, or with a mailbox and no app password yet, does not\n// start: the links and codes it mails are secrets, and a log is no place for them.\nfunc openMailSender(",
 			},
 		} {
 			text := read(t, a, rel)

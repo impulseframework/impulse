@@ -38,42 +38,42 @@
             },
             {
               "resource": "DisableMembersTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "EnableMembersTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "DeleteMembersTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "RemoveMembersTenantUser"
             },
             {
               "resource": "RenameMembersTenantUser",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "SetMembersTenantUserEmail",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "SetMembersTenantUserName",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "RevokeMembersTenantUserTrustedDevices",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "EndMembersTenantUserSessions",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "UnlinkMembersTenantSessionIdentity",
-              "condition": "heldElsewhere = false AND heldGlobally = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "CreateMembersTenantGroup"
@@ -111,25 +111,29 @@
               "fields": [
                 "username",
                 "name",
+                "email",
                 "disabled",
-                "createdAt",
-                "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
                 "heldHere",
                 "heldInEveryTenant",
+                "managedHere",
+                "managedByAnotherDirectory",
                 "outsideDirectory",
-                "cannotEnter"
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
               "resource": "MembersTenantUsers",
               "fields": [
-                "email",
                 "emailVerifiedAt",
-                "passwordChangeRequired"
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "MembersTenantUserRoles",
@@ -176,20 +180,17 @@
                 "username",
                 "method",
                 "connection",
+                "subject",
                 "tenant",
+                "emailAtLink",
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
-              ]
-            },
-            {
-              "resource": "MembersTenantIdentities",
-              "fields": [
-                "subject",
-                "emailAtLink"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "MembersTenantRoles",
@@ -255,24 +256,28 @@
               "fields": [
                 "username",
                 "name",
+                "email",
                 "disabled",
-                "createdAt",
-                "lastSignInAt",
                 "heldElsewhere",
                 "heldGlobally",
                 "heldHere",
                 "heldInEveryTenant",
-                "cannotEnter"
+                "managedHere",
+                "managedByAnotherDirectory",
+                "cannotEnter",
+                "roles",
+                "lockedUntil"
               ]
             },
             {
               "resource": "MembersTenantUsers",
               "fields": [
-                "email",
                 "emailVerifiedAt",
-                "passwordChangeRequired"
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "MembersTenantUserRoles",
@@ -305,20 +310,17 @@
                 "username",
                 "method",
                 "connection",
+                "subject",
                 "tenant",
+                "emailAtLink",
                 "createdAt",
                 "lastUsedAt",
                 "heldElsewhere",
-                "heldGlobally"
-              ]
-            },
-            {
-              "resource": "MembersTenantIdentities",
-              "fields": [
-                "subject",
-                "emailAtLink"
+                "heldGlobally",
+                "managedHere",
+                "managedByAnotherDirectory"
               ],
-              "condition": "heldElsewhere = false"
+              "condition": "managedHere = true"
             },
             {
               "resource": "MembersTenantGroups",

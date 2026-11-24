@@ -116,8 +116,12 @@ type fakeStore struct {
 	// cameThrough is the method and the connection an identity came through, for the
 	// identities a test says it of; every other came through google's lakeside.
 	cameThrough map[impulse.UUID]Link
-	tokens      map[impulse.UUID]*Token
-	families    map[impulse.UUID][]impulse.UUID
+	// managing are the tenants whose list of their people says they manage each user's
+	// account (ManagingTenants), and managingAsked how many times that was read.
+	managing      map[impulse.UUID][]accesstypes.Domain
+	managingAsked int
+	tokens        map[impulse.UUID]*Token
+	families      map[impulse.UUID][]impulse.UUID
 	// methodRows are the rows of the sign-in methods table, by the method's name, and
 	// openedFor the audience the last row written was opened for, nil for none.
 	methodRows map[string]SignInMethodRow
@@ -224,6 +228,15 @@ func (f *fakeStore) Identities(_ context.Context, _ resource.ReadOnlyTransaction
 	slices.SortFunc(links, func(a, b Link) int { return strings.Compare(a.ID.String(), b.ID.String()) })
 
 	return links, nil
+}
+
+func (f *fakeStore) ManagingTenants(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {
+	if err := f.fail("ManagingTenants"); err != nil {
+		return nil, err
+	}
+	f.managingAsked++
+
+	return f.managing[userID], nil
 }
 
 func (f *fakeStore) DeleteIdentity(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {

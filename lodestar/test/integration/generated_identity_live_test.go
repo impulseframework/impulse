@@ -98,11 +98,13 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	}
 	// The lists that read the memberships: the sector's people, their roles, their
 	// identities and their ways to sign in, the one list of the roles a person holds, for
-	// the whole application and for a sector, the roles held for a set time with a
-	// reason, and the roles of a group, which count the people who would lose each one.
+	// the whole application and for a sector, the accounts with what each holds, the
+	// roles held for a set time with a reason, and the roles of a group, which count the
+	// people who would lose each one.
 	lists := []live.WholeChange{
 		{Resource: "CrewHeldRoles", AllDomains: true},
 		{Resource: "CrewListedGroupRoles", AllDomains: true},
+		{Resource: "CrewListedUsers", AllDomains: true},
 		{Resource: "CrewSectorGroupRoles", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
 		{Resource: crewSectorIdentities, AllDomains: true},
@@ -120,6 +122,7 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	named := []live.WholeChange{
 		{Resource: "CrewGroupUsers", AllDomains: true},
 		{Resource: "CrewHeldRoles", AllDomains: true},
+		{Resource: "CrewListedUsers", AllDomains: true},
 		{Resource: "CrewSectorGroupUsers", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
 		{Resource: crewSectorIdentities, AllDomains: true},

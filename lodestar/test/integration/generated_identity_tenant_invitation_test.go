@@ -23,10 +23,10 @@ import (
 // The Sector Marshal invites in every role but the Marshal's own
 // (new.role != 'SectorMarshal'), withdraws an invitation that stands and gives no
 // Marshal's role (pending = true AND role != 'SectorMarshal'), and requires a new
-// password of a person the sector holds alone. The roles an invitation gives are a list
-// column of its row, so the withdrawal's condition is judged once for each of them: an
-// invitation Headquarters sent in the Marshal's role, alone or among others, is not the
-// Marshal's to withdraw.
+// password of a person whose account the sector manages. The roles an invitation gives
+// are a list column of its row, so the withdrawal's condition is judged once for each of
+// them: an invitation Headquarters sent in the Marshal's role, alone or among others, is
+// not the Marshal's to withdraw.
 //
 // Demonstrates: auth.tenant-methods, auth.generated-identity, condition.list-attribute.
 func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
@@ -37,7 +37,7 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 	// The Execute grants this suite proves, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "InviteCrewSectorUser", "new.role != 'SectorMarshal'")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "WithdrawCrewSectorInvitation", "pending = true AND role != 'SectorMarshal'")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RequireCrewSectorPasswordChange", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RequireCrewSectorPasswordChange", "managedHere = true")
 
 	hq := newBrowser(t, s, consoleAPI)
 	hq.signIn(ctx, "governor")
@@ -221,7 +221,7 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 		t.Errorf("the recruit's next request once a new password is required: status %d, want 403 naming %s: %s", status, sessioninfo.RefusedPasswordChangeRequired, body)
 	}
 
-	// Once the recruit holds a role at Bastion too, the account is not Anvil's alone:
+	// Once the recruit holds a role at Bastion too, Anvil no longer manages the account:
 	// the Marshal requires nothing of it.
 	if status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+recruitID+`","role":"Pilot","domain":"`+bastion+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("seating the recruit at Bastion: status %d: %s", status, body)

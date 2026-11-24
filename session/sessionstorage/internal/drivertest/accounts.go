@@ -511,14 +511,28 @@ func testResolveByVerifiedAddress(_ context.Context, t *testing.T, h *AuthHarnes
 			},
 		},
 		{
-			name: "an address a user holds unverified matches no one: the person is provisioned as a stranger, without an address, and the entry stays with its user",
+			name: "an address a user with a password holds unverified matches no one, and no second account is made beside that user: refused address_held_unconfirmed, nothing written, the address left unverified with its user",
+			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
+				return addressHolder(ctx, t, d, address, false, true)
+			},
+			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, _ *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
+				t.Helper()
+				assertRefused(t, err, sessioninfo.RefusedAddressHeldUnconfirmed, signin.ErrEmailHeldUnconfirmed)
+				assertNoUser(ctx, t, in.Driver, address)
+				assertNoLink(ctx, t, in.Driver, identity())
+				assertEmail(t, "User() of the holder", mustUser(ctx, t, in.Driver, seeded.ID), strPtr(address), false)
+			},
+		},
+		{
+			name: "an address a user with no password holds unverified is refused the same way, as address_held_no_password: that user has no password to confirm the address with",
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				return addressHolder(ctx, t, d, address, false, false)
 			},
-			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, req *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
+			check: func(ctx context.Context, t *testing.T, in *AuthInstance, err error, _ *sessioninfo.NewSessionRequest, seeded *dbtype.SessionUser) {
 				t.Helper()
-				assertProvisioned(ctx, t, in.Driver, err, req, identity(), "lakeside")
-				assertEmail(t, "User() of the provisioned user", mustUser(ctx, t, in.Driver, req.UserID), nil, false)
+				assertRefused(t, err, sessioninfo.RefusedAddressHeldNoPassword, signin.ErrEmailHeldUnconfirmed)
+				assertNoUser(ctx, t, in.Driver, address)
+				assertNoLink(ctx, t, in.Driver, identity())
 				assertEmail(t, "User() of the holder", mustUser(ctx, t, in.Driver, seeded.ID), strPtr(address), false)
 			},
 		},
@@ -575,22 +589,87 @@ func testResolveByVerifiedAddress(_ context.Context, t *testing.T, h *AuthHarnes
 		assertNoLink(ctx, t, in.Driver, identity())
 	})
 
-	t.Run("a rule that provisions a new user for an identity whose verified address a user holds unverified provisions it: the entry reserves nothing against a sign-in", func(t *testing.T) {
+	t.Run("a rule that provisions a new user for an identity whose verified address a user holds unverified is refused the same way: no user under the rule's name, no link", func(t *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 
 		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Resolve: provisionChosen})
-		seeded := addressHolder(ctx, t, in.Driver, address, false, false)
-		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: address, Identity: identity()}
+		seeded := addressHolder(ctx, t, in.Driver, address, false, true)
+
+		err := signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: address, Identity: identity()})
+
+		assertRefused(t, err, sessioninfo.RefusedAddressHeldUnconfirmed, signin.ErrEmailHeldUnconfirmed)
+		assertNoUser(ctx, t, in.Driver, "chosen")
+		assertNoLink(ctx, t, in.Driver, identity())
+		assertEmail(t, "User() of the holder", mustUser(ctx, t, in.Driver, seeded.ID), strPtr(address), false)
+	})
+
+	t.Run("under an Auth that registers no password method, a holder's password counts for nothing: refused address_held_no_password", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: Open, NoPassword: true})
+		addressHolder(ctx, t, in.Driver, address, false, true)
+
+		err := signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: address, Identity: identity()})
+
+		assertRefused(t, err, sessioninfo.RefusedAddressHeldNoPassword, signin.ErrEmailHeldUnconfirmed)
+		assertNoUser(ctx, t, in.Driver, address)
+		assertNoLink(ctx, t, in.Driver, identity())
+	})
+
+	t.Run("a sign-in that carries a live invitation and would make a new account is refused the same way, and the invitation stands", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: InviteOnly})
+		addressHolder(ctx, t, in.Driver, address, false, true)
+		link := insertInvitation(ctx, t, in.Driver, address, "lakeside", []string{"Teacher"}, tokenHash(1))
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: address, Identity: identity(), Invitation: invitationOf(link)}
 
 		err := signInRequest(ctx, in, req)
 
-		if err != nil || req.Username != "chosen" || !req.User.Provisioned() {
-			t.Fatalf("sign-in = %v, user %q (%+v); want the rule's user provisioned", err, req.Username, req.User)
+		assertRefused(t, err, sessioninfo.RefusedAddressHeldUnconfirmed, signin.ErrEmailHeldUnconfirmed)
+		assertNoUser(ctx, t, in.Driver, address)
+		assertNoLink(ctx, t, in.Driver, identity())
+		assertInvitationStands(ctx, t, "the invitation to the address a user holds unverified", in, link, req.Invitation)
+	})
+
+	// The refused person does what the refusal tells them.
+	t.Run("the holder signs in with the password and enters the code mailed to the address, which confirms it; the same sign-in then waits for the holder's password, and the confirmation links it", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: Open, ConfirmAddress: true, Settings: RequiredRow})
+		seeded := addressHolder(ctx, t, in.Driver, address, false, true)
+
+		err := signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: address, Identity: identity()})
+		assertRefused(t, err, sessioninfo.RefusedAddressHeldUnconfirmed, signin.ErrEmailHeldUnconfirmed)
+
+		// The password sign-in is held for the code mailed to the account's address.
+		_, err = passwordSignIn(ctx, in, seeded, sessioninfo.ReasonLogin)
+		var wait *signin.PendingSignInError
+		if !errors.As(err, &wait) || wait.Reason != sessioninfo.PendingMFA || wait.UserID.UUID != seeded.ID {
+			t.Fatalf("password sign-in error = %v, want it held for the mailed code", err)
 		}
-		assertLinkedTo(ctx, t, in.Driver, identity(), req.UserID, "lakeside")
-		assertEmail(t, "User() of the provisioned user", mustUser(ctx, t, in.Driver, req.UserID), nil, false)
-		assertEmail(t, "User() of the holder", mustUser(ctx, t, in.Driver, seeded.ID), strPtr(address), false)
+		// The sign-in that enters the code confirms the address the code was mailed to.
+		entered := &sessioninfo.NewSessionRequest{
+			Reason: sessioninfo.ReasonStepUp, Username: seeded.Username, UserID: seeded.ID,
+			Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: seeded.ID.String()},
+		}
+		if err := signInByCode(ctx, in, entered, seeded); err != nil {
+			t.Fatalf("the sign-in that enters the code error = %v, want a session", err)
+		}
+		assertEmail(t, "User() of the holder after the code", mustUser(ctx, t, in.Driver, seeded.ID), strPtr(address), true)
+
+		// The same vouched sign-in now finds the account and waits for its password.
+		err = signInRequest(ctx, in, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: address, Identity: identity()})
+		assertConfirmationPending(ctx, t, in.Driver, err, identity(), seeded, "lakeside")
+		assertNoUser(ctx, t, in.Driver, address)
+		if err := in.LinkConfirmed(ctx, seeded.ID, addressHolderName, identity(), "lakeside"); err != nil {
+			t.Fatalf("LinkConfirmed() error = %v", err)
+		}
+		assertLinkedTo(ctx, t, in.Driver, identity(), seeded.ID, "lakeside")
 	})
 }
 

@@ -30,10 +30,14 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
 		CreatedAt                 time.Time    `json:"createdAt"`
 		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		Roles                     []string     `json:"roles"`
+		LockedUntil               *time.Time   `json:"lockedUntil"`
 		HeldElsewhere             bool         `json:"heldElsewhere"             index:"true"`
 		HeldGlobally              bool         `json:"heldGlobally"              index:"true"`
 		HeldHere                  bool         `json:"heldHere"                  index:"true"`
 		HeldInEveryTenant         bool         `json:"heldInEveryTenant"         index:"true"`
+		ManagedHere               bool         `json:"managedHere"               index:"true"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory" index:"true"`
 		OutsideDirectory          bool         `json:"outsideDirectory"          index:"true"`
 		CannotEnter               *string      `json:"cannotEnter"`
 		AdministratorWithPassword bool         `json:"administratorWithPassword" index:"true"`
@@ -120,6 +124,14 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 					if !row.Masked("lastSignInAt") {
 						rmap["lastSignInAt"] = rec.LastSignInAt
 					}
+				case "Roles":
+					if !row.Masked("roles") {
+						rmap["roles"] = rec.Roles
+					}
+				case "LockedUntil":
+					if !row.Masked("lockedUntil") {
+						rmap["lockedUntil"] = rec.LockedUntil
+					}
 				case "HeldElsewhere":
 					if !row.Masked("heldElsewhere") {
 						rmap["heldElsewhere"] = rec.HeldElsewhere
@@ -135,6 +147,14 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 				case "HeldInEveryTenant":
 					if !row.Masked("heldInEveryTenant") {
 						rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
+					}
+				case "ManagedHere":
+					if !row.Masked("managedHere") {
+						rmap["managedHere"] = rec.ManagedHere
+					}
+				case "ManagedByAnotherDirectory":
+					if !row.Masked("managedByAnotherDirectory") {
+						rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 					}
 				case "OutsideDirectory":
 					if !row.Masked("outsideDirectory") {
@@ -181,10 +201,14 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 		PasswordChangeRequired    bool         `json:"passwordChangeRequired"`
 		CreatedAt                 time.Time    `json:"createdAt"`
 		LastSignInAt              *time.Time   `json:"lastSignInAt"`
+		Roles                     []string     `json:"roles"`
+		LockedUntil               *time.Time   `json:"lockedUntil"`
 		HeldElsewhere             bool         `json:"heldElsewhere"`
 		HeldGlobally              bool         `json:"heldGlobally"`
 		HeldHere                  bool         `json:"heldHere"`
 		HeldInEveryTenant         bool         `json:"heldInEveryTenant"`
+		ManagedHere               bool         `json:"managedHere"`
+		ManagedByAnotherDirectory bool         `json:"managedByAnotherDirectory"`
 		OutsideDirectory          bool         `json:"outsideDirectory"`
 		CannotEnter               *string      `json:"cannotEnter"`
 		AdministratorWithPassword bool         `json:"administratorWithPassword"`
@@ -259,6 +283,14 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 				if !row.Masked("lastSignInAt") {
 					rmap["lastSignInAt"] = rec.LastSignInAt
 				}
+			case "Roles":
+				if !row.Masked("roles") {
+					rmap["roles"] = rec.Roles
+				}
+			case "LockedUntil":
+				if !row.Masked("lockedUntil") {
+					rmap["lockedUntil"] = rec.LockedUntil
+				}
 			case "HeldElsewhere":
 				if !row.Masked("heldElsewhere") {
 					rmap["heldElsewhere"] = rec.HeldElsewhere
@@ -274,6 +306,14 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 			case "HeldInEveryTenant":
 				if !row.Masked("heldInEveryTenant") {
 					rmap["heldInEveryTenant"] = rec.HeldInEveryTenant
+				}
+			case "ManagedHere":
+				if !row.Masked("managedHere") {
+					rmap["managedHere"] = rec.ManagedHere
+				}
+			case "ManagedByAnotherDirectory":
+				if !row.Masked("managedByAnotherDirectory") {
+					rmap["managedByAnotherDirectory"] = rec.ManagedByAnotherDirectory
 				}
 			case "OutsideDirectory":
 				if !row.Masked("outsideDirectory") {

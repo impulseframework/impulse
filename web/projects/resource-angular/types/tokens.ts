@@ -234,6 +234,12 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   personal_account: 'Personal Microsoft accounts cannot sign in here. Use your work or school account.',
   organization_mismatch: 'This account belongs to a different organization than the one you signed in through.',
   identity_rejected: 'This account could not be matched to a user of this application.',
+  // A sign-in that would make a new account proves an address an account here holds unconfirmed: no second account is made.
+  address_held_unconfirmed:
+    'An account here already has this email address and has not confirmed it. Sign in to that account with its password and enter the code we email you. After that you can sign in this way too.',
+  // The same, where that account has no password to sign in with.
+  address_held_no_password:
+    'An account here already has this email address and has not confirmed it. Ask your administrator for help.',
   not_invited: 'This account has not been invited to this application.',
   // The login page names the invited address itself while the invitation stands; this is the sentence without it.
   invitation_address: 'This invitation is for another account. Sign in with the account it was sent to.',
@@ -262,12 +268,17 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
     'Your organization does not sign in the way you just tried. Please sign in the way your organization has set up.',
   directory_only:
     'Your organization does not sign in with a password here. Please sign in the way your organization has set up.',
+  // The same refusal for a session the application starts itself: the person typed no password, so none is named.
+  directory_only_session:
+    'Your organization admits only people who sign in through its own directory. Please sign in the way your organization has set up.',
   // The same refusal after Google or Microsoft with a personal account: the person used no password, so none is named.
   directory_only_personal_account:
     "Your organization admits only people who sign in with the account it gave them. Sign in with your organization's account, not a personal one.",
   invitation_only: 'Your organization signs people in by invitation. Ask your administrator to invite you.',
   other_tenant:
     'This account already belongs to another organization in this application, so it cannot join a second one.',
+  second_directory:
+    "This account already signs in through another organization's directory, so it cannot sign in through this one. Please sign in the way you have before.",
   // An invitation that makes an organization entered through its directory only, met with a password or a personal account.
   organization_account_required:
     "This invitation is accepted with your organization's account. Sign in with that account, not with a password or a personal account.",

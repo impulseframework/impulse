@@ -113,8 +113,9 @@ func Test_identityUsersTemplate_administeredTenants(t *testing.T) {
 // query, a row for each group kept in a tenant that holds one of the engine's
 // administrator roles there, in an assignment that has not ended; the helper over the
 // roles the client sets; and each row's TenantsToEnter over the column that holds the
-// group's id. The tenant's people of its groups, and an application whose record
-// declares no switch, say nothing of it.
+// group's id. The whole application's listed accounts answer it over the account's id.
+// The tenant's people of its groups, and an application whose record declares no
+// switch, say nothing of it.
 func Test_identityGroupTemplates_administeredTenants(t *testing.T) {
 	t.Parallel()
 
@@ -191,6 +192,24 @@ func Test_identityGroupTemplates_administeredTenants(t *testing.T) {
 			template: "identityListedGroupsTemplate", source: identityListedGroupsTemplate,
 			data:            data(nil, false),
 			wantContains:    []string{"CrewListedGroup struct {"},
+			wantNotContains: none,
+		},
+		{
+			// The whole application's accounts answer it as the users table's
+			// declaration does, over the column that holds the account's id.
+			name:     "the listed accounts, with the switch declared",
+			template: "identityListedUsersTemplate", source: identityListedUsersTemplate,
+			data: data(directory, false),
+			wantContains: []string{
+				"func (CrewListedUser) TenantsToEnter() resource.TenantsToEnter {\n\treturn crewSessionUserTenantsToEnter(\"Id\")\n}",
+				"\"github.com/impulseframework/impulse/resource\"",
+			},
+		},
+		{
+			name:     "the listed accounts, with no switch declared",
+			template: "identityListedUsersTemplate", source: identityListedUsersTemplate,
+			data:            data(nil, false),
+			wantContains:    []string{"CrewListedUser struct {"},
 			wantNotContains: none,
 		},
 	}
@@ -479,7 +498,8 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 		}
 	}
 
-	// The four structs answer it over the column that holds the account's id.
+	// The five structs answer it over the column that holds the account's id, and the
+	// whole application's accounts, which its methods on a person name, are one of them.
 	for file, lines := range map[string][]string{
 		"internal/crewresources/crew_session_users.go": {
 			"const crewSessionUserAdministeredTenantsQuery = `",
@@ -487,6 +507,7 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 			"func (CrewSessionUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}",
 		},
 		"internal/crewresources/crew_session_identities.go": {"func (CrewSessionIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},
+		"internal/crewresources/crew_listed_users.go":       {"func (CrewListedUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}"},
 		"internal/crewresources/crew_citadel_users.go":      {"func (CrewCitadelUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}"},
 		"internal/crewresources/crew_citadel_identities.go": {"func (CrewCitadelIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},
 		"crewidentity/client.go":                            {"crewresources.SetCrewSessionUserAdministratorRoles(manager.TenantAdministratorRoles())"},
@@ -497,6 +518,7 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 			"func (MembersGroupUser) TenantsToEnter() resource.TenantsToEnter {\nreturn membersGroupTenantsToEnter(\"GroupId\")\n}",
 		},
 		"internal/membersresources/members_listed_groups.go": {"func (MembersListedGroup) TenantsToEnter() resource.TenantsToEnter {\nreturn membersGroupTenantsToEnter(\"Id\")\n}"},
+		"internal/membersresources/members_listed_users.go":  {"func (MembersListedUser) TenantsToEnter() resource.TenantsToEnter {\nreturn membersSessionUserTenantsToEnter(\"Id\")\n}"},
 	} {
 		source := read(file)
 		for _, line := range lines {

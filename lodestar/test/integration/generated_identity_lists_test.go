@@ -9,9 +9,10 @@ package integration
 // held, so a sector's people, the roles held there and the sector's invitations are
 // three views served under the sector's address like any tenant record:
 // CrewSectorUsers, CrewSectorUserRoles and CrewSectorInvitations. Each
-// carries facts a grant's condition reads. The Sector Marshal holds all three; the
-// address and password state of a person are the Marshal's to see only where the person
-// holds no role outside the sector (heldElsewhere = false). The Dispatcher sees the
+// carries facts a grant's condition reads. The Sector Marshal holds all three; a
+// person's name, address and whether the account is disabled are the Marshal's to see
+// for everyone, and the rest of the account only where the sector manages it
+// (managedHere = true). The Dispatcher sees the
 // sector's own crew: the rows of CrewSectorUserRoles whose role the sector itself gave
 // (everyDomain = false).
 //
@@ -26,6 +27,9 @@ package integration
 //	di    Veteran at Bastion, and CrewCommon for the whole application
 //	eve   Pilot at Anvil and Pilot in every sector
 //	fay   Cadet at Anvil, and CrewCommon for the whole application
+//
+// The test of a sector's people adds the people of who manages an account, some of whom
+// sign in through Cinder's directory (managedPeople).
 
 import (
 	"context"
@@ -134,6 +138,71 @@ func (w *tenantListsWorld) seat(ctx context.Context, t *testing.T, name, role, s
 	w.ids[name] = id
 }
 
+// managedPeople writes the people of who manages an account, beside those of the world:
+// each an account with no address, an identity linked under Google's sign-in where the
+// entry names a connection, and the Cadet's role in the sectors the entry names. Cinder's
+// directory is Google's example connection (the seed's), so a link there signs the person
+// in through Cinder's directory; a link under the fleet connection signs them in through
+// no sector's:
+//
+//	gil   through Cinder's directory, a Cadet at Cinder
+//	hal   through Cinder's directory, a Cadet at Cinder and at Anvil
+//	ivy   through Cinder's directory, a Cadet at Anvil alone
+//	jo    through Cinder's directory, and holds nothing
+//	kit   under the fleet connection, a Cadet at Anvil
+//	lu    no link, a Cadet at Anvil whose role has ended
+func (w *tenantListsWorld) managedPeople(ctx context.Context, t *testing.T) {
+	t.Helper()
+
+	people := []struct {
+		name, connection string
+		sectors          []string
+	}{
+		{name: "gil", connection: "example", sectors: []string{cinder}},
+		{name: "hal", connection: "example", sectors: []string{cinder, anvil}},
+		{name: "ivy", connection: "example", sectors: []string{anvil}},
+		{name: "jo", connection: "example"},
+		{name: "kit", connection: "fleet", sectors: []string{anvil}},
+		{name: "lu", sectors: []string{anvil}},
+	}
+	var links []*spanner.Mutation
+	for _, p := range people {
+		w.ids[p.name] = string(makeCrewAccount(ctx, t, w.db, accesstypes.User(p.name)))
+		if p.connection == "" {
+			continue
+		}
+		id, err := impulse.NewUUID()
+		if err != nil {
+			t.Fatalf("impulse.NewUUID: %v", err)
+		}
+		links = append(links, spanner.InsertMap("CrewSessionIdentities", map[string]any{
+			"Id": id.String(), "UserId": w.ids[p.name], "Method": "google", "Connection": p.connection, "Subject": "subject-of-" + p.name,
+			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		}))
+	}
+	if _, err := w.db.Apply(ctx, links); err != nil {
+		t.Fatalf("writing the identity links: %v", err)
+	}
+	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		for _, p := range people {
+			for _, sector := range p.sectors {
+				scope, err := identity.Scope(&sector, false)
+				if err != nil {
+					return fmt.Errorf("identity.Scope(%s): %w", sector, err)
+				}
+				if err := w.app.CrewIdentity().AssignRole(ctx, txn, scope, accesstypes.User(w.ids[p.name]), "Cadet"); err != nil {
+					return fmt.Errorf("crewidentity.Client.AssignRole(%s, Cadet): %w", p.name, err)
+				}
+			}
+		}
+
+		return nil
+	}); err != nil {
+		t.Fatalf("seating the people of who manages an account: %v", err)
+	}
+	endNow(t, w.db, "CrewUserRoles", map[string]any{"Kind": "domain", "Axis": "", "DomainId": anvil, "Role": "Cadet", "UserId": w.ids["lu"]})
+}
+
 // sectorList lists one of a sector's lists as the user, by the rows' id.
 func sectorList(t *testing.T, h http.Handler, user accesstypes.User, sector, list string) map[string]map[string]any {
 	t.Helper()
@@ -165,20 +234,28 @@ func sectorRoles(t *testing.T, h http.Handler, user accesstypes.User, sector str
 }
 
 // TestGeneratedIdentitySectorPeople holds a sector's people: each sector lists the
-// people who hold a role there or in every sector, a person of two sectors is a row in
-// each, the two facts say what else the person holds, the keyed read finds a row within
-// its sector alone, and the fields the Marshal's grant conditions on a fact are answered
+// people who hold a role there or in every sector, and the people who sign in through
+// its directory, a person of two sectors is a row in each, two facts say what else the
+// person holds and two who manages the account, the keyed read finds a row within its
+// sector alone, and the fields the Marshal's grant conditions on a fact are answered
 // only where the fact holds.
 func TestGeneratedIdentitySectorPeople(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
+	w.managedPeople(t.Context(), t)
 
 	// The field grants this suite proves, pinned to the roles file (conditions-proven).
-	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorUsers", "heldElsewhere = false")
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Read", "CrewSectorUsers", "heldElsewhere = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorUsers", "managedHere = true")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Read", "CrewSectorUsers", "managedHere = true")
 
+	// One party manages each account: the sector whose directory the person signs in
+	// through, else the one sector the person holds something in alone, else nobody's
+	// (the application's own administrators). managedHere says this sector manages the
+	// account, managedByAnotherDirectory that another sector's directory does. lu's role
+	// has ended, so lu is nobody's row.
 	type person struct {
-		heldElsewhere, heldGlobally bool
+		heldElsewhere, heldGlobally            bool
+		managedHere, managedByAnotherDirectory bool
 	}
 	lists := []struct {
 		name   string
@@ -191,11 +268,14 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 			user:   "marshal",
 			sector: anvil,
 			want: map[string]person{
-				"ada": {},
+				"ada": {managedHere: true},
 				"bo":  {heldElsewhere: true},
 				"cy":  {heldElsewhere: true},
 				"eve": {heldElsewhere: true},
 				"fay": {heldGlobally: true},
+				"hal": {heldElsewhere: true, managedByAnotherDirectory: true},
+				"ivy": {managedByAnotherDirectory: true},
+				"kit": {managedHere: true},
 			},
 		},
 		{
@@ -210,12 +290,16 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 			},
 		},
 		{
-			name:   "Cinder's people: nobody holds a role of Cinder's own, so only those who hold one in every sector",
+			name:   "Cinder's people: those who hold a role there or in every sector, and everyone who signs in through its directory, whatever they hold",
 			user:   "governor",
 			sector: cinder,
 			want: map[string]person{
 				"cy":  {heldElsewhere: true},
 				"eve": {heldElsewhere: true},
+				"gil": {managedHere: true},
+				"hal": {heldElsewhere: true, managedHere: true},
+				"ivy": {heldElsewhere: true, managedHere: true},
+				"jo":  {managedHere: true},
 			},
 		},
 	}
@@ -237,7 +321,10 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 				if got := cell[string](t, row, "username"); got != name {
 					t.Errorf("the row of %s names %q", name, got)
 				}
-				got := person{heldElsewhere: cell[bool](t, row, "heldElsewhere"), heldGlobally: cell[bool](t, row, "heldGlobally")}
+				got := person{
+					heldElsewhere: cell[bool](t, row, "heldElsewhere"), heldGlobally: cell[bool](t, row, "heldGlobally"),
+					managedHere: cell[bool](t, row, "managedHere"), managedByAnotherDirectory: cell[bool](t, row, "managedByAnotherDirectory"),
+				}
 				if got != want {
 					t.Errorf("%s = %+v, want %+v", name, got, want)
 				}
@@ -278,13 +365,16 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 		})
 	}
 
-	// The address and the password state are one grant of the Marshal's with a condition
-	// on the fact: answered on the rows of people who hold no role outside the sector, and
-	// left out of the others, in the list and in the keyed read. A role held for the whole
-	// application is another fact, and the grant does not name it.
-	conditional := []string{"email", "emailVerifiedAt", "passwordChangeRequired"}
-	for name, want := range map[string]bool{"ada": true, "fay": true, "bo": false, "cy": false, "eve": false} {
-		t.Run("the Marshal sees the address of "+name+" only where the sector holds them alone", func(t *testing.T) {
+	// The rest of the account (when it was created and last signed in, whether the
+	// address is confirmed, the password state) is one grant of the Marshal's with a
+	// condition on the fact: answered on the rows of people whose account the sector
+	// manages, and left out of the others, in the list and in the keyed read. The address
+	// is answered for everyone: fay holds a role for the whole application and ivy signs
+	// in through Cinder's directory, so Anvil manages neither account and reads both
+	// addresses.
+	conditional := []string{"emailVerifiedAt", "passwordChangeRequired", "createdAt", "lastSignInAt"}
+	for name, want := range map[string]bool{"ada": true, "kit": true, "fay": false, "bo": false, "cy": false, "eve": false, "ivy": false} {
+		t.Run("the Marshal sees the rest of the account of "+name+" only where the sector manages it", func(t *testing.T) {
 			t.Parallel()
 
 			check := func(where string, row map[string]any) {
@@ -293,8 +383,10 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 						t.Errorf("%s: %s in the %s = %v, want %v: %v", name, field, where, got, want, row)
 					}
 				}
-				if _, ok := row["username"]; !ok {
-					t.Errorf("%s: the %s leaves out the username, which the grant carries with no condition: %v", name, where, row)
+				for _, field := range []string{"username", "email"} {
+					if _, ok := row[field]; !ok {
+						t.Errorf("%s: the %s leaves out the %s, which the grant carries with no condition: %v", name, where, field, row)
+					}
 				}
 			}
 			check("list", sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)[w.ids[name]])
@@ -326,10 +418,74 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 		for _, row := range decodeRows(t, body) {
 			names = append(names, cell[string](t, row, "username"))
 		}
-		if want := []string{"ada", "fay"}; !slices.Equal(names, want) {
+		if want := []string{"ada", "fay", "ivy", "kit"}; !slices.Equal(names, want) {
 			t.Errorf("the people Anvil holds alone = %v, want %v", names, want)
 		}
 	})
+	t.Run("the list filters on who manages the account", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, w.h, "marshal", http.MethodGet, sectorPath(anvil, sectorPeoplePath+"?filter=managedHere:eq:true"), "")
+		assertStatus(t, status, http.StatusOK, body)
+		var names []string
+		for _, row := range decodeRows(t, body) {
+			names = append(names, cell[string](t, row, "username"))
+		}
+		if want := []string{"ada", "kit"}; !slices.Equal(names, want) {
+			t.Errorf("the people whose account Anvil manages = %v, want %v", names, want)
+		}
+	})
+
+	// A person of the directory's sector who holds nothing there is a row with heldHere
+	// false: the directory lists them, and the facts of where they hold roles stay as
+	// they were.
+	t.Run("the directory's sector lists its people who hold nothing there", func(t *testing.T) {
+		t.Parallel()
+
+		rows := sectorList(t, w.h, "governor", cinder, sectorPeoplePath)
+		for _, name := range []string{"ivy", "jo"} {
+			if row := rows[w.ids[name]]; row == nil {
+				t.Errorf("%s is missing from Cinder's list", name)
+			} else if cell[bool](t, row, "heldHere") {
+				t.Errorf("%s: heldHere = true at Cinder, where they hold nothing: %v", name, row)
+			}
+		}
+	})
+
+	// The identities of a person say who manages the account as the person's row does,
+	// and a sector lists them only where it manages the account: hal's identity at
+	// Cinder, whose directory it is, and none at Anvil, where hal holds a role too.
+	for _, tt := range []struct {
+		where       string
+		user        accesstypes.User
+		sector      string
+		listed      int
+		managedHere bool
+	}{
+		{where: "Cinder", user: "governor", sector: cinder, listed: 1, managedHere: true},
+		{where: "Anvil", user: "marshal", sector: anvil},
+	} {
+		t.Run("hal's identity says who manages the account at "+tt.where, func(t *testing.T) {
+			t.Parallel()
+
+			var found int
+			for _, row := range sectorList(t, w.h, tt.user, tt.sector, "crew-sector-identities") {
+				if cell[string](t, row, "userId") != w.ids["hal"] {
+					continue
+				}
+				found++
+				if got := cell[bool](t, row, "managedHere"); got != tt.managedHere {
+					t.Errorf("managedHere = %v, want %v: %v", got, tt.managedHere, row)
+				}
+				if got := cell[bool](t, row, "managedByAnotherDirectory"); got {
+					t.Errorf("managedByAnotherDirectory = true where the sector manages the account: %v", row)
+				}
+			}
+			if found != tt.listed {
+				t.Errorf("the identities list holds %d identities of hal, want %d", found, tt.listed)
+			}
+		})
+	}
 }
 
 // TestGeneratedIdentitySectorUserRoles holds the roles held in a sector: one row per role a

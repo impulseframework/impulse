@@ -32,15 +32,14 @@ import (
 //
 // It is a tenant's list: served under the address of one Sector, it answers
 // for a row of CrewSectorUser, the tenant's own list of the auth's people. A person
-// who holds no role in the tenant is no row there and has none here. Each row carries
-// the two facts of the person's row under the names a grant's condition reads
-// (heldElsewhere, heldGlobally), and says whether it is the password under the name
-// password, so the role file says what a tenant reads of a person who is not the
-// tenant's alone: a grant under "password = false OR heldElsewhere = false" lists the
-// identities of every person of the tenant and the password only of a person no other
-// tenant holds. Whether such a person has a password is then no more the tenant's to
-// learn than whether they must change it, and a page that offers the removal by the
-// rows offers none for them.
+// who is no row there has none here. Each row carries four facts of the person's row
+// under the names a grant's condition reads (heldElsewhere, heldGlobally, managedHere,
+// managedByAnotherDirectory), and says whether it is the password under the name
+// password, so the role file says what a tenant reads of a person whose account it does
+// not manage: a grant under "managedHere = true" lists how a person signs in only for
+// the tenant that manages their account. Whether a person another party manages has a
+// password is then no more the tenant's to learn than whether they must change it, and
+// a page that offers the removal by the rows offers none for them.
 //
 // It is a computed resource: which identities count is the session library's judgment
 // of the auth's registrations, which no table holds, so the identity package is asked
@@ -83,6 +82,10 @@ type CrewSectorSignInWay struct {
 	HeldElsewhere bool `spanner:"HeldElsewhere"`
 	// @attribute(heldGlobally)
 	HeldGlobally bool `spanner:"HeldGlobally"`
+	// @attribute(managedHere)
+	ManagedHere bool `spanner:"ManagedHere"`
+	// @attribute(managedByAnotherDirectory)
+	ManagedByAnotherDirectory bool `spanner:"ManagedByAnotherDirectory"`
 }
 
 // Resource implements resource.Resourcer.
@@ -114,11 +117,11 @@ func ListCrewSectorSignInWay(ctx context.Context, qSet *resource.QuerySet[CrewSe
 		txn := db.ReadOnlyTransaction()
 		defer txn.Close()
 
-		// The tenant's own list of people holds the read to the tenant: a person who
-		// holds no role in it is no row there, and nothing of them is answered.
+		// The tenant's own list of people holds the read to the tenant: of a person who
+		// is no row there, nothing is answered.
 		clause := crewresources.NewCrewSectorUserQueryClause()
 		people := crewresources.NewCrewSectorUserQuery().
-			AddColumns(crewresources.NewCrewSectorUserColumns().HeldElsewhere().HeldGlobally()).
+			AddColumns(crewresources.NewCrewSectorUserColumns().HeldElsewhere().HeldGlobally().ManagedHere().ManagedByAnotherDirectory()).
 			Where(clause.ID().Equal(userID).And().DomainID().Equal(string(domain)))
 		var person *crewresources.CrewSectorUser
 		for row, listErr := range people.List(ctx, txn) {
@@ -142,14 +145,16 @@ func ListCrewSectorSignInWay(ctx context.Context, qSet *resource.QuerySet[CrewSe
 		for i := range ways {
 			way := &ways[i]
 			row := &CrewSectorSignInWay{
-				UserID:        userID,
-				Way:           way.Key(),
-				Password:      way.Password,
-				Method:        string(way.Method),
-				Connection:    way.Connection,
-				Through:       signInThrough(way),
-				HeldElsewhere: person.HeldElsewhere,
-				HeldGlobally:  person.HeldGlobally,
+				UserID:                    userID,
+				Way:                       way.Key(),
+				Password:                  way.Password,
+				Method:                    string(way.Method),
+				Connection:                way.Connection,
+				Through:                   signInThrough(way),
+				HeldElsewhere:             person.HeldElsewhere,
+				HeldGlobally:              person.HeldGlobally,
+				ManagedHere:               person.ManagedHere,
+				ManagedByAnotherDirectory: person.ManagedByAnotherDirectory,
 			}
 			if !yield(row, nil) {
 				return

@@ -19,12 +19,13 @@ import (
 
 func (a *App) TenantDirectories() http.HandlerFunc {
 	type tenantDirectory struct {
-		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
-		TenantID    impulse.UUID `json:"tenantId"    index:"true"`
-		Method      string       `json:"method"      index:"true"`
-		Connection  string       `json:"connection"`
-		DefaultSeat *string      `json:"defaultSeat"`
-		TenantName  *string      `json:"tenantName"  nameof:"TenantID" index:"true"`
+		ID               impulse.UUID `json:"id"               index:"true"      perm:"-"`
+		TenantID         impulse.UUID `json:"tenantId"         index:"true"`
+		Method           string       `json:"method"           index:"true"`
+		Connection       string       `json:"connection"`
+		DefaultSeat      *string      `json:"defaultSeat"`
+		AsksSecondFactor bool         `json:"asksSecondFactor"`
+		TenantName       *string      `json:"tenantName"       nameof:"TenantID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -88,6 +89,10 @@ func (a *App) TenantDirectories() http.HandlerFunc {
 					if !row.Masked("defaultSeat") {
 						rmap["defaultSeat"] = rec.DefaultSeat
 					}
+				case "AsksSecondFactor":
+					if !row.Masked("asksSecondFactor") {
+						rmap["asksSecondFactor"] = rec.AsksSecondFactor
+					}
 				}
 			}
 			for _, name := range querySet.Names() {
@@ -116,12 +121,13 @@ func (a *App) TenantDirectories() http.HandlerFunc {
 
 func (a *App) TenantDirectory() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true"      perm:"-"`
-		TenantID    impulse.UUID `json:"tenantId"    index:"true"`
-		Method      string       `json:"method"`
-		Connection  string       `json:"connection"`
-		DefaultSeat *string      `json:"defaultSeat"`
-		TenantName  *string      `json:"tenantName"  nameof:"TenantID"`
+		ID               impulse.UUID `json:"id"               index:"true"      perm:"-"`
+		TenantID         impulse.UUID `json:"tenantId"         index:"true"`
+		Method           string       `json:"method"`
+		Connection       string       `json:"connection"`
+		DefaultSeat      *string      `json:"defaultSeat"`
+		AsksSecondFactor bool         `json:"asksSecondFactor"`
+		TenantName       *string      `json:"tenantName"       nameof:"TenantID"`
 	}
 
 	decoder := NewQueryDecoder[resources.TenantDirectory, response](a, accesstypes.Read)
@@ -172,6 +178,10 @@ func (a *App) TenantDirectory() http.HandlerFunc {
 			case "DefaultSeat":
 				if !row.Masked("defaultSeat") {
 					rmap["defaultSeat"] = rec.DefaultSeat
+				}
+			case "AsksSecondFactor":
+				if !row.Masked("asksSecondFactor") {
+					rmap["asksSecondFactor"] = rec.AsksSecondFactor
 				}
 			}
 		}

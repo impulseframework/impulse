@@ -156,4 +156,13 @@ func TestSessionData_SecondFactor(t *testing.T) {
 			t.Errorf("AuthMethod(%q).SecondFactor() = true, want a method that establishes a session or links an identity to be none", method)
 		}
 	}
+
+	// A tenant's word for its own directory records a second factor on the session, and
+	// is no attestation: it never satisfies a hold a sign-in policy answers.
+	if !MethodVouchedByTenant.SecondFactor() {
+		t.Errorf("AuthMethod(%q).SecondFactor() = false, want a tenant's word to record a second factor", MethodVouchedByTenant)
+	}
+	if MethodVouchedByTenant.Attests() {
+		t.Errorf("AuthMethod(%q).Attests() = true, want a tenant's word to be no attestation", MethodVouchedByTenant)
+	}
 }
