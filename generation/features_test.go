@@ -662,7 +662,8 @@ func Test_authzTestTemplate_open(t *testing.T) {
 
 // Test_featureTests pins the generated gate tests' cases: every gated route on the
 // outlets serving it, a query route with its permission and a mutation route without,
-// and every gated field's list asking for the column.
+// the gated resource's record history among the query routes, and every gated field's
+// list asking for the column.
 func Test_featureTests(t *testing.T) {
 	t.Parallel()
 
@@ -675,6 +676,7 @@ func Test_featureTests(t *testing.T) {
 		{Name: "Debriefs", Method: "http.MethodGet", URL: "/api/debriefs?sort=id", Constant: "Debriefs", Permission: "List"},
 		{Name: "Debrief", Method: "http.MethodGet", URL: "/api/debriefs/00000000-0000-0000-0000-000000000001", Constant: "Debriefs", Permission: "Read"},
 		{Name: "PatchDebriefs", Method: "http.MethodPatch", URL: "/api/debriefs", Body: `[{"op":"remove","path":"/authz-test-key"}]`, Constant: "Debriefs"},
+		{Name: "DebriefChangeHistory", Method: "http.MethodGet", URL: "/api/debriefs/00000000-0000-0000-0000-000000000001/changes", Constant: "Debriefs", Permission: "Read"},
 		{Name: "GatedMethod", Method: "http.MethodPost", URL: "/api/gated-method", Body: "{}", Constant: "Debriefs"},
 	}
 	if diff := cmp.Diff(wantRoutes, data.Routes); diff != "" {
