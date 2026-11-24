@@ -296,8 +296,9 @@ class SideBuilder {
       parentConfig: listViewConfig({
         title: this.tenant ? 'People' : this.heading('Accounts'),
         // What the list says of a person who left it while their page was open. A tenant's
-        // people are those who hold a role in it: the last role taken away takes the person
-        // off the list. An account that left the whole application's list was deleted: by
+        // people are those who hold a role in it and those who sign in through its directory:
+        // the last role taken away takes a person off the list unless the tenant's directory
+        // signs them in. An account that left the whole application's list was deleted: by
         // its own Delete, or with the last thing it held.
         rowGone: this.tenant
           ? (row: RecordData): string => `${String(row['username'] ?? 'This person')} no longer holds a role here.`
@@ -329,6 +330,12 @@ class SideBuilder {
                   valueGetter: (row: RecordData) => this.statesOf(row),
                 },
               ]
+            : []),
+          // Who manages each account, on the whole application's side where the list says it:
+          // the tenant by its name, and the application's own administrators for an account no
+          // tenant manages. Which methods a row offers is the server's answer for the row.
+          ...(!this.tenant && this.has(users, 'managingTenant')
+            ? [this.tenantNamed('managingTenant' as FieldName, 'Managed by', (row) => this.managedBy(row))]
             : []),
           ...this.columns(users, [
             ['lastSignInAt', 'Last sign-in'],
@@ -1912,6 +1919,20 @@ class SideBuilder {
   }
 
   /**
+   * Who manages an account of the whole application's list, in words, for a row that names
+   * no tenant: the application's own administrators. For a row whose tenant has no name to
+   * show (the tenant record marks none) it is the tenant's key, as heldIn says it, which is
+   * all there is. A tenant that has a name the reader may not read is said by tenantNamed.
+   */
+  private managedBy(row: RecordData): string {
+    const tenant = row['managingTenant'];
+    if (tenant === undefined || tenant === null || tenant === '') {
+      return 'Application administrators';
+    }
+    return `${nameInWords(this.identity.tenant ?? 'Tenant')} ${String(tenant)}`;
+  }
+
+  /**
    * Where a mailed link that names no tenant gives its roles, in words: every tenant, or
    * the whole application, or both for the first administrator's own invitation, which
    * nobody sent and which gives the Super Administrator role (told where the list reads
@@ -2115,9 +2136,11 @@ class SideBuilder {
    * says where the field is true, in the order the lines are said: Disabled; Must change
    * password, where the side has a password method; and on a tenant's side that another
    * tenant also holds the person, that they hold a role in every tenant at once (In every
-   * tenant, in the application's word, short enough for the State column), or that they
-   * hold a role in the whole application, which keeps Disable and Delete from the
-   * tenant's administrator as a shared person does.
+   * tenant, in the application's word, short enough for the State column), that they
+   * hold a role in the whole application, or that they sign in through another tenant's
+   * directory, which manages their account. What a tenant's administrator may do to a
+   * person is the server's answer for the row, by who manages the account; the lines say
+   * why a row offers less.
    */
   private stateLines(): Named[] {
     const password = this.side.methods.requirePasswordChange !== undefined;
@@ -2129,6 +2152,7 @@ class SideBuilder {
             ['heldElsewhere', `Also in another ${this.tenantWord}`],
             ['heldInEveryTenant', `In every ${this.tenantWord}`],
             ['heldGlobally', 'Also holds a role in the whole application'],
+            ['managedByAnotherDirectory', `Signs in through another ${this.tenantWord}'s directory`],
           ] as Named[])
         : []),
     ];
