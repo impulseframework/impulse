@@ -1,17 +1,21 @@
-import { Route } from '@angular/router';
+import { inject } from '@angular/core';
+import { Route, Router } from '@angular/router';
 import { ApiDescriptor, IdentityDescriptor } from '@impulseframework/resource';
-import { Page, PlaceService } from '@impulseframework/resource-angular/auth-frame';
+import { MenuAction, Page, PlaceService } from '@impulseframework/resource-angular/auth-frame';
+import { articleFor } from '@impulseframework/resource-angular/resource';
 import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import {
   AlertType,
   ChildResourceConfig,
   ColumnConfig,
   ConfigElement,
+  ExecutePermission,
   field,
   FieldName,
   keyFields,
   ListViewConfig,
   listViewConfig,
+  Method,
   nameInLowerWords,
   nameInWords,
   RecordData,
@@ -112,6 +116,41 @@ export function tenantsRoute(
   options: TenantPagesOptions,
 ): Route {
   return resourceRoutes(tenantsConfig(descriptor, resourceMeta, options), resourceMeta);
+}
+
+/**
+ * The menu's way to the invitation of a tenant: an action, shown outside every tenant to a
+ * person who may send one (Execute on the Auth's method that invites a tenant), that opens
+ * the tenants page with the invitation's dialog: it goes to the page's address with the
+ * query parameter `run` naming the method, which the page's list opens. It injects the
+ * router when it is called, so it is called where the menus are declared, with the
+ * options the tenants page is given. Refused where the description names no method that
+ * invites a tenant for the Auth, and as tenantsConfig is.
+ */
+export function inviteTenantAction(
+  descriptor: ApiDescriptor,
+  resourceMeta: (resource: Resource) => ResourceMeta,
+  options: TenantPagesOptions,
+): MenuAction {
+  const route = tenantsConfig(descriptor, resourceMeta, options).routeData.route;
+  const identity = (descriptor.identity ?? []).find((candidate) => candidate.auth === options.auth);
+  const method = identity?.sides.find((candidate) => candidate.scope === 'global')?.methods.inviteTenant;
+  if (!method) {
+    throw new Error(
+      `inviteTenantAction: the description names no method that invites a tenant for ${options.auth}: its tenants are not made by invitation, so there is no invitation to place in a menu`,
+    );
+  }
+  const router = inject(Router);
+  const one = nameInLowerWords(identity?.tenant ?? 'Tenant');
+  return {
+    label: `Invite ${articleFor(one)} ${one}…`,
+    icon: 'send',
+    place: 'outside',
+    permission: { resource: method as Method, permission: ExecutePermission },
+    run: (): void => {
+      void router.navigate([`/${route}`], { queryParams: { run: method } });
+    },
+  };
 }
 
 /** The words a tenant goes by, one and many, inside a sentence and at its start. */

@@ -2,7 +2,7 @@
 import { TestBed } from '@angular/core/testing';
 import { Route } from '@angular/router';
 import { apiDescriptor } from '@app/service/zz_gen_api';
-import { Resources } from '@app/service/zz_gen_constants';
+import { Methods, Resources } from '@app/service/zz_gen_constants';
 import { resourceMeta } from '@app/service/zz_gen_resources';
 import { isPage, Menu, pageDataKey, unplacedPages } from '@impulseframework/resource-angular/auth-frame';
 import { tenantsConfig } from '@impulseframework/resource-angular/identity-pages';
@@ -67,5 +67,18 @@ describe('the menu file', () => {
       [Resources.CrewInvitedSectors, 'Invited sectors, waiting for a first sign-in'],
     ]);
     expect(config.rpcConfigs).toEqual([issueBulletin]);
+  });
+
+  it("places Invite a sector… in Records after All sectors: an action outside every sector that opens the page with the invitation's dialog", () => {
+    const records = menus().find((menu) => menu.label === 'Records');
+    const entries = (records?.groups ?? []).flatMap((group) => group.entries);
+    const at = entries.findIndex((entry) => entry.label === 'All sectors');
+    const action = entries[at + 1];
+    expect(action && 'run' in action ? [action.label, action.icon, action.place, action.permission] : action).toEqual([
+      'Invite a sector…',
+      'send',
+      'outside',
+      { resource: Methods.InviteCrewSector, permission: 'Execute' },
+    ]);
   });
 });

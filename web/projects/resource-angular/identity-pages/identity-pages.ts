@@ -9,7 +9,7 @@ import {
 } from '@impulseframework/resource';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
 import { Page, page, pageRoute } from '@impulseframework/resource-angular/auth-frame';
-import { filterQueryParams } from '@impulseframework/resource-angular/resource';
+import { articleFor, filterQueryParams } from '@impulseframework/resource-angular/resource';
 import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import {
   ChildResourceConfig,
@@ -2661,7 +2661,7 @@ function leftToSignInThrough(ways: readonly RecordData[]): string {
 
 /** A word with its article: "a sector", "an office". */
 function withArticle(word: string): string {
-  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`;
+  return `${articleFor(word)} ${word}`;
 }
 
 /** A PascalCase name as a route segment: `FleetStaff` is "fleet-staff". */

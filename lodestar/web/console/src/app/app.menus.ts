@@ -2,7 +2,7 @@ import { apiDescriptor } from '@app/service/zz_gen_api';
 import { resourceMeta } from '@app/service/zz_gen_resources';
 import { Menu } from '@impulseframework/resource-angular/auth-frame';
 import { featureFlagsPage } from '@impulseframework/resource-angular/feature-flags';
-import { identityMenuPages, tenantsPage } from '@impulseframework/resource-angular/identity-pages';
+import { identityMenuPages, inviteTenantAction, tenantsPage } from '@impulseframework/resource-angular/identity-pages';
 import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
 import { deckPages, sectorSignInPage } from '@components/sector/sector.routes';
 import { clientsConfig } from './configs/clients.config';
@@ -54,6 +54,8 @@ export function appMenus(): Menu[] {
             resourcePage(commendationsConfig, resourceMeta),
             // All sectors: the library's tenants page, with Issue Bulletin on a sector's page.
             tenantsPage(apiDescriptor, resourceMeta, sectorsPage),
+            // Invite a sector…: opens All sectors with the invitation's dialog.
+            inviteTenantAction(apiDescriptor, resourceMeta, sectorsPage),
             // The missions of every sector the person reaches, on one page of Headquarters.
             resourcePage(missionsEverySectorConfig, resourceMeta),
           ],

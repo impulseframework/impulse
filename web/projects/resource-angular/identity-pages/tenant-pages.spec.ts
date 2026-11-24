@@ -1,4 +1,5 @@
-import { Injector } from '@angular/core';
+import { Injector, runInInjectionContext } from '@angular/core';
+import { Router } from '@angular/router';
 import {
   ApiDescriptor,
   FieldMeta,
@@ -22,7 +23,7 @@ import {
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
 import { describe, expect, it, vi } from 'vitest';
 import { identityPages } from './identity-pages';
-import { tenantsConfig, tenantsPage, tenantsRoute } from './tenant-pages';
+import { inviteTenantAction, tenantsConfig, tenantsPage, tenantsRoute } from './tenant-pages';
 
 // The tenants page is placed from the API's description alone: the whole application's
 // side of the Auth whose people make the tenants names the server's list of tenants
@@ -620,5 +621,52 @@ describe('tenantsPage and tenantsRoute', () => {
     expect(listRoute.canActivate).toHaveLength(1);
     expect([rowRoute.path, rowRoute.data?.['scope']]).toEqual([':uuid', { resource: sectors, permission: 'Read' }]);
     expect(rowRoute.canActivate).toHaveLength(1);
+  });
+});
+
+// The menu's way to the invitation: an action, shown outside every tenant to a person who
+// may send one, that opens the tenants page with the invitation's dialog.
+describe('inviteTenantAction', () => {
+  /** The action as a menu file makes it, where the menus are declared, with a router that records where it goes. */
+  const made = (descriptor: ApiDescriptor, auth = 'Crew') => {
+    const router = { navigate: vi.fn(() => Promise.resolve(true)) };
+    const injector = Injector.create({ providers: [{ provide: Router, useValue: router }] });
+    const action = runInInjectionContext(injector, () => inviteTenantAction(descriptor, resourceMeta, { auth }));
+    return { action, navigate: router.navigate };
+  };
+
+  it('is labeled with the word the tenants go by, sends, lives outside every tenant, and needs Execute on the invitation', () => {
+    const { action } = made(fullDescriptor());
+    expect([action.label, action.icon, action.place]).toEqual(['Invite a sector…', 'send', 'outside']);
+    expect(action.permission).toEqual({ resource: invite, permission: 'Execute' });
+  });
+
+  it("opens the tenants page from the root with the invitation's method named in the address", () => {
+    const descriptor = fullDescriptor();
+    const { action, navigate } = made(descriptor);
+    expect(navigate).not.toHaveBeenCalled();
+    action.run();
+    expect(navigate.mock.calls).toEqual([[['/sectors'], { queryParams: { run: invite } }]]);
+    expect(tenantsConfig(descriptor, resourceMeta, { auth: 'Crew' }).routeData.route).toBe('sectors');
+  });
+
+  it('picks the article by how the word is said: "a unit", "an office"', () => {
+    const labelOf = (tenant: string): string =>
+      made(descriptorOf(crewOf({ invitedTenants: invited, tenants: listed }, { tenant }))).action.label;
+    expect(labelOf('Unit')).toBe('Invite a unit…');
+    expect(labelOf('Office')).toBe('Invite an office…');
+  });
+
+  it("is refused where the description names no method that invites a tenant, and with the tenants page's own refusals", () => {
+    const noInvitation = descriptorOf({
+      ...crewOf({ tenants: listed }),
+      sides: [{ scope: 'global', lists: { users, tenants: listed }, methods: {} }],
+    });
+    expect(() => made(noInvitation)).toThrow(
+      'inviteTenantAction: the description names no method that invites a tenant for Crew: its tenants are not made by invitation, so there is no invitation to place in a menu',
+    );
+    expect(() => made(fullDescriptor(), 'Pilots')).toThrow(
+      'tenantsPage: the API description carries no generated management of the auth Pilots (it carries: Crew);',
+    );
   });
 });
