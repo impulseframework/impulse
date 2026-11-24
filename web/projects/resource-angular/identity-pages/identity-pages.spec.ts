@@ -7,6 +7,7 @@ import {
   RecordData,
   ResourceMeta,
   RootConfig,
+  SessionInfo,
 } from '@impulseframework/resource-angular/types';
 import { pageDataKey } from '@impulseframework/resource-angular/auth-frame';
 import { format } from 'date-fns';
@@ -318,6 +319,8 @@ const presentation = (presentations: false | MethodPresentation[] | undefined, m
   return found;
 };
 const children = (config: RootConfig): ListViewConfig[] => config.relatedConfigs as ListViewConfig[];
+/** The session read a column's getter is handed where the spec says nothing of the reader. */
+const noReader = {} as SessionInfo;
 /** The filter a presentation asks a picker's list with, from the dialog's values; a picker it does not narrow fails the spec. */
 const narrowed = (presented: MethodPresentation, field: string): ((values: RecordData) => string) => {
   const narrow = presented.narrows?.[field];
@@ -416,7 +419,7 @@ describe("identityPages, the whole application's side", () => {
         ['ownRule', 'Decided by its own rule', true],
       ]);
       const choice = list(signIn).listColumns.find((column) => column.id === 'openSignUp')?.valueGetter;
-      expect([password, google, entra, partners, widened].map((row) => choice?.(row))).toEqual([
+      expect([password, google, entra, partners, widened].map((row) => choice?.(row, noReader))).toEqual([
         'Open',
         'Invite only',
         'Set by the directory',
@@ -468,7 +471,7 @@ describe("identityPages, the whole application's side", () => {
         'The sign-in page will no longer offer "Forgot your password?". A link already mailed still works, and an administrator can still send one.',
       );
       const stands = list(signIn).listColumns.find((column) => column.id === 'selfServiceReset')?.valueGetter;
-      expect([password, on, google].map((row) => stands?.(row))).toEqual(['No', 'Yes', '']);
+      expect([password, on, google].map((row) => stands?.(row, noReader))).toEqual(['No', 'Yes', '']);
     });
 
     it('asks a plain question before a method is made invite only, and leaves the question of opening one to the warning the server writes', () => {
@@ -1063,8 +1066,10 @@ describe("identityPages, the whole application's side", () => {
       ? { ...metas[resource], fields: [...metas[resource].fields, ...fields('invitedByUserId', 'mailFailedAt').fields] }
       : metas[resource];
   const dates = ['createdAt', 'expiresAt', 'consumedAt'];
-  const cell = (config: RootConfig, id: string): ((row: RecordData) => string | string[]) | undefined =>
-    list(config).listColumns.find((column) => column.id === id)?.valueGetter;
+  const cell = (config: RootConfig, id: string): ((row: RecordData) => string | string[]) | undefined => {
+    const getter = list(config).listColumns.find((column) => column.id === id)?.valueGetter;
+    return getter && ((row: RecordData) => getter(row, noReader));
+  };
 
   it('says a link whose message could not be mailed was not mailed and ended, and leaves its Used cell empty', () => {
     // The pages of a descriptor are made once, so pages over other fields take a descriptor of their own.
@@ -2763,7 +2768,7 @@ describe('identityPages, the period of an assignment', () => {
       if (!column) {
         throw new Error(`no column ${id}`);
       }
-      return column.valueGetter ? column.valueGetter(row) : row[id];
+      return column.valueGetter ? column.valueGetter(row, noReader) : row[id];
     };
     // "Until 1 December", picked in the viewer's time zone, is kept as the first instant
     // of 2 December there. The list reads the instant before it, which the table writes
