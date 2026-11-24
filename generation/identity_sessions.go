@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // What a list says of an auth's sessions and of the browsers remembered for its people.
@@ -31,6 +32,55 @@ func (d *identitySourceData) ListedSession() string {
 // SessionTimeoutParam is sessionTimeoutParam for the list's template.
 func (d *identitySourceData) SessionTimeoutParam() string {
 	return sessionTimeoutParam
+}
+
+// sessionStartWords are the session library's own starts of a session, which no
+// registration of the Auth makes, in the words the list of the sessions says them by.
+var sessionStartWords = []struct{ method, words string }{
+	{method: string(sessioninfo.MethodApplication), words: "Started by the application"},
+	{method: string(sessioninfo.MethodImpersonation), words: "Viewing as someone else"},
+}
+
+// SignedInWith is the SQL of the column that says how a session signed in, session
+// being the alias of the session's row: the method of its first auth event (the lowest
+// Seq) in the words of the login page's button for it, the labels of the registrations
+// of one method joined by " or " in declaration order; the session library's own starts
+// in words; any other method as the event stores it; and null where the session has no
+// event.
+func (d *identitySourceData) SignedInWith(session string) string {
+	var methods []string
+	labels := make(map[string][]string)
+	for _, signIn := range d.signIns {
+		if _, ok := labels[signIn.method]; !ok {
+			methods = append(methods, signIn.method)
+		}
+		labels[signIn.method] = append(labels[signIn.method], signIn.Label)
+	}
+	lines := []string{"(SELECT CASE e.Method"}
+	for _, method := range methods {
+		lines = append(lines, "      WHEN "+sqlStringLiteral(method)+" THEN "+googleSQLString(strings.Join(labels[method], " or ")))
+	}
+	for _, start := range sessionStartWords {
+		lines = append(lines, "      WHEN "+sqlStringLiteral(start.method)+" THEN "+sqlStringLiteral(start.words))
+	}
+	lines = append(lines,
+		"      ELSE e.Method",
+		"    END",
+		"    FROM "+d.Tables.AuthEvents+" e",
+		"    WHERE e.SessionId = "+session+".Id",
+		"    ORDER BY e.Seq",
+		"    LIMIT 1) AS SignedInWith",
+	)
+
+	return "  " + strings.Join(lines, "\n")
+}
+
+// googleSQLString writes text an application chose, such as a registration's label, as a
+// GoogleSQL string literal: between single quotes, a quote and a backslash in it
+// escaped, and a backtick and a line break written as escapes, so the literal never ends
+// the Go string the query is kept in.
+func googleSQLString(text string) string {
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`, "`", `\x60`, "\n", `\n`).Replace(text) + "'"
 }
 
 // sessionListSources is the source file of the list of the sessions: a view in the

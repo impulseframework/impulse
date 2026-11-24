@@ -19,6 +19,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/securehash"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/shopspring/decimal"
 	"golang.org/x/mod/semver"
 )
@@ -378,6 +379,17 @@ const (
 	// it and nowhere else.
 	methodPersona authMethodKind = "persona"
 )
+
+// sessionMethod is the session library's word for the method (sessioninfo.AuthMethod),
+// the one an auth event of a sign-in through it records: the kind's own word, but for the
+// persona method, which is the library's generic OpenID Connect method.
+func (k authMethodKind) sessionMethod() string {
+	if k == methodPersona {
+		return string(sessioninfo.MethodOIDC)
+	}
+
+	return string(k)
+}
 
 // passwordMethodName is the name the session library registers the password method
 // under; no external registration may take it.

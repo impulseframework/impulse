@@ -69,7 +69,9 @@ var LiveDerivations = &live.Derivations{
 		}},
 		// CrewListedSessions: the tables its query reads.
 		{Resource: crewresources.CrewListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionAuthEvent{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionImpersonation{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewSession{}.Resource(), Global: true},
 		}},
 		// CrewListedSignInAttempts: the tables its query reads.

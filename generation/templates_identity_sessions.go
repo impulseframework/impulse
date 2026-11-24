@@ -27,8 +27,14 @@ type (
 	// someone or something else, its record ({{ .Tables.Impersonations }}) has neither
 	// ended nor run past its time{{ end }}. It is the session library's rule for a
 	// request, read from the database's clock. A session that is neither live nor ended
-	// timed out. The list filters by the session's id, the person's id, the username,
-	// Expired, Live and the last activity, and lists the most recently used first.
+	// timed out. State says which in one word: live, timedOut or ended. Username is the
+	// account's present username, so a person renamed since they signed in is listed,
+	// and found, under the name they have now; Name is their name. SignedInWith is how
+	// the session signed in, in the words of the login page's button for the method (the
+	// first of the session's auth events), and Browser the browser it was signed in
+	// from, where it was recognized. The list filters by the session's id, the person's
+	// id, the username, Expired, Live, State, how the session signed in and the last
+	// activity, and lists the most recently used first.
 	//
 	// @virtual
 	// @outlet({{ .Outlets }})
@@ -37,36 +43,75 @@ type (
 	// @rowWord(session)
 	{{ .ListedSession }} struct {
 		// @primarykey
-		ID              impulse.UUID  ` + "`spanner:\"Id\" index:\"true\"`" + `
+		ID impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `
+		{{- if .Has "users" }}
+		// UserID names a row of the list of the accounts: a page links the row to the
+		// account's page by it.
+		//
+		// @enumerate({{ Pluralize .AccountsList }})
+		{{- end }}
 		UserID          *impulse.UUID ` + "`spanner:\"UserId\" index:\"true\"`" + `
 		Username        string        ` + "`spanner:\"Username\" index:\"true\"`" + `
+		Name            *string       ` + "`spanner:\"Name\"`" + `
 		Expired         bool          ` + "`spanner:\"Expired\" index:\"true\"`" + `
 		Live            bool          ` + "`spanner:\"Live\" index:\"true\"`" + `
+		State           string        ` + "`spanner:\"State\" index:\"true\"`" + `
+		SignedInWith    *string       ` + "`spanner:\"SignedInWith\" index:\"true\"`" + `
+		Browser         *string       ` + "`spanner:\"Browser\"`" + `
 		AuthenticatedAt *time.Time    ` + "`spanner:\"AuthenticatedAt\"`" + `
 		CreatedAt       time.Time     ` + "`spanner:\"CreatedAt\"`" + `
 		UpdatedAt       time.Time     ` + "`spanner:\"UpdatedAt\" index:\"true\"`" + `
 	}
 )
 
-// {{ GoCamel .ListedSession }}Query selects the sessions, each with whether it is live.
-// The timeout is read as @{{ .SessionTimeoutParam }}, in milliseconds.
+// {{ GoCamel .ListedSession }}Query selects the sessions, each with whether it is live,
+// written once in the inner query, and its state, which reads it. The timeout is read
+// as @{{ .SessionTimeoutParam }}, in milliseconds.
 const {{ GoCamel .ListedSession }}Query = ` + "`" + `
 SELECT
-  s.Id AS Id,
-  s.UserId AS UserId,
-  s.Username AS Username,
-  s.Expired AS Expired,
-  (NOT s.Expired
-    AND s.UpdatedAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @{{ .SessionTimeoutParam }} MILLISECOND)
+  ls.Id AS Id,
+  ls.UserId AS UserId,
+{{- if .Has "users" }}
+  COALESCE(u.Username, ls.Username) AS Username,
+  NULLIF(u.Name, '') AS Name,
+{{- else }}
+  ls.Username AS Username,
+  CAST(NULL AS STRING) AS Name,
+{{- end }}
+  ls.Expired AS Expired,
+  ls.Live AS Live,
+  CASE WHEN ls.Live THEN 'live' WHEN ls.Expired THEN 'ended' ELSE 'timedOut' END AS State,
+{{- if .Has "authEvents" }}
+{{ .SignedInWith "ls" }},
+{{- else }}
+  CAST(NULL AS STRING) AS SignedInWith,
+{{- end }}
+  ls.Browser AS Browser,
+  ls.AuthenticatedAt AS AuthenticatedAt,
+  ls.CreatedAt AS CreatedAt,
+  ls.UpdatedAt AS UpdatedAt
+FROM (
+  SELECT
+    s.Id AS Id,
+    s.UserId AS UserId,
+    s.Username AS Username,
+    s.Expired AS Expired,
+    (NOT s.Expired
+      AND s.UpdatedAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @{{ .SessionTimeoutParam }} MILLISECOND)
 {{- if .Has "impersonations" }}
-    AND NOT EXISTS (
-      SELECT 1 FROM {{ .Tables.Impersonations }} i
-      WHERE i.SessionId = s.Id AND (i.EndedAt IS NOT NULL OR i.ExpiresAt <= CURRENT_TIMESTAMP()))
+      AND NOT EXISTS (
+        SELECT 1 FROM {{ .Tables.Impersonations }} i
+        WHERE i.SessionId = s.Id AND (i.EndedAt IS NOT NULL OR i.ExpiresAt <= CURRENT_TIMESTAMP()))
 {{- end }}) AS Live,
-  s.AuthenticatedAt AS AuthenticatedAt,
-  s.CreatedAt AS CreatedAt,
-  s.UpdatedAt AS UpdatedAt
-FROM {{ .Tables.Sessions }} s
+    s.Browser AS Browser,
+    s.AuthenticatedAt AS AuthenticatedAt,
+    s.CreatedAt AS CreatedAt,
+    s.UpdatedAt AS UpdatedAt
+  FROM {{ .Tables.Sessions }} s
+) ls
+{{- if .Has "users" }}
+LEFT JOIN {{ .Tables.Users }} u ON u.Id = ls.UserId
+{{- end }}
 ` + "`" + `
 
 // {{ GoCamel .ListedSession }}Timeout is how long a session of the {{ .Auth }} auth may sit

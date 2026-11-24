@@ -4228,7 +4228,7 @@ the schema holds its table, so an Auth that issues no tokens has no tokens list:
 GET  <prefix>/crew-session-users, …/{id}                   List, Read on CrewSessionUsers (sort=username)
 GET  <prefix>/crew-listed-users, …/{id}                    List, Read on CrewListedUsers (the accounts with what each holds, sort=username)
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
-GET  <prefix>/crew-listed-sessions, …/{id}                 List, Read on CrewListedSessions (the sessions with whether each is live, most recently used first)
+GET  <prefix>/crew-listed-sessions, …/{id}                 List, Read on CrewListedSessions (the sessions with the state of each, whose they are and how they signed in, most recently used first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
 GET  <prefix>/crew-listed-identities, …/{id}               List, Read on CrewListedIdentities (the sign-in identities with who manages each account, where the application has a tenant record)
 GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
@@ -5018,16 +5018,16 @@ grants each like any resource.
   application's unlink names an identity by its row, so a role file gives the unlink under
   the same condition as the methods on the account. `CrewSessionIdentities`, the
   identities table's own list, stays.
-- `CrewListedSessions` is the sessions as a page lists them: the session's columns and
-  `live`, whether a request that carries the session is still accepted (not ended, used
-  within the Auth's session timeout, and its impersonation record, where it has one,
-  neither ended nor past its time). A session that is neither `live` nor `expired` timed
-  out. `live` judges the session alone: a request is also refused where the session names
-  no account, or its account is disabled or gone, and disabling or deleting an account
-  ends its sessions. The Sessions page and the list of live sessions under an account list
-  it, it filters by `id`, `userId`, `username`, `expired`, `live` and `updatedAt`, and the
-  method that ends a session names its session by its row. `CrewSessions`, the sessions
-  table's own list, stays.
+- `CrewListedSessions` is the sessions as a page lists them: the session's columns under
+  the account's present username, the person's name, how the session signed in, the
+  browser, whether it is live, and its state in one word (live, timed out, ended). A
+  session that is neither `live` nor `expired` timed out. `live` judges the session alone:
+  a request is also refused where the session names no account, or its account is disabled
+  or gone, and disabling or deleting an account ends its sessions. The Sessions page and
+  the list of live sessions under an account list it, it filters by `id`, `userId`,
+  `username`, `expired`, `live`, `state`, `signedInWith` and `updatedAt`, and the method
+  that ends a session names its session by its row. `CrewSessions`, the sessions table's
+  own list, stays.
 - `CrewListedMailLinks` is the mailed links as a page lists them: the link's columns, its state
   (open, accepted, withdrawn, expired, not mailed), the sender's name, and whether the invitation
   makes a tenant.

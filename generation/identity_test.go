@@ -36,6 +36,9 @@ func identityFixtureGenerator(t *testing.T, tables ...string) *resourceGenerator
 				withdrawnColumn:   {SpannerType: "TIMESTAMP", IsNullable: true},
 			}
 		}
+		if strings.HasSuffix(table, "Sessions") {
+			r.tableMap[table].Columns = map[string]columnMeta{sessionBrowserColumn: {SpannerType: "STRING(MAX)", IsNullable: true}}
+		}
 	}
 
 	return r
@@ -57,8 +60,11 @@ var (
 
 // Test_identityInstances_signIns pins what an instance knows of its auth's sign-in
 // registrations: every one the login page offers, the password method among them, in
-// declaration order, with the name it is registered under and the words its button
-// carries. The list of how a person signs in names each way by them.
+// declaration order, with the name it is registered under, the words its button
+// carries, and the session library's word for its method, the one an auth event of a
+// sign-in through it records (the persona method is the library's OpenID Connect
+// method). The list of how a person signs in names each way by them, and the list of
+// the sessions says how each signed in by them.
 func Test_identityInstances_signIns(t *testing.T) {
 	t.Parallel()
 
@@ -76,7 +82,10 @@ func Test_identityInstances_signIns(t *testing.T) {
 			got = inst.signIns
 		}
 	}
-	want := []identitySignIn{{Name: "google", Label: "Fleet Google"}, {Name: "password", Label: "Password"}, {Name: "lakeside", Label: "Lakeside"}, {Name: "persona", Label: "Persona"}}
+	want := []identitySignIn{
+		{Name: "google", Label: "Fleet Google", method: "google"}, {Name: "password", Label: "Password", method: "password"},
+		{Name: "lakeside", Label: "Lakeside", method: "azure"}, {Name: "persona", Label: "Persona", method: "oidc"},
+	}
 	if diff := cmp.Diff(want, got, cmp.AllowUnexported(identitySignIn{})); diff != "" {
 		t.Errorf("the Members instance's sign-ins mismatch (-want +got):\n%s", diff)
 	}

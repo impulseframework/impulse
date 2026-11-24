@@ -9,6 +9,10 @@ import (
 // library's migration adds it).
 const withdrawnColumn = "WithdrawnAt"
 
+// sessionBrowserColumn is the sessions table's column that names the browser a session
+// was signed in from (the session library's migration adds it).
+const sessionBrowserColumn = "Browser"
+
 // requireWithdrawnColumn refuses a schema whose mail links table lacks the column a
 // link that was taken back is marked in, with the statement that adds it. The session
 // library and the generated store write the column where a link is withdrawn, and the
@@ -26,4 +30,21 @@ func (r *resourceGenerator) requireWithdrawnColumn(inst *identityInstance) error
 
 	return errors.Newf("Auth(%q): the table %s has no column %s, which says a link was taken back: a withdrawn link is ended with this column set, and the list of the mail links tells it from one that was accepted by it; add it as the session library's schema does (ALTER TABLE %s ADD COLUMN %s TIMESTAMP OPTIONS (allow_commit_timestamp = true))",
 		inst.importPath, table, withdrawnColumn, table, withdrawnColumn)
+}
+
+// requireSessionBrowserColumn refuses a schema whose sessions table lacks the column that
+// names the browser a session was signed in from, with the statement that adds it. The
+// session library writes the column where a session is made, and the generated list of
+// the sessions shows it. An auth whose schema keeps no sessions is asked for nothing.
+func (r *resourceGenerator) requireSessionBrowserColumn(inst *identityInstance) error {
+	if !inst.has(identitySessions) {
+		return nil
+	}
+	table := inst.tableName(identitySessions)
+	if _, ok := r.tableMap[table].Columns[sessionBrowserColumn]; ok {
+		return nil
+	}
+
+	return errors.Newf("Auth(%q): the table %s has no column %s, the name of the browser a session was signed in from, which the list of the sessions shows; add it as the session library's schema does (ALTER TABLE %s ADD COLUMN %s STRING(MAX))",
+		inst.importPath, table, sessionBrowserColumn, table, sessionBrowserColumn)
 }

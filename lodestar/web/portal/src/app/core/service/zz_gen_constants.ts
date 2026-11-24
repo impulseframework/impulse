@@ -311,20 +311,28 @@ export namespace MembersListedRoleGrants {
 export namespace MembersListedSessions {
   export const fieldName = {
     authenticatedAt: 'authenticatedAt' as FieldName,
+    browser: 'browser' as FieldName,
     createdAt: 'createdAt' as FieldName,
     expired: 'expired' as FieldName,
     id: 'id' as FieldName,
     live: 'live' as FieldName,
+    name: 'name' as FieldName,
+    signedInWith: 'signedInWith' as FieldName,
+    state: 'state' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
     authenticatedAt: 'MembersListedSessions.authenticatedAt' as Resource,
+    browser: 'MembersListedSessions.browser' as Resource,
     createdAt: 'MembersListedSessions.createdAt' as Resource,
     expired: 'MembersListedSessions.expired' as Resource,
     id: 'MembersListedSessions.id' as Resource,
     live: 'MembersListedSessions.live' as Resource,
+    name: 'MembersListedSessions.name' as Resource,
+    signedInWith: 'MembersListedSessions.signedInWith' as Resource,
+    state: 'MembersListedSessions.state' as Resource,
     updatedAt: 'MembersListedSessions.updatedAt' as Resource,
     userId: 'MembersListedSessions.userId' as Resource,
     username: 'MembersListedSessions.username' as Resource,

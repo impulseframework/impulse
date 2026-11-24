@@ -43,6 +43,8 @@ var LiveDerivations = &live.Derivations{
 		}},
 		// MembersListedSessions: the tables its query reads.
 		{Resource: membersresources.MembersListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: membersresources.MembersSessionAuthEvent{}.Resource(), Global: true},
+			{Name: membersresources.MembersSessionUser{}.Resource(), Global: true},
 			{Name: membersresources.MembersSession{}.Resource(), Global: true},
 		}},
 		// MembersListedSignInAttempts: the tables its query reads.

@@ -319,7 +319,7 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 			inst.password = true
 			inst.usernameIsEmail = m.usernameIsEmail
 		}
-		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label, syncsRoles: m.syncsRoles})
+		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label, syncsRoles: m.syncsRoles, method: m.kind.sessionMethod()})
 		if m.syncsRoles {
 			inst.rolesSynced = true
 		}
@@ -393,6 +393,9 @@ func (r *resourceGenerator) prepareIdentity() error {
 			return err
 		}
 		if err := r.requireWithdrawnColumn(inst); err != nil {
+			return err
+		}
+		if err := r.requireSessionBrowserColumn(inst); err != nil {
 			return err
 		}
 		if err := r.refuseReservedRole(inst); err != nil {

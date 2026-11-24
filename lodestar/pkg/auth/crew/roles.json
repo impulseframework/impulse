@@ -175,8 +175,12 @@
               "fields": [
                 "userId",
                 "username",
+                "name",
                 "expired",
                 "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -238,8 +242,12 @@
               "fields": [
                 "userId",
                 "username",
+                "name",
                 "expired",
                 "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -772,8 +780,12 @@
               "fields": [
                 "userId",
                 "username",
+                "name",
                 "expired",
                 "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -826,8 +838,12 @@
               "fields": [
                 "userId",
                 "username",
+                "name",
                 "expired",
                 "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
