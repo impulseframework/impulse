@@ -387,6 +387,10 @@ CREATE TABLE Pilots (
 
 CREATE UNIQUE INDEX PilotsByUserId ON Pilots(UserId);
 
+-- A list that shows a pilot by name (a squadron's roster, the commendations desk) is
+-- filtered by that name through this index.
+CREATE INDEX PilotsByDisplayName ON Pilots(DisplayName);
+
 CREATE TABLE ClientContacts (
   Id STRING(36) NOT NULL,
   UserId STRING(36) NOT NULL,
@@ -426,6 +430,7 @@ CREATE TABLE Squadrons (
   -- column back to NULL. Spanner cannot index an ARRAY column, so the field carries no
   -- allow_filter and no list filters or sorts by it.
   Callsigns ARRAY<STRING(16)>,
+  Name_Search TOKENLIST AS (TOKENIZE_SUBSTRING(Name, relative_search_types => ['value_prefix', 'value_suffix'])) HIDDEN,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX SquadronsByName ON Squadrons(Name);
@@ -1596,10 +1601,12 @@ CREATE SEARCH INDEX ClientsSearch ON Clients(Name_Search, ContactName_Search, Co
 
 CREATE SEARCH INDEX ClientContactsSearch ON ClientContacts(DisplayName_Search) STORING (ClientId);
 
+CREATE SEARCH INDEX SquadronsSearch ON Squadrons(Name_Search);
+
 CREATE SEARCH INDEX MissionsSearch ON Missions(Title_Search, Deadline_Search) PARTITION BY SectorId;
 
--- The mission board's box also reaches Clients' index, and comes back to the missions
--- through ClientId: the key set costs the matches only with this index.
+-- A filter by the client's name, on the missions and on the mission board, comes back to
+-- the missions through ClientId: this index answers it.
 CREATE INDEX MissionsBySectorIdClientId ON Missions(SectorId, ClientId);
 
 CREATE INDEX HangarsBySectorIdNameLower ON Hangars(SectorId, Name_Lower);

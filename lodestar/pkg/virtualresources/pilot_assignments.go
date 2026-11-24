@@ -9,7 +9,9 @@ import (
 type (
 	// PilotAssignment is the pilot page's list: one row per membership of the pilot in
 	// the selected sector, carrying the squadron's and the wing's names; the squadron id
-	// names Squadrons so a row opens the squadron's page. It is the second view over
+	// names Squadrons so a row opens the squadron's page. The squadron's name is the
+	// generated SquadronName, read from Squadrons by the id (@name on Squadron.Name); the
+	// view joins it no longer. It is the second view over
 	// SquadronMemberships, and the two together show the direction of the declaration:
 	// each view names the table, and the table names no view. The view declares its
 	// backing table, a create goes into the table, and the new row shows up in the view
@@ -30,9 +32,8 @@ type (
 		// @primarykey
 		UserID string `spanner:"UserId" index:"true"`
 		// @domain
-		SectorID     impulse.UUID `spanner:"SectorId"     index:"true"`
-		SquadronName string       `spanner:"SquadronName" index:"true"`
-		WingName     string       `spanner:"WingName"     index:"true"`
+		SectorID impulse.UUID `spanner:"SectorId" index:"true"`
+		WingName string       `spanner:"WingName" index:"true"`
 	}
 )
 

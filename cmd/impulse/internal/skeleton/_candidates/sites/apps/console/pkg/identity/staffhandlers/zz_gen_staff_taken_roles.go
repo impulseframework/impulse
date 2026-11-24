@@ -19,17 +19,18 @@ import (
 
 func (h *Handlers) StaffTakenRoles() http.HandlerFunc {
 	type staffTakenRole struct {
-		UserID   impulse.UUID `json:"userId"   index:"true" perm:"-"`
-		Username string       `json:"username" index:"true"`
-		Name     *string      `json:"name"`
-		Kind     string       `json:"kind"     index:"true" perm:"-"`
-		Axis     string       `json:"axis"     perm:"-"`
-		DomainID string       `json:"domainId" index:"true" perm:"-"`
-		Role     string       `json:"role"     index:"true" perm:"-"`
-		Reason   string       `json:"reason"`
-		StartsAt *time.Time   `json:"startsAt"`
-		EndsAt   time.Time    `json:"endsAt"   index:"true"`
-		Ended    bool         `json:"ended"    index:"true"`
+		UserID     impulse.UUID `json:"userId"     index:"true"      perm:"-"`
+		Username   string       `json:"username"   index:"true"`
+		Name       *string      `json:"name"`
+		Kind       string       `json:"kind"       index:"true"      perm:"-"`
+		Axis       string       `json:"axis"       perm:"-"`
+		DomainID   string       `json:"domainId"   index:"true"      perm:"-"`
+		Role       string       `json:"role"       index:"true"      perm:"-"`
+		Reason     string       `json:"reason"`
+		StartsAt   *time.Time   `json:"startsAt"`
+		EndsAt     time.Time    `json:"endsAt"     index:"true"`
+		Ended      bool         `json:"ended"      index:"true"`
+		DomainName *string      `json:"domainName" nameof:"DomainID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -68,7 +69,7 @@ func (h *Handlers) StaffTakenRoles() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*staffTakenRole)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -116,6 +117,11 @@ func (h *Handlers) StaffTakenRoles() http.HandlerFunc {
 					if !row.Masked("ended") {
 						rmap["ended"] = rec.Ended
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {

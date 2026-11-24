@@ -22,6 +22,15 @@ func (CrewHeldRole) DefaultConfig() resource.Config {
 	return resource.Config{}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (CrewHeldRole) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "DomainName", Key: "DomainID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
 // crewHeldRoleRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewHeldRoleReadSets holds one Set per read operation.

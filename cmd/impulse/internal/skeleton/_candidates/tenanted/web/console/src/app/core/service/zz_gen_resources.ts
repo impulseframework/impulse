@@ -63,6 +63,7 @@ export interface StaffHeldRoles {
   startsAt?: Date;
   endsAt?: Date;
   reason?: string;
+  domainName?: string;
 }
 
 export interface StaffListedGroups {
@@ -75,6 +76,7 @@ export interface StaffListedGroups {
   updatedAt?: Date;
   people?: number;
   roles?: string[];
+  domainName?: string;
 }
 
 export interface StaffListedGroupRoles {
@@ -87,6 +89,7 @@ export interface StaffListedGroupRoles {
   startsAt?: Date;
   endsAt?: Date;
   losing?: number;
+  domainName?: string;
 }
 
 export interface StaffListedIdentities {
@@ -196,6 +199,7 @@ export interface StaffSessionMailLinks {
   expiresAt?: Date;
   consumedAt?: Date;
   mailFailedAt?: Date;
+  tenantName?: string;
 }
 
 export interface StaffSessionSignInAttempts {
@@ -254,6 +258,7 @@ export interface StaffTakenRoles {
   startsAt?: Date;
   endsAt?: Date;
   ended?: boolean;
+  domainName?: string;
 }
 
 export interface StaffTenantGroups {
@@ -303,6 +308,7 @@ export interface StaffTenantHeldRoles {
   startsAt?: Date;
   endsAt?: Date;
   reason?: string;
+  groupPageName?: string;
 }
 
 export interface StaffTenantIdentities {
@@ -341,6 +347,7 @@ export interface StaffTenantUsers {
   domainId?: string;
   username?: string;
   name?: string;
+  displayName?: string;
   email?: string;
   emailVerifiedAt?: Date;
   disabled?: boolean;
@@ -398,6 +405,7 @@ export interface StaffUserGroupRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  domainName?: string;
 }
 
 export interface StaffUserRoles {
@@ -652,7 +660,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Tenants },
       { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 5 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffListedGroups },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -661,6 +669,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.StaffListedGroups]: {
     route: 'staff-listed-groups',
@@ -670,13 +679,14 @@ const resourceMap = defineResourceMap({
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Tenants },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.StaffListedGroupRoles]: {
     route: 'staff-listed-group-roles',
@@ -687,13 +697,14 @@ const resourceMap = defineResourceMap({
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Tenants },
       { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'losing', displayType: 'number', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.StaffListedIdentities]: {
     route: 'staff-listed-identities',
@@ -848,7 +859,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'email', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessionUsers },
-      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'tenantId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Tenants },
       { fieldName: 'everyTenant', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
       { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false, sortable: false, roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
@@ -857,6 +868,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
   },
   [Resources.StaffSessionSignInAttempts]: {
     route: 'staff-session-sign-in-attempts',
@@ -942,18 +954,20 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Tenants },
       { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
       { fieldName: 'reason', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'ended', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.StaffTenantGroups]: {
     route: 'tenants/{tenantID}/staff-tenant-groups',
     live: true,
     rowWords: { one: 'group', many: 'groups' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1015,6 +1029,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'groupPageName', of: 'groupPage' }],
   },
   [Resources.StaffTenantIdentities]: {
     route: 'tenants/{tenantID}/staff-tenant-identities',
@@ -1059,11 +1074,13 @@ const resourceMap = defineResourceMap({
     route: 'tenants/{tenantID}/staff-tenant-users',
     live: true,
     rowWords: { one: 'person', many: 'people' },
+    nameField: 'displayName',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
@@ -1128,12 +1145,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Tenants },
       { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
   [Resources.StaffUserRoles]: {
     route: 'staff-user-roles',

@@ -20,7 +20,7 @@ import (
 
 func (a *App) MissionDocuments() http.HandlerFunc {
 	type missionDocument struct {
-		ID               impulse.UUID                      `json:"id"               index:"true" perm:"-"`
+		ID               impulse.UUID                      `json:"id"               index:"true"       perm:"-"`
 		MissionID        impulse.UUID                      `json:"missionId"        index:"true"`
 		Title            string                            `json:"title"`
 		FileName         string                            `json:"fileName"`
@@ -32,6 +32,7 @@ func (a *App) MissionDocuments() http.HandlerFunc {
 		UploadedAt       time.Time                         `json:"uploadedAt"`
 		Provenance       *resources.Provenance             `json:"provenance"`
 		Digest           []byte                            `json:"digest"`
+		MissionName      *string                           `json:"missionName"      nameof:"MissionID" allow_filter:"true" search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
 	}
 
 	type response []map[string]any
@@ -71,7 +72,7 @@ func (a *App) MissionDocuments() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*missionDocument)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -121,6 +122,11 @@ func (a *App) MissionDocuments() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -142,7 +148,7 @@ func (a *App) MissionDocuments() http.HandlerFunc {
 
 func (a *App) MissionDocument() http.HandlerFunc {
 	type response struct {
-		ID               impulse.UUID                      `json:"id"               index:"true" perm:"-"`
+		ID               impulse.UUID                      `json:"id"               index:"true"       perm:"-"`
 		MissionID        impulse.UUID                      `json:"missionId"`
 		Title            string                            `json:"title"`
 		FileName         string                            `json:"fileName"`
@@ -154,6 +160,7 @@ func (a *App) MissionDocument() http.HandlerFunc {
 		UploadedAt       time.Time                         `json:"uploadedAt"`
 		Provenance       *resources.Provenance             `json:"provenance"`
 		Digest           []byte                            `json:"digest"`
+		MissionName      *string                           `json:"missionName"      nameof:"MissionID"`
 	}
 
 	decoder := NewQueryDecoder[resources.MissionDocument, response](a, accesstypes.Read)
@@ -181,7 +188,7 @@ func (a *App) MissionDocument() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -229,6 +236,11 @@ func (a *App) MissionDocument() http.HandlerFunc {
 				if !row.Masked("digest") {
 					rmap["digest"] = rec.Digest
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

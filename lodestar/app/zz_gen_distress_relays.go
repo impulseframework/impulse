@@ -20,14 +20,15 @@ import (
 
 func (a *App) DistressRelays() http.HandlerFunc {
 	type distressRelay struct {
-		ID             impulse.UUID     `json:"id"             index:"true"      perm:"-"`
-		SectorID       impulse.UUID     `json:"sectorId"       index:"true"`
-		CaseNumber     string           `json:"caseNumber"     index:"true"`
-		AnswersRelayID impulse.NullUUID `json:"answersRelayId" index:"true"`
-		Message        string           `json:"message"`
-		RelayedByName  string           `json:"relayedByName"`
-		RelayedAt      time.Time        `json:"relayedAt"      index:"true"`
-		SectorName     *string          `json:"sectorName"     nameof:"SectorID" index:"true"`
+		ID               impulse.UUID     `json:"id"               index:"true"            perm:"-"`
+		SectorID         impulse.UUID     `json:"sectorId"         index:"true"`
+		CaseNumber       string           `json:"caseNumber"       index:"true"`
+		AnswersRelayID   impulse.NullUUID `json:"answersRelayId"   index:"true"`
+		Message          string           `json:"message"`
+		RelayedByName    string           `json:"relayedByName"`
+		RelayedAt        time.Time        `json:"relayedAt"        index:"true"`
+		SectorName       *string          `json:"sectorName"       nameof:"SectorID"       index:"true"`
+		AnswersRelayName *string          `json:"answersRelayName" nameof:"AnswersRelayID"`
 	}
 
 	type response []map[string]any
@@ -127,14 +128,15 @@ func (a *App) DistressRelays() http.HandlerFunc {
 
 func (a *App) DistressRelay() http.HandlerFunc {
 	type response struct {
-		ID             impulse.UUID     `json:"id"             index:"true"      perm:"-"`
-		SectorID       impulse.UUID     `json:"sectorId"`
-		CaseNumber     string           `json:"caseNumber"`
-		AnswersRelayID impulse.NullUUID `json:"answersRelayId"`
-		Message        string           `json:"message"`
-		RelayedByName  string           `json:"relayedByName"`
-		RelayedAt      time.Time        `json:"relayedAt"`
-		SectorName     *string          `json:"sectorName"     nameof:"SectorID"`
+		ID               impulse.UUID     `json:"id"               index:"true"            perm:"-"`
+		SectorID         impulse.UUID     `json:"sectorId"`
+		CaseNumber       string           `json:"caseNumber"`
+		AnswersRelayID   impulse.NullUUID `json:"answersRelayId"`
+		Message          string           `json:"message"`
+		RelayedByName    string           `json:"relayedByName"`
+		RelayedAt        time.Time        `json:"relayedAt"`
+		SectorName       *string          `json:"sectorName"       nameof:"SectorID"`
+		AnswersRelayName *string          `json:"answersRelayName" nameof:"AnswersRelayID"`
 	}
 
 	decoder := NewQueryDecoder[resources.DistressRelay, response](a, accesstypes.Read)

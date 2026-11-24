@@ -206,13 +206,11 @@ export interface MethodPresentation {
   says?: string;
 }
 
-export type ListConcatFn =
-  'space-concat' | 'hyphen-concat' | 'space-hyphen-concat' | 'hyphen-space-concat' | 'no-space-concat';
 export type ConfigType = ChildResourceConfig;
 export type FormatType = 'simpleSlashDateFormat';
 export type RPCPlacement = 'inline' | 'end';
 
-export type ColumnConfig = SingleColumnConfig | MultiColumnConfig;
+export type ColumnConfig = SingleColumnConfig;
 
 /**
  * The display-row key an icon column's resolved icon rides under, beside the column's
@@ -321,6 +319,27 @@ interface ColumnConfigBase {
   hidden?: boolean;
   emptyDataValue?: DataType;
   /**
+   * What the cell says for a row that shows no name, given the row: the list carries no
+   * name beside the id, the id points to no row, or it points to one the reader may not
+   * see. Absent, the cell shows the stored value. Where the list has no name to show for
+   * the column (it carries none beside the id, or the person may not list it), the column
+   * offers neither sort nor filter, since its cells do not say the stored value.
+   */
+  fallback?: (data: any) => string;
+  /**
+   * The column's field holds a tenant's key. Where the row shows no name, the tenant is
+   * named as the person's own list of tenants names it, before `fallback` is asked. Where
+   * the list has no name to show for the column, it offers neither sort nor filter, as a
+   * column that sets `fallback` does.
+   */
+  tenantKey?: boolean;
+  /**
+   * How the cell says the name it shows, given the name and the row: the page's words
+   * around a bare name ("Sector Anvil" under "Held in"). It is not asked for a row that
+   * falls back.
+   */
+  said?: (value: string, data: any) => string;
+  /**
    * Draws a list field's items a line each, in place of one line of them joined by
    * commas and cut short: for a short list a person reads whole (the roles a group
    * holds). A row is as tall as its longest list. The column does not grow wide for a
@@ -395,75 +414,6 @@ export const singleColumnConfigDefaults = {
   hideHeader: false,
 } satisfies SingleColumnConfig;
 
-/** A column concatenating its field with fields of related resources: a field column with the related ids. */
-export type MultiColumnConfig = FieldColumnConfig & {
-  // todo: additionalIds name is not clear. the id provided is fetched from a different resource, such as a typeId
-  additionalIds: AdditionalResourceConfig[];
-  concatFn: ListConcatFn;
-  /**
-   * What the cell says for a row with nothing to concatenate, given the row: the row
-   * names no related record (a role held in the whole application names no tenant), or
-   * the related records could not be read (the caller holds no List on them). Absent,
-   * the cell shows `emptyDataValue`.
-   */
-  fallback?: (data: any) => string;
-  /**
-   * The column's field holds a tenant's key. Where the tenant's record could not be read
-   * (the caller holds no List on it), the tenant is named as the person's own list of
-   * tenants names it, the tenants they hold a role in, which the client already holds,
-   * before `fallback` is asked.
-   */
-  tenantKey?: boolean;
-  /**
-   * How the cell says the value it found, given the value and the row: the page's words
-   * around a bare name, where the heading does not say what the name is a name of
-   * ("Sector Anvil" under "Held in"). Absent, the cell shows the value. It is not asked
-   * for a row that falls back.
-   */
-  said?: (value: string, data: any) => string;
-};
-export type MultiColumnConfigOptions = MultiColumnConfig;
-
-export function multiColumnConfig(config: MultiColumnConfigOptions): MultiColumnConfig {
-  return {
-    ...multiColumnConfigDefaults,
-    ...config,
-  } satisfies MultiColumnConfig;
-}
-
-export const multiColumnConfigDefaults = {
-  ...singleColumnConfigDefaults,
-  additionalIds: [] as AdditionalResourceConfig[],
-  concatFn: 'hyphen-concat' as ListConcatFn,
-} satisfies MultiColumnConfig;
-
-export interface AdditionalResourceConfig {
-  resource?: Resource;
-  id: FieldName;
-  field?: FieldName;
-  hidden?: boolean;
-}
-export interface AdditionalResourceConfigOptions {
-  id: FieldName;
-  resource?: Resource;
-  field?: FieldName;
-  hidden?: boolean;
-}
-
-export function additionalResourceConfig(config: AdditionalResourceConfigOptions): AdditionalResourceConfig {
-  return {
-    ...additionalResourceConfigDefaults,
-    ...config,
-  } satisfies AdditionalResourceConfig;
-}
-
-export const additionalResourceConfigDefaults = {
-  id: '' as FieldName,
-  resource: '' as Resource,
-  field: '' as FieldName,
-  hidden: false,
-} satisfies AdditionalResourceConfig;
-
 export interface FieldSort {
   field: FieldName;
   direction: 'asc' | 'desc';
@@ -518,7 +468,8 @@ export interface EnumeratedConfigOptions {
    * else the first display column ascending, since every paged request carries an order.
    * Over a computed source a sort by a field the digest lists as `conditional` for the
    * person is not sent, and the picker pages by the key where that field is the display
-   * column.
+   * column. A sort by a name field of the source (the name beside an id it holds) is not
+   * sent where the person may not list that name.
    */
   sorts?: FieldSort[];
   listDisplay?: FieldName[];

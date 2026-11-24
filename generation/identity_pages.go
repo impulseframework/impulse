@@ -70,10 +70,12 @@ type tsAPIIdentity struct {
 	Auth   string
 	Label  string
 	Tenant string
-	// TenantResource is the tenant record's resource where the outlet serves it: a page
-	// that lists a role or an invitation across tenants reads the tenant's name from it,
-	// since the row carries the tenant's key, an id nobody reads. Empty where the outlet
-	// does not serve the record, and the page shows the key.
+	// TenantResource is the tenant record's resource where the outlet serves it: the pages
+	// read from its metadata the field the record's rows are known by. A row of the whole
+	// application's lists carries the tenant's key, an id nobody reads, and the tenant's
+	// name beside it where every outlet of the instance serves the record (TenantPicker).
+	// Empty where the outlet does not serve the record: the pages then name a tenant from
+	// the reader's own list of tenants, or in words.
 	TenantResource string
 	// TenantDirectoryOnlyField is the tenant record's directory-only field as the wire
 	// names it, where the outlet serves the record (TenantResource) and the record

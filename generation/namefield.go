@@ -144,11 +144,11 @@ func (n *nameField) filterability() (indexed, filterable bool) {
 }
 
 // answersMatches reports whether the name answers the text matches: the id is indexed
-// and the pointed-to name carries a search fact. A name read from a view answers none:
-// a search fact names a token column of a table, which the view's projection does not
-// carry.
+// and the pointed-to name carries a search fact. A view's name field carries one where it
+// says which table column it projects, and the view projects that column's token column,
+// which the filter reads through the view's query.
 func (n *nameField) answersMatches() bool {
-	return !n.View && n.key.IndexTag() != "" && n.source != nil && n.source.SearchTag() != ""
+	return n.key.IndexTag() != "" && n.source != nil && n.source.SearchTag() != ""
 }
 
 // declareRowName records the field a resource's rows are known by (@name) on a

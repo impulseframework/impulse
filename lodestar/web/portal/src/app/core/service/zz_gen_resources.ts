@@ -8,6 +8,7 @@ export interface ClientContacts {
   userId?: string;
   clientId?: string;
   displayName?: string;
+  clientName?: string;
 }
 
 export interface ClientRosters {
@@ -150,6 +151,7 @@ export interface MembersSectorUsers {
   domainId?: string;
   username?: string;
   name?: string;
+  displayName?: string;
   email?: string;
   emailVerifiedAt?: Date;
   disabled?: boolean;
@@ -304,6 +306,7 @@ export interface MissionDocuments {
   uploadedAt?: Date;
   provenance?: MissionDocuments.Provenance;
   digest?: string;
+  missionName?: string;
 }
 export namespace MissionDocuments {
   export interface Provenance {
@@ -397,11 +400,13 @@ const resourceMap = defineResourceMap({
       { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', search: ['contains'] },
     ],
     searchFields: ['displayName'],
+    nameFields: [{ fieldName: 'clientName', of: 'clientId', filterable: 'always', search: ['contains', 'startswith', 'endswith'] }],
   },
   [Resources.ClientRosters]: {
     route: 'sectors/{sectorID}/client-rosters',
     live: true,
     rowWords: { one: 'client', many: 'clients' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
@@ -586,11 +591,13 @@ const resourceMap = defineResourceMap({
     route: 'sectors/{sectorID}/members-sector-users',
     live: true,
     rowWords: { one: 'person', many: 'people' },
+    nameField: 'displayName',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
@@ -777,6 +784,7 @@ const resourceMap = defineResourceMap({
     consolidatedRoute: 'resources',
     live: true,
     rowWords: { one: 'mission', many: 'missions' },
+    nameField: 'title',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always', readOnly: true },
@@ -818,6 +826,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'provenance', displayType: 'object', required: false, isIndex: false, sortable: false },
       { fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false, sortable: false },
     ],
+    nameFields: [{ fieldName: 'missionName', of: 'missionId', filterable: 'withIndexed', search: ['contains'] }],
   },
   [Resources.BriefingTemplates]: {
     route: 'briefing-templates',

@@ -38,7 +38,7 @@ func (Squadron) DeleteTree() *resource.DeleteTree {
 		Record: "Squadrons",
 		Words:  resource.DeleteWords{One: "squadron", Many: "squadrons"},
 		Key:    []string{"Id"},
-		Cost:   resource.DeleteCost{IndexEntries: 2, Files: 0},
+		Cost:   resource.DeleteCost{IndexEntries: 3, Files: 0},
 		Tenant: &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
 		Under: []resource.DeleteKind{
 			{
@@ -79,6 +79,15 @@ func (Squadron) DeleteTree() *resource.DeleteTree {
 				},
 			},
 		},
+	}
+}
+
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Squadron) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "WingName", Key: "WingID", Resource: "Wings", Tag: "name", Table: "Wings", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
 	}
 }
 
@@ -263,8 +272,44 @@ func (p SquadronQueryPartialClause) WingID() SquadronQueryIdent[impulse.UUID] {
 	return SquadronQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("WingID", p.partialClause, true)}
 }
 
-func (p SquadronQueryPartialClause) Name() SquadronQueryIdent[string] {
-	return SquadronQueryIdent[string]{Ident: resource.NewIdent[string]("Name", p.partialClause, true)}
+func (p SquadronQueryPartialClause) Name() SquadronNameQueryIdent {
+	return SquadronNameQueryIdent{
+		SquadronQueryIdent: SquadronQueryIdent[string]{Ident: resource.NewIdent[string]("Name", p.partialClause, true)},
+		text:               resource.NewTextIdent("Name", p.partialClause, true, "token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"),
+	}
+}
+
+// SquadronNameQueryIdent is Name's identifier with the text
+// matches its schema answers ('contains', 'startswith', 'endswith'); a match it does not answer is not here.
+type SquadronNameQueryIdent struct {
+	SquadronQueryIdent[string]
+	text resource.TextIdent
+}
+
+func (i SquadronNameQueryIdent) Contains(term string) SquadronQueryClause {
+	return SquadronQueryClause{clause: i.text.Contains(term)}
+}
+
+func (i SquadronNameQueryIdent) StartsWith(term string) SquadronQueryClause {
+	return SquadronQueryClause{clause: i.text.StartsWith(term)}
+}
+
+func (i SquadronNameQueryIdent) EndsWith(term string) SquadronQueryClause {
+	return SquadronQueryClause{clause: i.text.EndsWith(term)}
+}
+
+// Search creates the search box over Squadron's searchable fields, as the
+// filter grammar's *:search:"…" does: every term of the text must be found in one of
+// them ('name').
+func (p SquadronQueryPartialClause) Search(text string) (SquadronQueryClause, error) {
+	clause, err := p.partialClause.Search(text, "ID", []resource.SearchColumn{
+		{Column: "Name", Tag: "token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"},
+	}, nil)
+	if err != nil {
+		return SquadronQueryClause{}, err
+	}
+
+	return SquadronQueryClause{clause: clause}, nil
 }
 
 type SquadronQueryClause struct {

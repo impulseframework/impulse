@@ -20,19 +20,20 @@ import (
 
 func (h *Handlers) StaffTenantHeldRoles() http.HandlerFunc {
 	type staffTenantHeldRole struct {
-		DomainID    string       `json:"domainId"    index:"true"`
-		UserID      impulse.UUID `json:"userId"      index:"true" perm:"-"`
-		Username    string       `json:"username"    index:"true"`
-		Role        string       `json:"role"        index:"true" perm:"-"`
-		EveryDomain bool         `json:"everyDomain" index:"true"`
-		GroupID     string       `json:"groupId"     index:"true" perm:"-"`
-		GroupName   string       `json:"groupName"   index:"true"`
-		GlobalGroup bool         `json:"globalGroup"`
-		GroupPage   string       `json:"groupPage"`
-		CreatedAt   time.Time    `json:"createdAt"`
-		StartsAt    *time.Time   `json:"startsAt"`
-		EndsAt      *time.Time   `json:"endsAt"`
-		Reason      *string      `json:"reason"`
+		DomainID      string       `json:"domainId"      index:"true"`
+		UserID        impulse.UUID `json:"userId"        index:"true"       perm:"-"`
+		Username      string       `json:"username"      index:"true"`
+		Role          string       `json:"role"          index:"true"       perm:"-"`
+		EveryDomain   bool         `json:"everyDomain"   index:"true"`
+		GroupID       string       `json:"groupId"       index:"true"       perm:"-"`
+		GroupName     string       `json:"groupName"     index:"true"`
+		GlobalGroup   bool         `json:"globalGroup"`
+		GroupPage     string       `json:"groupPage"`
+		CreatedAt     time.Time    `json:"createdAt"`
+		StartsAt      *time.Time   `json:"startsAt"`
+		EndsAt        *time.Time   `json:"endsAt"`
+		Reason        *string      `json:"reason"`
+		GroupPageName *string      `json:"groupPageName" nameof:"GroupPage"`
 	}
 
 	type response []map[string]any
@@ -72,7 +73,7 @@ func (h *Handlers) StaffTenantHeldRoles() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*staffTenantHeldRole)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -128,6 +129,11 @@ func (h *Handlers) StaffTenantHeldRoles() http.HandlerFunc {
 					if !row.Masked("reason") {
 						rmap["reason"] = rec.Reason
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {

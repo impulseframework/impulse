@@ -30,6 +30,7 @@ type staffTenantUserRead struct {
 	DomainID                  string       `json:"domainId"`
 	Username                  string       `json:"username"`
 	Name                      *string      `json:"name"`
+	DisplayName               string       `json:"displayName"`
 	Email                     *string      `json:"email"`
 	EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
 	Disabled                  bool         `json:"disabled"`
@@ -159,6 +160,7 @@ func (c *StaffTenantUserColumns) All() *StaffTenantUserColumns {
 		"DomainID",
 		"Username",
 		"Name",
+		"DisplayName",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
@@ -201,6 +203,12 @@ func (c *StaffTenantUserColumns) Username() *StaffTenantUserColumns {
 
 func (c *StaffTenantUserColumns) Name() *StaffTenantUserColumns {
 	c.fields = append(c.fields, "Name")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) DisplayName() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "DisplayName")
 
 	return c
 }
@@ -331,6 +339,10 @@ func (p StaffTenantUserQueryPartialClause) Username() StaffTenantUserQueryIdent[
 	return StaffTenantUserQueryIdent[string]{Ident: resource.NewIdent[string]("Username", p.partialClause, true)}
 }
 
+func (p StaffTenantUserQueryPartialClause) DisplayName() StaffTenantUserQueryIdent[string] {
+	return StaffTenantUserQueryIdent[string]{Ident: resource.NewIdent[string]("DisplayName", p.partialClause, false)}
+}
+
 func (p StaffTenantUserQueryPartialClause) HeldElsewhere() StaffTenantUserQueryIdent[bool] {
 	return StaffTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldElsewhere", p.partialClause, true)}
 }
@@ -443,6 +455,10 @@ func (c *staffTenantUserSort) Username() *StaffTenantUserSort {
 
 func (c *staffTenantUserSort) Name() *StaffTenantUserSort {
 	return c.addField("Name")
+}
+
+func (c *staffTenantUserSort) DisplayName() *StaffTenantUserSort {
+	return c.addField("DisplayName")
 }
 
 func (c *staffTenantUserSort) Email() *StaffTenantUserSort {

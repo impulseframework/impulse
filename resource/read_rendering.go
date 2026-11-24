@@ -406,6 +406,12 @@ type renderedReadConditions struct {
 	// (withNameLookups): what the select list, the order and the cursor's
 	// predicate write in the field's place.
 	nameLookups map[accesstypes.Field]string
+
+	// namesRow is the items of the statement's row of names, each a name's lookup
+	// under its alias (withNameLookups): the names read from a view that the
+	// statement orders by. The statement's FROM carries them as one row beside
+	// each row of the list (namesRowFrom), and nameLookups names the item.
+	namesRow []string
 }
 
 // queryOverride returns the visible-projection expression for a field the

@@ -128,8 +128,9 @@ func (d *QueryDecoder[Resource, Request]) WithFeatures(features *FeatureSet) *Qu
 // own resource is a view whose query opens with WITH tables, from a view whose query
 // uses the name of one of them, which the statement would read in that place, or from
 // a view that binds a parameter and whose query cannot be read to its end, since the
-// statement writes each parameter of the view under a name of its own. A decoder whose
-// names are all read from tables accepts any map, nil included.
+// statement writes each parameter of the view under a name of its own. Each check is
+// made of the view's name query too, where the view gives one (NameSubqueryer). A
+// decoder whose names are all read from tables accepts any map, nil included.
 func (d *QueryDecoder[Resource, Request]) WithNameViews(views NameViews) *QueryDecoder[Resource, Request] {
 	var res Resource
 	var withTables []string
@@ -147,21 +148,33 @@ func (d *QueryDecoder[Resource, Request]) WithNameViews(views NameViews) *QueryD
 			panic(noNameView(&name.NameField, res.Resource()))
 		}
 		query, params := view.Subquery()
-		if withClause, _ := extractWithClause(query); withClause != "" {
-			panic(fmt.Sprintf("name field %s of %s is read from the view %s, whose query opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's query without WITH, each WITH table as a subquery in its FROM.", name.Field, res.Resource(), name.Resource))
-		}
-		if withTable, used := firstWithTableUsed(query, withTables); used {
-			panic(fmt.Sprintf("the query of %s opens with a WITH table named %s, and the query of the view %s, which the name %s is read from, uses that name too: a statement over %s would read the WITH table's rows there. Rename the WITH table in the query of %s.", res.Resource(), withTable, name.Resource, name.Field, res.Resource(), res.Resource()))
-		}
-		if len(params) > 0 {
-			if _, err := viewParamTokens(query, params); err != nil {
-				panic(unreadableViewQuery(&name.NameField, res.Resource(), err))
-			}
+		checkNameViewQuery(&name.NameField, res.Resource(), withTables, query, params, viewQueryWords)
+		if named, ok := view.(NameSubqueryer); ok {
+			query, params := named.NameSubquery()
+			checkNameViewQuery(&name.NameField, res.Resource(), withTables, query, params, nameQueryWords)
 		}
 	}
 	d.nameViews = views
 
 	return d
+}
+
+// checkNameViewQuery panics where a query of the view a name is read from, named by
+// its words (the view's query, or its name query), cannot be read where the name is:
+// it opens with a WITH clause, uses the name of a WITH table of the list's own query
+// (withTables), or binds a parameter and cannot be read to its end (WithNameViews).
+func checkNameViewQuery(name *NameField, res accesstypes.Resource, withTables []string, query string, params map[string]any, words string) {
+	if withClause, _ := extractWithClause(query); withClause != "" {
+		panic(fmt.Sprintf("name field %s of %s is read from the view %s, whose %s opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's %s without WITH, each WITH table as a subquery in its FROM.", name.Field, res, name.Resource, words, words))
+	}
+	if withTable, used := firstWithTableUsed(query, withTables); used {
+		panic(fmt.Sprintf("the query of %s opens with a WITH table named %s, and the %s of the view %s, which the name %s is read from, uses that name too: a statement over %s would read the WITH table's rows there. Rename the WITH table in the query of %s.", res, withTable, words, name.Resource, name.Field, res, res))
+	}
+	if len(params) > 0 {
+		if _, err := viewParamTokens(query, params); err != nil {
+			panic(unreadableViewQuery(name, res, words, err))
+		}
+	}
 }
 
 // hiddenFields returns the request fields behind a flag that is off, nil when none: a

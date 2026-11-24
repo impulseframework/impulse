@@ -3,9 +3,16 @@
 
 package app
 
-import "github.com/impulseframework/impulse/resource"
+import (
+	"example.com/ci/outlets/pkg/identity/membershandlers"
+	"example.com/ci/outlets/pkg/identity/staffhandlers"
+	"github.com/impulseframework/impulse/resource"
+)
 
 // nameViews are the application's name views: the NameViews of the virtual resources
 // package and of every auth's generated management, merged into the one value the
 // generated query decoders are handed.
-var nameViews = resource.MergeNameViews()
+var nameViews = resource.MergeNameViews(
+	membershandlers.NameViews,
+	staffhandlers.NameViews,
+)

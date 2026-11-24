@@ -42,12 +42,6 @@
       <p class="impulse-resource-list-notice-words">{{ notice() }}</p>
     </div>
   }
-  @for (sentence of unread(); track sentence) {
-    <div class="impulse-resource-list-notice" role="status" [class.impulse-resource-list-indent]="indentTitle()">
-      <mat-icon class="impulse-resource-list-notice-icon" aria-hidden="true">warning</mat-icon>
-      <p class="impulse-resource-list-notice-words">{{ sentence }}</p>
-    </div>
-  }
   @if (filtersLeftOut()) {
     <div
       class="impulse-resource-list-notice impulse-resource-list-filters-left-out"
@@ -104,7 +98,7 @@
         [detailTemplate]="expandedRowTemplate"
         [loading]="loadingRowData()"
         [emptyMessage]="emptyMessage()"
-        [sorts]="store.sorts()"
+        [sorts]="drawnSorts()"
         [filters]="store.columnFilters()"
         [filterability]="filterability()"
         [externalFilterFields]="configFilterFields()"
