@@ -46,11 +46,11 @@ import (
 // confirmed address; turning it off is plain and warns of nothing; its directory is not
 // removed while it is directory only.
 //
-// The directory's row carries a default role, given at a person's first sign-in through
-// the directory: with none, a stranger is refused by invitation only and no account is
-// created; with a role named, a stranger's next sign-in creates them seated with it,
-// and a person whose account stood before is given it at the sign-in that links the
-// account to the directory. The tenant is opened to its directory's people, with the
+// The directory's row carries a default role, given to a person who signs in through
+// the directory and holds nothing in the tenant, at every sign-in: with none, a
+// stranger is refused by invitation only and no account is created; with a role named,
+// a stranger's next sign-in creates them seated with it, and a person whose account
+// stood before is given it at their next sign-in through the directory. The tenant is opened to its directory's people, with the
 // role, and made invite only again by the tenant's own two methods, the first behind a
 // warning that says who will enter and with what role; the record's own update never
 // writes the role. A write through the API decides the next request,

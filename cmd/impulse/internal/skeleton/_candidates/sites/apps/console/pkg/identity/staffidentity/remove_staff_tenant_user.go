@@ -30,6 +30,8 @@ import (
 //
 // The method declares a warning, which a person types "remove" under before the call is
 // confirmed: the roles that go, and whether the account goes with them.
+// Where the tenant is open to its directory and the person signs in through it, the
+// warning says they are seated again at their next sign-in.
 //
 // @rpc
 // @permissionScope(domain)
@@ -53,6 +55,13 @@ func (m *RemoveStaffTenantUser) Warning(ctx context.Context, txn resource.ReadWr
 	warning, err := tenant.RemovalWarning(ctx, txn, m.UserID)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Tenant.RemovalWarning()")
+	}
+	again, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Client.SeatedAgainBySignIn()")
+	}
+	if again {
+		warning.Also = append(warning.Also, tenant.SeatedAgainNote())
 	}
 
 	return warning, nil

@@ -905,7 +905,7 @@ r=$(req flint POST "$API/user/invitation" '{"token":"'"$FLINT_TOKEN"'"}'); check
 # she signed in through the crew auth's sign-up registration (any Google account, opened
 # to sign-up by the governor above: a person the auth has never seen becomes a crew login
 # holding no role and no sector) and names her own sector through the generated
-# create-sector route, which serves while a sign-in method of the auth is open,
+# create-sector route, which serves a session whose sign-in method is open to sign-up,
 # by the record's fields without its key (the route generates the id and answers it; a
 # body that names a key is refused), which writes the row, seats her as its marshal
 # (SectorMarshal, the roles the App names)
@@ -927,7 +927,7 @@ EMBER=$API/sectors/$EMBER_ID
 r=$(req pioneer GET "$API/user-domains"); assert_py "her chart lights Ember at once: seated as its marshal before the route answered" "$r" "[d['domain'] for d in rows] == ['$EMBER_ID']"
 r=$(req pioneer GET "$EMBER/missions"); check "Ember's flight deck answers her, empty" 200 "$r"
 assert_py "an empty flight deck: Ember is charted, not yet flown" "$r" "rows == []"
-r=$(req pioneer GET "$EMBER/sector-directories"); assert_py "Ember has no directory: she signed up with any Google account, a personal account, which is no organization's directory, and Ember admits her as it admits a password (tenancy.creator-directory)" "$r" "rows==[]"
+r=$(req pioneer GET "$EMBER/sector-directories"); assert_py "Ember has no directory: a sector charted by sign-up takes none, whichever way its maker signed in, and Ember admits her as it admits a password (tenancy.creator-directory)" "$r" "rows==[]"
 r=$(req pioneer GET "$API/user/session"); assert_py "her session names no directory for the Sign-in page to offer" "$r" "'directory' not in rows"
 r=$(req pioneer PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$EMBER_ID"'/sector-directories","value":{}}]'); check "her call to make the account she signed in with Ember's directory is refused" 409 "$r"
 assert_py "saying a personal Google account is not an organization's directory, and what to sign in with" "$r" "'A personal Google account is not an organization' in rows['message'] and 'Google Workspace or Microsoft Entra' in rows['message']"
@@ -980,8 +980,9 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # navigator makes the Workspace Cinder's again, and the governor takes the roles back. A
 # super administrator, the governor, keeps every sector throughout: no sector's sign-in
 # settings shut him out. The directory's row
-# carries a default seat (SectorDirectory.DefaultSeat), the role a person is given at
-# their first sign-in through the directory: Cinder's named SectorCrew, which seated the
+# carries a default seat (SectorDirectory.DefaultSeat), the role a person is given when
+# they sign in through the directory and hold nothing in the sector, at every sign-in:
+# Cinder's named SectorCrew, which seated the
 # navigator; a row set from a sign-in names none until the governor names one, and he
 # clears it with an explicit null, the way the Sign-in page's picker does, under Update on
 # the row.

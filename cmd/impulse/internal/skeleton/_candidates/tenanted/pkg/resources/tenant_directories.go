@@ -18,8 +18,8 @@ type (
 	//
 	// Nobody types a directory in. The row is written from a sign-in through the
 	// directory: an invitation that makes a tenant, accepted through the person's
-	// organization's directory, sets it as the tenant is made, the create-your-tenant
-	// route sets the one its creator came through, and afterwards the tenant's
+	// organization's directory, sets it as the tenant is made (a tenant created through
+	// the create-your-tenant route takes none), and afterwards the tenant's
 	// administrator, signed in through their organization's directory, makes it the
 	// tenant's on the Sign-in page, under the record's Create grant
 	// (TenantAdministrator). The create takes no method and no connection from the

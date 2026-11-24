@@ -682,8 +682,8 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 // sign-in policy (nil for none), the invitation acceptor (nil for none), the hook that
 // gives a person who signed up through an open method its default role (nil for none),
 // and a tenanted application's reader of the tenants' directory declarations with the
-// hook that seats a person at their first sign-in through a tenant's directory (both
-// nil for none). They carry the proof of the password the sign-in rests on too (nil for
+// hook that seats a person who signs in through a tenant's directory and holds nothing
+// in the tenant (both nil for none). They carry the proof of the password the sign-in rests on too (nil for
 // none), which the session's insert is held to.
 type SignInRules[Tx any] struct {
 	Account signin.AccountRule[Tx]

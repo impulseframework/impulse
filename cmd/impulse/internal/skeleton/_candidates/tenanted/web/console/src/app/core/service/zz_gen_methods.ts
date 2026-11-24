@@ -720,7 +720,7 @@ export interface MakeTenantDirectoryOnly {}
 export interface EndTenantDirectoryOnlyConfig {}
 export interface EndTenantDirectoryOnly {}
 
-/** The body OpenTenantToDirectory takes. The method opens the tenant to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation. */
+/** The body OpenTenantToDirectory takes. The method opens the tenant to its directory's people: each of them who holds nothing in the tenant is given the role when they sign in through the directory, with no invitation. */
 export interface OpenTenantToDirectoryConfig {
   role: string | FieldPointer;
 }

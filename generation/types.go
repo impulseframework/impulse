@@ -1514,8 +1514,8 @@ type resourceInfo struct {
 	// through, one for a tenant and one tenant's, with DirectoryMethodField
 	// (@directoryMethod) and DirectoryConnectionField (@directoryConnection) as its two
 	// columns, and DirectoryDefaultSeatField (@directoryDefaultSeat) as the column
-	// naming the role a person is seated with at their first sign-in through the
-	// directory, nil where the record carries none and every tenant admits a stranger
+	// naming the role a person is seated with when they sign in through the directory and
+	// hold nothing in the tenant, nil where the record carries none and every tenant admits a stranger
 	// from its directory by invitation only. DirectorySecondFactorField
 	// (@directorySecondFactor) is the BOOL column saying the tenant says its directory
 	// asks its people for a second factor of its own, nil where the record carries none

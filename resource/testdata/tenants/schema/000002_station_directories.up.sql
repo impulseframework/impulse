@@ -1,8 +1,8 @@
 -- The declaration the tenant record carries about who may enter a station: the
 -- directory-only flag on the record and the directory a station admits its people
 -- through, as an application's @directoryOnly column and @tenantDirectory table are,
--- the row with the seat a person gets at their first sign-in through it (the
--- @directoryDefaultSeat column), NULL for none, and the station's word that its
+-- the row with the seat a person gets when they sign in through it and hold nothing in
+-- the station (the @directoryDefaultSeat column), NULL for none, and the station's word that its
 -- directory asks its people for a second factor of its own (the @directorySecondFactor
 -- column). A station has one directory and a directory is one station's: the two unique
 -- indexes hold both.

@@ -130,12 +130,12 @@ type InvitationAcceptor[Tx any] func(ctx context.Context, tx Tx, userID impulse.
 
 // DirectorySeater is the application's half of a directory's default seat: it seats
 // userID, named by id and by username, with seats, the default seat of the tenant
-// whose directory the identity came through, inside the transaction that links the
-// identity to the user, which it is handed: the link is made and the person seated
-// together, or neither. The link is made at a person's first sign-in through the
-// directory, whether the account is made in that transaction or stood before, so the
-// seater is called once for a link; it gives a seat only where the person holds none in
-// the tenant, which it alone can read. It is held to what InvitationAcceptor is: tx
+// whose directory the identity came through, inside the sign-in's transaction, which it
+// is handed: where that transaction links the identity to the user, the link is made
+// and the person seated together, or neither. The seater is called at every sign-in
+// through the directory by an account that is not disabled, whether the link is made in
+// that transaction or stood before; it gives a seat only where the person holds nothing
+// in the tenant, which it alone can read. It is held to what InvitationAcceptor is: tx
 // alone for reads and writes, a committed function (nil for none) the flow runs once
 // the transaction has committed and before the sign-in policy decides, and an error
 // that fails the transaction, so no account is left holding nothing and no link is
@@ -196,9 +196,10 @@ type Rules[Tx any] struct {
 	// SignUp gives a person who signed up through an open method the method's default
 	// role, nil for none; see standardRule.
 	SignUp SignUpSeater[Tx]
-	// Directories reads the declaration of the directory an identity came through at a
-	// person's first sign-in through it, nil for none, and Seat seats the person with
-	// the default seat the declaration names, nil for none; see standardRule. It also
+	// Directories reads the declaration of the directory an identity came through at
+	// every sign-in through it, nil for none, and Seat seats the person with the
+	// default seat the declaration names where they hold nothing in the tenant, nil for
+	// none; see standardRule and resolveLinked. It also
 	// reads, for the sign-in policy, which tenants declare the directories the user's
 	// identity links came through (sessioninfo.SignInUser.Directories). OnlyIn
 	// reports whether a tenant is the only place a person holds anything, nil for
@@ -327,9 +328,10 @@ type Rules[Tx any] struct {
 // by rules.Seat inside the resolution's transaction, the one that links the identity,
 // before the invitation's grant, whether the account is made in that transaction or
 // stood before, so the link is made and the person seated together or neither is. A
-// linked identity gives nothing more: a seat an administrator removed is not given
-// back by signing in, and a link that is deleted and made again is a first sign-in
-// again.
+// linked identity is offered the directory's seat again at every sign-in: the seater
+// gives it where the person holds nothing in the tenant, so a seat an administrator
+// removed is given back by signing in while the tenant stays open. A link that is
+// deleted and made again is a first sign-in again.
 //
 // What the two hooks ask to have run once their transaction has committed (their
 // committed functions: the word to a permission engine that its rows changed) runs
@@ -1646,8 +1648,10 @@ func resolveIdentity[Tx any](
 // is consumed for the user found, in the same transaction, once the resolution has
 // admitted the sign-in and not for a disabled user, who is refused once the sign-in
 // is decided. What the sign-in gives is given here too, by the application's hooks
-// handed tx: the default seats of a user the resolution provisioned or linked
-// (rules.Seat), then
+// handed tx: the directory's default seats of a user the resolution provisioned or
+// linked, or whose link stood and who is not disabled, at every sign-in through the
+// directory (rules.Seat, which gives a seat only where the person holds nothing in the
+// tenant), then
 // what the consumed invitation names (rules.Accept), each written with the row that
 // causes it or not at all, and a role both would give given once, by the invitation
 // (seatsBeyondInvitation). A person an open method admitted is given the method's
@@ -1668,7 +1672,7 @@ func resolveIn[Tx any](
 	)
 	if link != nil {
 		source = sessioninfo.UserExistingLink
-		tenant, live, stop, err = resolveLinked(ctx, d, tx, req, link, rules.ConfirmAddress, rules.Proven)
+		tenant, seats, live, stop, err = resolveLinked(ctx, d, tx, req, link, rules)
 	} else {
 		var resolved unlinkedUser
 		resolved, stop, err = resolveUnlinked(ctx, d, tx, req, rules)
@@ -1712,44 +1716,54 @@ func resolveIn[Tx any](
 // on the request and the link's LastUsedAt is touched. An invitation the sign-in carries
 // is consumed for the user, live reporting that it was, once its acceptance is decided
 // where it rests on the code mailed to the invited address (acceptedByCode, under
-// confirm), and not for a disabled user, who is refused once the
-// sign-in is decided. tenant is the link's tenant key. A sign-in that rests on a
-// password proof (proven, the rules' Proven: the account's password confirmed the link,
+// rules.ConfirmAddress), and not for a disabled user, who is refused once the
+// sign-in is decided. tenant is the link's tenant key. seats are the default seats the
+// declaration of the directory the identity came through names (rules.Directories),
+// read at every sign-in as at the one that made the link, and none for a disabled user
+// or a sign-in that stops for a mailed code. A sign-in that rests on a
+// password proof (rules.Proven: the account's password confirmed the link,
 // and the sign-in was then held for a code or another factor) resolves only while the
 // user still holds that password: after a change it ends with dbtype.ErrPasswordChanged
 // before anything is touched, consumed or accepted, as the transaction that inserts the
 // session would end it. The nil proof holds it to nothing.
 func resolveLinked[Tx any](
-	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, link *dbtype.SessionIdentity, confirm bool, proven dbtype.PasswordProof,
-) (tenant string, live bool, stop, err error) {
+	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, link *dbtype.SessionIdentity, rules Rules[Tx],
+) (tenant string, seats []signin.DirectorySeat, live bool, stop, err error) {
 	user, err := d.UserIn(ctx, tx, link.UserID)
 	if err != nil {
-		return "", false, nil, errors.Wrap(err, "Driver.UserIn()")
+		return "", nil, false, nil, errors.Wrap(err, "Driver.UserIn()")
 	}
 	req.UserID, req.Username = link.UserID, user.Username
-	if err := proven.Check(user.PasswordProof); err != nil {
-		return "", false, nil, errors.Wrap(err, "dbtype.PasswordProof.Check()")
+	if err := rules.Proven.Check(user.PasswordProof); err != nil {
+		return "", nil, false, nil, errors.Wrap(err, "dbtype.PasswordProof.Check()")
 	}
-	if acceptsByCode(req, confirm) && !user.Disabled {
+	if acceptsByCode(req, rules.ConfirmAddress) && !user.Disabled {
 		if stop, _, err := acceptedByCode(ctx, d, tx, req.Invitation, user, false, invitedCodeWait(), nil); err != nil || stop != nil {
-			return "", false, stop, err
+			return "", nil, false, stop, err
 		}
 	}
 	if err := d.TouchIdentityIn(ctx, tx, link.ID); err != nil {
-		return "", false, nil, errors.Wrap(err, "Driver.TouchIdentityIn()")
+		return "", nil, false, nil, errors.Wrap(err, "Driver.TouchIdentityIn()")
 	}
 	if link.Tenant != nil {
 		tenant = *link.Tenant
 	}
 	if user.Disabled {
-		return tenant, false, nil, nil
+		return tenant, nil, false, nil, nil
 	}
-	live, err = consumeInvitation(ctx, d, tx, req, provenAddress(req, confirm) != "")
+	// The directory's default seat is offered at every sign-in through it, as at the
+	// one that made the link: the seater gives it where the person holds nothing in the
+	// tenant.
+	declared, err := declaredDirectory(ctx, tx, req.Identity, rules.Directories)
 	if err != nil {
-		return "", false, nil, err
+		return "", nil, false, nil, err
+	}
+	live, err = consumeInvitation(ctx, d, tx, req, provenAddress(req, rules.ConfirmAddress) != "")
+	if err != nil {
+		return "", nil, false, nil, err
 	}
 
-	return tenant, live, nil, nil
+	return tenant, defaultSeats(declared), live, nil, nil
 }
 
 // unlinkedUser is how an identity linked to no user resolved: the user's source and
@@ -2154,8 +2168,8 @@ func UserDirectories[Tx any](ctx context.Context, d Driver[Tx], userID impulse.U
 	return directories, nil
 }
 
-// defaultSeats are the seats the declarations of a directory give a person at their
-// first sign-in through it: the default seat of each tenant that names one.
+// defaultSeats are the seats the declarations of a directory offer a person at every
+// sign-in through it: the default seat of each tenant that names one.
 func defaultSeats(declared []signin.DeclaredDirectory) []signin.DirectorySeat {
 	seats := make([]signin.DirectorySeat, 0, len(declared))
 	for _, d := range declared {

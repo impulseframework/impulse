@@ -1188,7 +1188,7 @@ export interface MakeSectorDirectoryOnly {}
 export interface EndSectorDirectoryOnlyConfig {}
 export interface EndSectorDirectoryOnly {}
 
-/** The body OpenSectorToDirectory takes. The method opens the sector to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation. */
+/** The body OpenSectorToDirectory takes. The method opens the sector to its directory's people: each of them who holds nothing in the sector is given the role when they sign in through the directory, with no invitation. */
 export interface OpenSectorToDirectoryConfig {
   role: string | FieldPointer;
 }

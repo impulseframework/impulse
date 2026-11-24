@@ -334,7 +334,8 @@ or one per domain), loaded on demand and cached for the session.
   administrator, who does not read the
   tenant record, has no other way to see. The read also says what a page of the tenant's
   sign-in settings shows: `directory`, the tenant's directory as people know it;
-  `defaultRole`, the role a person gets the first time they sign in through it, in words;
+  `defaultRole`, the role a person gets when they sign in through it and hold nothing in
+  the tenant, in words;
   `passwords`, whether the reader's auth has a password method; `signedIn`, a sentence
   that says how the reader signed in; `sessionDirectory`, the organization's directory the
   reader is signed in through; and `people`, how many people the tenant's list holds
@@ -368,7 +369,8 @@ or one per domain), loaded on demand and cached for the session.
 - How a tenant admits its directory's people is the tenant's own too, said with two
   generated methods where the directories record carries a default role:
   `api.domain(tenant).open<Record>ToDirectory({ role })` opens the tenant to them, each
-  given the role at their first sign-in through the directory, and
+  given the role whenever they sign in through the directory and hold nothing in the
+  tenant, and
   `api.domain(tenant).make<Record>InviteOnly({})` makes it invite only again. Opening
   warns (`warning: { typed: 'open' }`): the server says who will be able to enter and
   the role each of them gets, and refuses a role that is not the tenant's or that the

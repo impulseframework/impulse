@@ -365,6 +365,18 @@ func (h *heldRows) standingAt(now time.Time) ([]access.MembershipKey, []GroupPla
 	return own, places
 }
 
+// placingAt answers what of the rows places the person at now, as holds spells it: the
+// memberships of their own that stand, and a key for each group they are in that
+// stands, spelled as a membership held where the group is kept with no role named.
+func (h *heldRows) placingAt(now time.Time) []access.MembershipKey {
+	held, places := h.standingAt(now)
+	for _, place := range places {
+		held = append(held, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(h.userID)})
+	}
+
+	return held
+}
+
 // standing answers what a person holds that has not ended: the memberships of their
 // own and the groups they are in, less the ones whose period is over. An assignment
 // whose period has not begun stands.

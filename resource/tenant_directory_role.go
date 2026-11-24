@@ -17,7 +17,7 @@ import (
 // A tenant's directory admits a stranger it vouches for in one of two ways, which the
 // directories record's default seat column says (@directoryDefaultSeat): with a role
 // named there, the tenant is open to the directory's people, and each of them is given
-// the role at their first sign-in through it; with none, the tenant is invite only, and
+// the role when they sign in through it and hold nothing in the tenant; with none, the tenant is invite only, and
 // a person from the directory enters once they are invited. The choice is the tenant's
 // own, made by the tenant's administrator with two methods the generator writes in the
 // tenant's scope for a directories record that carries the column,
@@ -139,5 +139,19 @@ func (r *TenantDirectoryRules) OpenToDirectoryWarning(directory *TenantDirectory
 		Consequence: consequence,
 		Names:       nil,
 		Confirm:     fmt.Sprintf("Open to people who sign in through %s", through),
+	}
+}
+
+// OpenTakesPeopleNote is the note a generated handler adds to OpenToDirectoryWarning in an
+// application that holds a person to one tenant (identity.WithOneTenantPerPerson): the
+// tenant's directory owns its people, so a person who signs in through it and belongs to
+// another tenant is moved to this one at their next sign-in. The directory is said in the
+// words a person knows it by (DirectoryWords).
+func (r *TenantDirectoryRules) OpenTakesPeopleNote(directory *TenantDirectory) WarningNote {
+	return WarningNote{
+		Says: fmt.Sprintf(
+			"A person belongs to one %s here. People who sign in through %s and belong to another %s are moved to this one the next time they sign in, and lose everything they hold in the other.",
+			r.word, r.directoryWords(directory.Directory), r.word,
+		),
 	}
 }

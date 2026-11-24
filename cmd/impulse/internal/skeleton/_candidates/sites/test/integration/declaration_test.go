@@ -201,10 +201,10 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// How north admits its directory's people is the tenant's own to say too, with two
 	// methods the tenant's administrator holds. Opening it names the role each of them
-	// is given at their first sign-in through the directory: asked for its warning
-	// first, the method says who will enter and with what role, and saves nothing; a
-	// role that is not one of the tenant's is refused. Making it invite only again is
-	// plain, and declares no warning.
+	// is given when they sign in through the directory and hold nothing in the tenant:
+	// asked for its warning first, the method says who will enter and with what role,
+	// and saves nothing; a role that is not one of the tenant's is refused. Making it
+	// invite only again is plain, and declares no warning.
 	open := func(role string, headers map[string]string) (int, []byte) {
 		return admin.doWith(ctx, http.MethodPost, "/api/tenants/"+north+"/open-tenant-to-directory", []byte(`{"role":"`+role+`"}`), headers)
 	}

@@ -457,7 +457,7 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 			}
 			own := &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Fields: nil, Doc: fmt.Sprintf("makes the %s invite only for its directory's people: a person from the directory enters once they are invited", word)}
 			if method.Typed != "" {
-				own.Doc = fmt.Sprintf("opens the %s to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation", word)
+				own.Doc = fmt.Sprintf("opens the %s to its directory's people: each of them who holds nothing in the %s is given the role when they sign in through the directory, with no invitation", word, word)
 				own.Fields = []tsTenantOwnField{{Name: directoryRoleBodyField, Enumerated: t.directoryRolePicker}}
 			}
 			methods = append(methods, own)

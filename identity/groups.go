@@ -685,15 +685,12 @@ func (m *Manager) requireGroup(ctx context.Context, txn resource.ReadWriteTransa
 // caller removes. An assignment whose period has ended places a person nowhere, and is
 // left out (standing); one whose period has not begun places them where it will count.
 func (m *Manager) holds(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {
-	held, places, err := m.standing(ctx, txn, userID)
+	rows, err := m.readHeld(ctx, txn, userID)
 	if err != nil {
 		return nil, err
 	}
-	for _, place := range places {
-		held = append(held, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(userID)})
-	}
 
-	return held, nil
+	return rows.placingAt(time.Now()), nil
 }
 
 // removeGroupPlaces buffers the removal of every place in a group the person has, for an

@@ -412,9 +412,9 @@ type dataConfig struct {
 	// (members.AdministratorVariable), which the placement names for each environment:
 	// while nobody of the auth holds the Super Administrator role the migrate command
 	// has an invitation mailed there (members.Auth.InviteAdministrator), and the
-	// person's first sign-in through the directory, from its link, is tied to the roles
-	// by the invitation; the address the directory gives must be the invited one. Unset
-	// in development, where the bootstrap seeds the development members.
+	// person's sign-in through the directory from its link accepts it and is given the
+	// roles; the address the directory gives must be the invited one. Unset in
+	// development, where the bootstrap seeds the development members.
 	MembersAdministrator string `env:"APP_MEMBERS_ADMINISTRATOR"`
 }
 
