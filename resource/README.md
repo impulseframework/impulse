@@ -6317,7 +6317,9 @@ A resource that tracks its changes (`TrackChanges`) writes one record to the
 transaction: `TableName` and `RowId` say which row, `Sequence` numbers the records one
 transaction writes for the row, `EventTime` is the commit timestamp, `EventSource` says
 who made the change (section 6, `UserEvent`), and `ChangeSet` holds each changed field
-with its old and its new value. `TenantId` holds the key of the tenant the row belongs
+with its old and its new value. `RowId` is the row's key as text: the value of a key of one
+part, and for a key of several parts each part's value joined by `|`, with a `\` before a
+`|` or a `\` that a part holds. `TenantId` holds the key of the tenant the row belongs
 to, empty for a row of a table that belongs to no tenant. A secret field is named as
 changed with neither value (section 23).
 
