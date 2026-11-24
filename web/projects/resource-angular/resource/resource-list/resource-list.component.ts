@@ -112,6 +112,7 @@ import {
   searchRefusedNotice,
 } from '../search-box/search-fields';
 import {
+  configuredFilterChoices,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
@@ -753,10 +754,14 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * The values each column filters by where they are known, from the listed resource's
-   * metadata and, on a role column, the roles the list was found to hold beyond it: the
+   * metadata and, on a role column, the roles the list was found to hold beyond it, with
+   * the values a column of the page's config names in their place (filterChoices): the
    * grid's menu offers their names.
    */
-  filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns(), this.foundRoles()));
+  filterChoices = computed(() => ({
+    ...filterChoiceLists(this.meta(), this.columns(), this.foundRoles()),
+    ...configuredFilterChoices(this.columns()),
+  }));
 
   /**
    * The values a filter from the page's address may take on each column (takeAddress): the
@@ -1205,6 +1210,9 @@ export class ResourceListComponent implements OnInit {
         ...(col.filterable === false || worded ? { filterable: false } : {}),
         // A column whose list is drawn a line each says so to the table.
         ...(col.lines ? { lines: true } : {}),
+        // A column that names the values it filters by keeps them, for its menu
+        // (filterChoices).
+        ...(col.filterChoices ? { filterChoices: col.filterChoices } : {}),
         ...(col.sortable === false || worded || unordered.has(col.id) ? { sortable: false } : {}),
         // A column of words that opens its row says so while a row opens, and its link
         // rides the display row (processedRowData); otherwise its cell is words alone.

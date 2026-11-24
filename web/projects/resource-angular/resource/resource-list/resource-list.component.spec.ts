@@ -435,6 +435,62 @@ describe('ResourceListComponent', () => {
     });
   });
 
+  describe('offers the words a column of its config names for the values it filters by', () => {
+    const listRequests = (): string[] => transport.requests.map((request) => `${request.method} ${request.url}`);
+    const registries = [
+      { value: 'naval', label: 'Navy' },
+      { value: 'civil', label: 'Civilian' },
+    ];
+    const grid = (): AppGridComponent =>
+      fixture.debugElement.query(By.directive(AppGridComponent)).componentInstance as AppGridComponent;
+
+    it("in the column's filter menu, in the config's order, and asks the server by the value", async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'registry' as FieldName, filterChoices: registries }],
+        },
+        [{ id: 's-1', name: 'Kestrel', registry: 'naval' }],
+      );
+      fixture.detectChanges();
+      await settle();
+      expect(grid().filterChoices()).toEqual({ registry: registries });
+
+      fixture.componentInstance.onFilterChange([{ field: 'registry', operator: 'eq', value: 'civil' }]);
+      await settle();
+      expect(listRequests().at(-1)).toBe(
+        'GET /api/ships?filter=registry%3Aeq%3Acivil&columns=name%2Cregistry%2Cid&count=true',
+      );
+    });
+
+    it('in place of the Yes and No a yes-or-no field offers', async () => {
+      const service = [
+        { value: 'false', label: 'In service' },
+        { value: 'true', label: 'Retired' },
+      ];
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            { id: 'decommissioned' as FieldName, filterChoices: service },
+            { id: 'flagged' as FieldName },
+          ],
+        },
+        [{ id: 's-1', name: 'Kestrel', decommissioned: false, flagged: null }],
+      );
+      fixture.detectChanges();
+      await settle();
+      expect(grid().filterChoices()).toEqual({
+        decommissioned: service,
+        flagged: [
+          { value: 'true', label: 'Yes' },
+          { value: 'false', label: 'No' },
+        ],
+      });
+    });
+  });
+
   describe('draws a column on an id by the name of the row it points to', () => {
     const listRequests = (): string[] => transport.requests.map((request) => `${request.method} ${request.url}`);
     const headingButton = (words: string): HTMLElement | undefined =>
@@ -2037,6 +2093,39 @@ describe('ResourceListComponent', () => {
       expect(shipsFilters()).toEqual(['dutyRole:eq:Quartermaster']);
       expect(address().queryParamMap.getAll('filter')).toEqual(['dutyRole:eq:Quartermaster']);
       expect(leftOutNotice()).toBeUndefined();
+    });
+
+    const registries = {
+      primaryResource: ships,
+      listColumns: [
+        { id: 'name' as FieldName },
+        {
+          id: 'registry' as FieldName,
+          filterChoices: [
+            { value: 'naval', label: 'Navy' },
+            { value: 'civil', label: 'Civilian' },
+          ],
+        },
+      ],
+    };
+    it('opened at an address filtering a column of named values by one it names, asks once with it, keeps it, and says nothing', async () => {
+      await create(registries, rows);
+      await TestBed.inject(Router).navigateByUrl('/?filter=registry:eq:civil');
+      fixture.detectChanges();
+      await settle();
+      expect(shipsFilters()).toEqual(['registry:eq:civil']);
+      expect(address().queryParamMap.getAll('filter')).toEqual(['registry:eq:civil']);
+      expect(leftOutNotice()).toBeUndefined();
+    });
+
+    it('opened at an address filtering a column of named values by one it does not name, leaves it out and says so', async () => {
+      await create(registries, rows);
+      await TestBed.inject(Router).navigateByUrl('/?filter=registry:eq:pirate');
+      fixture.detectChanges();
+      await settle();
+      expect(shipsFilters()).toEqual([null]);
+      expect(address().queryParamMap.has('filter')).toBe(false);
+      expect(leftOutNotice()).toBe(leftOutWords);
     });
 
     it("takes the notice away at the person's next commit", async () => {

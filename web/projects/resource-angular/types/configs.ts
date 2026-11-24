@@ -370,6 +370,14 @@ interface ColumnConfigBase {
    * link, so it is for a column every row fills.
    */
   opensRow?: boolean;
+  /**
+   * The values the column filters by, each with the words a person reads for it, where the
+   * field takes one of a fixed set the generated metadata does not list (a state the server
+   * works out). The column's filter menu offers the words and the filter carries the values,
+   * as for a field whose metadata lists its values. It never adds a filter control where the
+   * server does not filter the field.
+   */
+  filterChoices?: readonly { value: string; label: string }[];
 }
 
 /** A column rendering its field's value as text. */
