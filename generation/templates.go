@@ -1865,9 +1865,10 @@ func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWri
 // one directory (session.Auth.SetDirectoryAdmission, through signin.DirectoryReader):
 // the {{ .Directories }} rows naming the directory's method and connection, each as its {{ .RecordLower }}
 {{- if .DefaultSeat }}
-// with the default seat the row carries ({{ .Directories }}.{{ .DefaultSeat }}: the role a stranger the
-// directory vouches for is seated with at their first sign-in, none for a NULL, and the
-// {{ .RecordLower }} admits them by invitation only),
+// with the default seat the row carries ({{ .Directories }}.{{ .DefaultSeat }}: the role a person the
+// directory vouches for is seated with when they sign in through it and hold nothing in
+// the {{ .RecordLower }}, at every sign-in, none for a NULL, and the {{ .RecordLower }} admits them by
+// invitation only),
 {{- else }}
 // with no default seat (the record carries no @directoryDefaultSeat column, so every
 // {{ .RecordLower }} admits a stranger its directory vouches for by invitation only),
@@ -2606,8 +2607,8 @@ import (
 // {{ .Open.Name }} serves the method that opens a {{ .Word }} to its directory's people,
 // POST <prefix>/{{ .DomainRoute }}/{{ .Open.Route }} with {"role": ...}, on every outlet that serves
 // sessions and the {{ .Directories }} record: from the commit on, a person the {{ .Word }}'s directory
-// vouches for enters the {{ .Word }} with no invitation, and is given the role at their first
-// sign-in through the directory ({{ .Directories }}.{{ .Field }}). The choice is the {{ .Word }}'s own:
+// vouches for enters the {{ .Word }} with no invitation, and is given the role whenever they sign in through the directory and
+// hold nothing in the {{ .Word }} ({{ .Directories }}.{{ .Field }}). The choice is the {{ .Word }}'s own:
 // the method runs in the {{ .Word }}'s scope, to an Execute grant on {{ .Open.Name }} there, and
 // the {{ .Directories }} record's own update shows the role and never writes it.
 //
@@ -2625,7 +2626,9 @@ import (
 // running the call, what it would do (resource.TenantDirectoryRules.OpenToDirectoryWarning):
 // who will be able to enter and the role each of them gets, or, while no role is picked
 // yet, that one is to be chosen; or the refusal the call itself would answer, in the
-// same words. The role is written through the record's update patch, so its change event
+// same words. Where the application holds a person to one tenant, the warning also says
+// that the directory's people who belong to another {{ .Word }} are moved to this one when
+// they sign in (resource.TenantDirectoryRules.OpenTakesPeopleNote). The role is written through the record's update patch, so its change event
 // is written with it; the sign-in reads it in its own transaction, so the next sign-in
 // is decided by it. A dry run (X-Dry-Run: true) runs the whole frame and rolls back.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.HandlerFunc {
@@ -2686,6 +2689,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 			}
 			if asksWarning {
 				said := rules.OpenToDirectoryWarning(directory, role)
+				// Where a person belongs to one tenant, the directory's people who belong
+				// to another are moved to this one at their next sign-in: the warning says so.
+				if {{ .ReceiverName }}.{{ .IdentityAccessor }}().OneTenantPerPerson() {
+					said.Also = append(said.Also, rules.OpenTakesPeopleNote(directory))
+				}
 				if err := resource.CheckWarning({{ printf "%q" .Open.Name }}, said); err != nil {
 					return errors.Wrap(err, "resource.CheckWarning()")
 				}

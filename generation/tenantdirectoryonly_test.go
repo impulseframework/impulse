@@ -318,6 +318,9 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"if err := a.StaffIdentity().DirectoryRole(ctx, txn, domain, role); err != nil {",
 				"if asksWarning {",
 				"said := rules.OpenToDirectoryWarning(directory, role)",
+				// Where the application holds a person to one tenant, the warning says the
+				// directory's people who belong to another harbor are moved to this one.
+				"if a.StaffIdentity().OneTenantPerPerson() {\n\t\t\t\t\tsaid.Also = append(said.Also, rules.OpenTakesPeopleNote(directory))\n\t\t\t\t}",
 				`if err := resource.CheckWarning("OpenHarborToDirectory", said); err != nil {`,
 				"return resource.ErrWarningAsked",
 				"id, err := impulse.UUIDFromString(directory.Key)",
@@ -341,6 +344,8 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"POST <prefix>/harbors/{harborID}/make-harbor-invite-only",
 				`which a person types "open" under`,
 				"(StaffHarborDirectoryRoles)",
+				"and is given the role whenever they sign in through the directory and\n// hold nothing in the harbor",
+				"(resource.TenantDirectoryRules.OpenTakesPeopleNote)",
 			},
 		},
 		{
@@ -873,7 +878,7 @@ func Test_directoryOnlyClient(t *testing.T) {
 	const (
 		makeDoc   = "turns the harbor's directory-only switch on, which closes the harbor to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the harbor has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on"
 		endDoc    = "turns the harbor's directory-only switch off: every sign-in is admitted again"
-		openDoc   = "opens the harbor to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation"
+		openDoc   = "opens the harbor to its directory's people: each of them who holds nothing in the harbor is given the role when they sign in through the directory, with no invitation"
 		inviteDoc = "makes the harbor invite only for its directory's people: a person from the directory enters once they are invited"
 		vouchDoc  = "says the harbor's directory asks its people for a second factor of its own, so a person who signs in through it is not asked for the application's mailed code; " +
 			"the person calling is signed in through that directory, and the method warns first"
