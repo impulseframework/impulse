@@ -426,9 +426,9 @@ export interface IdentityMethods {
   readonly takeRole?: string;
   /**
    * On a tenant's side, how the tenant's people enter: `openToDirectory` names the role a
-   * person gets the first time they sign in through the tenant's directory,
-   * `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and `endDirectoryOnly`
-   * turn the directory-only switch, and `vouchForDirectorySecondFactor` and
+   * person gets when they sign in through the tenant's directory and hold nothing in the
+   * tenant, `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and
+   * `endDirectoryOnly` turn the directory-only switch, and `vouchForDirectorySecondFactor` and
    * `stopVouchingForDirectorySecondFactor` say, and take back, that the tenant's
    * directory asks its people for a second factor of its own. None names a row.
    */

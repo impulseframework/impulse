@@ -17,7 +17,7 @@ import (
 // A tenant's directory admits a stranger it vouches for in one of two ways, which the
 // directories record's default seat column says (@directoryDefaultSeat): with a role
 // named there, the tenant is open to the directory's people, and each of them is given
-// the role at their first sign-in through it; with none, the tenant is invite only, and
+// the role when they sign in through it and hold nothing in the tenant; with none, the tenant is invite only, and
 // a person from the directory enters once they are invited. The choice is the tenant's
 // own, made by the tenant's administrator with two methods the generator writes in the
 // tenant's scope for a directories record that carries the column,

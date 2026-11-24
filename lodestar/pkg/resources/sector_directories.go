@@ -22,8 +22,9 @@ type (
 	// Nobody types a directory in. The row is written from a sign-in through the
 	// directory: the first sign-in of the person invited to found a sector sets the one
 	// they came through, with the role the invitation names for its people to start
-	// with, as the create-sector route sets the one its creator came through; and
-	// afterwards the sector's marshal, signed in through their organization's directory,
+	// with (a sector its creator charts takes none, unless the application holds a
+	// person to one sector, where the create-sector route sets the one its creator came
+	// through); and afterwards the sector's marshal, signed in through their organization's directory,
 	// makes it the sector's on the Sign-in page, under the record's Create grant
 	// (SectorMarshal; the governor holds it in every sector). The create takes no method
 	// and no connection from the request; the server reads both from the session. A

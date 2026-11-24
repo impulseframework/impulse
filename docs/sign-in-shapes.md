@@ -1038,8 +1038,9 @@ is entered through its directory only, and name the role the directory's people 
 with.
 
 **By sign-up.** Anyone can sign up and create their own tenant, and becomes its first
-administrator. This works while an administrator has a sign-in method open to sign-up on
-the auth's Sign-in page. In an application with tenants, opening a method names no default
+administrator. This works for a person who signed in through a sign-in method that an
+administrator has open to sign-up on the auth's Sign-in page; that another method is open
+does not count. In an application with tenants, opening a method names no default
 role: a person who signs up holds no tenant, and the application offers to let them
 create one. A person who already has a tenant creates no second one this way, in any
 shape. Every tenant the person is in counts, also one the session cannot enter: a tenant
@@ -1048,11 +1049,20 @@ hides from a session that acts as the person. A session that acts as someone els
 creates one only where its mask allows, as
 [Acting as someone else](#acting-as-someone-else) describes.
 
+A tenant made by sign-up has no directory, whichever way its maker signed in, so two
+colleagues who each sign up each get a tenant. The organization's directory is taken
+afterwards by an administrator of the tenant, as
+[What a tenant's administrator sets](#what-a-tenants-administrator-sets) describes. The
+exception is an application that holds a person to one tenant: there a person who signs up
+through their organization's directory takes it with the tenant they create, and a colleague
+is refused a second tenant for the same organization.
+
 Whether its tenants are made by invitation, by sign-up or both does not change an
 application's shape. With tenants, a shape's name says how a tenant's people come to the
 tenant, not how the tenant came to exist.
 
-Where a tenant can have a directory, and the person who makes the tenant is signed in
+Where a tenant can have a directory, and the tenant is made from a staff invitation, or by
+sign-up in an application that holds a person to one tenant, by a person who is signed in
 through an organization's directory, that directory becomes the tenant's own, in the same
 step. A person whose organization's directory is already another tenant's makes no second
 tenant: they are refused, and told to ask that tenant's administrator for an invitation.
@@ -1110,8 +1120,9 @@ directories.
 
 Nobody types a directory in. It is set from a sign-in, in one of two ways:
 
-- when the tenant is made, by a person who is signed in through an organization's
-  directory;
+- when the tenant is made from a staff invitation, or made by sign-up in an application
+  that holds a person to one tenant, by a person who is signed in through an
+  organization's directory;
 - later, by an administrator of the tenant who is signed in through their organization's
   directory, on the tenant's Sign-in page.
 

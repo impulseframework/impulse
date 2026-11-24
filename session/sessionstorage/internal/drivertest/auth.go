@@ -204,8 +204,8 @@ type AuthConfig struct {
 	// inside the transaction that consumes the invitation, which the harness adapts to
 	// the driver's transaction; nil for none. See signinflow.InvitationAcceptor.
 	Accept func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
-	// Admission is what a tenanted application gives a person's first sign-in through
-	// a tenant's directory; nil for none.
+	// Admission is what a tenanted application gives a person who signs in through a
+	// tenant's directory; nil for none.
 	Admission *DirectoryAdmission
 	// Settings is the sign-in settings row the instance starts with, which the harness
 	// writes with SeedSignInSettings before the instance is used. The zero value asks

@@ -28,12 +28,13 @@ import (
 // the tenant's first administrator, in that order. Whether anyone may sign up is no
 // declaration: an administrator opens a sign-in method of the auth to sign-up in the
 // running application, and the route reads that choice in the transaction that writes
-// the row, so it refuses while every method is invite only. A page offers a person only
-// what they may do, so the same route answers a GET with whether the caller may create
-// a tenant now, by the three facts the POST refuses on (the session holds no tenant, a
-// method is open, and the caller is not the real person behind a session that acts as a
-// role, who would be seated as the administrator), and the page that offers the
-// create-your-tenant card asks it first. Both ways are generated wherever they can
+// the row, so it refuses a person whose session did not sign in through a method open to
+// sign-up. A page offers a person only what they may do, so the same route answers a GET
+// with whether the caller may create a tenant now, by the three facts the POST refuses on
+// (the session holds no tenant, the method the session signed in through is open, and the
+// caller is not the real person behind a session that acts as a role, who would be
+// seated as the administrator), and the page that offers the create-your-tenant card
+// asks it first. Both ways are generated wherever they can
 // serve: the record is on session outlets of one auth, whose management the program
 // generates and whose roles no directory writes. Nobody creates a tenant directly: the
 // record's patch handlers refuse a create op (resourceInfo.RefusesCreate), and an
@@ -123,7 +124,7 @@ func parseTenantArgs(name string, arg genlang.Arg) (tenantArgs, error) {
 
 		return tenantArgs{}, errors.Newf("struct %s: @%s(%s: %s) is no longer declared, and nobody creates %s directly. "+
 			"Staff holding the record's Create grant invite one person, with the %s's details, and that person's first sign-in makes the %s and seats them as its first administrator "+
-			"(the auth's generated Invite method). A person who signs up creates their own while an administrator has a sign-in method open to sign-up "+
+			"(the auth's generated Invite method). A person who signs up creates their own when they signed in through a sign-in method an administrator has open to sign-up "+
 			"(the auth's Sign-in page: Open sign-up, Make invite only). Remove the %s argument", name, tenantKeyword, tenantCreationArgKey, value, withArticle(word), word, word, tenantCreationArgKey)
 	}
 
@@ -403,8 +404,9 @@ type tenantCreationData struct {
 	Refusal       string
 	ClosedRefusal string
 	OwnCreation   string
-	// Directory is the directories record the route sets the creator's directory on,
-	// nil where the package declares none.
+	// Directory is the directories record the route sets the creator's directory on
+	// where the application holds a person to one tenant, nil where the package
+	// declares none.
 	Directory *tenantCreationDirectory
 
 	// record is the tenant record the file is rendered from; it scopes import
@@ -413,8 +415,8 @@ type tenantCreationData struct {
 }
 
 // tenantCreationDirectory is the directories record as the create-your-tenant route
-// sets the creator's directory on the new tenant, through the generated
-// Set<Record>Directory: the record's struct name, and the new tenant's id as that
+// sets the creator's directory on the new tenant where the application holds a person
+// to one tenant, through the generated Set<Record>Directory: the record's struct name, and the new tenant's id as that
 // function takes it.
 type tenantCreationDirectory struct {
 	Record string
@@ -438,9 +440,10 @@ type tenantCreationField struct {
 // tenantCreationFields are the record's fields as the create-your-tenant request
 // carries them: every field the wire may write at create, required where the column
 // is. The key is not among them: the create generates it, and the answer carries it.
-// Nor is the directory-only flag: a new tenant declares nothing beyond its creator's
-// directory, and the tenant's administrator turns the switch after, with the tenant's
-// own method (tenantdirectoryonly.go).
+// Nor is the directory-only flag: a new tenant declares nothing, and takes its
+// creator's directory only where the application holds a person to one tenant; the
+// tenant's administrator turns the switch after, with the tenant's own method
+// (tenantdirectoryonly.go).
 func tenantCreationFields(record *resourceInfo) (key *tenantCreationField, fields []*tenantCreationField, setters []string) {
 	for _, field := range record.Fields {
 		switch {
@@ -526,7 +529,8 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 }
 
 // tenantCreationDirectoryData is the directories record as the route sets the
-// creator's directory, nil where the record declares none.
+// creator's directory where the application holds a person to one tenant, nil where
+// the record declares none.
 func tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory {
 	if !record.HasDeclaration() {
 		return nil

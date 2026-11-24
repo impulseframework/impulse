@@ -4908,7 +4908,7 @@ export const apiDescriptor = defineApiDescriptor({
  * The create-your-{{ .RecordLower }} route: POST {{ .Route }} under the API
  * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
  * no {{ .RecordLower }} creates one and becomes its administrator; a person who already holds one is
- * refused (403), and so is everyone while no sign-in method is open to sign-up.
+ * refused (403), and so is a person whose session did not sign in through a method open to sign-up.
  * The route generates the new {{ .RecordLower }}'s id and answers it. A GET of the same route answers
  * whether the person may create one now ({{ .RequestType }}Offered), which a page reads before it
  * offers the route: a page offers only what the person may do.

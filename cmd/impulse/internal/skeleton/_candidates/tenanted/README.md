@@ -84,8 +84,9 @@ Google account (`pkg/auth/staff/google.go`), and every sign-in method starts inv
 An administrator opens one to sign-up on the console's Sign-in page (Open sign-up, which
 says who that admits and asks for a typed word), and from then a stranger signs in
 through it and creates their tenant; Make invite only closes it again, and the people
-who have accounts keep them. The create-your-tenant route refuses while every method is
-invite only, so nothing in code says whether a stranger may create a tenant.
+who have accounts keep them. The create-your-tenant route refuses a person whose session
+did not sign in through a method open to sign-up, so nothing in code says whether a
+stranger may create a tenant.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the tenant's directory, the organization its people sign in
@@ -132,8 +133,8 @@ tenant's own generated methods, each run through the library's method dialog und
 tenant's own grants (`TenantAdministrator`). Two say how the tenant admits its
 directory's people: `OpenTenantToDirectory`
 (`POST /api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of them is
-given at their first sign-in through the directory, a role the caller could give
-directly, picked from the list of the roles they may give (`StaffTenantDirectoryRoles`),
+given when they sign in through the directory and hold nothing in the tenant, a role the
+caller could give directly, picked from the list of the roles they may give (`StaffTenantDirectoryRoles`),
 and `MakeTenantInviteOnly` clears it. Two turn directory only:
 `MakeTenantDirectoryOnly` (`POST /api/tenants/{tenantID}/make-tenant-directory-only`)
 and `EndTenantDirectoryOnly`; the `Tenants` record, which the application's
@@ -161,17 +162,19 @@ opened again by its own administrator, signed in with a password and the code, o
 super administrator. The tenant's People page marks the people it
 keeps out for as long as it is on. Both records write change events, the audit of every
 edit. Nobody types a directory in. It is set from a sign-in: an invitation that makes a
-tenant, accepted through an organization's directory, sets it as the tenant is made, the
-create-your-tenant route sets the one its creator came through, each refusing an
-organization that already has a tenant, and afterwards the page offers an administrator who is
+tenant, accepted through an organization's directory, sets it as the tenant is made,
+refusing an organization that already has a tenant; a tenant made through the
+create-your-tenant route takes none, and afterwards the page offers an administrator who is
 signed in through their organization's directory to make it the tenant's ("Make
 acme.example this tenant's directory"), with a create that names no directory, since the
 server sets the one the session came through. A session that came by password is
 offered no such action and its call is refused, as is a personal account, which is no
 organization's directory; the directory of a tenant that is directory only is not
-removed. A person is given the directory's default role at their first sign-in through
-it, whether their account is created then or stood before, once for the link between
-the account and the directory. The staff auth's google registration admits any
+removed. A person who signs in through the directory and holds nothing in the tenant is
+given the directory's default role, at every sign-in, whether their account is created
+then or stood before; a person the tenant's administrator removes is given it again at
+their next sign-in through the directory, and a role with no privileges keeps one person
+out. The staff auth's google registration admits any
 Workspace account (its domain is the connection of the tenant's directory) beside any
 Google account.
 

@@ -125,7 +125,7 @@ func admitted() map[string]string {
 
 // The findings the check writes, by the piece missing.
 const (
-	noSeatColumn = "TenantDirectory declares no column annotated @directoryDefaultSeat; the tenant directory record carries a nullable DefaultSeat column (STRING(64), annotated @directoryDefaultSeat; a migration adds it to the directories table), what a stranger the directory vouches for is seated with at their first sign-in, named by the tenant's administrator on the Sign-in page"
+	noSeatColumn = "TenantDirectory declares no column annotated @directoryDefaultSeat; the tenant directory record carries a nullable DefaultSeat column (STRING(64), annotated @directoryDefaultSeat; a migration adds it to the directories table), what a person the directory vouches for is seated with when they sign in through it and hold nothing in the tenant, named by the tenant's administrator on the Sign-in page"
 	noAdmission  = "nothing in the %s auth calls SetDirectoryAdmission, and the application assigns its roles (no method is registered with RoleSync); the auth carries the generated directory reader in its Settings (TenantDirectories, NewTenantDirectoryReader) and sets SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated()) beside its sign-in policy, with the hook of the identity client it builds from its generated management, so a stranger from a declared directory is created holding the row's role in one transaction or refused by invitation only (invitation_only) with no account, before the registration's account rule"
 	noSeatGrant  = "grants Execute on %s; the tenant's administrator role (a domain role) holds it, beside the other method that says how a tenant admits its directory's people, so the tenant's administrator opens the tenant to its directory and makes it invite only again on the Sign-in page; the record's own update never writes the default seat"
 	// seatGranted is the summary's part for the two grants, in a role file.
@@ -406,7 +406,7 @@ func TestDirectoryAdmissionMeaning(t *testing.T) {
 	t.Parallel()
 
 	meaning := directoryAdmission{}.Meaning()
-	for _, want := range []string{"`@tenantDirectory`", "`@directoryDefaultSeat`", "`authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`", "`New<Record>DirectoryReader`", "`Open<Record>ToDirectory`", "`Make<Record>InviteOnly`", "its own update never writes it"} {
+	for _, want := range []string{"`@tenantDirectory`", "`@directoryDefaultSeat`", "`authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`", "`New<Record>DirectoryReader`", "`Open<Record>ToDirectory`", "`Make<Record>InviteOnly`", "its own update never writes it", "decides what a person gets when they sign in through it and hold nothing in the tenant", "is given the role at their next sign-in through the directory"} {
 		if !strings.Contains(meaning, want) {
 			t.Errorf("Meaning() lacks %q", want)
 		}

@@ -13,8 +13,9 @@ import (
 )
 
 // TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive proves how a sector's marshal
-// says what the sector's directory gives a person at their first sign-in through it:
-// with two methods of the sector's own, never by writing the record.
+// says what the sector's directory gives a person who signs in through it and holds
+// nothing in the sector: with two methods of the sector's own, never by writing the
+// record.
 //
 // OpenSectorToDirectory names the role, and from then on everyone the directory vouches
 // for enters the sector with it, people nobody named. So the method warns before it

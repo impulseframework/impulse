@@ -95,10 +95,10 @@ type TenantDeclarationColumns struct {
 	// a default seat column nor a second-factor column.
 	DirectoriesKeyColumn string
 	// DefaultSeatColumn is the directories record's column naming the role a person is
-	// seated with in the tenant at their first sign-in through its directory, NULL or
-	// empty for none (the tenant admits a stranger from its directory by invitation
-	// only); empty when the record carries no such column, and every directory admits
-	// by invitation only. Read by the sign-in's directory reader
+	// seated with in the tenant when they sign in through its directory and hold nothing
+	// in the tenant, at every sign-in, NULL or empty for none (the tenant admits a
+	// stranger from its directory by invitation only); empty when the record carries no
+	// such column, and every directory admits by invitation only. Read by the sign-in's directory reader
 	// (NewTenantDirectoryReader), never by the roster.
 	DefaultSeatColumn string
 	// SecondFactorColumn is the directories record's BOOL column saying the tenant says
@@ -567,7 +567,7 @@ func NewTenantDeclarationReader(table, keyColumn string, columns *TenantDeclarat
 }
 
 // NewTenantDirectoryReader returns the reader of the declaration of one directory, for
-// a person's first sign-in through it (session.Auth.SetDirectoryAdmission, through
+// every sign-in through it (session.Auth.SetDirectoryAdmission, through
 // signin.DirectoryReader): the directories record's row whose method and connection
 // are the directory's, as its tenant with the directory's default seat
 // (DefaultSeatColumn, "" where the record carries no such column or the row names

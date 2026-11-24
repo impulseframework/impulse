@@ -369,8 +369,8 @@ DML what a later rule must read.
   therefore linked at a first sign-in only with their invitation, or once they have a
   password to confirm with. The deployment's own first administrator, who holds roles
   for the whole application and belongs to no tenant, is no such account: the
-  deployment creates none ahead of the person and invites them, and the invitation is
-  what ties their first sign-in through a directory to the roles, however many
+  deployment creates none ahead of the person and invites them, and the invitation
+  gives them the roles at the sign-in through a directory that accepts it, however many
   organizations the method admits (see "The first administrator's invitation").
   Any other sign-in under the name is refused as a
   person no account was created for is, with that refusal's own code and words, which
