@@ -15,6 +15,14 @@ const dueRemovalLimit = 100
 // idKey is the key column of every table with a removal but the sign-in attempts table.
 const idKey = `"Id"`
 
+// The order and the two conditions of the removals that count from a row's expiry, the
+// period in hours.
+const (
+	expiresAtOrder   = `"ExpiresAt"`
+	expired30DaysAgo = `"ExpiresAt" < now() - interval '720 hours'`
+	expiredADayAgo   = `"ExpiresAt" < now() - interval '24 hours'`
+)
+
 // removal is the housekeeping a write carries for the rows of its table that are over.
 // On Spanner the table's row deletion policy removes these rows; PostgreSQL has none, so
 // the write runs this statement after its own work (a sign-in inside its transaction, in
@@ -71,32 +79,32 @@ var (
 	tokensRemoval = removal{
 		what:  "tokens that expired more than 30 days ago",
 		key:   idKey,
-		due:   `"ExpiresAt" < now() - interval '720 hours'`,
-		order: `"ExpiresAt"`,
+		due:   expired30DaysAgo,
+		order: expiresAtOrder,
 	}
 	// trustedDevicesRemoval takes the trusted devices that expired more than 30 days ago,
 	// revoked or not.
 	trustedDevicesRemoval = removal{
 		what:  "trusted devices that expired more than 30 days ago",
 		key:   idKey,
-		due:   `"ExpiresAt" < now() - interval '720 hours'`,
-		order: `"ExpiresAt"`,
+		due:   expired30DaysAgo,
+		order: expiresAtOrder,
 	}
 	// deviceCodesRemoval takes the device codes that expired more than a day ago, whether
 	// they were approved, denied or never decided.
 	deviceCodesRemoval = removal{
 		what:  "device codes that expired more than a day ago",
 		key:   idKey,
-		due:   `"ExpiresAt" < now() - interval '24 hours'`,
-		order: `"ExpiresAt"`,
+		due:   expiredADayAgo,
+		order: expiresAtOrder,
 	}
 	// pendingSignInsRemoval takes the pending sign-ins that expired more than a day ago,
 	// consumed or not. Their sign-in codes go with them by the foreign key's cascade.
 	pendingSignInsRemoval = removal{
 		what:  "pending sign-ins that expired more than a day ago",
 		key:   idKey,
-		due:   `"ExpiresAt" < now() - interval '24 hours'`,
-		order: `"ExpiresAt"`,
+		due:   expiredADayAgo,
+		order: expiresAtOrder,
 	}
 )
 

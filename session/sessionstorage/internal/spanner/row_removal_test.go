@@ -87,7 +87,7 @@ func TestRowDeletionPolicies_takeTheRowsPastTheirPeriod(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
 		table string
-		id    func(drivertest.Expiring) impulse.UUID
+		id    func(*drivertest.Expiring) impulse.UUID
 		// due says, of each row by its expiry, whether it is past its period.
 		due []bool
 	}{
@@ -132,9 +132,9 @@ func TestRowDeletionPolicies_takeTheRowsPastTheirPeriod(t *testing.T) {
 				t.Fatalf("Query() of the rows past the period error = %v", err)
 			}
 			want := map[string]bool{}
-			for i, row := range rows {
+			for i := range rows {
 				if tt.due[i] {
-					want[tt.id(row).String()] = true
+					want[tt.id(&rows[i]).String()] = true
 				}
 			}
 			if diff := cmp.Diff(want, got); diff != "" {
@@ -145,22 +145,22 @@ func TestRowDeletionPolicies_takeTheRowsPastTheirPeriod(t *testing.T) {
 }
 
 // expiringToken is the token of e.
-func expiringToken(e drivertest.Expiring) impulse.UUID {
+func expiringToken(e *drivertest.Expiring) impulse.UUID {
 	return e.Token
 }
 
 // expiringTrustedDevice is the trusted device of e.
-func expiringTrustedDevice(e drivertest.Expiring) impulse.UUID {
+func expiringTrustedDevice(e *drivertest.Expiring) impulse.UUID {
 	return e.TrustedDevice
 }
 
 // expiringDeviceCode is the device code of e.
-func expiringDeviceCode(e drivertest.Expiring) impulse.UUID {
+func expiringDeviceCode(e *drivertest.Expiring) impulse.UUID {
 	return e.DeviceCode
 }
 
 // expiringPendingSignIn is the pending sign-in of e.
-func expiringPendingSignIn(e drivertest.Expiring) impulse.UUID {
+func expiringPendingSignIn(e *drivertest.Expiring) impulse.UUID {
 	return e.PendingSignIn
 }
 

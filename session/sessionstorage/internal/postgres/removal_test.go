@@ -448,12 +448,13 @@ func TestAuth_AWriteRemovesTheExpiredRowsOfItsTable(t *testing.T) {
 		if row.hours == 0 {
 			continue
 		}
-		for table, id := range expiringIDs(rows[i]) {
+		for table, id := range expiringIDs(&rows[i]) {
 			age(ctx, t, in.Raw, fmt.Sprintf(`UPDATE %s SET "ExpiresAt" = now() - interval '%d hours' WHERE "Id" = $1`, table, row.hours), id)
 		}
 	}
 
-	written := drivertest.InsertExpiring(ctx, t, in.Driver, user.ID, byte(len(staged)+1), time.Now().Add(time.Hour))
+	// n 0xff keeps the write's rows apart from the staged ones.
+	written := drivertest.InsertExpiring(ctx, t, in.Driver, user.ID, 0xff, time.Now().Add(time.Hour))
 
 	for _, tt := range []struct {
 		name  string
@@ -471,11 +472,11 @@ func TestAuth_AWriteRemovesTheExpiredRowsOfItsTable(t *testing.T) {
 			ctx := t.Context()
 
 			for i, row := range staged {
-				if got := exists(ctx, t, in.Raw, tt.table, expiringIDs(rows[i])[tt.table]); got == tt.due[i] {
+				if got := exists(ctx, t, in.Raw, tt.table, expiringIDs(&rows[i])[tt.table]); got == tt.due[i] {
 					t.Errorf("a row %s is there after the next insert = %v, want %v", row.name, got, !tt.due[i])
 				}
 			}
-			if !exists(ctx, t, in.Raw, tt.table, expiringIDs(written)[tt.table]) {
+			if !exists(ctx, t, in.Raw, tt.table, expiringIDs(&written)[tt.table]) {
 				t.Error("the row the write under test inserted is not there")
 			}
 			if tt.table != `"SessionPendingSignIns"` {
@@ -502,7 +503,7 @@ func TestAuth_RefreshRemovesExpiredTokens(t *testing.T) {
 	access, refresh := testFamily(user.ID, 1, 2)
 	aged := testToken(dbtype.TokenApplication, user.ID, 3)
 	insertTestTokens(ctx, t, in.Driver, access, refresh, aged)
-	ageToken(ctx, t, in.Raw, aged.ID, 744)
+	ageToken(ctx, t, in.Raw, aged.ID)
 
 	if err := in.Driver.ExchangeRefreshToken(ctx, refresh.TokenHash, time.Now(), testToken(dbtype.TokenAccess, impulse.NilUUID, 4), testToken(dbtype.TokenRefresh, impulse.NilUUID, 5)); err != nil {
 		t.Fatalf("ExchangeRefreshToken() error = %v", err)
@@ -513,7 +514,7 @@ func TestAuth_RefreshRemovesExpiredTokens(t *testing.T) {
 
 	second := testToken(dbtype.TokenApplication, user.ID, 6)
 	insertTestTokens(ctx, t, in.Driver, second)
-	ageToken(ctx, t, in.Raw, second.ID, 744)
+	ageToken(ctx, t, in.Raw, second.ID)
 	if err := in.Driver.ExchangeRefreshToken(ctx, refresh.TokenHash, time.Now(), testToken(dbtype.TokenAccess, impulse.NilUUID, 7), testToken(dbtype.TokenRefresh, impulse.NilUUID, 8)); !errors.Is(err, dbtype.ErrTokenReuse) {
 		t.Fatalf("ExchangeRefreshToken() of the rotated token error = %v, want ErrTokenReuse", err)
 	}
@@ -533,7 +534,7 @@ func TestAuth_RedemptionRemovesExpiredTokens(t *testing.T) {
 	user := createTestUser(ctx, t, in.Driver, "pat@lakeside.edu")
 	aged := testToken(dbtype.TokenApplication, user.ID, 1)
 	insertTestTokens(ctx, t, in.Driver, aged)
-	ageToken(ctx, t, in.Raw, aged.ID, 744)
+	ageToken(ctx, t, in.Raw, aged.ID)
 	code := &dbtype.DeviceCode{
 		ID: impulse.Must(impulse.NewUUID()), DeviceCodeHash: testTokenHash(2), UserCode: "BCDFGHJK", ClientID: "corral", Outlet: "droids",
 		ExpiresAt: time.Now().Add(10 * time.Minute),
@@ -580,7 +581,7 @@ func TestAuth_ARotatedRefreshTokenOutlastsTheRemovalWhileItCouldBeReused(t *test
 	}
 	aged := testToken(dbtype.TokenApplication, user.ID, 5)
 	insertTestTokens(ctx, t, in.Driver, aged)
-	ageToken(ctx, t, in.Raw, aged.ID, 744)
+	ageToken(ctx, t, in.Raw, aged.ID)
 
 	insertTestTokens(ctx, t, in.Driver, testToken(dbtype.TokenApplication, user.ID, 6))
 	if exists(ctx, t, in.Raw, `"SessionTokens"`, aged.ID) {
@@ -620,7 +621,7 @@ func TestAuth_RefreshStandsWhenItsRemovalFails(t *testing.T) {
 	access, refresh := testFamily(user.ID, 1, 2)
 	due := testToken(dbtype.TokenApplication, user.ID, 3)
 	insertTestTokens(ctx, t, in.Driver, access, refresh, due)
-	ageToken(ctx, t, in.Raw, due.ID, 744)
+	ageToken(ctx, t, in.Raw, due.ID)
 	age(ctx, t, in.Raw, `CREATE TABLE "TokenNotes" ("TokenId" uuid NOT NULL REFERENCES "SessionTokens" ("Id"))`)
 	age(ctx, t, in.Raw, `INSERT INTO "TokenNotes" ("TokenId") VALUES ($1)`, due.ID)
 
@@ -909,15 +910,15 @@ func insertTestTokens(ctx context.Context, t *testing.T, d drivertest.AuthDriver
 	}
 }
 
-// ageToken stages the token id as expired hours ago, directly.
-func ageToken(ctx context.Context, t *testing.T, raw any, id impulse.UUID, hours int) {
+// ageToken stages the token id as expired 744 hours (31 days) ago, directly.
+func ageToken(ctx context.Context, t *testing.T, raw any, id impulse.UUID) {
 	t.Helper()
 
-	age(ctx, t, raw, fmt.Sprintf(`UPDATE "SessionTokens" SET "ExpiresAt" = now() - interval '%d hours' WHERE "Id" = $1`, hours), id)
+	age(ctx, t, raw, `UPDATE "SessionTokens" SET "ExpiresAt" = now() - interval '744 hours' WHERE "Id" = $1`, id)
 }
 
 // expiringIDs is each row of e, by its table's name.
-func expiringIDs(e drivertest.Expiring) map[string]impulse.UUID {
+func expiringIDs(e *drivertest.Expiring) map[string]impulse.UUID {
 	return map[string]impulse.UUID{
 		`"SessionTokens"`: e.Token, `"SessionTrustedDevices"`: e.TrustedDevice,
 		`"SessionDeviceCodes"`: e.DeviceCode, `"SessionPendingSignIns"`: e.PendingSignIn,
