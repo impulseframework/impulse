@@ -49,11 +49,11 @@ type (
 	//
 	// A pass keeps a change history (Config): who was given a hangar, and when the pass
 	// was written and deleted, is what an audit of the hangar reads. A pass's record keeps
-	// its holder's name beside the id, as it was that day: the account's username for a
-	// person and the group's name for a group, each read from the crew auth's own table
-	// when the pass is written or deleted, and never from the two lists the pickers read.
-	// The history so still names a holder whose account or group has since been renamed
-	// or deleted (test/integration/change_history_test.go).
+	// its holder's name beside the id, as it was when the change was made: the account's
+	// username for a person and the group's name for a group, each read from the crew
+	// auth's own table when the pass is written or deleted, and never from the two lists
+	// the pickers read. The history so still names a holder whose account or group has
+	// since been renamed or deleted (test/integration/change_history_test.go).
 	//
 	// A pass's holder never changes. UserID, SquadronID and GroupID are immutable: an
 	// update that names any of the three is refused for every role with the framework's

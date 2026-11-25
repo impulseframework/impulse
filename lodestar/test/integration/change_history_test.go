@@ -725,13 +725,13 @@ func (c *conditionalAccess) CheckUserResources(ctx context.Context, env accessty
 }
 
 // TestChangeHistory_keepsHolderNames pins the names a hangar pass's history keeps for its
-// holder, as each was that day. A person is kept by the account's username, read from the
-// crew auth's accounts and not from the sector's list of its people, which shows their
-// name: it is answered to a reader who may list the people's usernames outright, and the
-// id alone to one who may list their display names alone, or their usernames under a
-// condition. A group is kept by its name, read from the crew auth's groups within the
-// sector, and the record still answers that name once the group is renamed. Each pass's
-// delete keeps its holder's name again, as it then is.
+// holder, as each was when the change was made. A person is kept by the account's
+// username, read from the crew auth's accounts and not from the sector's list of its
+// people, which shows their name: it is answered to a reader who may list the people's
+// usernames outright, and the id alone to one who may list their display names alone, or
+// their usernames under a condition. A group is kept by its name, read from the crew
+// auth's groups within the sector, and the record still answers that name once the group
+// is renamed. Each pass's delete keeps its holder's name again, as it then is.
 func TestChangeHistory_keepsHolderNames(t *testing.T) {
 	t.Parallel()
 
