@@ -1833,7 +1833,7 @@ question a person is asked before anything goes:
 
 | Under the record | Message |
 | --- | --- |
-| Rows of kinds the person may list | `Delete this mission and everything under it: 2 sorties, 1 mission document, 1 sortie expense. This can't be undone.` |
+| Rows of kinds the person may list | `Delete this mission and everything under it: 1 mission document, 2 sorties, 1 sortie expense. This can't be undone.` |
 | Some rows of kinds they may not list | `Delete this mission and everything under it: 2 sorties, and records you can't see. This can't be undone.` |
 | Rows of kinds they may list none of | `Delete this mission and everything under it? This can't be undone.` |
 

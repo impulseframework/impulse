@@ -80,8 +80,8 @@ export function deleteQuestion(asked: DeleteConfirmation = {}): string {
  *
  * A row whose delete takes records with it is asked about twice. The server deletes
  * nothing at the first press and answers with a question of its own, which names what
- * will be deleted ("Delete this mission and everything under it: 2 sorties, 1 mission
- * document. This can't be undone."). The dialog asks it in the first question's place,
+ * will be deleted ("Delete this mission and everything under it: 1 mission document, 2
+ * sorties. This can't be undone."). The dialog asks it in the first question's place,
  * with Cancel and Delete as before, and Delete then runs the delete saying it takes
  * those records (`everythingUnder`). Cancel at either question deletes nothing.
  *

@@ -248,7 +248,7 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	// person is asked first, with the group's members and roles counted, and nothing goes.
 	status, body = deleteGroup(false)
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
-	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 2 roles, 2 members. This can't be undone."; got != want {
+	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 2 members, 2 roles. This can't be undone."; got != want {
 		t.Errorf("the question = %q, want %q", got, want)
 	}
 	if members, roles := standing(); members != 2 || roles != 2 {
@@ -356,7 +356,7 @@ func TestGeneratedIdentityFleetGroups(t *testing.T) {
 	// and takes nothing.
 	status, body = hq("delete-crew-group", fmt.Sprintf(`{"groupId":%q}`, group))
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
-	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 1 role, 1 member. This can't be undone."; got != want {
+	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 1 member, 1 role. This can't be undone."; got != want {
 		t.Errorf("the question = %q, want %q", got, want)
 	}
 	if got := cinderRefits(); got != http.StatusOK {

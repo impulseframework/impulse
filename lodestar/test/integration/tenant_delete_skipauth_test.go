@@ -379,9 +379,9 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	// and the members'. The governor, a super administrator, is asked it.
 	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", remove)
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
-	const counted = "Delete this sector and everything under it: 1 wing, 1 sector directory, 1 hangar, 1 distress call, " +
-		"1 consignment, 1 squadron, 1 ship, 1 distress relay, 1 squadron membership, 1 refit, 1 mission, 1 hangar pass, " +
-		"1 droid report, 1 sortie, 1 refit task, 1 mission document, 1 sortie expense, " +
+	const counted = "Delete this sector and everything under it: 1 consignment, 1 distress call, 1 hangar, 1 sector directory, " +
+		"1 wing, 1 distress relay, 1 ship, 1 squadron, 1 droid report, 1 hangar pass, 1 mission, 1 refit, " +
+		"1 squadron membership, 1 mission document, 1 refit task, 1 sortie, 1 sortie expense, " +
 		"4 accounts, 6 roles held, 1 group, 1 custom role, 2 invitations. This can't be undone."
 	if got := refusalMessage(t, body); got != counted {
 		t.Errorf("the governor's question = %q, want %q", got, counted)

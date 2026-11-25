@@ -251,7 +251,7 @@ func TestDeleteCascade_takesWhatIsUnder(t *testing.T) {
 
 		status, body := doRequest(t, as(everything), http.MethodPatch, batch, remove(m, false))
 		assertStatus(t, status, http.StatusPreconditionRequired, body)
-		if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 2 sorties, 1 mission document, 1 sortie expense. This can't be undone."; got != want {
+		if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 1 mission document, 2 sorties, 1 sortie expense. This can't be undone."; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
 		allStand(t, m)
@@ -648,7 +648,7 @@ func TestDeleteCascade_fourRecords(t *testing.T) {
 		dock, visit, hull, bay := id("6d0"), id("6d1"), id("7d0"), id("ad0")
 		write(t, hangar(dock), pass(visit, dock, "UserId", marshal), ship(hull, dock), refit(bay, hull), task(bay, 1, ""))
 
-		askedThenTaken(t, sectorPath(anvil, "hangars"), "/"+dock, "Delete this hangar and everything under it: 1 ship, 1 hangar pass, 1 refit, 1 refit task. This can't be undone.",
+		askedThenTaken(t, sectorPath(anvil, "hangars"), "/"+dock, "Delete this hangar and everything under it: 1 hangar pass, 1 ship, 1 refit, 1 refit task. This can't be undone.",
 			[]takenRow{rowByID("Hangars", dock), rowByID("HangarPasses", visit), rowByID("Ships", hull), rowByID("Refits", bay), taskRow(bay, 1)})
 		if got := changes(t, "Ships", hull); got != 1 {
 			t.Errorf("the hangar's delete wrote %d change records for the ship it took, want 1", got)
@@ -667,7 +667,7 @@ func TestDeleteCascade_fourRecords(t *testing.T) {
 		forge, flight, visit := id("4d0"), id("5d0"), id("6d1")
 		write(t, wing(forge), squadron(flight, forge), membership(flight), pass(visit, hangarAnvilDockID, "SquadronId", flight))
 
-		askedThenTaken(t, batch, opPath(anvil, "wings/"+forge), "Delete this wing and everything under it: 1 squadron, 1 squadron membership, 1 hangar pass. This can't be undone.",
+		askedThenTaken(t, batch, opPath(anvil, "wings/"+forge), "Delete this wing and everything under it: 1 squadron, 1 hangar pass, 1 squadron membership. This can't be undone.",
 			[]takenRow{rowByID("Wings", forge), rowByID("Squadrons", flight), membershipRow(flight), rowByID("HangarPasses", visit)})
 	})
 }

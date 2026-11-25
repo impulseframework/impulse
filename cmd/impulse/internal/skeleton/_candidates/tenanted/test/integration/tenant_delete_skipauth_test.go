@@ -156,7 +156,7 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 	// founder's, the commuter's and the northerner's). The administrator enters Ember as a
 	// super administrator though it is directory only.
 	status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+ember+`"}]`))
-	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 tenant directory, 1 announcement, 1 account, 3 roles held. This can't be undone.") {
+	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 announcement, 1 tenant directory, 1 account, 3 roles held. This can't be undone.") {
 		t.Fatalf("deleting Ember without saying it takes what is under it: status %d, want 428 with the question: %s", status, body)
 	}
 	if tenantNamed(ctx, t, admin, "Ember") == nil || rowsOf(ctx, t, s, "TenantDirectories", ember) != 1 || rowsOf(ctx, t, s, "Announcements", ember) != 1 {

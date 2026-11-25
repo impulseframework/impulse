@@ -572,10 +572,10 @@ it, and the delete takes them in code: every row under the sector, in the transa
 that deletes the sector where they fit one save and in rounds where they do not, each
 through its resource's own delete, so a kind that keeps a change
 record keeps one of the row that went. A sector with rows under it is asked first
-("Delete this sector and everything under it: 1 wing, 1 sector directory, 1 hangar, 1
-distress call, 1 consignment, 1 squadron, 1 ship, 1 distress relay, 1 squadron
-membership, 1 refit, 1 mission, 1 hangar pass, 1 droid report, 1 sortie, 1 refit task, 1
-mission document, 1 sortie expense, 4 accounts, 6 roles held, 1 group, 1 custom role, 2
+("Delete this sector and everything under it: 1 consignment, 1 distress call, 1 hangar, 1
+sector directory, 1 wing, 1 distress relay, 1 ship, 1 squadron, 1 droid report, 1 hangar
+pass, 1 mission, 1 refit, 1 squadron membership, 1 mission document, 1 refit task, 1
+sortie, 1 sortie expense, 4 accounts, 6 roles held, 1 group, 1 custom role, 2
 invitations. This can't be undone." in the suite's sector), and the request that goes
 ahead says it takes them. A record's delete counts each kind the person may list in that
 sector; a sector's own delete counts every kind for whoever may delete the sector.
@@ -607,7 +607,7 @@ its expenses; a client its contacts, with a mission or a consignment refusing it
 delete; a distress call the relays passed along about it; a relay the relays that answer
 it. A delete of such a record that has
 rows under it deletes nothing at first. It is answered 428 with the question a person is
-asked ("Delete this mission and everything under it: 2 sorties, 1 mission document, 1
+asked ("Delete this mission and everything under it: 1 mission document, 2 sorties, 1
 sortie expense. This can't be undone."), which counts each kind the person may list and
 says "and records you can't see" of the rest. The same delete saying so (the remove
 operation's value `{"everythingUnder": true}`) deletes the rows and then the record, in

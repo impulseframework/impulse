@@ -390,14 +390,14 @@ func TestGeneratedIdentityGroupsSayWhatTheyHold(t *testing.T) {
 			t.Errorf("the question = %q, want %q", got, want)
 		}
 	}
-	asked("Delete this group and everything under it: 2 roles, 2 members. This can't be undone.")
+	asked("Delete this group and everything under it: 2 members, 2 roles. This can't be undone.")
 	// With nothing left in it that has not ended, the list says it holds nothing, and
 	// the delete still asks, counting the ended place and the ended role; confirmed, it takes them,
 	// with no grant asked for either: each has ended.
 	done(post("marshal", "remove-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, watch, w.ids["ada"])))
 	done(post("marshal", "take-crew-sector-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Engineer"}`, watch)))
 	holds("nothing left that counts", sector()["Night watch"], groupRow{Roles: []string{}})
-	asked("Delete this group and everything under it: 1 role, 1 member. This can't be undone.")
+	asked("Delete this group and everything under it: 1 member, 1 role. This can't be undone.")
 	done(post("marshal", "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, watch)))
 	if _, listed := sector()["Night watch"]; listed {
 		t.Error("the night watch is listed after it was deleted")
@@ -426,7 +426,7 @@ func TestGeneratedIdentityGroupsSayWhatTheyHold(t *testing.T) {
 	// holds something asks first, and its row is read by the group's id.
 	status, body = hq("delete-crew-group", fmt.Sprintf(`{"groupId":%q}`, inspectors))
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
-	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 3 roles, 1 member. This can't be undone."; got != want {
+	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 1 member, 3 roles. This can't be undone."; got != want {
 		t.Errorf("the question = %q, want %q", got, want)
 	}
 	status, body = doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/"+listedGroupsPath+"/"+inspectors, "")

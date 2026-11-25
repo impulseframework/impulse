@@ -122,7 +122,7 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	// announcement, the two accounts of East alone (its founder's and the easterner's),
 	// the four roles held in it and the invitation.
 	status, body = admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`"}]`))
-	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 tenant directory, 1 announcement, 2 accounts, 4 roles held, 1 invitation. This can't be undone.") {
+	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 announcement, 1 tenant directory, 2 accounts, 4 roles held, 1 invitation. This can't be undone.") {
 		t.Fatalf("deleting the tenant without saying it takes what is under it: status %d, want 428 with the question: %s", status, body)
 	}
 	for _, table := range []string{"TenantDirectories", "Announcements"} {

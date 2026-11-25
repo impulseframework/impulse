@@ -214,7 +214,7 @@ describe('DeleteResourceConfirmationModal', () => {
 
   it("asks the server's question in the first one's place, and deletes everything under the row at the next press", async () => {
     const sentence =
-      "Delete this mission and everything under it: 2 sorties, 1 mission document. This can't be undone.";
+      "Delete this mission and everything under it: 1 mission document, 2 sorties. This can't be undone.";
     const said: unknown[] = [];
     const { ref, answers } = opened({
       from: 'Missions',
