@@ -66,6 +66,11 @@ func tenantFixtureTables() map[string]*tableMetadata {
 		"Deltas":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Founded": plain}},
 		"Fjords":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Made": plain}},
 		"Sounds":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "MadeAt": plain, "ChartedAt": nullable}},
+		// Whether a tenant is disabled: the record marking it, and each refused shape.
+		"Havens":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "Disabled": plain}},
+		"Skerries":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Disabled": plain}},
+		"Inlets":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Disabled": plain}},
+		"Estuaries": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Disabled": plain, "Shut": plain}},
 		// The declaration's shapes: the record with its flag, the directories record,
 		// and each shape the annotations refuse.
 		"Harbors":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "DirectoryOnly": plain}},

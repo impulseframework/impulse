@@ -701,4 +701,47 @@ type (
 	Shoal struct {
 		ID impulse.UUID `spanner:"Id"`
 	}
+
+	// Haven is a tenant record that marks the column saying a haven is disabled
+	// (@tenantDisabled): its people are shut out while its records stay.
+	//
+	// @resource
+	// @tenant
+	Haven struct {
+		ID   impulse.UUID `spanner:"Id"`
+		Name string       `spanner:"Name"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
+	}
+
+	// Skerry marks whether it is disabled on a resource that is not the tenant record.
+	//
+	// @resource
+	Skerry struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
+	}
+
+	// Inlet marks whether it is disabled on a string column.
+	//
+	// @resource
+	// @tenant
+	Inlet struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantDisabled
+		Disabled string `spanner:"Disabled"`
+	}
+
+	// Estuary marks two columns as saying it is disabled.
+	//
+	// @resource
+	// @tenant
+	Estuary struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
+		// @tenantDisabled
+		Shut bool `spanner:"Shut"`
+	}
 )

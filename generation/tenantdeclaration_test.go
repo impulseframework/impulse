@@ -191,8 +191,31 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 		name    string
 		structs []string
 		wantErr string
+		// wantDisabled is the field the record marks as saying a tenant is disabled, ""
+		// for none.
+		wantDisabled string
 	}{
 		{name: "the record's flag and the directories record are captured", structs: []string{"Harbor", "HarborDirectory"}},
+		{
+			name:         "the column that says a tenant is disabled is captured, an ordinary field the record's update writes",
+			structs:      []string{"Haven", "HarborDirectory"},
+			wantDisabled: "Disabled",
+		},
+		{
+			name:    "@tenantDisabled on a resource that is not the tenant record is refused",
+			structs: []string{"Haven", "HarborDirectory", "Skerry"},
+			wantErr: "struct Skerry field Disabled: @tenantDisabled on a resource that is not the tenant record; whether a tenant is disabled is the tenant record's column, so annotate the @tenant record's BOOL column",
+		},
+		{
+			name:    "@tenantDisabled on a column that is not a BOOL is refused",
+			structs: []string{"Inlet", "HarborDirectory"},
+			wantErr: "struct Inlet field Disabled: @tenantDisabled on a string column; whether a tenant is disabled is a BOOL, true while the tenant's people are shut out",
+		},
+		{
+			name:    "@tenantDisabled on a second column is refused naming the first",
+			structs: []string{"Estuary", "HarborDirectory"},
+			wantErr: "struct Estuary field Shut: @tenantDisabled on a second column; field Disabled carries it already, and a tenant has one such column",
+		},
 		{name: "a directories record beside a record with no flag is a declaration too", structs: []string{"Sector", "HarborDirectory"}},
 		{
 			name:    "@directoryOnly on a resource that is not the tenant record is refused",
@@ -319,6 +342,16 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 			if directories.DirectoryConnectionField == nil || directories.DirectoryConnectionField.Name() != "Connection" {
 				t.Errorf("%s.DirectoryConnectionField = %v, want Connection", directories.Name(), directories.DirectoryConnectionField)
 			}
+			// Whether a tenant is disabled is an ordinary change of its field, under the
+			// caller's grant on it: the wire writes it.
+			switch field := record.TenantDisabledField; {
+			case tt.wantDisabled == "" && field != nil:
+				t.Errorf("%s.TenantDisabledField = %v, want none", record.Name(), field)
+			case tt.wantDisabled != "" && (field == nil || field.Name() != tt.wantDisabled):
+				t.Errorf("%s.TenantDisabledField = %v, want %s", record.Name(), field, tt.wantDisabled)
+			case field != nil && field.IsOutputOnly():
+				t.Errorf("%s.%s is output-only, want the record's update to write it", record.Name(), field.Name())
+			}
 			// A directory is never typed in: the wire writes neither of its two columns.
 			for _, field := range []*resourceField{directories.DirectoryMethodField, directories.DirectoryConnectionField} {
 				if field != nil && !field.IsOutputOnly() {
@@ -381,6 +414,37 @@ func Test_setDirectorySecondFactorColumn_aColumnTheSchemaDoesNotHold(t *testing.
 	}
 }
 
+// Test_setTenantDisabledColumn_aColumnTheSchemaDoesNotHold pins the refusal of the mark
+// that a tenant is disabled on a field the resource does not carry as a column. Capture
+// refuses a spanner tag naming no column before the annotations are read, so the setter
+// is asked directly, of a tenant record that carries no columns.
+func Test_setTenantDisabledColumn_aColumnTheSchemaDoesNotHold(t *testing.T) {
+	t.Parallel()
+
+	pStruct := fixtureStructs(loadFixture(t, "tenantfixture"))["Haven"]
+	if pStruct == nil {
+		t.Fatal("the tenantfixture holds no Haven")
+	}
+	var field *parser.Field
+	for _, f := range pStruct.Fields() {
+		if f.Name() == "Disabled" {
+			field = f
+		}
+	}
+	if field == nil {
+		t.Fatal("Haven holds no Disabled field")
+	}
+	res := &resourceInfo{TypeInfo: pStruct.TypeInfo, IsTenant: true}
+
+	want := "struct Haven field Disabled: @tenantDisabled on a field the resource does not carry as a column; whether a tenant is disabled is the tenant record's BOOL column"
+	if err := res.setTenantDisabledColumn(field); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("setTenantDisabledColumn() error = %v, want %q", err, want)
+	}
+	if res.TenantDisabledField != nil {
+		t.Errorf("TenantDisabledField = %v, want none", res.TenantDisabledField)
+	}
+}
+
 // Test_declarationColumns pins the columns the generated constructors carry: the
 // spanner columns behind the annotated fields, the flag empty where the record
 // declares none, nil where the package declares no directories.
@@ -417,7 +481,13 @@ func Test_declarationColumns(t *testing.T) {
 			structs: []string{"Harbor", "Marina"},
 			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Marinas", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 		},
+		{
+			name:    "a record that marks the column saying a tenant is disabled names it beside the directories record's columns",
+			structs: []string{"Haven", "HarborDirectory"},
+			want:    &tenantDeclarationColumns{Disabled: "Disabled", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat", SecondFactorColumn: "AsksSecondFactor"},
+		},
 		{name: "no directories record is no declaration", structs: []string{"Sector", "Berth"}},
+		{name: "no directories record is no declaration, though the record marks the column saying a tenant is disabled", structs: []string{"Haven"}},
 	}
 
 	for _, tt := range tests {
@@ -535,6 +605,53 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			data: &tenantsData{Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor"},
 			wantContains: []string{
 				"import (\n\t\"github.com/impulseframework/impulse/resource\"\n)",
+				`return resource.NewTenantRoster(client, "Harbors", "Id", opts...)`,
+			},
+			wantNotContains: []string{"DeclarationReader", "signin", "cloud.google.com/go/spanner", "declares no directories"},
+		},
+		{
+			name: "a record with directories that marks the column saying a tenant is disabled carries it in the declaration",
+			data: &tenantsData{
+				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
+				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", Disabled: "Disabled", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+				Disabled:            "Disabled",
+				DisabledField:       "Disabled",
+				Directory:           harborDirectoryWrite(),
+				Word:                "harbor",
+				ResourcePackage:     "resources",
+				LocalPackageImports: `"example.com/app/pkg/resources"`,
+			},
+			wantContains: []string{
+				"(@directoryOnly and @tenantDisabled on the record, the HarborDirectory record's columns)",
+				`Disabled:         "Disabled",`,
+				"opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&harborDeclaration)}, opts...)",
+				`return resource.NewTenantDeclarationReader("Harbors", "Id", &harborDeclaration)`,
+				"return resource.NewTenantDirectoryReader(&harborDeclaration)",
+			},
+		},
+		{
+			name: "a record with no directories whose rows are made here and that marks the column: the roster and the reader read it",
+			data: &tenantsData{Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", NoDirectories: true, Disabled: "Disabled", DisabledField: "Shut"},
+			wantContains: []string{
+				`"cloud.google.com/go/spanner"`,
+				`"github.com/impulseframework/impulse/session/signin"`,
+				"// harborDeclaration names the Harbor record's column that says a harbor is disabled\n// (@tenantDisabled): what the roster reads beside the keys and the sign-in's reader\n// reads in its own transaction.",
+				"var harborDeclaration = resource.TenantDeclarationColumns{\n\tDisabled: \"Disabled\",\n}",
+				"// The roster reads whether each harbor is disabled beside its key (Harbor.Shut), so\n// its Declarations is what the application hands resource.SessionPermissions as the\n// tenant declarations: a disabled harbor is entered by nobody but a super\n// administrator.",
+				"opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&harborDeclaration)}, opts...)",
+				"// NewHarborDeclarationReader builds the sign-in policy's reader of what a harbor\n// declares (signin.TenantPolicy, through signin.DeclarationReader). The Harbor record\n// declares no directories (no record is annotated @tenantDirectory), so a harbor\n// declares one thing, whether it is disabled, which the reader reads from the Harbor\n// row in the sign-in's own transaction: the policy admits everyone a harbor that is\n// not disabled seats, however they signed in, and passes a disabled one over. The\n// application hands it to each auth through the auth's settings, as an application\n// whose harbors have directories does.",
+				"func NewHarborDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTransaction] {",
+				`return resource.NewTenantDeclarationReader("Harbors", "Id", &harborDeclaration)`,
+			},
+			wantNotContains: []string{"DirectoriesTable", "DirectoryReader", "DirectoryRules", "SetHarborDirectory", `NewTenantDeclarationReader("Harbors", "Id", nil)`, "harbor declares anything", "DirectoryOnly and the"},
+		},
+		{
+			name: "a record another site serves that marks the column: the roster reads it, and the package gets no reader",
+			data: &tenantsData{Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Disabled: "Disabled", DisabledField: "Disabled"},
+			wantContains: []string{
+				"import (\n\t\"github.com/impulseframework/impulse/resource\"\n)",
+				"var harborDeclaration = resource.TenantDeclarationColumns{\n\tDisabled: \"Disabled\",\n}",
+				"opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&harborDeclaration)}, opts...)",
 				`return resource.NewTenantRoster(client, "Harbors", "Id", opts...)`,
 			},
 			wantNotContains: []string{"DeclarationReader", "signin", "cloud.google.com/go/spanner", "declares no directories"},
@@ -952,6 +1069,109 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 					".New"+tt.resource+"DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
 					"if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {",
 				)
+			}
+		})
+	}
+}
+
+// Test_tenantRecord_deleteRequiresDisabled pins the delete of a tenant record that marks
+// the column saying a tenant is disabled, in its own handler and in the consolidated one:
+// the caller's grants answer first, then the rule that a tenant is disabled before it is
+// deleted, both before the row's removal is buffered and before what the auths hold for
+// the tenant goes. A tenant record that marks no such column asks neither, and no other
+// resource asks the rule.
+func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// structs are the fixture's structs the package declares, and resource the one
+		// whose handlers are rendered.
+		structs  []string
+		resource string
+		// requires says the delete asks the rule, under the record's table, key, column
+		// and word.
+		requires bool
+	}{
+		{name: "a tenant record with no directories that marks the column", structs: []string{"Haven"}, resource: "Haven", requires: true},
+		{name: "a tenant record with directories that marks the column", structs: []string{"Haven", "HarborDirectory"}, resource: "Haven", requires: true},
+		{name: "a tenant record that marks no such column", structs: []string{"Sector"}, resource: "Sector"},
+		{name: "the directories record", structs: []string{"Haven", "HarborDirectory"}, resource: "HarborDirectory"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r, err := declarationResources(t, tt.structs...)
+			if err != nil {
+				t.Fatalf("declarationResources() error = %v", err)
+			}
+			r.resource = "testdata/tenantfixture"
+			r.defaultOutlet.auth = &outletAuth{importPath: "example.com/app/pkg/auth/staff"}
+			r.identity = generatedIdentityOf("example.com/app/pkg/auth/staff")
+			var res *resourceInfo
+			for _, candidate := range r.resources {
+				if candidate.Name() == tt.resource {
+					res = candidate
+				}
+			}
+			if res == nil {
+				t.Fatalf("the fixture resolved no resource %s", tt.resource)
+			}
+
+			standalone, err := r.handlerContent(PatchHandler, res)
+			if err != nil {
+				t.Fatalf("handlerContent() error = %v", err)
+			}
+			if _, err := format.Source(append([]byte("package app\n\n"), standalone...)); err != nil {
+				t.Fatalf("the rendered handler does not parse: %v\n%s", err, standalone)
+			}
+			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", Clears: r.tenantClears(res), RequiresDisabled: r.tenantDisabledRequirement(res)}
+			data := consolidatedPatchData{
+				Resources:           []*resourceInfo{res},
+				HasTenant:           true,
+				DomainRouteSegment:  "havens",
+				DomainPatternPrefix: "/havens/{havenID}",
+				LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
+				Package:             "app",
+				ResourcePackage:     "resources",
+				ApplicationName:     "App",
+				ReceiverName:        "a",
+				HandlerName:         "PatchResources",
+			}
+			if res.IsDomainScoped() {
+				segment.DomainPatternPrefix = data.DomainPatternPrefix
+				data.DomainCases = []consolidatedCaseData{segment}
+			} else {
+				data.GlobalCases = []consolidatedCaseData{segment}
+			}
+			c := &client{}
+			consolidated, err := c.generateTemplateOutput("consolidatedPatchTemplate", consolidatedPatchTemplate, data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			if _, err := format.Source(consolidated); err != nil {
+				t.Fatalf("the rendered consolidated handler does not parse: %v\n%s", err, consolidated)
+			}
+
+			for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
+				if !tt.requires {
+					assertContains(t, name, out, nil, []string{"RequireTenantDisabled"})
+
+					continue
+				}
+				assertInOrder(t, out,
+					"case resource.OperationDelete:",
+					"// A haven is disabled before it is deleted, so nobody of it is at work in it\n",
+					"if err := patchSet.Permitted(ctx, txn); err != nil {",
+					`if err := resource.RequireTenantDisabled(ctx, txn, "Havens", "Id", "Disabled", accesstypes.Domain(id.String()), "haven"); err != nil {`,
+					`return errors.Wrap(err, "resource.RequireTenantDisabled()")`,
+					".NewHavenDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
+					"if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {",
+				)
+				if got := strings.Count(out, "RequireTenantDisabled(ctx"); got != 1 {
+					t.Errorf("%s asks RequireTenantDisabled %d times, want once, in the delete:\n%s", name, got, out)
+				}
 			}
 		})
 	}

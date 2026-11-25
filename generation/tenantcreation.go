@@ -448,14 +448,16 @@ type tenantCreationField struct {
 // Nor is the directory-only flag: a new tenant declares nothing, and takes its
 // creator's directory only where the application holds a person to one tenant; the
 // tenant's administrator turns the switch after, with the tenant's own method
-// (tenantdirectoryonly.go).
+// (tenantdirectoryonly.go). Nor is the column that says a tenant is disabled: a new
+// tenant is made enabled, by the column's default.
 func tenantCreationFields(record *resourceInfo) (key *tenantCreationField, fields []*tenantCreationField, setters []string) {
 	for _, field := range record.Fields {
 		switch {
 		case field.IsPrimaryKey:
 			key = &tenantCreationField{Name: field.Name(), Type: field.Type(), Wire: field.WireName(), Tags: field.JSONTag()}
-		case field.IsOutputOnly(), field == record.DirectoryOnlyField:
-			// Server-owned, or the declaration's flag: the wire cannot write it here.
+		case field.IsOutputOnly(), field == record.DirectoryOnlyField, field == record.TenantDisabledField:
+			// Server-owned, the declaration's flag, or whether the tenant is disabled: the
+			// wire cannot write it here.
 		default:
 			tags := []string{field.JSONTag()}
 			for _, tag := range []string{field.SqltypeTag(), field.NullableTag()} {
@@ -712,8 +714,9 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 		case field.IsPrimaryKey:
 			// The route generates the key and answers it: no field of the body.
 			out.KeyWire = field.WireName()
-		case field.IsOutputOnly(), field == record.DirectoryOnlyField:
-			// Server-owned, or the declaration's flag: the wire cannot write it here.
+		case field.IsOutputOnly(), field == record.DirectoryOnlyField, field == record.TenantDisabledField:
+			// Server-owned, the declaration's flag, or whether the tenant is disabled: the
+			// wire cannot write it here.
 		default:
 			out.Fields = append(out.Fields, newTSAPIField(field, field.IsRequired()))
 		}

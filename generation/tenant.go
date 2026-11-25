@@ -258,6 +258,12 @@ type tenantsData struct {
 	// package of the record's create patch; all three are empty where the record
 	// declares none.
 	Declaration *tenantDeclarationColumns
+	// Disabled is the record's @tenantDisabled column and DisabledField its field, both
+	// empty where the record marks none. Where the record marks it and declares no
+	// directories, the declaration's variable names it alone, the roster reads it and,
+	// where the rows are made here, the reader reads it.
+	Disabled      string
+	DisabledField string
 	// NoDirectories reports a record that declares no directories and whose rows are
 	// made in this package (its patch handler is not suppressed): the application's
 	// tenants have no directories, and the file carries the reader that answers nothing
@@ -382,6 +388,10 @@ func (r *resourceGenerator) generateTenants() error {
 	if field := tenant.TenantNameField; field != nil {
 		data.NameColumn, _ = field.LookupTag(spannerTagKey)
 		data.NameField = field.Name()
+	}
+	if field := tenant.TenantDisabledField; field != nil {
+		data.Disabled = spannerColumn(field)
+		data.DisabledField = field.Name()
 	}
 	if tenant.HasDeclaration() {
 		data.Directories = tenant.declaration.Directories.Name()

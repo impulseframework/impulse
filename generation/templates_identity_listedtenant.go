@@ -61,6 +61,9 @@ type (
 		{{- with .TenantDirectoryOnlyField }}
 		{{ .Name }} bool ` + "`spanner:\"{{ .Column }}\"`" + `
 		{{- end }}
+		{{- with .TenantDisabledField }}
+		{{ .Name }} bool ` + "`spanner:\"{{ .Column }}\"`" + `
+		{{- end }}
 		People int64 ` + "`spanner:\"People\"`" + `
 		{{- if .TenantSinceField }}
 		Since *time.Time ` + "`spanner:\"Since\"`" + `
@@ -81,6 +84,9 @@ SELECT
   s.{{ .Column }} AS {{ .Column }},
   {{- end }}
   {{- with .TenantDirectoryOnlyField }}
+  s.{{ .Column }} AS {{ .Column }},
+  {{- end }}
+  {{- with .TenantDisabledField }}
   s.{{ .Column }} AS {{ .Column }},
   {{- end }}
   (SELECT COUNT(DISTINCT p.UserId) FROM (

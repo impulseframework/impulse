@@ -89,6 +89,10 @@ type identityTenantInvitation struct {
 	// record keeps a default role.
 	directoryOnly *identityTenantField
 	seats         bool
+	// disabled is the record's column that says a tenant is disabled (@tenantDisabled),
+	// nil where it marks none (Type is unused: it is a yes or a no): no invitation
+	// carries it, since a new tenant is made enabled, and the list of tenants shows it.
+	disabled *identityTenantField
 	// since is the field the record marks as when a tenant was made (@tenantSince), nil
 	// where it marks none (Type and the two marks unused): the list of tenants says it as
 	// Since. An invitation carries it only where the wire can write it, as any field.
@@ -202,6 +206,12 @@ func (d *identitySourceData) TenantDirectoryOnlyField() *identityTenantField {
 	return d.tenant.invitation.directoryOnly
 }
 
+// TenantDisabledField names the record's column that says a tenant is disabled
+// (@tenantDisabled), nil where the record marks none: the list of tenants carries it.
+func (d *identitySourceData) TenantDisabledField() *identityTenantField {
+	return d.tenant.invitation.disabled
+}
+
 func (d *identitySourceData) TenantSeats() bool {
 	return d.tenant.invitation.seats
 }
@@ -268,6 +278,7 @@ func (r *resourceGenerator) requireNewTenantColumn(inst *identityInstance) error
 var (
 	fieldTenantName        = fieldAnnotation(tenantNameKeyword)
 	fieldTenantSince       = fieldAnnotation(tenantSinceKeyword)
+	fieldTenantDisabled    = fieldAnnotation(tenantDisabledKeyword)
 	fieldDirectoryDefault  = fieldAnnotation(directoryDefaultSeatKeyword)
 	fieldAnyAnnotation     = regexp.MustCompile(`(?m)^\s*@([a-zA-Z]+)`)
 	carriedFieldAnnotation = []string{tenantNameKeyword, tenantSinceKeyword}
@@ -393,6 +404,12 @@ func (t *identityTenantInvitation) readFields(structType *ast.StructType, meta *
 			continue
 		case fieldDirectoryOnly.MatchString(comment):
 			t.directoryOnly = &identityTenantField{Name: name, Type: boolGoType, Wire: wire.ToCamel(name), Column: tag.Get(spannerTagKey)}
+
+			continue
+		case fieldTenantDisabled.MatchString(comment):
+			// A new tenant is made enabled, by the column's default: no invitation carries
+			// whether it is disabled, and the list of tenants shows it.
+			t.disabled = &identityTenantField{Name: name, Type: boolGoType, Wire: wire.ToCamel(name), Column: tag.Get(spannerTagKey)}
 
 			continue
 		case slices.Contains(conditions, outputOnlyCondition), column.GenerationExpression != "":
@@ -530,13 +547,14 @@ func (n *typeNaming) importOf(qualifier string) (string, bool) {
 // tenantInvitationFields are the tenant record's fields an invitation carries, as the
 // load finds them: every field the wire may write at create, less every secret. The
 // directory-only switch is none of them: the wire never writes it (IsOutputOnly), and
-// the invitation carries it apart. The maker reads them (tenantMakerData), and the
-// reading before the load is held to them.
+// the invitation carries it apart. Nor is the column that says a tenant is disabled: a
+// new tenant is made enabled, by the column's default. The maker reads them
+// (tenantMakerData), and the reading before the load is held to them.
 func tenantInvitationFields(record *resourceInfo) []*resourceField {
 	var fields []*resourceField
 	for _, field := range record.Fields {
 		switch {
-		case field.IsPrimaryKey, field.IsOutputOnly(), field.IsInputOnly():
+		case field.IsPrimaryKey, field.IsOutputOnly(), field.IsInputOnly(), field == record.TenantDisabledField:
 		default:
 			fields = append(fields, field)
 		}
@@ -591,6 +609,9 @@ func (r *resourceGenerator) holdIdentityTenantInvitation() error {
 		if since := inst.tenant.invitation.since; since != nil {
 			written = append(written, "when it was made "+since.Name)
 		}
+		if disabled := inst.tenant.invitation.disabled; disabled != nil {
+			written = append(written, "whether it is disabled "+disabled.Name+" "+disabled.Wire)
+		}
 		var loaded []string
 		for _, field := range tenantInvitationFields(record) {
 			loaded = append(loaded, field.Name()+" "+field.WireName()+" required="+strconv.FormatBool(field.IsRequired()))
@@ -600,6 +621,9 @@ func (r *resourceGenerator) holdIdentityTenantInvitation() error {
 		}
 		if since := record.TenantSinceField; since != nil {
 			loaded = append(loaded, "when it was made "+since.Name())
+		}
+		if disabled := record.TenantDisabledField; disabled != nil {
+			loaded = append(loaded, "whether it is disabled "+disabled.Name()+" "+disabled.WireName())
 		}
 		if !slices.Equal(written, loaded) {
 			return errors.Newf("struct %s: the invitation's sources were written for the fields [%s] and the loaded record carries [%s]; the two are read off the same files, so this is a fault of the generator's reading before the load: report it",

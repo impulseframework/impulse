@@ -258,6 +258,19 @@ func Test_tenantInvitationIn(t *testing.T) {
 				keyImports: []string{`"github.com/impulseframework/impulse"`},
 			},
 		},
+		{
+			// A new tenant is made enabled, by the column's default: no invitation carries
+			// whether it is disabled, and the reading keeps the field apart.
+			name:    "a record that marks the column saying a tenant is disabled keeps it apart and carries it on no invitation",
+			source:  oneFieldCitadel("", "\t// @tenantDisabled\n\tDisabled bool `spanner:\"Disabled\"`\n"),
+			columns: map[string]columnMeta{"Disabled": {SpannerType: "BOOL", HasDefault: true}},
+			want: &identityTenantInvitation{
+				fields:     []identityTenantField{{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true}},
+				disabled:   &identityTenantField{Name: "Disabled", Type: "bool", Wire: "disabled", Column: "Disabled"},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
+			},
+		},
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -961,6 +974,16 @@ func Test_holdIdentityTenantInvitation(t *testing.T) {
 		{
 			name:    "and on the field that says when a tenant was made",
 			structs: []string{"Cove"},
+		},
+		{
+			name:    "and on the field that says whether a tenant is disabled",
+			structs: []string{"Haven"},
+		},
+		{
+			name:    "sources written for no field that says whether a tenant is disabled where the load finds one",
+			structs: []string{"Haven"},
+			written: func(inst *identityInstance) { inst.tenant.invitation.disabled = nil },
+			wantErr: "the invitation's sources were written for the fields [Name name required=true] and the loaded record carries [Name name required=true; whether it is disabled Disabled disabled]",
 		},
 		{
 			name:    "sources written for another field that says when a tenant was made",

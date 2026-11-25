@@ -572,10 +572,11 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 	var segmentCase *consolidatedCaseData
 	for _, res := range resources {
 		c := consolidatedCaseData{
-			resourceInfo:    res,
-			ResourcePackage: r.resource.Package(),
-			ReceiverName:    r.receiverName,
-			Clears:          r.tenantClears(res),
+			resourceInfo:     res,
+			ResourcePackage:  r.resource.Package(),
+			ReceiverName:     r.receiverName,
+			Clears:           r.tenantClears(res),
+			RequiresDisabled: r.tenantDisabledRequirement(res),
 		}
 		switch {
 		case res.IsDomainScoped():
@@ -631,6 +632,7 @@ func (r *resourceGenerator) handlerContent(handler HandlerType, res *resourceInf
 		ApplicationName:         home.applicationName,
 		ReceiverName:            home.receiverName,
 		Clears:                  r.tenantClears(res),
+		RequiresDisabled:        r.tenantDisabledRequirement(res),
 		Home:                    home,
 	})
 	if err != nil {

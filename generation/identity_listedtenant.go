@@ -122,6 +122,9 @@ func (i *identityInstance) refuseListedTenantNamesTaken() error {
 	if invitation.directoryOnly != nil {
 		fields = append(fields, invitation.directoryOnly.Name)
 	}
+	if invitation.disabled != nil {
+		fields = append(fields, invitation.disabled.Name)
+	}
 	facts := listedTenantFacts(invitation)
 	for _, field := range fields {
 		if slices.Contains(facts, field) {
