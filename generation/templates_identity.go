@@ -2664,13 +2664,13 @@ import (
 
 // Delete{{ .Subject }}User deletes a person of the {{ .Auth }} auth, in one transaction:
 // every session they hold is ended, and their identity links and every role they hold
-// go with the account. Nobody deletes themselves: the caller's own account is refused.` + identityTenantUserNote + identityNotOnOwnAccountNote + identityCallerEntersNote + `
+// go with the account. Nobody deletes themselves: the caller's own account is refused.
 {{- if and .ForTenant .ReadsSeatedAgain }}
 //
 // Before it runs on a tenant's side, the method says what it does (Warning): where the
 // tenant is open to its directory and the person signs in through it, that they can sign
 // in again and will get a new account.
-{{- end }}
+{{- end }}` + identityTenantUserNote + identityNotOnOwnAccountNote + identityCallerEntersNote + `
 //
 // @rpc` + identityTenantScope + identityCallerEnters + identityNotOnOwnAccount + `
 // @outlet({{ .Outlets }})

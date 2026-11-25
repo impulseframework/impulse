@@ -15,6 +15,10 @@ import (
 // every session they hold is ended, and their identity links and every role they hold
 // go with the account. Nobody deletes themselves: the caller's own account is refused.
 //
+// Before it runs on a tenant's side, the method says what it does (Warning): where the
+// tenant is open to its directory and the person signs in through it, that they can sign
+// in again and will get a new account.
+//
 // It is a tenant's method: served under the address of one Tenant, it names a
 // row of MembersTenantUser, the tenant's own list of the auth's people. A person who is no
 // row of that list is not found there, and whether the tenant may do this to a person is
@@ -26,10 +30,6 @@ import (
 //
 // A row offers it only to a caller whose session enters every tenant the person
 // administers (@callerEnters); the method refuses anyone else.
-//
-// Before it runs on a tenant's side, the method says what it does (Warning): where the
-// tenant is open to its directory and the person signs in through it, that they can sign
-// in again and will get a new account.
 //
 // @rpc
 // @permissionScope(domain)
