@@ -26,7 +26,6 @@ import { OwnSession, OwnSessions, OwnTenant, SignInRefusal } from '@impulseframe
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { NewPasswordComponent } from '@impulseframework/resource-angular/auth-new-password';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { FRONTEND_SIGN_OUT_PATH } from '@impulseframework/resource-angular/types';
 import { MailHold, UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
 import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
@@ -141,8 +140,6 @@ export class AccountPageComponent {
   private router = inject(Router);
   private frame = inject(Frame);
   private places = inject(PlaceService);
-  /** Where Sign out goes, and the browser after a leave that deleted the account. */
-  private signOutPath = inject(FRONTEND_SIGN_OUT_PATH);
 
   readonly nameMaxLength = nameMaxLength;
   readonly usernameMaxLength = usernameMaxLength;
@@ -631,7 +628,6 @@ export class AccountPageComponent {
     const confirmed = await askToLeaveTenant(this.dialog, {
       name: tenant.name,
       roles: tenant.roles,
-      word: inSentence(this.frame.tenantWord.one),
     });
     if (!confirmed || this.busy()) {
       return;

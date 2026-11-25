@@ -10,9 +10,9 @@ import { askToLeaveTenant, LeaveTenantDialogData } from './leave-tenant-dialog.c
 // "Delete me". Cancel, Escape and a press outside answer no.
 
 /** A tenant of several, where the person holds two roles. */
-const acme: LeaveTenantDialogData = { name: 'Acme', roles: ['Reader', 'Warden'], word: 'customer' };
+const acme: LeaveTenantDialogData = { name: 'Acme', roles: ['Reader', 'Warden'] };
 /** A tenant the person holds no role of their own in. */
-const beta: LeaveTenantDialogData = { name: 'Beta', roles: [], word: 'customer' };
+const beta: LeaveTenantDialogData = { name: 'Beta', roles: [] };
 
 describe('askToLeaveTenant', () => {
   const settle = async (): Promise<void> => {

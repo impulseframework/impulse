@@ -8,13 +8,12 @@ import { MatInputModule } from '@angular/material/input';
 import { firstValueFrom } from 'rxjs';
 
 /**
- * The tenant a person asks to leave, as the window names it: its name, the roles they hold
- * there in words, and what the application calls a tenant, in a sentence ("customer").
+ * The tenant a person asks to leave, as the window names it: its name and the roles they
+ * hold there in words.
  */
 export interface LeaveTenantDialogData {
   name: string;
   roles: readonly string[];
-  word: string;
 }
 
 /** The id of the sentence of what is lost, which describes the window to a screen reader. */
