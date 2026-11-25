@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/actor"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -56,9 +57,9 @@ type NewTenant struct {
 	// DefaultRole is the role a person from the tenant's directory starts with: the
 	// directory row's default seat. Empty for none.
 	DefaultRole accesstypes.Role
-	// Source is who the change records of the tenant's rows say made them: the process
-	// that makes the tenant, since the write is made at a sign-in, before any session
-	// stands.
+	// Source is who the change records of the tenant's rows say made them: the person who
+	// accepted the invitation, through the process that makes the tenant. The write is
+	// made at a sign-in, before any session stands, so the records name no session.
 	Source resource.EventSource
 	// Caller is set at the check a send makes, and nil at an acceptance: the request's
 	// caller, whose grants the record's create is held to (the Create grant on the
@@ -508,7 +509,7 @@ func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadW
 	}
 	domain, err := m.tenants.Make(ctx, txn, &NewTenant{
 		Fields: details.Fields, DirectoryOnly: inv.NewTenant.DirectoryOnly, Directory: directory, DefaultRole: accesstypes.Role(details.DefaultRole),
-		Source: resource.ProcessEvent("AcceptInvitation"), Caller: nil,
+		Source: resource.AccountProcessEvent(ctx, actor.NewAccount(userID, username), "AcceptInvitation"), Caller: nil,
 	})
 	if err != nil {
 		return "", errors.Wrapf(err, "the invitation to %s makes a %s", inv.Email, m.tenantWord)

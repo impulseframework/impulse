@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/internal/actor"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -22,6 +23,50 @@ func TestProcessEvent(t *testing.T) {
 
 	if diff := cmp.Diff(map[string]any{"Process": "MigrateFeatures"}, ProcessEvent("MigrateFeatures").columns()); diff != "" {
 		t.Errorf("ProcessEvent().columns() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestAccountProcessEvent pins a process that acted for a person who has no session yet:
+// the person's account and username, the process, and the auth where one is bound, and
+// no session and no RPC method, whatever the request carries; its sentence names the
+// person through the process.
+func TestAccountProcessEvent(t *testing.T) {
+	t.Parallel()
+
+	pat := actor.NewAccount(aliceID, "pat")
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want map[string]any
+	}{
+		{
+			name: "with no auth bound",
+			ctx:  context.Background(),
+			want: map[string]any{"ActorUserId": aliceID.String(), "ActorUsername": "pat", "Process": "AcceptInvitation"},
+		},
+		{
+			name: "with an auth bound",
+			ctx:  WithAuth(context.Background(), "crew"),
+			want: map[string]any{"Auth": "crew", "ActorUserId": aliceID.String(), "ActorUsername": "pat", "Process": "AcceptInvitation"},
+		},
+		{
+			name: "in a request with a session and an RPC method, neither is named",
+			ctx:  WithRPC(WithAuth(accountCtx("bob", bobID, nil), "crew"), "CloseOrder"),
+			want: map[string]any{"Auth": "crew", "ActorUserId": aliceID.String(), "ActorUsername": "pat", "Process": "AcceptInvitation"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			source := AccountProcessEvent(tt.ctx, pat, "AcceptInvitation")
+			if diff := cmp.Diff(tt.want, source.columns()); diff != "" {
+				t.Errorf("AccountProcessEvent().columns() mismatch (-want +got):\n%s", diff)
+			}
+			if got, want := source.String(), "pat, through the process AcceptInvitation"; got != want {
+				t.Errorf("AccountProcessEvent().String() = %q, want %q", got, want)
+			}
+		})
 	}
 }
 

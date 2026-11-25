@@ -5,6 +5,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/internal/actor"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -83,6 +84,26 @@ func ProcessEvent(processName string) EventSource {
 func UserProcessEvent(ctx context.Context, processName string) EventSource {
 	source := UserEvent(ctx)
 	source.process = processName
+
+	return source
+}
+
+// AccountProcessEvent answers a process that acted for a person who has no session yet,
+// as a sign-in does before it starts one: the person by the id of their account and
+// their username, the process by its name, and the auth the request came through where
+// one is bound. It names no session and no RPC method. It is the one value that names a
+// person the request's session did not carry: pass it where the code has just proven who
+// the person is. The person is an actor.Account, a type of the library's internal tree,
+// so only the library's own packages can call it.
+func AccountProcessEvent(ctx context.Context, account actor.Account, processName string) EventSource {
+	source := EventSource{
+		actorUserID:   impulse.NullUUID{UUID: account.UserID(), Valid: true},
+		actorUsername: account.Username(),
+		process:       processName,
+	}
+	if auth, ok := AuthFrom(ctx); ok {
+		source.auth = auth
+	}
 
 	return source
 }

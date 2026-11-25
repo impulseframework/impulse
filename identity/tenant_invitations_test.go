@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/actor"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -591,28 +592,28 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			name:       "through a Google Workspace: the tenant takes it as its directory, with the starting role",
 			inv:        tenantInvitation(false, sessioninfo.MethodGoogle, "acme.example"),
 			maker:      &fakeMaker{seats: true},
-			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=google/acme.example role=Reader trusted source=the process AcceptInvitation`},
+			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=google/acme.example role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantWrites: []string{seat},
 		},
 		{
 			name:       "by password: the tenant has no directory",
 			inv:        tenantInvitation(false, sessioninfo.MethodPassword, ""),
 			maker:      &fakeMaker{seats: true},
-			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted source=the process AcceptInvitation`},
+			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantWrites: []string{seat},
 		},
 		{
 			name:       "with a personal Google account: the tenant has no directory",
 			inv:        tenantInvitation(false, sessioninfo.MethodGoogle, signin.GoogleAnyAccountConnection),
 			maker:      &fakeMaker{seats: true},
-			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted source=the process AcceptInvitation`},
+			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantWrites: []string{seat},
 		},
 		{
 			name:       "directory only, through an organization's directory: made directory only with its directory",
 			inv:        tenantInvitation(true, sessioninfo.MethodAzure, "9a2c1d0e-0000-4000-8000-000000000001"),
 			maker:      &fakeMaker{seats: true, directoryOnly: true},
-			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=true directory=azure/9a2c1d0e-0000-4000-8000-000000000001 role=Reader trusted source=the process AcceptInvitation`},
+			wantMade:   []string{`fields={"Name":"Dawn"} directory-only=true directory=azure/9a2c1d0e-0000-4000-8000-000000000001 role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantWrites: []string{seat},
 		},
 		{
@@ -627,7 +628,7 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			name:     "a directory another tenant has: the maker's refusal is the sign-in's, and nobody is seated",
 			inv:      tenantInvitation(false, sessioninfo.MethodGoogle, "acme.example"),
 			maker:    &fakeMaker{seats: true, err: refusal},
-			wantMade: []string{`fields={"Name":"Dawn"} directory-only=false directory=google/acme.example role=Reader trusted source=the process AcceptInvitation`},
+			wantMade: []string{`fields={"Name":"Dawn"} directory-only=false directory=google/acme.example role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantErr: func(err error) bool {
 				return sessioninfo.LoginRefusalCodeOf(err) == sessioninfo.RefusedOrganizationHasTenant
 			},
@@ -638,7 +639,7 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			maker:    &fakeMaker{seats: true},
 			opts:     []Option{WithOneTenantPerPerson()},
 			holds:    []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Reader")},
-			wantMade: []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted source=the process AcceptInvitation`},
+			wantMade: []string{`fields={"Name":"Dawn"} directory-only=false directory=/ role=Reader trusted source=dana, through the process AcceptInvitation`},
 			wantErr: func(err error) bool {
 				return sessioninfo.LoginRefusalCodeOf(err) == sessioninfo.RefusedOtherTenant && !strings.Contains(httpio.Message(err), "alpha")
 			},
@@ -681,11 +682,12 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			if diff := cmp.Diff(tt.wantMade, tt.maker.made); diff != "" {
 				t.Errorf("the maker was asked (-want +got):\n%s", diff)
 			}
-			// The tenant's rows are recorded under the process alone: no account's id and no
-			// username is in any column of their change records.
+			// The tenant's rows are recorded as made by the person who accepted, through the
+			// process AcceptInvitation, and name no session.
+			want := resource.AccountProcessEvent(t.Context(), actor.NewAccount(userID, "dana"), "AcceptInvitation")
 			for _, source := range tt.maker.sources {
-				if source != resource.ProcessEvent("AcceptInvitation") {
-					t.Errorf("the tenant's source = %q, want the process AcceptInvitation and nothing else", source)
+				if source != want {
+					t.Errorf("the tenant's source = %q, want %q", source, want)
 				}
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
