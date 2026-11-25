@@ -263,13 +263,25 @@ const (
 )
 
 // The fixed names of the auth's sign-in settings, as a row of a setting stores them in its
-// SubjectId column. A sign-up setting is the prefix and the sign-in method's name.
+// SubjectId column. A sign-up setting's is SignUpSetting's.
 const (
-	settingSignUpPrefix       = "signUp:"
-	settingSecondFactor       = "secondFactor"
-	settingRememberedBrowsers = "rememberedBrowsers"
-	settingSelfServiceReset   = "selfServiceReset"
+	// SettingSecondFactor is whether a second factor is required of everyone.
+	SettingSecondFactor = "secondFactor"
+	// SettingRememberedBrowsers is how long a browser is remembered.
+	SettingRememberedBrowsers = "rememberedBrowsers"
+	// SettingSelfServiceReset is whether people may ask at the sign-in page for a link
+	// that resets their own password.
+	SettingSelfServiceReset = "selfServiceReset"
 )
+
+// settingSignUpPrefix leads the fixed name of a sign-up setting.
+const settingSignUpPrefix = "signUp:"
+
+// SignUpSetting is the fixed name of the setting that says whether the sign-in method
+// registered under method is open to sign-up: "signUp:" and the method's name.
+func SignUpSetting(method string) string {
+	return settingSignUpPrefix + method
+}
 
 // Form is which form of an act a row records, where the act has more than one that its
 // parts cannot tell apart. Most acts have one form, and their rows store none.

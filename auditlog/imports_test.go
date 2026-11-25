@@ -10,7 +10,8 @@ import (
 // TestImports holds the package free of database code: neither it nor anything it
 // depends on is a database driver, and it depends on none of the libraries that write its
 // rows or on the data library, so the session library and the permission store, which run
-// on PostgreSQL too, can import it.
+// on PostgreSQL too, can import it. database/sql is not refused: it opens nothing without
+// a driver, and the module's root package reaches it through github.com/gofrs/uuid.
 func TestImports(t *testing.T) {
 	t.Parallel()
 
@@ -39,9 +40,6 @@ func TestImports(t *testing.T) {
 // forbiddenDependency says why the package must not depend on the package at path, and ""
 // where it may.
 func forbiddenDependency(path string) string {
-	if path == "database/sql" {
-		return "which opens databases"
-	}
 	for _, driver := range []string{"cloud.google.com/go/spanner", "github.com/jackc/pgx", "github.com/jackc/pgconn", "github.com/lib/pq"} {
 		if strings.HasPrefix(path, driver) {
 			return "which is a database driver"
@@ -58,4 +56,45 @@ func forbiddenDependency(path string) string {
 	}
 
 	return ""
+}
+
+// TestForbiddenDependency pins what TestImports refuses: the database drivers and the
+// module's data library and the libraries that write the log's rows, but session's
+// sessioninfo, and not database/sql, which opens nothing without a driver (the module's
+// root package reaches it through github.com/gofrs/uuid).
+func TestForbiddenDependency(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path      string
+		forbidden bool
+	}{
+		{path: "database/sql", forbidden: false},
+		{path: "database/sql/driver", forbidden: false},
+		{path: "github.com/gofrs/uuid", forbidden: false},
+		{path: "cloud.google.com/go/spanner", forbidden: true},
+		{path: "cloud.google.com/go/spanner/apiv1", forbidden: true},
+		{path: "github.com/jackc/pgx/v5", forbidden: true},
+		{path: "github.com/jackc/pgconn", forbidden: true},
+		{path: "github.com/lib/pq", forbidden: true},
+		{path: "github.com/impulseframework/impulse", forbidden: false},
+		{path: "github.com/impulseframework/impulse/accesstypes", forbidden: false},
+		{path: "github.com/impulseframework/impulse/internal/words", forbidden: false},
+		{path: "github.com/impulseframework/impulse/session/sessioninfo", forbidden: false},
+		{path: "github.com/impulseframework/impulse/resource", forbidden: true},
+		{path: "github.com/impulseframework/impulse/identity", forbidden: true},
+		{path: "github.com/impulseframework/impulse/access", forbidden: true},
+		{path: "github.com/impulseframework/impulse/access/spannerstore", forbidden: true},
+		{path: "github.com/impulseframework/impulse/session", forbidden: true},
+		{path: "github.com/impulseframework/impulse/session/sessionstorage", forbidden: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
+
+			if got := forbiddenDependency(tt.path); (got != "") != tt.forbidden {
+				t.Errorf("forbiddenDependency(%q) = %q, want forbidden %v", tt.path, got, tt.forbidden)
+			}
+		})
+	}
 }

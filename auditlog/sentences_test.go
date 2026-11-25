@@ -137,10 +137,10 @@ func TestDoneTo(t *testing.T) {
 		{name: "a group", row: Stored{SubjectKind: SubjectGroup, SubjectID: "g1", SubjectName: "Night crew"}, want: "Night crew"},
 		{name: "a tenant", row: Stored{SubjectKind: SubjectTenant, SubjectID: "acme", SubjectName: "Acme"}, want: "Acme"},
 		{name: "a tenant with no name", row: Stored{SubjectKind: SubjectTenant, SubjectID: "acme"}, want: "acme"},
-		{name: "sign-up through a method", row: Stored{SubjectKind: SubjectSetting, SubjectID: "signUp:google", SubjectName: "Google"}, want: "Sign-up through Google"},
-		{name: "the second factor", row: Stored{SubjectKind: SubjectSetting, SubjectID: "secondFactor"}, want: "Second factor"},
-		{name: "remembered browsers", row: Stored{SubjectKind: SubjectSetting, SubjectID: "rememberedBrowsers"}, want: "Remembered browsers"},
-		{name: "the self-service reset", row: Stored{SubjectKind: SubjectSetting, SubjectID: "selfServiceReset"}, want: "Password reset at the sign-in page"},
+		{name: "sign-up through a method", row: Stored{SubjectKind: SubjectSetting, SubjectID: SignUpSetting("google"), SubjectName: "Google"}, want: "Sign-up through Google"},
+		{name: "the second factor", row: Stored{SubjectKind: SubjectSetting, SubjectID: SettingSecondFactor}, want: "Second factor"},
+		{name: "remembered browsers", row: Stored{SubjectKind: SubjectSetting, SubjectID: SettingRememberedBrowsers}, want: "Remembered browsers"},
+		{name: "the self-service reset", row: Stored{SubjectKind: SubjectSetting, SubjectID: SettingSelfServiceReset}, want: "Password reset at the sign-in page"},
 		{name: "a setting it does not know", row: Stored{SubjectKind: SubjectSetting, SubjectID: "somethingElse"}, want: "somethingElse"},
 	}
 	for _, tt := range tests {
@@ -151,6 +151,26 @@ func TestDoneTo(t *testing.T) {
 				t.Errorf("doneTo() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestSettings pins the fixed names a row of a setting stores as its SubjectId.
+func TestSettings(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		got  string
+		want string
+	}{
+		{got: SignUpSetting("google"), want: "signUp:google"},
+		{got: SignUpSetting("password"), want: "signUp:password"},
+		{got: SettingSecondFactor, want: "secondFactor"},
+		{got: SettingRememberedBrowsers, want: "rememberedBrowsers"},
+		{got: SettingSelfServiceReset, want: "selfServiceReset"},
+	} {
+		if tt.got != tt.want {
+			t.Errorf("the setting is named %q, want %q", tt.got, tt.want)
+		}
 	}
 }
 

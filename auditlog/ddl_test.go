@@ -28,6 +28,34 @@ func TestColumns(t *testing.T) {
 	}
 }
 
+// TestPeriodDays pins the days a period answers: its number for a period of days, and
+// none for forever or for a period that declares nothing.
+func TestPeriodDays(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		period   Period
+		wantDays int
+		wantOK   bool
+	}{
+		{name: "90 days", period: KeepDays(90), wantDays: 90, wantOK: true},
+		{name: "one day", period: KeepDays(1), wantDays: 1, wantOK: true},
+		{name: "forever", period: KeepForever(), wantDays: 0, wantOK: false},
+		{name: "the zero period", period: Period{}, wantDays: 0, wantOK: false},
+		{name: "no days", period: KeepDays(0), wantDays: 0, wantOK: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if days, ok := tt.period.Days(); days != tt.wantDays || ok != tt.wantOK {
+				t.Errorf("Days() = (%d, %v), want (%d, %v)", days, ok, tt.wantDays, tt.wantOK)
+			}
+		})
+	}
+}
+
 // TestSpannerDDL pins the Spanner statements for each kind of period: the table and its two
 // indexes for forever, the row deletion policy after them for a period of days, and none
 // for a period that declares nothing.

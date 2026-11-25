@@ -28,6 +28,17 @@ func KeepForever() Period {
 	return Period{days: 0, forever: true}
 }
 
+// Days is the period's number of days and true for a period of days, and 0 and false for a
+// period of forever or one that declares nothing. The session library's PostgreSQL store
+// removes the rows older than it.
+func (p Period) Days() (days int, ok bool) {
+	if p.forever || p.days < 1 {
+		return 0, false
+	}
+
+	return p.days, true
+}
+
 // idCheck is the check the table's Id carries on Spanner: a UUID in its canonical form.
 const idCheck = `r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`
 

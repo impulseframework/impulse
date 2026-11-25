@@ -134,11 +134,11 @@ func (s *Stored) doneTo() string {
 	switch {
 	case strings.HasPrefix(s.SubjectID, settingSignUpPrefix):
 		return "Sign-up through " + s.SubjectName
-	case s.SubjectID == settingSecondFactor:
+	case s.SubjectID == SettingSecondFactor:
 		return "Second factor"
-	case s.SubjectID == settingRememberedBrowsers:
+	case s.SubjectID == SettingRememberedBrowsers:
 		return "Remembered browsers"
-	case s.SubjectID == settingSelfServiceReset:
+	case s.SubjectID == SettingSelfServiceReset:
 		return "Password reset at the sign-in page"
 	default:
 		return s.SubjectID
