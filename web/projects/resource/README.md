@@ -47,8 +47,14 @@ await api.batch([api.clients.ops.patch([clientId], { trusted: true })]);
 // answers 428, an ApiError whose message is the question to ask a person first ("Delete
 // this work order and everything under it: 4 work order tasks. This can't be undone.").
 // The same delete saying it takes them deletes those records and the row; ops.remove
-// takes the same option.
-await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+// takes the same option. A delete too large for one request deletes what fits and
+// resolves with what is left ({ deleted, left }, a DeleteLeft, from a 202), the row
+// still standing; the same remove, sent again, goes on, and resolves with nothing once
+// the row is gone.
+let left = await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+while (left) {
+  left = await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+}
 
 // A page that learns its methods at run time (from the generated method metadata)
 // reaches one by its name: the same handle, bound to the tenant for a tenant's method.

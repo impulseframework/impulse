@@ -1,7 +1,9 @@
-import { Component, inject, signal } from '@angular/core';
+import { formatNumber } from '@angular/common';
+import { Component, inject, LOCALE_ID, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef, MatDialogState } from '@angular/material/dialog';
-import { ApiError, RemoveOptions } from '@impulseframework/resource';
+import { ApiError, DeleteLeft, RemoveOptions } from '@impulseframework/resource';
+import { deleteLeftOf } from '../delete-left';
 
 /**
  * What the delete confirmation is told about the row it asks about. Every part is
@@ -25,10 +27,12 @@ export interface DeleteConfirmation {
    * with it is deleted in two presses: the server answers the first with its own
    * question (a 428), and the dialog runs the delete again with `everythingUnder` once
    * the person has read that question and pressed Delete, so the delete passes the
-   * options on to the client (`ops.remove(key, options)`). Left out, the dialog only
-   * answers the question, and whoever opened it does the delete.
+   * options on to the client (`ops.remove(key, options)`). A delete too large for one
+   * request resolves with what the server left (`DeleteLeft`, a 202), and the dialog
+   * runs it again; it resolves with nothing once the row is gone. Left out, the dialog
+   * only answers the question, and whoever opened it does the delete.
    */
-  delete?: (options?: RemoveOptions) => Promise<unknown>;
+  delete?: (options?: RemoveOptions) => Promise<DeleteLeft | void>;
 }
 
 /** The status of the server's question about the records a delete takes with it. */
@@ -73,6 +77,13 @@ export function deleteQuestion(asked: DeleteConfirmation = {}): string {
  * document. This can't be undone."). The dialog asks it in the first question's place,
  * with Cancel and Delete as before, and Delete then runs the delete saying it takes
  * those records (`everythingUnder`). Cancel at either question deletes nothing.
+ *
+ * A delete too large for one request comes back with what is left. The dialog sends it
+ * again until nothing is, showing how many records are gone, and cannot be closed
+ * meanwhile. Every answer that says what is left is followed by another request, even
+ * one that leaves no record, since the row stands until a request answers otherwise. A
+ * refusal part way leaves the dialog open with the server's sentence and how many
+ * records were deleted before it.
  */
 @Component({
   selector: 'impulse-delete-resource-confirmation-modal',
@@ -83,6 +94,7 @@ export function deleteQuestion(asked: DeleteConfirmation = {}): string {
 export class DeleteResourceConfirmationModalComponent {
   private readonly asked = inject<DeleteConfirmation | null>(MAT_DIALOG_DATA, { optional: true });
   private readonly dialogRef = inject<MatDialogRef<DeleteResourceConfirmationModalComponent, boolean>>(MatDialogRef);
+  private readonly locale = inject(LOCALE_ID);
 
   /**
    * The question the dialog asks, in plain words: the page's own, then the server's
@@ -93,13 +105,20 @@ export class DeleteResourceConfirmationModalComponent {
   readonly busy = signal(false);
   /** The server's refusal of the delete, in its words; empty while there is none. */
   readonly refusal = signal('');
+  /**
+   * The line under the question while a delete too large for one request goes on, and
+   * under a refusal that came part way: how many records are gone. Empty otherwise.
+   */
+  readonly progress = signal('');
   /** Whether the server's own question is the one on screen, so the next Delete says it takes the records under the row. */
   private everythingUnder = false;
 
   /**
    * The Delete button: answers true, after running the delete where the dialog was
    * handed it. A delete the server answers with its question leaves the dialog open on
-   * that question, and the next press runs the delete with `everythingUnder`.
+   * that question, and the next press runs the delete with `everythingUnder`. A delete
+   * that answers with what is left runs again, with `everythingUnder`, until an answer
+   * says nothing of it.
    */
   async confirm(): Promise<void> {
     const run = this.asked?.delete;
@@ -113,8 +132,14 @@ export class DeleteResourceConfirmationModalComponent {
     const closable = this.dialogRef.disableClose;
     this.busy.set(true);
     this.dialogRef.disableClose = true;
+    let done = 0;
     try {
-      await run(this.everythingUnder ? { everythingUnder: true } : undefined);
+      let left = deleteLeftOf(await run(this.everythingUnder ? { everythingUnder: true } : undefined));
+      while (left !== undefined) {
+        done += left.deleted;
+        this.progress.set(`Deleted ${this.count(done)} of ${this.count(done + left.left)} records…`);
+        left = deleteLeftOf(await run({ everythingUnder: true }));
+      }
       this.close(true);
     } catch (error) {
       if (!(error instanceof ApiError)) {
@@ -127,10 +152,20 @@ export class DeleteResourceConfirmationModalComponent {
         return;
       }
       this.refusal.set(error.message);
+      this.progress.set(
+        done > 0
+          ? `${this.count(done)} records were deleted before this. Press Delete again once that is put right.`
+          : '',
+      );
     } finally {
       this.busy.set(false);
       this.dialogRef.disableClose = closable;
     }
+  }
+
+  /** A number of records as the person reads it, with the locale's digit grouping. */
+  private count(records: number): string {
+    return formatNumber(records, this.locale);
   }
 
   /** Closes the dialog with its answer, unless the page already closed it by leaving for another route. */

@@ -886,10 +886,10 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
       return {};
     }) as unknown as typeof component.dialog.open;
     let deleted = 0;
-    component.deleteResource = (): Promise<void> => {
+    component.deleteResource = (): Promise<undefined> => {
       deleted++;
 
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     };
 
     component.confirmDeleteResource();

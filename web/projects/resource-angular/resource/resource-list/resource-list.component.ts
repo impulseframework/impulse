@@ -49,6 +49,7 @@ import {
   Domain,
   ListPermission,
   PermissionDigestState,
+  DeleteLeft,
   RemoveOptions,
   TenantProperty,
 } from '@impulseframework/resource';
@@ -97,6 +98,7 @@ import {
   parentOffers,
   rowMethods,
 } from '../row-methods/row-methods';
+import { deleteLeftOf } from '../delete-left';
 import { ResourceStore } from '../resource-store.service';
 import { SearchBoxComponent } from '../search-box/search-box.component';
 import {
@@ -1463,14 +1465,20 @@ export class ResourceListComponent implements OnInit {
    * list's page is read again once the row is gone. A delete the server refuses rejects
    * with the client's `ApiError`, for whoever asked to show, and so does the delete of a
    * row with records under it that its delete takes, until the options say it takes them
-   * (`everythingUnder`).
+   * (`everythingUnder`). A delete too large for one request resolves with what it left
+   * (`DeleteLeft`), and the page is read again once a delete resolves with nothing.
    */
-  deleteRow(row: RecordData, options?: RemoveOptions): Promise<void> {
+  deleteRow(row: RecordData, options?: RemoveOptions): Promise<DeleteLeft | undefined> {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(row), options);
 
-    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then(() => {
-      this.store.reloadPage();
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then((answer) => {
+      const left = deleteLeftOf(answer);
+      if (left === undefined) {
+        this.store.reloadPage();
+      }
+
+      return left;
     });
   }
 
