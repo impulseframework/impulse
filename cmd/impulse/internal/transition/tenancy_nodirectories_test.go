@@ -432,18 +432,15 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		}
 	}
 
-	// The one-tenant rule names the ways a role is given, and a directory's default
-	// role is one only where a tenant can have a directory.
-	const byDirectory = "refused however it would be given, by hand, by an invitation sent or accepted, or by a directory's default role, with a refusal"
+	// The one-tenant rule names the ways a role is refused: by hand and by an invitation.
+	// A directory's default role is not refused, the person is moved, which the item says
+	// only where a tenant can have a directory.
 	const byHand = "refused however it would be given, by hand or by an invitation sent or accepted, with a refusal"
+	const moved = "A directory's default role is not refused: a person who belongs to one tenant and signs in through the directory of another that is open to it is moved. They are given that tenant's default role, and every role and every place in a group they held in the first is taken away in the same transaction, also when they were its last administrator."
 	for _, noDirectories := range []bool{false, true} {
 		meaning := Tenancy{Table: "Tenants", OneTenantPerPerson: true, NoDirectories: noDirectories}.Meaning()
-		want, not := byDirectory, byHand
-		if noDirectories {
-			want, not = byHand, byDirectory
-		}
-		if !strings.Contains(meaning, want) || strings.Contains(meaning, not) {
-			t.Errorf("no directories %v: the one-tenant item does not say %q", noDirectories, want)
+		if !strings.Contains(meaning, byHand) || strings.Contains(meaning, moved) == noDirectories {
+			t.Errorf("no directories %v: the one-tenant item must say %q, and %q only where a tenant can have a directory", noDirectories, byHand, moved)
 		}
 		if noDirectories && strings.Contains(meaning, "default role") {
 			t.Error("the brief of an application whose tenants have no directories speaks of a directory's default role")

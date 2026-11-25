@@ -1126,6 +1126,14 @@ Nobody types a directory in. It is set from a sign-in, in one of two ways:
 - later, by an administrator of the tenant who is signed in through their organization's
   directory, on the tenant's Sign-in page.
 
+Nobody checks who may act for an organization, so taking its directory is attested. On
+the Sign-in page, and in the dialog that creates a tenant where the creation takes the
+directory, the person first reads a statement that opens "You are stating that you are
+authorized to act on behalf of" the organization, named as its directory gives it, and
+then says what taking the directory does. They type `I am authorized` under it, and the
+button is held until they have. A tenant made from a staff invitation takes its maker's
+directory with no statement.
+
 The directory is a Google Workspace, a Microsoft Entra tenant, or an organization's
 identity provider that the application registers with the `oidc` method. A personal
 account belongs to no organization, so it is never a tenant's directory.
@@ -1149,10 +1157,11 @@ the tenant's Sign-in page.
 A person from a tenant's directory gets in by the tenant's choice, whether or not the
 sign-in method is open to sign-up on the auth's Sign-in page.
 
-Opening the tenant to its directory, making it directory only and vouching for the
-directory's second factor each warn first, with who is affected, and are confirmed by
-typing a word (`open`, `close`, `vouch`). Removing a
-tenant's directory asks first too, in a dialog that names the directory.
+Taking the directory warns first, with the statement above. Opening the tenant to its
+directory, making it directory only and vouching for the directory's second factor each
+warn first too, with who is affected, and are confirmed by typing a word (`open`,
+`close`, `vouch`). Removing a tenant's directory asks first as well, in a dialog that
+names the directory.
 
 A tenant's administrator can turn directory only on once the tenant has its directory,
 and must be signed in through that directory to do it. Where the auth has the password

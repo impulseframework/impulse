@@ -156,8 +156,9 @@ CREATE UNIQUE INDEX SectorsByName ON Sectors(Name);
 -- when the sector is charted or when its marshal, signed in through it, makes it the
 -- sector's. A sector has one directory and a directory belongs to one sector, which the
 -- two unique indexes below hold.
--- DefaultSeat names the role a person is given in the sector at their first sign-in
--- through the directory; NULL says the sector admits them by invitation only.
+-- DefaultSeat names the role a person is given in the sector when they sign in through
+-- the directory and hold nothing in the sector, at every sign-in; NULL says the sector
+-- admits them by invitation only.
 -- AsksSecondFactor says the sector's marshal has said the directory asks its people for a
 -- second factor of its own, so a sign-in through it is not asked for the mailed code.
 CREATE TABLE SectorDirectories (

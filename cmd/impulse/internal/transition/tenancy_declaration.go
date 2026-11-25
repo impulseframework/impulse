@@ -262,9 +262,10 @@ const oneTenantOption = "identity.WithOneTenantPerPerson()"
 // declareOneTenant says a person belongs to one tenant on every auth whose roles the
 // application assigns: the identity client its New builds gains the identity package's
 // option, which every way a person comes to hold a role in a tenant is then held to (a
-// role given by hand, an invitation sent or accepted, a directory's default role). An
-// auth whose directory writes the roles gives none of its own, so it is left as it is;
-// an auth whose New builds the client in another form is recorded as the agent's.
+// role given by hand and an invitation sent or accepted are refused; a directory's
+// default role moves the person from the other tenant). An auth whose directory writes
+// the roles gives none of its own, so it is left as it is; an auth whose New builds the
+// client in another form is recorded as the agent's.
 func (tn Tenancy) declareOneTenant(a *app.App, ch *Change) error {
 	const rule = "a role in a second tenant is refused however it would be given, and the application's own people, who hold a role for the whole application or in every tenant, are outside the rule"
 	held := 0

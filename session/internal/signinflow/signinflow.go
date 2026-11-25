@@ -1814,8 +1814,8 @@ func resolveUnlinked[Tx any](
 	}
 	resolved = unlinkedUser{source: source, tenant: tenant, live: live}
 	// The seats follow the link: given where it is made, to a new user and to one who
-	// stood before alike, and none to a disabled user, who is refused once the sign-in
-	// is decided, as a linked identity's is (resolveLinked).
+	// stood before alike, and none to one who stood before and is disabled, who is refused
+	// once the sign-in is decided, as a linked identity's is (resolveLinked).
 	if source == sessioninfo.UserProvisioned {
 		resolved.seats = decided.res.Seats()
 	}
