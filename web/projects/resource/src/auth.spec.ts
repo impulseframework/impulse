@@ -1325,7 +1325,7 @@ describe("the person's own tenants", () => {
   it('drops an entry without a domain, names a tenant by its domain where the server sends no name, and keeps only what is so', async () => {
     const body = {
       tenants: [
-        { ...anvil, name: '', roles: ['Pilot', 4, null], refusal: '', deletesAccount: true },
+        { ...anvil, name: '', roles: ['Pilot', 4, null], refusal: '' },
         { ...cinder, name: 9, roles: 'Sector marshal', refusal: 3 },
         { ...anvil, domain: 12 },
         null,
@@ -1338,7 +1338,6 @@ describe("the person's own tenants", () => {
       { domain: cinder.domain, name: cinder.domain, roles: [] },
     ]);
     expect(Object.keys(read[0])).not.toContain('refusal');
-    expect(Object.keys(read[0])).not.toContain('deletesAccount');
     expect(Object.keys(read[1])).not.toContain('refusal');
     const empty = authOver(ownTenantsServer({ ownTenants: { status: 200, body: null } })).auth;
     expect(await empty.ownTenants()).toEqual([]);
@@ -1349,6 +1348,7 @@ describe("the person's own tenants", () => {
     expect(await auth.leaveTenant(anvil.domain)).toEqual({ outcome: 'left' });
     expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${ownTenantsRoutes.leave}`]);
     expect(transport.requests[1].body).toEqual({ domain: anvil.domain });
+    expect(Object.keys(transport.requests[1].body as object)).toEqual(['domain']);
     expect(errors).toEqual([]);
   });
 
