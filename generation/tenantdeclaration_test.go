@@ -749,10 +749,10 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 
 // Test_directoriesRecord_writes pins the write paths of the directories record, in its
 // own handler and in the consolidated one: a directory is never typed in, so the wire
-// writes neither the method nor the connection, the create stamps both from the
-// directory the caller is signed in through, held to the rules of a tenant's
-// directory, before the row is buffered, and the delete asks the rules before the
-// row's removal is buffered.
+// writes neither the method nor the connection; the create answers the caller's grants
+// and is then refused, naming the tenant's own method that takes a directory
+// (Take<Record>Directory), and builds and stamps nothing; and the delete asks the rules
+// before the row's removal is buffered.
 func Test_directoriesRecord_writes(t *testing.T) {
 	t.Parallel()
 
@@ -813,20 +813,21 @@ func Test_directoriesRecord_writes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			// The caller's grants answer before the rules do, on the create and on the
-			// delete: a caller the grants refuse learns nothing from a rule's sentence.
+			// The caller's grants answer first, on the create and on the delete: a
+			// caller the grants refuse learns nothing from the refusal or a rule's
+			// sentence. The create is then refused, and the delete asks its rule.
 			assertInOrder(t, out,
-				".NewHarborDirectoryCreatePatchFromPatchSet(patchSet)",
+				"case resource.OperationCreate:",
 				"if err := patchSet.Permitted(ctx, txn); err != nil {",
-				"directory, err := NewHarborDirectoryRules().FromSession(ctx, txn, domain)",
-				`return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")`,
-				"patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)",
-				"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+				`return httpio.NewBadRequestMessage("A harbor's directory is not created directly. Take it with TakeHarborDirectory, which says what taking it does before anything is written.")`,
 				"if err := patchSet.Permitted(ctx, txn); err != nil {",
 				"if err := NewHarborDirectoryRules().Remove(ctx, txn, domain); err != nil {",
 				`return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")`,
 				".NewHarborDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
 			)
+			// The create builds no row and stamps no directory: the tenant's own method
+			// takes it.
+			assertContains(t, name, out, nil, []string{"NewHarborDirectoryCreatePatchFromPatchSet", "FromSession(", "patch.SetMethod("})
 			// A write of a directory changes who may enter a tenant, so the roster is
 			// reloaded and the tenants kind signaled, as for the record itself.
 			assertContains(t, name, out, []string{"tenantsWritten = true", "a.TenantRoster().Reload(ctx)", "resource.KindTenants"}, nil)

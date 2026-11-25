@@ -402,6 +402,10 @@ var generatorActions = map[accesstypes.Resource]accesstypes.ActionClass{
 	"OpenHarborToDirectory": changesAccess,
 	"MakeHarborInviteOnly":  changesAccess,
 
+	// A tenant takes its organization's directory: from then on the people the
+	// directory sends are the tenant's to admit.
+	"TakeHarborDirectory": changesAccess,
+
 	// A tenant's word for its directory's second factor: said, the application stops
 	// asking the directory's people for its mailed code at sign-in, and taken back, it
 	// asks them again.

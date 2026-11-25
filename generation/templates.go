@@ -996,29 +996,24 @@ const (
 					}
 					{{- end }}`
 
-	// directoryStamped is spliced into the directories record's create, once the create
-	// patch is built and before it is buffered (patchSet, patch and domain, which the
-	// splice's place sets): a directory is never typed in, so the wire carries neither
-	// its method nor its connection, and the create stamps both from the directory the
-	// caller is signed in through, held to the rules of a tenant's directory
-	// (resource.TenantDirectoryRules.FromSession). A caller who came by password, or
-	// through a directory the tenant cannot take, is refused there and nothing is
-	// buffered. The caller's grants are asked before the rules
-	// (resource.PatchSet.Permitted), so a caller who may not create the record is
-	// refused as on any record, and learns nothing a rule's sentence says. The splice
-	// reads the resource as its dot.
-	directoryStamped = `// A directory is never typed in: the row takes the directory the caller is
-					// signed in through, held to the rules of a {{ .DirectoryTenantWord }}'s directory. The
-					// caller's grants answer first, so a caller they refuse learns nothing
-					// from a rule.
+	// directoryCreateRefused is spliced into the directories record's create in place of
+	// the row's create patch (patchSet, which the splice's place sets): a tenant takes its
+	// directory with the tenant's own method, Take<Record>Directory, which says what
+	// taking it does before anything is written and stamps the directory the caller is
+	// signed in through (tenantDirectoryTakeTemplate), so the record's create builds and
+	// stamps nothing and is refused (400) with a sentence that names the method
+	// (resourceInfo.DirectoryCreateRefusal). The caller's grants are asked first
+	// (resource.PatchSet.Permitted), so a caller who may not create the record is refused
+	// as on any record. The splice reads the resource as its dot.
+	directoryCreateRefused = `// A {{ .DirectoryTenantWord }}'s directory is taken with the {{ .DirectoryTenantWord }}'s own
+					// method, behind the statement that the caller is authorized to act
+					// for the organization: the record's create writes nothing. The
+					// caller's grants answer first.
 					if err := patchSet.Permitted(ctx, txn); err != nil {
 						return errors.Wrap(err, "resource.PatchSet.Permitted()")
 					}
-					directory, err := {{ .DirectoryRules }}.FromSession(ctx, txn, domain)
-					if err != nil {
-						return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
-					}
-					patch.Set{{ .DirectoryMethodField.Name }}(string(directory.Method)).Set{{ .DirectoryConnectionField.Name }}(directory.Connection)`
+
+					return httpio.NewBadRequestMessage({{ printf "%q" .DirectoryCreateRefusal }})`
 
 	// directoryKept is spliced into the directories record's delete, before the row's
 	// removal is buffered (patchSet and domain, which the splice's place sets): the
@@ -1888,9 +1883,10 @@ func New{{ .Name }}DirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTr
 // (resource.TenantDirectoryRules) over the {{ .Name }} record's table and its declaration's
 // columns: a {{ .Word }} has one directory, a directory is one {{ .Word }}'s, a personal account
 // is no directory, and the directory of a {{ .Word }} that is directory only is not removed.
-// Every write of the {{ .Directories }} record a request asks for is held to them. The generated
-// {{ .Directories }} write paths ask them: the create stamps the directory the caller is signed in
-// through, which no request types, and the delete asks before it removes. The one
+// Every write of the {{ .Directories }} record a request asks for is held to them. The {{ .Word }}'s
+// own method that takes a directory (Take{{ .Name }}Directory) asks them for the directory the
+// caller is signed in through, which no request types, the record's own create being
+// refused, and the delete asks before it removes. The one
 // removal they are not asked is the delete of the {{ .Word }} itself, which takes its
 // directory with it like every other row under the {{ .Word }} ({{ .Name }}.DeleteTree): the
 // rule keeps a {{ .Word }} that stays from being left with no way in, and that {{ .Word }}
@@ -3695,16 +3691,15 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 
 				switch op.Type {
 				case resource.OperationCreate:
-				{{- if $PrimaryKeyIsGeneratedUUID }}
+				{{- if and $PrimaryKeyIsGeneratedUUID .Resource.IsTenantDirectory }}
+					{{- with .Resource }}
+					` + directoryCreateRefused + `
+					{{- end }}
+				{{- else if $PrimaryKeyIsGeneratedUUID }}
 					patch, err := {{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet(patchSet)
 					if err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet()")
 					}
-					{{- if .Resource.IsTenantDirectory }}
-					{{- with .Resource }}
-					` + directoryStamped + `
-					{{- end }}
-					{{- end }}
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
@@ -3998,14 +3993,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 
 						switch op.Type {
 						case resource.OperationCreate:
-						{{- if .PrimaryKeyIsGeneratedUUID }}
+						{{- if and .PrimaryKeyIsGeneratedUUID .IsTenantDirectory }}
+							` + directoryCreateRefused + `
+						{{- else if .PrimaryKeyIsGeneratedUUID }}
 							patch, err := {{ .ResourcePackage }}.New{{ .Name }}CreatePatchFromPatchSet(patchSet)
 							if err != nil {
 								return errors.Wrap(err, "{{ GoCamel .Name}}CreatePatchFromPatchSet()")
 							}
-							{{- if .IsTenantDirectory }}
-							` + directoryStamped + `
-							{{- end }}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
