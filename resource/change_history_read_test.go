@@ -206,7 +206,8 @@ func TestChangeHistoryVisibleFields(t *testing.T) {
 // TestChangeHistoryPage pins how the rows a read gives become a page: their order, each
 // field under its JSON name in the order of the fields the reader may see, every other
 // field left out, a record left empty still listed, a secret's change with no value, a
-// value kept byte for byte, and next where a further row came back.
+// value kept byte for byte, a field set to the commit's time answered with the record's
+// own time, and next where a further row came back.
 func TestChangeHistoryPage(t *testing.T) {
 	t.Parallel()
 
@@ -300,6 +301,25 @@ func TestChangeHistoryPage(t *testing.T) {
 			t.Fatalf("changeHistoryPage() error = %v", err)
 		}
 		want := []ChangedField{
+			{Field: "key", Old: null, New: null, Secret: true},
+			{Field: "title", Old: json.RawMessage(`"a"`), New: json.RawMessage(`"b"`)},
+		}
+		if diff := cmp.Diff(want, page.Changes[0].Fields); diff != "" {
+			t.Errorf("changeHistoryPage() fields mismatch (-want +got):\n%s", diff)
+		}
+	})
+	t.Run("a field set to the commit's time is answered with the record's own time as its new value", func(t *testing.T) {
+		t.Parallel()
+
+		// The record's time in another zone, to nanoseconds: the value is answered in UTC.
+		at := time.Date(2026, 11, 23, 11, 0, 0, 123456789, time.FixedZone("MST", -7*60*60))
+		stamped := []changeRecordRow{{EventTime: at, Sequence: 0, EventSource: "user b", ChangeSet: changeSet(`{"Code":{"Old":"2026-11-20T10:00:00Z","New":null,"CommitTime":true},"Key":{"Old":null,"New":null,"CommitTime":true},"Title":{"Old":"a","New":"b"}}`)}}
+		page, err := changeHistoryPage(stamped, []accesstypes.Field{"Code", "Key", "Title"}, jsonName, secret)
+		if err != nil {
+			t.Fatalf("changeHistoryPage() error = %v", err)
+		}
+		want := []ChangedField{
+			{Field: "code", Old: json.RawMessage(`"2026-11-20T10:00:00Z"`), New: json.RawMessage(`"2026-11-23T18:00:00.123456789Z"`)},
 			{Field: "key", Old: null, New: null, Secret: true},
 			{Field: "title", Old: json.RawMessage(`"a"`), New: json.RawMessage(`"b"`)},
 		}

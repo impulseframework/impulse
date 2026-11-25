@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -1236,6 +1237,64 @@ func TestPatchSet_Diff(t *testing.T) {
 
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("PatchSet.Diff() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// commitTimeTestResourcer holds a time in each of the three forms a field set to the
+// commit's own time is given in, and a secret.
+type commitTimeTestResourcer struct {
+	StampedAt  time.Time        `spanner:"StampedAt"`
+	TouchedAt  *time.Time       `spanner:"TouchedAt"`
+	SeenAt     spanner.NullTime `spanner:"SeenAt"`
+	AccessCode *Secret          `spanner:"AccessCode" conditions:"secret"`
+}
+
+func (r commitTimeTestResourcer) Resource() accesstypes.Resource {
+	return "commitTimeTestResourcer"
+}
+
+// TestPatchSet_change pins a field's entry in a change set: a field set to the commit's
+// own time, in each of its three forms, keeps its old value and the mark and no new value,
+// since the moment is not known when the record is written; an ordinary time, an instant
+// equal to the stand-in's among them, keeps both values; and a secret keeps neither,
+// whatever it is set to.
+func TestPatchSet_change(t *testing.T) {
+	t.Parallel()
+
+	p := NewPatchSet(NewMetadata[commitTimeTestResourcer]())
+	before := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	later := time.Date(2026, 11, 23, 18, 0, 0, 0, time.UTC)
+	stamp := spanner.CommitTimestamp
+	sameInstant := time.Unix(0, 0).UTC()
+
+	tests := []struct {
+		name  string
+		field accesstypes.Field
+		old   any
+		new   any
+		want  DiffElem
+	}{
+		{name: "a time that is the commit's time", field: "StampedAt", old: before, new: spanner.CommitTimestamp, want: DiffElem{Old: before, CommitTime: true}},
+		{name: "a pointer to the commit's time, as resource.CommitTimestampPtr answers it", field: "TouchedAt", old: &before, new: &spanner.CommitTimestamp, want: DiffElem{Old: &before, CommitTime: true}},
+		{name: "a pointer to a copy of the commit's time", field: "TouchedAt", old: (*time.Time)(nil), new: &stamp, want: DiffElem{Old: (*time.Time)(nil), CommitTime: true}},
+		{name: "a valid null time that holds the commit's time", field: "SeenAt", old: spanner.NullTime{Time: before, Valid: true}, new: spanner.NullTime{Time: spanner.CommitTimestamp, Valid: true}, want: DiffElem{Old: spanner.NullTime{Time: before, Valid: true}, CommitTime: true}},
+		{name: "an ordinary time", field: "StampedAt", old: before, new: later, want: DiffElem{Old: before, New: later}},
+		{name: "an instant equal to the stand-in's is an ordinary time", field: "StampedAt", old: before, new: sameInstant, want: DiffElem{Old: before, New: sameInstant}},
+		{name: "a pointer to an ordinary time", field: "TouchedAt", old: &before, new: &later, want: DiffElem{Old: &before, New: &later}},
+		{name: "a nil pointer", field: "TouchedAt", old: &before, new: (*time.Time)(nil), want: DiffElem{Old: &before, New: (*time.Time)(nil)}},
+		{name: "a null time that is not valid, holding the commit's time", field: "SeenAt", old: spanner.NullTime{Time: before, Valid: true}, new: spanner.NullTime{Time: spanner.CommitTimestamp}, want: DiffElem{Old: spanner.NullTime{Time: before, Valid: true}, New: spanner.NullTime{Time: spanner.CommitTimestamp}}},
+		{name: "a secret set to a value", field: "AccessCode", old: "old code", new: "new code", want: DiffElem{Secret: true}},
+		{name: "a secret set to the commit's time", field: "AccessCode", old: nil, new: spanner.CommitTimestamp, want: DiffElem{Secret: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := p.change(tt.field, tt.old, tt.new)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("PatchSet.change() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

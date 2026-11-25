@@ -6493,7 +6493,10 @@ with its old and its new value. `RowId` is the row's key as text: the value of a
 part, and for a key of several parts each part's value joined by `|`, with a `\` before a
 `|` or a `\` that a part holds. `TenantId` holds the key of the tenant the row belongs
 to, empty for a row of a table that belongs to no tenant. A secret field is named as
-changed with neither value (section 23).
+changed with neither value (section 23). A field set to the commit's own time
+(`resource.CommitTimestamp`) is recorded with its old value and a mark in place of the new
+one (`CommitTime`), because the moment is not known when the record is written: it is the
+record's `EventTime`, and a record's history answers that time as the field's new value.
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
 statements. For Spanner the first creates the table:

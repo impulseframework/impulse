@@ -1014,13 +1014,33 @@ func (p *PatchSet[Resource]) Resolve(dbType DBType, keys *SecretKeys) (map[strin
 }
 
 // change is a field's entry in a change set: its old and new value, or, for a field the
-// resource declares a secret, the fact that it changed and neither value.
+// resource declares a secret, the fact that it changed and neither value, or, for a field
+// set to the commit's own time, its old value and the mark in place of the new one.
 func (p *PatchSet[Resource]) change(field accesstypes.Field, oldV, newV any) DiffElem {
 	if p.querySet.rMeta.secret(field) {
 		return DiffElem{Secret: true}
 	}
+	if isCommitTime(newV) {
+		return DiffElem{Old: oldV, CommitTime: true}
+	}
 
 	return DiffElem{Old: oldV, New: newV}
+}
+
+// isCommitTime reports whether value is the commit's own time: spanner.CommitTimestamp
+// itself, a pointer to it, or a valid spanner.NullTime that holds it. The stand-in is
+// told by identity, as the client tells it: an equal instant is an ordinary time.
+func isCommitTime(value any) bool {
+	switch t := value.(type) {
+	case time.Time:
+		return t == spanner.CommitTimestamp //nolint:staticcheck // the stand-in is this one value, told by identity; an equal instant is an ordinary time
+	case *time.Time:
+		return t != nil && *t == spanner.CommitTimestamp //nolint:staticcheck // the stand-in is this one value, told by identity; an equal instant is an ordinary time
+	case spanner.NullTime:
+		return t.Valid && t.Time == spanner.CommitTimestamp //nolint:staticcheck // the stand-in is this one value, told by identity; an equal instant is an ordinary time
+	default:
+		return false
+	}
 }
 
 // Diff returns a map of fields that have changed between old and patchSet. A field the

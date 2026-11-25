@@ -372,11 +372,13 @@ func readChangeRecords(ctx context.Context, txn ReadOnlyTransaction, records cha
 }
 
 // changeSetEntry is one field's entry in a change set as the history reads it: each
-// value kept as the change set holds it, byte for byte.
+// value kept as the change set holds it, byte for byte, and the marks of a secret and of
+// a value set to the commit's own time.
 type changeSetEntry struct {
-	Old    json.RawMessage
-	New    json.RawMessage
-	Secret bool
+	Old        json.RawMessage
+	New        json.RawMessage
+	Secret     bool
+	CommitTime bool
 }
 
 // changeHistoryPage shapes the rows a read gave, newest first, into a page: at most
@@ -393,7 +395,7 @@ func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, json
 	}
 
 	for _, row := range rows {
-		fields, err := changedFields(row.ChangeSet, visible, jsonName, secret)
+		fields, err := changedFields(row.ChangeSet, row.EventTime, visible, jsonName, secret)
 		if err != nil {
 			return nil, errors.Wrapf(err, "the change record of %s at sequence %d", row.EventTime.UTC().Format(time.RFC3339Nano), row.Sequence)
 		}
@@ -406,8 +408,10 @@ func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, json
 // changedFields answers the entries of one change set for the fields in visible, in its
 // order; a value the entry does not hold, or holds as JSON null, is JSON null. An entry of
 // a field that is a secret, by the resource's declaration (secret) or by the entry's own
-// mark, is answered with both values JSON null, whatever the entry holds.
-func changedFields(changeSet spanner.NullString, visible []accesstypes.Field, jsonName func(accesstypes.Field) string, secret func(accesstypes.Field) bool) ([]ChangedField, error) {
+// mark, is answered with both values JSON null, whatever the entry holds. An entry marked
+// as set to the commit's own time is answered with its old value and, as its new one, the
+// record's time (at), in UTC.
+func changedFields(changeSet spanner.NullString, at time.Time, visible []accesstypes.Field, jsonName func(accesstypes.Field) string, secret func(accesstypes.Field) bool) ([]ChangedField, error) {
 	fields := []ChangedField{}
 	if !changeSet.Valid {
 		return fields, nil
@@ -424,6 +428,15 @@ func changedFields(changeSet spanner.NullString, visible []accesstypes.Field, js
 		}
 		if entry.Secret || secret(field) {
 			fields = append(fields, ChangedField{Field: jsonName(field), Old: json.RawMessage("null"), New: json.RawMessage("null"), Secret: true})
+
+			continue
+		}
+		if entry.CommitTime {
+			committed, err := json.Marshal(at.UTC().Format(time.RFC3339Nano))
+			if err != nil {
+				return nil, errors.Wrap(err, "json.Marshal()")
+			}
+			fields = append(fields, ChangedField{Field: jsonName(field), Old: jsonValue(entry.Old), New: committed})
 
 			continue
 		}

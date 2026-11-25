@@ -404,6 +404,59 @@ func TestChangeHistory_otherTenant(t *testing.T) {
 	}
 }
 
+// TestChangeHistory_commitTime pins a field stamped with the commit's own time: a ship
+// renamed twice through its route, read by the marshal, who sees updatedAt on the ship,
+// lists updatedAt on each record with the record's own time as its new value and what the
+// ship held before as its old one, never the stand-in the field held until the commit.
+func TestChangeHistory_commitTime(t *testing.T) {
+	t.Parallel()
+
+	ctx, db, h := demoWorld(t)
+	target := sectorPath(anvil, "ships/"+shipKingfisherID+"/changes")
+	patchAnvil(t, h, "patch", "ships/"+shipKingfisherID, `{"name":"Kingfisher Once"}`)
+	first := readColumn[spanner.NullTime](ctx, t, db, "Ships", spanner.Key{shipKingfisherID}, "UpdatedAt")
+	if !first.Valid {
+		t.Fatal("the ship's UpdatedAt is not stamped by its rename")
+	}
+	patchAnvil(t, h, "patch", "ships/"+shipKingfisherID, `{"name":"Kingfisher Twice"}`)
+
+	page := readHistory(t, h, "marshal", target)
+	if len(page.Changes) != 2 {
+		t.Fatalf("the ship's history holds %d records, want 2: %+v", len(page.Changes), page.Changes)
+	}
+	for i, record := range page.Changes {
+		stamped, ok := record.field("updatedAt")
+		if !ok {
+			t.Errorf("record %d lists %v, want updatedAt among them", i, record.names())
+
+			continue
+		}
+		var at time.Time
+		if err := json.Unmarshal(stamped.New, &at); err != nil {
+			t.Errorf("record %d: updatedAt's new value %s is no time: %v", i, stamped.New, err)
+
+			continue
+		}
+		if !at.Equal(record.At) {
+			t.Errorf("record %d: updatedAt's new value = %s, want the record's own time %s", i, at.Format(time.RFC3339Nano), record.At.Format(time.RFC3339Nano))
+		}
+	}
+
+	// Newest first: the second rename's old value is the first rename's stamp, and the
+	// first rename's is none, since the seed writes no UpdatedAt.
+	if stamped, ok := page.Changes[0].field("updatedAt"); ok {
+		var old time.Time
+		if err := json.Unmarshal(stamped.Old, &old); err != nil || !old.Equal(first.Time) {
+			t.Errorf("the second rename's updatedAt old value = %s, want the first rename's stamp %s", stamped.Old, first.Time.Format(time.RFC3339Nano))
+		}
+	}
+	if stamped, ok := page.Changes[1].field("updatedAt"); ok {
+		if got := jsonText(t, stamped.Old); got != "null" {
+			t.Errorf("the first rename's updatedAt old value = %s, want null", got)
+		}
+	}
+}
+
 // TestChangeHistory_untracked pins a resource that does not track its changes: the
 // hangars answer 404 to a reader of the hangar, and 403 to a person who may not read it.
 func TestChangeHistory_untracked(t *testing.T) {
