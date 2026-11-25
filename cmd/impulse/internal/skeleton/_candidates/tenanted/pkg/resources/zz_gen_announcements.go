@@ -38,6 +38,16 @@ func (Announcement) NameFields() []resource.NameField {
 	}
 }
 
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Announcement) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
 // announcementRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; announcementReadSets holds one Set per read operation.

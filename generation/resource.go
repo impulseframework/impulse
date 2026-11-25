@@ -495,6 +495,7 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveNameFields(r.resources); err != nil {
 		return err
 	}
+	r.resolveRecordedNames(r.resources)
 
 	if err := r.holdIdentityTenantDirectory(); err != nil {
 		return err

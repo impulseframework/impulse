@@ -92,6 +92,17 @@ func (Ship) NameFields() []resource.NameField {
 	}
 }
 
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Ship) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "HangarID", Resource: "Hangars", Tag: "name", Table: "Hangars", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "", Key: "ClassID", Resource: "ShipClasses", Tag: "designation", Table: "ShipClasses", KeyColumn: "Id", NameColumn: "Designation", TenantColumn: ""},
+	}
+}
+
 // SecretContext names what a secret of the row is bound to: its primary key, column by
 // column in key order. A stored secret opens on the row it was written for and on no
 // other (resource.Secret).

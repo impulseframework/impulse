@@ -142,6 +142,20 @@ func (Mission) NameFields() []resource.NameField {
 	}
 }
 
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Mission) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "KindID", Resource: "", Tag: "", Table: "MissionKinds", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "", Key: "RequiredCertID", Resource: "", Tag: "", Table: "Certifications", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "", Key: "AssignedSquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "StatusID", Resource: "", Tag: "", Table: "MissionStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
 // missionRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; missionReadSets holds one Set per read operation.

@@ -1518,6 +1518,9 @@ type resourceInfo struct {
 	// NameFields are the name fields the generator adds beside the resource's id fields
 	// that point to a row with a name (resolveNameFields), in field order.
 	NameFields []*nameField
+	// RecordedNames are the names the resource's change records keep: one for each field
+	// that points at a row with a name (resolveRecordedNames), in field order.
+	RecordedNames []*nameField
 	// DirectoryOnlyField is the tenant record's @directoryOnly column, the BOOL saying
 	// the tenant's people enter through its directories only; nil when the record
 	// declares none, and every tenant admits a password.

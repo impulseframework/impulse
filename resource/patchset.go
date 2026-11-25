@@ -890,6 +890,9 @@ func (p *PatchSet[Resource]) bufferChangeRecord(ctx context.Context, txn ReadWri
 	if err != nil {
 		return err
 	}
+	if err := p.keepNames(ctx, txn, tenant, changeSet); err != nil {
+		return err
+	}
 
 	rowID := p.PrimaryKey().RowID()
 	event := &DataChangeEvent{

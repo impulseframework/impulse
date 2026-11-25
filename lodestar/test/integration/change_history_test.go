@@ -499,6 +499,74 @@ func TestChangeHistory_commitTime(t *testing.T) {
 	}
 }
 
+// storedChange is one field's entry of a change record as the database holds it.
+type storedChange struct {
+	Old     any
+	New     any
+	OldName string
+	NewName string
+}
+
+// storedChangeSets reads past the API the change sets of one mission, oldest first.
+func storedChangeSets(t *testing.T, db *initiator.SpannerDB, missionID string) []map[string]storedChange {
+	t.Helper()
+
+	stmt := spanner.NewStatement("SELECT TO_JSON_STRING(ChangeSet) FROM DataChangeEvents WHERE TableName = 'Missions' AND RowId = @row ORDER BY EventTime, Sequence")
+	stmt.Params["row"] = missionID
+	var changeSets []map[string]storedChange
+	if err := db.Single().Query(t.Context(), stmt).Do(func(row *spanner.Row) error {
+		var text string
+		if err := row.Column(0, &text); err != nil {
+			return fmt.Errorf("spanner.Row.Column(): %w", err)
+		}
+		var changeSet map[string]storedChange
+		if err := json.Unmarshal([]byte(text), &changeSet); err != nil {
+			return fmt.Errorf("json.Unmarshal(): %w", err)
+		}
+		changeSets = append(changeSets, changeSet)
+
+		return nil
+	}); err != nil {
+		t.Fatalf("reading the change records of mission %s: %v", missionID, err)
+	}
+
+	return changeSets
+}
+
+// TestChangeHistory_keepsNames pins the names a mission's change records keep, as the
+// database holds them: a claim through claim-mission keeps the squadron's name beside
+// its id, though missions are listed across tenants and so have no name field for it,
+// and the frame's own stamp of the state keeps both statuses' descriptions, read from
+// the enumeration table.
+func TestChangeHistory_keepsNames(t *testing.T) {
+	t.Parallel()
+
+	_, db, h := demoWorld(t)
+	id := createMission(t, h, db, "Claimed, with names")
+	status, body := doRequestAs(t, h, "marshal", http.MethodPost, sectorPath(anvil, "claim-mission"),
+		fmt.Sprintf(`{"missionId":%q,"squadronId":%q}`, id, squadronHammerID))
+	assertStatus(t, status, http.StatusOK, body)
+
+	var squadron, state *storedChange
+	for _, changeSet := range storedChangeSets(t, db, id) {
+		if change, ok := changeSet["AssignedSquadronID"]; ok {
+			squadron = &change
+		}
+		if change, ok := changeSet["StatusID"]; ok {
+			state = &change
+		}
+	}
+	if squadron == nil || state == nil {
+		t.Fatalf("the mission's change records hold the squadron's change %v and the state's %v, want both", squadron, state)
+	}
+	if got, want := *squadron, (storedChange{Old: nil, New: squadronHammerID, OldName: "", NewName: "Hammer"}); got != want {
+		t.Errorf("the claim's AssignedSquadronID entry = %+v, want %+v", got, want)
+	}
+	if got, want := *state, (storedChange{Old: "open", New: "claimed", OldName: "Open", NewName: "Claimed"}); got != want {
+		t.Errorf("the stamp's StatusID entry = %+v, want %+v", got, want)
+	}
+}
+
 // TestChangeHistory_untracked pins a resource that does not track its changes: the
 // hangars answer 404 to a reader of the hangar, and 403 to a person who may not read it.
 func TestChangeHistory_untracked(t *testing.T) {

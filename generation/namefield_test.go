@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"go/format"
 	"slices"
 	"strings"
 	"testing"
@@ -53,6 +54,7 @@ func nameFixtureTables() map[string]*tableMetadata {
 		"Detours":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "CrateId": to("Crates")}},
 		"Astrays":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings")}},
 		"Badges":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": indexed}},
+		"Waybills": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "KitId": to("Kits")}},
 		"Manifests": {PkCount: 1, Columns: map[string]columnMeta{
 			"Id": pk, "BaseId": to("Bases"), "HangarId": indexed, "BeaconId": indexed, "PatrolId": indexed,
 		}},
@@ -211,6 +213,146 @@ func Test_resolveNameFields(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_recordedNames pins the names a resource's change records keep: one beside every
+// field that points at a row with a name, found as a name field is, but for a resource
+// listed across tenants, which is described where it has no name field, a field no name
+// field could stand beside, which is described, and a view, which is not; and the
+// RecordedNames method the generated set renders from them.
+func Test_recordedNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		structs  []string
+		resource string
+		want     []string
+	}{
+		{
+			name:     "each kind of row a tenant's resource points at, but a view, and none for a resource with no name",
+			structs:  []string{"Base", "Wing", "Kit", "Crate", "Member", "Permit"},
+			resource: "Permit",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "", Key: "WingID", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "", Key: "LeadWing", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`,
+				`{Field: "", Key: "Grade", Resource: "", Tag: "", Table: "Grades", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "a resource listed across tenants is described where it has no name field",
+			structs:  []string{"Base", "Wing", "Kit", "Ledger"},
+			resource: "Ledger",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "", Key: "WingID", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`,
+				`{Field: "", Key: "Grade", Resource: "", Tag: "", Table: "Grades", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "two fields no name field could stand beside are each described",
+			structs:  []string{"Base", "Wing", "Pair"},
+			resource: "Pair",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "", Key: "WingID", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "", Key: "Wing", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+			},
+		},
+		{
+			name:     "a row reached through another table is held to the tenant by that way",
+			structs:  []string{"Base", "Wing", "Bay", "Berth"},
+			resource: "Berth",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "", Key: "BayID", Resource: "Bays", Tag: "code", Table: "Bays", KeyColumn: "Id", NameColumn: "Code", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "BaseId"}}}`,
+			},
+		},
+		{
+			name:     "views alone: none",
+			structs:  []string{"Base", "Hangar", "Beacon", "Patrol", "Manifest"},
+			resource: "Manifest",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "an input-only field: none",
+			structs:  []string{"Base", "Kit", "Waybill"},
+			resource: "Waybill",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "a tenant's row pointed at from a resource of no tenant: none",
+			structs:  []string{"Base", "Wing", "Kit", "Stock"},
+			resource: "Stock",
+			want:     []string{`{Field: "", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`},
+		},
+		{
+			name:     "a view keeps no change records",
+			structs:  []string{"Kit", "Roster"},
+			resource: "Roster",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// A name field the struct cannot take is refused (Pair), which leaves the
+			// names its change records keep to be described all the same.
+			c, _ := nameFixtureResources(t, tt.structs...)
+			c.resolveRecordedNames(c.resources)
+			var got []string
+			for _, res := range c.resources {
+				if res.Name() != tt.resource {
+					continue
+				}
+				for _, name := range res.RecordedNames {
+					got = append(got, name.GoLiteral())
+				}
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("recorded names of %s mismatch (-want +got):\n%s", tt.resource, diff)
+			}
+		})
+	}
+
+	t.Run("the generated set names them, and a resource with none declares no method", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := nameFixtureResources(t, "Base", "Kit", "Waybill", "Stock")
+		if err != nil {
+			t.Fatalf("nameFixtureResources() error = %v", err)
+		}
+		c.resolveRecordedNames(c.resources)
+		for _, res := range c.resources {
+			out, err := c.generateTemplateOutput("resourceFile", resourceFileTemplate, &resourceFileData{Source: "fixture", Package: "resources", Resource: res})
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(%s) error = %v", res.Name(), err)
+			}
+			formatted, err := format.Source(out)
+			if err != nil {
+				t.Fatalf("format.Source() error = %v on:\n%s", err, out)
+			}
+			switch res.Name() {
+			case "Stock":
+				want := "func (Stock) RecordedNames() []resource.NameField {\n\treturn []resource.NameField{\n\t\t" +
+					`{Field: "", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}` + ",\n\t}\n}"
+				if !strings.Contains(string(formatted), want) {
+					t.Errorf("Stock's resource file: want\n%s\nin\n%s", want, formatted)
+				}
+			case "Kit":
+				if strings.Contains(string(formatted), "RecordedNames") {
+					t.Errorf("Kit points at no row and declares RecordedNames:\n%s", formatted)
+				}
+			}
+		}
+	})
 }
 
 // Test_nameFieldFeatures pins the flags a name stands behind: the pointed-to

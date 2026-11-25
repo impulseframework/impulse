@@ -90,16 +90,24 @@ func (d *DataChangeEvent) PrimaryKey() KeySet {
 // with neither value: Secret is set, and Old and New stay empty, so a change record says
 // that a password or a key was set and never what it was or is. A field set to the
 // commit's own time is recorded with its old value and CommitTime set, since the moment is
-// the record's own EventTime and is not known before the commit.
+// the record's own EventTime and is not known before the commit. A field that points at
+// another row is recorded with that row's name beside each value (OldName, NewName), as it
+// was when the change was made: the value is an id, and the name behind an id is lost once
+// the row is renamed or deleted.
 type DiffElem struct {
 	Old any
 	New any
+	// OldName and NewName are the names of the rows Old and New point at, each as it
+	// was when the change was made; empty where the field points at no row, the row's
+	// resource declares no name, or no one row was found.
+	OldName string `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, OldName, NewName, Secret and CommitTime
+	NewName string `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, OldName, NewName, Secret and CommitTime
 	// Secret marks the change of a secret field, whose values are not kept. Its key is
 	// spelled as Old and New are, which carry no tag and so are stored under their names.
-	Secret bool `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, Secret and CommitTime
+	Secret bool `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, OldName, NewName, Secret and CommitTime
 	// CommitTime marks a value set to the commit's own time: the moment is not known when
 	// the record is written, so New stays empty, and the record's EventTime is that value.
-	CommitTime bool `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, Secret and CommitTime
+	CommitTime bool `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, OldName, NewName, Secret and CommitTime
 }
 
 type jsonFieldName string

@@ -239,6 +239,17 @@ type (
 		Wing   impulse.UUID `spanner:"Wing"` // @enumerate(Wings)
 	}
 
+	// Waybill points at a named resource through a field the server never returns.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Waybill struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID impulse.UUID `spanner:"BaseId"`
+		KitID  impulse.UUID `spanner:"KitId" conditions:"input_only"`
+	}
+
 	// Counted marks a number as its name.
 	//
 	// @resource

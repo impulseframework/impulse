@@ -308,18 +308,58 @@ func (r *resourceInfo) checkNameFieldFree(name *nameField) error {
 	return nil
 }
 
+// resolveRecordedNames describes, for every resource, the names its change records keep:
+// one beside every field that points at a row with a name (recordedNameOf). It runs
+// where resolveNameFields does, for the same reason.
+func (c *client) resolveRecordedNames(resources []*resourceInfo) {
+	byName := make(map[string]*resourceInfo, len(resources))
+	for _, res := range resources {
+		byName[c.pluralize(res.Name())] = res
+	}
+	for _, res := range resources {
+		res.RecordedNames = nil
+		if res.IsVirtual {
+			// A view's rows are read, never written, so it keeps no change records.
+			continue
+		}
+		for _, field := range res.Fields {
+			if name := c.recordedNameOf(res, field, byName); name != nil {
+				res.RecordedNames = append(res.RecordedNames, name)
+			}
+		}
+	}
+}
+
 // nameFieldOf is the name field the generator adds beside field, nil where it adds
 // none: the field points to no row, the row it points to has no name, or the name
 // could not be held to the request's tenant. The pointed-to resource may be a view,
 // whose name is read from the view's query (View): a view binds its tenant on a column
 // of its own, never through other tables.
 func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map[string]*resourceInfo) *nameField {
-	target, ok := pointedToResource(field)
-	if !ok || field.IsInputOnly() {
-		return nil
-	}
 	goName, ok := nameFieldName(field.Name())
 	if !ok {
+		return nil
+	}
+
+	return c.pointedName(res, field, byName, goName)
+}
+
+// recordedNameOf is the name a change record of res keeps beside field, nil where it
+// keeps none. It is found as nameFieldOf finds a name field, but for three things: a
+// resource listed across tenants is described like any other, since a write is of one
+// row in that row's tenant; the description needs no name of its own, so Field is empty
+// whatever the field is called; and a pointed-to resource that is a view is not
+// described.
+func (c *client) recordedNameOf(res *resourceInfo, field *resourceField, byName map[string]*resourceInfo) *nameField {
+	return c.pointedName(res, field, byName, "")
+}
+
+// pointedName is the name of the row field points to, nil where there is none: the name
+// field called goName, or, where goName is empty, the name a change record keeps.
+func (c *client) pointedName(res *resourceInfo, field *resourceField, byName map[string]*resourceInfo, goName string) *nameField {
+	listed := goName != ""
+	target, ok := pointedToResource(field)
+	if !ok || field.IsInputOnly() {
 		return nil
 	}
 	name := &nameField{key: field}
@@ -343,12 +383,16 @@ func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map
 	if name.source == nil || !keyed {
 		return nil
 	}
+	if !listed && pointed.IsVirtual {
+		// A view's name comes out of the view's query, which a write does not run.
+		return nil
+	}
 	if pointed.IsDomainScoped() {
 		// The name of a tenant's row is read under that tenant alone, so the list
-		// reading it must be asked inside one tenant. The pointed-to row is held to
-		// it by its tenant column, or by the way it reaches its tenant through
-		// other tables.
-		if pointed.DomainBinding == nil || pointed.DomainBinding.Anchor == nil || !res.IsDomainScoped() || res.ListsAcrossTenants {
+		// reading it must be asked inside one tenant, and the write keeping it is of
+		// one row in its own tenant. The pointed-to row is held to it by its tenant
+		// column, or by the way it reaches its tenant through other tables.
+		if pointed.DomainBinding == nil || pointed.DomainBinding.Anchor == nil || !res.IsDomainScoped() || (listed && res.ListsAcrossTenants) {
 			return nil
 		}
 		name.TenantColumn = fieldColumn(pointed.DomainBinding.Anchor)

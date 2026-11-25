@@ -133,6 +133,7 @@ func TestDataChangeEventsDDL(t *testing.T) {
 	for _, path := range []string{
 		"testdata/patchfork/schema/000001_patch_fork_fixture.up.sql",
 		"testdata/changetenant/schema/000001_change_tenant_fixture.up.sql",
+		"testdata/recordednames/schema/000001_recorded_names_fixture.up.sql",
 	} {
 		t.Run("the fixture migration is the Spanner statements for 365 days: "+path, func(t *testing.T) {
 			t.Parallel()
