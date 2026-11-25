@@ -40,4 +40,5 @@ const (
 	DeviceCodesTable    = "SessionDeviceCodes"
 	AuthEventsTable     = "SessionAuthEvents"
 	ImpersonationsTable = "SessionImpersonations"
+	AuditRecordsTable   = "SessionAuditRecords"
 )

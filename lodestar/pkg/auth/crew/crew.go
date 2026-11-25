@@ -124,10 +124,11 @@ const (
 	// view-as or act-as-role session carries who established it, the sign-in attempts
 	// the password method's attempt limiter counts per sign-in name, the mail links
 	// (the invitations, verifications and sign-ups the auth mails, each a single-use
-	// token), and the second factor's: the sign-in codes mailed for a pending sign-in
-	// and the browsers people asked to be remembered. The names are spelled out in full
-	// (not TablePrefix + "SessionUsers") so the tool's session-tables check, which
-	// reads the literals, finds their migrations.
+	// token), the audit records (the auth's audit log: one row for each act that changes
+	// an account, who holds what, or how people sign in), and the second factor's: the
+	// sign-in codes mailed for a pending sign-in and the browsers people asked to be
+	// remembered. The names are spelled out in full (not TablePrefix + "SessionUsers") so
+	// the tool's session-tables check, which reads the literals, finds their migrations.
 	sessionsTable       = "CrewSessions"
 	usersTable          = "CrewSessionUsers"
 	identitiesTable     = "CrewSessionIdentities"
@@ -136,6 +137,7 @@ const (
 	attemptsTable       = "CrewSessionSignInAttempts"
 	methodsTable        = "CrewSessionSignInMethods"
 	signInSettingsTable = "CrewSessionSignInSettings"
+	auditRecordsTable   = "CrewSessionAuditRecords"
 	mailLinksTable      = "CrewSessionMailLinks"
 	factorCodesTable    = "CrewSessionFactorCodes"
 	trustedDevicesTable = "CrewSessionTrustedDevices"
@@ -740,6 +742,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithSignInAttemptsTableName(attemptsTable),
 		session.WithSignInMethodsTableName(methodsTable),
 		session.WithSignInSettingsTableName(signInSettingsTable),
+		session.WithAuditRecordsTableName(auditRecordsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),

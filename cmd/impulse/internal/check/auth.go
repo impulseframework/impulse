@@ -111,13 +111,14 @@ func issuingAuths(a *app.App, p *app.Profile) map[string]bool {
 }
 
 // authTables lists the tables one construction reads: the mail links, sign-in codes and
-// trusted devices tables among them, since every Auth sends mail, and the tokens and
-// device codes tables when a machine outlet names the Auth as its issuer (issues), since
-// an Auth that issues no tokens never opens them.
+// trusted devices tables among them, since every Auth sends mail, the audit records
+// table, which every Auth writes its audit log to, and the tokens and device codes tables
+// when a machine outlet names the Auth as its issuer (issues), since an Auth that issues
+// no tokens never opens them.
 func authTables(auth *app.Auth, issues bool) []string {
 	tables := []string{
 		auth.SessionTable, auth.UserTable, auth.IdentitiesTable, auth.PendingTable, auth.AttemptsTable, auth.SignInMethodsTable, auth.SignInSettingsTable,
-		auth.MailLinksTable, auth.FactorCodesTable, auth.TrustedDevicesTable,
+		auth.MailLinksTable, auth.FactorCodesTable, auth.TrustedDevicesTable, auth.AuditRecordsTable,
 	}
 	if issues {
 		tables = append(tables, auth.TokensTable, auth.DeviceCodesTable)

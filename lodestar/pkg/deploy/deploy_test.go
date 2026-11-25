@@ -8,6 +8,7 @@ import (
 
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -160,6 +161,28 @@ func TestChangeHistoryMigration(t *testing.T) {
 	for _, stmt := range statements {
 		if !strings.Contains(string(migration), stmt+";") {
 			t.Errorf("the migration does not carry the statement:\n%s", stmt)
+		}
+	}
+}
+
+// TestAuditRecordsMigration pins the audit records table of each of Lodestar's two auths
+// to the library's statements for it, under the auth's prefix, kept forever.
+func TestAuditRecordsMigration(t *testing.T) {
+	t.Parallel()
+
+	migration, err := os.ReadFile("../../schema/migrations/000001_Baseline.up.sql")
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	for _, prefix := range []string{"Crew", "Members"} {
+		statements := auditlog.SpannerDDL(prefix+"SessionAuditRecords", auditlog.KeepForever())
+		if len(statements) != 3 {
+			t.Fatalf("auditlog.SpannerDDL(%sSessionAuditRecords, KeepForever()) declares %d statements, want 3", prefix, len(statements))
+		}
+		for _, stmt := range statements {
+			if !strings.Contains(string(migration), stmt+";") {
+				t.Errorf("the migration does not carry the statement:\n%s", stmt)
+			}
 		}
 	}
 }

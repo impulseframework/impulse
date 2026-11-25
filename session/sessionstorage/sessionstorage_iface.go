@@ -241,6 +241,8 @@ type db interface {
 	SetSelfServiceReset(ctx context.Context, method string, on bool) error
 	// SetSignInSettingsTableName sets the name of the sign-in settings table.
 	SetSignInSettingsTableName(name string) error
+	// SetAuditRecordsTableName sets the name of the audit records table.
+	SetAuditRecordsTableName(name string) error
 	// SignInSettings reads the Auth's row of the sign-in settings table, or nil when there is none.
 	SignInSettings(ctx context.Context) (*dbtype.SignInSettings, error)
 	// SetRequireSecondFactor writes whether everyone is asked for a second factor, and leaves

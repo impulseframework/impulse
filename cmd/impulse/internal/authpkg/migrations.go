@@ -3,6 +3,8 @@ package authpkg
 import (
 	"fmt"
 	"strings"
+
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 // Migration is one migration of an auth's session tables: its stem after the sequence
@@ -186,7 +188,7 @@ CREATE INDEX %[1]sSessionIdentitiesByUserId ON %[1]sSessionIdentities(UserId) ST
 -- method, its registration, and the provider's own amr claims). Not interleaved: an
 -- interleaved child's key must begin with the parent's, so the events reference their
 -- session through a cascading foreign key instead.
-`, p, who, guidCheck) + eventsUp(p, who) + signInSettingsUp(p) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
+`, p, who, guidCheck) + eventsUp(p, who) + signInSettingsUp(p) + auditRecordsUp(p, who) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
 }
 
 // eventsUp creates the auth events, pending sign-ins, sign-in attempts and sign-in
@@ -295,7 +297,7 @@ CREATE TABLE %[1]sSessionSignInMethods (
 }
 
 // signInSettingsUp creates the sign-in settings table, the next part of the sessions
-// migration; mailLinksUp follows it.
+// migration; auditRecordsUp follows it.
 func signInSettingsUp(p string) string {
 	return fmt.Sprintf(`-- The sign-in settings: what an administrator chose, in the running application, for the
 -- whole auth. The table holds at most one row, the Auth's, under the one name it takes
@@ -313,6 +315,23 @@ CREATE TABLE %[1]sSessionSignInSettings (
 ) PRIMARY KEY (Name);
 
 `, p)
+}
+
+// auditRecordsUp creates the audit records table, the next part of the sessions migration;
+// mailLinksUp follows it. Its statements are the auditlog package's, the ones the session
+// library's schema sets create, kept forever: an application that keeps its audit records
+// for a period adds the row deletion policy in a migration of its own.
+func auditRecordsUp(p, who string) string {
+	return fmt.Sprintf(`-- The %[1]s auth's audit log: one row for each act that changes an account, who holds
+-- what, or how people sign in. A row holds parts and no sentence: when, the act by its
+-- fixed name, who acted, whom or what it was done to, the tenant it was done in, the role,
+-- the group, the old and new value and the period where the act has them, and the reason
+-- where there was one. Each name is kept as it was when the act happened, beside its id.
+-- No row holds a password, a token, a code or a link. Rows are written by the library
+-- alone and never changed. An application that keeps them for a period adds the row
+-- deletion policy the auditlog package gives (Spanner); on PostgreSQL the store removes
+-- them as it writes.
+`, who) + strings.Join(auditlog.SpannerDDL(p+"SessionAuditRecords", auditlog.KeepForever()), ";\n\n") + ";\n\n"
 }
 
 // mailLinksUp creates the mail links table, the next part of the sessions migration;
@@ -533,6 +552,9 @@ func sessionsDown(p string) string {
 		"DROP INDEX %[1]sSessionMailLinksByKind;",
 		"DROP INDEX %[1]sSessionMailLinksByTokenHash;",
 		"DROP TABLE %[1]sSessionMailLinks;",
+		"DROP INDEX %[1]sSessionAuditRecordsByTenant;",
+		"DROP INDEX %[1]sSessionAuditRecordsByCreatedAt;",
+		"DROP TABLE %[1]sSessionAuditRecords;",
 		"DROP TABLE %[1]sSessionSignInSettings;",
 		"DROP TABLE %[1]sSessionSignInMethods;",
 		"DROP TABLE %[1]sSessionSignInAttempts;",

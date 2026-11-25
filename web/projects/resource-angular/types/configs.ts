@@ -1131,7 +1131,9 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   shouldRenderActions?: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   /**
    * Show the server's total row count in the title. The count comes with the list's first
-   * answer, so a title that carries it is drawn with the rows and not before.
+   * answer, so a title that carries it is drawn with the rows and not before. Where false,
+   * the list asks the server for no total and its pager names the rows it shows without
+   * one; the search box still asks for the rows that match while its text is committed.
    */
   showRowCount?: boolean;
   /**

@@ -90,14 +90,16 @@ const (
 	// sign-in methods (what an administrator chose for each: open to sign-up, or invite
 	// only, which a method with no row is), the sign-in settings (whether everyone is asked
 	// for a second factor, and how long a browser is remembered: with no row, required and
-	// 30 days), and the mail links: the invitations, address verifications and sign-ups
-	// the auth mails, each a single-use token its follower proves; the tokens: the bearer
-	// credentials of the machine outlets whose tokens this auth issues (the application
-	// tokens its people issue and the access and refresh tokens of the device grants they
-	// approve); the device codes: the device authorizations command-line clients wait on;
-	// and the second factor's tables: the sign-in codes mailed to people and the browsers
-	// they asked to be remembered. The names are spelled out in full so the tool's
-	// session-tables check, which reads the literals, finds their migrations.
+	// 30 days), the audit records (the auth's audit log: one row for each act that changes
+	// an account, who holds what, or how people sign in), and the mail links: the
+	// invitations, address verifications and sign-ups the auth mails, each a single-use
+	// token its follower proves; the tokens: the bearer credentials of the machine outlets
+	// whose tokens this auth issues (the application tokens its people issue and the access
+	// and refresh tokens of the device grants they approve); the device codes: the device
+	// authorizations command-line clients wait on; and the second factor's tables: the
+	// sign-in codes mailed to people and the browsers they asked to be remembered. The names
+	// are spelled out in full so the tool's session-tables check, which reads the literals,
+	// finds their migrations.
 	sessionsTable       = "MembersSessions"
 	usersTable          = "MembersSessionUsers"
 	identitiesTable     = "MembersSessionIdentities"
@@ -106,6 +108,7 @@ const (
 	attemptsTable       = "MembersSessionSignInAttempts"
 	methodsTable        = "MembersSessionSignInMethods"
 	signInSettingsTable = "MembersSessionSignInSettings"
+	auditRecordsTable   = "MembersSessionAuditRecords"
 	mailLinksTable      = "MembersSessionMailLinks"
 	tokensTable         = "MembersSessionTokens"
 	deviceCodesTable    = "MembersSessionDeviceCodes"
@@ -403,6 +406,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithSignInAttemptsTableName(attemptsTable),
 		session.WithSignInMethodsTableName(methodsTable),
 		session.WithSignInSettingsTableName(signInSettingsTable),
+		session.WithAuditRecordsTableName(auditRecordsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
