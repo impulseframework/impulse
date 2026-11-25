@@ -4,7 +4,14 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { Router } from '@angular/router';
-import { ApiDescriptor, FieldMeta, Resource, ResourceMeta, TenantCreationDescriptor } from '@impulseframework/resource';
+import {
+  ApiDescriptor,
+  FieldMeta,
+  MethodWarning,
+  Resource,
+  ResourceMeta,
+  TenantCreationDescriptor,
+} from '@impulseframework/resource';
 import { Place, PlaceService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
@@ -39,6 +46,7 @@ const metas: Record<string, ResourceMeta> = {
 const descriptorOf = (
   fields: TenantCreationDescriptor['fields'] | undefined,
   word: { one: string; many: string } | null = { one: 'Office', many: 'Offices' },
+  typed?: string,
 ): ApiDescriptor => ({
   permissionDigestRoute: 'permission-digest',
   userDomainsRoute: 'user-domains',
@@ -46,8 +54,30 @@ const descriptorOf = (
   resources: {},
   methods: {},
   domainRoute: { segment: 'offices', param: 'officeID', ...(word ? { word } : {}) },
-  ...(fields ? { tenantCreation: { route: 'create-office', resource: offices, key: 'id', fields } } : {}),
+  ...(fields
+    ? {
+        tenantCreation: {
+          route: 'create-office',
+          resource: offices,
+          key: 'id',
+          fields,
+          ...(typed ? { warning: { typed } } : {}),
+        },
+      }
+    : {}),
 });
+
+// The statement the offer answers where the creation would take the organization's
+// directory the person signed in through, in the server's words.
+const statement: MethodWarning = {
+  consequence: 'You are stating that you are authorized to act on behalf of Acme.',
+  also: [
+    {
+      says: 'From now on, people at Acme who sign in through it and have no account here are sent to the office you are creating. They get in by your invitation, or with a starting role if you open the office to them. No other office can use Acme.',
+    },
+  ],
+  confirm: 'Create the office with Acme as its directory',
+};
 
 interface Opened {
   fixture: ComponentFixture<CreateTenantDialogComponent>;
@@ -108,6 +138,12 @@ const settled = async (o: Opened): Promise<void> => {
   o.fixture.detectChanges();
   await o.fixture.whenStable();
   o.fixture.detectChanges();
+};
+const type = async (o: Opened, words: string): Promise<void> => {
+  const input = element(o).querySelector('.typed-word input') as HTMLInputElement;
+  input.value = words;
+  input.dispatchEvent(new Event('input'));
+  await settled(o);
 };
 
 describe('CreateTenantDialogComponent', () => {
@@ -227,6 +263,86 @@ describe('CreateTenantDialogComponent', () => {
     o.http.expectOne('/console/api/create-office').flush(null, { status: 409, statusText: 'Conflict' });
     await taken;
     expect(o.component.refusal()).toBe('A unit named West already exists. Choose another name.');
+  });
+});
+
+describe('CreateTenantDialogComponent, where the creation may take a directory', () => {
+  it('asks the offer once on opening, draws its statement, and holds Create until the phrase is typed, in any case', async () => {
+    const o = await open(descriptorOf([{ name: 'name', required: true }], undefined, 'I am authorized'));
+    const asked = o.http.expectOne('/console/api/create-office');
+    expect(asked.request.method).toBe('GET');
+    o.component.form.controls['name'].setValue('West');
+    await settled(o);
+    // Held until the offer has answered.
+    expect(createButton(o).disabled).toBe(true);
+
+    asked.flush({ offered: true, warning: statement });
+    await settled(o);
+    expect(element(o).querySelector('.warning')?.getAttribute('role')).toBe('alert');
+    expect(text(o, '.warning-consequence')).toBe('You are stating that you are authorized to act on behalf of Acme.');
+    expect(texts(o, '.warning-note')).toEqual([statement.also?.[0]?.says]);
+    expect(text(o, '.typed-word mat-label')).toBe('Type I am authorized to confirm');
+    expect(createButton(o).textContent?.trim()).toBe('Create the office with Acme as its directory');
+    // The statement stands above the fields.
+    const order = [...element(o).querySelectorAll('.warning, [data-field="name"], .typed-word')].map((drawn) =>
+      drawn.matches('.warning') ? 'statement' : drawn.matches('.typed-word') ? 'phrase' : 'name',
+    );
+    expect(order).toEqual(['statement', 'name', 'phrase']);
+    expect(createButton(o).disabled).toBe(true);
+
+    await type(o, 'i am');
+    expect(createButton(o).disabled).toBe(true);
+    await type(o, '  i AM Authorized ');
+    expect(createButton(o).disabled).toBe(false);
+
+    const created = o.component.create();
+    const request = o.http.expectOne('/console/api/create-office');
+    // The phrase is the browser's to hold: the body carries the fields alone.
+    expect([request.request.method, request.request.body]).toEqual(['POST', { name: 'West' }]);
+    request.flush({ id: 'o-1' });
+    await created;
+    expect(o.events).toEqual([['permissions read'], ['close', 'o-1'], ['opened', '/offices/o-1/home']]);
+    o.http.verify();
+  });
+
+  it('is as it is without a directory where the offer answers no statement', async () => {
+    const o = await open(descriptorOf([{ name: 'name', required: true }], undefined, 'I am authorized'));
+    o.http.expectOne('/console/api/create-office').flush({ offered: true });
+    o.component.form.controls['name'].setValue('West');
+    await settled(o);
+    expect(element(o).querySelector('.warning')).toBeNull();
+    expect(element(o).querySelector('.typed-word')).toBeNull();
+    expect(texts(o, 'mat-dialog-actions button')).toEqual(['Cancel', 'Create office']);
+    expect(createButton(o).disabled).toBe(false);
+
+    const created = o.component.create();
+    o.http.expectOne('/console/api/create-office').flush({ id: 'o-1' });
+    await created;
+    expect(o.events.map(([what]) => what)).toEqual(['permissions read', 'close', 'opened']);
+    o.http.verify();
+  });
+
+  it('shows a failed ask as a failed create is shown, and holds Create', async () => {
+    const o = await open(descriptorOf([{ name: 'name', required: true }], undefined, 'I am authorized'));
+    o.http
+      .expectOne('/console/api/create-office')
+      .flush({ message: 'The application cannot answer now.' }, { status: 503, statusText: 'Service Unavailable' });
+    o.component.form.controls['name'].setValue('West');
+    await settled(o);
+    expect(text(o, '.refusal')).toBe('The application cannot answer now.');
+    expect(createButton(o).disabled).toBe(true);
+    await o.component.create();
+    o.http.expectNone('/console/api/create-office');
+  });
+
+  it('asks nothing where the description carries no phrase', async () => {
+    const o = await open(descriptorOf([{ name: 'name', required: true }]));
+    o.http.expectNone('/console/api/create-office');
+    expect(element(o).querySelector('.warning')).toBeNull();
+    expect(element(o).querySelector('.typed-word')).toBeNull();
+    o.component.form.controls['name'].setValue('West');
+    await settled(o);
+    expect(createButton(o).disabled).toBe(false);
   });
 });
 

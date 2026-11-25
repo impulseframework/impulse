@@ -423,6 +423,11 @@ type tenantCreationDirectory struct {
 	// TenantValue is the new tenant's id as the directories record's tenant column takes
 	// it: the id itself where the column is an id, its text where the column is a string.
 	TenantValue string
+	// Rules is the expression of the rules of a tenant's directory the route's GET says
+	// the statement by (resource.TenantDirectoryRules.TakeDirectoryWarning): the ones
+	// the directories record's write paths ask, named by the program's auths, so the
+	// statement names the directory as their refusals do.
+	Rules string
 }
 
 func (d *tenantCreationData) typeImports() []fixerImport {
@@ -540,6 +545,7 @@ func tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory 
 	return &tenantCreationDirectory{
 		Record:      directories.Name(),
 		TenantValue: tenantValueFor(directories.DomainBinding.Anchor),
+		Rules:       directories.DirectoryRules(),
 	}
 }
 
@@ -668,6 +674,11 @@ type tsTenantCreation struct {
 	// Resource is the tenant record's resource, whose metadata says how a page draws each
 	// field of the body.
 	Resource string
+	// Typed is the phrase a person types under the statement in front of a creation that
+	// takes their organization's directory (resource.TakeDirectoryPhrase), where the
+	// package declares a tenant's directories; empty where it declares none, and the
+	// creation never takes one.
+	Typed string
 }
 
 // tenantCreationClientData is the create-your-tenant block of a client generated for
@@ -676,10 +687,13 @@ type tsTenantCreation struct {
 // builds it (buildUnifiedTypescriptGenerator): the record as this target parsed it
 // carries none.
 func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
-	var record *resourceInfo
+	var record, directories *resourceInfo
 	for _, res := range t.resources {
-		if res.IsTenant {
+		switch {
+		case res.IsTenant:
 			record = res
+		case res.IsTenantDirectory:
+			directories = res
 		}
 	}
 	if record == nil || !t.tenantCreation.SelfService() || !record.OnOutlet(t.targetOutlet()) {
@@ -703,6 +717,12 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 		default:
 			out.Fields = append(out.Fields, newTSAPIField(field, field.IsRequired()))
 		}
+	}
+	// A creation takes the directory its creator signed in through only where the
+	// package declares a tenant's directories; whether this one does is the offer's to
+	// answer, which the dialog asks where the phrase is carried.
+	if directories != nil {
+		out.Typed = resource.TakeDirectoryPhrase
 	}
 
 	return out
