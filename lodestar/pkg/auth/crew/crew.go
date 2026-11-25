@@ -899,8 +899,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// seat too, at their next sign-in through the directory, where they hold nothing in
 	// the sector: a persona who signs in through the fleet's directory for the first time
 	// and confirms with their password is seated at Cinder then. A role a marshal removes
-	// is given again at the person's next sign-in through the directory, and a role with
-	// no privileges keeps a person out. A directory no sector has falls to
+	// is given again at the person's next sign-in through the directory, and disabling
+	// the account keeps a person out. A directory no sector has falls to
 	// the registration's rule as before (the pioneer's sign-up, a personal account,
 	// which is no sector's directory). The crew's roles are the application's, so the
 	// admission is set on this auth; an auth whose directory writes the roles (the

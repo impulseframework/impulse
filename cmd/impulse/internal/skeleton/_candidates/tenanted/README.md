@@ -173,7 +173,7 @@ organization's directory; the directory of a tenant that is directory only is no
 removed. A person who signs in through the directory and holds nothing in the tenant is
 given the directory's default role, at every sign-in, whether their account is created
 then or stood before; a person the tenant's administrator removes is given it again at
-their next sign-in through the directory, and a role with no privileges keeps one person
+their next sign-in through the directory, and disabling their account keeps one person
 out. The staff auth's google registration admits any
 Workspace account (its domain is the connection of the tenant's directory) beside any
 Google account.

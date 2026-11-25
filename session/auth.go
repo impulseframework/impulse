@@ -865,7 +865,7 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 // whether the link is made then or stood before. It gives a seat only where the person
 // holds nothing in the tenant: a person who holds anything there keeps what they hold.
 // So a person an administrator removed from the tenant is given the default seat again
-// the next time they sign in through the directory; a role with no privileges keeps one
+// the next time they sign in through the directory; disabling their account keeps one
 // person out while the tenant is open, and making the tenant invite only keeps everyone
 // out who is not invited. A seat the invitation this sign-in consumes names too (the
 // same role in the same tenant) is not among seats: InvitationAcceptedHook gives it, in
