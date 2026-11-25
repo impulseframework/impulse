@@ -782,9 +782,10 @@ A tenant's Sign-in page, which the tenanted skeletons carry, reads who the perso
 through from the session the `AuthService` last checked: `sessionInfo().directory` is the
 organization's directory the session came through, its sign-in method and its connection
 (`SessionDirectory`), and is absent for a session that came by password or with a personal
-account. A tenant's directory is never typed in: the page offers a person who has one, and who may
-set the tenant's directory, to make it the tenant's, with a create that names no directory, since
-the server sets the one the session came through.
+account. A tenant's directory is never typed in: the page offers a person who has one, and who holds
+the tenant's method that takes it, to make it the tenant's, behind the statement that they are
+authorized to act for the organization. The request names no directory, since the server takes the
+one the session came through.
 
 ## Tokens
 

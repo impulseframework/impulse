@@ -166,8 +166,10 @@ tenant, accepted through an organization's directory, sets it as the tenant is m
 refusing an organization that already has a tenant; a tenant made through the
 create-your-tenant route takes none, and afterwards the page offers an administrator who is
 signed in through their organization's directory to make it the tenant's ("Make
-acme.example this tenant's directory"), with a create that names no directory, since the
-server sets the one the session came through. A session that came by password is
+acme.example this tenant's directory"), with the tenant's own method, behind the
+statement that they are authorized to act for the organization; the request names no
+directory, since the server takes the one the session came through. A session that came
+by password is
 offered no such action and its call is refused, as is a personal account, which is no
 organization's directory; the directory of a tenant that is directory only is not
 removed. A person who signs in through the directory and holds nothing in the tenant is
