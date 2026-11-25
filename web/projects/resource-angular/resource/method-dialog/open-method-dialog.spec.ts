@@ -1,5 +1,11 @@
 import { MatDialog } from '@angular/material/dialog';
-import { Method, MethodMeta, MethodPresentation, nameInWords } from '@impulseframework/resource-angular/types';
+import {
+  Method,
+  MethodMeta,
+  MethodPresentation,
+  nameInWords,
+  RecordData,
+} from '@impulseframework/resource-angular/types';
 import { of } from 'rxjs';
 import { OfferedMethod } from '../row-methods/row-methods';
 import { MethodDialogData } from './method-dialog.component';
@@ -91,5 +97,26 @@ describe('openMethodDialog', () => {
     expect(opened[0].says).toBe('The person is mailed a link to set a new password.');
     openMethodDialog(dialog, offered({ labels: { domain: 'Sector' } }));
     expect('says' in opened[1]).toBe(false);
+  });
+
+  it("asks the page's question of the row, with the metadata the offered method carries", () => {
+    const opened: MethodDialogData[] = [];
+    const dialog = {
+      open: (_component: unknown, config: { data: MethodDialogData }) => {
+        opened.push(config.data);
+        return { afterClosed: () => of(undefined) };
+      },
+    } as unknown as MatDialog;
+    const meta = { warning: {} } as MethodMeta;
+    const told: unknown[][] = [];
+    const confirm = (row: RecordData, listed?: readonly RecordData[], warned?: MethodMeta): string => {
+      told.push([row, listed, warned]);
+      return warned?.warning ? 'Send it?' : 'Send it? The person is mailed a link.';
+    };
+    const row: RecordData = { id: 'u-1' };
+    openMethodDialog(dialog, { ...offered({ confirm }), meta }, row);
+    expect(told).toEqual([[row, undefined, meta]]);
+    expect(told[0]?.[2]).toBe(meta);
+    expect(opened[0].confirm).toBe('Send it?');
   });
 });

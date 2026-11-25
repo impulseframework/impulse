@@ -1132,7 +1132,7 @@ the login page's sentence) and no account is created, unless they followed an
 invitation. A person whose account stood before (a password persona, or someone another
 sector invited) is given the seat at their next sign-in through the directory, where they
 hold nothing in the sector: a seat a marshal removed is given again at the person's next
-sign-in, and a role with no privileges keeps a person out. The crew auth reads the
+sign-in, and disabling the account keeps a person out. The crew auth reads the
 sectors' directories with their seats through the generated
 `app.NewSectorDirectoryReader` (`SetDirectoryAdmission`, with the seat written by the
 auth's generated identity client in the sign-in's transaction,

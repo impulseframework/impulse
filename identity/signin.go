@@ -98,7 +98,7 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 // not begun counting. One who holds anything there, by an invitation or by an
 // administrator's hand, keeps what they hold and is given nothing. A person an
 // administrator removes from the tenant is given the default role again the next time
-// they sign in through the directory: a role with no privileges keeps one person out
+// they sign in through the directory: disabling their account keeps one person out
 // while the tenant is open, and making the tenant invite only keeps everyone out who is
 // not invited. A role that cannot be given fails the transaction, so no account is left
 // holding nothing and no link is left that gave nothing.

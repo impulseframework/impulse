@@ -43,7 +43,7 @@ type (
 	// and the sector admits the directory's people by invitation only: a stranger is
 	// refused with no account, and an invitation is the way in. A person a marshal
 	// removes from the sector is given it again at their next sign-in through the
-	// directory; a role with no privileges keeps one person out while the sector is
+	// directory; disabling their account keeps one person out while the sector is
 	// open. The record shows the role and its own update never writes it: the
 	// marshal names it with the sector's own method OpenSectorToDirectory, behind the
 	// warning the Sign-in page's dialog shows, and clears it with MakeSectorInviteOnly.

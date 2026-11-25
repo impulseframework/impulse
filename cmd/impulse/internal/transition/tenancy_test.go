@@ -295,7 +295,7 @@ func TestTenancyApply(t *testing.T) {
 					},
 					"pkg/resources/tenant_directories.go": {
 						"\t// DefaultSeat is the role the tenant gives a person who signs in through the\n\t// directory and holds nothing in the tenant, at every sign-in:",
-						"A person an administrator\n\t// removes from the tenant is given the role again the next time they sign in\n\t// through the directory: a role with no privileges keeps one person out while\n\t// the tenant is open, and making the tenant invite only keeps everyone out who\n\t// is not invited.",
+						"A person an administrator\n\t// removes from the tenant is given the role again the next time they sign in\n\t// through the directory: disabling their account keeps one person out while\n\t// the tenant is open, and making the tenant invite only keeps everyone out who\n\t// is not invited.",
 					},
 				} {
 					got := read(t, a, rel)
@@ -463,7 +463,7 @@ func TestTenancyApply(t *testing.T) {
 				// The directory's default seat is given at every sign-in through it, and
 				// again after a removal.
 				"\t// The directory admission: what a person gets when they sign in through a\n\t// tenant's directory and hold nothing in the tenant, at every sign-in,",
-				"A person an administrator removes from\n\t// the tenant is given it again the next time they sign in through the\n\t// directory: a role with no privileges keeps one person out while the tenant is\n\t// open, and making the tenant invite only keeps everyone out who is not\n\t// invited.",
+				"A person an administrator removes from\n\t// the tenant is given it again the next time they sign in through the\n\t// directory: disabling their account keeps one person out while the tenant is\n\t// open, and making the tenant invite only keeps everyone out who is not\n\t// invited.",
 				"which the directory\n\t// admission decides every sign-in through a tenant's directory with: the generated\n\t// reader (app.NewTenantDirectoryReader).",
 			} {
 				if !strings.Contains(staff, want) {

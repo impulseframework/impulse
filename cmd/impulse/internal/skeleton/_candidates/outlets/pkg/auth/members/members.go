@@ -508,8 +508,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// and no account is created, unless they followed an invitation link, which is the
 	// way in. A person whose account stood before is given the default seat too, at their
 	// next sign-in through the directory, where they hold nothing in the tenant; a role an
-	// administrator removes is given again at the next sign-in, and a role with no
-	// privileges keeps a person out. A
+	// administrator removes is given again at the next sign-in, and disabling the account
+	// keeps a person out. A
 	// directory no tenant has falls to the method, which is invite only: an account
 	// stands before the sign-in, or an invitation comes with it. The auth's roles are the
 	// application's, so the admission is set here; an auth whose directory writes the

@@ -1947,7 +1947,12 @@ class SideBuilder {
           icon: 'block',
           group: 'account',
           when: (row) => row['disabled'] === false,
-          confirm: (row) => `Disable ${named(row)}? They cannot sign in until the account is enabled again.`,
+          // A row whose State says another tenant also holds the person (statesOf's own
+          // test) is told the account is the whole application's.
+          confirm: (row) =>
+            this.tenant && row['heldElsewhere'] === true && row['heldInEveryTenant'] !== true
+              ? `Disable ${named(row)}? They cannot sign in to any ${this.tenantWord} until the account is enabled again.`
+              : `Disable ${named(row)}? They cannot sign in until the account is enabled again.`,
         },
       ],
       [
@@ -1978,17 +1983,24 @@ class SideBuilder {
       // row says the tenant manages the account through its directory (managedHere) and the
       // removal would leave the account standing: a person of the directory who holds
       // nothing in the tenant itself, or who holds roles elsewhere too. A row whose answer
-      // does not list the removal keeps Delete.
+      // does not list the removal keeps Delete. Where the method warns before it runs (on a
+      // tenant's side whose server says what the delete does, and whether the person can
+      // come back through the directory), the page asks only whom, and the server's words
+      // follow in the dialog. Where it does not, the page says all of it.
       [
         methods.delete,
         {
           label: 'Delete',
           icon: 'delete',
           group: 'account',
-          confirm: (row) =>
-            this.identity.tenant
+          confirm: (row, _listed, meta) => {
+            if (meta?.warning !== undefined) {
+              return `Delete ${named(row)}?`;
+            }
+            return this.identity.tenant
               ? `Delete ${named(row)}? The account is removed from every ${this.tenantWord}, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.`
-              : `Delete ${named(row)}? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.`,
+              : `Delete ${named(row)}? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.`;
+          },
           ...(removal === undefined ? {} : { when: (row: RecordData) => deleteBesideRemoval(row, removal) }),
         },
       ],

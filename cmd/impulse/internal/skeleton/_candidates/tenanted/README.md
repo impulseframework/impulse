@@ -166,14 +166,16 @@ tenant, accepted through an organization's directory, sets it as the tenant is m
 refusing an organization that already has a tenant; a tenant made through the
 create-your-tenant route takes none, and afterwards the page offers an administrator who is
 signed in through their organization's directory to make it the tenant's ("Make
-acme.example this tenant's directory"), with a create that names no directory, since the
-server sets the one the session came through. A session that came by password is
+acme.example this tenant's directory"), with the tenant's own method, behind the
+statement that they are authorized to act for the organization; the request names no
+directory, since the server takes the one the session came through. A session that came
+by password is
 offered no such action and its call is refused, as is a personal account, which is no
 organization's directory; the directory of a tenant that is directory only is not
 removed. A person who signs in through the directory and holds nothing in the tenant is
 given the directory's default role, at every sign-in, whether their account is created
 then or stood before; a person the tenant's administrator removes is given it again at
-their next sign-in through the directory, and a role with no privileges keeps one person
+their next sign-in through the directory, and disabling their account keeps one person
 out. The staff auth's google registration admits any
 Workspace account (its domain is the connection of the tenant's directory) beside any
 Google account.
