@@ -76,7 +76,8 @@ func TestDeleteTree_Mutations(t *testing.T) {
 }
 
 // TestDeleteWords_Count pins the words for a number of rows: one of a kind takes the
-// kind's word for one, and any other number its word for many.
+// kind's word for one, and any other number its word for many, its digits grouped in
+// threes the English way.
 func TestDeleteWords_Count(t *testing.T) {
 	t.Parallel()
 
@@ -89,6 +90,10 @@ func TestDeleteWords_Count(t *testing.T) {
 		{rows: 1, want: "1 ship class"},
 		{rows: 0, want: "0 ship classes"},
 		{rows: 14, want: "14 ship classes"},
+		{rows: 999, want: "999 ship classes"},
+		{rows: 1000, want: "1,000 ship classes"},
+		{rows: 26700, want: "26,700 ship classes"},
+		{rows: 1234567, want: "1,234,567 ship classes"},
 	}
 
 	for _, tt := range tests {

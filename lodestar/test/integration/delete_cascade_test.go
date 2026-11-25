@@ -1027,7 +1027,7 @@ func TestDeleteCascade_rounds(t *testing.T) {
 
 	status, body := remove("")
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
-	if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 26700 sorties. This can't be undone."; got != want {
+	if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 26,700 sorties. This can't be undone."; got != want {
 		t.Errorf("the question = %q, want %q", got, want)
 	}
 	if n := sortiesLeft(); n != sorties || !missionStands() {

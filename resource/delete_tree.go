@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/impulseframework/impulse/accesstypes"
 )
@@ -57,13 +58,30 @@ type DeleteWords struct {
 	Many string
 }
 
-// Count is the words for a number of the kind's rows: "1 project", "14 projects".
+// Count is the words for a number of the kind's rows, its digits grouped in threes the
+// English way, as every sentence of the server is written: "1 project", "14 projects",
+// "26,700 sorties".
 func (w DeleteWords) Count(rows int) string {
 	if rows == 1 {
 		return "1 " + w.One
 	}
 
-	return strconv.Itoa(rows) + " " + w.Many
+	return groupedDigits(rows) + " " + w.Many
+}
+
+// groupedDigits writes a count with a comma between each three digits from the right:
+// 26,700.
+func groupedDigits(n int) string {
+	digits := strconv.Itoa(n)
+	var b strings.Builder
+	for i, digit := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(digit)
+	}
+
+	return b.String()
 }
 
 // DeleteCost is what deleting one row of a kind costs in mutations beyond the delete
