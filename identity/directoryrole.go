@@ -241,11 +241,13 @@ func (t *Tenant) DeletionWarning(seatedAgain bool) *resource.Warning {
 			"The account is removed from every %s, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.",
 			t.manager.tenantWord,
 		),
+		Names:   nil,
 		Confirm: "Delete",
+		Also:    nil,
 	}
 	if seatedAgain {
 		warning.Also = []resource.WarningNote{
-			{Says: "They can sign in through the directory again and will get a new account with the starting role."},
+			{Says: "They can sign in through the directory again and will get a new account with the starting role.", Names: nil},
 		}
 	}
 
