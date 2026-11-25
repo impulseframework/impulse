@@ -315,6 +315,14 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if diff := cmp.Diff(recordGrants(roleNamed(reference.Roles.Global, "Administrator")), recordGrants(administrator)); diff != "" {
 			t.Errorf("the application's administrator does not hold the reference's grants on tenants (-reference +written):\n%s", diff)
 		}
+		// The application's own administrator deletes a tenant, so it is the one who
+		// disables it first: its Update on the record names the field, as the reference's
+		// does, and its List and Read read it.
+		for _, permission := range []string{"List", "Read", "Update"} {
+			if got := grantOn(administrator, permission, "Tenants").Fields; !slices.Contains(got, "disabled") {
+				t.Errorf("%s on Tenants for the application's administrator names the fields %q, want disabled among them, as the reference's", permission, got)
+			}
+		}
 		// The application's own administrator changes an account from the whole
 		// application's side only where no tenant manages it, as the reference's does: each
 		// of those grants took the condition, and no other grant of the role holds under one.

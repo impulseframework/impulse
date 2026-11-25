@@ -1278,7 +1278,8 @@ the rest.
 directly: staff bring one in by inviting the person who will administer it, and that
 person's first sign-in makes it. The tenant table becomes the
 next schema migration, with two development tenants as a data migration under
-`schema/devseed`; the tenant-record struct joins the resource package as a global resource
+`schema/devseed`; the tenant-record struct, with the column that says a tenant is disabled
+(`Disabled`, `@tenantDisabled`), joins the resource package as a global resource
 annotated `@tenant`, from which the generator derives the tenant segment and emits
 `New<Record>Roster`, the constructor of the tenant roster, and
 `New<Record>DeclarationReader`, the reader of a tenant's declaration; the generator
@@ -1433,8 +1434,9 @@ application whose tenants have no directories: no directories record or table, n
 `Settings` and no directory admission in its `New`, no tenant sign-in page, menu or
 route, and All tenants without its directory-only column. Everything else is written as
 above: each auth's `Settings` still carry the generated declaration reader, which
-answers nothing for every tenant, and its `New` still sets the library's sign-in rule
-over it, so a tenant admits everyone it seats, however they signed in. In such an
+reads whether each tenant is disabled and nothing else, and its `New` still sets the
+library's sign-in rule over it, so a tenant that is not disabled admits everyone it
+seats, however they signed in. In such an
 application a directory method is a way for an invited person to sign in and nothing
 more, whichever methods it has or gets: no tenant takes a directory, none is opened to
 one or made directory only, and a person from an organization's directory who has no

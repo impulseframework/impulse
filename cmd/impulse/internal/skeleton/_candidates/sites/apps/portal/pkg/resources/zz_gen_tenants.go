@@ -80,6 +80,7 @@ type tenantRead struct {
 	ID        impulse.UUID `json:"id"        perm:"-"`
 	Name      string       `json:"name"`
 	CreatedAt time.Time    `json:"createdAt"`
+	Disabled  bool         `json:"disabled"`
 }
 
 var tenantReadSets resource.SetCache[Tenant, tenantRead]
@@ -91,6 +92,7 @@ type tenantWrite struct {
 	ID        impulse.UUID `json:"-"`
 	Name      string       `json:"name"`
 	CreatedAt time.Time    `json:"-"`
+	Disabled  bool         `json:"disabled"`
 }
 
 var tenantWriteSets resource.SetCache[Tenant, tenantWrite]
@@ -214,6 +216,7 @@ func (c *TenantColumns) All() *TenantColumns {
 		"ID",
 		"Name",
 		"CreatedAt",
+		"Disabled",
 	}
 
 	return c
@@ -233,6 +236,12 @@ func (c *TenantColumns) Name() *TenantColumns {
 
 func (c *TenantColumns) CreatedAt() *TenantColumns {
 	c.fields = append(c.fields, "CreatedAt")
+
+	return c
+}
+
+func (c *TenantColumns) Disabled() *TenantColumns {
+	c.fields = append(c.fields, "Disabled")
 
 	return c
 }
@@ -333,6 +342,10 @@ func (c *tenantSort) Name() *TenantSort {
 
 func (c *tenantSort) CreatedAt() *TenantSort {
 	return c.addField("CreatedAt")
+}
+
+func (c *tenantSort) Disabled() *TenantSort {
+	return c.addField("Disabled")
 }
 
 type TenantSort struct {
@@ -453,6 +466,22 @@ func (p *TenantCreatePatch) CreatedAt() time.Time {
 
 func (p *TenantCreatePatch) CreatedAtIsSet() bool {
 	return p.patchSet.IsSet("CreatedAt")
+}
+
+func (p *TenantCreatePatch) SetDisabled(v bool) *TenantCreatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *TenantCreatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *TenantCreatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -577,6 +606,22 @@ func (p *TenantUpdatePatch) CreatedAt() time.Time {
 
 func (p *TenantUpdatePatch) CreatedAtIsSet() bool {
 	return p.patchSet.IsSet("CreatedAt")
+}
+
+func (p *TenantUpdatePatch) SetDisabled(v bool) *TenantUpdatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *TenantUpdatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *TenantUpdatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

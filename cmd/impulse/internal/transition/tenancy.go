@@ -353,11 +353,11 @@ func (tn Tenancy) writeMigration(a *app.App, dir string, ch *Change) error {
 	}
 	base := fmt.Sprintf("%06d_%s", n, tn.Table)
 	up, down := tn.tenantTable(), fmt.Sprintf("DROP INDEX %[1]sByName;\nDROP TABLE %[1]s;\n", tn.Table)
-	did := fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name and CreatedAt, when the tenant was made; no tenant has a directory, so the table carries no directory-only switch and no directories table is written)", tn.Table)
+	did := fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and Disabled; no tenant has a directory, so the table carries no directory-only switch and no directories table is written)", tn.Table)
 	if !tn.NoDirectories {
 		up += "\n" + tn.directoryTable()
 		down = fmt.Sprintf("DROP INDEX %[2]sByMethodConnection;\nDROP INDEX %[2]sBy%[3]sId;\nDROP TABLE %[2]s;\n", tn.Table, tn.DirectoryTable(), tn.Record()) + down
-		did = fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the %s table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)", tn.Table, tn.DirectoryTable())
+		did = fmt.Sprintf("the %s table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the %s table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)", tn.Table, tn.DirectoryTable())
 	}
 	if err := writeNew(a, path.Join(dir, base+".up.sql"), up); err != nil {
 		return err
@@ -371,8 +371,9 @@ func (tn Tenancy) writeMigration(a *app.App, dir string, ch *Change) error {
 }
 
 // tenantTable is the tenant table's statements: the table keyed by a generated id, with
-// its unique name, when each tenant was made, which the database writes with the row, and
-// the directory-only switch where a tenant can have a directory.
+// its unique name, when each tenant was made, which the database writes with the row, the
+// directory-only switch where a tenant can have a directory, and the column that says a
+// tenant is disabled, the table's last.
 func (tn Tenancy) tenantTable() string {
 	directoryOnly := ""
 	if !tn.NoDirectories {
@@ -396,7 +397,10 @@ CREATE TABLE %[1]s (
   -- When the tenant was made: the time of the commit that made the row, written by the
   -- record's create and never changed. The list of tenants says it as Since.
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
-%[2]s
+%[2]s  -- The tenant is disabled: its people are shut out while its records stay, and nobody
+  -- enters it but a super administrator. A tenant is disabled before it is deleted.
+  Disabled BOOL NOT NULL DEFAULT (FALSE),
+
   CONSTRAINT CK_%[1]s_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);
 
@@ -552,7 +556,15 @@ type (
 		// afterward. The list of tenants says it as Since.
 		// @tenantSince
 		CreatedAt time.Time `+"`spanner:\"CreatedAt\" conditions:\"output_only\" default_create_fn:\"resource.CommitTimestamp\"`"+`
-%[8]s	}
+%[8]s		// Disabled says the tenant is disabled: its people are shut out while its records
+		// stay, and nobody enters it but a super administrator, the tenant's own
+		// administrators included. It is an ordinary field of the record: whoever holds
+		// Update on it disables a tenant and enables it again, and enabling gives everyone
+		// back what they held. A tenant is disabled before it is deleted: the record's
+		// delete refuses one that is not.
+		// @tenantDisabled
+		Disabled bool `+"`spanner:\"Disabled\"`"+`
+	}
 )
 
 // Config enables change tracking: %[2]s mutations write DataChangeEvents rows in the
@@ -585,17 +597,17 @@ func (tn Tenancy) recordWords() recordWords {
 			made: " and seats them as its\n\t// administrator",
 			declares: fmt.Sprintf(`	// No tenant has a directory in this application: the package declares no
 	// directories record and this record carries no directory-only switch, so a
-	// tenant's people come by invitation alone, and a tenant admits everyone it seats,
-	// however they signed in. A sign-in method through an organization's directory
-	// (Google, Microsoft, another provider) is a way for an invited person to sign in
-	// and nothing more. The sign-in rule still asks what a tenant declares, through the
-	// generated reader (%s, handed to each auth),
-	// which answers nothing for every tenant. The record's change events
-	// (DataChangeEvents, Config) are the audit of every edit.
+	// tenant's people come by invitation alone, and a tenant that is not disabled
+	// admits everyone it seats, however they signed in. A sign-in method through an
+	// organization's directory (Google, Microsoft, another provider) is a way for an
+	// invited person to sign in and nothing more. The sign-in rule still asks what a
+	// tenant declares, through the generated reader (%s, handed to
+	// each auth), which reads whether each tenant is disabled and nothing else. The
+	// record's change events (DataChangeEvents, Config) are the audit of every edit.
 `, tn.DeclarationReader()),
 			flag:    "",
 			audited: "a tenant",
-			did:     "change tracking and no directory-only switch, since no tenant has a directory",
+			did:     "the column that says a tenant is disabled (Disabled), change tracking and no directory-only switch, since no tenant has a directory",
 		}
 	}
 
@@ -628,7 +640,7 @@ func (tn Tenancy) recordWords() recordWords {
 		DirectoryOnly bool ` + "`spanner:\"DirectoryOnly\"`" + `
 `,
 		audited: "what a tenant declares",
-		did:     "its declaration's flag (DirectoryOnly) and change tracking",
+		did:     "its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 	}
 }
 
@@ -957,12 +969,12 @@ func (c *DataConfiguration) TenantDeclarations() resource.TenantDeclarations {
 func (tn Tenancy) declarationsComment() string {
 	if tn.NoDirectories {
 		return fmt.Sprintf(`// TenantDeclarations reads what a tenant declares about who may enter it from the
-// roster's copy. The %[1]s record declares no directories, so every tenant declares
-// nothing and a session is offered every tenant that seats its person, however they
-// signed in. The accessor stands where an application whose tenants have directories
-// has it, as the generated reader each auth's settings carry does
-// (%[2]s): the sign-in rule and the session's permissions are
-// wired the same way in both.`, tn.Record(), tn.DeclarationReader())
+// roster's copy. The %[1]s record declares no directories, so a tenant declares one
+// thing, whether it is disabled, and a session is offered every tenant that seats its
+// person and is not disabled, however they signed in. The accessor stands where an
+// application whose tenants have directories has it, as the generated reader each
+// auth's settings carry does (%[2]s): the sign-in rule and the
+// session's permissions are wired the same way in both.`, tn.Record(), tn.DeclarationReader())
 	}
 
 	return fmt.Sprintf(`// TenantDeclarations reads what a tenant declares about who may enter it from the
@@ -1103,8 +1115,9 @@ var (
 		"// stays in its tenant list marked closed, with the reason.\n"
 	tenantedOpenPermissions = "// listing the tenants of the application's roster where the principal holds a grant,\n" +
 		"// and attenuated by the session's permission mask. No tenant has a directory in this\n" +
-		"// application, so no tenant declares who may enter it and none is closed to a\n" +
-		"// session: every tenant that seats the person is offered, however they signed in.\n"
+		"// application, so a tenant declares one thing, whether it is disabled: every tenant\n" +
+		"// that seats the person and is not disabled is offered, however they signed in, and a\n" +
+		"// super administrator reaches every tenant.\n"
 )
 
 // retellPermissions rewrites the end of the UserPermissions comment the base skeleton
@@ -1197,9 +1210,9 @@ func (tn Tenancy) configurerComment() string {
 	if tn.NoDirectories {
 		return fmt.Sprintf(`	// %[1]s reads what a tenant declares about who may enter it, as the running
 	// application knows it: the roster's copy. The tenant record declares no
-	// directories, so every tenant declares nothing, and UserPermissions, which hands it
-	// to resource.SessionPermissions, offers a session every tenant that seats its
-	// person, however they signed in.`, declarationsAccessor)
+	// directories, so a tenant declares one thing, whether it is disabled, and
+	// UserPermissions, which hands it to resource.SessionPermissions, offers a session
+	// every tenant that seats its person and is not disabled, however they signed in.`, declarationsAccessor)
 	}
 
 	return fmt.Sprintf(`	// %[1]s reads what a tenant declares about who may enter it, as the running
@@ -1508,9 +1521,9 @@ func (tn Tenancy) harnessItem(a *app.App) string {
 func (tn Tenancy) meaning(a *app.App) string {
 	var b strings.Builder
 	seg, rec := tn.Segment(), tn.Record()
-	fmt.Fprintf(&b, "Tenancy is data. The %[1]s table is the domain universe, a permission domain per row, and `%[2]s`, the global resource over it, is the tenant record (`@tenant`): the generator derives the tenant segment from it, so every struct annotated `@permissionScope(domain)` is served under `/%[3]s/{%[4]sID}/...` with the tenant as its permission domain, and emits `New%[2]sRoster`, the constructor of the tenant roster. The data level builds the roster with it over the database client and the live service's tenants signal and starts it; the roster reads the table once, rereads on the tenants signal (a tenant made or deleted on any instance) and at its backstop, so a new tenant is usable at once, without a restart. The generated DomainGuard asks the roster whether a domain is a tenant, then whether the session may enter it and, since tenant existence is concealed (`WithConcealedDomains`), the caller's foothold next, so a login with no foothold gets the same not-found an unknown tenant gets. A login's tenant list (`user-domains`) is the roster filtered by the tenants where it holds a grant and that admit it, and a grant needs a tenant-scoped resource to land on.\n\n", tn.Table, rec, seg, strcase.ToCamel(rec))
+	fmt.Fprintf(&b, "Tenancy is data. The %[1]s table is the domain universe, a permission domain per row, and `%[2]s`, the global resource over it, is the tenant record (`@tenant`): the generator derives the tenant segment from it, so every struct annotated `@permissionScope(domain)` is served under `/%[3]s/{%[4]sID}/...` with the tenant as its permission domain, and emits `New%[2]sRoster`, the constructor of the tenant roster. The data level builds the roster with it over the database client and the live service's tenants signal and starts it; the roster reads the table once, rereads on the tenants signal (a tenant made or deleted on any instance) and at its backstop, so a new tenant is usable at once, without a restart. A tenant can be disabled (`%[2]s.Disabled`, `@tenantDisabled`): its people are shut out at their next request while its records stay, a super administrator alone enters it, and the record's delete refuses a tenant that is not disabled; the role file says who may change the field. The generated DomainGuard asks the roster whether a domain is a tenant, then whether the session may enter it and, since tenant existence is concealed (`WithConcealedDomains`), the caller's foothold next, so a login with no foothold gets the same not-found an unknown tenant gets. A login's tenant list (`user-domains`) is the roster filtered by the tenants where it holds a grant and that admit it, and a grant needs a tenant-scoped resource to land on.\n\n", tn.Table, rec, seg, strcase.ToCamel(rec))
 	if tn.NoDirectories {
-		fmt.Fprintf(&b, "No %[1]s has a directory in this application (`--tenant-directories=false`): the resource package declares no directories record and `%[2]s` carries no directory-only switch, so nothing is taken when a %[1]s is made, no route sets a %[1]s's directory, no %[1]s is opened to a directory or made directory only, and the browser has no %[1]s Sign-in page. A %[1]s's people come by invitation alone. A Google, Microsoft or other provider's sign-in method whose roles the application gives (`impulse add method`) is a way for an invited person to sign in and nothing more: a person from an organization's directory who has no account and no invitation joins no %[1]s, whichever methods the application has or gets (refused as a stranger while the method is invite only, as every method starts; where an administrator opened it to sign-up, given an account that holds no %[1]s), and `impulse audit` reads the application as an invite-only shape. Each auth's `New` still sets the library's sign-in rule (`signin.TenantPolicy`, with the memberships read through `resource.SignInRoles`) over the generated reader `%[3]s`, which answers nothing for every %[1]s: a %[1]s admits everyone it seats, however they signed in, a super administrator and a person holding a role outside any one %[1]s (a global role, or one held in every %[1]s) are admitted on the library's checks, and a person holding no %[1]s is refused (`no_tenant`) on every auth but the one whose people create a %[1]s of their own (below). The data level's `%[4]s()` is handed to `resource.SessionPermissions` as in an application whose tenants have directories, and answers nothing for every %[1]s. Giving the application tenant directories later is the author's act and no command's: the directories record (`@tenantDirectory`) and its table with its two unique indexes, the directory-only column on `%[2]s` (`@directoryOnly`), each auth's directory reader and admission (`SetDirectoryAdmission`), the grants on the generated methods and the %[1]s's Sign-in page, as an application made with tenant directories has them (the tenanted skeleton); no `impulse add method` does it.\n\n", tn.oneLower(), rec, tn.DeclarationReader(), declarationsAccessor)
+		fmt.Fprintf(&b, "No %[1]s has a directory in this application (`--tenant-directories=false`): the resource package declares no directories record and `%[2]s` carries no directory-only switch, so nothing is taken when a %[1]s is made, no route sets a %[1]s's directory, no %[1]s is opened to a directory or made directory only, and the browser has no %[1]s Sign-in page. A %[1]s's people come by invitation alone. A Google, Microsoft or other provider's sign-in method whose roles the application gives (`impulse add method`) is a way for an invited person to sign in and nothing more: a person from an organization's directory who has no account and no invitation joins no %[1]s, whichever methods the application has or gets (refused as a stranger while the method is invite only, as every method starts; where an administrator opened it to sign-up, given an account that holds no %[1]s), and `impulse audit` reads the application as an invite-only shape. Each auth's `New` still sets the library's sign-in rule (`signin.TenantPolicy`, with the memberships read through `resource.SignInRoles`) over the generated reader `%[3]s`, which reads whether each %[1]s is disabled and nothing else: a %[1]s that is not disabled admits everyone it seats, however they signed in, a super administrator and a person holding a role outside any one %[1]s (a global role, or one held in every %[1]s) are admitted on the library's checks, and a person holding no %[1]s is refused (`no_tenant`) on every auth but the one whose people create a %[1]s of their own (below). The data level's `%[4]s()` is handed to `resource.SessionPermissions` as in an application whose tenants have directories, and reads whether each %[1]s is disabled and nothing else. Giving the application tenant directories later is the author's act and no command's: the directories record (`@tenantDirectory`) and its table with its two unique indexes, the directory-only column on `%[2]s` (`@directoryOnly`), each auth's directory reader and admission (`SetDirectoryAdmission`), the grants on the generated methods and the %[1]s's Sign-in page, as an application made with tenant directories has them (the tenanted skeleton); no `impulse add method` does it.\n\n", tn.oneLower(), rec, tn.DeclarationReader(), declarationsAccessor)
 	} else {
 		fmt.Fprintf(&b, "Who may enter a tenant is the record's declaration, data of the application rather than deploy configuration: the directory its people sign in through (`%[1]s`, one row at most under `/%[2]s/{%[3]sID}/%[4]s`: a sign-in method and the connection its identities carry, a Google Workspace by its domain or a Microsoft Entra tenant by its tenant id) and whether its people enter through it only (`%[5]s.DirectoryOnly`, which closes the tenant to every sign-in but one through its directory). A tenant has one directory and a directory belongs to one tenant: the table's two unique indexes hold both, and the generated write paths refuse first, each with a sentence the person can act on. Nobody types a directory in: the record's own create is refused, and the tenant's own method `Take%[5]sDirectory` takes nothing from the request and sets the directory the caller is signed in through, after the statement that the caller is authorized to act on behalf of the organization, so the tenant's administrator sets it while signed in through their organization, and a session that came by password or with a personal account is refused. The generator emits `%[6]s`, the reader of a tenant's declaration in the sign-in's transaction, and each auth's `New` sets the library's sign-in rule over it (`signin.TenantPolicy`, with the memberships read through `resource.SignInRoles`): a tenant's declaration restricts its own door alone, so a tenant that is not directory only admits everyone it seats, however they signed in, a directory-only tenant admits a sign-in through its own directory and nothing else, and a person is refused only when every tenant that seats them is closed to the way they signed in; a super administrator is admitted whatever a tenant declares, an administrator of a directory-only tenant (a holder of one of the auth's administrator roles in that tenant itself, never in every tenant) who signs in with a password is held for the code sent to their email and then enters their own tenant, which is the tenant's way back in when its directory has a problem (who holds such a role in a directory-only tenant, and the account of a person who does, is changed only by a caller whose own session the tenant admits or by a super administrator, so the application's own staff do not give themselves the way in), a person holding a role outside any one tenant (a global role, or one held in every tenant) is admitted and then enters a tenant only where its declaration admits their session, and a person holding no tenant is refused (`no_tenant`) on every auth but the one whose people create a tenant of their own (below). One part of a declaration reaches past its own tenant: an account that signs in through a directory-only tenant's directory signs in through that directory alone, whichever tenants seat the person; that tenant's own administrators keep the password. Which tenants the session then reaches is decided again per tenant where its tenant list is computed, and a tenant that seats the person and is closed to their session stays in the list marked closed, with the reason: the roster keeps every tenant's declaration beside its key (`Declarations`, the data level's `%[7]s()`, handed to `resource.SessionPermissions`), the records' write paths reload it after their commit and signal the other instances, and the records' change events are the audit of every edit. Turning directory only on is held to three rules by the record's generated method: the tenant has its directory, the caller is signed in through it, and the caller's own account has a password where their auth has the password method (a person who has none chooses one on their account page, with a code sent to their confirmed address); the read `GET /%[2]s/{%[3]sID}/sign-in-settings` says how the tenant stands and what a change takes of the person asking, in the server's sentences, and the method's warning says what turning it on would do, with the people it names, before anything is saved.\n\n", tn.DirectoryRecord(), seg, strcase.ToCamel(rec), tn.DirectorySegment(), rec, tn.DeclarationReader(), declarationsAccessor)
 	}

@@ -29,6 +29,7 @@ type staffListedTenantRead struct {
 	ID             impulse.UUID `json:"id"             perm:"-"`
 	Name           string       `json:"name"`
 	DirectoryOnly  bool         `json:"directoryOnly"`
+	Disabled       bool         `json:"disabled"`
 	People         int64        `json:"people"`
 	Since          *time.Time   `json:"since"`
 	Directory      *string      `json:"directory"`
@@ -144,6 +145,7 @@ func (c *StaffListedTenantColumns) All() *StaffListedTenantColumns {
 		"ID",
 		"Name",
 		"DirectoryOnly",
+		"Disabled",
 		"People",
 		"Since",
 		"Directory",
@@ -167,6 +169,12 @@ func (c *StaffListedTenantColumns) Name() *StaffListedTenantColumns {
 
 func (c *StaffListedTenantColumns) DirectoryOnly() *StaffListedTenantColumns {
 	c.fields = append(c.fields, "DirectoryOnly")
+
+	return c
+}
+
+func (c *StaffListedTenantColumns) Disabled() *StaffListedTenantColumns {
+	c.fields = append(c.fields, "Disabled")
 
 	return c
 }
@@ -291,6 +299,10 @@ func (c *staffListedTenantSort) Name() *StaffListedTenantSort {
 
 func (c *staffListedTenantSort) DirectoryOnly() *StaffListedTenantSort {
 	return c.addField("DirectoryOnly")
+}
+
+func (c *staffListedTenantSort) Disabled() *StaffListedTenantSort {
+	return c.addField("Disabled")
 }
 
 func (c *staffListedTenantSort) People() *StaffListedTenantSort {

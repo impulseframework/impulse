@@ -5,6 +5,13 @@ package app
 
 import "github.com/impulseframework/impulse/resource"
 
+// tenantDeclaration names the Tenant record's column that says a tenant is disabled
+// (@tenantDisabled): what the roster reads beside the keys and the sign-in's reader
+// reads in its own transaction.
+var tenantDeclaration = resource.TenantDeclarationColumns{
+	Disabled: "Disabled",
+}
+
 // NewTenantRoster builds the application's tenant roster over the Tenant record
 // (@tenant): the Id column of Tenants, read once at Start and kept
 // current until the context ends. The generated DomainGuard and the consolidated
@@ -12,9 +19,14 @@ import "github.com/impulseframework/impulse/resource"
 // Tenant write paths reload it after their commit and publish the
 // tenants signal, so every instance reloads. The application exposes the roster as
 // TenantRoster(); resource.WithTenantSignals wires the live service the roster reloads on.
+// The roster reads whether each tenant is disabled beside its key (Tenant.Disabled), so
+// its Declarations is what the application hands resource.SessionPermissions as the
+// tenant declarations: a disabled tenant is entered by nobody but a super
+// administrator.
 // It reads each tenant's name (Tenant.Name) beside its key, so the session's
 // tenant list names each tenant from the copy (resource.WithDomainNames).
 func NewTenantRoster(client resource.Client, opts ...resource.TenantRosterOption) *resource.TenantRoster {
+	opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&tenantDeclaration)}, opts...)
 	opts = append([]resource.TenantRosterOption{resource.WithTenantNames("Name")}, opts...)
 
 	return resource.NewTenantRoster(client, "Tenants", "Id", opts...)

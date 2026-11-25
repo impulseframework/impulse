@@ -4,7 +4,7 @@
 package app
 
 import (
-	"example.com/ci/tenanted/pkg/identity/staffhandlers"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/identity/staffhandlers"
 	"github.com/impulseframework/impulse/resource"
 )
 
