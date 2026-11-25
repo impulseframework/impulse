@@ -962,9 +962,11 @@ func TestDistressCall_caseNumberIsUniqueWithinASector(t *testing.T) {
 // the first time; the mission stands after every round but the last, and the same
 // request sent again goes on until it answers 200 with nothing left. The mission keeps a
 // change record, and its delete writes one; its sorties keep none.
+//
+// The test runs on its own, never in parallel: the first round's save, of about 80,000
+// mutations, holds up the reads of every database of the emulator the package's tests
+// share, and a read of another test held up behind it can pass its deadline.
 func TestDeleteCascade_rounds(t *testing.T) {
-	t.Parallel()
-
 	ctx := t.Context()
 
 	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
