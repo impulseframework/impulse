@@ -93,6 +93,13 @@ func ({{ .Resource.Name }}) TenantBinding() resource.TenantBinding {
 // goes with it, and nothing refuses it. The kinds are in the order their rows are
 // deleted, deepest first, each with its ways up to the {{ .Resource.Name }} and what the delete
 // of one of its rows costs.
+{{- else if .Resource.ApplicationCanName }}
+// DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it and what refuses
+// it: the library's own kinds, and the application's records that name the
+// {{ .Resource.Name }}, taken where their column says so (@deletedWith) and refusing its delete
+// where it does not. The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the {{ .Resource.Name }} and what the delete of one of its
+// rows costs.
 {{- else if .Resource.DeclaresDeleteCascade }}
 // DeleteTree describes what a delete of a {{ .Resource.Name }} takes with it and what refuses
 // it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
@@ -107,6 +114,16 @@ func ({{ .Resource.Name }}) TenantBinding() resource.TenantBinding {
 {{- end }}
 func ({{ .Resource.Name }}) DeleteTree() *resource.DeleteTree {
 	return {{ .Resource.DeleteTreeLiteral }}
+}
+{{- end }}
+{{- if .Resource.TakenFromAnotherPackage }}
+
+// {{ .Resource.Name }}TakenRows is how a delete of a record of another package deletes a
+// {{ .Resource.Name }} with it (resource.NewTakenRows): a record of the library's that a
+// {{ .Resource.Name }} names in a column that says so (@deletedWith). The row goes through its
+// own delete, armed against the caller unless the call is trusted.
+func {{ .Resource.Name }}TakenRows() resource.TakenRows {
+	return {{ .Resource.TakenRowsLiteral }}
 }
 {{- end }}
 {{- if .Resource.SearchBranches }}
@@ -883,6 +900,15 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
 // delete takes what fits, deepest first, and Left says what is left: buffer the delete
 // again, in a transaction of its own, until Left answers nil.
+{{- else if .Resource.ApplicationCanName }}
+// WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
+// the kinds its description lists as taken, the application's rows that name it in a
+// column that says so (@deletedWith) among them, each through its own delete. It takes
+// the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
+// {{ .Resource.Name }} that has such rows deletes nothing and is answered with the question a
+// person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
+// one save takes, the delete takes what fits, deepest first, and Left says what is left:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
 {{- else }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
@@ -912,6 +938,18 @@ func (p *{{ .Resource.Name }}DeletePatch) Left() *resource.DeleteLeft {
 // the description lists and before the {{ .Resource.Name }}.
 func (p *{{ .Resource.Name }}DeletePatch) DeleteAlso(kinds ...resource.TakenKind) *{{ .Resource.Name }}DeletePatch {
 	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+{{ end }}
+{{- if .Resource.ApplicationCanName }}
+// WithLibraryRowsAlone says the delete leaves the application's rows that name the
+// {{ .Resource.Name }} out: none is counted, asked about or taken, and none refuses the delete
+// (resource.PatchSet.DeleteLibraryRowsAlone). A {{ .Resource.Name }} deleted with its tenant is
+// deleted so, the tenant's delete having taken the application's rows under the tenant
+// already.
+func (p *{{ .Resource.Name }}DeletePatch) WithLibraryRowsAlone() *{{ .Resource.Name }}DeletePatch {
+	p.patchSet.DeleteLibraryRowsAlone()
 
 	return p
 }

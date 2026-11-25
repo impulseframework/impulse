@@ -24,7 +24,9 @@ type (
 	// the groups its holder is in (group IN subject.membersGroups).
 	//
 	// A group's delete takes its members and the roles it holds with it, after a
-	// question that counts them.
+	// question that counts them. It takes with them the application's rows that name the
+	// group in a column that says so (@deletedWith), and is refused while a row names it
+	// in a column that does not.
 	//
 	// @resource
 	// @suppress(patchHandler)

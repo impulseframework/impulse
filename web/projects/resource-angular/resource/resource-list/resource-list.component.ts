@@ -1454,6 +1454,7 @@ export class ResourceListComponent implements OnInit {
       from: config.title,
       word: this.rowWords()?.one,
       inList: true,
+      typed: config.deleteTyped?.(row),
       delete: (options) => this.deleteRow(row, options),
     };
     this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });
@@ -1863,6 +1864,7 @@ export class ResourceListComponent implements OnInit {
       this.store.sorts.set(this.askedSorts());
       this.store.pageSize.set(this.config().pageSize);
     }
+    this.store.drawsTotal.set(this.config().showRowCount);
 
     this.store.filter.set(this.filters());
     this.store.disableCacheForFilterPii.set(this.config().disableCacheForFilterPii);
@@ -1949,6 +1951,8 @@ export class ResourceListComponent implements OnInit {
         this.store.disableCacheForFilterPii.set(this.config().disableCacheForFilterPii);
         this.store.searchPII.set(this.searchPII());
         this.store.liveChoice.set(this.config().live);
+        // The first page asks for the total only where the title draws it.
+        this.store.drawsTotal.set(this.config().showRowCount);
         // A list whose rows offer methods asks for each row's Execute answer.
         this.store.pageCapabilities.set(
           this.rowMethodNames().length > 0 || this.offeredMethodNames().length > 0 ? ['Execute'] : [],

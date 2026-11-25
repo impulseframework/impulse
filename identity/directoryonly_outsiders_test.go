@@ -457,7 +457,9 @@ func TestManager_directoryOnly_administratorsAccount(t *testing.T) {
 			return m.EnableUser(ctx, txn, userID)
 		}},
 		{name: "the account deleted", act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-			return m.DeleteUser(ctx, txn, userID)
+			_, err := m.DeleteUser(ctx, txn, userID, false)
+
+			return err
 		}},
 	}
 	callers := []struct {

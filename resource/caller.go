@@ -30,6 +30,16 @@ type Caller struct {
 	// collection renders a conditional grant into the live check, when the
 	// frame's decoder was wired to one.
 	collection *GeneratedCollection
+	// method and permission are what the frame's entry check asked: the method, and the
+	// permission on it. A method's decode sets them on the caller it answers
+	// (RPCDecoder.DecodeCaller, and ExecuteGate.Caller for the gate a
+	// TargetedRPCDecoder's decode answers). Every other caller carries neither: one a
+	// gate asked through Caller.ExecuteGate answers, one As answers, and one a query
+	// answers. A delete's rows that go on the permission to delete the record
+	// (DeleteKind.WithinReach) are reached in another tenant where the same permission
+	// holds there (reachesTenant).
+	method     accesstypes.Resource
+	permission accesstypes.Permission
 }
 
 type callerKey struct{}
@@ -115,12 +125,35 @@ func (c *Caller) Check(ctx context.Context, perm accesstypes.Permission, resourc
 // As returns the caller acting through another checker in the same scope and
 // environment: a body that should act as a named role composes the checker the
 // way act-as-role sessions do (RolePrincipalPermissions over access.ForRole) and
-// arms its operations with the result. The actor stays who it was.
+// arms its operations with the result. The actor stays who it was. The checker given
+// was not asked the method the request was let in by, so the caller answered carries
+// no method.
 func (c *Caller) As(perms UserPermissions) *Caller {
 	as := *c
 	as.Permissions = perms
+	as.method, as.permission = "", ""
 
 	return &as
+}
+
+// reachesTenant reports whether the permission the request was let in by holds in a
+// tenant other than the caller's: the caller carries the method its entry check asked,
+// and its checker answers that method Granted or Conditional for the same permission in
+// the tenant, in the caller's environment. A condition is not judged there: it was
+// judged where the request was made. Denied, and a caller that carries no method, do not
+// reach the tenant. The checker a session composes holds nothing in a tenant the session
+// does not enter (UserPermissions.Reaches), a disabled tenant among them.
+func (c *Caller) reachesTenant(ctx context.Context, tenant accesstypes.Domain) (bool, error) {
+	if c.IsZero() || c.method == "" {
+		return false, nil
+	}
+	decisions, err := c.Permissions.Check(ctx, c.Env, accesstypes.DomainScope(tenant), c.permission, c.method)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.UserPermissions.Check()")
+	}
+	decision, ok := decisions[c.method]
+
+	return ok && (decision.IsGranted() || decision.IsConditional()), nil
 }
 
 // RolePrincipalPermissions is a checker acting as a role on behalf of a real

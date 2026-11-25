@@ -41,6 +41,22 @@ func (HangarPass) TenantBinding() resource.TenantBinding {
 	return resource.TenantBinding{Field: "SectorID"}
 }
 
+// HangarPassTakenRows is how a delete of a record of another package deletes a
+// HangarPass with it (resource.NewTakenRows): a record of the library's that a
+// HangarPass names in a column that says so (@deletedWith). The row goes through its
+// own delete, armed against the caller unless the call is trusted.
+func HangarPassTakenRows() resource.TakenRows {
+	return resource.NewTakenRows(func(patchSet *resource.PatchSet[HangarPass], caller *resource.Caller) {
+		patch := &HangarPassDeletePatch{patchSet: patchSet}
+		if !caller.IsZero() {
+			patch.Enforce(caller)
+			patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return RefuseImpersonatorAsHangarPassSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+			})
+		}
+	})
+}
+
 // NameFields names the resource's name fields: beside each id that points to a row with
 // a name, the name of that row, which a list shows, sorts by and filters by. A name is
 // looked up in the pointed-to table by the id; it is no column of this resource.

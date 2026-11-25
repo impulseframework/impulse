@@ -65,7 +65,7 @@ func (ServiceLedger) Resource() accesstypes.Resource {
 // and the cursor the request names in Go field terms render into the statement.
 var ledgerColumns = map[string]string{
 	"SectorID":        "SectorId",
-	"Name":            "Name",
+	ledgerName:        ledgerName,
 	"OpenMissions":    "OpenMissions",
 	"FeesOutstanding": "FeesOutstanding",
 	"Settlements":     "Settlements",
@@ -74,6 +74,10 @@ var ledgerColumns = map[string]string{
 
 // lastReturnAt is the ledger's one nullable field; its Go name and its column coincide.
 const lastReturnAt = "LastReturnAt"
+
+// ledgerName is the ledger's one text field, the sector's name; its Go name and its
+// column coincide.
+const ledgerName = "Name"
 
 // ledgerNullable names the ledger columns that can be NULL. Their NULL region sits where
 // Spanner puts it, first ascending and last descending: the placement the plain ORDER BY
@@ -99,13 +103,17 @@ const ledgerSQL = `SELECT s.Id AS SectorId, s.Name AS Name,
 
 // ListServiceLedger computes one ledger row per sector in SQL, taking the filter on
 // SectorId and Name, the sort, and the page into the statement. Whatever it does not
-// take (a filter on OpenMissions, a request for every row, a count) the generated
-// handler applies over the rows it yields, in the order the body gave them.
+// take (a filter on OpenMissions, a text match on Name, a request for every row, a count)
+// the generated handler applies over the rows it yields, in the order the body gave them.
 func ListServiceLedger(ctx context.Context, qSet *resource.QuerySet[ServiceLedger], client resource.Client, _ *Client) iter.Seq2[*ServiceLedger, error] {
 	return func(yield func(*ServiceLedger, error) bool) {
 		params := map[string]any{}
 		var where []string
-		for _, condition := range qSet.Filter().Take("SectorID", "Name") {
+		// Take is all-or-nothing per field, and the statement renders the ten comparisons
+		// alone: a field with a text match (contains, startswith, endswith: Name is
+		// allow_filter text) is not taken, so the handler applies its conditions over the
+		// rows this function yields, and TakePage then answers false and the handler pages.
+		for _, condition := range qSet.Filter().Take(ledgerTakable(qSet.Filter().Conditions())...) {
 			clause, err := ledgerCondition(&condition, params)
 			if err != nil {
 				yield(nil, err)
@@ -155,9 +163,40 @@ func ListServiceLedger(ctx context.Context, qSet *resource.QuerySet[ServiceLedge
 	}
 }
 
-// ledgerCondition renders one taken filter condition into SQL, binding its value. Take is
-// all-or-nothing per field, so every operator the request may use on a filterable
-// column is rendered here.
+// ledgerTakable names the ledger's filterable columns whose every condition has an
+// operator ledgerCondition renders (ledgerRenders); a column with any other condition, a
+// text match on Name, is left whole to the handler.
+func ledgerTakable(conditions []resource.Condition) []string {
+	var fields []string
+	for _, field := range []string{"SectorID", ledgerName} {
+		rendered := true
+		for i := range conditions {
+			if conditions[i].Field == field && !ledgerRenders(conditions[i].Operator) {
+				rendered = false
+			}
+		}
+		if rendered {
+			fields = append(fields, field)
+		}
+	}
+
+	return fields
+}
+
+// ledgerRenders reports whether ledgerCondition renders the operator: the ten comparisons
+// every filterable column answers.
+func ledgerRenders(operator string) bool {
+	switch operator {
+	case opEqual, opNotEqual, opGreater, opGreaterEqual, opLess, opLessEqual, opIn, opNotIn, opIsNull, opIsNotNull:
+		return true
+	default:
+		return false
+	}
+}
+
+// ledgerCondition renders one taken filter condition into SQL, binding its value.
+// ListServiceLedger takes a column only where every condition on it has one of the
+// operators rendered here (ledgerTakable).
 func ledgerCondition(c *resource.Condition, params map[string]any) (string, error) {
 	column, ok := ledgerColumns[c.Field]
 	if !ok {
@@ -165,21 +204,21 @@ func ledgerCondition(c *resource.Condition, params map[string]any) (string, erro
 	}
 	name := fmt.Sprintf("f%d", len(params))
 	switch c.Operator {
-	case opEqual, "ne", "gt", "gte", "lt", "lte":
+	case opEqual, opNotEqual, opGreater, opGreaterEqual, opLess, opLessEqual:
 		params[name] = c.Value
 
 		return fmt.Sprintf("l.%s %s @%s", column, sqlOperator(c.Operator), name), nil
-	case "in", "notin":
+	case opIn, opNotIn:
 		params[name] = c.TypedValues()
 		not := ""
-		if c.Operator == "notin" {
+		if c.Operator == opNotIn {
 			not = "NOT "
 		}
 
 		return fmt.Sprintf("l.%s %sIN UNNEST(@%s)", column, not, name), nil
-	case "isnull":
+	case opIsNull:
 		return fmt.Sprintf("l.%s IS NULL", column), nil
-	case "isnotnull":
+	case opIsNotNull:
 		return fmt.Sprintf("l.%s IS NOT NULL", column), nil
 	default:
 		return "", errors.Newf("ListServiceLedger: operator %s is not supported on %s", c.Operator, c.Field)
@@ -188,6 +227,19 @@ func ledgerCondition(c *resource.Condition, params map[string]any) (string, erro
 
 // opEqual is the equality operator as the filter grammar spells it.
 const opEqual = "eq"
+
+// The other nine comparisons as the filter grammar spells them.
+const (
+	opNotEqual     = "ne"
+	opGreater      = "gt"
+	opGreaterEqual = "gte"
+	opLess         = "lt"
+	opLessEqual    = "lte"
+	opIn           = "in"
+	opNotIn        = "notin"
+	opIsNull       = "isnull"
+	opIsNotNull    = "isnotnull"
+)
 
 // maxFetch bounds the rows one pushed-down page asks Spanner for, well inside what the
 // declared maximum page size plus one can reach.
@@ -206,13 +258,13 @@ func sqlOperator(op string) string {
 	switch op {
 	case opEqual:
 		return "="
-	case "ne":
+	case opNotEqual:
 		return "!="
-	case "gt":
+	case opGreater:
 		return ">"
-	case "gte":
+	case opGreaterEqual:
 		return ">="
-	case "lt":
+	case opLess:
 		return "<"
 	default:
 		return "<="

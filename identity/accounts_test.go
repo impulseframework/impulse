@@ -215,32 +215,45 @@ func TestManager_RenameUser_rolesStay(t *testing.T) {
 	}
 }
 
-// TestManager_DeleteUser pins the delete: the sessions ended, the identity links and the
-// row removed, every membership held under the account's id removed with them and the
-// engine told; nobody deletes themselves; a user that does not exist is not found.
+// TestManager_DeleteUser pins the delete: the row's delete is asked first, before any
+// session is ended or any identity link, membership or place goes; where it goes, the
+// sessions are ended, the identity links removed, every membership held under the
+// account's id removed with them and the engine told. Where the row's delete asks first,
+// or a save leaves rows of the application's under the account, nothing else is
+// buffered and the engine is not told. Nobody deletes themselves, and a user that does
+// not exist is not found, before the row's delete is asked.
 func TestManager_DeleteUser(t *testing.T) {
 	t.Parallel()
 
-	whole := []string{
+	rest := []string{
 		"end session " + sessionA.String(),
 		"delete identity " + identityA.String(),
-		"delete user " + userID.String(),
 		"delete membership domain/alpha " + userID.String() + " Reader",
 		"delete membership global/ " + userID.String() + " Steward",
 	}
+	whole := append([]string{"delete user " + userID.String()}, rest...)
+	taking := "delete user " + userID.String() + " with everything under it"
+	left := &resource.DeleteLeft{Deleted: 3, Left: 4}
 
 	tests := []struct {
-		name        string
-		caller      accesstypes.User
-		missing     bool
-		noRoles     bool
-		wantErr     func(error) bool
-		wantWrites  []string
-		wantChanged int
+		name            string
+		caller          accesstypes.User
+		everythingUnder bool
+		missing         bool
+		noRoles         bool
+		asks            bool
+		left            *resource.DeleteLeft
+		wantErr         func(error) bool
+		wantLeft        *resource.DeleteLeft
+		wantWrites      []string
+		wantChanged     int
 	}{
 		{name: "another person's account and everything that names it are deleted", caller: erin, wantWrites: whole, wantChanged: 1},
 		{name: "a call outside any request is the application's act", wantWrites: whole, wantChanged: 1},
 		{name: "a person who holds no role: the engine is not told", caller: erin, noRoles: true, wantWrites: whole[:3]},
+		{name: "told everything under, the row's delete takes what goes with the account", caller: erin, everythingUnder: true, wantWrites: append([]string{taking}, rest...), wantChanged: 1},
+		{name: "rows that go with the account are asked about first, and nothing is buffered", caller: erin, asks: true, wantErr: httpio.HasPreconditionRequired},
+		{name: "a save that leaves rows answers what it left, and nothing else is buffered", caller: erin, everythingUnder: true, left: left, wantLeft: left, wantWrites: []string{taking}},
 		{name: "the caller's own account is refused: the caller carries the account's id", caller: dana, wantErr: httpio.HasForbidden},
 		{name: "a user that does not exist is not found", caller: erin, missing: true, wantErr: httpio.HasNotFound},
 	}
@@ -253,6 +266,8 @@ func TestManager_DeleteUser(t *testing.T) {
 				sessions:    map[impulse.UUID][]impulse.UUID{userID: {sessionA}},
 				identities:  map[impulse.UUID]impulse.UUID{identityA: userID},
 				memberships: map[access.MembershipKey]bool{},
+				userAsks:    tt.asks,
+				userLeft:    tt.left,
 			}
 			if !tt.noRoles {
 				store.memberships[access.NewMembershipKey(globalScope, dana, "Steward")] = true
@@ -263,8 +278,12 @@ func TestManager_DeleteUser(t *testing.T) {
 			}
 			m, engine := newManager(t, store, engineRoles)
 
+			var got *resource.DeleteLeft
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.DeleteUser(asCaller(ctx, tt.caller), txn, userID)
+				var err error
+				got, err = m.DeleteUser(asCaller(ctx, tt.caller), txn, userID, tt.everythingUnder)
+
+				return err
 			})
 			if tt.wantErr != nil {
 				if err == nil || !tt.wantErr(err) {
@@ -272,6 +291,9 @@ func TestManager_DeleteUser(t *testing.T) {
 				}
 			} else if err != nil {
 				t.Fatalf("DeleteUser() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantLeft, got); diff != "" {
+				t.Errorf("DeleteUser() left (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)

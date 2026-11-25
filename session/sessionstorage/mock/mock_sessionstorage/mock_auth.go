@@ -898,6 +898,20 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) Session(ctx, sessionID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Session", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).Session), ctx, sessionID)
 }
 
+// SetAuditRecordsTableName mocks base method.
+func (m *MockAuthStoreMethods[Tx]) SetAuditRecordsTableName(name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetAuditRecordsTableName", name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetAuditRecordsTableName indicates an expected call of SetAuditRecordsTableName.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) SetAuditRecordsTableName(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetAuditRecordsTableName", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).SetAuditRecordsTableName), name)
+}
+
 // SetDeviceCodesTableName mocks base method.
 func (m *MockAuthStoreMethods[Tx]) SetDeviceCodesTableName(name string) error {
 	m.ctrl.T.Helper()

@@ -98,6 +98,10 @@ const (
 	// is kept in (whether everyone is asked for a second factor, and how long a browser is
 	// remembered), which every sign-in reads.
 	DefaultSignInSettingsTable = "SessionSignInSettings"
+	// DefaultAuditRecordsTable is the table the Auth keeps its audit log in (the auditlog
+	// package), which every act that changes an account, who holds what, or how people
+	// sign in writes.
+	DefaultAuditRecordsTable = "SessionAuditRecords"
 	// The tokens and device codes tables, read when a machine outlet names the Auth as
 	// the issuer of its tokens (Tokens in the generator program).
 	DefaultTokensTable      = "SessionTokens"
@@ -184,7 +188,7 @@ func parseAuths(rel string, src []byte, ownPkg string) (auths []Auth, unattached
 					SessionTable: DefaultSessionTable, UserTable: DefaultUserTable,
 					IdentitiesTable: DefaultIdentitiesTable, PendingTable: DefaultPendingTable,
 					AttemptsTable: DefaultAttemptsTable, SignInMethodsTable: DefaultSignInMethodsTable,
-					SignInSettingsTable: DefaultSignInSettingsTable, MailLinksTable: DefaultMailLinksTable,
+					SignInSettingsTable: DefaultSignInSettingsTable, AuditRecordsTable: DefaultAuditRecordsTable, MailLinksTable: DefaultMailLinksTable,
 					TokensTable: DefaultTokensTable, DeviceCodesTable: DefaultDeviceCodesTable,
 					FactorCodesTable: DefaultFactorCodesTable, TrustedDevicesTable: DefaultTrustedDevicesTable, OptionsForwarded: call.Ellipsis.IsValid(),
 				}
@@ -794,6 +798,8 @@ func readAuthArg(auth *Auth, arg ast.Expr, pkg, storage string, consts map[strin
 				auth.SignInMethodsTable = s
 			case "WithSignInSettingsTableName":
 				auth.SignInSettingsTable = s
+			case "WithAuditRecordsTableName":
+				auth.AuditRecordsTable = s
 			case "WithMailLinksTableName":
 				auth.MailLinksTable = s
 			case "WithTokensTableName":

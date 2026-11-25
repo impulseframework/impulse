@@ -266,8 +266,27 @@ func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransacti
 	return email, found, nil
 }
 
-func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := membersresources.NewMembersSessionUserDeletePatch(id).Buffer(ctx, txn); err != nil {
+func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The row's delete takes the application's rows that go with the account
+	// (@deletedWith), where it is told to. The delete is the request's person's
+	// (eventsource.UserEvent): a row it takes that keeps a change history records its
+	// delete as theirs.
+	patch := membersresources.NewMembersSessionUserDeletePatch(id)
+	if everythingUnder {
+		patch = patch.WithEverythingUnder()
+	}
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return nil, errors.Wrap(err, "membersresources.MembersSessionUserDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the accounts: the row's delete leaves the application's rows out.
+	patch := membersresources.NewMembersSessionUserDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionUserDeletePatch.Buffer()")
 	}
 
@@ -978,6 +997,10 @@ func (store) DescribeGroup(context.Context, resource.ReadWriteTransaction, impul
 }
 
 func (store) DeleteGroup(context.Context, resource.ReadWriteTransaction, impulse.UUID, bool) (*resource.DeleteLeft, error) {
+	return nil, errNoGroups
+}
+
+func (store) DeleteGroupWithTenant(context.Context, resource.ReadWriteTransaction, impulse.UUID) (*resource.DeleteLeft, error) {
 	return nil, errNoGroups
 }
 

@@ -605,7 +605,11 @@ refusing its delete; a hangar its passes and its ships with their refits and tas
 a sortie or a droid report on one of its ships refusing it; a refit its tasks; a sortie
 its expenses; a client its contacts, with a mission or a consignment refusing its
 delete; a distress call the relays passed along about it; a relay the relays that answer
-it. A delete of such a record that has
+it. A hangar pass that names one of the crew's groups goes with the group
+([`@deletedWith`](pkg/resources/hangar_passes.go) on the pass's group): the group's
+question counts the passes after its members and its roles, and whoever deletes the
+group needs what deleting each pass needs (`test/integration/group_share_test.go`).
+A delete of such a record that has
 rows under it deletes nothing at first. It is answered 428 with the question a person is
 asked ("Delete this mission and everything under it: 1 mission document, 2 sorties, 1
 sortie expense. This can't be undone."), which counts each kind the person may list and
@@ -1329,7 +1333,8 @@ or its wing when one is deleted, through the pass's own delete, so the rule is a
 about it there: the delete of a hangar or a wing is refused whole when a pass under it
 is her own, her squadron's or her group's, under either kind (proven for her own pass
 and her squadron's in `test/integration/impersonation_taken_skipauth_test.go`). A pass
-that goes with its sector is not asked about: a sector's delete asks nothing of a row,
+that names a group goes with the group the same way, checked as the person who deletes
+the group. A pass that goes with its sector is not asked about: a sector's delete asks nothing of a row,
 the `act` kind refuses it by its class, and no role the release ships deletes a sector.
 
 | Login | Who | What their view proves |

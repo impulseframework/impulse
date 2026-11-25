@@ -214,6 +214,12 @@ func TestLedgerPushdown(t *testing.T) {
 		{name: "a requested sort, pushed into the statement", target: "/console/api/service-ledgers?sort=name:desc", wantStatus: http.StatusOK, wantSectors: []string{cinder, bastion, anvil}},
 		{name: "a filter on a filterable column, pushed down", target: "/console/api/service-ledgers?filter=name:eq:Bastion", wantStatus: http.StatusOK, wantSectors: []string{bastion}},
 		{name: "an IN filter, pushed down", target: "/console/api/service-ledgers?filter=sectorId:in:(" + anvil + "," + cinder + ")&sort=sectorId", wantStatus: http.StatusOK, wantSectors: []string{anvil, cinder}},
+		// Name is allow_filter text, so it answers the three text matches too, which the
+		// statement does not render: the body leaves the field to the handler.
+		{name: "a text match on the name, left to the handler", target: "/console/api/service-ledgers?filter=name:contains:ast", wantStatus: http.StatusOK, wantSectors: []string{bastion}},
+		{name: "a text match beside another condition on the name: the field is left whole", target: "/console/api/service-ledgers?filter=name:ne:Anvil,name:contains:n", wantStatus: http.StatusOK, wantSectors: []string{bastion, cinder}},
+		{name: "a text match on the name with a page: the handler pages", target: "/console/api/service-ledgers?filter=name:startswith:Ci&limit=1", wantStatus: http.StatusOK, wantSectors: []string{cinder}},
+		{name: "a text match on the name with a page of more: the handler pages over the body's order", target: "/console/api/service-ledgers?filter=name:contains:n&limit=1", wantStatus: http.StatusOK, wantSectors: []string{anvil}, wantLink: true},
 		{name: "a page with a count degrades to the fold and still counts", target: "/console/api/service-ledgers?limit=1&count=true", wantStatus: http.StatusOK, wantSectors: []string{anvil}, wantTotal: "3", wantLink: true},
 		{name: "a filter on a column without allow_filter is refused at decode", target: "/console/api/service-ledgers?filter=settlements:gt:1", wantStatus: http.StatusBadRequest},
 		{name: "a malformed filter is refused at decode", target: "/console/api/service-ledgers?filter=name:between:a", wantStatus: http.StatusBadRequest},

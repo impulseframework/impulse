@@ -148,7 +148,9 @@ export interface MethodPresentation {
    * the row it is offered on and takes nothing but the row. The dialog asks `confirm`,
    * then the server's question where the delete takes records with it, and sends the
    * method again with `everythingUnder` at the next press, and for as long as the server
-   * answers what is left (a 202).
+   * answers what is left (a 202). Where the method declares a warning, the delete dialog
+   * shows the server's words under the page's question. A method whose warning asks for
+   * a typed word keeps its own dialog.
    */
   deletes?: boolean;
   /**
@@ -943,6 +945,14 @@ export interface BaseConfigOptions {
    * method did.
    */
   rowGone?: (row: RecordData) => string;
+  /**
+   * The text a person types before a row is deleted, from the row: its own name (the
+   * tenants page asks for a tenant's name). The delete dialog asks for it from its first
+   * question on and holds Delete at every press until it is typed; a row it answers empty
+   * text for is asked nothing more. It guards the row's own Delete, from its page or from
+   * its list, and is no part of the request. Unset, nothing is typed.
+   */
+  deleteTyped?: (row: RecordData) => string;
 }
 export interface BaseConfig {
   title: string;
@@ -963,6 +973,8 @@ export interface BaseConfig {
   rowTitle?: (row: RecordData) => string;
   /** What the list says of a row that left it; see BaseConfigOptions.rowGone. */
   rowGone?: (row: RecordData) => string;
+  /** The text a person types before a row is deleted; see BaseConfigOptions.deleteTyped. */
+  deleteTyped?: (row: RecordData) => string;
 }
 
 @Directive()
@@ -1122,7 +1134,9 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
   shouldRenderActions?: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   /**
    * Show the server's total row count in the title. The count comes with the list's first
-   * answer, so a title that carries it is drawn with the rows and not before.
+   * answer, so a title that carries it is drawn with the rows and not before. Where false,
+   * the list asks the server for no total and its pager names the rows it shows without
+   * one; the search box still asks for the rows that match while its text is committed.
    */
   showRowCount?: boolean;
   /**

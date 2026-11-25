@@ -283,7 +283,7 @@ func Test_prepareIdentity_listedTenant(t *testing.T) { //nolint:paralleltest // 
 		"FROM CrewGroups g\n JOIN CrewGroupMembers gm ON gm.GroupId = g.Id\n WHERE g.Kind = 'domain' AND g.Axis = '' AND g.DomainId = s.Id\n AND " + countingSQL("gm") + "\n UNION DISTINCT\n",
 		// Since: the column the record marks, read where the facts are.
 		"FROM CitadelDirectories dr\n JOIN CrewSessionIdentities dl ON dl.Method = dr.Method AND dl.Connection = dr.Connection\n WHERE dr.CitadelId = s.Id\n ) p) AS People,\n s.RaisedAt AS Since,\n (SELECT CASE d.Method",
-		// Directory: the kind, and a Google Workspace's domain.
+		// Directory: the kind, and of a Google Workspace its connection too.
 		"(SELECT CASE d.Method\n WHEN 'google' THEN IF(IFNULL(d.Connection, '') = '', 'Google Workspace', CONCAT('Google Workspace ', d.Connection))\n WHEN 'azure' THEN 'Microsoft Entra tenant'\n WHEN 'workos' THEN 'WorkOS connection'\n WHEN 'oidc' THEN 'OpenID Connect provider'\n ELSE 'Directory'\n END\n FROM CitadelDirectories d\n WHERE d.CitadelId = s.Id\n LIMIT 1) AS Directory,",
 		// Administrators: by name, or username, a line each, through the tenant's own
 		// memberships and groups.

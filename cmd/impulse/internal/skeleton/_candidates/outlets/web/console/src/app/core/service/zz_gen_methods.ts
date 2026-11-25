@@ -146,21 +146,45 @@ export interface DeleteStaffTenantGroupAnswer {
 
 export interface DeleteStaffTenantUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteStaffTenantUser {
   userId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteStaffTenantUser answers with. */
+export interface DeleteStaffTenantUserResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteStaffTenantUser declares; the method chooses one per response. */
-export type DeleteStaffTenantUserStatus = 204;
+export type DeleteStaffTenantUserStatus = 202 | 204;
+/** The answer DeleteStaffTenantUser resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffTenantUserAnswer {
+  status: DeleteStaffTenantUserStatus;
+  result: DeleteStaffTenantUserResult;
+}
 
 export interface DeleteStaffUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteStaffUser {
   userId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteStaffUser answers with. */
+export interface DeleteStaffUserResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteStaffUser declares; the method chooses one per response. */
-export type DeleteStaffUserStatus = 204;
+export type DeleteStaffUserStatus = 202 | 204;
+/** The answer DeleteStaffUser resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffUserAnswer {
+  status: DeleteStaffUserStatus;
+  result: DeleteStaffUserResult;
+}
 
 export interface DescribeStaffGroupConfig {
   groupId: string | FieldPointer;
@@ -965,20 +989,24 @@ const methodMap: MethodMap = {
   [Methods.DeleteStaffTenantUser]: {
     route: 'delete-staff-tenant-user',
     target: { resource: Resources.StaffTenantUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteStaffUser]: {
     route: 'delete-staff-user',
     target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DescribeStaffGroup]: {

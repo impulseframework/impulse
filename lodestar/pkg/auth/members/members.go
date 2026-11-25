@@ -93,10 +93,12 @@ const (
 	// each session records, the pending sign-ins that wait for a confirmation or an
 	// MFA step, the sign-in attempts the library counts per name (the mail it sends is
 	// counted there too, under the address), the mail links (the invitations and
-	// address verifications the auth mails, each a single-use token), and the second
-	// factor's: the sign-in codes mailed for a pending sign-in and the browsers people
-	// asked to be remembered. The names are spelled out in full so the tool's
-	// session-tables check, which reads the literals, finds their migrations.
+	// address verifications the auth mails, each a single-use token), the audit records
+	// (the auth's audit log: one row for each act that changes an account, who holds
+	// what, or how people sign in), and the second factor's: the sign-in codes mailed for
+	// a pending sign-in and the browsers people asked to be remembered. The names are
+	// spelled out in full so the tool's session-tables check, which reads the literals,
+	// finds their migrations.
 	sessionsTable       = "MembersSessions"
 	usersTable          = "MembersSessionUsers"
 	identitiesTable     = "MembersSessionIdentities"
@@ -105,6 +107,7 @@ const (
 	attemptsTable       = "MembersSessionSignInAttempts"
 	methodsTable        = "MembersSessionSignInMethods"
 	signInSettingsTable = "MembersSessionSignInSettings"
+	auditRecordsTable   = "MembersSessionAuditRecords"
 	mailLinksTable      = "MembersSessionMailLinks"
 	factorCodesTable    = "MembersSessionFactorCodes"
 	trustedDevicesTable = "MembersSessionTrustedDevices"
@@ -330,6 +333,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithSignInAttemptsTableName(attemptsTable),
 		session.WithSignInMethodsTableName(methodsTable),
 		session.WithSignInSettingsTableName(signInSettingsTable),
+		session.WithAuditRecordsTableName(auditRecordsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithFactorCodesTableName(factorCodesTable),
 		session.WithTrustedDevicesTableName(trustedDevicesTable),

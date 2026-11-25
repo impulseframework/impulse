@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef, MatDialogState } from '@angular/material/dialog';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { ApiError, DeleteLeft, RemoveOptions } from '@impulseframework/resource';
+import { ApiError, DeleteLeft, MethodWarning, RemoveOptions } from '@impulseframework/resource';
 
 import {
   DeleteConfirmation,
@@ -430,6 +430,350 @@ describe('DeleteResourceConfirmationModal', () => {
     await fixture.componentInstance.confirm();
 
     expect(closedWith).toEqual([]);
+  });
+
+  // A page that hands the dialog a text (a tenant's name) has it typed before the row is
+  // deleted: from the first question on, Delete is held at every press until the input
+  // holds the text, in any case and however its spaces are typed. What is typed is never
+  // sent.
+  describe('told a text to type', () => {
+    const sentence = "Delete this sector and everything under it: 4 roles held, 2 accounts. This can't be undone.";
+    const field = (): HTMLInputElement | null =>
+      overlay()?.querySelector<HTMLInputElement>('.typed-name input') ?? null;
+    const held = (): boolean | undefined => buttons().find((button) => textOf(button) === 'Delete')?.disabled;
+    const type = async (value: string): Promise<void> => {
+      await rest();
+      const input = field();
+      expect(input, 'the dialog has no input for the text').toBeTruthy();
+      if (input) {
+        input.value = value;
+        input.dispatchEvent(new Event('input'));
+      }
+      await rest();
+    };
+
+    it('asks for it under the first question, with the text in full, the input taking the focus, and holds Delete until it is typed', async () => {
+      const server = answered();
+      opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+      await rest();
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe('Delete West Reach from Sectors?');
+      const asks = overlay()?.querySelector('.typed-asks') ?? null;
+      expect(textOf(asks)).toBe('Type West Reach to confirm.');
+      expect(textOf(asks?.querySelector('strong') ?? null)).toBe('West Reach');
+      const input = field();
+      expect(input, 'the dialog has no input for the text').toBeTruthy();
+      expect(document.activeElement).toBe(input);
+      expect(asks?.id).toBeTruthy();
+      expect([
+        input?.getAttribute('autocomplete'),
+        input?.getAttribute('autocapitalize'),
+        input?.getAttribute('spellcheck'),
+        input?.getAttribute('aria-labelledby'),
+      ]).toEqual(['off', 'off', 'false', asks?.id]);
+      expect(overlay()?.querySelector('.typed-name mat-label')).toBeNull();
+      expect(held()).toBe(true);
+
+      await press('Delete');
+
+      expect(server.said).toEqual([]);
+
+      await type('West');
+
+      expect(held()).toBe(true);
+
+      await type(' west  reach ');
+
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(server.said).toEqual([undefined]);
+    });
+
+    it("keeps what was typed under the server's question, holds Delete again while the input does not hold the text, and sends everything under the row and nothing else", async () => {
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('west reach');
+      await press('Delete');
+      await server.answer(asksFirst(sentence));
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(sentence);
+      expect(textOf(overlay()?.querySelector('.typed-asks') ?? null)).toBe('Type West Reach to confirm.');
+      expect(field()?.value).toBe('west reach');
+      expect(held()).toBe(false);
+
+      await type('West');
+
+      expect(held()).toBe(true);
+
+      await type('WEST  REACH');
+      await press('Delete');
+
+      expect(server.said).toEqual([undefined, { everythingUnder: true }]);
+
+      await server.answer(undefined);
+
+      expect(server.said).toEqual([undefined, { everythingUnder: true }]);
+      expect(answers).toEqual([true]);
+    });
+
+    it('carries a delete in rounds from the one press, the input off with the buttons meanwhile', async () => {
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(
+        asksFirst("Delete this sector and everything under it: 38,000 sorties. This can't be undone."),
+      );
+      await press('Delete');
+      await server.answer({ deleted: 6800, left: 31200 });
+
+      expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 6,800 of 38,000 records…');
+      expect(field()?.disabled).toBe(true);
+      expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+        ['Cancel', true],
+        ['Delete', true],
+      ]);
+
+      await server.answer({ deleted: 31200, left: 0 });
+      await server.answer(undefined);
+
+      expect(server.said).toEqual([
+        undefined,
+        { everythingUnder: true },
+        { everythingUnder: true },
+        { everythingUnder: true },
+      ]);
+      expect(answers).toEqual([true]);
+    });
+
+    it('draws no input beside a refusal at the first press, which comes after the text was typed', async () => {
+      const refusal = 'Disable this tenant before deleting it.';
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(new ApiError('PATCH', '/api/resources', 409, { message: refusal }));
+
+      expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe(refusal);
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+      expect(server.said).toEqual([undefined]);
+      expect(answers).toEqual([]);
+    });
+
+    it("takes the input away from a refusal after the server's question", async () => {
+      const refusal = "This sector has missions that you can't delete, so it can't be deleted.";
+      const server = answered();
+      opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(asksFirst(sentence));
+
+      expect(field()).toBeTruthy();
+
+      await press('Delete');
+      await server.answer(new ApiError('PATCH', '/api/resources', 403, { message: refusal }));
+
+      expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe(refusal);
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(buttons().map((button) => textOf(button))).toEqual(['Close']);
+    });
+
+    it('closes with true where the server deletes the row at the first press, once the text was typed', async () => {
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await press('Delete');
+
+      expect(server.said).toEqual([]);
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(undefined);
+
+      expect(server.said).toEqual([undefined]);
+      expect(answers).toEqual([true]);
+    });
+
+    it('handed no delete, holds Delete until the text is typed and closes with true', async () => {
+      const { ref, answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach' });
+      await rest();
+
+      expect(textOf(overlay()?.querySelector('.typed-asks') ?? null)).toBe('Type West Reach to confirm.');
+      expect(held()).toBe(true);
+
+      await press('Delete');
+      // Held, the button's own action answers nothing either.
+      await ref.componentInstance.confirm();
+      await rest();
+
+      expect(answers).toEqual([]);
+
+      await type('West Reach');
+
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(answers).toEqual([true]);
+    });
+
+    it('asks nothing to be typed for a text of spaces alone', async () => {
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: '   ' });
+      await rest();
+
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(answers).toEqual([true]);
+    });
+
+    it("draws no input at the server's question where it is told no text", async () => {
+      const server = answered();
+      opened({ name: 'West Reach', from: 'Sectors', delete: server.run });
+
+      await press('Delete');
+      await server.answer(asksFirst(sentence));
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(sentence);
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(held()).toBe(false);
+    });
+  });
+
+  // A method that warns before it runs hands the dialog its warning: the dialog asks it
+  // once as it opens, holds Delete until it is answered, and draws the server's words
+  // under the page's question, as the method's own dialog draws them. Once the server's
+  // question about what goes with the row is on the screen, the warning is not drawn.
+  describe("told the method's warning", () => {
+    const warning: MethodWarning = {
+      consequence: 'Ada can sign in again through the directory, and will get a new account.',
+      names: ['Ada Lovelace'],
+      confirm: 'Delete',
+      also: [{ says: 'Her sessions end at once.', names: ['the console'] }],
+    };
+    const held = (): boolean | undefined => buttons().find((button) => textOf(button) === 'Delete')?.disabled;
+    // A warning the test answers when it says, counting how often it is asked.
+    function warned(): {
+      ask: () => Promise<MethodWarning>;
+      asked: () => number;
+      answer: (value: MethodWarning | Error) => Promise<void>;
+    } {
+      let asked = 0;
+      let settle: (value: MethodWarning | Error) => void = () => undefined;
+      const ask = (): Promise<MethodWarning> => {
+        asked++;
+
+        return new Promise<MethodWarning>((resolve, reject) => {
+          settle = (value) => (value instanceof Error ? reject(value) : resolve(value));
+        });
+      };
+
+      return {
+        ask,
+        asked: () => asked,
+        answer: async (value) => {
+          settle(value);
+          await rest();
+        },
+      };
+    }
+
+    it("holds Delete until the warning is answered, then draws its words under the page's question", async () => {
+      const server = warned();
+      opened({ question: 'Delete ada?', warning: server.ask, delete: () => Promise.resolve() });
+      await rest();
+
+      expect(server.asked()).toBe(1);
+      expect(held()).toBe(true);
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+
+      await server.answer(warning);
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe('Delete ada?');
+      expect(textOf(overlay()?.querySelector('.warning-consequence') ?? null)).toBe(warning.consequence);
+      expect([...(overlay()?.querySelectorAll('.warning-names li') ?? [])].map(textOf)).toEqual([
+        'Ada Lovelace',
+        'the console',
+      ]);
+      expect(textOf(overlay()?.querySelector('.warning-note') ?? null)).toBe('Her sessions end at once.');
+      expect(held()).toBe(false);
+    });
+
+    it('shows a refused warning as a refused delete, with Close alone, so nothing is deleted unseen', async () => {
+      const server = warned();
+      let runs = 0;
+      const { answers } = opened({
+        question: 'Delete ada?',
+        warning: server.ask,
+        delete: () => {
+          runs++;
+          return Promise.resolve();
+        },
+      });
+      await rest();
+      await server.answer(
+        new ApiError('POST', '/api/delete-crew-sector-user/warning', 403, { message: 'You may not.' }),
+      );
+
+      expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe('You may not.');
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+      expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+      expect(runs).toBe(0);
+
+      await press('Close');
+
+      expect(answers).toEqual([false]);
+    });
+
+    it("draws the warning no more once the server's question is on the screen, and asks it once", async () => {
+      const server = warned();
+      const said: unknown[] = [];
+      const counted = "Delete this account and everything under it: 7 task assignments. This can't be undone.";
+      const { answers } = opened({
+        question: 'Delete ada?',
+        warning: server.ask,
+        delete: (options) => {
+          said.push(options);
+
+          return options?.everythingUnder ? Promise.resolve() : Promise.reject(asksFirst(counted));
+        },
+      });
+      await rest();
+      await server.answer(warning);
+
+      await press('Delete');
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(counted);
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(said).toEqual([undefined, { everythingUnder: true }]);
+      expect(server.asked()).toBe(1);
+      expect(answers).toEqual([true]);
+    });
+
+    it('draws no warning and holds nothing where it is told none', async () => {
+      opened({ question: 'Delete ada?', delete: () => Promise.resolve() });
+      await rest();
+
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+      expect(held()).toBe(false);
+    });
   });
 });
 

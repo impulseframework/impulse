@@ -1011,6 +1011,114 @@ describe('ResourceListComponent', () => {
     });
   });
 
+  describe('asks the server for its total only where the page draws one', () => {
+    // Three ships over two pages. The server answers a total only to a request that asks
+    // for one, as it does: a count costs it a read of every row the filter admits.
+    const firstUrl = (count: boolean): string => `/api/ships?columns=name%2Cid${count ? '&count=true' : ''}`;
+    const secondUrl = '/api/ships?columns=name%2Cid&cursor=v4.local.two';
+    const server = (request: TransportRequest): TransportResponse => {
+      if (request.url === secondUrl) {
+        return {
+          status: 200,
+          body: [{ id: 's-3', name: 'Vega' }],
+          headers: { link: `<${firstUrl(false)}>; rel="prev"` },
+        };
+      }
+      const counted = new URL(request.url, 'http://list.test').searchParams.get('count') === 'true';
+      return {
+        status: 200,
+        body: [
+          { id: 's-1', name: 'Kestrel' },
+          { id: 's-2', name: 'Merlin' },
+        ],
+        headers: { ...(counted ? { 'total-count': '3' } : {}), link: `<${secondUrl}>; rel="next"` },
+      };
+    };
+    const urls = (): string[] => transport.requests.map((request) => request.url);
+    const title = (): string | undefined =>
+      (fixture.nativeElement as HTMLElement).querySelector('h1.impulse-resource-list-title')?.textContent?.trim();
+    const pager = (): string | undefined =>
+      (fixture.nativeElement as HTMLElement).querySelector('.impulse-grid-pager .pager-rows')?.textContent?.trim();
+    const open = async (options: Partial<ListViewConfigOptions>): Promise<void> => {
+      await create(
+        { primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }], ...options },
+        [],
+        server,
+      );
+      fixture.detectChanges();
+      await settle();
+    };
+    const turn = async (direction: 'next' | 'prev'): Promise<void> => {
+      fixture.componentInstance.onPageTurn(direction);
+      await settle();
+    };
+
+    it("a page that draws no total asks for none, and pages forward and back by the server's cursor", async () => {
+      await open({ showRowCount: false });
+
+      expect(urls()).toEqual([firstUrl(false)]);
+      expect(title()).toBe('Ships');
+      expect(fixture.componentInstance.store.page().total).toBeUndefined();
+      expect(pager()).toBe('1–2');
+
+      await turn('next');
+      expect(urls()).toEqual([firstUrl(false), secondUrl]);
+      expect(fixture.componentInstance.store.page()).toMatchObject({ offset: 2, hasPrev: true, hasNext: false });
+      expect(pager()).toBe('3–3');
+
+      await turn('prev');
+      expect(urls()).toEqual([firstUrl(false), secondUrl, firstUrl(false)]);
+      expect(fixture.componentInstance.store.page()).toMatchObject({ offset: 0, hasPrev: false, hasNext: true });
+      expect(pager()).toBe('1–2');
+      expect(title()).toBe('Ships');
+    });
+
+    it('a page left at the default asks for the total and draws it, and keeps it while turning', async () => {
+      await open({});
+
+      expect(urls()).toEqual([firstUrl(true)]);
+      expect(title()).toBe('Ships (3)');
+      expect(pager()).toBe('1–2 of 3');
+
+      await turn('next');
+      expect(urls()).toEqual([firstUrl(true), secondUrl]);
+      expect(pager()).toBe('3–3 of 3');
+      expect(title()).toBe('Ships (3)');
+    });
+
+    it('a page that draws no total in its title asks for one while its search box says how many rows match', async () => {
+      const matches = (): string | undefined =>
+        (fixture.nativeElement as HTMLElement).querySelector('impulse-search-box mat-hint')?.textContent?.trim();
+      await create(
+        { primaryResource: clients, title: 'Clients', showRowCount: false, listColumns: [{ id: 'name' as FieldName }] },
+        [],
+        (request: TransportRequest): TransportResponse => {
+          const counted = new URL(request.url, 'http://list.test').searchParams.get('count') === 'true';
+          return {
+            status: 200,
+            body: [{ id: 'c-1', name: 'Meridian' }],
+            headers: counted ? { 'total-count': '1' } : {},
+          };
+        },
+      );
+      fixture.detectChanges();
+      await settle();
+      const asked = (): (string | null)[] =>
+        transport.requests.map((request) => new URL(request.url, 'http://list.test').searchParams.get('count'));
+      expect(asked()).toEqual([null]);
+
+      fixture.componentInstance.onSearchChange('merid');
+      await settle();
+      expect(asked()).toEqual([null, 'true']);
+      expect(matches()).toBe('1 row matches');
+      expect(title()).toBe('Clients');
+
+      fixture.componentInstance.onSearchChange('');
+      await settle();
+      expect(asked()).toEqual([null, 'true', null]);
+    });
+  });
+
   describe('hands a yes-or-no value to the table as it is', () => {
     const fleet = [
       { id: 's-1', name: 'Kestrel', decommissioned: true, flagged: null },
@@ -1982,6 +2090,43 @@ describe('ResourceListComponent', () => {
         { op: 'remove', path: '/s-1' },
         { op: 'remove', path: '/s-1', value: { everythingUnder: true } },
       ]);
+    });
+
+    /** Opens the confirmation for a row and says what the dialog was handed. */
+    const handedFor = (row: RecordData): DeleteConfirmation | undefined => {
+      const component = fixture.componentInstance;
+      let handed: DeleteConfirmation | undefined;
+      component.dialog.open = ((_: unknown, config: { data: DeleteConfirmation }) => {
+        handed = config.data;
+
+        return {};
+      }) as unknown as typeof component.dialog.open;
+
+      component.confirmDeleteRow(row);
+
+      return handed;
+    };
+
+    it('and hands the dialog the text to type that the config answers for the row', async () => {
+      await create({
+        primaryResource: ships,
+        title: 'Ships',
+        listColumns: [{ id: 'name' as FieldName }],
+        deleteTyped: (row) => String(row['name']),
+      });
+      fixture.detectChanges();
+
+      expect(handedFor(kestrel)?.typed).toBe('Kestrel');
+    });
+
+    it('and hands the dialog no text to type where the config sets none', async () => {
+      await create({ primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }] });
+      fixture.detectChanges();
+
+      const handed = handedFor(kestrel);
+
+      expect(handed).toBeDefined();
+      expect(handed?.typed).toBeUndefined();
     });
   });
 

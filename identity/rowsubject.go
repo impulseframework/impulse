@@ -65,10 +65,13 @@ import (
 // row of a set they are in, is refused whole, in the sentence the row's own removal is
 // refused with, and nothing is deleted. A mask that refuses the row's own delete
 // refuses the record's delete too, since each taken row is checked against the caller's
-// grants. A delete an application runs trusted, with no caller, asks neither: an action
-// that deletes such a record in its own body takes the rows under it unasked, and an
-// application closes that by refusing the action by name in the kind's mask
-// (accesstypes.RefuseAction).
+// grants. A row that goes with a group of the library's that it names (@deletedWith) is
+// held to the same three questions: the library deletes the group without arming the
+// delete, and the row is checked as the request's caller all the same
+// (resource.DeleteKind.AsCaller). A delete an application runs trusted, with no caller,
+// asks neither: an action that deletes such a record in its own body takes the rows
+// under it unasked, and an application closes that by refusing the action by name in
+// the kind's mask (accesstypes.RefuseAction).
 //
 // A row that goes with its tenant is a limit of its own. A tenant's delete takes every
 // row under the tenant on the grant to delete the tenant: no grant is asked on a row,
@@ -79,6 +82,12 @@ import (
 // (accesstypes.RefusePermission(accesstypes.Delete, tenant)), and by name any action
 // that deletes a tenant in its own body (accesstypes.RefuseAction), because an action
 // is asked for Execute on its name and not for Delete on the record.
+//
+// A row that goes with an account it names (@deletedWith) is the same limit. The
+// account's delete takes it on the permission to delete the account: no grant is asked
+// on the row, and the rule is not asked about the person or the set it names. An
+// application closes it for a kind by refusing, in the kind's mask, the methods that
+// delete a person, by name (accesstypes.RefuseAction(method)).
 //
 // A row a foreign key's referential action removes or rewrites is another: no write of
 // the row is made, so nothing is asked. impulse check refuses ON DELETE CASCADE on an

@@ -856,6 +856,47 @@ func NewMembersSessionUserDeletePatch(id impulse.UUID) *MembersSessionUserDelete
 	return &MembersSessionUserDeletePatch{patchSet: patchSet}
 }
 
+// WithEverythingUnder says the delete takes the rows under the MembersSessionUser with it:
+// the kinds its description lists as taken, the application's rows that name it in a
+// column that says so (@deletedWith) among them, each through its own delete. It takes
+// the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
+// MembersSessionUser that has such rows deletes nothing and is answered with the question a
+// person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
+// one save takes, the delete takes what fits, deepest first, and Left says what is left:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+func (p *MembersSessionUserDeletePatch) WithEverythingUnder() *MembersSessionUserDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// Left is what the delete left under the MembersSessionUser once it is buffered
+// (resource.DeleteLeft): nil where the delete finished, the MembersSessionUser with it.
+func (p *MembersSessionUserDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the MembersSessionUser that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the MembersSessionUser.
+func (p *MembersSessionUserDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *MembersSessionUserDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+// WithLibraryRowsAlone says the delete leaves the application's rows that name the
+// MembersSessionUser out: none is counted, asked about or taken, and none refuses the delete
+// (resource.PatchSet.DeleteLibraryRowsAlone). A MembersSessionUser deleted with its tenant is
+// deleted so, the tenant's delete having taken the application's rows under the tenant
+// already.
+func (p *MembersSessionUserDeletePatch) WithLibraryRowsAlone() *MembersSessionUserDeletePatch {
+	p.patchSet.DeleteLibraryRowsAlone()
+
+	return p
+}
+
 func (p *MembersSessionUserDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }

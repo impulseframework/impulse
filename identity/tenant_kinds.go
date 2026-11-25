@@ -454,7 +454,9 @@ func (k *tenantGroups) Check(context.Context, resource.ReadWriteTransaction) err
 // the store's delete of a group with everything under it. A group its own delete could not
 // take in one save leaves rows of the kind. A group whose cost does not fit what the round
 // has left is taken in part, its members and then its roles one at a time while the next
-// fits, and goes in the round in which the rest of it fits.
+// fits, and goes in the round in which the rest of it fits. The store's delete leaves the
+// application's rows out (DeleteGroupWithTenant): the tenant's delete took those under the
+// tenant before this kind is reached.
 func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	store := k.manager.store
 	groups, err := store.TenantGroups(ctx, txn, k.domain)
@@ -481,9 +483,9 @@ func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransacti
 
 			return rows, mutations + spent, true, k.policyChanged(txn, rows+taken)
 		}
-		left, err := store.DeleteGroup(ctx, txn, id, true)
+		left, err := store.DeleteGroupWithTenant(ctx, txn, id)
 		if err != nil {
-			return rows, mutations, false, errors.Wrap(err, "identity.Store.DeleteGroup()")
+			return rows, mutations, false, errors.Wrap(err, "identity.Store.DeleteGroupWithTenant()")
 		}
 		mutations += cost
 		if left != nil {

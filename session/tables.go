@@ -44,6 +44,9 @@ type Tables struct {
 	// (sessionstorage.NewAuthEventsTable, sessionstorage.NewImpersonationTable).
 	AuthEvents     string
 	Impersonations string
+	// AuditRecords holds the auth's audit log: one row for each act that changes an
+	// account, who holds what, or how people sign in (the auditlog package).
+	AuditRecords string
 }
 
 // DefaultTables answers the library's own names, the ones an Auth reads and writes when
@@ -64,6 +67,7 @@ func DefaultTables() Tables {
 		DeviceCodes:    dbtype.DeviceCodesTable,
 		AuthEvents:     dbtype.AuthEventsTable,
 		Impersonations: dbtype.ImpersonationsTable,
+		AuditRecords:   dbtype.AuditRecordsTable,
 	}
 }
 
@@ -76,7 +80,7 @@ func TablesWithPrefix(prefix string) (Tables, error) {
 	tables := DefaultTables()
 	for _, name := range []*string{
 		&tables.Sessions, &tables.Users, &tables.Identities, &tables.PendingSignIns, &tables.SignInAttempts, &tables.SignInMethods, &tables.SignInSettings, &tables.MailLinks,
-		&tables.FactorCodes, &tables.TrustedDevices, &tables.Tokens, &tables.DeviceCodes, &tables.AuthEvents, &tables.Impersonations,
+		&tables.FactorCodes, &tables.TrustedDevices, &tables.Tokens, &tables.DeviceCodes, &tables.AuthEvents, &tables.Impersonations, &tables.AuditRecords,
 	} {
 		*name = prefix + *name
 		if err := dbtype.ValidateTableName(*name); err != nil {

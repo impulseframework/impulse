@@ -726,6 +726,7 @@ export class ResourceViewComponent implements OnInit {
       name: config.rowTitle?.(this.store.viewData()),
       from: config.title,
       word: this.rowWords()?.one,
+      typed: config.deleteTyped?.(this.store.viewData()),
       delete: (options) => {
         console.debug('Deleting resource | ', this.config().title, '|', this.relatedId());
 

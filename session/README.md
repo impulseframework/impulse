@@ -161,10 +161,13 @@ CREATE INDEX "Sessions_UpdatedOn_idx" ON "Sessions" USING btree ("UpdatedOn");
 On PostgreSQL the store reads `EndsAt` and `UpdatedOn`: without the column it removes no
 row of that table and logs an error at each write. The other four removals read
 `ExpiresAt`, which each of those tables has; without its index on `ExpiresAt`, each
-write that carries the removal reads the table whole. A table of the application's that
-references one of these tables needs `ON DELETE CASCADE` on that foreign key, as the
-custom session data table has: on PostgreSQL a foreign key without it stops the removal
-from that table while a row it holds is due, logged at each write. On PostgreSQL the
+write that carries the removal reads the table whole. The custom session data table
+references the sessions table with `ON DELETE CASCADE` ("Custom session data"). A record
+of the application's that references one of these tables carries no delete rule on that
+foreign key, since its rows are deleted in code only (`impulse check`,
+`no-delete-cascade`): the application deletes, in code, its rows that name a row of these
+tables before that row is due. On PostgreSQL a row that still names a due row stops the
+removal from that table while it stands, logged at each write. On PostgreSQL the
 referencing column also needs an index, which the database does not make for a foreign
 key: without one, each row the removal deletes reads that table whole.
 
@@ -4431,11 +4434,15 @@ A row taken with the record it is under (a pass that goes with the place it open
 the place's record declares it with `@deleteCascade`) is held to the rule too: it is
 deleted through its own delete, so the rule and the mask are asked about it, and the
 delete of the place is refused whole when a pass under it is the real person's own or
-their set's. A row that goes with its tenant is a limit of its own: a tenant's delete
-asks no grant and no rule of a row. The generator gives that delete the class `access`,
-and an application closes it for a kind that keeps the class by refusing the delete in
-the kind's mask (`accesstypes.RefusePermission(accesstypes.Delete, tenant)`), with any
-action that deletes a tenant in its own body, by name (`accesstypes.RefuseAction`).
+their set's. A row that goes with a group it names (`@deletedWith`) is held to it the
+same way. A row that goes with its tenant is a limit of its own: a tenant's delete asks
+no grant and no rule of a row. The generator gives that delete the class `access`, and
+an application closes it for a kind that keeps the class by refusing the delete in the
+kind's mask (`accesstypes.RefusePermission(accesstypes.Delete, tenant)`), with any
+action that deletes a tenant in its own body, by name (`accesstypes.RefuseAction`). A
+row that goes with an account it names (`@deletedWith`) is the same limit: the account's
+delete asks no grant and no rule of it, and an application closes it by refusing the
+methods that delete a person in the kind's mask, by name (`accesstypes.RefuseAction`).
 Where a foreign key changes a row where it stands (`ON DELETE SET NULL` or
 `SET DEFAULT`, and `ON UPDATE CASCADE`, which follows a change of the parent's key;
 PostgreSQL has them), no write of the row is made: refusing the parent's delete, and for

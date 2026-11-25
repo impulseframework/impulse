@@ -74,12 +74,24 @@ export interface DeleteStaffGroupAnswer {
 
 export interface DeleteStaffUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteStaffUser {
   userId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteStaffUser answers with. */
+export interface DeleteStaffUserResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteStaffUser declares; the method chooses one per response. */
-export type DeleteStaffUserStatus = 204;
+export type DeleteStaffUserStatus = 202 | 204;
+/** The answer DeleteStaffUser resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffUserAnswer {
+  status: DeleteStaffUserStatus;
+  result: DeleteStaffUserResult;
+}
 
 export interface DescribeStaffGroupConfig {
   groupId: string | FieldPointer;
@@ -541,10 +553,12 @@ const methodMap: MethodMap = {
   [Methods.DeleteStaffUser]: {
     route: 'delete-staff-user',
     target: { resource: Resources.StaffListedUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DescribeStaffGroup]: {

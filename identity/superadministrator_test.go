@@ -286,7 +286,9 @@ func TestManager_lastSuperAdministrator(t *testing.T) {
 		return m.DisableUser(ctx, txn, userID)
 	}
 	deleteUser := func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-		return m.DeleteUser(ctx, txn, userID)
+		_, err := m.DeleteUser(ctx, txn, userID, false)
+
+		return err
 	}
 	removed := "delete membership " + membershipText(&danaSuper)
 	const last = "This person is the last super administrator who can sign in. Give another person the Super administrator role before you "

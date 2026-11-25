@@ -137,7 +137,9 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 		{
 			name: "delete",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.DeleteUser(ctx, txn, userID)
+				_, err := m.DeleteUser(ctx, txn, userID, false)
+
+				return err
 			},
 			wantOwn:    "You cannot delete your own account.",
 			wantActing: actingAsSomeoneElse + "delete your own account.",
@@ -301,7 +303,9 @@ func TestManager_accountSwitches_refuseTheImpersonatorAlike(t *testing.T) {
 		{
 			name: "delete",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.DeleteUser(ctx, txn, sal)
+				_, err := m.DeleteUser(ctx, txn, sal, false)
+
+				return err
 			},
 		},
 	}
@@ -549,7 +553,9 @@ func TestManager_callerOfAnotherAuth(t *testing.T) {
 		{
 			name: "delete",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.DeleteUser(ctx, txn, userID)
+				_, err := m.DeleteUser(ctx, txn, userID, false)
+
+				return err
 			},
 			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&warden), "delete membership " + membershipText(&reader)},
 		},

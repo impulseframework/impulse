@@ -320,8 +320,27 @@ func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransacti
 	return email, found, nil
 }
 
-func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := staffresources.NewStaffSessionUserDeletePatch(id).Buffer(ctx, txn); err != nil {
+func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The row's delete takes the application's rows that go with the account
+	// (@deletedWith), where it is told to. The delete is the request's person's
+	// (eventsource.UserEvent): a row it takes that keeps a change history records its
+	// delete as theirs.
+	patch := staffresources.NewStaffSessionUserDeletePatch(id)
+	if everythingUnder {
+		patch = patch.WithEverythingUnder()
+	}
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return nil, errors.Wrap(err, "staffresources.StaffSessionUserDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the accounts: the row's delete leaves the application's rows out.
+	patch := staffresources.NewStaffSessionUserDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "staffresources.StaffSessionUserDeletePatch.Buffer()")
 	}
 
@@ -1158,13 +1177,28 @@ func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransactio
 }
 
 func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
-	// The group's delete takes its members and its roles (its @deleteCascade). The
-	// patch is not armed against a caller: the method that deletes the group has asked
-	// the caller's grants, and the rows are taken trusted.
+	// The group's delete takes its members and its roles (its @deleteCascade), and the
+	// application's rows that go with it (@deletedWith). The patch is not armed against
+	// a caller: the method that deletes the group has asked the caller's grants, the
+	// members and the roles are taken trusted, and the application's rows are checked as
+	// the request's caller. The delete is the request's person's (eventsource.UserEvent):
+	// a row it takes that keeps a change history records its delete as theirs.
 	patch := staffresources.NewStaffGroupDeletePatch(id)
 	if everythingUnder {
 		patch = patch.WithEverythingUnder()
 	}
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return nil, errors.Wrap(err, "staffresources.StaffGroupDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the groups: the group's delete takes its members and its roles, and leaves the
+	// application's rows out.
+	patch := staffresources.NewStaffGroupDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return nil, errors.Wrap(err, "staffresources.StaffGroupDeletePatch.Buffer()")
 	}

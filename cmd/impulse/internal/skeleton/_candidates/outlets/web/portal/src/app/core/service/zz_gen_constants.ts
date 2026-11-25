@@ -1260,12 +1260,14 @@ export namespace DeleteMembersTenantGroup {
 export namespace DeleteMembersTenantUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 
 export namespace DeleteMembersUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 
