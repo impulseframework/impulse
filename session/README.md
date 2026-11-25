@@ -161,10 +161,13 @@ CREATE INDEX "Sessions_UpdatedOn_idx" ON "Sessions" USING btree ("UpdatedOn");
 On PostgreSQL the store reads `EndsAt` and `UpdatedOn`: without the column it removes no
 row of that table and logs an error at each write. The other four removals read
 `ExpiresAt`, which each of those tables has; without its index on `ExpiresAt`, each
-write that carries the removal reads the table whole. A table of the application's that
-references one of these tables needs `ON DELETE CASCADE` on that foreign key, as the
-custom session data table has: on PostgreSQL a foreign key without it stops the removal
-from that table while a row it holds is due, logged at each write. On PostgreSQL the
+write that carries the removal reads the table whole. The custom session data table
+references the sessions table with `ON DELETE CASCADE` ("Custom session data"). A record
+of the application's that references one of these tables carries no delete rule on that
+foreign key, since its rows are deleted in code only (`impulse check`,
+`no-delete-cascade`): the application deletes, in code, its rows that name a row of these
+tables before that row is due. On PostgreSQL a row that still names a due row stops the
+removal from that table while it stands, logged at each write. On PostgreSQL the
 referencing column also needs an index, which the database does not make for a foreign
 key: without one, each row the removal deletes reads that table whole.
 

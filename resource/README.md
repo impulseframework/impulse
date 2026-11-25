@@ -4445,8 +4445,7 @@ as is a resource field named for a method of the generated set (`Resource`,
 
 **The credential methods carry a class.** The methods that change how a person signs in
 are written with `@class(credential)` (`accesstypes.ClassCredential`), in the whole
-application's form and in a tenant's alike: the temporary password
-(`set-crew-temporary-password`), the required new password
+application's form and in a tenant's alike: the required new password
 (`require-crew-password-change`), the removal of a password (`remove-crew-password`), the
 reset link an administrator sends (`send-crew-user-password-reset-link`), the unlinking
 of a sign-in identity (`unlink-crew-session-identity`), the rename (`rename-crew-user`)
