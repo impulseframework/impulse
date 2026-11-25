@@ -4367,7 +4367,7 @@ POST <prefix>/take-crew-role                  {"domain","role","length","reason"
 POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole (declares a warning)
 POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
 POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewListedGroups
-POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewListedGroups
+POST <prefix>/delete-crew-group               {"groupId","everythingUnder"}    Execute on DeleteCrewGroup, targeting CrewListedGroups (202 with what is left)
 POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewListedGroups
 POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers (declares a warning)
 POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewListedGroups
@@ -4384,7 +4384,7 @@ POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identit
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","description"} → {"id"}   Execute on CreateCrewSectorGroup
 POST <prefix>/sectors/{sectorID}/describe-crew-sector-group        {"groupId","description"}   Execute on DescribeCrewSectorGroup, targeting CrewSectorGroups
-POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId"}          Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId","everythingUnder"}   Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups (202 with what is left)
 POST <prefix>/sectors/{sectorID}/add-crew-sector-group-member      {"groupId","userId"} Execute on AddCrewSectorGroupMember, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","userId"} Execute on RemoveCrewSectorGroupMember, targeting CrewSectorGroupUsers (declares a warning)
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
@@ -5026,11 +5026,17 @@ holding some of them is refused at generation.
   one person at a time, so a group is no way around the rule that only a super
   administrator makes another. The methods a super administrator always executes stay
   the two that give and take a person's own role.
-- A group that still has a member or holds a role is not deleted (409): empty it first.
-  The lists of groups say what each holds (`people`, `roles`), counted over what the
-  deletion refuses a group for, so a page offers Delete only on a group that holds
-  nothing and says what is left on the others; the refusal stays for a request that
-  never saw the page. Nobody loses a role because a group was deleted. Deleting a tenant removes the
+- A group's delete takes its members and the roles it holds with it, after a question
+  that counts them. Asked without `everythingUnder`, a group that has either deletes
+  nothing and is answered 428 with the question ("Delete this group and everything under
+  it: 12 members, 3 roles. This can't be undone."); asked with it, they go with the group.
+  Each member and each role, whatever its period, is asked what its own removal asks: the
+  caller's grant of `RemoveCrewGroupMember` and of `TakeCrewGroupRole` (403, "This group
+  has members, and you can't remove people from a group, so it can't be deleted." and the
+  same of roles), and the rules of the removal, so a group whose going would leave a
+  tenant without an administrator is refused. A group with more under it than one save
+  holds answers 202 with what is left, and the same delete, sent again, goes on. The
+  lists of groups say what each holds (`people`, `roles`). Deleting a tenant removes the
   tenant's groups with their members and roles, and every role a group of the whole
   application holds in it (`ClearTenant`); deleting a person takes them out of their
   groups.

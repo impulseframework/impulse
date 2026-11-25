@@ -190,6 +190,89 @@ func bareTenant(t *testing.T) (c *client, byName map[string]*resourceInfo) {
 	return c, byName
 }
 
+// groupDeleteTables is the schema of groupdeletefixture: a group's members and roles
+// each name it by a foreign key, and a shift names its roster.
+func groupDeleteTables() map[string]*tableMetadata {
+	pk := columnMeta{IsPrimaryKey: true}
+	key := func(ordinal int64) columnMeta {
+		return columnMeta{IsPrimaryKey: true, OrdinalPosition: ordinal, KeyOrdinalPosition: ordinal}
+	}
+	to := func(column, table string) []foreignKeyMeta {
+		return []foreignKeyMeta{{Name: "FK_" + column, Columns: []string{column}, ReferencedTable: table, ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"}}
+	}
+	foreignKey := func(table string) columnMeta {
+		return columnMeta{IsForeignKey: true, ReferencedTable: table, ReferencedColumn: "Id", OrdinalPosition: 1}
+	}
+
+	return map[string]*tableMetadata{
+		"CrewGroups":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": {OrdinalPosition: 1}}},
+		"CrewGroupMembers": {PkCount: 2, ForeignKeys: to("GroupId", "CrewGroups"), Columns: map[string]columnMeta{"GroupId": key(0), "UserId": key(1)}},
+		"CrewGroupRoles":   {PkCount: 2, ForeignKeys: to("GroupId", "CrewGroups"), Columns: map[string]columnMeta{"GroupId": key(0), "Role": key(1)}},
+		"Rosters":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
+		"Shifts":           {PkCount: 1, ForeignKeys: to("RosterId", "Rosters"), Columns: map[string]columnMeta{"Id": pk, "RosterId": foreignKey("Rosters")}},
+	}
+}
+
+// Test_deleteCascade_groupKinds pins the description of an auth's group, whose
+// declaration takes its members and its roles: both kinds are marked trusted, being the
+// same auth's own declarations, since the method that deletes a group asks the caller's
+// grants of each removal; and the group, its members and its roles go by the words a
+// person calls them, so the question reads "Delete this group and everything under it:
+// 12 members, 3 roles." A kind an application's record takes stays unmarked.
+func Test_deleteCascade_groupKinds(t *testing.T) {
+	t.Parallel()
+
+	c := &client{tableMap: groupDeleteTables()}
+	resources, err := c.structsToResources(loadFixture(t, "groupdeletefixture").Structs)
+	if err != nil {
+		t.Fatalf("structsToResources() error = %v", err)
+	}
+	crew := &identityInstance{auth: "Crew"}
+	byName := make(map[string]*resourceInfo, len(resources))
+	for _, res := range resources {
+		byName[res.Name()] = res
+		res.DeleteTree = nil
+		if strings.HasPrefix(res.Name(), "Crew") {
+			res.identity = crew
+		}
+	}
+	if err := c.resolveDeleteTrees(resources); err != nil {
+		t.Fatalf("resolveDeleteTrees() error = %v", err)
+	}
+
+	type kind struct {
+		Name, One, Many string
+		Trusted         bool
+	}
+	words := func(kinds []*deleteKind) []kind {
+		var got []kind
+		for _, k := range kinds {
+			got = append(got, kind{Name: k.Name, One: k.One, Many: k.Many, Trusted: k.Trusted})
+		}
+
+		return got
+	}
+	group := byName["CrewGroup"].DeleteTree
+	if group == nil {
+		t.Fatal("CrewGroup has no description of its delete")
+	}
+	if group.Record.One != "group" || group.Record.Many != "groups" {
+		t.Errorf("the group's words = %q, %q, want group, groups", group.Record.One, group.Record.Many)
+	}
+	want := []kind{{Name: "CrewGroupMember", One: "member", Many: "members", Trusted: true}, {Name: "CrewGroupRole", One: "role", Many: "roles", Trusted: true}}
+	if diff := cmp.Diff(want, words(group.Taken)); diff != "" {
+		t.Errorf("the group's taken kinds (-want +got):\n%s", diff)
+	}
+	literal := byName["CrewGroup"].DeleteTreeLiteral()
+	if got := strings.Count(literal, "Trusted: true,"); got != 2 {
+		t.Errorf("the group's description writes Trusted %d time(s), want twice:\n%s", got, literal)
+	}
+	wantRoster := []kind{{Name: "Shift", One: "shift", Many: "shifts"}}
+	if diff := cmp.Diff(wantRoster, words(byName["Roster"].DeleteTree.Taken)); diff != "" {
+		t.Errorf("the application's record's taken kinds (-want +got):\n%s", diff)
+	}
+}
+
 // Test_deleteCascade_bareTenant pins the tenant record of an application with no kind of
 // row under a tenant: its description lists no taken kind, and its delete takes rows all
 // the same, the kinds handed to it, so its delete patch carries WithEverythingUnder, Left

@@ -40,9 +40,8 @@ import (
 //     role grants table, which no route lists itself.
 //
 // The counts read the present from the database's clock, as every list does. What a
-// group holds is what has not ended, a row whose period has not begun among it, which is
-// what the deletion of a group refuses it for (identity.Manager.DeleteGroup); who loses a
-// role is counted among what counts now, since nobody loses what they do not hold yet.
+// group holds is what has not ended, a row whose period has not begun among it; who loses
+// a role is counted among what counts now, since nobody loses what they do not hold yet.
 
 // The suffixes of the structs declared here, each after the auth's name.
 const (

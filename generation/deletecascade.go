@@ -122,10 +122,12 @@ type deleteKind struct {
 	Deletes bool
 	Rule    bool
 	// Trusted marks a kind whose row's delete is not armed against the caller of the
-	// record's delete: each kind the tenant record's delete takes. The grant to delete
-	// a tenant answers for every row under it, which is what a tenant's delete means,
-	// and a person who may delete a tenant need hold no role in it. The kind's delete
-	// rule is asked all the same.
+	// record's delete: each kind the tenant record's delete takes, and each kind of an
+	// auth's own declarations that a record of the same auth takes (a group's members
+	// and roles). The grant to delete a tenant answers for every row under it, which is
+	// what a tenant's delete means, and a person who may delete a tenant need hold no
+	// role in it; the method that deletes a group asks what removing each member and
+	// each role asks. The kind's delete rule is asked all the same.
 	Trusted bool
 	// Subject marks an armed kind whose record decides what a person may do
 	// (resourceInfo.SubjectGuarded): the delete of one of its rows also asks the
@@ -162,8 +164,19 @@ type deleteTree struct {
 // deleteWords is the one place a kind of record gets its words for a sentence about a
 // delete: the resource's name in words, one and many, in lower case ("ShipClass" is
 // "ship class" and "ship classes", "PilotID" is "pilot id" and "pilot IDs"). The tenant
-// record takes the label it declares.
+// record takes the label it declares. An auth's group and the two kinds its delete
+// takes go by what a person calls them: a group, its members and its roles.
 func (c *client) deleteWords(res *resourceInfo) (one, many string) {
+	if inst := res.identity; inst != nil {
+		switch res.Name() {
+		case inst.auth + "Group":
+			return "group", "groups"
+		case inst.auth + "GroupMember":
+			return "member", "members"
+		case inst.auth + "GroupRole":
+			return "role", "roles"
+		}
+	}
 	name := res.Name()
 	if res.IsTenant && res.TenantLabel != "" {
 		name = res.TenantLabel
@@ -543,6 +556,10 @@ func (c *client) declaredDeleteTree(res *resourceInfo, byTable, byName map[strin
 		}
 		kind := c.deleteKindOf(byName[name], paths)
 		kind.Deletes, kind.Rule = true, byName[name].HasValidateDeleteType()
+		// A kind of an auth's own declarations that a record of the same auth takes is
+		// the library's to vouch for: the method that deletes the record asks the
+		// caller's grants, and the delete takes the rows trusted.
+		kind.Trusted = res.identity != nil && byName[name].identity == res.identity
 		if table == record {
 			own = kind
 
