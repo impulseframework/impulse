@@ -111,11 +111,12 @@ func featureFlagChangeMap(change FeatureFlagChange, shown func(field accesstypes
 	return rmap
 }
 
-// featureFlagChangeRow is a row of the FeatureFlagChanges table as the history reads it.
+// featureFlagChangeRow is a row of the FeatureFlagChanges table as the history reads it:
+// when, the value written, and who made the flip in the columns the history keeps it in.
 type featureFlagChangeRow struct {
 	ChangedAt time.Time `spanner:"ChangedAt"`
 	Enabled   bool      `spanner:"Enabled"`
-	ChangedBy string    `spanner:"ChangedBy"`
+	eventSourceColumns
 }
 
 // readFeatureFlagChanges reads one flag's newest flips, at most limit of them, and
@@ -126,7 +127,7 @@ func readFeatureFlagChanges(ctx context.Context, txn ReadOnlyTransaction, dbType
 	}
 	var rows []featureFlagChangeRow
 	stmt := spanner.Statement{
-		SQL:    "SELECT ChangedAt, Enabled, ChangedBy FROM FeatureFlagChanges WHERE Name = @name ORDER BY ChangedAt DESC LIMIT @limit",
+		SQL:    "SELECT ChangedAt, Enabled, " + eventSourceColumnList + " FROM FeatureFlagChanges WHERE Name = @name ORDER BY ChangedAt DESC LIMIT @limit",
 		Params: map[string]any{flagNameField: string(name), "limit": int64(limit) + 1},
 	}
 	if err := spxscan.Select(ctx, txn.SpannerReadOnlyTransaction(), &rows, stmt); err != nil {
@@ -136,8 +137,9 @@ func readFeatureFlagChanges(ctx context.Context, txn ReadOnlyTransaction, dbType
 		rows, more = rows[:limit], true
 	}
 	changes = make([]FeatureFlagChange, 0, len(rows))
-	for _, row := range rows {
-		changes = append(changes, FeatureFlagChange(row))
+	for i := range rows {
+		row := &rows[i]
+		changes = append(changes, FeatureFlagChange{ChangedAt: row.ChangedAt, Enabled: row.Enabled, ChangedBy: whoFlipped(&row.eventSourceColumns)})
 	}
 
 	return changes, more, nil

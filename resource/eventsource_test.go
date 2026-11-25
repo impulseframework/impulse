@@ -16,6 +16,23 @@ import (
 // accountCtx), as its column holds it.
 const sessionColumn = "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"
 
+// whoColumnsOf answers the who columns a value sets as a row of a table that keeps them
+// holds them, each NULL where the value leaves it empty.
+func whoColumnsOf(source EventSource) eventSourceColumns {
+	columns := source.columns()
+	column := func(name string) spanner.NullString {
+		value, ok := columns[name].(string)
+
+		return spanner.NullString{StringVal: value, Valid: ok}
+	}
+
+	return eventSourceColumns{
+		Auth: column("Auth"), ActorUserID: column("ActorUserId"), ActorUsername: column("ActorUsername"),
+		PrincipalUserID: column("PrincipalUserId"), PrincipalUsername: column("PrincipalUsername"), PrincipalRole: column("PrincipalRole"),
+		SessionID: column("SessionId"), Process: column("Process"), RPC: column("Rpc"),
+	}
+}
+
 // TestProcessEvent pins a process that acted alone: its name in Process and nothing else,
 // so no RPC method, whatever the request it runs in was handed.
 func TestProcessEvent(t *testing.T) {
@@ -190,20 +207,6 @@ func TestEventSource_IsZero(t *testing.T) {
 func TestEventSourceFromColumns(t *testing.T) {
 	t.Parallel()
 
-	asColumns := func(source EventSource) *eventSourceColumns {
-		columns := source.columns()
-		column := func(name string) spanner.NullString {
-			value, ok := columns[name].(string)
-
-			return spanner.NullString{StringVal: value, Valid: ok}
-		}
-
-		return &eventSourceColumns{
-			Auth: column("Auth"), ActorUserID: column("ActorUserId"), ActorUsername: column("ActorUsername"),
-			PrincipalUserID: column("PrincipalUserId"), PrincipalUsername: column("PrincipalUsername"), PrincipalRole: column("PrincipalRole"),
-			SessionID: column("SessionId"), Process: column("Process"), RPC: column("Rpc"),
-		}
-	}
 	aliceAsBob := accountCtx("bob", bobID, &sessioninfo.Impersonation{
 		Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
 	})
@@ -222,8 +225,8 @@ func TestEventSourceFromColumns(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := eventSourceFromColumns(asColumns(tt.source)); got != tt.source {
-				t.Errorf("eventSourceFromColumns() = %+v, want %+v", got, tt.source)
+			if columns := whoColumnsOf(tt.source); eventSourceFromColumns(&columns) != tt.source {
+				t.Errorf("eventSourceFromColumns() = %+v, want %+v", eventSourceFromColumns(&columns), tt.source)
 			}
 		})
 	}

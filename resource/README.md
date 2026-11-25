@@ -3020,11 +3020,11 @@ A `FeatureSet` that is nil (the application wired none) leaves every gated targe
 
 **The table.** Every application has two tables, `FeatureFlags` (`Name` STRING(64) the
 key, `Description`, `Enabled`, `UpdatedAt` a commit timestamp, `UpdatedBy`) and
-`FeatureFlagChanges` (`Name`, `ChangedAt` a commit timestamp, `Enabled`, `ChangedBy`),
-the second a record of every flip written in the flip's own transaction; the rows outlive
-their flag, so there is no foreign key. `resource.FeatureFlagsDDL(dbType)` renders the
-statements for Spanner and for PostgreSQL, and an application copies them into a
-migration as Lodestar does in
+`FeatureFlagChanges` (`Name`, `ChangedAt` a commit timestamp, `Enabled`, and who made the
+change, in the columns a change record uses: section 24), the second a record of every
+flip written in the flip's own transaction; the rows outlive their flag, so there is no
+foreign key. `resource.FeatureFlagsDDL(dbType)` renders the statements for Spanner and
+for PostgreSQL, and an application copies them into a migration as Lodestar does in
 [000001_Baseline.up.sql](../lodestar/schema/migrations/000001_Baseline.up.sql),
 pinned to the function by a test. The generator never derives a resource from the table:
 `FeatureFlags` has a `Description` column but no `Id`, and an enumeration table is
@@ -3110,6 +3110,12 @@ acting as someone else, "alice, through the RPC StartPilot" where an RPC method 
 the application flipped it for her, "the process bootstrap" where a process flipped
 it, and the empty string for a flag nobody has flipped. The sentence is for showing to
 a reader and for no decision.
+
+Each change of a flag is one row of `FeatureFlagChanges`, with who made it in the columns a
+change record uses (section 24): the account and the username of the person, who or what
+their session acted as, the session, the process, and the RPC method where one made the
+change. The routes serve it as one sentence, written when it is read.
+
 A list request that asks for a sort on `updatedAt` or `updatedBy` is refused with 400,
 in a sentence that says the two are worked out from the flag's history and what the list
 can be sorted on (`name`, `description`, `enabled`): the statement that orders the list

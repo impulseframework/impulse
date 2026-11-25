@@ -337,7 +337,7 @@ linters:
     # would let a write change who another write's change record names.
     - linters:
       - gocritic
-      path: resource/(eventsource|patchset|feature|delete_rounds_spanner_test)\.go
+      path: resource/(eventsource|eventsource_test|patchset|feature|delete_rounds_spanner_test)\.go
       text: 'hugeParam: (e|eventSource|source) is heavy'
     - linters:
       - bodyclose

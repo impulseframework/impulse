@@ -61,12 +61,13 @@ func featureRows(t *testing.T, db *initiator.SpannerDB) []FeatureFlag {
 	return rows
 }
 
-// featureChange is an audit row as the tests compare it.
+// featureChange is an audit row as the tests compare it: the flag, when, the value
+// written, and who made the flip in the columns the table keeps it in.
 type featureChange struct {
 	Name      string    `spanner:"Name"`
 	ChangedAt time.Time `spanner:"ChangedAt"`
 	Enabled   bool      `spanner:"Enabled"`
-	ChangedBy string    `spanner:"ChangedBy"`
+	eventSourceColumns
 }
 
 // featureChanges reads the audit table in writing order.
@@ -74,7 +75,7 @@ func featureChanges(t *testing.T, db *initiator.SpannerDB) []featureChange {
 	t.Helper()
 
 	var rows []featureChange
-	if err := spxscan.Select(t.Context(), db.Single(), &rows, spanner.Statement{SQL: "SELECT Name, ChangedAt, Enabled, ChangedBy FROM FeatureFlagChanges ORDER BY ChangedAt"}); err != nil {
+	if err := spxscan.Select(t.Context(), db.Single(), &rows, spanner.Statement{SQL: "SELECT Name, ChangedAt, Enabled, " + eventSourceColumnList + " FROM FeatureFlagChanges ORDER BY ChangedAt"}); err != nil {
 		t.Fatalf("spxscan.Select() error = %v", err)
 	}
 
@@ -604,7 +605,7 @@ func TestSetFeatureHandler(t *testing.T) {
 				t.Errorf("FeatureFlagChanges = %+v, want %d rows", changes, tt.wantChanges)
 			}
 			for _, change := range changes {
-				if change.Name != "debriefs" || !change.Enabled || change.ChangedBy != UserEvent(ctx).String() || change.ChangedAt.IsZero() {
+				if change.Name != "debriefs" || !change.Enabled || change.eventSourceColumns != whoColumnsOf(UserEvent(ctx)) || change.ChangedAt.IsZero() {
 					t.Errorf("audit row = %+v, want the flip with its commit timestamp and principal", change)
 				}
 			}

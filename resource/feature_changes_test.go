@@ -98,9 +98,9 @@ func TestFeatureDeclaration_Words(t *testing.T) {
 }
 
 // TestFlippedBy pins what the flags' list and read serve as who last flipped a flag and
-// when, read from the flag's newest change record: the sentence the flip recorded, at the
-// time the record holds; and nobody and no time for a flag with no record, whoever wrote
-// its row.
+// when, read from the flag's newest change record: the sentence of the who columns the
+// flip's row holds, at the time the record holds; and nobody and no time for a flag with
+// no record, whoever wrote its row.
 func TestFlippedBy(t *testing.T) {
 	t.Parallel()
 
@@ -112,19 +112,19 @@ func TestFlippedBy(t *testing.T) {
 		want    string
 		wantAt  *time.Time
 	}{
-		{name: "a person's flip", flip: lastFlip{ChangedAt: at, ChangedBy: UserEvent(accountCtx("gale", aliceID, nil)).String()}, flipped: true, want: "gale", wantAt: &at},
-		{name: "a process's flip, as it was recorded", flip: lastFlip{ChangedAt: at, ChangedBy: ProcessEvent("bootstrap").String()}, flipped: true, want: "the process bootstrap", wantAt: &at},
-		{name: "a caller's own words for a flip", flip: lastFlip{ChangedAt: at, ChangedBy: "harbormaster (test)"}, flipped: true, want: "harbormaster (test)", wantAt: &at},
+		{name: "a person's flip", flip: lastFlip{ChangedAt: at, eventSourceColumns: whoColumnsOf(UserEvent(accountCtx("gale", aliceID, nil)))}, flipped: true, want: "gale", wantAt: &at},
+		{name: "a process's flip", flip: lastFlip{ChangedAt: at, eventSourceColumns: whoColumnsOf(ProcessEvent("bootstrap"))}, flipped: true, want: "the process bootstrap", wantAt: &at},
+		{name: "a person's flip in an RPC", flip: lastFlip{ChangedAt: at, eventSourceColumns: whoColumnsOf(UserEvent(WithRPC(accountCtx("gale", aliceID, nil), "StartPilot")))}, flipped: true, want: "gale, through the RPC StartPilot", wantAt: &at},
 		{name: "a flag nobody has flipped: nobody, and no time", want: "", wantAt: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := flippedBy(tt.flip, tt.flipped); got != tt.want {
+			if got := flippedBy(&tt.flip, tt.flipped); got != tt.want {
 				t.Errorf("flippedBy(%+v, %v) = %q, want %q", tt.flip, tt.flipped, got, tt.want)
 			}
-			if diff := cmp.Diff(tt.wantAt, flippedAt(tt.flip, tt.flipped)); diff != "" {
+			if diff := cmp.Diff(tt.wantAt, flippedAt(&tt.flip, tt.flipped)); diff != "" {
 				t.Errorf("flippedAt(%+v, %v) mismatch (-want +got):\n%s", tt.flip, tt.flipped, diff)
 			}
 		})
