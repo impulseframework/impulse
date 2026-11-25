@@ -627,7 +627,11 @@ func (c *client) namedDeleteKinds(res *resourceInfo, byName map[string]*resource
 
 // unlistedDeleteKind refuses a record's @deleteCascade that leaves out a kind with rows
 // under the record: reached holds each table with a way up to the record that passes no
-// refusing kind, and every one of them is taken or refuses the delete.
+// refusing kind, and every one of them is taken or refuses the delete. A record of an
+// auth's own declarations is held to the kinds of its own package: a table under it that
+// no resource of the package declares is an application's, which cannot be listed on a
+// record the library declares, and is left to the database's refusal, as kindsUnder
+// leaves it.
 func unlistedDeleteKind(res *resourceInfo, byTable map[string]*resourceInfo, reached map[string][][]deleteLink, taken, refusing map[string]bool) error {
 	tables := make([]string, 0, len(reached))
 	for table := range reached {
@@ -638,8 +642,11 @@ func unlistedDeleteKind(res *resourceInfo, byTable map[string]*resourceInfo, rea
 		if taken[table] || refusing[table] {
 			continue
 		}
-		way := pathWords(table, reached[table][0])
 		kind, ok := byTable[table]
+		if !ok && res.identity != nil {
+			continue
+		}
+		way := pathWords(table, reached[table][0])
 		if !ok {
 			return errors.Newf("@%s on %s: the table %s is under a %s (%s), and no resource of this package declares it, so a delete in code could not remove its rows. Declare a resource for %s and list it.",
 				deleteCascadeKeyword, res.Name(), table, res.Name(), way, table)

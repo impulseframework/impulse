@@ -864,8 +864,10 @@ func sortMethods(methods []*rpcMethodInfo) {
 
 // identityResources reads each instance's declarations as resources of the run, each
 // marked with its instance: the declarations over its tables and, in the same package,
-// the views that are a tenant's lists. fsetPkg is the package whose file set places a
-// declaration in its file.
+// the views that are a tenant's lists. A declaration over a table is marked before the
+// resolutions that read more than one resource run, since its description of a delete
+// reads the mark (declaredDeleteTree, deleteWords). fsetPkg is the package whose file
+// set places a declaration in its file.
 func (c *client) identityResources(packageMap map[string]*packages.Package, fsetPkg *packages.Package) ([]*resourceInfo, error) {
 	var resources []*resourceInfo
 	for _, inst := range c.identity {
@@ -874,22 +876,40 @@ func (c *client) identityResources(packageMap map[string]*packages.Package, fset
 			return nil, errors.Newf("no packages found in %q", inst.resources.Dir())
 		}
 		structs := parser.ParsePackage(pkg).Structs
-		extracted, err := c.structsToResources(structs, c.validateStructNameMatchesFile(fsetPkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
+		extracted, err := c.instanceResources(inst, structs, c.validateStructNameMatchesFile(fsetPkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
 		if err != nil {
-			return nil, errors.Wrapf(err, "the generated declarations of Auth(%q)", inst.importPath)
+			return nil, err
 		}
 		lists, err := c.structsToVirtualResources(structs, c.validateStructNameMatchesFile(fsetPkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
 		if err != nil {
 			return nil, errors.Wrapf(err, "the generated lists of Auth(%q)", inst.importPath)
 		}
-		extracted = append(extracted, lists...)
-		for _, res := range extracted {
+		for _, res := range lists {
 			res.identity = inst
 		}
 		resources = append(resources, extracted...)
+		resources = append(resources, lists...)
 	}
 
 	return resources, nil
+}
+
+// instanceResources extracts an instance's declarations over its tables, marks each
+// with the instance, and then runs the resolutions that read more than one of them
+// (resolveAcrossResources), once.
+func (c *client) instanceResources(inst *identityInstance, structs []*parser.Struct, validators ...structValidator) ([]*resourceInfo, error) {
+	extracted, err := c.extractResources(structs, validators...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "the generated declarations of Auth(%q)", inst.importPath)
+	}
+	for _, res := range extracted {
+		res.identity = inst
+	}
+	if err := c.resolveAcrossResources(extracted); err != nil {
+		return nil, errors.Wrapf(err, "the generated declarations of Auth(%q)", inst.importPath)
+	}
+
+	return extracted, nil
 }
 
 // identityComputedResources reads the computed resources each instance declares beside

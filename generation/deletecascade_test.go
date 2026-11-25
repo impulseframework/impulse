@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -213,63 +214,130 @@ func groupDeleteTables() map[string]*tableMetadata {
 	}
 }
 
+// groupFixtureResources reads groupdeletefixture as a run reads it, over the schema: the
+// crew's declarations as an auth's generated management is read, through the instance,
+// and the application's records as an application's package is read, with none.
+func groupFixtureResources(t *testing.T, c *client) (crew, application map[string]*resourceInfo) {
+	t.Helper()
+
+	var crewStructs, applicationStructs []*parser.Struct
+	for _, s := range loadFixture(t, "groupdeletefixture").Structs {
+		if strings.HasPrefix(s.Name(), "Crew") {
+			crewStructs = append(crewStructs, s)
+		} else {
+			applicationStructs = append(applicationStructs, s)
+		}
+	}
+	declared, err := c.instanceResources(&identityInstance{auth: "Crew", importPath: "example.com/acme/auth/crew"}, crewStructs)
+	if err != nil {
+		t.Fatalf("instanceResources() error = %v", err)
+	}
+	own, err := c.structsToResources(applicationStructs)
+	if err != nil {
+		t.Fatalf("structsToResources() error = %v", err)
+	}
+	byName := func(resources []*resourceInfo) map[string]*resourceInfo {
+		named := make(map[string]*resourceInfo, len(resources))
+		for _, res := range resources {
+			named[res.Name()] = res
+		}
+
+		return named
+	}
+
+	return byName(declared), byName(own)
+}
+
 // Test_deleteCascade_groupKinds pins the description of an auth's group, whose
 // declaration takes its members and its roles: both kinds are marked trusted, being the
 // same auth's own declarations, since the method that deletes a group asks the caller's
 // grants of each removal; and the group, its members and its roles go by the words a
 // person calls them, so the question reads "Delete this group and everything under it:
-// 12 members, 3 roles." A kind an application's record takes stays unmarked.
+// 12 members, 3 roles." The declarations are read as a run reads them, marked with their
+// instance before their descriptions are written. A kind an application's record takes
+// stays unmarked.
 func Test_deleteCascade_groupKinds(t *testing.T) {
 	t.Parallel()
 
-	c := &client{tableMap: groupDeleteTables()}
-	resources, err := c.structsToResources(loadFixture(t, "groupdeletefixture").Structs)
-	if err != nil {
-		t.Fatalf("structsToResources() error = %v", err)
-	}
-	crew := &identityInstance{auth: "Crew"}
-	byName := make(map[string]*resourceInfo, len(resources))
-	for _, res := range resources {
-		byName[res.Name()] = res
-		res.DeleteTree = nil
-		if strings.HasPrefix(res.Name(), "Crew") {
-			res.identity = crew
-		}
-	}
-	if err := c.resolveDeleteTrees(resources); err != nil {
-		t.Fatalf("resolveDeleteTrees() error = %v", err)
-	}
+	crew, application := groupFixtureResources(t, &client{tableMap: groupDeleteTables()})
 
-	type kind struct {
-		Name, One, Many string
-		Trusted         bool
-	}
-	words := func(kinds []*deleteKind) []kind {
-		var got []kind
-		for _, k := range kinds {
-			got = append(got, kind{Name: k.Name, One: k.One, Many: k.Many, Trusted: k.Trusted})
-		}
-
-		return got
-	}
-	group := byName["CrewGroup"].DeleteTree
+	group := crew["CrewGroup"].DeleteTree
 	if group == nil {
 		t.Fatal("CrewGroup has no description of its delete")
 	}
 	if group.Record.One != "group" || group.Record.Many != "groups" {
 		t.Errorf("the group's words = %q, %q, want group, groups", group.Record.One, group.Record.Many)
 	}
-	want := []kind{{Name: "CrewGroupMember", One: "member", Many: "members", Trusted: true}, {Name: "CrewGroupRole", One: "role", Many: "roles", Trusted: true}}
-	if diff := cmp.Diff(want, words(group.Taken)); diff != "" {
+	want := []kindWords{{Name: "CrewGroupMember", One: "member", Many: "members", Trusted: true}, {Name: "CrewGroupRole", One: "role", Many: "roles", Trusted: true}}
+	if diff := cmp.Diff(want, wordsOf(group.Taken)); diff != "" {
 		t.Errorf("the group's taken kinds (-want +got):\n%s", diff)
 	}
-	literal := byName["CrewGroup"].DeleteTreeLiteral()
+	literal := crew["CrewGroup"].DeleteTreeLiteral()
 	if got := strings.Count(literal, "Trusted: true,"); got != 2 {
 		t.Errorf("the group's description writes Trusted %d time(s), want twice:\n%s", got, literal)
 	}
-	wantRoster := []kind{{Name: "Shift", One: "shift", Many: "shifts"}}
-	if diff := cmp.Diff(wantRoster, words(byName["Roster"].DeleteTree.Taken)); diff != "" {
+	wantRoster := []kindWords{{Name: "Shift", One: "shift", Many: "shifts"}}
+	if diff := cmp.Diff(wantRoster, wordsOf(application["Roster"].DeleteTree.Taken)); diff != "" {
 		t.Errorf("the application's record's taken kinds (-want +got):\n%s", diff)
+	}
+}
+
+// kindWords is what a test reads of a kind of a description: its name, its words and
+// whether it is trusted.
+type kindWords struct {
+	Name, One, Many string
+	Trusted         bool
+}
+
+// wordsOf reads the kinds' names, words and marks.
+func wordsOf(kinds []*deleteKind) []kindWords {
+	var got []kindWords
+	for _, k := range kinds {
+		got = append(got, kindWords{Name: k.Name, One: k.One, Many: k.Many, Trusted: k.Trusted})
+	}
+
+	return got
+}
+
+// Test_deleteCascade_groupNamedByApplicationTable pins an auth's group under which an
+// application's tables hang, which no resource of the auth's package declares: a door
+// pass that names a group, and the scans of a pass. The auth's declarations resolve: the
+// group's description takes its members and roles, refuses on nothing, and names neither
+// table anywhere, so the database refuses the group's delete while a pass names it.
+func Test_deleteCascade_groupNamedByApplicationTable(t *testing.T) {
+	t.Parallel()
+
+	tables := groupDeleteTables()
+	tables["DoorPasses"] = &tableMetadata{
+		PkCount:     1,
+		Columns:     map[string]columnMeta{"Id": {IsPrimaryKey: true}, "GroupId": {IsForeignKey: true, ReferencedTable: "CrewGroups", ReferencedColumn: "Id", OrdinalPosition: 1}},
+		ForeignKeys: []foreignKeyMeta{{Name: "FK_DoorPasses_GroupId", Columns: []string{"GroupId"}, ReferencedTable: "CrewGroups", ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"}},
+	}
+	tables["DoorPassScans"] = &tableMetadata{
+		PkCount:     1,
+		Columns:     map[string]columnMeta{"Id": {IsPrimaryKey: true}, "PassId": {IsForeignKey: true, ReferencedTable: "DoorPasses", ReferencedColumn: "Id", OrdinalPosition: 1}},
+		ForeignKeys: []foreignKeyMeta{{Name: "FK_DoorPassScans_PassId", Columns: []string{"PassId"}, ReferencedTable: "DoorPasses", ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"}},
+	}
+	crew, _ := groupFixtureResources(t, &client{tableMap: tables})
+
+	res := crew["CrewGroup"]
+	if res.DeleteTree == nil {
+		t.Fatal("CrewGroup has no description of its delete")
+	}
+	want := []kindWords{{Name: "CrewGroupMember", One: "member", Many: "members", Trusted: true}, {Name: "CrewGroupRole", One: "role", Many: "roles", Trusted: true}}
+	if diff := cmp.Diff(want, wordsOf(res.DeleteTree.Taken)); diff != "" {
+		t.Errorf("the group's taken kinds (-want +got):\n%s", diff)
+	}
+	if len(res.DeleteTree.RefusedBy) != 0 {
+		t.Errorf("the group's refusing kinds = %v, want none", wordsOf(res.DeleteTree.RefusedBy))
+	}
+	for _, kind := range res.DeleteTree.Under {
+		if kind.Table == "DoorPasses" || kind.Table == "DoorPassScans" {
+			t.Errorf("the group's description lists %s under it", kind.Table)
+		}
+	}
+	if literal := res.DeleteTreeLiteral(); strings.Contains(literal, "DoorPass") {
+		t.Errorf("the group's description names the application's tables:\n%s", literal)
 	}
 }
 
@@ -749,6 +817,23 @@ func Test_deleteCascade_refusals(t *testing.T) {
 			name:    "a taken kind that is only under a refusing kind is refused",
 			decl:    &deleteCascadeDecl{Taken: []string{"Invoice", "Task"}, RefusedBy: []string{"Project"}},
 			wantErr: []string{"@deleteCascade on Client takes Task, but a Task is under a Client only through a kind that refuses the delete"},
+		},
+		{
+			// The refusal stands for an application's record; an auth's record is held to
+			// its own package's kinds (Test_deleteCascade_groupNamedByApplicationTable).
+			name: "a table no resource of the package declares, under an application's record, is refused",
+			decl: &deleteCascadeDecl{Taken: []string{"Project", "Task", "TaskComment", "ProjectNote"}, RefusedBy: []string{"Invoice"}},
+			schema: func(c *client) {
+				c.tableMap["ClientNotes"] = &tableMetadata{
+					PkCount:     1,
+					Columns:     map[string]columnMeta{"Id": {IsPrimaryKey: true}, "ClientId": {IsForeignKey: true, ReferencedTable: "Clients", ReferencedColumn: "Id", OrdinalPosition: 1}},
+					ForeignKeys: []foreignKeyMeta{{Name: "FK_ClientNotes_ClientId", Columns: []string{"ClientId"}, ReferencedTable: "Clients", ReferencedColumns: []string{"Id"}, DeleteRule: "NO ACTION"}},
+				}
+			},
+			wantErr: []string{
+				"@deleteCascade on Client: the table ClientNotes is under a Client (ClientNotes.ClientId to Clients.Id), and no resource of this package declares it",
+				"Declare a resource for ClientNotes and list it.",
+			},
 		},
 		{
 			name:    "the tenant record declares none: the library declares its delete",
