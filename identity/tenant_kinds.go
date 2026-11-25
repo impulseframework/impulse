@@ -179,7 +179,7 @@ func (h *tenantHeld) alone(ctx context.Context, txn resource.ReadWriteTransactio
 	if slices.ContainsFunc(places, func(place GroupPlace) bool { return !slices.Contains(groups, place.ID) }) {
 		return nil, false, nil
 	}
-	if _, elsewhere, err := h.manager.managedElsewhere(ctx, txn, id, h.domain); err != nil {
+	if elsewhere, err := h.manager.managedElsewhere(ctx, txn, id, h.domain); err != nil {
 		return nil, false, err
 	} else if elsewhere {
 		return nil, false, nil

@@ -1557,21 +1557,14 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(stateOf(list(accounts))({ heldInEveryTenant: true, heldElsewhere: true })).toEqual([]);
   });
 
-  it('reads with each person whether they hold something in the sector itself and whether the sector manages the account, and draws neither', () => {
-    expect(hiddenColumns(list(people))).toEqual([
-      'heldElsewhere',
-      'heldInEveryTenant',
-      'heldGlobally',
-      'heldHere',
-      'managedHere',
-    ]);
+  it('reads with each person whether they hold something in the sector itself, and does not draw it', () => {
+    expect(hiddenColumns(list(people))).toEqual(['heldElsewhere', 'heldInEveryTenant', 'heldGlobally', 'heldHere']);
     expect(pageFields(people).filter(([, , drawn]) => drawn === false)).toEqual([
       ['field', 'disabled', false],
       ['field', 'heldElsewhere', false],
       ['field', 'heldInEveryTenant', false],
       ['field', 'heldGlobally', false],
       ['field', 'heldHere', false],
-      ['field', 'managedHere', false],
     ]);
   });
 });

@@ -589,25 +589,20 @@ func (m *Manager) deleteAccount(ctx context.Context, txn resource.ReadWriteTrans
 
 // managedElsewhere answers whether a tenant other than tenant manages the person's
 // account: whether they sign in through another tenant's directory. tenant is "" for
-// none. It answers the managing tenant too, the first by key, for the log. A person with
-// no identity link signs in through no directory, so the store is not asked who manages
-// the account (Store.ManagingTenants).
-func (m *Manager) managedElsewhere(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, tenant accesstypes.Domain) (managing accesstypes.Domain, elsewhere bool, err error) {
+// none. A person with no identity link signs in through no directory, so the store is
+// not asked who manages the account (Store.ManagingTenants).
+func (m *Manager) managedElsewhere(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
 	links, err := m.store.Identities(ctx, txn, userID)
 	if err != nil {
-		return "", false, errors.Wrap(err, "identity.Store.Identities()")
+		return false, errors.Wrap(err, "identity.Store.Identities()")
 	}
 	if len(links) == 0 {
-		return "", false, nil
+		return false, nil
 	}
 	tenants, err := m.store.ManagingTenants(ctx, txn, userID)
 	if err != nil {
-		return "", false, errors.Wrap(err, "identity.Store.ManagingTenants()")
-	}
-	others := slices.DeleteFunc(slices.Clone(tenants), func(managing accesstypes.Domain) bool { return managing == tenant })
-	if len(others) == 0 {
-		return "", false, nil
+		return false, errors.Wrap(err, "identity.Store.ManagingTenants()")
 	}
 
-	return slices.Min(others), true, nil
+	return slices.ContainsFunc(tenants, func(managing accesstypes.Domain) bool { return managing != tenant }), nil
 }

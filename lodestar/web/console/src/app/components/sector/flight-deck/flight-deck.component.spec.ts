@@ -619,7 +619,7 @@ describe('FlightDeckComponent', () => {
     expect(fixture.componentInstance.words('ClaimMission')).toBe('Claim');
   });
 
-  it('an edge whose form is cancelled sends nothing', async () => {
+  it('an edge whose form is canceled sends nothing', async () => {
     await pageFor({ grants: marshal });
     await openMission();
     await press('Claim');

@@ -745,7 +745,7 @@ describe('the pending sign-in', () => {
     });
   }
 
-  it('is cancelled after the list is read again', async () => {
+  it('is canceled after the list is read again', async () => {
     const { auth, transport } = authOver(server());
     await auth.cancelPending();
     expect(sent(transport)).toEqual(['GET /console/api/user/methods', 'POST /console/api/user/pending/cancel']);

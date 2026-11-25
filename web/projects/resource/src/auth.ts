@@ -727,7 +727,7 @@ const confirmRefusals: readonly number[] = [401, 403, 404, 409, 429];
 const codeRefusals: readonly number[] = [400, 401, 403, 404, 409, 429];
 const statusRefusals: readonly number[] = [401, 403];
 const changeRefusals: readonly number[] = [400, 401, 403, 409];
-/** Leaving one of the person's own tenants: 403 for its last administrator, 404 for a tenant they are not in, 409 for a leave the list no longer describes. */
+/** Leaving one of the person's own tenants: 403 for its last administrator, 404 for a tenant they are not in. */
 const leaveRefusals: readonly number[] = [403, 404];
 /** A change or a removal of the person's own password: as a change, and 429 for a name whose failed proofs reached the server's limit. */
 const proofRefusals: readonly number[] = [...changeRefusals, 429];

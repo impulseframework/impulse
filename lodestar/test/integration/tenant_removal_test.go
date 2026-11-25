@@ -212,8 +212,8 @@ func TestTenantRemoval(t *testing.T) {
 	}
 
 	t.Run("the warning names the roles that go and writes nothing", func(t *testing.T) {
-		// kit's role at Bastion keeps him none of Anvil's people: the warning carries no
-		// note.
+		// kit's role at Bastion does not keep him among Anvil's people: the warning
+		// carries no note.
 		status, body := w.askRemovalWarning(t, "kit")
 		assertStatus(t, status, http.StatusOK, body)
 		want := resource.Warning{

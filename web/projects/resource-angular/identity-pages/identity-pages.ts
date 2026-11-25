@@ -2418,13 +2418,12 @@ class SideBuilder {
   }
 
   /**
-   * The fields a tenant's side reads with a person and does not draw besides the State's:
-   * whether the person holds something in the tenant itself, by which the removal from
-   * the tenant is offered, and whether the tenant manages the account (managedHere). Each
-   * only where the list has it.
+   * The field a tenant's side reads with a person and does not draw besides the State's:
+   * whether the person holds something in the tenant itself (heldHere), by which the
+   * removal from the tenant is offered. Only where the list has it.
    */
   private tenantFacts(resource: Resource): string[] {
-    return this.tenant ? ['heldHere', 'managedHere'].filter((name) => this.has(resource, name)) : [];
+    return this.tenant && this.has(resource, 'heldHere') ? ['heldHere'] : [];
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
