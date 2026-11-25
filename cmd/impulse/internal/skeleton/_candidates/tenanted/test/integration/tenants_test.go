@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	cloudspanner "cloud.google.com/go/spanner"
@@ -65,13 +66,14 @@ func setTenantDisabled(ctx context.Context, t *testing.T, b *browser, tenant str
 }
 
 // TestTenants_aDeletedTenantTakesItsRolesAndInvitations proves a tenant that is deleted
-// leaves nothing of itself behind: the roles people held in it are removed and the
-// invitations into it that still stood are withdrawn, in the transaction that deletes
-// the row, so nothing is left for a later tenant to pick up; a person who held roles in
-// it alone is deleted with it, by the rule on an account nothing admits, and a person
-// who holds a role elsewhere stays. The tenant is made the way one comes to exist, by an
-// invitation's first sign-in (makeTenant), so its founder is among the people who held
-// roles in it alone.
+// leaves nothing of itself behind. Disabled first, its delete asks with a count of what
+// the auth holds for it, and the confirmed request takes it all: the roles people held
+// in it are removed, the invitations into it that still stood are withdrawn, and the
+// accounts that belonged to it alone are deleted, in the transaction that deletes the
+// row, so nothing is left for a later tenant to pick up. A person who holds a role
+// elsewhere stays, and so does a person whom another tenant's directory manages. The
+// tenant is made the way one comes to exist, by an invitation's first sign-in
+// (makeTenant), so its founder is among the people who held roles in it alone.
 func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	t.Parallel()
 
@@ -85,13 +87,30 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	eastSegment := "/api/tenants/" + east + "/announcements"
 
 	// The member, north's administrator, is given a role in East; so is a person who
-	// holds a role nowhere else; and an invitation into East stands.
+	// holds a role nowhere else, and a person north's directory signs in; and an
+	// invitation into East stands.
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+s.memberID+`","role":"TenantAdministrator","domain":"`+east+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving the member a role in East: status %d: %s", status, body)
 	}
 	easterner := staffAccount(ctx, t, s, "easterner", "Easterner")
 	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+easterner+`","role":"TenantAdministrator","domain":"`+east+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving a person with no other role one in East: status %d: %s", status, body)
+	}
+	northerner := staffAccount(ctx, t, s, "northerner", "Northerner")
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+northerner+`","role":"TenantAdministrator","domain":"`+east+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving the person north's directory signs in a role in East: status %d: %s", status, body)
+	}
+	// North's directory, written as a row, and the northerner's identity in it: north
+	// manages the northerner's account.
+	const northsConnection = "6f2c1b7e-0000-4000-8000-000000000002"
+	if _, err := s.db.Apply(ctx, []*cloudspanner.Mutation{
+		cloudspanner.Insert("TenantDirectories", []string{"Id", "TenantId", "Method", "Connection"}, []any{"e0000000-0000-4000-8000-000000000011", north, "azure", northsConnection}),
+		cloudspanner.InsertMap("StaffSessionIdentities", map[string]any{
+			"Id": "e0000000-0000-4000-8000-000000000012", "UserId": northerner, "Method": "azure", "Connection": northsConnection, "Subject": "subject-of-northerner",
+			"CreatedAt": cloudspanner.CommitTimestamp, "LastUsedAt": cloudspanner.CommitTimestamp,
+		}),
+	}); err != nil {
+		t.Fatalf("writing north's directory and the northerner's identity: %v", err)
 	}
 	status, body := tenantPost(ctx, admin, east, "invite-staff-tenant-user", map[string]any{"email": "invited@example.com", "roles": []string{"TenantAdministrator"}})
 	if status != http.StatusOK {
@@ -120,6 +139,7 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 		{"the member", accesstypes.User(s.memberID)},
 		{"the founder", accesstypes.User(founderID)},
 		{"the person of East alone", accesstypes.User(easterner)},
+		{"the person north's directory signs in", accesstypes.User(northerner)},
 	}
 	for _, holder := range holders {
 		if roles := rolesHeld(ctx, t, s, holder.user, scope); !slices.Contains(roles, "TenantAdministrator") {
@@ -127,9 +147,21 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 		}
 	}
 
-	// A tenant is disabled before it is deleted.
+	// A tenant is disabled before it is deleted. The delete is asked first, with a count
+	// of what goes: the accounts of East alone (its founder's and the easterner's), the
+	// four roles held in it and the invitation; nothing is gone. The request that says it
+	// takes them deletes the tenant.
 	setTenantDisabled(ctx, t, admin, east, true)
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`"}]`)); status != http.StatusOK {
+	status, body = admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`"}]`))
+	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 2 accounts, 4 roles held, 1 invitation. This can't be undone.") {
+		t.Fatalf("deleting the tenant without saying it takes what is under it: status %d, want 428 with the question: %s", status, body)
+	}
+	for _, username := range []string{"founder", "easterner", "northerner"} {
+		if !accountExists(ctx, t, s, username) {
+			t.Fatalf("the account of %s is gone after the question: a delete that is asked the question deletes nothing", username)
+		}
+	}
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`","value":{"everythingUnder":true}}]`)); status != http.StatusOK {
 		t.Fatalf("deleting the tenant: status %d: %s", status, body)
 	}
 
@@ -144,20 +176,24 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	}
 
 	// The permission store holds no role in the deleted tenant: not the member's, not
-	// the founder's, not the person's who held a role there alone.
+	// the founder's, not the person's who held a role there alone, not the northerner's.
 	for _, holder := range holders {
 		if roles := rolesHeld(ctx, t, s, holder.user, scope); len(roles) != 0 {
 			t.Errorf("the roles the permission store holds for %s in the deleted tenant = %v, want none", holder.name, roles)
 		}
 	}
-	// The member holds north still and keeps the account; the people who held roles in
-	// East alone, its founder and the person given a role there, are deleted with it.
+	// The member holds north still and keeps the account, and the northerner, whom
+	// north's directory signs in, keeps theirs; the accounts that belonged to East alone,
+	// its founder's and the person's given a role there, are deleted with it.
 	if !accountExists(ctx, t, s, memberUser) {
 		t.Error("the member's account is gone, want it kept: the member holds a role in north")
 	}
+	if !accountExists(ctx, t, s, "northerner") {
+		t.Error("the northerner's account is gone, want it kept: north's directory manages it")
+	}
 	for _, username := range []string{"founder", "easterner"} {
 		if accountExists(ctx, t, s, username) {
-			t.Errorf("the account of %s, who held roles in East alone, still exists, want it deleted with the tenant", username)
+			t.Errorf("the account of %s still exists, want it deleted with the tenant: it belonged to East alone", username)
 		}
 	}
 
