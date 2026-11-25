@@ -525,7 +525,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("the support login's chart once north is directory only = %v, want [%s]: a role held in every tenant is no way into a directory-only one", domains, south)
 	}
 	byPassword := map[string]string{north: "North admits only people who sign in through its own directory. You signed in with a password."}
-	if unavailable := unavailableDomains(ctx, t, support, "/api/user-domains"); !maps.Equal(unavailable, byPassword) {
+	if unavailable := unavailableDomains(ctx, t, support); !maps.Equal(unavailable, byPassword) {
 		t.Errorf("the tenants the support login's list keeps as not available = %v, want %v", unavailable, byPassword)
 	}
 	if status, body := support.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusNotFound {
@@ -534,7 +534,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Errorf("the member's chart once north is directory only = %v, want [%s]: north admits its own administrator by password and code", domains, north)
 	}
-	if unavailable := unavailableDomains(ctx, t, member, "/api/user-domains"); len(unavailable) != 0 {
+	if unavailable := unavailableDomains(ctx, t, member); len(unavailable) != 0 {
 		t.Errorf("the tenants the member's list keeps as not available = %v, want none", unavailable)
 	}
 	if status, body := member.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusOK {
@@ -607,7 +607,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if domains := userDomains(ctx, t, support); !slices.Equal(domains, []string{north, south}) {
 		t.Errorf("the support login's chart once north is not directory only = %v, want both tenants", domains)
 	}
-	if unavailable := unavailableDomains(ctx, t, support, "/api/user-domains"); len(unavailable) != 0 {
+	if unavailable := unavailableDomains(ctx, t, support); len(unavailable) != 0 {
 		t.Errorf("the tenants the support login's list keeps as not available once north is not directory only = %v, want none", unavailable)
 	}
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {

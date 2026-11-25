@@ -270,7 +270,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		if domains := chart(ctx, t, site.support); !slices.Equal(domains, []string{south}) {
 			t.Errorf("the support login's chart on the %s once north is directory only = %v, want [%s]: a role held in every tenant is no way into a directory-only one", site.name, domains, south)
 		}
-		if unavailable := unavailableDomains(ctx, t, site.support, "/api/user-domains"); !maps.Equal(unavailable, byPassword) {
+		if unavailable := unavailableDomains(ctx, t, site.support); !maps.Equal(unavailable, byPassword) {
 			t.Errorf("the tenants the support login's list on the %s keeps as not available = %v, want %v", site.name, unavailable, byPassword)
 		}
 		if status, body := site.support.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusNotFound {
@@ -279,7 +279,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		if domains := chart(ctx, t, site.member); !slices.Equal(domains, []string{north}) {
 			t.Errorf("the member's chart on the %s once north is directory only = %v, want [%s]: north admits its own administrator by password and code", site.name, domains, north)
 		}
-		if unavailable := unavailableDomains(ctx, t, site.member, "/api/user-domains"); len(unavailable) != 0 {
+		if unavailable := unavailableDomains(ctx, t, site.member); len(unavailable) != 0 {
 			t.Errorf("the tenants the member's list on the %s keeps as not available = %v, want none", site.name, unavailable)
 		}
 		if status, body := site.member.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusOK {
@@ -353,7 +353,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if domains := chart(ctx, t, portalSupport); !slices.Equal(domains, []string{north, south}) {
 		t.Errorf("the support login's chart on the portal once north is not directory only = %v, want both tenants", domains)
 	}
-	if unavailable := unavailableDomains(ctx, t, portalSupport, "/api/user-domains"); len(unavailable) != 0 {
+	if unavailable := unavailableDomains(ctx, t, portalSupport); len(unavailable) != 0 {
 		t.Errorf("the tenants the support login's list on the portal keeps as not available once north is not directory only = %v, want none", unavailable)
 	}
 
