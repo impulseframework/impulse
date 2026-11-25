@@ -97,7 +97,7 @@ func Test_rpcHandlerTemplate_warning(t *testing.T) {
 	// inspect is the fixture's transaction-form method with the warning it declares, nil
 	// for none.
 	inspect := func(warning *rpcWarning) *rpcMethodInfo {
-		method := fixtureAnsweringMethod(t, structs, "Inspect")
+		method := fixtureAnsweringMethod(t, structs)
 		method.Warning = warning
 
 		return method

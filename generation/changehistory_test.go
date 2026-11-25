@@ -135,8 +135,11 @@ func Test_resourceChangeHistoryRoutes(t *testing.T) {
 		computed := fixtureComputedResource(t, fixtureStructs(loadCollectionFixture(t)), "Summary")
 		g := &resourceGenerator{client: &client{computedResources: []*computedResource{computed}}, genRoutes: true, routePrefix: "api"}
 		outlets := g.allOutlets()
-		outletRoutes := []*outletRouteData{{Name: outlets[0].name, Prefix: outlets[0].prefix, RoutesMap: make(map[string][]*generatedRoute)}}
-		_, routes, err := g.accumulateComputedRoutes(outlets[:1], outletRoutes)
+		outletRoutes := make([]*outletRouteData, len(outlets))
+		for i, outlet := range outlets {
+			outletRoutes[i] = &outletRouteData{Name: outlet.name, Prefix: outlet.prefix, RoutesMap: make(map[string][]*generatedRoute)}
+		}
+		_, routes, err := g.accumulateComputedRoutes(outlets, outletRoutes)
 		if err != nil {
 			t.Fatalf("accumulateComputedRoutes() error = %v", err)
 		}

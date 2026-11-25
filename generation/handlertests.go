@@ -228,12 +228,12 @@ func queryRouteCase(route *generatedRoute, pkTypes []pkParamType, listQuery stri
 		if len(pkParams) != len(pkTypes) {
 			return authzCase{}, false, errors.Newf("route %s: %d route parameters but %d primary keys", route.Path, len(pkParams), len(pkTypes))
 		}
-		for i, p := range pkParams {
-			value, ok := authzParamValue(pkTypes[i])
+		for i, pkType := range pkTypes {
+			value, ok := authzParamValue(pkType)
 			if !ok {
-				return authzCase{}, false, errors.Newf("authorization matrix: route %s has no parseable placeholder value for primary-key type %s; add the type to authzParamValue or suppress the route", route.Path, pkTypes[i].declared)
+				return authzCase{}, false, errors.Newf("authorization matrix: route %s has no parseable placeholder value for primary-key type %s; add the type to authzParamValue or suppress the route", route.Path, pkType.declared)
 			}
-			url = strings.Replace(url, "{"+p.Key+"}", value, 1)
+			url = strings.Replace(url, "{"+pkParams[i].Key+"}", value, 1)
 		}
 	}
 	if lists && listQuery != "" {

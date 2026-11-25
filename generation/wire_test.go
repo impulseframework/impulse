@@ -392,10 +392,12 @@ func Test_rpcHandlerTemplate_request(t *testing.T) {
 	}
 }
 
-// fixtureAnsweringMethod builds an rpcMethodInfo over a wirefixture struct whose
-// Execute answers, the way extraction does: one walker for request and result.
-func fixtureAnsweringMethod(t *testing.T, structs map[string]*parser.Struct, name string) *rpcMethodInfo {
+// fixtureAnsweringMethod builds the rpcMethodInfo of the wirefixture struct Inspect,
+// whose Execute answers, the way extraction does: one walker for request and result.
+func fixtureAnsweringMethod(t *testing.T, structs map[string]*parser.Struct) *rpcMethodInfo {
 	t.Helper()
+
+	const name = "Inspect"
 
 	signature, err := classifyExecute(structs[name])
 	if err != nil {
@@ -426,7 +428,7 @@ func Test_rpcHandlerTemplate_answer(t *testing.T) {
 
 	structs := fixtureStructs(loadFixture(t, "wirefixture"))
 	c := &client{}
-	m := fixtureAnsweringMethod(t, structs, "Inspect")
+	m := fixtureAnsweringMethod(t, structs)
 
 	out, err := c.generateTemplateOutput("rpcHandlerTemplate", rpcHandlerTemplate, &rpcHandlerData{
 		Source:           "pkg/rpc",
@@ -570,7 +572,7 @@ func Test_rpcHandlerTemplate_dryRun(t *testing.T) {
 	}{
 		{
 			name:   "transaction form rolls back after the body",
-			method: fixtureAnsweringMethod(t, structs, "Inspect"),
+			method: fixtureAnsweringMethod(t, structs),
 			wantContains: []string{
 				"dryRun, err := resource.IsDryRun(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif err := a.ResourceClient().ExecuteFunc(",
 				"result = answer\n\t\t\tif dryRun {\n\t\t\t\treturn resource.ErrDryRun\n\t\t\t}",
@@ -661,7 +663,7 @@ func Test_rpcHandlerTemplate_rpcName(t *testing.T) {
 			method: func(t *testing.T) *rpcMethodInfo {
 				t.Helper()
 
-				return fixtureAnsweringMethod(t, wire, "Inspect")
+				return fixtureAnsweringMethod(t, wire)
 			},
 			wantLine:  `ctx = resource.WithRPC(ctx, "Inspect")`,
 			wantAfter: []string{"ExecuteFunc("},
