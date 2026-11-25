@@ -35,6 +35,11 @@ import (
 // it takes, and nothing is kept between rounds: a refusal that comes after rounds have run
 // stops the delete there, and what is left is a whole, smaller record.
 //
+// A kind with a row straight under the record that the description neither takes nor
+// lists under refusedBy refuses the delete as it refuses a plain one, in the same
+// sentence and before any row is asked about: "This group has 5 tasks. Move or delete
+// them first."
+//
 // A delete that does not say it takes the rows, of a record that has some, deletes
 // nothing and is answered with the question a person is asked first: "Delete this
 // client and everything under it: 2 client contacts. This can't be undone." It is a 428,
@@ -524,7 +529,8 @@ type takingDelete struct {
 	query *takenQuery
 	txn   *SpannerReadWriteTransaction
 	// caller is the person each row's delete is armed against, a zero Caller where the
-	// record's delete runs trusted.
+	// record's delete runs trusted. A kind marked AsCaller is checked as whoever the
+	// delete is for instead (callerOf).
 	caller *Caller
 	// page reads one page of a kind's rows (SpannerReadWriteTransaction.readPage).
 	page func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error)
@@ -536,13 +542,19 @@ type takingDelete struct {
 }
 
 // callerOf is the person a row of the kind is checked as: none for a trusted kind
-// (DeleteKind.Trusted), whose rows go with the record whoever deletes it.
+// (DeleteKind.Trusted), whose rows go with the record whoever deletes it; whoever the
+// delete is for, the patch's caller or else the request's, for a kind marked AsCaller
+// (DeleteKind.AsCaller), nobody outside a request; and for every other kind the person
+// the record's own delete is armed against, nobody where it runs trusted.
 func (d *takingDelete) callerOf(kind *DeleteKind) *Caller {
-	if kind.Trusted {
+	switch {
+	case kind.Trusted:
 		return nil
+	case kind.AsCaller:
+		return d.asked.caller
+	default:
+		return d.caller
 	}
-
-	return d.caller
 }
 
 // keyFields are the fields that hold the kind's key columns, in key order, and their Go
@@ -608,16 +620,19 @@ func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level, deep
 // transaction changed is found where it stood, and a row it deleted is found and deleted
 // again. The answers come in this order: a record with rows that refuse its delete
 // (refusedBy), counted level by level as the taken kinds are, is refused in the
-// sentence that names them; then a kind with rows under the record that the caller's
+// sentence that names them; then a record with a row straight under it that the
+// description neither takes nor lists under refusedBy, in the counted sentence of a
+// plain delete (refusedUnder); then a kind with rows under the record that the caller's
 // grants refuse; then the first row of a kind that asks anything of its rows that is
 // refused, each row asked as its own delete would ask it: every row by a delete that
 // asks, the rows the save takes by one that takes them; then a kind code handed the
 // delete (DeleteAlso) that refuses. A row is checked as the person the record's own
 // delete is armed against, in that delete's scope, and runs trusted where the record's
-// delete does, or where its kind is trusted. The sentences are written for whoever
-// asked (deleteCaller).
+// delete does, or where its kind is trusted; a row of a kind marked AsCaller is checked
+// as whoever the delete is for (callerOf). The sentences are written for whoever asked
+// (deleteCaller).
 func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) (*takenRound, error) {
-	tree := p.querySet.rMeta.deleteTree
+	tree := p.deleteDescription()
 	if tree == nil || len(tree.Taken) == 0 && len(p.alsoTaken) == 0 {
 		return nil, nil
 	}
@@ -647,6 +662,24 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 	return taking.run(ctx, spannerTxn.countRows, tracked, p.everythingUnder, eventSource...)
 }
 
+// deleteDescription is the description the patch's delete reads: its record's, with
+// every kind marked AsCaller left out of each of its lists where the delete takes the
+// library's rows alone (DeleteLibraryRowsAlone). The record's own description is not
+// changed.
+func (p *PatchSet[Resource]) deleteDescription() *DeleteTree {
+	tree := p.querySet.rMeta.deleteTree
+	if tree == nil || !p.libraryRowsAlone {
+		return tree
+	}
+	library := func(kinds []DeleteKind) []DeleteKind {
+		return slices.DeleteFunc(slices.Clone(kinds), func(kind DeleteKind) bool { return kind.AsCaller })
+	}
+	narrowed := *tree
+	narrowed.Taken, narrowed.RefusedBy, narrowed.Under = library(tree.Taken), library(tree.RefusedBy), library(tree.Under)
+
+	return &narrowed
+}
+
 // takenRound is what one save of a delete that takes rows did: the rows counted under
 // the record as the save began, the rows the save buffered the delete of, and whether
 // it took the last of them, so the record goes in the same save.
@@ -667,13 +700,17 @@ func (r *takenRound) left() *DeleteLeft {
 }
 
 // run is the delete, each count statement run by count: the counts, the refusing kinds'
-// refusal, then the taken kinds' checks and the rows taken (take).
+// refusal, the refusal over a row straight under the record that the delete does not
+// take, then the taken kinds' checks and the rows taken (take).
 func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...string) (*takenRound, error) {
 	levels, err := d.count(ctx, count)
 	if err != nil {
 		return nil, err
 	}
 	if err := d.asked.refusedNow(ctx, levels); err != nil {
+		return nil, err
+	}
+	if err := d.asked.refusedUnder(ctx, d.txn.DBType(), count); err != nil {
 		return nil, err
 	}
 
@@ -987,6 +1024,41 @@ func (d *recordedDelete) refusedNow(ctx context.Context, levels *takenLevels) er
 	}
 
 	return httpio.NewConflictMessage(deleteRefusedSentence(d.tree, seen, true))
+}
+
+// refusedUnder refuses the delete of a record that has a row straight under it by a way
+// of a kind under it (DeleteTree.Under) that is a way of no kind of its resource the
+// description takes or lists under refusedBy, as the count before the commit refuses a
+// plain delete: in the counted sentence ("This task has 1 timesheet. Delete it first."),
+// before any row is asked about. Each such kind is counted by those ways alone, in one
+// statement; a kind with none sends no statement.
+func (d *recordedDelete) refusedUnder(ctx context.Context, dbType DBType, count rowCounter) error {
+	var unheld []DeleteKind
+	for i := range d.tree.Under {
+		kind := d.tree.Under[i]
+		kind.Paths = slices.DeleteFunc(slices.Clone(kind.Paths), func(way DeletePath) bool {
+			return d.tree.holds(kind.Resource, way)
+		})
+		if len(kind.Paths) > 0 {
+			unheld = append(unheld, kind)
+		}
+	}
+	if len(unheld) == 0 {
+		return nil
+	}
+	under, err := d.rowsOf(ctx, dbType, unheld, count)
+	if err != nil {
+		return err
+	}
+	if len(under) == 0 {
+		return nil
+	}
+	seen, err := d.seen(ctx, under)
+	if err != nil {
+		return err
+	}
+
+	return httpio.NewConflictMessage(deleteRefusedSentence(d.tree, seen, false))
 }
 
 // refuseRow is the answer to a delete over a kind under the record that refused: a

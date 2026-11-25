@@ -144,6 +144,14 @@ type DeleteKind struct {
 	// kind under the tenant record, whose delete asks one permission, to delete a
 	// tenant. The kind's delete rule is asked all the same. The generator writes it.
 	Trusted bool
+	// AsCaller marks a kind of the application's under a record of the library's (a
+	// group, an account): its rows are checked against whoever the delete is for, the
+	// patch's caller or else the request's, though the record's own delete is not armed,
+	// since the library's method asked that person's grant on the record and none on
+	// these rows. Outside a request nobody is asked, and the rows go trusted. A delete
+	// told to take the library's rows alone leaves the kind out
+	// (PatchSet.DeleteLibraryRowsAlone). The generator writes it.
+	AsCaller bool
 }
 
 // movable reports whether a row of the kind can be taken from under the record without
@@ -233,6 +241,26 @@ func (t *DeleteTree) Mutations(rows map[accesstypes.Resource]int, tracked func(a
 // columns of the same table.
 func (l DeleteLink) sameAs(other DeleteLink) bool {
 	return l.Table == other.Table && slices.Equal(l.Columns, other.Columns) && slices.Equal(l.References, other.References)
+}
+
+// holds reports whether the way is a way of a kind of the resource that the description
+// takes or lists under refusedBy, compared step by step (DeleteLink.sameAs): a row under
+// the record by it is taken, or refuses the delete, with that kind.
+func (t *DeleteTree) holds(resource accesstypes.Resource, way DeletePath) bool {
+	for _, kinds := range [][]DeleteKind{t.Taken, t.RefusedBy} {
+		for i := range kinds {
+			if kinds[i].Resource != resource {
+				continue
+			}
+			if slices.ContainsFunc(kinds[i].Paths, func(path DeletePath) bool {
+				return slices.EqualFunc(path, way, DeleteLink.sameAs)
+			}) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // nestingLinks are the links a row of the table is under another row of the same table

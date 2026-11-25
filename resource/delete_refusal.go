@@ -94,7 +94,7 @@ func (p *PatchSet[Resource]) recordDelete(ctx context.Context, txn ReadWriteTran
 	}
 	// A delete that answered for the rows under its record when it was buffered has
 	// nothing left to count (PatchSet.underAnswered).
-	tree := p.querySet.rMeta.deleteTree
+	tree := p.deleteDescription()
 	if tree == nil || p.underAnswered || len(tree.RefusedBy)+len(tree.Under) == 0 {
 		return
 	}
