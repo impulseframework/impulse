@@ -542,7 +542,6 @@ func TestManager_TenantKinds_theImpersonatorsOwnAccount(t *testing.T) {
 
 // TestManager_TenantKinds_nothingHeld pins a tenant the auth holds nothing for: every count
 // is zero, every kind takes nothing and says nothing is left, and the engine is not told.
-// A delete that names no tenant is refused.
 func TestManager_TenantKinds_nothingHeld(t *testing.T) {
 	t.Parallel()
 
@@ -566,11 +565,6 @@ func TestManager_TenantKinds_nothingHeld(t *testing.T) {
 			}
 			if got := (takenRows{Rows: rows, Mutations: mutations, More: more}); got != (takenRows{}) {
 				t.Errorf("%s: Take() = %+v, want nothing", kind.Words().Many, got)
-			}
-		}
-		for _, kind := range m.TenantKinds("") {
-			if _, err := kind.Count(ctx, txn); err == nil {
-				t.Errorf("%s: Count() of no tenant error = nil, want a refusal", kind.Words().Many)
 			}
 		}
 

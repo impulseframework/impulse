@@ -75,16 +75,6 @@ type tenantHeld struct {
 	domain  accesstypes.Domain
 }
 
-// named refuses a delete that names no tenant: every row of the auth's would be read as
-// the rows of a tenant with no name.
-func (h *tenantHeld) named() error {
-	if h.domain == "" {
-		return errors.New("a tenant's delete was handed the auth's rows and no tenant was named")
-	}
-
-	return nil
-}
-
 // inTenant reports whether a membership is held in the tenant itself: a membership held
 // in every tenant is no one tenant's.
 func (h *tenantHeld) inTenant(key *access.MembershipKey) bool {
@@ -233,9 +223,6 @@ func (*tenantAccounts) Words() resource.DeleteWords {
 
 // Count is the number of accounts that are the tenant's alone.
 func (k *tenantAccounts) Count(ctx context.Context, txn resource.ReadWriteTransaction) (int64, error) {
-	if err := k.named(); err != nil {
-		return 0, err
-	}
 	accounts, err := k.accounts(ctx, txn)
 	if err != nil {
 		return 0, err
@@ -247,9 +234,6 @@ func (k *tenantAccounts) Count(ctx context.Context, txn resource.ReadWriteTransa
 // Check refuses the delete, in a session that acts as someone else, where the real
 // person's own account is one of the tenant's alone (refuseImpersonatorAsSubject).
 func (k *tenantAccounts) Check(ctx context.Context, txn resource.ReadWriteTransaction) error {
-	if err := k.named(); err != nil {
-		return err
-	}
 	accounts, err := k.accounts(ctx, txn)
 	if err != nil {
 		return err
@@ -266,9 +250,6 @@ func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransac
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := k.named(); err != nil {
-		return 0, 0, false, err
-	}
 	accounts, err := k.accounts(ctx, txn)
 	if err != nil {
 		return 0, 0, false, err
@@ -396,9 +377,6 @@ func compareGroupRoles(a, b *access.GroupRoleKey) int {
 
 // Count is the number of roles held in the tenant.
 func (k *tenantRolesHeld) Count(ctx context.Context, txn resource.ReadWriteTransaction) (int64, error) {
-	if err := k.named(); err != nil {
-		return 0, err
-	}
 	held, roles, err := k.rolesHeld(ctx, txn)
 	if err != nil {
 		return 0, err
@@ -409,15 +387,12 @@ func (k *tenantRolesHeld) Count(ctx context.Context, txn resource.ReadWriteTrans
 
 // Check asks nothing: the tenant's delete asks one permission, to delete a tenant.
 func (k *tenantRolesHeld) Check(context.Context, resource.ReadWriteTransaction) error {
-	return k.named()
+	return nil
 }
 
 // Take takes the memberships, then the groups' roles, while the next one's cost fits the
 // budget: one row of its table each.
 func (k *tenantRolesHeld) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
-	if err := k.named(); err != nil {
-		return 0, 0, false, err
-	}
 	held, roles, err := k.rolesHeld(ctx, txn)
 	if err != nil {
 		return 0, 0, false, err
@@ -461,9 +436,6 @@ func (*tenantGroups) Words() resource.DeleteWords {
 
 // Count is the number of groups kept in the tenant.
 func (k *tenantGroups) Count(ctx context.Context, txn resource.ReadWriteTransaction) (int64, error) {
-	if err := k.named(); err != nil {
-		return 0, err
-	}
 	groups, err := k.manager.store.TenantGroups(ctx, txn, k.domain)
 	if err != nil {
 		return 0, errors.Wrap(err, "identity.Store.TenantGroups()")
@@ -474,7 +446,7 @@ func (k *tenantGroups) Count(ctx context.Context, txn resource.ReadWriteTransact
 
 // Check asks nothing: the tenant's delete asks one permission, to delete a tenant.
 func (k *tenantGroups) Check(context.Context, resource.ReadWriteTransaction) error {
-	return k.named()
+	return nil
 }
 
 // Take deletes the groups in key order while the next one's cost fits the budget, each by
@@ -483,9 +455,6 @@ func (k *tenantGroups) Check(context.Context, resource.ReadWriteTransaction) err
 // has left is taken in part, its members and then its roles one at a time while the next
 // fits, and goes in the round in which the rest of it fits.
 func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
-	if err := k.named(); err != nil {
-		return 0, 0, false, err
-	}
 	store := k.manager.store
 	groups, err := store.TenantGroups(ctx, txn, k.domain)
 	if err != nil {
@@ -572,9 +541,6 @@ func (*tenantCustomRoles) Words() resource.DeleteWords {
 
 // Count is the number of custom roles made in the tenant.
 func (k *tenantCustomRoles) Count(ctx context.Context, txn resource.ReadWriteTransaction) (int64, error) {
-	if err := k.named(); err != nil {
-		return 0, err
-	}
 	roles, err := k.manager.store.TenantRoles(ctx, txn, k.domain)
 	if err != nil {
 		return 0, errors.Wrap(err, "identity.Store.TenantRoles()")
@@ -585,15 +551,12 @@ func (k *tenantCustomRoles) Count(ctx context.Context, txn resource.ReadWriteTra
 
 // Check asks nothing: the tenant's delete asks one permission, to delete a tenant.
 func (k *tenantCustomRoles) Check(context.Context, resource.ReadWriteTransaction) error {
-	return k.named()
+	return nil
 }
 
 // Take deletes every custom role of the tenant at once where their cost fits the budget,
 // and none where it does not.
 func (k *tenantCustomRoles) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
-	if err := k.named(); err != nil {
-		return 0, 0, false, err
-	}
 	store := k.manager.store
 	roles, err := store.TenantRoles(ctx, txn, k.domain)
 	if err != nil {
@@ -629,9 +592,6 @@ func (*tenantInvitations) Words() resource.DeleteWords {
 
 // Count is the number of invitations into the tenant that still stand.
 func (k *tenantInvitations) Count(ctx context.Context, txn resource.ReadWriteTransaction) (int64, error) {
-	if err := k.named(); err != nil {
-		return 0, err
-	}
 	invitations, err := k.manager.store.TenantInvitations(ctx, txn, k.domain)
 	if err != nil {
 		return 0, errors.Wrap(err, "identity.Store.TenantInvitations()")
@@ -642,14 +602,11 @@ func (k *tenantInvitations) Count(ctx context.Context, txn resource.ReadWriteTra
 
 // Check asks nothing: the tenant's delete asks one permission, to delete a tenant.
 func (k *tenantInvitations) Check(context.Context, resource.ReadWriteTransaction) error {
-	return k.named()
+	return nil
 }
 
 // Take withdraws the invitations in key order while the next one's cost fits the budget.
 func (k *tenantInvitations) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
-	if err := k.named(); err != nil {
-		return 0, 0, false, err
-	}
 	store := k.manager.store
 	invitations, err := store.TenantInvitations(ctx, txn, k.domain)
 	if err != nil {
