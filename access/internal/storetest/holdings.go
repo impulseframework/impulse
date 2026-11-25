@@ -3,7 +3,6 @@ package storetest
 import (
 	"testing"
 
-	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/internal/policy"
@@ -127,7 +126,7 @@ func holdingGroups(t *testing.T, store access.Store, p *periods) {
 		t.Fatalf("InsertGroupRole() error = %v", err)
 	}
 	// A second role of the crew has ended: the listing leaves it out, and the
-	// deletion below takes its row with the group.
+	// deletion below takes its row with the group like the rest.
 	if err := store.InsertGroupRole(ctx, crewGroup, holdingsTenant, viewer, p.ended); err != nil {
 		t.Fatalf("InsertGroupRole() of a role that has ended: error = %v", err)
 	}
@@ -162,11 +161,10 @@ func holdingGroups(t *testing.T, store access.Store, p *periods) {
 	holdingGroupDeletion(t, store)
 }
 
-// holdingGroupDeletion holds what the two listings of what groups hold answer
-// to what a deletion is refused for, over the groups holdingGroups arranged:
-// the spare group, which the listings answer nothing for, goes; the crew does
-// not while a place or a role of it has not ended, and goes once they answer
-// nothing for it, taking its ended rows with it.
+// holdingGroupDeletion deletes the groups holdingGroups arranged, each with what
+// it holds: the spare group, which holds nothing, and the crew, with its places
+// and roles whatever their periods; the two listings then answer nothing for the
+// tenant.
 func holdingGroupDeletion(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
@@ -174,24 +172,13 @@ func holdingGroupDeletion(t *testing.T, store access.Store) {
 	if deleted, err := store.DeleteGroup(ctx, idleGroup); err != nil || !deleted {
 		t.Fatalf("DeleteGroup() of a group listed with nobody and no role = (%v, %v), want it deleted", deleted, err)
 	}
-	if _, err := store.DeleteGroup(ctx, crewGroup); !errors.Is(err, policy.ErrStillAssigned) {
-		t.Fatalf("DeleteGroup() of a group listed with two people and a role: error = %v, want policy.ErrStillAssigned", err)
-	}
-	for _, member := range []accesstypes.User{ivy, jon} {
-		if err := store.DeleteGroupMember(ctx, crewGroup, member); err != nil {
-			t.Fatalf("DeleteGroupMember(%s) error = %v", member, err)
-		}
-	}
-	if err := store.DeleteGroupRole(ctx, crewGroup, holdingsTenant, steward); err != nil {
-		t.Fatalf("DeleteGroupRole() error = %v", err)
+	if deleted, err := store.DeleteGroup(ctx, crewGroup); err != nil || !deleted {
+		t.Fatalf("DeleteGroup() of a group listed with two people and a role = (%v, %v), want it deleted with them", deleted, err)
 	}
 	if counts, err := store.CountGroupMembersIn(ctx, holdingsTenant); err != nil || len(counts) != 0 {
-		t.Errorf("CountGroupMembersIn() once the only place left has ended = (%v, %v), want none", counts, err)
+		t.Errorf("CountGroupMembersIn() once the groups are deleted = (%v, %v), want none", counts, err)
 	}
 	if roles, err := store.ListGroupRolesIn(ctx, holdingsTenant); err != nil || len(roles) != 0 {
-		t.Errorf("ListGroupRolesIn() once the role is taken away = (%v, %v), want none", roles, err)
-	}
-	if deleted, err := store.DeleteGroup(ctx, crewGroup); err != nil || !deleted {
-		t.Fatalf("DeleteGroup() once every place left has ended = (%v, %v), want it deleted", deleted, err)
+		t.Errorf("ListGroupRolesIn() once the groups are deleted = (%v, %v), want none", roles, err)
 	}
 }

@@ -489,8 +489,8 @@ func turnRoleAndGroup(ctx context.Context, t *testing.T, store *Store) {
 }
 
 // parentRow is the row a turn test locks and deletes: the statement that locks it for
-// update, the statements that delete it with the ended rows under it, and the arguments
-// of each.
+// update, the statements that delete it with the rows under it, and the arguments of
+// each.
 type parentRow struct {
 	lock    string
 	deletes []string
@@ -505,9 +505,9 @@ func roleParent(store *Store) parentRow {
 	return parentRow{lock: roleRowSQL(store, "update"), deletes: []string{store.sqlDeleteRole}, args: []any{kind, axis, domain, turnRole}}
 }
 
-// groupParent is turnGroup's row, deleted after its ended members and roles.
+// groupParent is turnGroup's row, deleted after its members and roles.
 func groupParent(store *Store) parentRow {
-	return parentRow{lock: store.groups.lockGroup, deletes: append(slices.Clone(store.groups.deleteEnded), store.groups.deleteGroup), args: []any{turnGroup}}
+	return parentRow{lock: store.groups.lockGroup, deletes: append(slices.Clone(store.groups.deleteHeld), store.groups.deleteGroup), args: []any{turnGroup}}
 }
 
 // roleRowSQL is a statement that reads a role's row, as the roles table keys it, and
@@ -618,10 +618,11 @@ func waitingOnALock(t *testing.T, database *pgxpool.Pool, done <-chan struct{}) 
 }
 
 // TestStore_DeleteGroup_takesItsTurnWithAMember pins that a group's deletion locks the
-// group's row before it reads what the group holds, and reads after the lock: a member
-// written by a transaction still open when the delete starts is seen once it commits,
-// and the delete refuses. A delete that read before the lock, or under a snapshot taken
-// before it, would find the group empty.
+// group's row before it deletes what the group holds, and deletes after the lock: a
+// member written by a transaction still open when the delete starts is taken with the
+// group once it commits. A delete that deleted the members before the lock, or under a
+// snapshot taken before it, would miss the member, and the member's foreign key would
+// refuse the group's delete.
 func TestStore_DeleteGroup_takesItsTurnWithAMember(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -657,10 +658,13 @@ func TestStore_DeleteGroup_takesItsTurnWithAMember(t *testing.T) {
 	}
 	<-done
 
-	if deleted || !errors.Is(deleteErr, policy.ErrStillAssigned) {
-		t.Errorf("DeleteGroup() of a group given a member while it waited = (%v, %v), want it refused with policy.ErrStillAssigned", deleted, deleteErr)
+	if !deleted || deleteErr != nil {
+		t.Errorf("DeleteGroup() of a group given a member while it waited = (%v, %v), want it deleted with the member", deleted, deleteErr)
 	}
-	if _, found, err := store.Group(ctx, turnGroup); err != nil || !found {
-		t.Errorf("Group() after the refusal = (%v, %v), want the group there", found, err)
+	if _, found, err := store.Group(ctx, turnGroup); err != nil || found {
+		t.Errorf("Group() after the delete = (%v, %v), want the group gone", found, err)
+	}
+	if held := heldUnder(ctx, t, store); len(held) != 0 {
+		t.Errorf("ReadPolicy() after the delete holds %v, want nothing of the group", held)
 	}
 }

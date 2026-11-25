@@ -377,8 +377,8 @@ func Test_userManager_AssignUserRole_superAdministrator(t *testing.T) {
 // Test_userManager_groupPeriods pins the period of a place in a group and of a
 // group's role: the person holds the role while both count, on the check and
 // in the listings a sign-in reads; each is replaced by assigning again; and a
-// group whose members and roles have all ended is deleted with them, while one
-// whose period has not begun stands in the way.
+// group is deleted with its members and roles whatever their periods, one that
+// has not begun among them.
 func Test_userManager_groupPeriods(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -463,16 +463,11 @@ func Test_userManager_groupPeriods(t *testing.T) {
 		t.Errorf("AssignGroupRole() with an end before its start: error = %v, want a bad request", err)
 	}
 
-	// A member whose period has not begun stands in the way of the group's
-	// deletion; once every member and role has ended the group goes, and they
-	// go with it.
+	// A member whose period has not begun goes with the group, and so does a role
+	// that has ended.
 	assign(upcoming, ended)
-	if err := manager.DeleteGroup(ctx, night); err == nil || !httpio.HasConflict(err) || !strings.Contains(err.Error(), "has not begun") {
-		t.Errorf("DeleteGroup() of a group with a member who has not begun: error = %v, want a conflict saying so", err)
-	}
-	assign(ended, ended)
 	if err := manager.DeleteGroup(ctx, night); err != nil {
-		t.Fatalf("DeleteGroup() of a group whose member and role have ended: error = %v", err)
+		t.Fatalf("DeleteGroup() of a group with a member who has not begun: error = %v", err)
 	}
 	if len(store.groups.members) != 0 || len(store.groups.held) != 0 {
 		t.Errorf("the store holds %d places and %d group roles after the group went, want none", len(store.groups.members), len(store.groups.held))

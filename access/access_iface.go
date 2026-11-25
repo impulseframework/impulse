@@ -229,9 +229,8 @@ type UserManager interface {
 	// does not exist or the description is empty.
 	DescribeGroup(ctx context.Context, group accesstypes.Group, description string) error
 
-	// DeleteGroup removes group. Errors if the group does not exist, or still
-	// has a member or holds a role: a group goes once it is emptied. A member
-	// or a role whose period has ended goes with it.
+	// DeleteGroup removes group with its members and the roles it holds. Errors
+	// if the group does not exist.
 	DeleteGroup(ctx context.Context, group accesstypes.Group) error
 
 	// Groups returns the groups kept in scope, sorted by name.

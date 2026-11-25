@@ -62,8 +62,7 @@ type HeldRole struct {
 
 // GroupContent is one group of people as UserManager.GroupContents lists it, with what
 // it holds: how many people are in it and the roles it holds, each with where it is
-// held. Both are what has not ended, an assignment whose period has not begun among it,
-// so a group that holds nothing by this answer is one DeleteGroup removes.
+// held. Both are what has not ended, an assignment whose period has not begun among it.
 type GroupContent struct {
 	GroupInfo
 

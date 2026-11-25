@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -33,8 +34,8 @@ var equateScopes = cmpopts.EquateComparable(accesstypes.PolicyScope{})
 // global partition or in one domain and nowhere else; its name is held to one
 // group where it is kept and free in every other place; a member and a role
 // each need the group's row; inserts are idempotent and deletes of absent rows
-// no-ops; a group with a member or a role cannot be deleted; and the listings
-// are sorted. It leaves the two groups runReadPolicy expects.
+// no-ops; a group is deleted with its members and the roles it holds; and the
+// listings are sorted. It leaves the two groups runReadPolicy expects.
 func runGroups(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
@@ -49,7 +50,7 @@ func runGroups(t *testing.T, store access.Store) {
 	t.Run("reading and describing a group", func(t *testing.T) { groupsDescribed(t, store) })
 	t.Run("members", func(t *testing.T) { groupMembers(t, store) })
 	t.Run("roles", func(t *testing.T) { groupRoles(t, store) })
-	t.Run("a group goes once it is emptied", func(t *testing.T) { groupEmptied(t, store) })
+	t.Run("a group goes with its members and the roles it holds", func(t *testing.T) { groupDeleted(t, store) })
 }
 
 // nightRow is the group the suite keeps in the first tenant.
@@ -245,8 +246,11 @@ func groupRoles(t *testing.T, store access.Store) {
 	}
 }
 
-// groupEmptied holds a group's deletion to its emptiness: a member or a role refuses it.
-func groupEmptied(t *testing.T, store access.Store) {
+// groupDeleted holds a group's deletion to its contract: the group goes with every
+// member and every role it holds, whatever their periods (bob's place has ended,
+// carol's has not begun), in the delete's one transaction, and another group's rows
+// are left as they are.
+func groupDeleted(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -254,28 +258,63 @@ func groupEmptied(t *testing.T, store access.Store) {
 	if taken, err := store.InsertGroup(ctx, spare); err != nil || taken {
 		t.Fatalf("InsertGroup() = (%v, %v), want it written", taken, err)
 	}
-	if err := store.InsertGroupMember(ctx, spareGroup, bob, accesstypes.Period{}); err != nil {
-		t.Fatalf("InsertGroupMember() error = %v", err)
-	}
-	if _, err := store.DeleteGroup(ctx, spareGroup); !errors.Is(err, policy.ErrStillAssigned) {
-		t.Fatalf("DeleteGroup() of a group with a member: error = %v, want policy.ErrStillAssigned, which the manager words for the caller", err)
-	}
-	if err := store.DeleteGroupMember(ctx, spareGroup, bob); err != nil {
-		t.Fatalf("DeleteGroupMember() error = %v", err)
+	now := time.Now()
+	for user, period := range map[accesstypes.User]accesstypes.Period{
+		bob:   {End: now.Add(-time.Hour)},
+		carol: {Start: now.Add(time.Hour)},
+	} {
+		if err := store.InsertGroupMember(ctx, spareGroup, user, period); err != nil {
+			t.Fatalf("InsertGroupMember(%s) error = %v", user, err)
+		}
 	}
 	if err := store.InsertGroupRole(ctx, spareGroup, tenant2, editor, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertGroupRole() error = %v", err)
 	}
-	if _, err := store.DeleteGroup(ctx, spareGroup); !errors.Is(err, policy.ErrStillAssigned) {
-		t.Fatalf("DeleteGroup() of a group with a role: error = %v, want policy.ErrStillAssigned", err)
+	nightMembers, nightRoles := groupHoldings(t, store, nightGroup)
+	if members, roles := groupHoldings(t, store, spareGroup); len(members) != 2 || len(roles) != 1 {
+		t.Fatalf("the spare group holds %v and %v before its delete, want two places and a role", members, roles)
 	}
-	if _, found, err := store.Group(ctx, spareGroup); err != nil || !found {
-		t.Fatalf("Group() after the refused deletes = (found %v, %v), want the group still there", found, err)
-	}
-	if err := store.DeleteGroupRole(ctx, spareGroup, tenant2, editor); err != nil {
-		t.Fatalf("DeleteGroupRole() error = %v", err)
-	}
+
 	if deleted, err := store.DeleteGroup(ctx, spareGroup); err != nil || !deleted {
-		t.Errorf("DeleteGroup() of the emptied group = (%v, %v), want it deleted", deleted, err)
+		t.Fatalf("DeleteGroup() of a group with two places and a role = (%v, %v), want it deleted", deleted, err)
 	}
+	if _, found, err := store.Group(ctx, spareGroup); err != nil || found {
+		t.Errorf("Group() after the delete = (found %v, %v), want it gone", found, err)
+	}
+	if members, roles := groupHoldings(t, store, spareGroup); len(members)+len(roles) != 0 {
+		t.Errorf("the deleted group's rows left = %v and %v, want none", members, roles)
+	}
+	members, roles := groupHoldings(t, store, nightGroup)
+	if diff := cmp.Diff(nightMembers, members); diff != "" {
+		t.Errorf("another group's members after the delete (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(nightRoles, roles, equateScopes); diff != "" {
+		t.Errorf("another group's roles after the delete (-want +got):\n%s", diff)
+	}
+	if deleted, err := store.DeleteGroup(ctx, spareGroup); err != nil || deleted {
+		t.Errorf("DeleteGroup() of a group that is gone = (%v, %v), want (false, nil)", deleted, err)
+	}
+}
+
+// groupHoldings answers every member row and every role row of the group the store
+// holds, whatever their periods, as ReadPolicy reads them, sorted.
+func groupHoldings(t *testing.T, store access.Store, group accesstypes.Group) (members []policy.GroupMember, roles []policy.Membership) {
+	t.Helper()
+	records, err := store.ReadPolicy(t.Context())
+	if err != nil {
+		t.Fatalf("ReadPolicy() error = %v", err)
+	}
+	sortRecords(records)
+	for _, m := range records.GroupMembers {
+		if m.Group == group {
+			members = append(members, m)
+		}
+	}
+	for i := range records.Memberships {
+		if records.Memberships[i].Member == (policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}) {
+			roles = append(roles, records.Memberships[i])
+		}
+	}
+
+	return members, roles
 }
