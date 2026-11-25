@@ -1514,6 +1514,11 @@ type resourceInfo struct {
 	// the tenant's people enter through its directories only; nil when the record
 	// declares none, and every tenant admits a password.
 	DirectoryOnlyField *resourceField
+	// TenantDisabledField is the tenant record's @tenantDisabled column, the BOOL saying
+	// the tenant is disabled: the roster and the sign-in's reader read it beside the
+	// tenant's key, and the record's generated delete refuses a tenant whose column is
+	// false. Nil on every other resource.
+	TenantDisabledField *resourceField
 	// IsTenantDirectory marks the directories record (@tenantDirectory): the
 	// tenant-scoped resource whose row is the directory a tenant admits its people
 	// through, one for a tenant and one tenant's, with DirectoryMethodField
@@ -2637,6 +2642,7 @@ const (
 	featureKeyword               string = "feature"               // Gates a resource, a field or an RPC method behind a feature flag, by the flag's constant: @feature(Debriefs)
 	tenantKeyword                string = "tenant"                // Declares the tenant record: the global, table-backed @resource whose rows are the tenants and whose key is the domain in every tenant-scoped URL
 	directoryOnlyKeyword         string = "directoryOnly"         // Marks the tenant record's BOOL column saying the tenant's people enter through its directories only, so a password does not reach it
+	tenantDisabledKeyword        string = "tenantDisabled"        // Marks the tenant record's BOOL column saying the tenant is disabled: its people are shut out while its records stay, and a super administrator alone enters it
 	tenantNameKeyword            string = "tenantName"            // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
 	tenantSinceKeyword           string = "tenantSince"           // Marks the tenant record's timestamp column holding when the tenant was made, which the list of tenants an auth's generated management serves says as Since
 	nameKeyword                  string = "name"                  // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
@@ -2696,6 +2702,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		featureKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		tenantKeyword:                {genlang.ScanStruct: genlang.Exclusive},
 		directoryOnlyKeyword:         {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		tenantDisabledKeyword:        {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantNameKeyword:            {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantSinceKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		nameKeyword:                  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},

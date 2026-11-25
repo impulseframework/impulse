@@ -68,15 +68,21 @@ type tenantNames map[accesstypes.Domain]string
 // TenantDeclarationColumns names where the tenant record keeps its declaration of who
 // may enter it (signin.TenantDeclaration), so the roster reads the declaration beside
 // the keys and the sign-in policy reads it in its own transaction
-// (NewTenantDeclarationReader): the record's directory-only column, and the directories
-// record's table with its tenant, method and connection columns. The generated
-// New<Record>Roster and New<Record>DeclarationReader constructors supply them from the
-// @directoryOnly and @tenantDirectory declarations; an application names none of them.
+// (NewTenantDeclarationReader): the record's directory-only and disabled columns, and
+// the directories record's table with its tenant, method and connection columns. The
+// generated New<Record>Roster and New<Record>DeclarationReader constructors supply them
+// from the @directoryOnly, @tenantDisabled and @tenantDirectory declarations; an
+// application names none of them.
 type TenantDeclarationColumns struct {
 	// DirectoryOnly is the tenant record's BOOL column saying the tenant's people enter
 	// through its directories only, so a password does not reach it; empty when the
 	// record declares none, and every tenant admits a password.
 	DirectoryOnly string
+	// Disabled is the tenant record's BOOL column saying the tenant is disabled
+	// (@tenantDisabled): its people are shut out while its records stay, and a super
+	// administrator alone enters it. Empty where the columns name none, and no tenant is
+	// then disabled.
+	Disabled string
 	// DirectoriesTable is the directories record's table, one row for the directory a
 	// tenant admits its people through: TenantColumn holds the tenant's key, MethodColumn
 	// the sign-in method as sessioninfo.AuthMethod spells it (google, azure, workos) and
@@ -111,8 +117,15 @@ type TenantDeclarationColumns struct {
 }
 
 // declared reports whether the roster reads a declaration: the columns are given and
-// name the directories record.
+// name the directories record or the disabled column.
 func (c *TenantDeclarationColumns) declared() bool {
+	return c != nil && (c.DirectoriesTable != "" || c.Disabled != "")
+}
+
+// hasDirectories reports whether the columns are given and name the directories
+// record: what a tenant's directory, its directory-only setting and the rules of its
+// directory are read through.
+func (c *TenantDeclarationColumns) hasDirectories() bool {
 	return c != nil && c.DirectoriesTable != ""
 }
 
@@ -197,8 +210,8 @@ func WithTenantBackstop(d time.Duration) TenantRosterOption {
 
 // WithTenantDeclarations has the roster read what each tenant declares about who may
 // enter it beside its key: the columns the generated New<Record>Roster constructor
-// supplies from the @directoryOnly and @tenantDirectory declarations. Without it every
-// tenant's declaration is nil, which declares nothing.
+// supplies from the @directoryOnly, @tenantDisabled and @tenantDirectory declarations.
+// Without it every tenant's declaration is nil, which declares nothing.
 func WithTenantDeclarations(columns *TenantDeclarationColumns) TenantRosterOption {
 	return func(r *TenantRoster) {
 		r.declarations = columns
@@ -399,7 +412,7 @@ func (r *TenantRoster) read(ctx context.Context) (tenantSet, tenantNames, error)
 	txn := r.client.ReadOnlyTransaction()
 	defer txn.Close()
 
-	set, err := readTenantSet(ctx, txn.SpannerReadOnlyTransaction(), statements, nil)
+	set, err := readTenantSet(ctx, txn.SpannerReadOnlyTransaction(), statements, r.declarations.declared(), nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -441,16 +454,17 @@ func readTenantNames(ctx context.Context, txn spxapi.Querier, statement string) 
 }
 
 // rosterStatements are the roster's statements: the keys, each with its directory-only
-// flag (FALSE where the record declares none), and the directories, empty where the
-// roster reads no declaration. Filtered statements take the tenant as @domain.
+// flag and its disabled flag (FALSE where the record declares none), and the
+// directories, empty where the columns name no directories record. Filtered statements
+// take the tenant as @domain.
 type rosterStatements struct {
 	Keys        string
 	Directories string
 }
 
 // tenantRosterStatements renders the roster's statements for the database type: the
-// key column as text under the name the scan reads, with the directory-only column
-// beside it, and the directories record's rows, each identifier quoted the way the
+// key column as text under the name the scan reads, with the directory-only and
+// disabled columns beside it, and the directories record's rows, each identifier quoted the way the
 // package's other statements quote them (backticks on Spanner, double quotes on
 // Postgres). With filtered the statements read one tenant, the @domain parameter.
 func tenantRosterStatements(dbType DBType, table, keyColumn string, columns *TenantDeclarationColumns, filtered bool) (rosterStatements, error) {
@@ -471,17 +485,22 @@ func tenantRosterStatements(dbType DBType, table, keyColumn string, columns *Ten
 
 		return column
 	}
-	directoryOnly := "FALSE"
-	if columns.declared() && columns.DirectoryOnly != "" {
+	directoryOnly := sqlFalse
+	if columns.hasDirectories() && columns.DirectoryOnly != "" {
 		directoryOnly = g.quoteIdentifier(columns.DirectoryOnly)
 	}
+	disabled := sqlFalse
+	if columns != nil && columns.Disabled != "" {
+		disabled = g.quoteIdentifier(columns.Disabled)
+	}
 	out := rosterStatements{
-		Keys: fmt.Sprintf("SELECT CAST(%s AS %s) AS %s, %s AS %s FROM %s", g.quoteIdentifier(keyColumn), text, quote("Domain"), directoryOnly, quote("DirectoryOnly"), g.quoteIdentifier(table)),
+		Keys: fmt.Sprintf("SELECT CAST(%s AS %s) AS %s, %s AS %s, %s AS %s FROM %s",
+			g.quoteIdentifier(keyColumn), text, quote("Domain"), directoryOnly, quote("DirectoryOnly"), disabled, quote("Disabled"), g.quoteIdentifier(table)),
 	}
 	if filtered {
 		out.Keys += fmt.Sprintf(" WHERE CAST(%s AS %s) = %s", g.quoteIdentifier(keyColumn), text, domainParam)
 	}
-	if !columns.declared() {
+	if !columns.hasDirectories() {
 		return out, nil
 	}
 	out.Directories = fmt.Sprintf("SELECT CAST(%s AS %s) AS %s, %s AS %s, %s AS %s FROM %s",
@@ -495,26 +514,28 @@ func tenantRosterStatements(dbType DBType, table, keyColumn string, columns *Ten
 }
 
 // readTenantSet runs the roster's statements through a Spanner transaction and
-// returns the tenants as a set: each key with its declaration when the directories
-// statement is rendered, nil otherwise. params carry the filtered statements' tenant.
-func readTenantSet(ctx context.Context, txn spxapi.Querier, statements rosterStatements, params map[string]any) (tenantSet, error) {
+// returns the tenants as a set: each key with its declaration when declared (the
+// columns name the directories record or the disabled column), nil otherwise, and the
+// directories read when the directories statement is rendered. params carry the
+// filtered statements' tenant.
+func readTenantSet(ctx context.Context, txn spxapi.Querier, statements rosterStatements, declared bool, params map[string]any) (tenantSet, error) {
 	var rows []struct {
 		Domain        string `spanner:"Domain"`
 		DirectoryOnly bool   `spanner:"DirectoryOnly"`
+		Disabled      bool   `spanner:"Disabled"`
 	}
 	if err := spxscan.Select(ctx, txn, &rows, spanner.Statement{SQL: statements.Keys, Params: params}); err != nil {
 		return nil, errors.Wrap(err, "spxscan.Select()")
 	}
-	declared := statements.Directories != ""
 	set := make(tenantSet, len(rows))
 	for _, row := range rows {
 		var declaration *signin.TenantDeclaration
 		if declared {
-			declaration = &signin.TenantDeclaration{DirectoryOnly: row.DirectoryOnly}
+			declaration = &signin.TenantDeclaration{DirectoryOnly: row.DirectoryOnly, Disabled: row.Disabled}
 		}
 		set[accesstypes.Domain(row.Domain)] = declaration
 	}
-	if !declared {
+	if !declared || statements.Directories == "" {
 		return set, nil
 	}
 
@@ -544,10 +565,12 @@ func readTenantSet(ctx context.Context, txn spxapi.Querier, statements rosterSta
 // Spanner, where the session's transaction is *spanner.ReadWriteTransaction. The
 // generated New<Record>DeclarationReader constructor supplies the table and the
 // columns; an application calls that one. A tenant the table does not hold declares
-// nothing (nil), and so does every tenant of a record that declares no directories (nil
-// columns, or columns that name no directories record): the reader then answers without
-// a read, so the policy admits everyone a tenant seats, however they signed in. The
-// reader has no side effects, as a retried transaction needs.
+// nothing (nil), and so does every tenant of a record that declares neither directories
+// nor a disabled column (nil columns, or columns that name neither): the reader then
+// answers without a read, so the policy admits everyone a tenant seats, however they
+// signed in. Columns that name the disabled column and no directories record answer a
+// declaration that says only whether the tenant is disabled. The reader has no side
+// effects, as a retried transaction needs.
 func NewTenantDeclarationReader(table, keyColumn string, columns *TenantDeclarationColumns) signin.DeclarationReader[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, txn *spanner.ReadWriteTransaction, tenant accesstypes.Domain) (*signin.TenantDeclaration, error) {
 		if tenant == "" || !columns.declared() {
@@ -557,7 +580,7 @@ func NewTenantDeclarationReader(table, keyColumn string, columns *TenantDeclarat
 		if err != nil {
 			return nil, err
 		}
-		set, err := readTenantSet(ctx, txn, statements, map[string]any{domainParamName: string(tenant)})
+		set, err := readTenantSet(ctx, txn, statements, true, map[string]any{domainParamName: string(tenant)})
 		if err != nil {
 			return nil, err
 		}
@@ -580,7 +603,7 @@ func NewTenantDeclarationReader(table, keyColumn string, columns *TenantDeclarat
 // reader has no side effects, as a retried transaction needs.
 func NewTenantDirectoryReader(columns *TenantDeclarationColumns) signin.DirectoryReader[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, txn *spanner.ReadWriteTransaction, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
-		if !columns.declared() {
+		if !columns.hasDirectories() {
 			return nil, nil
 		}
 		g := newSQLGenerator(Spanner)

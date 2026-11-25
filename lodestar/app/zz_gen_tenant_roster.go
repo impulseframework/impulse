@@ -23,11 +23,12 @@ import (
 )
 
 // sectorDeclaration names where the Sector record keeps its declaration of who
-// may enter a sector (@directoryOnly on the record, the SectorDirectory record's columns): what
+// may enter a sector (@directoryOnly and @tenantDisabled on the record, the SectorDirectory record's columns): what
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var sectorDeclaration = resource.TenantDeclarationColumns{
 	DirectoryOnly:        "DirectoryOnly",
+	Disabled:             "Disabled",
 	DirectoriesTable:     "SectorDirectories",
 	TenantColumn:         "SectorId",
 	MethodColumn:         "Method",

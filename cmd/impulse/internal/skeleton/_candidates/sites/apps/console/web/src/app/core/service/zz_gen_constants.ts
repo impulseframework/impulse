@@ -568,6 +568,7 @@ export namespace StaffListedTenants {
     administrators: 'administrators' as FieldName,
     directory: 'directory' as FieldName,
     directoryOnly: 'directoryOnly' as FieldName,
+    disabled: 'disabled' as FieldName,
     id: 'id' as FieldName,
     name: 'name' as FieldName,
     people: 'people' as FieldName,
@@ -577,6 +578,7 @@ export namespace StaffListedTenants {
     administrators: 'StaffListedTenants.administrators' as Resource,
     directory: 'StaffListedTenants.directory' as Resource,
     directoryOnly: 'StaffListedTenants.directoryOnly' as Resource,
+    disabled: 'StaffListedTenants.disabled' as Resource,
     id: 'StaffListedTenants.id' as Resource,
     name: 'StaffListedTenants.name' as Resource,
     people: 'StaffListedTenants.people' as Resource,
@@ -1364,12 +1366,14 @@ export namespace Tenants {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     directoryOnly: 'directoryOnly' as FieldName,
+    disabled: 'disabled' as FieldName,
     id: 'id' as FieldName,
     name: 'name' as FieldName,
   };
   export const resourceName = {
     createdAt: 'Tenants.createdAt' as Resource,
     directoryOnly: 'Tenants.directoryOnly' as Resource,
+    disabled: 'Tenants.disabled' as Resource,
     id: 'Tenants.id' as Resource,
     name: 'Tenants.name' as Resource,
   };

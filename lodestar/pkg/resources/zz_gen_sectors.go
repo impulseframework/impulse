@@ -461,6 +461,7 @@ type sectorRead struct {
 	Established   civil.Date   `json:"established"`
 	ChartedAt     time.Time    `json:"chartedAt"`
 	DirectoryOnly bool         `json:"directoryOnly"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var sectorReadSets resource.SetCache[Sector, sectorRead]
@@ -475,6 +476,7 @@ type sectorWrite struct {
 	Established   civil.Date   `json:"established"`
 	ChartedAt     time.Time    `json:"-"`
 	DirectoryOnly bool         `json:"-"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var sectorWriteSets resource.SetCache[Sector, sectorWrite]
@@ -601,6 +603,7 @@ func (c *SectorColumns) All() *SectorColumns {
 		"Established",
 		"ChartedAt",
 		"DirectoryOnly",
+		"Disabled",
 	}
 
 	return c
@@ -638,6 +641,12 @@ func (c *SectorColumns) ChartedAt() *SectorColumns {
 
 func (c *SectorColumns) DirectoryOnly() *SectorColumns {
 	c.fields = append(c.fields, "DirectoryOnly")
+
+	return c
+}
+
+func (c *SectorColumns) Disabled() *SectorColumns {
+	c.fields = append(c.fields, "Disabled")
 
 	return c
 }
@@ -750,6 +759,10 @@ func (c *sectorSort) ChartedAt() *SectorSort {
 
 func (c *sectorSort) DirectoryOnly() *SectorSort {
 	return c.addField("DirectoryOnly")
+}
+
+func (c *sectorSort) Disabled() *SectorSort {
+	return c.addField("Disabled")
 }
 
 type SectorSort struct {
@@ -918,6 +931,22 @@ func (p *SectorCreatePatch) DirectoryOnly() bool {
 
 func (p *SectorCreatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
+}
+
+func (p *SectorCreatePatch) SetDisabled(v bool) *SectorCreatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *SectorCreatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *SectorCreatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -1090,6 +1119,22 @@ func (p *SectorUpdatePatch) DirectoryOnly() bool {
 
 func (p *SectorUpdatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
+}
+
+func (p *SectorUpdatePatch) SetDisabled(v bool) *SectorUpdatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *SectorUpdatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *SectorUpdatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

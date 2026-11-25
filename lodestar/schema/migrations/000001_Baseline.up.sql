@@ -142,6 +142,9 @@ CREATE TABLE Sectors (
   -- sector whose flag is true, a password included. Half of what the sector declares
   -- about who may enter it; the other half is its row of SectorDirectories.
   DirectoryOnly BOOL NOT NULL DEFAULT (FALSE),
+  -- The sector is disabled: its crew are shut out while its records stay, and nobody
+  -- enters it but a super administrator. A sector is disabled before it is deleted.
+  Disabled BOOL NOT NULL DEFAULT (FALSE),
 
   CONSTRAINT CK_Sectors_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);

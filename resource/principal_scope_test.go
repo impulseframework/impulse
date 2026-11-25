@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // digestCounter is a stubPermissions that counts the digests it is asked for.
@@ -48,7 +49,10 @@ func TestAdmittedPermissions_zeroScope(t *testing.T) {
 
 			reader := &declarationReader{}
 			inner := &digestCounter{stubPermissions: &stubPermissions{user: "alice", domains: []accesstypes.Domain{anvil}}}
-			admitted := &admittedPermissions{UserPermissionChecker: inner, declarations: reader.read, reached: map[accesstypes.Domain]bool{}}
+			admitted := &admittedPermissions{
+				UserPermissionChecker: inner, declarations: reader.read,
+				reached: map[accesstypes.Domain]bool{}, declared: map[accesstypes.Domain]*signin.TenantDeclaration{}, admitted: map[accesstypes.Domain]bool{},
+			}
 
 			decisions, err := admitted.Check(context.Background(), accesstypes.NewEnvironment(), tt.scope, accesstypes.Read, "documents")
 			if tt.wantErr != nil {

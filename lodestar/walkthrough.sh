@@ -318,17 +318,17 @@ r=$(req marshal GET "$PORTAL/user-domains"); check "a crew session is a stranger
 
 # ---- the sectors a session reaches, the place switcher's list: user-domains ----
 # The list names every sector that seats the person: the sectors the session reaches, and,
-# marked closed with the reason, a sector that is directory only and whose directory is
+# listed as not available, with the reason, a sector that is directory only and whose directory is
 # not the one the person signed in through. A sector's sign-in settings restrict its own
-# door alone, so a closed sector closes no other.
-OPEN="[d['domain'] for d in rows if 'closed' not in d]"
-CLOSED="{d['domain']: d['closed'] for d in rows if 'closed' in d}"
+# door alone, so a sector that is directory only closes no other.
+OPEN="[d['domain'] for d in rows if 'unavailable' not in d]"
+UNAVAILABLE="{d['domain']: d['unavailable'] for d in rows if 'unavailable' in d}"
 BY_PASSWORD='Bastion admits only people who sign in through its own directory. You signed in with a password.'
 THROUGH_THE_FLEET='Bastion admits only people who sign in through its own directory. You signed in through Google Workspace example.'
 r=$(req cadet GET "$API/user-domains"); check "cadet's chart lights Anvil only" 200 "$r"
 assert_py "cadet's chart is Anvil alone" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID']"
 r=$(req archivist GET "$API/user-domains"); assert_py "archivist's chart lights the sectors that are not directory only: Bastion admits its people through its directory only, and a role held in every sector exempts nobody" "$r" "$OPEN == ['$ANVIL_ID','$CINDER_ID']"
-assert_py "and names Bastion closed to this sign-in, with the reason: she holds a seat there, and came by password" "$r" "$CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
+assert_py "and lists Bastion as not available, with the reason: she holds a seat there, and came by password" "$r" "$UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
 r=$(req marshal GET "$API/sectors/$CINDER_ID/missions"); check "Cinder is dark for the marshal: the concealed-sector guard answers 404 (opening it by its URL lands the console on the frame's refusal page, in these words)" 404 "$r"
 
 # ---- flight deck: per-persona boards, paged from the descriptor ----
@@ -816,7 +816,7 @@ fi
 # serves Dawn at its next request, its roster reloaded on the signal rather than at the
 # five-minute backstop.
 # Demonstrates: tenancy.run-time-tenant, tenancy.invited-tenant, tenancy.creator-seat.
-r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights the charted sectors that are not directory only: SectorCrew held in every sector, and Bastion, directory only, named closed" "$r" "$OPEN == ['$ANVIL_ID','$CINDER_ID'] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
+r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights the charted sectors that are not directory only: SectorCrew held in every sector, and Bastion, directory only, listed as not available" "$r" "$OPEN == ['$ANVIL_ID','$CINDER_ID'] and $UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
 r=$(req surveyor GET "$API/sectors"); assert_py "Dawn is not on the chart yet: the sector list carries the three seeded sectors" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder']"
 if [ -n "$SECOND_PID" ]; then
   login_second surveyor
@@ -868,7 +868,7 @@ r=$(req governor GET "$API/user-domains"); assert_py "the governor, marshal in e
 r=$(req governor GET "$DAWN/missions"); check "Dawn's flight deck answers the governor, empty" 200 "$r"
 r=$(req archivist GET "$API/user-domains"); assert_py "the archivist, held in every sector, sees Dawn" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID'])"
 r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Dawn at once: the directory's role is held in every sector, and every sector that is not directory only admits her however she signed in" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID'])"
-assert_py "and names Bastion closed: it is directory only, and its directory is not the one she came through" "$r" "$CLOSED == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
+assert_py "and lists Bastion as not available: it is directory only, and its directory is not the one she came through" "$r" "$UNAVAILABLE == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
 r=$(req client GET "$PORTAL/sectors/$DAWN_ID/missions"); check "Dawn's tracker opens for her, empty" 200 "$r"
 if [ -n "$SECOND_PID" ]; then
   tries=0; for i in $(seq 1 40); do tries=$i; r=$(req surveyor.2 GET "$API2/sectors/$DAWN_ID/wings"); [ "${r##*$'\n'}" = 200 ] && break; sleep 0.25; done
@@ -949,11 +949,11 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # persona) as its directory. A sector's sign-in settings restrict its own door alone: a
 # session reaches every sector that seats the person, except a sector that is directory
 # only and whose directory is not the one they signed in through, which stays on the chart
-# marked closed, with the reason. The sign-in rule (signin.TenantPolicy, on both auths)
+# listed as not available, with the reason. The sign-in rule (signin.TenantPolicy, on both auths)
 # reads the declaration in the sign-in's transaction, and the chart reads the roster's
 # copy, reloaded after every write, so a declaration decides the next request.
 # The rigger, by password, holding SectorCrew in Anvil and Bastion and no global role,
-# charts Anvil alone, with Bastion closed; the bosun, whose only sector is Bastion, is
+# charts Anvil alone, with Bastion not available; the bosun, whose only sector is Bastion, is
 # refused at sign-in naming the rule; the navigator, through the fleet's directory, charts
 # every sector that seats him and is not directory only, Anvil among them though the
 # directory is Cinder's. Nobody types a directory in: the governor, marshal in every sector
@@ -990,7 +990,7 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # Demonstrates: tenancy.declaration, tenancy.directory-only, tenancy.default-seat.
 login rigger
 r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Anvil alone: Bastion admits its people through its directory only, and she came by password" "$r" "$OPEN == ['$ANVIL_ID']"
-assert_py "and names Bastion closed to this sign-in, with the reason: she holds a seat there" "$r" "$CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
+assert_py "and lists Bastion as not available, with the reason: she holds a seat there" "$r" "$UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
 r=$(req rigger GET "$API/sectors/$BASTION_ID/wings"); check "Bastion answers her as a sector that does not exist" 404 "$r"
 r=$(req rigger GET "$ANVIL/wings"); check "Anvil's wings answer her" 200 "$r"
 rm -f "$S/bosun.jar"; curl -s -L -c "$S/bosun.jar" -b "$S/bosun.jar" -o /dev/null "$API/user/session"
@@ -1001,9 +1001,9 @@ r=$(req governor POST "$API/assign-crew-role" '{"username":"navigator","role":"P
 r=$(req governor POST "$API/assign-crew-role" '{"userId":"f0000000-0000-4000-8000-0000000000ff","role":"Pilot","everyDomain":true}'); check "and an id no account holds is refused: a role is held by an account" 404 "$r"
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"Pilot\",\"everyDomain\":true}"); check "the governor gives the navigator the Pilot role in every sector, by the id of his account" 204 "$r"
 r=$(req navigator GET "$API/user-domains"); assert_py "the navigator, through the fleet's directory, charts every sector that seats him and is not directory only: the directory is Cinder's, and Anvil, Dawn and Ember admit him however he signed in" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID'])"
-assert_py "and Bastion, directory only, is closed to a session that came through another sector's directory" "$r" "$CLOSED == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
+assert_py "and Bastion, directory only, is closed to a session that came through another sector's directory" "$r" "$UNAVAILABLE == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
 r=$(req navigator GET "$API/sectors/$BASTION_ID/wings"); check "Bastion answers him as a sector that does not exist" 404 "$r"
-r=$(req governor GET "$API/user-domains"); assert_py "the governor keeps every sector, Bastion among them by password, with none closed: a super administrator, whom no sector's sign-in settings shut out" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
+r=$(req governor GET "$API/user-domains"); assert_py "the governor keeps every sector, Bastion among them by password, with none listed as not available: a super administrator, whom no sector's sign-in settings shut out" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {}"
 r=$(req governor GET "$ANVIL/sector-directories"); assert_py "Anvil has no directory: the fleet's Google Workspace is Cinder's, and a directory belongs to one sector" "$r" "rows==[]"
 r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "Cinder's directory is the fleet's Google Workspace, example, and its row names SectorCrew as its default seat" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example','SectorCrew')]"
 CINDER_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
@@ -1024,7 +1024,7 @@ r=$(req navigator POST "$API/sectors/$CINDER_ID/take-sector-directory" '{}'); ch
 assert_py "since it is the sector's directory already" "$r" "'Google Workspace example is already this sector' in rows['message']"
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"SuperAdministrator\"}"); check "the governor makes the navigator a super administrator, which only a super administrator gives: the one person who enters a sector whatever its sign-in settings say" 204 "$r"
 r=$(req navigator GET "$API/user-domains"); check "giving the role ends nothing: the session he holds, through the fleet's directory, answers as before" 200 "$r"
-assert_py "and that session is a super administrator's from then on: his chart lights every sector, Bastion among them, with none closed" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
+assert_py "and that session is a super administrator's from then on: his chart lights every sector, Bastion among them, with none listed as not available" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {}"
 r=$(req navigator POST "$API/sectors/$BASTION_ID/take-sector-directory" '{}'); check "the navigator is refused making the Workspace Bastion's: Bastion has its directory, and a sector has one" 409 "$r"
 assert_py "and the refusal names the directory it has and what to do" "$r" "'This sector already has a directory, OpenID Connect provider Persona. A sector has one directory: remove it first to set another.' in rows['message']"
 r=$(req navigator PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$CINDER_ID/sector-directories/$CINDER_DIRECTORY\"}]"); check "the navigator removes Cinder's directory: the Workspace is free for another sector" 200 "$r"
@@ -1056,7 +1056,7 @@ r=$(req governor POST "$END_ONLY" '{}'); check "the governor turns Bastion's dir
 r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and the switch reads off" "$r" "rows['directoryOnly'] is False"
 r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$BASTION_ID"'","value":{"directoryOnly":true}}]'); check "the Sectors record shows the flag and never writes it: a patch of the record that carries it is refused, a super administrator's included" 400 "$r"
 r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and nothing was written" "$r" "rows['directoryOnly'] is False"
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once, with nothing closed" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $CLOSED == {}"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once, with nothing listed as not available" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $UNAVAILABLE == {}"
 r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "and no row of Bastion's people says anything while it is off" "$r" "all(u.get('cannotEnter') is None for u in rows)"
 r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"follow-the-lodestar-home"}' -w '\n%{http_code}' "$API/user/password/login")
 check "and the bosun's password is taken, the sign-in waiting for its code" 200 "$r"
@@ -1121,7 +1121,7 @@ assert_py "and names them to him as a list of their own, since a marshal lists t
 r=$(req rigger GET "$API/user-domains"); assert_py "asking writes nothing: the rigger still charts Bastion" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID']"
 r=$(req rookie POST "$MAKE_ONLY" '{}'); check "the rookie turns Bastion's directory only on with the sector's method: he is its marshal, signed in through its directory" 200 "$r"
 r=$(req governor GET "$API/sectors/$BASTION_ID"); assert_py "and the Sectors record shows the flag" "$r" "rows['directoryOnly'] is True"
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger is kept out again at once, and her chart says why" "$r" "$OPEN == ['$ANVIL_ID'] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger is kept out again at once, and her chart says why" "$r" "$OPEN == ['$ANVIL_ID'] and $UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
 # A sector's own marshal keeps a way in, so a sector whose directory has a problem can be
 # mended by the people who run it: the role held in Bastion itself, a password and the
 # code sent to the person's email. The rigger signed in that way; made a marshal of
@@ -1129,16 +1129,16 @@ r=$(req rigger GET "$API/user-domains"); assert_py "the rigger is kept out again
 # people says nothing, and the role taken back closes the door at her next request.
 RIGGER_ID=$(account rigger)
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$RIGGER_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor makes the rigger a marshal of Bastion itself" 204 "$r"
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at her next request, with nothing closed: Bastion admits its own marshal by her password and the code" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $CLOSED == {}"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at her next request, with nothing listed as not available: Bastion admits its own marshal by her password and the code" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $UNAVAILABLE == {}"
 r=$(req rigger GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and she reads Bastion's switch, which she could turn off from the inside: it is on" "$r" "rows['directoryOnly'] is True"
 r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "the governor reads Bastion's sign-in settings, which say whether the sector vouches for its directory's second factor" "$r" "'secondFactor' in rows"
 r=$(warning governor "$API/sectors/$BASTION_ID/vouch-for-sector-directory-second-factor" '{}'); check "signed in with a password, the governor is refused the warning of vouching for Bastion's directory: only a person signed in through it may say so" 409 "$r"
 r=$(warning governor "$API/sectors/$DAWN_ID/vouch-for-sector-directory-second-factor" '{}'); check "and in Dawn, which has no directory, there is no directory to vouch for" 409 "$r"
 r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "Bastion's list of its people says nothing of her now, and still says the bosun cannot enter" "$r" "[u.get('cannotEnter') for u in rows if u['username']=='rigger']==[None] and [u.get('cannotEnter') for u in rows if u['username']=='bosun']==[\"$KEPT_OUT\"]"
 r=$(req governor POST "$API/remove-crew-role" "{\"userId\":\"$RIGGER_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor takes the marshal's role back from the rigger" 204 "$r"
-r=$(req rigger GET "$API/user-domains"); assert_py "and the door closes at her next request, not at her next sign-in" "$r" "$OPEN == ['$ANVIL_ID'] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
-r=$(req bosun GET "$API/user-domains"); assert_py "the bosun's chart goes dark: the session stands, and reaches no sector, with Bastion closed" "$r" "$OPEN == [] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
-r=$(req rookie GET "$API/user-domains"); assert_py "the rookie, through Bastion's directory, enters it, and every other sector however he signed in" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
+r=$(req rigger GET "$API/user-domains"); assert_py "and the door closes at her next request, not at her next sign-in" "$r" "$OPEN == ['$ANVIL_ID'] and $UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
+r=$(req bosun GET "$API/user-domains"); assert_py "the bosun's chart goes dark: the session stands, and reaches no sector, with Bastion not available" "$r" "$OPEN == [] and $UNAVAILABLE == {'$BASTION_ID': '$BY_PASSWORD'}"
+r=$(req rookie GET "$API/user-domains"); assert_py "the rookie, through Bastion's directory, enters it, and every other sector however he signed in" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {}"
 r=$(req rookie GET "$API/sectors/$BASTION_ID/missions"); check "Bastion's missions answer him" 200 "$r"
 r=$(req governor POST "$API/remove-crew-role" "{\"userId\":\"$ROOKIE_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor takes the marshal's role back from the rookie" 204 "$r"
 r=$(req navigator PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the navigator removes Anvil's directory: Anvil is not directory only, and the Workspace is free again" 200 "$r"
@@ -1163,7 +1163,7 @@ r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "t
 r=$(req governor POST "$OPEN_CINDER" '{"role":"SectorCrew"}'); check "and opens it with SectorCrew again" 200 "$r"
 r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "the row names SectorCrew" "$r" "[d.get('defaultSeat') for d in rows]==['SectorCrew']"
 r=$(req governor POST "$API/remove-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"SuperAdministrator\"}"); check "the governor takes the Super Administrator role back from the navigator" 204 "$r"
-r=$(req navigator GET "$API/user-domains"); assert_py "and Bastion is closed to the navigator again: he is no super administrator now and no marshal of Bastion's own signed in with a password, and every sector that is not directory only still admits him" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
+r=$(req navigator GET "$API/user-domains"); assert_py "and Bastion is closed to the navigator again: he is no super administrator now and no marshal of Bastion's own signed in with a password, and every sector that is not directory only still admits him" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
 
 # ---- squadrons config page: the array config's request ----
 # The Squadrons page's "Other squadrons in this sector" is an arrayConfig over the same resource, its listFilter excluding the page's row by the indexed key; Squadrons declares a maximum, so the library asks one server page (the key column alone, with the count) and draws each row by the iterated config. Demonstrates: config.array.
@@ -1242,7 +1242,7 @@ else
 fi
 
 # ---- portal ----
-r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists every sector that is not directory only, Dawn and Ember charted above among them, and names Bastion closed: the directory's domain role is held in every sector" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
+r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists every sector that is not directory only, Dawn and Ember charted above among them, and lists Bastion as not available: the directory's domain role is held in every sector" "$r" "$OPEN == sorted(['$ANVIL_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $UNAVAILABLE == {'$BASTION_ID': '$THROUGH_THE_FLEET'}"
 r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/missions?capabilities=Execute&limit=200"); check "cleo tracks Halvard's missions" 200 "$r"
 assert_py "portal width excludes assignedSquadronId/notes/settlement" "$r" "rows and all('assignedSquadronId' not in m and 'settlement' not in m for m in rows)"
 assert_py "Stand down lights only on her company's open, claimed, or on-hold rows" "$r" "all(('StandDownMission' in m['zzCapabilities']['Execute']) == (m['statusId'] in ('open','claimed','on_hold')) for m in rows)"

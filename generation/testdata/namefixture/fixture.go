@@ -22,6 +22,8 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @tenantName
 		Title string `spanner:"Title"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 
 	// Wing is a tenant's resource known by its call sign.

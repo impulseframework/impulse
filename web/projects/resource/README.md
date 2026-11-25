@@ -318,12 +318,12 @@ or one per domain), loaded on demand and cached for the session.
   read, and `domainsUnread()` is true while its last read failed and no list is held from
   before (`domainsKnown(snapshot)` and `domainsUnread(snapshot)` answer the same of a
   snapshot).
-  A tenant the person holds a seat in and this session cannot enter (a tenant that admits
-  only people who sign in through its own directory, when the person signed in another
-  way) is listed with `closed`, the reason in a sentence the server writes. `domains()`
-  holds the tenants the session reaches and never a closed one; `closedDomains()` answers
-  the closed ones with their reasons, for a picker to show marked and not as places to
-  open.
+  A tenant the person holds a seat in and this session cannot enter is listed with
+  `unavailable`, with the server's reason: the tenant is directory only and the person
+  signed in another way, or the tenant is disabled. `domains()` holds the tenants the
+  session reaches and never such a tenant; `unavailableDomains()` answers them with their
+  reasons, for a picker to list under "Not available", with the reason, and never as
+  places to open.
 - A tenant's directory-only switch is the tenant's own, turned by the tenant's
   administrator with two generated methods in the tenant's scope:
   `api.domain(tenant).make<Record>DirectoryOnly` turns it on and

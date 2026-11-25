@@ -590,19 +590,19 @@ func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, per
 
 // unmarshalDomains reads the user-domains answer, each tenant listed with its domain and
 // its name, into the domains of the tenants the session reaches, in the order listed. A
-// tenant the answer marks closed to the session is left out: the person holds a seat in
-// it, and the session cannot enter it (closedDomains reads those).
+// tenant the answer marks unavailable to the session is left out: the person holds a seat
+// in it, and the session cannot enter it (unavailableDomains reads those).
 func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 	var listed []struct {
-		Domain string `json:"domain"`
-		Closed string `json:"closed"`
+		Domain      string `json:"domain"`
+		Unavailable string `json:"unavailable"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
 		return errors.Wrap(err, "json.Unmarshal()")
 	}
 	out := make([]T, 0, len(listed))
 	for _, entry := range listed {
-		if entry.Closed != "" {
+		if entry.Unavailable != "" {
 			continue
 		}
 		out = append(out, T(entry.Domain))
@@ -612,10 +612,10 @@ func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 	return nil
 }
 
-// closedDomains reads the tenants the user-domains answer at path marks closed to the
-// browser's session: each tenant's domain with the reason the server gives, a sentence.
-// Empty, never nil, when the answer marks none.
-func closedDomains(ctx context.Context, t *testing.T, b *browser, path string) map[string]string {
+// unavailableDomains reads the tenants the user-domains answer at path marks unavailable
+// to the browser's session: each tenant's domain with the reason the server gives, a
+// sentence. Empty, never nil, when the answer marks none.
+func unavailableDomains(ctx context.Context, t *testing.T, b *browser, path string) map[string]string {
 	t.Helper()
 
 	status, body := b.do(ctx, http.MethodGet, path, nil)
@@ -623,18 +623,18 @@ func closedDomains(ctx context.Context, t *testing.T, b *browser, path string) m
 		t.Fatalf("GET %s: status %d: %s", path, status, body)
 	}
 	var listed []struct {
-		Domain string `json:"domain"`
-		Closed string `json:"closed"`
+		Domain      string `json:"domain"`
+		Unavailable string `json:"unavailable"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
 		t.Fatalf("user-domains is not a list: %v: %s", err, body)
 	}
-	closed := map[string]string{}
+	unavailable := map[string]string{}
 	for _, entry := range listed {
-		if entry.Closed != "" {
-			closed[entry.Domain] = entry.Closed
+		if entry.Unavailable != "" {
+			unavailable[entry.Domain] = entry.Unavailable
 		}
 	}
 
-	return closed
+	return unavailable
 }

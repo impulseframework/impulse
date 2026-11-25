@@ -189,17 +189,17 @@ describe('the tenant list', () => {
     const store = new PermissionStore(
       answering([
         { domain: 'anvil', name: 'Anvil' },
-        { domain: 'bastion', name: 'Bastion', closed: reason },
+        { domain: 'bastion', name: 'Bastion', unavailable: reason },
       ]).request,
       { digest: 'permission-digest', domains: 'user-domains' },
     );
-    expect([...store.closedDomains()]).toEqual([]);
+    expect([...store.unavailableDomains()]).toEqual([]);
     expect(await store.loadDomains()).toEqual(['anvil' as Domain]);
     expect(store.domains()).toEqual(['anvil' as Domain]);
-    expect([...store.closedDomains()]).toEqual([['bastion' as Domain, reason]]);
+    expect([...store.unavailableDomains()]).toEqual([['bastion' as Domain, reason]]);
     expect(store.domainName('bastion' as Domain)).toBe('Bastion');
     store.clear();
-    expect([...store.closedDomains()]).toEqual([]);
+    expect([...store.unavailableDomains()]).toEqual([]);
   });
 
   it('an empty answer, or none, lists nothing; clear() forgets the names', async () => {
@@ -266,10 +266,10 @@ describe('a read of the tenant list that fails', () => {
     expect(store.domainsUnread()).toBe(false);
   });
 
-  it('keeps the list it read before, with its names and its closed tenants', async () => {
+  it('keeps the list it read before, with its names and the tenants it lists as not available', async () => {
     const { store, server } = failing([
       { domain: 'ridgeline', name: 'Ridgeline County' },
-      { domain: 'bastion', name: 'Bastion', closed: 'Bastion admits only its own directory.' },
+      { domain: 'bastion', name: 'Bastion', unavailable: 'Bastion admits only its own directory.' },
     ]);
     server.down = false;
     await store.loadDomains();
@@ -277,7 +277,7 @@ describe('a read of the tenant list that fails', () => {
     await expect(store.loadDomains()).rejects.toThrow('the list could not be read');
     expect(store.domains()).toEqual(['ridgeline' as Domain]);
     expect(store.domainName('ridgeline' as Domain)).toBe('Ridgeline County');
-    expect([...store.closedDomains()]).toEqual([['bastion' as Domain, 'Bastion admits only its own directory.']]);
+    expect([...store.unavailableDomains()]).toEqual([['bastion' as Domain, 'Bastion admits only its own directory.']]);
     expect(store.hasDomains()).toBe(true);
     expect(store.domainsUnread()).toBe(false);
   });
@@ -513,7 +513,7 @@ describe("a domain's digest that reads empty", () => {
   it('is a refusal for a domain that is closed to this sign-in, though the list names it', async () => {
     const { store, heard } = serving({
       digest: {},
-      listed: [{ domain: alpha, name: 'Alpha', closed: 'Alpha admits only its own directory.' }],
+      listed: [{ domain: alpha, name: 'Alpha', unavailable: 'Alpha admits only its own directory.' }],
     });
     expect(digestFailure(await thrownBy(store))).toBe('refused');
     expect(heard).toEqual([`${alpha} refused`]);

@@ -8,10 +8,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/identity/internal/staffresources"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/identity/internal/staffresources"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -23,6 +23,7 @@ func (h *Handlers) StaffListedTenants() http.HandlerFunc {
 		ID             impulse.UUID `json:"id"             index:"true" perm:"-"`
 		Name           string       `json:"name"           index:"true"`
 		DirectoryOnly  bool         `json:"directoryOnly"`
+		Disabled       bool         `json:"disabled"`
 		People         int64        `json:"people"`
 		Since          *time.Time   `json:"since"`
 		Directory      *string      `json:"directory"`
@@ -81,6 +82,10 @@ func (h *Handlers) StaffListedTenants() http.HandlerFunc {
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
 					}
+				case "Disabled":
+					if !row.Masked("disabled") {
+						rmap["disabled"] = rec.Disabled
+					}
 				case "People":
 					if !row.Masked("people") {
 						rmap["people"] = rec.People
@@ -123,6 +128,7 @@ func (h *Handlers) StaffListedTenant() http.HandlerFunc {
 		ID             impulse.UUID `json:"id"             index:"true" perm:"-"`
 		Name           string       `json:"name"`
 		DirectoryOnly  bool         `json:"directoryOnly"`
+		Disabled       bool         `json:"disabled"`
 		People         int64        `json:"people"`
 		Since          *time.Time   `json:"since"`
 		Directory      *string      `json:"directory"`
@@ -168,6 +174,10 @@ func (h *Handlers) StaffListedTenant() http.HandlerFunc {
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {
 					rmap["directoryOnly"] = rec.DirectoryOnly
+				}
+			case "Disabled":
+				if !row.Masked("disabled") {
+					rmap["disabled"] = rec.Disabled
 				}
 			case "People":
 				if !row.Masked("people") {

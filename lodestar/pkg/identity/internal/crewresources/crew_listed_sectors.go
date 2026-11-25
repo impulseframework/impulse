@@ -44,6 +44,7 @@ type (
 		Region         string       `spanner:"Region"`
 		Established    civil.Date   `spanner:"Established"`
 		DirectoryOnly  bool         `spanner:"DirectoryOnly"`
+		Disabled       bool         `spanner:"Disabled"`
 		People         int64        `spanner:"People"`
 		Since          *time.Time   `spanner:"Since"`
 		Directory      *string      `spanner:"Directory"`
@@ -60,6 +61,7 @@ SELECT
   s.Region AS Region,
   s.Established AS Established,
   s.DirectoryOnly AS DirectoryOnly,
+  s.Disabled AS Disabled,
   (SELECT COUNT(DISTINCT p.UserId) FROM (
     SELECT m.UserId AS UserId
     FROM CrewUserRoles m

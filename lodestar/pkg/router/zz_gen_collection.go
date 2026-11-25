@@ -1808,6 +1808,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "administrators", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "directory", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "directoryOnly", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "disabled", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "established", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
@@ -2863,6 +2864,7 @@ func Collection() *resource.GeneratedCollection {
 				Tags: []resource.TagData{
 					{Name: "chartedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "directoryOnly", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "disabled", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "established", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "id"},
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},

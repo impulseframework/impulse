@@ -24,7 +24,8 @@ import (
 // (TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword): the dispatcher, who holds
 // global roles and a role at Bastion, and the archivist, who holds a role in every
 // sector, chart the sectors that are not directory only, and Bastion, which their
-// charts name closed with the reason, answers them as a sector that does not exist.
+// charts list as not available, with the reason, answers them as a sector that does
+// not exist.
 // The exemption is the actor's: the rigger's session started by the
 // governor enters Bastion, where the rigger's own does not, and the governor's session
 // started by the marshal, who is no super administrator, stays outside it. The same
@@ -46,9 +47,9 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 
 	// enters fails the test unless the browser's chart and Bastion's answer agree with
 	// want. Everyone here holds a seat at Bastion, so the chart of a person's own
-	// sign-in that does not light it names it closed, with the reason; a session that
-	// views the fleet as someone else is refused Bastion the same and is told of no
-	// closed sector, since that word is for a person's own sign-in.
+	// sign-in that does not light it lists it as not available, with the reason; a
+	// session that views the fleet as someone else is refused Bastion the same and is
+	// told of no such sector, since that word is for a person's own sign-in.
 	enters := func(who string, b *browser, chart []string, ownSignIn bool) {
 		t.Helper()
 		if got := b.domains(ctx); !slices.Equal(got, chart) {
@@ -58,10 +59,10 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 		if slices.Contains(chart, bastion) {
 			want = http.StatusOK
 		}
-		reason, closed := b.closed(ctx)[bastion]
-		wantClosed := ownSignIn && !slices.Contains(chart, bastion)
-		if closed != wantClosed || (closed && !strings.HasPrefix(reason, "Bastion admits only people who sign in through its own directory. ")) {
-			t.Errorf("%s's chart names Bastion closed = %v (%q), want closed = %v, with the reason", who, closed, reason, wantClosed)
+		reason, unavailable := b.unavailable(ctx)[bastion]
+		wantUnavailable := ownSignIn && !slices.Contains(chart, bastion)
+		if unavailable != wantUnavailable || (unavailable && !strings.HasPrefix(reason, "Bastion admits only people who sign in through its own directory. ")) {
+			t.Errorf("%s's chart lists Bastion as not available = %v (%q), want %v, with the reason", who, unavailable, reason, wantUnavailable)
 		}
 		if status, body := b.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != want {
 			t.Errorf("GET Bastion's wings as %s: status %d, want %d: %s", who, status, want, body)

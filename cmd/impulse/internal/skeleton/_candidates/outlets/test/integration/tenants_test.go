@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -141,6 +142,9 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("writing East's directory and its rows: %v", err)
 	}
+
+	// A tenant is disabled before it is deleted.
+	setTenantDisabled(ctx, t, admin, east, true)
 
 	// A tenant that has rows under it is not deleted by a request that does not say so:
 	// the plain remove is answered with the question a person is asked first, and
@@ -298,4 +302,15 @@ func accountExists(ctx context.Context, t *testing.T, s *served, users, user str
 	}
 
 	return n > 0
+}
+
+// setTenantDisabled disables the tenant, or enables it again, through the record's
+// update in the browser's session, and fails the test unless it answers 200.
+func setTenantDisabled(ctx context.Context, t *testing.T, b *browser, tenant string, disabled bool) {
+	t.Helper()
+
+	body := fmt.Appendf(nil, `[{"op":"patch","path":"/tenants/%s","value":{"disabled":%t}}]`, tenant, disabled)
+	if status, answer := b.do(ctx, http.MethodPatch, consoleAPI+"/resources", body); status != http.StatusOK {
+		t.Fatalf("setting the disabled field of tenant %s to %t: status %d, want 200: %s", tenant, disabled, status, answer)
+	}
 }

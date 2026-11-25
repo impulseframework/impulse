@@ -89,6 +89,14 @@ type (
 		// through the directory the tenant will be only of and no other way.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
+		// Disabled says the tenant is disabled: its people are shut out while its records
+		// stay, and nobody enters it but a super administrator, the tenant's own
+		// administrators included. It is an ordinary field of the record: whoever holds
+		// Update on it disables a tenant and enables it again, and enabling gives everyone
+		// back what they held. A tenant is disabled before it is deleted: the record's
+		// delete refuses one that is not.
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 )
 

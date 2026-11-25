@@ -341,10 +341,10 @@ function openButton(fields: RecordFields, words: TenantWords): RowButton {
         void places.open(place);
         return;
       }
-      const closed = id === '' ? undefined : places.closed().find((candidate) => candidate.id === id);
-      if (closed) {
+      const unavailable = id === '' ? undefined : places.unavailable().find((candidate) => candidate.id === id);
+      if (unavailable) {
         injector.get(NotificationService).addGlobalNotification({
-          message: closed.reason,
+          message: unavailable.reason,
           type: AlertType.INFO,
           duration: 8000,
           link: '',

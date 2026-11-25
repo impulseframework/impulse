@@ -31,7 +31,7 @@ func nameFixtureTables() map[string]*tableMetadata {
 	indexed := columnMeta{IsIndex: true}
 
 	return map[string]*tableMetadata{
-		"Bases":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": plain}},
+		"Bases":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": plain, "Disabled": plain}},
 		"Wings":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "CallSign": plain}},
 		"Kits":     {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Label": nullable}},
 		"Bays":     {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "WingId": to("Wings"), "Code": plain}},

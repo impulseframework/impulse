@@ -20,10 +20,12 @@ import (
 // one request whatever it holds. Ember is directory only from the start, made by an
 // invitation accepted through the Workspace, which is its directory; it seats its
 // founder, who is in no other tenant, and a commuter who is also seated in south; and
-// it holds an announcement. The administrator's one delete takes the directory's row and
-// the announcement with the tenant: nothing comes before it, neither turning directory
-// only off nor removing the directory, which the tenant's own page asks for in that
-// order when the tenant stays. The directory's removal leaves its change event, and
+// it holds an announcement. A tenant that is not disabled is not deleted: the remove is
+// refused, saying to disable it first, and nothing is gone. Once the administrator has
+// disabled Ember, the one delete takes the directory's row and the announcement with the
+// tenant: nothing else comes before it, neither turning directory only off nor removing
+// the directory, which the tenant's own page asks for in that order when the tenant
+// stays. The directory's removal leaves its change event, and
 // another tenant's directory stands. The commuter signs in through the Workspace as
 // before and reaches south, and the Workspace is free again: the commuter, south's
 // administrator, makes it south's directory, which was refused while Ember had it.
@@ -112,6 +114,23 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 	}
 	before := changeEvents(ctx, t, s, "TenantDirectories")["TenantDirectories"]
 
+	// A tenant that is not disabled is not deleted, whether or not the request says it
+	// takes what is under the tenant: each is refused, saying to disable it first, and
+	// nothing is gone.
+	for _, remove := range []string{`[{"op":"remove","path":"/tenants/` + ember + `"}]`, `[{"op":"remove","path":"/tenants/` + ember + `","value":{"everythingUnder":true}}]`} {
+		status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(remove))
+		if status != http.StatusConflict || !strings.Contains(string(body), "Disable this tenant before deleting it.") {
+			t.Fatalf("deleting Ember while it is not disabled (%s): status %d, want 409 saying to disable it first: %s", remove, status, body)
+		}
+		if tenantNamed(ctx, t, admin, "Ember") == nil || rowsOf(ctx, t, s, "TenantDirectories", ember) != 1 || rowsOf(ctx, t, s, "Announcements", ember) != 1 {
+			t.Fatal("Ember, its directory or its announcement is gone after the refusal: a refused delete deletes nothing")
+		}
+	}
+	if after := changeEvents(ctx, t, s, "TenantDirectories")["TenantDirectories"]; after != before {
+		t.Errorf("change events of TenantDirectories: %d before the refusals and %d after, want no more", before, after)
+	}
+	setTenantDisabled(ctx, t, admin, ember, true)
+
 	// A request that does not say it takes what is under the tenant is asked the
 	// question, and nothing is gone. The question counts each kind the person may list
 	// in the tenant being deleted. The administrator holds the tenant's administrator
@@ -128,7 +147,7 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 		t.Errorf("change events of TenantDirectories: %d before the question and %d after, want no more", before, after)
 	}
 
-	// One request that says so, with nothing before it.
+	// One request that says so, with nothing before it but the disable.
 	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+ember+`","value":{"everythingUnder":true}}]`)); status != http.StatusOK {
 		t.Fatalf("deleting Ember, directory only, with its directory, its people and an announcement: status %d, want 200: %s", status, body)
 	}

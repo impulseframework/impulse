@@ -16,23 +16,24 @@ import (
 // picker to show. Name is the domain itself where the application's roster reads no
 // names (WithDomainNames) or the record holds none for the tenant.
 //
-// Closed marks a tenant the person holds a seat in and this session cannot enter
-// (ClosedDomains), with the reason in a sentence for the person: what the tenant
+// Unavailable marks a tenant the person holds a seat in and this session cannot enter
+// (UnavailableDomains), with the reason in a sentence for the person: what the tenant
 // admits and how they signed in ("Acme admits only people who sign in through its own
 // directory. You signed in with a password."), a directory said in the words a person
 // knows it by (WithDirectoryNames). The tenant's own administrator, who signed in
 // with a password and whose session carries no second factor, is told the way in they
 // hold as well ("As one of its administrators you can still enter it: sign out, then
 // sign in again with your password and the code we email you."): the code is all that
-// is missing, and the reason says what to do. It is empty, and absent from the JSON,
-// for a tenant the session reaches. A picker shows a closed tenant marked, with the
-// reason, and never as a place to open. Only a person's own sign-in is told of one: a
+// is missing, and the reason says what to do. A tenant that is disabled reads "Acme is
+// disabled.", whatever way the person signed in. It is empty, and absent from the JSON,
+// for a tenant the session reaches. A picker shows such a tenant under "Not available",
+// with the reason, and never as a place to open. Only a person's own sign-in is told of one: a
 // session that views the application as someone else, and one that acts as a role,
-// list none closed.
+// list none.
 type UserDomain struct {
-	Domain accesstypes.Domain `json:"domain"`
-	Name   string             `json:"name"`
-	Closed string             `json:"closed,omitempty"`
+	Domain      accesstypes.Domain `json:"domain"`
+	Name        string             `json:"name"`
+	Unavailable string             `json:"unavailable,omitempty"`
 }
 
 // DomainNamer answers a tenant's name, "" for one it holds none for: the tenant roster
@@ -72,12 +73,11 @@ func WithDirectoryNames(namers ...DirectoryNamer) UserDomainsOption {
 
 // UserDomainsHandler serves the session's tenant list: the domains where the user
 // holds at least one grant, sorted, each with its name (UserDomain), and each that
-// the session does not reach marked closed, with the reason. It is the tenant
-// picker's question, answered by the library so
-// applications wire nothing — the generated router registers it on the default
-// outlet beside the digest. The picker shows a tenant's name: the people of a tenant
-// cannot read the tenant record, a global resource, so the list carries the name for
-// them (WithDomainNames).
+// the session does not reach marked with the reason (UserDomain.Unavailable). It is
+// the tenant picker's question, answered by the library so applications wire nothing —
+// the generated router registers it on the default outlet beside the digest. The
+// picker shows a tenant's name: the people of a tenant cannot read the tenant record, a
+// global resource, so the list carries the name for them (WithDomainNames).
 //
 // The predicate is concealed tenancy's own foothold test over the session's
 // admission (UserPermissions.HasGrants, UserPermissions.Reaches), so a domain
@@ -85,10 +85,10 @@ func WithDirectoryNames(namers ...DirectoryNamer) UserDomainsOption {
 // 403s rather than a concealing 404; the picker and the guard can never
 // disagree. A tenant is offered only when the session may enter it, and the
 // application's tenant declaration decides (TenantDeclarations): a tenant
-// whose declaration does not admit the way the session was established is
-// listed closed (UserDomain.Closed), since the person holds a seat there and is
-// owed the reason, and its routes answer the session with the concealing 404 all
-// the same. The global scope is never a domain. The answer reports grants,
+// whose declaration does not admit the way the session was established, and a
+// tenant that is disabled, is listed as not available (UserDomain.Unavailable),
+// since the person holds a seat there and is owed the reason, and its routes answer
+// the session with the concealing 404 all the same. The global scope is never a domain. The answer reports grants,
 // not tenants: a domain the application has since removed still lists while
 // grants in it remain, and existence is the tenant roster's
 // (TenantRoster.Has). Structural and non-folding, so it caches cleanly per
@@ -109,21 +109,31 @@ func UserDomainsHandler(userPermissions func(r *http.Request) UserPermissions, o
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		closed, err := ClosedDomains(ctx, perms)
+		unavailable, err := UnavailableDomains(ctx, perms)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		out := userDomains(domains, settings.names)
-		if len(closed) > 0 {
-			// Only a session's permissions list a closed tenant, so the session is there
-			// to say how it was established.
+		if len(unavailable) > 0 {
+			// Only a session's permissions list such a tenant, so the session is there to
+			// say how it was established.
 			session := sessioninfo.DataFromCtx(ctx)
-			for _, tenant := range userDomains(closed, settings.names) {
+			for _, tenant := range userDomains(unavailable, settings.names) {
+				disabled, err := tenantDisabled(ctx, perms, tenant.Domain)
+				if err != nil {
+					return httpio.NewEncoder(w).ClientMessage(ctx, err)
+				}
+				if disabled {
+					tenant.Unavailable = disabledReason(tenant.Name)
+					out = append(out, tenant)
+
+					continue
+				}
 				administrator, err := opensWithSecondFactor(ctx, perms, tenant.Domain)
 				if err != nil {
 					return httpio.NewEncoder(w).ClientMessage(ctx, err)
 				}
-				tenant.Closed = closedReason(tenant.Name, session, settings.directories, administrator)
+				tenant.Unavailable = closedReason(tenant.Name, session, settings.directories, administrator)
 				out = append(out, tenant)
 			}
 			slices.SortFunc(out, func(a, b UserDomain) int {

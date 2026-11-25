@@ -38,7 +38,7 @@ import (
 // in when its directory has a problem; the support login, one of the application's own
 // team, who holds the same role in every tenant, is kept out, which is what the switch
 // is for. A tenant the person is seated in and cannot enter stays in their tenant list
-// marked closed, with the reason, and the tenant's list of its people says who it keeps
+// as not available, with the reason, and the tenant's list of its people says who it keeps
 // out. Turning directory only on is refused until the tenant has its directory, unless
 // the person is signed in through that directory themselves, and until the person has a
 // password of their own, on the method and on the warning it answers first, which says
@@ -509,7 +509,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// The organizer turns it on, with the tenant's method. The support login loses north
 	// at once: it answers as a tenant that does not exist, and stays in their tenant
-	// list marked closed, with the reason, while south, which is not directory only,
+	// list as not available, with the reason, while south, which is not directory only,
 	// still admits them. The member keeps north: they hold the administrator's role in
 	// north itself and signed in with a password and the code, and a fresh password
 	// sign-in of theirs is held for the code, reaches nothing before it and enters north
@@ -525,8 +525,8 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("the support login's chart once north is directory only = %v, want [%s]: a role held in every tenant is no way into a directory-only one", domains, south)
 	}
 	byPassword := map[string]string{north: "North admits only people who sign in through its own directory. You signed in with a password."}
-	if closed := closedDomains(ctx, t, support, "/api/user-domains"); !maps.Equal(closed, byPassword) {
-		t.Errorf("the tenants the support login's list marks closed = %v, want %v", closed, byPassword)
+	if unavailable := unavailableDomains(ctx, t, support); !maps.Equal(unavailable, byPassword) {
+		t.Errorf("the tenants the support login's list keeps as not available = %v, want %v", unavailable, byPassword)
 	}
 	if status, body := support.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusNotFound {
 		t.Errorf("GET north announcements as the support login once north is directory only: status %d, want 404: %s", status, body)
@@ -534,8 +534,8 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Errorf("the member's chart once north is directory only = %v, want [%s]: north admits its own administrator by password and code", domains, north)
 	}
-	if closed := closedDomains(ctx, t, member, "/api/user-domains"); len(closed) != 0 {
-		t.Errorf("the tenants the member's list marks closed = %v, want none", closed)
+	if unavailable := unavailableDomains(ctx, t, member); len(unavailable) != 0 {
+		t.Errorf("the tenants the member's list keeps as not available = %v, want none", unavailable)
 	}
 	if status, body := member.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusOK {
 		t.Errorf("GET north announcements as the member once north is directory only: status %d, want 200: %s", status, body)
@@ -599,16 +599,16 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	}
 
 	// Turning it off is plain: the administrator does it by password. The support login
-	// enters north again at its next request, nothing in their list is closed, and no
-	// row of north's people says anything.
+	// enters north again at its next request, their list keeps nothing as not available,
+	// and no row of north's people says anything.
 	if status, body := turn(admin, north, false); status != http.StatusOK {
 		t.Fatalf("turning north's directory only off, signed in with a password: status %d: %s", status, body)
 	}
 	if domains := userDomains(ctx, t, support); !slices.Equal(domains, []string{north, south}) {
 		t.Errorf("the support login's chart once north is not directory only = %v, want both tenants", domains)
 	}
-	if closed := closedDomains(ctx, t, support, "/api/user-domains"); len(closed) != 0 {
-		t.Errorf("the tenants the support login's list marks closed once north is not directory only = %v, want none", closed)
+	if unavailable := unavailableDomains(ctx, t, support); len(unavailable) != 0 {
+		t.Errorf("the tenants the support login's list keeps as not available once north is not directory only = %v, want none", unavailable)
 	}
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Errorf("the member's chart once north is not directory only = %v, want [%s]", domains, north)

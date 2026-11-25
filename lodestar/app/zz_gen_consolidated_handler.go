@@ -171,6 +171,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		Established   civil.Date   `json:"established"`
 		ChartedAt     time.Time    `json:"-"`
 		DirectoryOnly bool         `json:"-"`
+		Disabled      bool         `json:"disabled"`
 	}
 	sectorDecoder := NewDecoder[resources.Sector, sectorRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -575,6 +576,14 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
+							// A sector is disabled before it is deleted, so nobody of it is at work in it
+							// while its records go. The caller's grants answer first.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							if err := resource.RequireTenantDisabled(ctx, txn, "Sectors", "Id", "Disabled", accesstypes.Domain(id.String()), "sector"); err != nil {
+								return errors.Wrap(err, "resource.RequireTenantDisabled()")
+							}
 							if err := resources.NewSectorDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDeletePatch.Buffer()")
 							}

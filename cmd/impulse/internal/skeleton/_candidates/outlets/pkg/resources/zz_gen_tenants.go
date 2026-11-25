@@ -131,6 +131,7 @@ type tenantRead struct {
 	Name          string       `json:"name"`
 	CreatedAt     time.Time    `json:"createdAt"`
 	DirectoryOnly bool         `json:"directoryOnly"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var tenantReadSets resource.SetCache[Tenant, tenantRead]
@@ -143,6 +144,7 @@ type tenantWrite struct {
 	Name          string       `json:"name"`
 	CreatedAt     time.Time    `json:"-"`
 	DirectoryOnly bool         `json:"-"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var tenantWriteSets resource.SetCache[Tenant, tenantWrite]
@@ -267,6 +269,7 @@ func (c *TenantColumns) All() *TenantColumns {
 		"Name",
 		"CreatedAt",
 		"DirectoryOnly",
+		"Disabled",
 	}
 
 	return c
@@ -292,6 +295,12 @@ func (c *TenantColumns) CreatedAt() *TenantColumns {
 
 func (c *TenantColumns) DirectoryOnly() *TenantColumns {
 	c.fields = append(c.fields, "DirectoryOnly")
+
+	return c
+}
+
+func (c *TenantColumns) Disabled() *TenantColumns {
+	c.fields = append(c.fields, "Disabled")
 
 	return c
 }
@@ -396,6 +405,10 @@ func (c *tenantSort) CreatedAt() *TenantSort {
 
 func (c *tenantSort) DirectoryOnly() *TenantSort {
 	return c.addField("DirectoryOnly")
+}
+
+func (c *tenantSort) Disabled() *TenantSort {
+	return c.addField("Disabled")
 }
 
 type TenantSort struct {
@@ -532,6 +545,22 @@ func (p *TenantCreatePatch) DirectoryOnly() bool {
 
 func (p *TenantCreatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
+}
+
+func (p *TenantCreatePatch) SetDisabled(v bool) *TenantCreatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *TenantCreatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *TenantCreatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -672,6 +701,22 @@ func (p *TenantUpdatePatch) DirectoryOnly() bool {
 
 func (p *TenantUpdatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
+}
+
+func (p *TenantUpdatePatch) SetDisabled(v bool) *TenantUpdatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *TenantUpdatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *TenantUpdatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

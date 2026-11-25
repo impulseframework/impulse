@@ -123,7 +123,7 @@ func TestConsoleGoogleLogin(t *testing.T) {
 }
 
 // domains reads the sectors the session reaches: its chart, without the sectors it
-// marks closed.
+// lists as not available.
 func (b *browser) domains(ctx context.Context) []string {
 	b.t.Helper()
 
@@ -139,20 +139,20 @@ func (b *browser) domains(ctx context.Context) []string {
 	return domains
 }
 
-// closed reads the sectors the session's chart marks closed to it, each with the
-// reason the server gives: the sectors that seat the person and that this sign-in does
-// not open.
-func (b *browser) closed(ctx context.Context) map[string]string {
+// unavailable reads the sectors the session's chart lists as not available, each with
+// the reason the server gives: the sectors that seat the person and that this session
+// cannot enter.
+func (b *browser) unavailable(ctx context.Context) map[string]string {
 	b.t.Helper()
 
 	status, body := b.do(ctx, http.MethodGet, b.prefix+"/user-domains", nil)
 	if status != http.StatusOK {
 		b.t.Fatalf("GET %s/user-domains: status %d: %s", b.prefix, status, body)
 	}
-	closed, err := closedDomains(body)
+	unavailable, err := unavailableDomains(body)
 	if err != nil {
 		b.t.Fatalf("user-domains is not a list: %v: %s", err, body)
 	}
 
-	return closed
+	return unavailable
 }
