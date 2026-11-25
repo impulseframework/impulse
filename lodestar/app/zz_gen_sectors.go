@@ -27,6 +27,7 @@ func (a *App) Sectors() http.HandlerFunc {
 		Established   civil.Date   `json:"established"`
 		ChartedAt     time.Time    `json:"chartedAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	type response []map[string]any
@@ -93,6 +94,10 @@ func (a *App) Sectors() http.HandlerFunc {
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
 					}
+				case "Disabled":
+					if !row.Masked("disabled") {
+						rmap["disabled"] = rec.Disabled
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -122,6 +127,7 @@ func (a *App) Sector() http.HandlerFunc {
 		Established   civil.Date   `json:"established"`
 		ChartedAt     time.Time    `json:"chartedAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	decoder := NewQueryDecoder[resources.Sector, response](a, accesstypes.Read)
@@ -175,6 +181,10 @@ func (a *App) Sector() http.HandlerFunc {
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {
 					rmap["directoryOnly"] = rec.DirectoryOnly
+				}
+			case "Disabled":
+				if !row.Masked("disabled") {
+					rmap["disabled"] = rec.Disabled
 				}
 			}
 		}

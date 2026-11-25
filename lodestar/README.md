@@ -547,6 +547,14 @@ the surveyor's `SectorCrew`, the governor's `SectorMarshal`, the archivist's rol
 client's directory role are each held in every sector, so Dawn lights on their charts
 with nothing written for it.
 
+A sector can be disabled ([`tenancy.disabled`](pkg/resources/sectors.go)): whoever holds
+Update on the sector's Disabled field changes it on All sectors (no role Lodestar ships
+does; the suite gives one to prove it), and from their next request the sector's crew, its
+marshal among them, hold nothing in it. It answers them as a sector that does not exist,
+their chart lists it under "Not available" with the reason ("Ember is disabled."), and the
+governor, a super administrator, still enters it. Enabling it gives everyone back what they
+held (`test/integration/tenant_disabled_skipauth_test.go`).
+
 A sector that is deleted leaves nothing behind
 ([`tenancy.deleted-tenant`](pkg/resources/sectors.go)): the generated delete path removes,
 in the transaction that deletes the row, the roles people held in the sector, the custom
@@ -555,7 +563,9 @@ the members' alike, and the sector's directory, whether the sector is directory 
 not, so the directory is free for another sector; a person who held roles in that sector
 alone goes with it, while one who holds a role elsewhere stays and signs in as before.
 No role Lodestar ships holds Delete on `Sectors`; the suite gives the governor one to
-prove it (`test/integration/tenant_delete_skipauth_test.go`). The delete carries the
+prove it (`test/integration/tenant_delete_skipauth_test.go`). The delete is of a disabled
+sector: one that is not disabled is refused ("Disable this sector before deleting it.") and
+nothing is gone. The delete carries the
 class `access`, so a person who acts as the governor under the `act` kind is refused it
 (`TestImpersonation_sectorDeletedActingAsAPerson`). The sector's rows go with
 it, and the delete takes them in code: every row under the sector, in the same

@@ -26,6 +26,7 @@ func (h *Handlers) CrewListedSectors() http.HandlerFunc {
 		Region         string       `json:"region"`
 		Established    civil.Date   `json:"established"`
 		DirectoryOnly  bool         `json:"directoryOnly"`
+		Disabled       bool         `json:"disabled"`
 		People         int64        `json:"people"`
 		Since          *time.Time   `json:"since"`
 		Directory      *string      `json:"directory"`
@@ -92,6 +93,10 @@ func (h *Handlers) CrewListedSectors() http.HandlerFunc {
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
 					}
+				case "Disabled":
+					if !row.Masked("disabled") {
+						rmap["disabled"] = rec.Disabled
+					}
 				case "People":
 					if !row.Masked("people") {
 						rmap["people"] = rec.People
@@ -136,6 +141,7 @@ func (h *Handlers) CrewListedSector() http.HandlerFunc {
 		Region         string       `json:"region"`
 		Established    civil.Date   `json:"established"`
 		DirectoryOnly  bool         `json:"directoryOnly"`
+		Disabled       bool         `json:"disabled"`
 		People         int64        `json:"people"`
 		Since          *time.Time   `json:"since"`
 		Directory      *string      `json:"directory"`
@@ -189,6 +195,10 @@ func (h *Handlers) CrewListedSector() http.HandlerFunc {
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {
 					rmap["directoryOnly"] = rec.DirectoryOnly
+				}
+			case "Disabled":
+				if !row.Masked("disabled") {
+					rmap["disabled"] = rec.Disabled
 				}
 			case "People":
 				if !row.Masked("people") {

@@ -473,6 +473,7 @@ export interface SectorsPatch {
   name?: string;
   region?: string;
   established?: Date;
+  disabled?: boolean;
 }
 /** The primary key of Sectors, in route order. */
 export type SectorsKey = [id: string];
@@ -1560,7 +1561,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'patch', 'remove', 'batch'],
       page: { default: 25, max: 200 },
       order: [{ field: 'name', direction: 'asc' }],
-      patchable: ['name', 'region', 'established'],
+      patchable: ['name', 'region', 'established', 'disabled'],
     },
     [Resources.SectorDirectories]: {
       resource: Resources.SectorDirectories,
