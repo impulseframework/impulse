@@ -575,7 +575,7 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 			resourceInfo:     res,
 			ResourcePackage:  r.resource.Package(),
 			ReceiverName:     r.receiverName,
-			Clears:           r.tenantClears(res),
+			KindsFrom:        r.tenantKindSources(res),
 			RequiresDisabled: r.tenantDisabledRequirement(res),
 		}
 		switch {
@@ -606,6 +606,7 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 		DomainCases:         domainCases,
 		SegmentCase:         segmentCase,
 		HasTenant:           slices.ContainsFunc(resources, func(res *resourceInfo) bool { return res.SignalsTenants() }),
+		TakesRowsUnder:      slices.ContainsFunc(resources, func(res *resourceInfo) bool { return res.TakesRowsUnder() }),
 		DomainRouteSegment:  r.domainRouteSegment,
 		DomainPatternPrefix: domainPatternPrefix,
 		Package:             r.handler.Package(),
@@ -631,7 +632,7 @@ func (r *resourceGenerator) handlerContent(handler HandlerType, res *resourceInf
 		VirtualResourcesPackage: home.views.Package(),
 		ApplicationName:         home.applicationName,
 		ReceiverName:            home.receiverName,
-		Clears:                  r.tenantClears(res),
+		KindsFrom:               r.tenantKindSources(res),
 		RequiresDisabled:        r.tenantDisabledRequirement(res),
 		Home:                    home,
 	})

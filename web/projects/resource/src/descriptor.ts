@@ -391,7 +391,7 @@ export interface IdentityLists {
  * against a role a group holds on a tenant's side, while the whole application's takes
  * the group's id and where the role is held. `removeFromTenant`, a tenant's side alone,
  * runs against a person: it takes away everything the person holds in the tenant itself,
- * and warns first, in the server's words, whether the account goes with it. `inviteTenant` names no row: it takes the
+ * and warns first, in the server's words, which roles go. `inviteTenant` names no row: it takes the
  * invited address and the tenant record's fields, and sends the invitation whose first
  * sign-in makes the tenant; `withdrawInvitedTenant` takes such an invitation's id
  * (`invitationId`), which the page fills from its row. `takeRole` names no row and no

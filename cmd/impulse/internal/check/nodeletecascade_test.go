@@ -125,11 +125,12 @@ func inCode(link string) string {
 }
 
 // TestNoDeleteCascade holds the schema to deleting no row by the database: the check
-// fails on a foreign key or an interleave declared ON DELETE CASCADE whose target is a
-// table a struct of the resource package declares, whichever migration says so last and
-// with or without a tenant record, and counts, without judging, a rule on a link to any
-// other table. A source it cannot read is a warning that names it, and a schema two sites
-// read is judged once.
+// judges a rule by the table that carries it, and fails on a foreign key or an interleave
+// declared ON DELETE CASCADE on a table a struct of the resource package declares,
+// wherever it points (a table no struct declares included), whichever migration says so
+// last and with or without a tenant record. It counts, without judging, a rule on any
+// other table, wherever that points. A source it cannot read is a warning that names it,
+// and a schema two sites read is judged once.
 func TestNoDeleteCascade(t *testing.T) {
 	t.Parallel()
 
@@ -224,12 +225,42 @@ func TestNoDeleteCascade(t *testing.T) {
 			wantSummary: passed,
 		},
 		{
-			name: "a rule on a link to a table no struct declares is counted, not judged",
+			name: "a rule between two tables no struct declares is counted, not judged",
 			files: tenanted(map[string]string{
 				"schema/migrations/000003_Sessions.up.sql": "CREATE TABLE Users (\n  Id STRING(36) NOT NULL,\n) PRIMARY KEY (Id);\nCREATE TABLE Sessions (\n  Id STRING(36) NOT NULL,\n  UserId STRING(36) NOT NULL,\n  CONSTRAINT FK_Sessions_UserId FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,\n) PRIMARY KEY (Id);\n",
 			}),
 			wantStatus:  Pass,
-			wantSummary: passed + "; 1 ON DELETE CASCADE rule(s) on a link to a table the application declares no record for were not judged",
+			wantSummary: passed + "; 1 ON DELETE CASCADE rule(s) on a table the application declares no record for were not judged",
+		},
+		{
+			name: "a rule on a record's table to a table no struct declares is a finding",
+			files: tenanted(map[string]string{
+				"schema/migrations/000003_Groups.up.sql": "CREATE TABLE Groups (\n  Id STRING(36) NOT NULL,\n) PRIMARY KEY (Id);\nALTER TABLE Announcements ADD COLUMN GroupId STRING(36);\nALTER TABLE Announcements ADD CONSTRAINT FK_Announcements_GroupId FOREIGN KEY (GroupId) REFERENCES Groups (Id) ON DELETE CASCADE;\n",
+			}),
+			wantStatus:  Fail,
+			wantSummary: oneFound,
+			wantDetails: []string{
+				"schema/migrations/000003_Groups.up.sql: Announcements declares FK_Announcements_GroupId to Groups with ON DELETE CASCADE, so the database deletes the rows of Announcements with the row of Groups they name. " + inCode("foreign key"),
+			},
+		},
+		{
+			name: "a record's table interleaved in a table no struct declares with the rule is a finding",
+			files: tenanted(map[string]string{
+				"schema/migrations/000002_Announcements.up.sql": "CREATE TABLE Boards (\n  TenantId STRING(36) NOT NULL,\n) PRIMARY KEY (TenantId);\n" + strings.Replace(interleave, "PARENT Tenants", "PARENT Boards", 1),
+			}),
+			wantStatus:  Fail,
+			wantSummary: oneFound,
+			wantDetails: []string{
+				"schema/migrations/000002_Announcements.up.sql: Announcements is interleaved in Boards with ON DELETE CASCADE, so the database deletes the rows of Announcements with the row of Boards they are under. " + inCode("interleave"),
+			},
+		},
+		{
+			name: "a rule on a table no struct declares to a record is counted, not judged",
+			files: tenanted(map[string]string{
+				"schema/migrations/000003_Reads.up.sql": "CREATE TABLE AnnouncementReads (\n  Id STRING(36) NOT NULL,\n  AnnouncementId STRING(36) NOT NULL,\n  CONSTRAINT FK_AnnouncementReads_AnnouncementId FOREIGN KEY (AnnouncementId) REFERENCES Announcements(Id) ON DELETE CASCADE,\n) PRIMARY KEY (Id);\n",
+			}),
+			wantStatus:  Pass,
+			wantSummary: passed + "; 1 ON DELETE CASCADE rule(s) on a table the application declares no record for were not judged",
 		},
 		{
 			name: "an application with no tenant record, with a rule between two records",
@@ -248,6 +279,7 @@ func TestNoDeleteCascade(t *testing.T) {
 		{
 			name: "two findings come in table order",
 			files: tenanted(map[string]string{
+				"pkg/resources/replies.go":                      throughResource,
 				"schema/migrations/000002_Announcements.up.sql": announcementsTable,
 				"schema/migrations/000003_Replies.up.sql":       repliesTable,
 			}),
@@ -275,7 +307,9 @@ func TestNoDeleteCascade(t *testing.T) {
 				"cmd/generate/console/main.go":                  siteProgram("console"),
 				"cmd/generate/portal/main.go":                   siteProgram("portal"),
 				"apps/console/pkg/resources/tenants.go":         tenantRecord,
+				"apps/console/pkg/resources/announcements.go":   keyedResource,
 				"apps/portal/pkg/resources/tenants.go":          tenantRecord,
+				"apps/portal/pkg/resources/announcements.go":    keyedResource,
 				"schema/migrations/000001_Tenants.up.sql":       tenantsTable,
 				"schema/migrations/000002_Announcements.up.sql": announcementsTable,
 			},
@@ -318,10 +352,12 @@ func TestNoDeleteCascade(t *testing.T) {
 }
 
 // TestNoDeleteCascade_lodestar holds the demonstration application to the rule as it
-// stands: no foreign key and no interleave of its records says ON DELETE CASCADE, and the
-// rules it keeps are on links to the library's tables (sessions, role grants, the groups
-// a hangar pass is held by), counted and not judged. A rule added on a link to a record
-// fails here before it fails in the pipeline.
+// stands: no foreign key and no interleave of its records' tables says ON DELETE CASCADE,
+// and the rules it keeps are on the library's own tables (an auth's sign-in identities,
+// mail links, tokens, device codes and trusted devices under its users, sign-in events
+// under sessions, codes under pending sign-ins, role grants under their roles), counted
+// and not judged. A rule added on a record's table fails here before it fails in the
+// pipeline.
 func TestNoDeleteCascade_lodestar(t *testing.T) {
 	t.Parallel()
 
@@ -332,7 +368,7 @@ func TestNoDeleteCascade_lodestar(t *testing.T) {
 	got := noDeleteCascade{}.Run(context.Background(), &Env{App: a})
 	want := Result{
 		Name: noDeleteCascadeName, Status: Pass,
-		Summary: "no foreign key or interleave has the database delete rows with one of the application's records; 17 ON DELETE CASCADE rule(s) on a link to a table the application declares no record for were not judged",
+		Summary: "no foreign key or interleave has the database delete rows with one of the application's records; 14 ON DELETE CASCADE rule(s) on a table the application declares no record for were not judged",
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Run() mismatch (-want +got):\n%s", diff)

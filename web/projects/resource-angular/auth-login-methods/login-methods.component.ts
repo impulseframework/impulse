@@ -260,7 +260,7 @@ export class LoginMethodsComponent implements OnInit {
    * the page unloads instead.
    */
   signedIn = output<string>();
-  /** The person cancelled the pending step, the password change, the account form or the sign-up; the list is shown again. */
+  /** The person canceled the pending step, the password change, the account form or the sign-up; the list is shown again. */
   cancelled = output<void>();
 
   username = '';

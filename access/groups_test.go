@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -327,47 +328,40 @@ func Test_userManager_groupNeverGivesSuperAdministrator(t *testing.T) {
 	}
 }
 
-// Test_userManager_DeleteGroup pins that a group goes only once it is emptied:
-// with a member or a role it is refused, saying what to do, and nobody loses a
-// role by the refusal.
+// Test_userManager_DeleteGroup pins that a group goes with its members and the roles it
+// holds, in one call: the people in it no longer hold its role, a second group keeps its
+// own members and roles, and a group that is gone is not found.
 func Test_userManager_DeleteGroup(t *testing.T) {
 	t.Parallel()
 
 	_, manager := groupClient(t)
 	ctx := t.Context()
 	night := mustAddGroup(t, manager, tenant1Policy, "Night shift")
-	if err := manager.AddGroupUsers(ctx, night, "ann"); err != nil {
-		t.Fatalf("AddGroupUsers() error = %v", err)
+	day := mustAddGroup(t, manager, globalPolicy, "Day shift")
+	for _, group := range []accesstypes.Group{night, day} {
+		if err := manager.AddGroupUsers(ctx, group, "ann"); err != nil {
+			t.Fatalf("AddGroupUsers() error = %v", err)
+		}
 	}
 	if err := manager.AddGroupRoles(ctx, night, tenant1Policy, "Editor"); err != nil {
 		t.Fatalf("AddGroupRoles() error = %v", err)
 	}
-
-	refuse := func(when string) {
-		t.Helper()
-		err := manager.DeleteGroup(ctx, night)
-		if err == nil || !httpio.HasConflict(err) || !strings.Contains(err.Error(), "The group still has a member or holds a role. Remove its members and take its roles away, then delete it.") {
-			t.Fatalf("DeleteGroup() with %s error = %v, want a conflict that says what to do", when, err)
-		}
-	}
-	refuse("a member and a role")
-	if err := manager.DeleteGroupUsers(ctx, night, "ann"); err != nil {
-		t.Fatalf("DeleteGroupUsers() error = %v", err)
-	}
-	refuse("a role")
-	if err := manager.AddGroupUsers(ctx, night, "ann"); err != nil {
-		t.Fatalf("AddGroupUsers() error = %v", err)
-	}
-	if err := manager.DeleteGroupRoles(ctx, night, tenant1Policy, "Editor"); err != nil {
-		t.Fatalf("DeleteGroupRoles() error = %v", err)
-	}
-	refuse("a member")
-	if err := manager.DeleteGroupUsers(ctx, night, "ann"); err != nil {
-		t.Fatalf("DeleteGroupUsers() error = %v", err)
+	if err := manager.AddGroupRoles(ctx, day, globalPolicy, "Steward"); err != nil {
+		t.Fatalf("AddGroupRoles() error = %v", err)
 	}
 
 	if err := manager.DeleteGroup(ctx, night); err != nil {
-		t.Fatalf("DeleteGroup() of an emptied group error = %v", err)
+		t.Fatalf("DeleteGroup() of a group with a member and a role error = %v", err)
+	}
+	held, err := manager.UserRoles(ctx, "ann")
+	if err != nil {
+		t.Fatalf("UserRoles() error = %v", err)
+	}
+	if diff := cmp.Diff(accesstypes.RoleCollection{globalPolicy: {"Steward"}}, held); diff != "" {
+		t.Errorf("UserRoles(ann) after the group's delete (-want +got):\n%s", diff)
+	}
+	if users, err := manager.GroupUsers(ctx, day); err != nil || !slices.Equal(users, []accesstypes.User{"ann"}) {
+		t.Errorf("GroupUsers(day) = (%v, %v), want ann, untouched", users, err)
 	}
 	if err := manager.DeleteGroup(ctx, night); err == nil || !httpio.HasNotFound(err) {
 		t.Errorf("DeleteGroup() of a group that is gone error = %v, want not found", err)

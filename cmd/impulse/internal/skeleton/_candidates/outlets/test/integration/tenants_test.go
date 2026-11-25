@@ -23,14 +23,15 @@ const (
 )
 
 // TestTenants_aDeletedTenantTakesItsRolesAndInvitations proves a tenant that is deleted
-// leaves nothing of itself behind in either auth: the roles people held in it are
-// removed, the staff auth's and the members auth's alike, and the invitations into it
-// that still stood are withdrawn, in the transaction that deletes the row, so nothing is
-// left for a later tenant to pick up; a person who held roles in it alone is deleted
-// with it, by the rule on an account nothing admits, and a person who holds a role
-// elsewhere stays. The tenant is made the way one comes to exist, by an invitation's
-// first sign-in (makeTenant), so its founder is among the people who held roles in it
-// alone. The tenant's directory and the rows of its own tables go with it in the same
+// leaves nothing of itself behind in either auth. Disabled first, its delete asks with a
+// count of its rows and of what each auth holds for it, and the confirmed request takes
+// it all: the roles people held in it are removed, the staff auth's and the members
+// auth's alike, the invitations into it that still stood are withdrawn, and the accounts
+// that belonged to it alone are deleted, in the transaction that deletes the row, so
+// nothing is left for a later tenant to pick up. A person who holds a role elsewhere
+// stays, and so does a member whom north's directory signs in. The tenant is made the
+// way one comes to exist, by an invitation's first sign-in (makeTenant), so its founder
+// is among the people who held roles in it alone. The tenant's directory and the rows of its own tables go with it in the same
 // request: the directory through the record's generated delete, the rows in code, each
 // through its resource's own delete.
 func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
@@ -73,21 +74,38 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 		t.Fatal("the person of East alone has no account")
 	}
 
-	// The members auth: the portal's client, north's member, is given a role in East, and
-	// a member holds a role in East alone. Members sign in through the directory and hold
-	// no password, so the test writes the member's account to the auth's table and gives
-	// the roles through the engine, each under the id of the member's account.
+	// The members auth: the portal's client, north's member, is given a role in East; a
+	// member holds a role in East alone; and a member north's directory signs in holds a
+	// role in East and nowhere else, so north manages the account. Members sign in
+	// through the directory and hold no password, so the test writes the members'
+	// accounts to the auth's table, and the northern member's identity in north's
+	// directory, and gives the roles through the engine, each under the id of the
+	// member's account.
 	newcomer, err := impulse.NewUUID()
 	if err != nil {
 		t.Fatalf("impulse.NewUUID() error = %v", err)
 	}
-	if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap(membersUsers, map[string]any{
-		"Id": newcomer.String(), "Username": "eastern-member", "Email": "eastern-member@example.com", "CreatedAt": spanner.CommitTimestamp,
-	})}); err != nil {
-		t.Fatalf("writing the member's account: %v", err)
+	northern, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID() error = %v", err)
+	}
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{
+		spanner.InsertMap(membersUsers, map[string]any{
+			"Id": newcomer.String(), "Username": "eastern-member", "Email": "eastern-member@example.com", "CreatedAt": spanner.CommitTimestamp,
+		}),
+		spanner.InsertMap(membersUsers, map[string]any{
+			"Id": northern.String(), "Username": "northern-member", "Email": "northern-member@example.com", "CreatedAt": spanner.CommitTimestamp,
+		}),
+		// North's directory is the seed's.
+		spanner.InsertMap("MembersSessionIdentities", map[string]any{
+			"Id": "e0000000-0000-4000-8000-000000000012", "UserId": northern.String(), "Method": "azure", "Connection": "00000000-0000-0000-0000-000000000000",
+			"Subject": "subject-of-northern-member", "CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		}),
+	}); err != nil {
+		t.Fatalf("writing the members' accounts: %v", err)
 	}
 	scope := accesstypes.DomainPolicyScope(accesstypes.Domain(east))
-	for _, user := range []accesstypes.User{accesstypes.User(s.clientID), accesstypes.User(newcomer.String())} {
+	for _, user := range []accesstypes.User{accesstypes.User(s.clientID), accesstypes.User(newcomer.String()), accesstypes.User(northern.String())} {
 		if err := s.members.UserManager().AddUserRoles(ctx, scope, user, "TenantAdministrator"); err != nil {
 			t.Fatalf("AddUserRoles(%s, East) in the members store error = %v", user, err)
 		}
@@ -122,6 +140,7 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 			seated: []holder{
 				{"the client", accesstypes.User(s.clientID)},
 				{"the member who holds a role there alone", accesstypes.User(newcomer.String())},
+				{"the member north's directory signs in", accesstypes.User(northern.String())},
 			},
 		},
 	}
@@ -148,11 +167,13 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 
 	// A tenant that has rows under it is not deleted by a request that does not say so:
 	// the plain remove is answered with the question a person is asked first, and
-	// nothing is gone. The question counts each kind the person may list in the tenant
-	// being deleted. The administrator holds the tenant's administrator role in every
-	// tenant, which lists the directory and the announcement but not the reading.
+	// nothing is gone. The question counts every kind of the tenant's rows and of what the
+	// two auths hold for it, for whoever may delete the tenant, the reading among them,
+	// which the administrator may not list: the three accounts of East alone (its
+	// founder's and the easterner's among the staff, the eastern member's among the
+	// members), the six roles held in it and the invitation.
 	status, body = admin.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`"}]`))
-	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 tenant directory, 1 announcement, and records you can't see. This can't be undone.") {
+	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 announcement, 1 reading, 1 tenant directory, 3 accounts, 6 roles held, 1 invitation. This can't be undone.") {
 		t.Fatalf("deleting the tenant without saying it takes what is under it: status %d, want 428 with the question: %s", status, body)
 	}
 	for _, table := range []string{"TenantDirectories", "Announcements", "Readings"} {
@@ -190,22 +211,26 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 		}
 	}
 
-	// The member holds north still and keeps the account, and the client keeps the role
-	// in north; the founder, the person and the member who held roles in East alone are
+	// The member holds north still and keeps the account, the client keeps the role in
+	// north, and the member north's directory signs in keeps the account; the accounts
+	// that belonged to East alone, the founder's, the person's and the member's, are
 	// deleted with it.
 	if !accountExists(ctx, t, s, staffUsers, memberUser) {
 		t.Error("the member's account is gone, want it kept: the member holds a role in north")
 	}
 	for _, username := range []string{"founder", "easterner"} {
 		if accountExists(ctx, t, s, staffUsers, username) {
-			t.Errorf("the account of %s, who held roles in East alone, still exists, want it deleted with the tenant", username)
+			t.Errorf("the account of %s still exists, want it deleted with the tenant: it belonged to East alone", username)
 		}
 	}
 	if roles := rolesHeld(ctx, t, s.members, accesstypes.User(s.clientID), accesstypes.DomainPolicyScope(north)); len(roles) != 1 {
 		t.Errorf("the roles the members store holds for the client in north = %v, want the one held there", roles)
 	}
 	if accountExists(ctx, t, s, membersUsers, "eastern-member") {
-		t.Error("the account of the member who held roles in East alone still exists, want it deleted with the tenant")
+		t.Error("the account of the member who held roles in East alone still exists, want it deleted with the tenant: it belonged to East alone")
+	}
+	if !accountExists(ctx, t, s, membersUsers, "northern-member") {
+		t.Error("the account of the member north's directory signs in is gone, want it kept: north's directory manages it")
 	}
 
 	// The invitation into East is withdrawn: its link is consumed.

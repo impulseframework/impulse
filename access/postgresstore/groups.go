@@ -31,9 +31,7 @@ type groupStatements struct {
 	deleteGroup    string
 	lockGroup      string
 	shareGroup     string
-	hasMembers     string
-	hasRoles       string
-	deleteEnded    []string
+	deleteHeld     []string
 	group          string
 	listGroups     string
 	insertMember   string
@@ -64,11 +62,9 @@ func newGroupStatements(n *tableNames) groupStatements {
 		deleteGroup:    fmt.Sprintf(`delete from %s where "Id" = $1`, n.groups),
 		lockGroup:      fmt.Sprintf(`select 1 from %s where "Id" = $1 for update`, n.groups),
 		shareGroup:     fmt.Sprintf(`select 1 from %s where "Id" = $1 for key share`, n.groups),
-		hasMembers:     fmt.Sprintf(`select exists(select 1 from %s where "GroupId" = $1 and %s)`, n.groupMembers, standing("")),
-		hasRoles:       fmt.Sprintf(`select exists(select 1 from %s where "GroupId" = $1 and %s)`, n.groupRoles, standing("")),
-		deleteEnded: []string{
-			fmt.Sprintf(`delete from %s where "GroupId" = $1 and %s`, n.groupMembers, ended),
-			fmt.Sprintf(`delete from %s where "GroupId" = $1 and %s`, n.groupRoles, ended),
+		deleteHeld: []string{
+			fmt.Sprintf(`delete from %s where "GroupId" = $1`, n.groupMembers),
+			fmt.Sprintf(`delete from %s where "GroupId" = $1`, n.groupRoles),
 		},
 		group:      fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId", "Name", "Description" from %s where "Id" = $1`, n.groups),
 		listGroups: fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId", "Name", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 order by "Name"`, n.groups),
@@ -257,18 +253,15 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 	return tag.RowsAffected() > 0, nil
 }
 
-// DeleteGroup deletes the group's row and reports whether it was there. A
-// group that still has a member or a role that has not ended is refused,
-// checked in the delete's own transaction; the ended ones go with the group,
-// and the foreign keys of the two tables stand behind the check. The
-// transaction first locks the group's row, which a member's or a role's insert
-// for the group waits on and holds a lock against: of a delete and such an
-// insert at the same moment, the delete reads the member or the role and
-// refuses, or the insert finds the group gone.
+// DeleteGroup deletes the group with its members and the roles it holds, in one
+// transaction, whatever their periods, and reports whether the group was there. The
+// transaction first locks the group's row, which a member's or a role's insert for the
+// group waits on and holds a lock against: of a delete and such an insert at the same
+// moment, the delete takes the member or the role with the group, or the insert finds
+// the group gone.
 func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error) {
-	// Read committed whatever the database's default, as InsertRole: the checks
-	// after the lock see what the insert that held the group's row before it
-	// committed.
+	// Read committed whatever the database's default, as InsertRole: the deletes after
+	// the lock see what the insert that held the group's row before it committed.
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return false, errors.Wrap(err, "pgxpool.Pool.BeginTx() delete group")
@@ -281,18 +274,9 @@ func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool,
 	if _, err := tx.Exec(ctx, s.groups.lockGroup, group); err != nil {
 		return false, errors.Wrap(err, "pgx.Tx.Exec() lock group")
 	}
-	for _, check := range []struct{ sql, what string }{{s.groups.hasMembers, "members"}, {s.groups.hasRoles, "roles"}} {
-		var held bool
-		if err := tx.QueryRow(ctx, check.sql, group).Scan(&held); err != nil {
-			return false, errors.Wrapf(err, "pgx.Tx.QueryRow() group %s", check.what)
-		}
-		if held {
-			return false, errors.Wrapf(policy.ErrStillAssigned, "group %s still has %s", group, check.what)
-		}
-	}
-	for _, sql := range s.groups.deleteEnded {
+	for _, sql := range s.groups.deleteHeld {
 		if _, err := tx.Exec(ctx, sql, group); err != nil {
-			return false, errors.Wrap(err, "pgx.Tx.Exec() ended rows")
+			return false, errors.Wrap(err, "pgx.Tx.Exec() the group's members and roles")
 		}
 	}
 	tag, err := tx.Exec(ctx, s.groups.deleteGroup, group)
@@ -477,8 +461,7 @@ func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]
 
 // CountGroupMembersIn returns how many people each group kept in scope has: the
 // places in it that have not ended, the ones that count now and the ones that
-// have not begun, which are what stands in the way of the group's deletion. A
-// group with none is not in the answer.
+// have not begun. A group with none is not in the answer.
 func (s *Store) CountGroupMembersIn(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error) {
 	kind, axis, domain, err := policy.GroupColumns(scope)
 	if err != nil {

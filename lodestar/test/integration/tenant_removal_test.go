@@ -5,9 +5,9 @@ package integration
 // because the application has a tenant record and gives roles by hand.
 //
 // The call takes every role of the person's own held in the sector and their place in
-// each of its groups, and nothing held elsewhere; the account goes with it only where the
-// person holds nothing else. It declares a warning, asked with X-Warning: true, which
-// says what goes in the server's words and writes nothing. It names a row of the sector's
+// each of its groups, and nothing held elsewhere. The account stays, holding nothing. It
+// declares a warning, asked with X-Warning: true, which says what goes in the server's
+// words and writes nothing. It names a row of the sector's
 // people (CrewSectorUsers), so a person of another sector is not found, and nobody
 // removes themselves with it (@notOnOwnAccount). Each role it takes is held to the grant
 // of the method that takes one role away (RemoveCrewSectorRole), so a Marshal removes no
@@ -37,8 +37,7 @@ import (
 // The removal's route under a sector, and the sentences the served stack answers with.
 const (
 	sectorRemovalPath    = "remove-crew-sector-user"
-	removalKeepsAccount  = "Their account stays, because they hold something outside this sector."
-	removalDeletes       = "They hold nothing anywhere else, so their account is deleted with its sign-in identities and sessions."
+	removalStays         = "They remain one of this sector's people through a role held outside it, which this does not take away."
 	removingYourself     = "You cannot remove yourself from this sector here. Leave it from your own account page."
 	nothingToRemoveHere  = "This person holds nothing in this sector itself, so there is nothing to remove here."
 	removalTakesMarshal  = "Removing this person from the sector takes away the role Sector marshal, which you may not take from them."
@@ -91,6 +90,60 @@ func (w *tenantListsWorld) removalBody(name string) string {
 	return fmt.Sprintf(`{"userId":%q}`, w.ids[name])
 }
 
+// signedInBy writes the person a sign-in identity under the fleet's own connection, which
+// is no sector's directory, and a session, as a sign-in writes them, so that a test holds
+// what an act leaves of both. It answers the session's id.
+func (w *tenantListsWorld) signedInBy(ctx context.Context, t *testing.T, name string) string {
+	t.Helper()
+
+	link, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.db.Apply(ctx, []*spanner.Mutation{
+		spanner.InsertMap("CrewSessionIdentities", map[string]any{
+			"Id": link.String(), "UserId": w.ids[name], "Method": "google", "Connection": "fleet", "Subject": "fleet-subject-of-" + name,
+			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		}),
+		spanner.InsertMap("CrewSessions", map[string]any{
+			"Id": session.String(), "Username": name, "Expired": false, "UserId": w.ids[name],
+			"CreatedAt": spanner.CommitTimestamp, "UpdatedAt": spanner.CommitTimestamp,
+		}),
+	}); err != nil {
+		t.Fatalf("writing %s's sign-in identity and session: %v", name, err)
+	}
+
+	return session.String()
+}
+
+// accountKept holds that the person's account stands after an act that took the last
+// thing they held: it holds nothing, no role and no place in a group, its sign-in
+// identity stands, and the session the test wrote (signedInBy) is not ended.
+func (w *tenantListsWorld) accountKept(t *testing.T, name, session string) {
+	t.Helper()
+
+	if !crewAccountExists(t, w.db, w.ids[name]) {
+		t.Fatalf("%s's account is gone, want it kept, holding nothing", name)
+	}
+	if got := crewHeldBy(t, w.db, w.ids[name]); len(got) != 0 {
+		t.Errorf("%s holds %v, want nothing", name, got)
+	}
+	user := map[string]any{"user": w.ids[name]}
+	if n := rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroupMembers WHERE UserId = @user", user); n != 0 {
+		t.Errorf("%s has %d place(s) in a group, want none", name, n)
+	}
+	if n := rowsStanding(t, w, "SELECT COUNT(*) FROM CrewSessionIdentities WHERE UserId = @user", user); n != 1 {
+		t.Errorf("%s has %d sign-in identities, want the one written", name, n)
+	}
+	if n := rowsStanding(t, w, "SELECT COUNT(*) FROM CrewSessions WHERE Id = @session AND Expired = false", map[string]any{"session": session}); n != 1 {
+		t.Errorf("%s's session is ended or gone, want it standing", name)
+	}
+}
+
 // decodeWarning reads a warning's answer.
 func decodeWarning(t *testing.T, body []byte) resource.Warning {
 	t.Helper()
@@ -123,8 +176,10 @@ func accountExecuteAnswer(t *testing.T, h http.Handler, user accesstypes.User, i
 
 // TestTenantRemoval holds the removal of a person from a sector: the warning says what
 // goes and writes nothing; the call takes every role of the person's in the sector and
-// nothing elsewhere, and the account only where nothing else is held; the caller's own
-// row offers no removal and the call on oneself is refused; a person of another sector is
+// nothing elsewhere, and the account stays, also where nothing else is held, with its
+// sign-in identity and its session; a person who remains one of the sector's people
+// through a role held outside it is told so; the caller's own row offers no removal and
+// the call on oneself is refused; a person of another sector is
 // not found; a person who holds a role in every sector alone has nothing to remove here;
 // and a Marshal removes no other Marshal.
 func TestTenantRemoval(t *testing.T) {
@@ -145,6 +200,11 @@ func TestTenantRemoval(t *testing.T) {
 	w.giveCrewRole(ctx, t, "hal", "Headquarters", accesstypes.GlobalPolicyScope())
 	w.ids["wren"] = string(makeCrewAccount(ctx, t, w.db, "wren"))
 	w.giveCrewRole(ctx, t, "wren", "CrewCommon", accesstypes.GlobalPolicyScope())
+	// nell is a Cadet of Anvil and an Archivist of every sector, which keeps her one of
+	// Anvil's people.
+	w.seat(ctx, t, "nell", "Cadet", anvil)
+	w.giveCrewRole(ctx, t, "nell", "Archivist", accesstypes.EveryDomainPolicyScope())
+	adaSession := w.signedInBy(ctx, t, "ada")
 
 	kitHolds := []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot", "domain/" + bastion + " Pilot"}
 	if got := crewHeldBy(t, w.db, w.ids["kit"]); !slices.Equal(got, kitHolds) {
@@ -152,13 +212,14 @@ func TestTenantRemoval(t *testing.T) {
 	}
 
 	t.Run("the warning names the roles that go and writes nothing", func(t *testing.T) {
+		// kit's role at Bastion does not keep him among Anvil's people: the warning
+		// carries no note.
 		status, body := w.askRemovalWarning(t, "kit")
 		assertStatus(t, status, http.StatusOK, body)
 		want := resource.Warning{
 			Consequence: "kit is removed from this sector: every role they hold in it is taken away.",
 			Names:       []string{"Cadet", "Pilot"},
 			Confirm:     removalConfirmSector,
-			Also:        []resource.WarningNote{{Says: removalKeepsAccount}},
 		}
 		if got := decodeWarning(t, body); !reflect.DeepEqual(got, want) {
 			t.Errorf("the warning = %+v, want %+v", got, want)
@@ -184,26 +245,30 @@ func TestTenantRemoval(t *testing.T) {
 			t.Errorf("kit's row among Bastion's people lists %v, want RemoveCrewSectorUser: kit still holds Pilot there", methods)
 		}
 		if !crewAccountExists(t, w.db, w.ids["kit"]) {
-			t.Error("kit's account is gone, want it kept: kit holds a role at Bastion")
+			t.Error("kit's account is gone, want it kept")
 		}
 	})
-	t.Run("a person who holds nothing else is told the account goes, and it goes", func(t *testing.T) {
+	t.Run("a person who remains one of the sector's people through a role held outside it is told so", func(t *testing.T) {
+		status, body := w.askRemovalWarning(t, "nell")
+		assertStatus(t, status, http.StatusOK, body)
+		if got := decodeWarning(t, body).Also; !reflect.DeepEqual(got, []resource.WarningNote{{Says: removalStays}}) {
+			t.Errorf("the warning's notes = %v, want %q", got, removalStays)
+		}
+	})
+	t.Run("a person who holds nothing else is told nothing of the account, and it stays", func(t *testing.T) {
 		status, body := w.askRemovalWarning(t, "ada")
 		assertStatus(t, status, http.StatusOK, body)
-		if got := decodeWarning(t, body).Also; !reflect.DeepEqual(got, []resource.WarningNote{{Says: removalDeletes}}) {
-			t.Errorf("the warning's notes = %v, want the account's deletion said", got)
+		want := resource.Warning{
+			Consequence: "ada is removed from this sector: every role they hold in it is taken away.",
+			Names:       []string{"Cadet"},
+			Confirm:     removalConfirmSector,
 		}
-		if !crewAccountExists(t, w.db, w.ids["ada"]) {
-			t.Fatal("ada's account is gone after the warning, want it kept: the warning writes nothing")
+		if got := decodeWarning(t, body); !reflect.DeepEqual(got, want) {
+			t.Errorf("the warning = %+v, want %+v: no note on the account and the plain button", got, want)
 		}
 		status, body = w.removeFromSector(t, "marshal", "ada")
 		assertStatus(t, status, http.StatusNoContent, body)
-		if crewAccountExists(t, w.db, w.ids["ada"]) {
-			t.Error("ada's account is still there after the removal, want it deleted")
-		}
-		if got := crewHeldBy(t, w.db, w.ids["ada"]); len(got) != 0 {
-			t.Errorf("ada's id holds %v after the removal, want nothing", got)
-		}
+		w.accountKept(t, "ada", adaSession)
 	})
 	t.Run("the caller's own row offers none of the acts on oneself, and the call on oneself is refused", func(t *testing.T) {
 		ownAccount := []string{"DeleteCrewSectorUser", "DisableCrewSectorUser", "RemoveCrewSectorUser"}

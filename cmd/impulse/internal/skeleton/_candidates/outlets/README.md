@@ -43,7 +43,7 @@ nobody a power that giving the role directly would not: who is in a group, and w
 holds, is changed by someone who may give or take those roles directly, and a tenant puts
 its own people in its groups, while an account from outside the tenant is put there from
 the whole application's accounts. The list of groups says how many people each group has and the roles it
-holds, and offers Delete only on a group that holds nothing; a person's page lists their
+holds, and offers Delete on every group, asking first with a count of its people and roles; a person's page lists their
 roles in one list that says "Their own" or names the group each comes through. On the
 Break glass page (`/staff-break-glass`) a person takes a role in a tenant for a set time
 and says why, when they hold the page's grant and could give themselves that role there:

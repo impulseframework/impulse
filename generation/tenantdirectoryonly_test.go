@@ -1497,8 +1497,7 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 // manage an account (identity.Store.ManagingTenants): from the tenant's list of its
 // people, by the user's rows whose ManagedHere is true, where the tenant record declares
 // a directory and the auth keeps identities; every other store answers none and reads
-// nothing. And the four generated removals say an account another tenant's directory
-// signs in stays.
+// nothing.
 func Test_identityStoreTemplate_managingTenants(t *testing.T) {
 	t.Parallel()
 
@@ -1551,10 +1550,14 @@ func Test_identityStoreTemplate_managingTenants(t *testing.T) {
 			}
 		})
 	}
+}
 
-	// The comments of the generated removals, each a template's, say the rule in one
-	// sentence.
-	const stays = "An account that signs in through a tenant's directory is that tenant's to delete: it goes this way only with the last thing it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's list of its people."
+// Test_identityRemovalTemplates_keepTheAccount pins the comments of the four generated
+// removals: each says the account stays, holding nothing, and none says it is deleted.
+func Test_identityRemovalTemplates_keepTheAccount(t *testing.T) {
+	t.Parallel()
+
+	const stays = "the account stays, holding nothing."
 	flat := regexp.MustCompile(`\n// ?`)
 	for name, template := range map[string]string{
 		"identityRemoveRoleTemplate":        identityRemoveRoleTemplate,
@@ -1562,8 +1565,14 @@ func Test_identityStoreTemplate_managingTenants(t *testing.T) {
 		"identityTenantRemoveUserTemplate":  identityTenantRemoveUserTemplate,
 		"identityRemoveGroupMemberTemplate": identityRemoveGroupMemberTemplate,
 	} {
-		if !strings.Contains(flat.ReplaceAllString(template, " "), stays) {
+		said := flat.ReplaceAllString(template, " ")
+		if !strings.Contains(said, stays) {
 			t.Errorf("%s does not say %q", name, stays)
+		}
+		for _, gone := range []string{"is deleted with their", "whether the account goes", "the account is deleted with it"} {
+			if strings.Contains(said, gone) {
+				t.Errorf("%s says %q", name, gone)
+			}
 		}
 	}
 }

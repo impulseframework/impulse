@@ -546,13 +546,10 @@ link mailed to the confirmed address of their account.
 - The address an account held is told when the account's address was changed.
 - A person is told when an administrator forgets the browsers they trusted, so that their
   next sign-in asks for the code again.
-- A person is told when an administrator removes them from a tenant: when the last role
-  they held there is taken, whether it was their own or one they had through a group. The
-  message says so when the account was deleted with it.
 
-Nothing is mailed when an account is disabled or enabled, when a role ends by itself, when
-a person leaves a tenant themselves, or when an administrator deletes the account
-outright.
+Nothing is mailed when an account is disabled or enabled, when a role ends by itself, when a
+person is removed from a tenant or leaves one themselves, or when an administrator deletes
+the account outright.
 
 ### Acting as someone else
 
@@ -1185,8 +1182,9 @@ A tenant's choices restrict who enters that tenant and no other. A tenant that i
 directory only admits everyone it has given a role, however they signed in.
 
 Deleting a tenant takes its directory with it, whether the tenant is directory only or
-not, along with the roles held in the tenant, the invitations into it that still stand
-and its rows. The directory can then be made another tenant's.
+not, along with its rows, the roles held in the tenant, its groups, its custom roles, the
+invitations into it that still stand and the accounts that belonged to it alone. The
+directory can then be made another tenant's.
 
 ### Keeping a person out of an open tenant
 
@@ -1271,9 +1269,9 @@ role file's word for the whole application. It is not the "Global" of shapes 7 a
 which is about being in several tenants.) A tenant with a directory lists everyone who
 signs in through it, also a person who holds no role in the tenant, so the tenant that
 manages an account can disable or delete it. Removing a person from a tenant, or taking
-away the last thing they hold, deletes their account only where no other tenant manages
-it: the account of a person who signs in through another tenant's directory stays,
-holding nothing, in that tenant's list. With the skeletons' role file, a tenant's
+away the last thing they hold, leaves their account standing, holding nothing: the account
+of a person who signs in through a tenant's directory stays in that tenant's list. With
+the skeletons' role file, a tenant's
 administrator can do this much:
 
 | A tenant's administrator can | For whom |
@@ -1303,14 +1301,15 @@ from the tenant's side; the role given is recorded like any other.
 The condition goes on those twelve methods, the ones in the last two rows of the table,
 and on no other. Giving and taking a role, or a place in a group, ending one session,
 revoking a token and clearing a lockout name no account's row, so they stay with
-the application's administrators whoever manages the account. Two things follow from
+the application's administrators whoever manages the account. One thing follows from
 the roles. For a person who signs in through no tenant's directory, who manages the
-account follows from what the person holds: a role given for the whole application,
-or in a second tenant, makes the account the application's to manage, and it is the
-tenant's again once the person holds something in that tenant alone. And the last thing
-taken from a person takes the account with it, whoever takes it, unless another tenant
-manages the account through its directory. An application that wants its everyday
-administrators to do neither gives the methods that give and take roles to another role.
+account follows from what the person holds: a role given for the whole application, or in
+a second tenant, makes the account the application's to manage, and it is the tenant's
+again once the person holds something in that tenant alone. Taking the last thing a
+person holds takes nothing else: the account stays, holding nothing, managed by the tenant
+whose directory the person signs in through, or otherwise by the application's own
+administrators. An application that wants its everyday administrators not to move an
+account between the two gives the methods that give and take roles to another role.
 
 An application that `impulse new` makes with tenants, or that `impulse add tenancy` gives
 them, starts with the tenant's administrator role in its own names
@@ -1332,10 +1331,9 @@ condition that tests the person's row. Which condition is the application's to c
 
 Some rules hold whatever the role file says. Among them:
 
-- Taking away the last role a person holds anywhere, their own or through a group,
-  deletes the account, with its sign-in identities and its sessions. Where a directory's
-  people get an account without an invitation, such a person's next sign-in through the
-  directory is a first sign-in again, and makes a new account with the default role.
+- Taking away a role, a place in a group or a person from a tenant never deletes the
+  account, and neither does leaving a tenant: the account stays, holding nothing. An
+  account is deleted by its own delete, or with the tenant it belonged to alone.
 - Only a Super Administrator gives or takes the Super Administrator role, or changes how
   another Super Administrator signs in. The role is never taken from the last holder who
   can sign in.

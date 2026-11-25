@@ -184,6 +184,12 @@ linters:
           - paralleltest
         path: test/integration/impersonation_(mask|access)_skipauth_test\.go
         text: TestImpersonationMask_((credential|access)Methods|creatingASector)
+      # So does the delete in rounds: the first round's save, of about 80,000 mutations,
+      # holds up the reads of every database of the emulator the suite shares.
+      - linters:
+          - paralleltest
+        path: test/integration/delete_cascade_test\.go
+        text: TestDeleteCascade_rounds
       # Lodestar is committed in the framework's own repository, so it builds against
       # the local source rather than a published version that cannot exist yet.
       - linters:

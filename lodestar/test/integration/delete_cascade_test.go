@@ -16,8 +16,10 @@ package integration
 // the mission's change record is written and a document's stored file is released. Every
 // row is checked first as its own delete would check it, so one row the person may not
 // delete, or one row its rule refuses, stops the whole delete with nothing gone. A
-// client with a mission is refused whatever the request says, and a record whose rows
-// cost more than one commit takes is refused too. The deletes are the Spanner write
+// client with a mission is refused whatever the request says. A record whose rows cost
+// more than one commit takes is deleted in rounds: each request takes what fits, deepest
+// first, and answers what it deleted and what is left, and the same request sent again
+// goes on until the record goes with the last of them. The deletes are the Spanner write
 // path's.
 //
 // A distress call and its relays are the two links that are no key to another table's
@@ -29,6 +31,7 @@ package integration
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -50,8 +53,9 @@ import (
 )
 
 // TestDeleteCascade_description reads the descriptions the generator wrote for two of the
-// records that declare one: the kinds taken in delete order, deepest first, with each
-// kind's way up to the record, and the kinds that refuse the delete.
+// records that declare one: the kinds taken in delete order, deepest first and kinds of
+// one depth in reverse order of their names, with each kind's way up to the record, and
+// the kinds that refuse the delete.
 func TestDeleteCascade_description(t *testing.T) {
 	t.Parallel()
 
@@ -65,8 +69,10 @@ func TestDeleteCascade_description(t *testing.T) {
 	}
 
 	mission := resources.Mission{}.DeleteTree()
-	// An expense is on a sortie, so it is deleted before the sortie it is on.
-	if got, want := kinds(mission.Taken), []accesstypes.Resource{"SortieExpenses", "MissionDocuments", "Sorties"}; !slices.Equal(got, want) {
+	// An expense is on a sortie, so it is deleted before the sortie it is on. Sorties and
+	// documents are both straight under the mission, so the question, which reads the order
+	// backward, names the documents first.
+	if got, want := kinds(mission.Taken), []accesstypes.Resource{"SortieExpenses", "Sorties", "MissionDocuments"}; !slices.Equal(got, want) {
 		t.Errorf("a mission's delete takes %v, want %v", got, want)
 	}
 	if len(mission.RefusedBy) != 0 {
@@ -80,7 +86,7 @@ func TestDeleteCascade_description(t *testing.T) {
 		t.Errorf("an expense's way up to its mission is %v, want %v", got, wantWay)
 	}
 	// A document stores a file, and its release is in what a row's delete costs.
-	if got := mission.Taken[1].Cost.Files; got != 1 {
+	if got := mission.Taken[2].Cost.Files; got != 1 {
 		t.Errorf("a mission document's cost counts %d stored files, want 1", got)
 	}
 
@@ -248,7 +254,7 @@ func TestDeleteCascade_takesWhatIsUnder(t *testing.T) {
 
 		status, body := doRequest(t, as(everything), http.MethodPatch, batch, remove(m, false))
 		assertStatus(t, status, http.StatusPreconditionRequired, body)
-		if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 2 sorties, 1 mission document, 1 sortie expense. This can't be undone."; got != want {
+		if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 1 mission document, 2 sorties, 1 sortie expense. This can't be undone."; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
 		allStand(t, m)
@@ -304,31 +310,6 @@ func TestDeleteCascade_takesWhatIsUnder(t *testing.T) {
 		status, body := doRequest(t, as(everything), http.MethodPatch, batch, remove(m, true))
 		assertStatus(t, status, http.StatusBadRequest, body)
 		if got, want := refusalMessage(t, body), "A penalty stays on the sortie's record and can't be deleted."; got != want {
-			t.Errorf("message = %q, want %q", got, want)
-		}
-		allStand(t, m)
-	})
-
-	t.Run("a request that changes a row under the record and deletes the record is refused, and nothing is gone", func(t *testing.T) {
-		m := writeCascadeMission(t, db, stores, 8, "penalty")
-		// This person may update a sortie and may not delete one, nor an expense.
-		updatesSorties := grants{
-			accesstypes.Delete: {missionsResource, "MissionDocuments"},
-			accesstypes.Update: withFields("Sorties", "debrief"),
-			accesstypes.List:   under,
-		}
-		debrief := func(sortie string) string {
-			return fmt.Sprintf(`{"op":"patch","path":%q,"value":{"debrief":"Back in one piece"}}`, opPath(anvil, "sorties/"+sortie))
-		}
-		// A read inside the transaction shows each sortie as it was before the request,
-		// so the delete cannot tell what it would take: it is refused before any row is
-		// checked, and neither the sorties nor the penalty on one of them go with the
-		// mission unchecked.
-		ops := fmt.Sprintf(`[%s,%s,{"op":"remove","path":%q,"value":{"everythingUnder":true}}]`, debrief(m.sortieA), debrief(m.sortieB), opPath(anvil, "missions/"+m.mission))
-
-		status, body := doRequest(t, as(updatesSorties), http.MethodPatch, batch, ops)
-		assertStatus(t, status, http.StatusConflict, body)
-		if got, want := refusalMessage(t, body), "This request also changes a record under this mission. Send the change and the delete separately."; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
 		allStand(t, m)
@@ -670,7 +651,7 @@ func TestDeleteCascade_fourRecords(t *testing.T) {
 		dock, visit, hull, bay := id("6d0"), id("6d1"), id("7d0"), id("ad0")
 		write(t, hangar(dock), pass(visit, dock, "UserId", marshal), ship(hull, dock), refit(bay, hull), task(bay, 1, ""))
 
-		askedThenTaken(t, sectorPath(anvil, "hangars"), "/"+dock, "Delete this hangar and everything under it: 1 ship, 1 hangar pass, 1 refit, 1 refit task. This can't be undone.",
+		askedThenTaken(t, sectorPath(anvil, "hangars"), "/"+dock, "Delete this hangar and everything under it: 1 hangar pass, 1 ship, 1 refit, 1 refit task. This can't be undone.",
 			[]takenRow{rowByID("Hangars", dock), rowByID("HangarPasses", visit), rowByID("Ships", hull), rowByID("Refits", bay), taskRow(bay, 1)})
 		if got := changes(t, "Ships", hull); got != 1 {
 			t.Errorf("the hangar's delete wrote %d change records for the ship it took, want 1", got)
@@ -689,7 +670,7 @@ func TestDeleteCascade_fourRecords(t *testing.T) {
 		forge, flight, visit := id("4d0"), id("5d0"), id("6d1")
 		write(t, wing(forge), squadron(flight, forge), membership(flight), pass(visit, hangarAnvilDockID, "SquadronId", flight))
 
-		askedThenTaken(t, batch, opPath(anvil, "wings/"+forge), "Delete this wing and everything under it: 1 squadron, 1 squadron membership, 1 hangar pass. This can't be undone.",
+		askedThenTaken(t, batch, opPath(anvil, "wings/"+forge), "Delete this wing and everything under it: 1 squadron, 1 hangar pass, 1 squadron membership. This can't be undone.",
 			[]takenRow{rowByID("Wings", forge), rowByID("Squadrons", flight), membershipRow(flight), rowByID("HangarPasses", visit)})
 	})
 }
@@ -973,14 +954,19 @@ func TestDistressCall_caseNumberIsUniqueWithinASector(t *testing.T) {
 	}
 }
 
-// TestDeleteCascade_tooManyRowsAtOnce pins the refusal of a delete whose rows cost more
-// than one commit takes. A sortie costs three mutations, its delete and an entry in each
-// of two indexes, so a mission with 26,700 sorties is over the 80,000 a commit takes: the
-// delete is refused in a sentence that says so, whatever the request says, and nothing
-// is gone.
-func TestDeleteCascade_tooManyRowsAtOnce(t *testing.T) {
-	t.Parallel()
-
+// TestDeleteCascade_rounds pins a delete whose rows cost more than one commit takes. A
+// sortie costs three mutations, its delete and an entry in each of two indexes, so a
+// mission with 26,700 sorties is over the 80,000 a commit takes. Asked first, the delete
+// counts them all. Confirmed, each request takes what fits and answers 202 with what it
+// deleted and what is left under the mission, the two adding up to the question's count
+// the first time; the mission stands after every round but the last, and the same
+// request sent again goes on until it answers 200 with nothing left. The mission keeps a
+// change record, and its delete writes one; its sorties keep none.
+//
+// The test runs on its own, never in parallel: the first round's save, of about 80,000
+// mutations, holds up the reads of every database of the emulator the package's tests
+// share, and a read of another test held up behind it can pass its deadline.
+func TestDeleteCascade_rounds(t *testing.T) {
 	ctx := t.Context()
 
 	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
@@ -1011,27 +997,87 @@ func TestDeleteCascade_tooManyRowsAtOnce(t *testing.T) {
 			t.Fatalf("spanner.Apply(Sorties from %d): %v", first, err)
 		}
 	}
+	count := func(sql string) int64 {
+		t.Helper()
+
+		var n int64
+		if err := db.Single().Query(ctx, spanner.Statement{SQL: sql, Params: map[string]any{"mission": mission}}).Do(func(row *spanner.Row) error {
+			return row.Columns(&n)
+		}); err != nil {
+			t.Fatalf("counting %q: %v", sql, err)
+		}
+
+		return n
+	}
+	sortiesLeft := func() int64 {
+		t.Helper()
+
+		return count("SELECT COUNT(*) FROM Sorties WHERE MissionId = @mission")
+	}
+	missionStands := func() bool {
+		t.Helper()
+
+		return count("SELECT COUNT(*) FROM Missions WHERE Id = @mission") == 1
+	}
 
 	h := newTestApp(db, grants{
 		accesstypes.Delete: {missionsResource, "Sorties", "SortieExpenses", "MissionDocuments"},
 		accesstypes.List:   {"Sorties"},
 	})
-	for _, value := range []string{"", `,"value":{"everythingUnder":true}`} {
+	remove := func(value string) (int, []byte) {
 		ops := fmt.Sprintf(`[{"op":"remove","path":%q%s}]`, opPath(anvil, "missions/"+mission), value)
-		status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources", ops)
-		assertStatus(t, status, http.StatusConflict, body)
-		if got, want := refusalMessage(t, body), "This mission has too many records under it to delete at once. Delete some of them first."; got != want {
-			t.Errorf("message = %q, want %q", got, want)
-		}
+
+		return doRequest(t, h, http.MethodPatch, "/console/api/resources", ops)
 	}
 
-	var left int64
-	if err := db.Single().Query(ctx, spanner.Statement{SQL: "SELECT COUNT(*) FROM Sorties WHERE MissionId = @mission", Params: map[string]any{"mission": mission}}).Do(func(row *spanner.Row) error {
-		return row.Columns(&left)
-	}); err != nil {
-		t.Fatalf("counting the mission's sorties: %v", err)
+	status, body := remove("")
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 26,700 sorties. This can't be undone."; got != want {
+		t.Errorf("the question = %q, want %q", got, want)
 	}
-	if left != sorties {
-		t.Errorf("%d of the mission's %d sorties stand after its refused delete", left, sorties)
+	if n := sortiesLeft(); n != sorties || !missionStands() {
+		t.Fatalf("after the question %d of the %d sorties stand and the mission stands = %v, want all of them and the mission", n, sorties, missionStands())
+	}
+
+	events := countChangeEvents(ctx, t, db, "Missions")
+	const most = 10
+	rounds := 0
+	for ; rounds < most; rounds++ {
+		status, body = remove(`,"value":{"everythingUnder":true}`)
+		if status != http.StatusAccepted {
+			break
+		}
+		var left struct {
+			Deleted int64 `json:"deleted"`
+			Left    int64 `json:"left"`
+		}
+		if err := json.Unmarshal(body, &left); err != nil {
+			t.Fatalf("round %d answered %s: %v", rounds+1, body, err)
+		}
+		if left.Deleted <= 0 || left.Left <= 0 {
+			t.Errorf("round %d answered %+v, want rows deleted and rows left", rounds+1, left)
+		}
+		if rounds == 0 && left.Deleted+left.Left != sorties {
+			t.Errorf("the first round deleted %d and left %d, want the two to add up to the question's %d", left.Deleted, left.Left, sorties)
+		}
+		if n := sortiesLeft(); n != left.Left {
+			t.Errorf("after round %d %d sorties stand, want the %d it says are left", rounds+1, n, left.Left)
+		}
+		if !missionStands() {
+			t.Errorf("the mission is gone after round %d, which left rows under it", rounds+1)
+		}
+	}
+	assertStatus(t, status, http.StatusOK, body)
+	if rounds == 0 {
+		t.Error("the delete went in one request, want more than one round")
+	}
+	if n := sortiesLeft(); n != 0 {
+		t.Errorf("%d sorties stand after the last round, want none", n)
+	}
+	if missionStands() {
+		t.Error("the mission stands after the last round, want it deleted")
+	}
+	if got := countChangeEvents(ctx, t, db, "Missions") - events; got != 1 {
+		t.Errorf("the mission's delete wrote %d change record(s), want 1", got)
 	}
 }

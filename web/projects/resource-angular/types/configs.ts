@@ -135,12 +135,19 @@ export interface MethodPresentation {
   when?: (row: RecordData, listed?: readonly RecordData[]) => boolean;
   /**
    * What a row says in the method's place where `when` answers no: words drawn where the
-   * method's entry would be, which a click does nothing with (a group that still has
-   * people in it says what is left, where Delete would be). Answering nothing draws
+   * method's entry would be, which a click does nothing with. Answering nothing draws
    * nothing. It is said only on a row the server lets the caller run the method on, so
    * nobody reads about an act that is not theirs to take.
    */
   otherwise?: (row: RecordData) => string | undefined;
+  /**
+   * Runs the method through the delete dialog, in place of its own: a method that deletes
+   * the row it is offered on and takes nothing but the row. The dialog asks `confirm`,
+   * then the server's question where the delete takes records with it, and sends the
+   * method again with `everythingUnder` at the next press, and for as long as the server
+   * answers what is left (a 202).
+   */
+  deletes?: boolean;
   /**
    * The question the dialog asks before a method that takes nothing but the row. For a
    * method above a list it is asked of the row the list sits under, with `listed`, the

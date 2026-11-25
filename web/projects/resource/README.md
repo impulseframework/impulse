@@ -47,8 +47,14 @@ await api.batch([api.clients.ops.patch([clientId], { trusted: true })]);
 // answers 428, an ApiError whose message is the question to ask a person first ("Delete
 // this work order and everything under it: 4 work order tasks. This can't be undone.").
 // The same delete saying it takes them deletes those records and the row; ops.remove
-// takes the same option.
-await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+// takes the same option. A delete too large for one request deletes what fits and
+// resolves with what is left ({ deleted, left }, a DeleteLeft, from a 202), the row
+// still standing; the same remove, sent again, goes on, and resolves with nothing once
+// the row is gone.
+let left = await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+while (left) {
+  left = await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+}
 
 // A page that learns its methods at run time (from the generated method metadata)
 // reaches one by its name: the same handle, bound to the tenant for a tenant's method.
@@ -796,11 +802,11 @@ application's error hook (`onError`), so a notice raised there is not raised onc
 character.
 
 The list names `ownTenants` (`{ list, leave }`) where the server serves a person's own tenants.
-`ownTenants()` resolves them, each `{ domain, name, roles, refusal?, deletesAccount }`: the roles
-in words, why the person cannot leave where they cannot, and whether leaving deletes their account.
-`leaveTenant(domain, deletesAccount)` resolves `{ outcome: 'left', accountDeleted }`, or the
-server's refusal with its words: a tenant's last administrator (403), a tenant the person is not
-in (404), or a leave that would no longer do what the list said (409).
+`ownTenants()` resolves them, each `{ domain, name, roles, refusal? }`: the roles in words, and
+why the person cannot leave where they cannot. `leaveTenant(domain)` resolves `{ outcome: 'left' }`,
+or the server's refusal with its words: a tenant's last administrator (403), or a tenant the
+person is not in (404). Leaving takes every role the person holds in the tenant. The account
+stays.
 
 The look a person chose, light, dark or their device's setting (`device`) and one of the
 application's palettes, is kept with their account so that it follows them to every browser:

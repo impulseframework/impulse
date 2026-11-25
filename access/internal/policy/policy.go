@@ -147,11 +147,10 @@ type GroupRole struct {
 }
 
 // ErrStillAssigned is the refusal of a deletion that assignments stand in the
-// way of: a role that people hold now or will, a group that has a member or a
-// role now or will. A store wraps it, so the access package tells the refusal
-// from a failure and says it to the caller in words. The listings above the
-// store leave out an assignment whose period has not begun, so the store's own
-// check is the one that sees it.
+// way of: a role that people hold now or will. A store wraps it, so the access
+// package tells the refusal from a failure and says it to the caller in words.
+// The listings above the store leave out an assignment whose period has not
+// begun, so the store's own check is the one that sees it.
 var ErrStillAssigned = errors.New("assignments that have not ended stand in the way")
 
 // ErrHeldByGroup is the refusal of a role's deletion while a group holds the

@@ -1904,10 +1904,10 @@ describe('ResourceListComponent', () => {
         return {};
       }) as unknown as typeof component.dialog.open;
       const deleted: unknown[] = [];
-      component.deleteRow = (gone): Promise<void> => {
+      component.deleteRow = (gone): Promise<undefined> => {
         deleted.push(gone);
 
-        return Promise.resolve();
+        return Promise.resolve(undefined);
       };
 
       component.confirmDeleteRow(row);
@@ -2026,6 +2026,26 @@ describe('ResourceListComponent', () => {
       fixture.detectChanges();
 
       expect(deleted({ id: 'c-1', summary: 'Mayday' })).toEqual(['Distress call deleted.']);
+    });
+
+    it('and passes on what a delete too large for one request left, reading the page again only once a delete finishes', async () => {
+      await create({ primaryResource: calls, title: 'Distress calls', listColumns: summary });
+      fixture.detectChanges();
+      const component = fixture.componentInstance;
+      const answers: unknown[] = [{ deleted: 6800, left: 31200 }, {}];
+      component.store.apply = (() => Promise.resolve(answers.shift())) as unknown as typeof component.store.apply;
+      let reads = 0;
+      component.store.reloadPage = (): void => {
+        reads++;
+      };
+
+      expect(await component.deleteRow({ id: 'c-1', summary: 'Mayday' }, { everythingUnder: true })).toEqual({
+        deleted: 6800,
+        left: 31200,
+      });
+      expect(reads).toBe(0);
+      expect(await component.deleteRow({ id: 'c-1', summary: 'Mayday' }, { everythingUnder: true })).toBeUndefined();
+      expect(reads).toBe(1);
     });
 
     it('and says "Create" and "Deleted." where its metadata carries no word', async () => {

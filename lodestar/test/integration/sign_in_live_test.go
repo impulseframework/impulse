@@ -238,8 +238,8 @@ func TestSignInLive_aPersonLeavesASector(t *testing.T) {
 	people := signInWatcher(crew.Name, "people")
 	watching(ctx, t, s, live.Subscription{Principal: people, Resource: crewSectorPeople, Domain: cinder})
 
-	if got := leaveTenant(ctx, t, hazards, consoleAPI+"/user/tenants/leave", cinder, false, http.StatusOK); got != `{"accountDeleted":false}` {
-		t.Fatalf("leaving Cinder answered %s, want the account kept", got)
+	if got := leaveTenant(ctx, t, hazards, consoleAPI+"/user/tenants/leave", cinder, http.StatusOK); got != "" {
+		t.Fatalf("leaving Cinder answered %s, want no body", got)
 	}
 
 	wantTold(t, s, people, crewSectorPeople, "", "Cinder's People list")

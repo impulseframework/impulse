@@ -51,10 +51,11 @@ func generatedIdentityOf(importPaths ...string) []*identityInstance {
 	return instances
 }
 
-// Test_tenantClears pins what the tenant record's delete clears a tenant through: the
-// application's accessor of every generated identity client, in declaration order, and
-// nothing for any other resource or for a program that generates no auth's management.
-func Test_tenantClears(t *testing.T) {
+// Test_tenantKindSources pins the identity clients whose kinds the tenant record's delete
+// is handed: the application's accessor of every generated identity client, in
+// declaration order, and nothing for any other resource or for a program that generates
+// no auth's management.
+func Test_tenantKindSources(t *testing.T) {
 	t.Parallel()
 
 	two := generatedIdentityOf("example.com/app/pkg/auth/staff", "example.com/app/pkg/auth/members")
@@ -75,8 +76,8 @@ func Test_tenantClears(t *testing.T) {
 
 			r := &resourceGenerator{client: &client{}}
 			r.identity = tt.identity
-			if diff := cmp.Diff(tt.want, r.tenantClears(&resourceInfo{IsTenant: tt.tenant})); diff != "" {
-				t.Errorf("tenantClears() mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.want, r.tenantKindSources(&resourceInfo{IsTenant: tt.tenant})); diff != "" {
+				t.Errorf("tenantKindSources() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

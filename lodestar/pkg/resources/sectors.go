@@ -31,14 +31,13 @@ type (
 	// (schema/migrations) is what keeps two sectors from carrying one name, and an
 	// application that allows that drops the index.
 	//
-	// A sector that is deleted leaves nothing of itself behind: the generated delete path
-	// removes, in the transaction that deletes the row, the roles people held in the
-	// sector, the custom roles made in it and the invitations into it that still stood,
-	// in the crew's tables and the members' alike (each auth's generated identity client,
-	// ClearTenant), and a person who held roles in that sector alone goes with it. The
-	// delete is of a disabled sector: one that is not disabled is refused, in a sentence
-	// that says to disable it first. No role Lodestar ships holds Delete on Sectors; the
-	// suite gives one to prove it.
+	// A sector that is deleted leaves nothing of itself behind. The roles people hold in
+	// the tenant, its groups, its custom roles, its invitations and the accounts that
+	// belonged to it alone are kinds of the tenant's delete: counted in its question and
+	// taken in its rounds, in the crew's tables and the members' alike (each auth's
+	// generated identity client, TenantKinds). The delete is of a disabled sector: one that
+	// is not disabled is refused, in a sentence that says to disable it first. No role
+	// Lodestar ships holds Delete on Sectors; the suite gives one to prove it.
 	//
 	// Sector itself is a GLOBAL resource: administering the sector list is a global
 	// concern. The place switcher lists only the sectors a login holds a grant in.

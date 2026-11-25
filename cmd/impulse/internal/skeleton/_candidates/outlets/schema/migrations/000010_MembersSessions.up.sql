@@ -1,6 +1,7 @@
 -- The members auth's session tables: the session library's Auth sessions (session.Auth), one
--- set of tables for every sign-in method registered on the auth. A session belongs to a
--- user, and deleting the user deletes its sessions; UserId is null only for a
+-- set of tables for every sign-in method registered on the auth. A session names its user
+-- and is not held to it by a foreign key: a deleted user's sessions are ended in code, and
+-- their rows stay until the timed removal takes them. UserId is null only for a
 -- role-principal impersonation. ProviderSessionId is the identity provider's session id
 -- when the method reports one, for front-channel logout, and ProviderSessionIssuer the
 -- issuer it belongs to. Browser is the name of the browser a session was signed in from
@@ -21,7 +22,6 @@ CREATE TABLE MembersSessions (
     CreatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT FK_MembersSessions_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX MembersSessions_Expired_idx ON MembersSessions (Expired DESC);

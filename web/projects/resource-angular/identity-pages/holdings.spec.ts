@@ -13,7 +13,7 @@ import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-
 import { identityMenuPages, identityPages, identityRoutes } from './identity-pages';
 
 // What is held and why, as the pages over an Auth's people say it: the groups with what
-// each holds, Delete only on a group that holds nothing, how many people lose a role a
+// each holds, Delete on every group, how many people lose a role a
 // group stops holding, a person's roles as one list that says where each comes from, the
 // Groups page of an Auth whose roles a directory decides. (The reason a role was given
 // for and Break glass are in break-glass.spec.ts.)
@@ -238,27 +238,26 @@ describe('the Groups page, what a group holds', () => {
     }
   });
 
-  it('offers Delete on a group that holds nothing, and says what is left on one that does', () => {
-    const rows: [RecordData, string | undefined][] = [
-      [{ name: 'Empty', people: 0, roles: [] }, undefined],
-      [{ name: 'Night shift', people: 3, roles: ['Reader', 'Warden'] }, '3 people and 2 roles: empty it first'],
-      [{ name: 'One of each', people: 1, roles: ['Reader'] }, '1 person and 1 role: empty it first'],
-      [{ name: 'People only', people: 2, roles: [] }, '2 people: empty it first'],
-      [{ name: 'Roles only', people: 0, roles: ['Reader'] }, '1 role: empty it first'],
+  it('offers Delete on a group that holds something and on one that holds nothing, through the delete dialog', () => {
+    const rows: RecordData[] = [
+      { name: 'Empty', people: 0, roles: [] },
+      { name: 'Night shift', people: 3, roles: ['Reader', 'Warden'] },
+      { name: 'People only', people: 2, roles: [] },
+      { name: 'Roles only', people: 0, roles: ['Reader'] },
     ];
     for (const [groups, method] of [
       [list(page(global, 'Groups')), 'DeleteCrewGroup'],
       [list(page(domain, 'Groups')), 'DeleteCrewSectorGroup'],
     ] as [ListViewConfig, string][]) {
       const remove = presentation(groups.rowMethods, method);
-      for (const [row, left] of rows) {
-        expect([row['name'], remove.when?.(row)]).toEqual([row['name'], left === undefined]);
-        expect([row['name'], remove.otherwise?.(row)]).toEqual([row['name'], left]);
+      // No row is kept from it, and none says anything in its place.
+      expect(remove.when).toBeUndefined();
+      expect(remove.otherwise).toBeUndefined();
+      expect(remove.deletes).toBe(true);
+      for (const row of rows) {
+        // The page's question names the group; the server's, after it, counts what goes with it.
+        expect((remove.confirm as (row: RecordData) => string)(row)).toBe(`Delete ${String(row['name'])}?`);
       }
-      // The question of a deletion that is offered says nothing of emptying the group.
-      expect((remove.confirm as (row: RecordData) => string)({ name: 'Empty', people: 0, roles: [] })).toBe(
-        'Delete Empty?',
-      );
     }
   });
 

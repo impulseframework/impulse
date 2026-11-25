@@ -948,8 +948,8 @@ func harborDirectoryWrite() *tenantDirectoryWrite {
 // takes the directory through no code of its own. The directory is a row under the
 // tenant like any other, and goes with the tenant's row through the record's
 // description (Test_tenantDeleteTree); a second removal beside it would
-// read the row the first one buffered away and remove it twice. The tenant's row is
-// buffered, and then what the auths hold for the tenant; the rule that keeps a
+// read the row the first one buffered away and remove it twice. The tenant's delete is
+// handed what the auths hold for the tenant, and then buffered; the rule that keeps a
 // directory-only tenant's directory is not asked, since it is for a tenant that stays.
 func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 	t.Parallel()
@@ -960,7 +960,7 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 		// whose handlers are rendered.
 		structs  []string
 		resource string
-		// tenant marks the tenant record, whose delete clears what the auths hold.
+		// tenant marks the tenant record, whose delete is handed what the auths hold.
 		tenant bool
 	}{
 		{name: "a directories record keyed to its tenant by an id", structs: []string{"Harbor", "HarborDirectory"}, resource: "Harbor", tenant: true},
@@ -996,11 +996,12 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 			if _, err := format.Source(append([]byte("package app\n\n"), standalone...)); err != nil {
 				t.Fatalf("the rendered handler does not parse: %v\n%s", err, standalone)
 			}
-			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", Clears: r.tenantClears(res)}
+			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", KindsFrom: r.tenantKindSources(res)}
 			data := consolidatedPatchData{
 				Resources:           []*resourceInfo{res},
 				HasTenant:           true,
 				DomainRouteSegment:  "harbors",
+				TakesRowsUnder:      res.TakesRowsUnder(),
 				DomainPatternPrefix: "/harbors/{harborID}",
 				LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 				Package:             "app",
@@ -1024,6 +1025,9 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 				t.Fatalf("the rendered consolidated handler does not parse: %v\n%s", err, consolidated)
 			}
 
+			// The record's own handler names the fixture's package, the consolidated one the
+			// package the data names.
+			packageOf := map[string]string{"the record's own handler": "tenantfixture", "the consolidated handler": "resources"}
 			for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
 				// No removal of a directory beside the row's own.
 				assertContains(t, name, out, nil, []string{"Directory(ctx, txn, id"})
@@ -1034,18 +1038,25 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 				// are spelled (a named set chains before the call).
 				assertContains(t, name, out, nil, []string{".Remove(ctx, txn,"})
 				assertInOrder(t, out,
-					".New"+tt.resource+"DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
-					"if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {",
+					// The tenant record's delete takes rows: its patch is kept, handed what the
+					// auth holds for the tenant, buffered, and kept to say what it left.
+					"patch := "+packageOf[name]+".New"+tt.resource+"DeletePatchFromPatchSet(id, patchSet)",
+					"patch.DeleteAlso(a.StaffIdentity().TenantKinds(accesstypes.Domain(id.String()))...)",
+					"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+					"if taken := patch.Left(); taken != nil {",
 				)
+				assertContains(t, name, out, nil, []string{"ClearTenant"})
 			}
 		})
 	}
 }
 
 // Test_tenantRecord_deleteRequiresDisabled pins the delete of a tenant record, in its own
-// handler and in the consolidated one: the caller's grants answer first, then the rule that
-// a tenant is disabled before it is deleted, both before the row's removal is buffered and
-// before what the auths hold for the tenant goes. No other resource asks the rule.
+// handler and in the consolidated one, in an application with rows under a tenant (its
+// directories) and in one with none: the caller's grants answer first, then the rule that
+// a tenant is disabled before it is deleted, then the delete is handed what the auths hold
+// for the tenant and buffered, what it left is kept, and the handler answers 202 with it
+// once the commit has landed. No other resource asks the rule or hands its delete a kind.
 func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -1091,11 +1102,12 @@ func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
 			if _, err := format.Source(append([]byte("package app\n\n"), standalone...)); err != nil {
 				t.Fatalf("the rendered handler does not parse: %v\n%s", err, standalone)
 			}
-			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", Clears: r.tenantClears(res), RequiresDisabled: r.tenantDisabledRequirement(res)}
+			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", KindsFrom: r.tenantKindSources(res), RequiresDisabled: r.tenantDisabledRequirement(res)}
 			data := consolidatedPatchData{
 				Resources:           []*resourceInfo{res},
 				HasTenant:           true,
 				DomainRouteSegment:  "havens",
+				TakesRowsUnder:      res.TakesRowsUnder(),
 				DomainPatternPrefix: "/havens/{havenID}",
 				LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 				Package:             "app",
@@ -1119,9 +1131,12 @@ func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
 				t.Fatalf("the rendered consolidated handler does not parse: %v\n%s", err, consolidated)
 			}
 
+			// The record's own handler names the fixture's package, the consolidated one the
+			// package the data names.
+			packageOf := map[string]string{"the record's own handler": "tenantfixture", "the consolidated handler": "resources"}
 			for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
 				if !tt.requires {
-					assertContains(t, name, out, nil, []string{"RequireTenantDisabled"})
+					assertContains(t, name, out, nil, []string{"RequireTenantDisabled", "DeleteAlso", "TenantKinds"})
 
 					continue
 				}
@@ -1131,9 +1146,16 @@ func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
 					"if err := patchSet.Permitted(ctx, txn); err != nil {",
 					`if err := resource.RequireTenantDisabled(ctx, txn, "Havens", "Id", "Disabled", accesstypes.Domain(id.String()), "haven"); err != nil {`,
 					`return errors.Wrap(err, "resource.RequireTenantDisabled()")`,
-					".NewHavenDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
-					"if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {",
+					"patch := "+packageOf[name]+".NewHavenDeletePatchFromPatchSet(id, patchSet)",
+					"// A tenant's delete takes what each auth holds for it: the accounts that were its alone,\n",
+					"patch.DeleteAlso(a.StaffIdentity().TenantKinds(accesstypes.Domain(id.String()))...)",
+					"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+					"if taken := patch.Left(); taken != nil {",
+					"left.Deleted += taken.Deleted",
+					"}); err != nil {",
+					"return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)",
 				)
+				assertContains(t, name, out, nil, []string{"ClearTenant"})
 				if got := strings.Count(out, "RequireTenantDisabled(ctx"); got != 1 {
 					t.Errorf("%s asks RequireTenantDisabled %d times, want once, in the delete:\n%s", name, got, out)
 				}

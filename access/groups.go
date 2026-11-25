@@ -246,37 +246,15 @@ func (u *userManager) DescribeGroup(ctx context.Context, group accesstypes.Group
 	return nil
 }
 
-// DeleteGroup removes a group that has no member and holds no role. A group that still
-// has either is refused until it is emptied, so nobody loses a role by a group's
-// deletion: the people are removed and the roles taken first, each by its own act. A
-// member or a role whose period has ended gives nobody anything and goes with the group;
-// one whose period has not begun stands in the way like one that counts now.
+// DeleteGroup removes a group with its members and the roles it holds, whatever their
+// periods, in the store's one transaction.
 func (u *userManager) DeleteGroup(ctx context.Context, group accesstypes.Group) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	members, err := u.store.groupUsers(ctx, group)
-	if err != nil {
-		return err
-	}
-	roles, err := u.store.groupRoles(ctx, group)
-	if err != nil {
-		return err
-	}
-	if len(members) > 0 || len(roles) > 0 {
-		return httpio.NewConflictMessageWithError(
-			errors.Newf("the group still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it", len(members), len(roles)),
-			"The group still has a member or holds a role. Remove its members and take its roles away, then delete it.",
-		)
-	}
 	deleted, err := u.store.deleteGroup(ctx, group)
-	if errors.Is(err, policy.ErrStillAssigned) {
-		// The listings read what counts now: what stands in the way is a member
-		// or a role whose period has not begun, or one given since they were read.
-		return httpio.NewConflictMessage("The group has a member or holds a role, now or for a period that has not begun yet. Remove its members and take its roles away, then delete it.")
-	}
 	if err != nil {
 		return err
 	}

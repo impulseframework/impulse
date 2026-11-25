@@ -180,7 +180,7 @@ function server(overrides: Partial<Server> = {}): Server {
     endOtherSessions: { status: 200, body: { ended: 2 } },
     forgetBrowsers: { status: 200, body: undefined },
     ownTenants: { status: 200, body: { tenants: [] } },
-    leaveTenant: { status: 200, body: { accountDeleted: false } },
+    leaveTenant: { status: 200, body: undefined },
     invitationOpen: { status: 200, body: opened },
     invitationAccept: { status: 200, body: { accepted: true } },
     // The link proves nothing of who holds it: the sign-up makes nobody and waits for the code.
@@ -745,7 +745,7 @@ describe('the pending sign-in', () => {
     });
   }
 
-  it('is cancelled after the list is read again', async () => {
+  it('is canceled after the list is read again', async () => {
     const { auth, transport } = authOver(server());
     await auth.cancelPending();
     expect(sent(transport)).toEqual(['GET /console/api/user/methods', 'POST /console/api/user/pending/cancel']);
@@ -1305,14 +1305,12 @@ describe("the person's own tenants", () => {
     domain: 'a1111111-1111-4111-8111-111111111111',
     name: 'Anvil',
     roles: ['Pilot', 'Sector crew'],
-    deletesAccount: false,
   };
   const cinder = {
     domain: 'c3333333-3333-4333-8333-333333333333',
     name: 'Cinder',
     roles: ['Sector marshal'],
     refusal: 'You are the last administrator of this sector. Give another person the role before you leave.',
-    deletesAccount: false,
   };
 
   it('reads the list again, then the tenants from the path it names', async () => {
@@ -1327,8 +1325,8 @@ describe("the person's own tenants", () => {
   it('drops an entry without a domain, names a tenant by its domain where the server sends no name, and keeps only what is so', async () => {
     const body = {
       tenants: [
-        { ...anvil, name: '', roles: ['Pilot', 4, null], refusal: '', deletesAccount: 'yes' },
-        { ...cinder, name: 9, roles: 'Sector marshal', refusal: 3, deletesAccount: true },
+        { ...anvil, name: '', roles: ['Pilot', 4, null], refusal: '' },
+        { ...cinder, name: 9, roles: 'Sector marshal', refusal: 3 },
         { ...anvil, domain: 12 },
         null,
       ],
@@ -1336,8 +1334,8 @@ describe("the person's own tenants", () => {
     const { auth } = authOver(ownTenantsServer({ ownTenants: { status: 200, body } }));
     const read = await auth.ownTenants();
     expect(read).toEqual([
-      { domain: anvil.domain, name: anvil.domain, roles: ['Pilot'], deletesAccount: false },
-      { domain: cinder.domain, name: cinder.domain, roles: [], deletesAccount: true },
+      { domain: anvil.domain, name: anvil.domain, roles: ['Pilot'] },
+      { domain: cinder.domain, name: cinder.domain, roles: [] },
     ]);
     expect(Object.keys(read[0])).not.toContain('refusal');
     expect(Object.keys(read[1])).not.toContain('refusal');
@@ -1345,22 +1343,13 @@ describe("the person's own tenants", () => {
     expect(await empty.ownTenants()).toEqual([]);
   });
 
-  it('reads the list again, then posts the tenant and what the person was told to the path it names', async () => {
+  it('reads the list again, then posts the tenant, and nothing else, to the path it names', async () => {
     const { auth, transport, errors } = authOver(ownTenantsServer());
-    expect(await auth.leaveTenant(anvil.domain, false)).toEqual({ outcome: 'left', accountDeleted: false });
+    expect(await auth.leaveTenant(anvil.domain)).toEqual({ outcome: 'left' });
     expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${ownTenantsRoutes.leave}`]);
-    expect(transport.requests[1].body).toEqual({ domain: anvil.domain, deletesAccount: false });
+    expect(transport.requests[1].body).toEqual({ domain: anvil.domain });
+    expect(Object.keys(transport.requests[1].body as object)).toEqual(['domain']);
     expect(errors).toEqual([]);
-  });
-
-  it('resolves the account deleted only where the server says true', async () => {
-    const deleted = authOver(ownTenantsServer({ leaveTenant: { status: 200, body: { accountDeleted: true } } }));
-    expect(await deleted.auth.leaveTenant(anvil.domain, true)).toEqual({ outcome: 'left', accountDeleted: true });
-    expect(deleted.transport.requests[1].body).toEqual({ domain: anvil.domain, deletesAccount: true });
-    for (const body of [{ accountDeleted: 'true' }, {}, null]) {
-      const unsaid = authOver(ownTenantsServer({ leaveTenant: { status: 200, body } })).auth;
-      expect(await unsaid.leaveTenant(anvil.domain, true)).toEqual({ outcome: 'left', accountDeleted: false });
-    }
   });
 
   const refusals: { name: string; answer: TransportResponse; want: unknown }[] = [
@@ -1374,23 +1363,11 @@ describe("the person's own tenants", () => {
       answer: { status: 404, body: { message: 'You hold no role in that sector.' } },
       want: { outcome: 'refused', status: 404, message: 'You hold no role in that sector.' },
     },
-    {
-      name: "a leave the list no longer describes resolves with the server's words",
-      answer: {
-        status: 409,
-        body: { message: 'What you hold changed while this page was open. Look at the list again before you leave.' },
-      },
-      want: {
-        outcome: 'refused',
-        status: 409,
-        message: 'What you hold changed while this page was open. Look at the list again before you leave.',
-      },
-    },
   ];
   for (const tt of refusals) {
     it(tt.name, async () => {
       const { auth, errors } = authOver(ownTenantsServer({ leaveTenant: tt.answer }));
-      expect(await auth.leaveTenant(cinder.domain, false)).toEqual(tt.want);
+      expect(await auth.leaveTenant(cinder.domain)).toEqual(tt.want);
       expect(errors).toEqual([]);
     });
   }
@@ -1399,7 +1376,7 @@ describe("the person's own tenants", () => {
     const { auth, transport } = authOver(server());
     const thrown = 'this server names no your-tenants paths in its methods list: it does not serve one';
     await expect(auth.ownTenants()).rejects.toThrow(thrown);
-    await expect(auth.leaveTenant(anvil.domain, false)).rejects.toThrow(thrown);
+    await expect(auth.leaveTenant(anvil.domain)).rejects.toThrow(thrown);
     expect(sent(transport).filter((request) => !request.endsWith(loginMethodsRoute))).toEqual([]);
   });
 });

@@ -972,7 +972,7 @@ before anything is saved. A warning is made of these, and the method declares th
   word a person types before the confirm button works. A bare `@warning` names none: the
   dialog asks in the server's words and its button works once they are on the screen,
   which suits an act a person does often and should still read first (taking a role
-  away, which says when the account goes with it).
+  away, which says whose role goes and where it is held).
 - **The style.** The library's method dialog draws the consequence of a method with a
   typed word in its warning colors under a warning icon, and that of a method without
   one as the dialog's question, with no configuration.
@@ -1800,26 +1800,14 @@ transaction, and answers the first delete that has one with a 409:
   generator writes). A row of another tenant that names the record is not under it, and
   its foreign key refuses the commit in the commit's own sentence (the table that opens
   this section).
-- A row the transaction's own patches deleted is left out of the count, by its key: a
-  read inside the transaction does not see its buffered writes. So the rows and the
-  record go together in one transaction, in either order. A row the transaction's
-  patches changed is counted as it was before the transaction, so a request that moves
-  a row from under a record and deletes the record is refused: the move and the delete
-  are sent one after the other. A transaction that deleted more than 200 rows of a kind
-  is not counted over that kind.
-- The count never refuses a delete the database would take. A kind whose rows the
-  database removes with a row of another table (`DeleteKind.RemovedWith`) is not counted
-  once the transaction deleted a row of that table, and a kind the database removes with
-  the record itself is not in the description. That is so only of a link that still
-  carries the database's rule, which no link to an application's record does.
+- The count reads what the database held before the save: a read inside the transaction
+  does not see its buffered writes. Rows that go with a record are declared
+  (@deleteCascade). Rows that are not declared are deleted in an earlier save. A kind the
+  database removes with the record itself is not in the description.
 
 What the count does not reach is still the commit's to refuse, in the sentences of the
-table above: a row under a row the database removes with the record, and a row an update
-of the same transaction leaves under the record. The count knows the rows the transaction's patches deleted and no others: code that
-removes the rows under a record with raw mutations and deletes the record with a patch in
-one transaction is refused over rows that are about to go, so those rows are deleted
-through their patches. The mock client holds no rows and refuses nothing here, and
-PostgreSQL has no write path.
+table above: a row under a foreign key the generator does not follow. The mock client
+holds no rows and refuses nothing here, and PostgreSQL has no write path.
 
 Example: [the served suite](../lodestar/test/integration/delete_refusal_test.go).
 
@@ -1845,7 +1833,7 @@ question a person is asked before anything goes:
 
 | Under the record | Message |
 | --- | --- |
-| Rows of kinds the person may list | `Delete this mission and everything under it: 2 sorties, 1 mission document, 1 sortie expense. This can't be undone.` |
+| Rows of kinds the person may list | `Delete this mission and everything under it: 1 mission document, 2 sorties, 1 sortie expense. This can't be undone.` |
 | Some rows of kinds they may not list | `Delete this mission and everything under it: 2 sorties, and records you can't see. This can't be undone.` |
 | Rows of kinds they may list none of | `Delete this mission and everything under it? This can't be undone.` |
 
@@ -1868,20 +1856,25 @@ with nothing gone where it cannot be made whole:
 | What stops it | Status | Message |
 | --- | --- | --- |
 | A row of a kind the record lists under `refusedBy` | 409 | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
-| A row under the record that the same request changes | 409 | `This request also changes a record under this mission. Send the change and the delete separately.` |
-| More rows than one commit takes | 409 | `This mission has too many records under it to delete at once. Delete some of them first.` |
+| More rows than one commit takes | 202 | `{"deleted": 6800, "left": 31200}`: the rows this save deleted and the rows still under the record. Send the same remove again. |
 | A row the person may not delete, of a kind they may list | 403 | `This mission has sortie expenses that you can't delete, so it can't be deleted.` |
 | A row the person may not delete, of a kind they may not list | 403 | `This mission has records under it that you can't delete, so it can't be deleted.` |
 | A row its delete rule refuses (`@validateDeleteType`) | the rule's | the rule's own sentence |
 
-- The rows are found level by level from the record, by each kind's ways up to it
-  (`DeleteKind.Paths`), on the columns each foreign key references (`DeleteLink.References`),
-  the other table's key or not: a relay names its call by the call's case number. A kind's
-  link to itself (`DeleteKind.Within`: an answer names the relay it answers) is followed
-  until a level finds nothing new, so a row under a row of its own kind goes however deep
-  it is, and so does one that is under the record through such a row alone.
+- The rows are found a kind at a time, by one statement that follows the kind's ways up to
+  the record (`DeleteKind.Paths`), on the columns each foreign key references
+  (`DeleteLink.References`), the other table's key or not: a relay names its call by the
+  call's case number. A kind that sits under itself (`DeleteKind.Within`: an answer names
+  the relay it answers) is found level by level, the same statement with the kind's link
+  to itself repeated until a level finds nothing; the delete fails where rows are nested
+  deeper than the database joins in one statement: delete the deepest of them first, each
+  by its own delete. Rows of a kind that sit under each other in a ring are never found to
+  end: the delete fails until the ring is broken. A row belongs to the deepest level that
+  finds it, so a row is deleted before the row it is under. A row that two levels find,
+  with a level between them that does not find it, is counted at both, and the question's
+  count comes out high by it.
 - A row is under a record of a tenant only where it is that tenant's. For a kind whose
-  rows are a tenant's (`@domain`), each level reads the rows of the record's own tenant
+  rows are a tenant's (`@domain`), each statement reads the rows of the record's own tenant
   alone: the tenant the record's key holds (the tenant record, or a record keyed by its
   tenant), or the one the record's row resolves to (`DeleteTree.Tenant`), compared with
   the tenant each row of the kind resolves to (`DeleteKind.Tenant`), through other rows
@@ -1905,18 +1898,18 @@ with nothing gone where it cannot be made whole:
   the one the database holds them in, which the refusal prints.
 - A row of a kind the record lists under `refusedBy` refuses the delete wherever it is
   under the record. One under a row that is under the record through a row of its own
-  kind alone (an invoice for a task under a task) is on none of the kind's ways up, so it
-  is looked for under the rows found, each row counted once, and the delete answers in
-  the same counted sentence before any row is checked, asked about or deleted.
+  kind alone (an invoice for a task under a task) is found level by level as the rows the
+  delete takes are, and the delete answers in the same counted sentence before any row
+  is checked, asked about or deleted.
 - Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
   generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind,
   what a session that acts as someone else is asked about a row that decides what a
   person may do (`identity.RefuseImpersonatorAsRowSubject` and the two beside it), the
   grant's condition against the row, the kind's delete rule, its change record where
   the kind is tracked, and the release of its stored
-  files. One row that may not go stops the whole delete. One thing a kind's own route
-  asks is not asked here yet: a kind behind a feature flag (`@feature`) goes with the
-  record while its flag is off.
+  files. One row that may not go stops the whole delete. A kind behind a feature flag
+  (`@feature`) goes with the record whether its flag is on or off: a flag turns a
+  feature's routes and pages off, and does not change what belongs to a record.
 - The tenant record declares nothing, and `@deleteCascade` on it is refused: the library
   declares what a tenant's delete takes, which is every kind of the application's whose
   rows carry the tenant's key or lead to a row that does. Its rows are found, asked about
@@ -1925,20 +1918,18 @@ with nothing gone where it cannot be made whole:
   tenant need hold no role in it. Each kind's delete rule is asked on every row all the
   same, with its change record and the release of its files (section 16, "Deleting a
   tenant").
-- The rows are counted against what one commit takes before any is deleted
-  (`DeleteTree.Mutations` against `resource.DeleteMutationLimit`, 80,000 mutations): the
-  delete of each row, an entry in each index of its table, its change record and its files.
+- A delete larger than one save runs in rounds: each request deletes what fits one save,
+  deepest rows first, and answers 202 with what is left; the record goes last. Each round
+  checks the rows it takes. A refusal that comes after rounds have run stops the delete
+  there: what is gone stays gone, what is left is a whole, smaller record, and the same
+  delete goes on once the refusal's cause is gone. Nothing is kept between rounds.
 - The rows are checked as the person the record's delete is armed against, and the
   sentences are written for that person, as the count of the part before is. A trusted
   delete (a patch that is not armed) checks no grant, runs each kind's rule, and is told
   every kind; it is asked the question all the same, and takes the rows once it says so.
-- A row the same transaction already deleted is not found again, so a request that deletes
-  a row under the record beside the record deletes it once.
-- A row under the record that the same transaction changed (an update, or an insert or
-  update) refuses the delete, whatever the delete says and before any row is checked.
-  The reads show the row as it was before the request, so neither where the row is
-  after it nor what is under the row can be told, and a row is never taken on a guess.
-  The change and the delete are sent one after the other.
+- The delete reads what the database held before the save: a row the same save deleted
+  is found and deleted again, with the one change record its first delete wrote, and a
+  row the same save changed is found where it stood before the save.
 
 The delete in code is Spanner's write path. The mock client holds no rows and takes none,
 and PostgreSQL has no write path.
@@ -2016,12 +2007,10 @@ Two consequences to know:
 
 The tenancy check's 404 for a referenced row outside the request's partition, and the 404
 a tenanted or tracked update answers when its row is missing, are unchanged; they run before
-the commit, so the same request answers 404 whatever the resource's shape. A request that
-deletes children and their parent in one transaction still succeeds in either order where
-the parent declares no `@deleteCascade`: its count runs once the transaction's function has
-returned and leaves out the rows the request deleted. A record that declares one is judged
-as its delete is buffered, so a row that refuses it (`refusedBy`) is deleted ahead of it in
-the request.
+the commit, so the same request answers 404 whatever the resource's shape. The count of
+the rows under a record reads what the database held before the save. Rows that go with a
+record are declared (@deleteCascade). Rows that are not declared are deleted in an earlier
+save.
 
 ## 11. Value limits from the schema
 
@@ -3991,51 +3980,56 @@ application's staff manage the people of a disabled tenant as they did before. C
 runs without a session, a scheduled task or a consumer, is not asked
 the door and reads and writes a disabled tenant's records as any other's.
 
-**Deleting a tenant.** The record's generated delete clears what each auth holds for the
-tenant in the transaction that deletes its row, through the generated identity client of
-every auth whose management the program generates (`<Auth>Identity().ClearTenant`,
-`identity.Manager.ClearTenant`): every membership held in the tenant, the custom roles
-made in it with their grants, and the invitations into it that still stand, which are
-withdrawn. The delete is of a disabled tenant: the generated delete refuses a tenant that
-is not disabled, after the caller's grant and before the question below (409, "Disable
-this tenant before deleting it.", with the application's word for one;
-`resource.RequireTenantDisabled`), so nobody of the tenant is at work in it while its
-records go. A person who held roles in the tenant alone then holds none anywhere and is
-deleted with their identity links and sessions, by the rule on an account nothing admits
-(section 21, "The rules"); a person who holds a role anywhere else stays, and so does a
-role held in every tenant, which is no one tenant's. The permission engine is told once
-the delete has committed.
+**Deleting a tenant.** A tenant is disabled before it is deleted; a delete of a tenant that
+is not is refused. The delete asks first, with a count of every kind of the application's
+rows under the tenant and of what each auth holds for it: the accounts that belong to it
+alone, the roles held in it, its groups, its custom roles and its invitations. It asks one
+permission, to delete a tenant: no grant is asked row by row, and each row's delete rule
+still runs. It then runs in rounds like any delete, the application's rows first, deepest
+first, then the auths' rows, and the tenant's own row last. An account is the tenant's
+alone where everything it holds is in the tenant, or the tenant's directory manages it and
+it holds nothing elsewhere; a person who holds anything elsewhere, or whom another tenant's
+directory manages, keeps their account.
 
-The rows under the tenant go with it in the same transaction, and the library deletes
-them in code (section 10, "A delete that takes what is under the record"): every row of a
-resource of the application's that carries the tenant's key or leads to a row that does,
-each through its kind's own delete, so its delete rule (`@validateDeleteType`) is asked,
-its change event is written and its stored files are released. The tenant's directory is
-one of those rows and goes with the rest, whether the tenant is directory only or not,
-and is free for another tenant afterwards; the rule that keeps the directory of a
-directory-only tenant is for a tenant that stays and is not asked. No grant is asked on a
-row: the grant to delete a tenant answers for everything under it, and a person who may
-delete a tenant need hold no role in it. A row of another tenant that names one of the
-tenant's rows is not under the tenant and is not taken (section 10, the same part).
+The refusal of a tenant that is not disabled comes after the caller's grant and before the
+question (409, "Disable this tenant before deleting it.", with the application's word for
+one; `resource.RequireTenantDisabled`), so nobody of the tenant is at work in it while its
+records go. What each auth holds for the tenant is handed to the record's generated delete
+as kinds of it (`DeleteAlso`), through the generated identity client of every auth whose
+management the program generates (`<Auth>Identity().TenantKinds`,
+`identity.Manager.TenantKinds`): an account taken goes with its identity links, its
+sessions ended; a group goes with its members and its roles; the custom roles go with
+their grants; an invitation is withdrawn. A role held in every tenant is no one tenant's
+and stays. The permission engine is told once a save that took any of them has committed.
 
-A tenant that has such rows is not deleted by a request that does not say so. The remove
-is answered 428 with the question a person is asked first (`Delete this tenant and
-everything under it? This can't be undone.`), and nothing is gone; the request that goes
-ahead carries `"value": {"everythingUnder": true}` on the remove operation, and the
-library's delete dialog sends it when the person presses Delete at the question. The
-question counts the rows of each kind the person may list in the tenant being deleted
-(`Delete this tenant and everything under it: 3 projects, 12 tasks. This can't be
-undone.`). A tenant's delete is asked for the whole application, and the rows under the
-tenant are the tenant's, so each kind of them is asked about in that tenant: a person
-whose roles list a kind there reads its count, and a kind they may not list there is
-neither named nor counted (`, and records you can't see.` after the kinds they may list,
-or the question alone where they may list none). A tenant with nothing under it is
-deleted by the plain remove. A table of the application's that no resource
-describes is not a row the library can delete: its foreign key refuses the tenant's
-delete while its rows remain, so the application deletes them first, in code. An
+The rows under the tenant go with it, and the library deletes them in code (section 10,
+"A delete that takes what is under the record"): every row of a resource of the
+application's that carries the tenant's key or leads to a row that does, each through its
+kind's own delete, so its delete rule (`@validateDeleteType`) is asked, its change event is
+written and its stored files are released. The tenant's directory is one of those rows and
+goes with the rest, whether the tenant is directory only or not, and is free for another
+tenant afterwards; the rule that keeps the directory of a directory-only tenant is for a
+tenant that stays and is not asked. A person who may delete a tenant need hold no role in
+it. A row of another tenant that names one of the tenant's rows is not under the tenant and
+is not taken (section 10, the same part).
+
+A tenant that has such rows, or that an auth holds anything for, is not deleted by a
+request that does not say so. The remove is answered 428 with the question a person is
+asked first (`Delete this tenant and everything under it? This can't be undone.`), and
+nothing is gone; the request that goes ahead carries `"value": {"everythingUnder": true}`
+on the remove operation, and the library's delete dialog sends it when the person presses
+Delete at the question, and again after each round until the tenant is gone. The question
+counts every kind, whatever the person may list, since the one permission to delete a
+tenant answers for all of them (each kind under the tenant record is trusted,
+`DeleteKind.Trusted`), the application's kinds first: `Delete this tenant and everything
+under it: 3 projects, 12 tasks, 2 accounts, 5 roles held. This can't be undone.` A tenant with nothing under it and
+nothing held for it is deleted by the plain remove. A table of the application's that no
+resource describes is not a row the library can delete: its foreign key refuses the
+tenant's delete while its rows remain, so the application deletes them first, in code. An
 application that deletes a tenant in a transaction of its own buffers the record's
-generated delete patch with `WithEverythingUnder()` and calls `ClearTenant` there, and a
-program that generates no auth's management removes the memberships itself.
+generated delete patch with `WithEverythingUnder()`, handed each auth's
+`TenantKinds(domain)` (`DeleteAlso`), there, and a program that generates no auth's
+management removes the memberships itself.
 
 Each thing the delete takes is an action of the class `access` when it is done alone (a
 role removed, a group deleted, an invitation withdrawn), so the generator gives the
@@ -4383,7 +4377,7 @@ POST <prefix>/take-crew-role                  {"domain","role","length","reason"
 POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole (declares a warning)
 POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
 POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewListedGroups
-POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewListedGroups
+POST <prefix>/delete-crew-group               {"groupId","everythingUnder"}    Execute on DeleteCrewGroup, targeting CrewListedGroups (202 with what is left)
 POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewListedGroups
 POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers (declares a warning)
 POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewListedGroups
@@ -4400,7 +4394,7 @@ POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identit
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","description"} → {"id"}   Execute on CreateCrewSectorGroup
 POST <prefix>/sectors/{sectorID}/describe-crew-sector-group        {"groupId","description"}   Execute on DescribeCrewSectorGroup, targeting CrewSectorGroups
-POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId"}          Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId","everythingUnder"}   Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups (202 with what is left)
 POST <prefix>/sectors/{sectorID}/add-crew-sector-group-member      {"groupId","userId"} Execute on AddCrewSectorGroupMember, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","userId"} Execute on RemoveCrewSectorGroupMember, targeting CrewSectorGroupUsers (declares a warning)
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
@@ -4801,8 +4795,8 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
 - The rules are the whole application's, in the same code: nobody disables or deletes
   their own account, the last administrator of a tenant's own cannot leave it or give
   up the role (someone whose role lets them take the role away may), a rename moves the
-  roles, the last role a person holds anywhere takes the account with it, an
-  invitation gives at least one role. A tenant's administrators are counted as the
+  roles, the last role a person holds anywhere leaves the account standing, holding
+  nothing, and an invitation gives at least one role. A tenant's administrators are counted as the
   permission engine counts them (`access.AdministersTenant`): the people who hold an
   administrator's role in the tenant itself, themselves or through a group kept in the
   tenant. A person who holds the role in every tenant, or through a group kept for the
@@ -5037,25 +5031,33 @@ holding some of them is refused at generation.
   through, which is none for a role of the person's own, the row a request that names
   no group names. A row that comes through a group is refused (400), and the refusal
   says where the role is changed. It asks first (a bare `@warning`): the server says
-  whose role goes and where it is held, and that the account is deleted with it where it
-  is the last thing the person holds.
+  whose role goes and where it is held.
 - No group holds the Super Administrator role (400): a super administrator gives it to
   one person at a time, so a group is no way around the rule that only a super
   administrator makes another. The methods a super administrator always executes stay
   the two that give and take a person's own role.
-- A group that still has a member or holds a role is not deleted (409): empty it first.
-  The lists of groups say what each holds (`people`, `roles`), counted over what the
-  deletion refuses a group for, so a page offers Delete only on a group that holds
-  nothing and says what is left on the others; the refusal stays for a request that
-  never saw the page. Nobody loses a role because a group was deleted. Deleting a tenant removes the
-  tenant's groups with their members and roles, and every role a group of the whole
-  application holds in it (`ClearTenant`); deleting a person takes them out of their
-  groups.
-- A place in a group keeps an account as a role of the person's own does: a person whose
-  last role is taken away stays while they are in a group, and a person taken out of
-  their last group who holds no role is deleted with their identity links and sessions.
-  Where a person belongs to one tenant (`identity.WithOneTenantPerPerson()`), a place in
-  a tenant's group counts as a role in that tenant.
+- A group's delete takes its members and the roles it holds with it, after a question
+  that counts them. Asked without `everythingUnder`, a group that has either deletes
+  nothing and is answered 428 with the question ("Delete this group and everything under
+  it: 12 members, 3 roles. This can't be undone."); asked with it, they go with the group.
+  Each member and each role whose period has not ended is asked what its own removal
+  asks: the caller's grant of `RemoveCrewGroupMember` and of `TakeCrewGroupRole` (403,
+  "This group has members, and you can't remove people from a group, so it can't be
+  deleted." and the same of roles), and the rules of the removal, so nobody deletes a
+  group that gives them the last administrator's role of a tenant. A member or a role
+  whose period has ended is asked nothing: the question counts it and it goes with the
+  rest. A group with more under it than one save
+  holds answers 202 with what is left, and the same delete, sent again, goes on. The
+  lists of groups say what each holds (`people`, `roles`). The roles people hold in the
+  tenant, its groups, its custom roles, its invitations and the accounts that belonged to
+  it alone are kinds of the tenant's delete: counted in its question and taken in its
+  rounds. A tenant's group goes with its members and its roles, and a role a group of the
+  whole application holds in the tenant goes with the roles held (section 16, "Deleting a
+  tenant"); deleting a person takes them out of their groups.
+- A person taken out of their last group who holds no role keeps their account: the
+  account stays, holding nothing. Where a person belongs to one tenant
+  (`identity.WithOneTenantPerPerson()`), a place in a tenant's group counts as a role in
+  that tenant.
 - The declaration over the members table declares a subject set, the ids of the groups
   the caller is in, named after the auth: `subject.crewGroups` for Lodestar's auth
   `crew`, `subject.staffGroups` for an auth `staff` (section 2, `@subjectSet`). Every
@@ -5337,14 +5339,6 @@ every policy store's schema holds it).
   them, so their next sign-in from any of them is asked for the factor. The sessions
   that stand are left. The person is told at their confirmed address, once the
   transaction has committed.
-- A person an administrator takes out of a tenant is told at their confirmed address,
-  once the transaction has committed: when the last role they held there is taken away,
-  when they are taken out of the group that gave them their last holding there, and
-  when that group's role is taken away, each of its people who held nothing else there
-  told. Where it was the last thing the person held anywhere and the account went with
-  it, the notice says so. Nothing is mailed when an administrator deletes the account
-  outright, when a tenant is cleared, for a role that ended by itself, or to a person
-  who still holds something in the tenant, of their own or through another group.
 - A lockout is cleared by removing the count of failed sign-ins kept under the name.
   Each instance of the application trusts what it remembers of a name for five seconds,
   a lock included, so the lock is gone from every instance within that time of the
@@ -5845,12 +5839,12 @@ own, outside any request, has no caller and is the application's act):
     (`accesstypes.RefuseAction(action)`): an action is asked for Execute on its name,
     not for Delete on the record.
 
-  A row a foreign key's own rule removes or rewrites is another: no write of the row is
-  made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` among an
-  application's own tables (`no-delete-cascade`). A row of an application's that names a
-  row of the library's under that rule (a pass given to a group) still goes with it, and
-  what a mask refuses there is the action that removes the library's row. PostgreSQL has
-  referential actions that change the row where it stands. `ON DELETE SET NULL` and
+  A row a foreign key's referential action removes or rewrites is another: no write of
+  the row is made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` on an
+  application's tables, wherever the link points (`no-delete-cascade`). An application's
+  record that names a group of the library's is not removed by the database when the group
+  is deleted. PostgreSQL has referential actions that change the row where it stands.
+  `ON DELETE SET NULL` and
   `ON DELETE SET DEFAULT` rewrite the column that named the parent when the parent is
   deleted, and refusing the parent's delete under the mask closes them
   (`accesstypes.RefusePermission(accesstypes.Delete, parent)`). `ON UPDATE CASCADE`,
@@ -5980,8 +5974,8 @@ own, outside any request, has no caller and is the application's act):
   request. The judgment covers the acts that give the way in or take over an
   administrator's sign-in, and no others: ending a person's sessions, forgetting their
   remembered browsers, unlocking their sign-in, revoking a token, withdrawing an
-  invitation, changing the name a person is shown by and clearing a deleted tenant are
-  not judged. Nor does it look back or ahead: a person put in a tenant's group before
+  invitation, changing the name a person is shown by and deleting a tenant with what each
+  auth holds for it are not judged. Nor does it look back or ahead: a person put in a tenant's group before
   the group holds an administrator's role, an invitation that carried the role, sent
   before the tenant became directory only and accepted after, and a password or an
   address set on an account before its person was given the role all stand. The caller's
@@ -5997,12 +5991,12 @@ own, outside any request, has no caller and is the application's act):
   for a set time, leaves out the removal of a tenant's administrator's role held in that
   tenant itself, and a row of the roles the groups hold the removal of such a role from a
   group kept in that tenant, for a caller the method would refuse.
-- The removal of a person's last role anywhere deletes the account, with its identity
-  links and sessions, in the same transaction and whoever removed the role: an account
-  nothing admits is not kept. An account that signs in through a tenant's directory is
-  that tenant's to delete: it goes this way only with the last thing it holds in that
-  tenant itself, and otherwise stays, holding nothing, in that tenant's list of its
-  people.
+- A removal of a person's role, of their place in a group or of the person from a tenant
+  leaves their account: the account stays, holding nothing. An account is deleted by its
+  own delete, or with the tenant it belonged to alone. An account that signs in through a
+  tenant's directory belongs to that tenant alone where it holds nothing elsewhere, and
+  goes with that tenant's delete; while the tenant stands it stays, holding nothing, in
+  the tenant's list of its people.
 
 A caller is named by the id of their account, as the permission store names anyone, and
 the first three rules take the caller for the person acted on only where the request came

@@ -467,11 +467,12 @@ func (p *AuthAPI[S, U, Tx]) ActivateSessionUser(ctx context.Context, userID impu
 	return nil
 }
 
-// DeleteSessionUser deletes a user with its identity links and sessions. The
-// sessions are destroyed first, by UserId, so a failed delete leaves no live session
-// behind. In a session that acts as someone else it refuses the account of the person
-// who started the session (refuseImpersonatorsOwnAccount). In a session of the person's
-// own, the caller must guard against self-deletion.
+// DeleteSessionUser deletes a user with its identity links. The user's sessions are
+// ended first, by UserId, so a failed delete leaves no live session behind; their rows
+// stay until the timed removal takes them. In a session that acts as someone else it
+// refuses the account of the person who started the session
+// (refuseImpersonatorsOwnAccount). In a session of the person's own, the caller must
+// guard against self-deletion.
 func (p *AuthAPI[S, U, Tx]) DeleteSessionUser(ctx context.Context, userID impulse.UUID) error {
 	if err := refuseImpersonatorsOwnAccount(ctx, userID, "delete your own account"); err != nil {
 		return err

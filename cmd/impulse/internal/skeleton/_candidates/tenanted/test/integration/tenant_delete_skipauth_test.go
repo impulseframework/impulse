@@ -25,10 +25,14 @@ import (
 // disabled Ember, the one delete takes the directory's row and the announcement with the
 // tenant: nothing else comes before it, neither turning directory only off nor removing
 // the directory, which the tenant's own page asks for in that order when the tenant
-// stays. The directory's removal leaves its change event, and
-// another tenant's directory stands. The commuter signs in through the Workspace as
-// before and reaches south, and the Workspace is free again: the commuter, south's
-// administrator, makes it south's directory, which was refused while Ember had it.
+// stays. The delete is asked first, with a count of Ember's rows and of what the auth
+// holds for it: the founder's account, which belonged to Ember alone, and the roles
+// held there. The directory's removal leaves its change event, and another tenant's
+// directory stands. The founder's account goes; the commuter, who holds a role in south,
+// stays, and so does a person north's directory signs in, given a role in Ember. The
+// commuter signs in through the Workspace as before and reaches south, and the Workspace
+// is free again: the commuter, south's administrator, makes it south's directory, which
+// was refused while Ember had it.
 //
 // Under the session library's skipAuth build tag Google is simulated: the callback signs
 // in whoever APP_GOOGLE_USERNAME names, from one Workspace. The test sets that
@@ -112,6 +116,20 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("writing north's directory: %v", err)
 	}
+	// A person north's directory signs in, given a role in Ember: north manages the
+	// account, so it stays when Ember goes.
+	northerner := staffAccount(ctx, t, s, "northerner", "Northerner")
+	if _, err := s.db.Apply(ctx, []*cloudspanner.Mutation{
+		cloudspanner.InsertMap("StaffSessionIdentities", map[string]any{
+			"Id": "e0000000-0000-4000-8000-000000000012", "UserId": northerner, "Method": "azure", "Connection": "6f2c1b7e-0000-4000-8000-000000000001", "Subject": "subject-of-northerner",
+			"CreatedAt": cloudspanner.CommitTimestamp, "LastUsedAt": cloudspanner.CommitTimestamp,
+		}),
+	}); err != nil {
+		t.Fatalf("writing the northerner's identity in north's directory: %v", err)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+northerner+`","role":"TenantAdministrator","domain":"`+ember+`"}`)); status != http.StatusNoContent {
+		t.Fatalf("giving the person north's directory signs in a role in Ember: status %d: %s", status, body)
+	}
 	before := changeEvents(ctx, t, s, "TenantDirectories")["TenantDirectories"]
 
 	// A tenant that is not disabled is not deleted, whether or not the request says it
@@ -132,12 +150,13 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 	setTenantDisabled(ctx, t, admin, ember, true)
 
 	// A request that does not say it takes what is under the tenant is asked the
-	// question, and nothing is gone. The question counts each kind the person may list
-	// in the tenant being deleted. The administrator holds the tenant's administrator
-	// role in every tenant, which lists the directory and the announcement, and enters
-	// Ember as a super administrator though it is directory only.
+	// question, and nothing is gone. The question counts every kind of Ember's rows and
+	// of what the auth holds for it, for whoever may delete the tenant: the directory,
+	// the announcement, the founder's account and the three roles held there (the
+	// founder's, the commuter's and the northerner's). The administrator enters Ember as a
+	// super administrator though it is directory only.
 	status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+ember+`"}]`))
-	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 tenant directory, 1 announcement. This can't be undone.") {
+	if status != http.StatusPreconditionRequired || !strings.Contains(string(body), "Delete this tenant and everything under it: 1 announcement, 1 tenant directory, 1 account, 3 roles held. This can't be undone.") {
 		t.Fatalf("deleting Ember without saying it takes what is under it: status %d, want 428 with the question: %s", status, body)
 	}
 	if tenantNamed(ctx, t, admin, "Ember") == nil || rowsOf(ctx, t, s, "TenantDirectories", ember) != 1 || rowsOf(ctx, t, s, "Announcements", ember) != 1 {
@@ -167,12 +186,16 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 	if after := changeEvents(ctx, t, s, "TenantDirectories")["TenantDirectories"]; after != before+1 {
 		t.Errorf("change events of TenantDirectories: %d before the delete and %d after, want one more: the directory's removal is in the audit", before, after)
 	}
-	// The founder held roles in Ember alone and goes with it; the commuter stays.
+	// The founder's account belonged to Ember alone and goes with it; the commuter stays,
+	// and so does the northerner.
 	if accountExists(ctx, t, s, emberFounder) {
-		t.Error("the account of Ember's founder, who held roles in Ember alone, still exists, want it deleted with the tenant")
+		t.Error("the account of Ember's founder still exists, want it deleted with the tenant: it belonged to Ember alone")
 	}
 	if !accountExists(ctx, t, s, commuterUser) {
 		t.Fatal("the commuter's account is gone, want it kept: the commuter holds a role in south")
+	}
+	if !accountExists(ctx, t, s, "northerner") {
+		t.Error("the northerner's account is gone, want it kept: north's directory manages it")
 	}
 
 	// The commuter signs in as before, through the Workspace, and reaches south.

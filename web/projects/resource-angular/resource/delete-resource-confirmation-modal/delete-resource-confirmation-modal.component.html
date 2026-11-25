@@ -4,6 +4,9 @@
   @if (refusal()) {
     <p class="refusal" role="alert">{{ refusal() }}</p>
   }
+  @if (progress()) {
+    <p class="progress" aria-live="polite">{{ progress() }}</p>
+  }
 </mat-dialog-content>
 <mat-dialog-actions align="end">
   @if (refusal()) {

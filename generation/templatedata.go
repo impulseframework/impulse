@@ -116,7 +116,11 @@ type consolidatedPatchData struct {
 	// HasTenant says the tenant record or the directories record is among the cases:
 	// the dispatcher then reloads the roster after a commit that wrote either, and
 	// signals the tenants kind.
-	HasTenant           bool
+	HasTenant bool
+	// TakesRowsUnder says a case's delete may take rows under its record
+	// (resourceInfo.TakesRowsUnder): the dispatcher keeps what its deletes left under
+	// their records and answers 202 with it.
+	TakesRowsUnder      bool
 	DomainRouteSegment  string
 	DomainPatternPrefix string // "/stations/{stationID}" — the chi pattern the descent case prefix-matches
 	Package             string
@@ -138,10 +142,10 @@ type consolidatedCaseData struct {
 	DomainPatternPrefix string // "" for global cases
 	ResourcePackage     string
 	ReceiverName        string
-	// Clears are the application's accessors of the identity clients the tenant
-	// record's delete clears the tenant through (tenantClears); empty on every other
-	// case.
-	Clears []string
+	// KindsFrom are the application's accessors of the identity clients whose kinds the
+	// tenant record's delete is handed, what each auth holds for the tenant
+	// (tenantKindSources); empty on every other case.
+	KindsFrom []string
 	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
 	// removal is buffered (tenantDisabledRequirement); nil on every other case.
 	RequiresDisabled *tenantDisabledRequirement
@@ -162,10 +166,10 @@ type handlerContentData struct {
 	VirtualResourcesPackage string
 	ApplicationName         string
 	ReceiverName            string
-	// Clears are the application's accessors of the identity clients the tenant
-	// record's delete clears the tenant through (tenantClears); empty on every other
-	// resource.
-	Clears []string
+	// KindsFrom are the application's accessors of the identity clients whose kinds the
+	// tenant record's delete is handed, what each auth holds for the tenant
+	// (tenantKindSources); empty on every other resource.
+	KindsFrom []string
 	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
 	// removal is buffered (tenantDisabledRequirement); nil on every other resource.
 	RequiresDisabled *tenantDisabledRequirement

@@ -381,7 +381,7 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		"Who may enter a tenant is the record's declaration, data of the application rather than deploy configuration:",
 		"The declaration. Grants: the tenant's administrator role",
 		"`tenantSignInPage`",
-		"its directory and its rows with it, in one request, whether it is directory only or not, and its directory is then free for another tenant",
+		"its standing invitations and the accounts that belonged to it alone, whether it is directory only or not, and its directory is then free for another tenant",
 		"Execute on the six generated methods of the tenant's own:",
 		"gets Execute on `Take<Record>Directory`, the method that takes the directory (which takes nothing from the request:",
 		"and warns first: the person reads that they are authorized to act on behalf of the organization and types `I am authorized`; the record's own create is refused), Delete, List and Read on `TenantDirectories`,",

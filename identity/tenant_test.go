@@ -178,11 +178,11 @@ func TestTenant_RemoveRole(t *testing.T) {
 			memberships: []access.MembershipKey{membership(betaScope, dana, "Reader")},
 		},
 		{
-			name:        "the last role anywhere takes the account with it",
+			name:        "the last role anywhere: the account stays",
 			caller:      erin,
 			role:        "Reader",
 			memberships: []access.MembershipKey{membership(alphaScope, dana, "Reader")},
-			wantWrites:  []string{"delete user " + userID.String(), "delete membership domain/alpha " + userID.String() + " Reader"},
+			wantWrites:  []string{"delete membership domain/alpha " + userID.String() + " Reader"},
 		},
 		{
 			name:        "the tenant's last administrator keeps their own role",

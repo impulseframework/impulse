@@ -265,6 +265,10 @@ func (a *App) PatchResources() http.HandlerFunc {
 		// writes reaches it once the commit lands, never inside the transaction.
 		tenantsWritten := false
 
+		// What the request's deletes left under their records, summed: the answer is a 202
+		// with it where one left any.
+		var left *resource.DeleteLeft
+
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
@@ -272,6 +276,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			tenantsWritten = false
+			left = nil
 			r, err := resource.CloneRequest(r)
 			if err != nil {
 				return errors.Wrap(err, "resource.CloneRequest()")
@@ -584,17 +589,20 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err := resource.RequireTenantDisabled(ctx, txn, "Sectors", "Id", "Disabled", accesstypes.Domain(id.String()), "sector"); err != nil {
 								return errors.Wrap(err, "resource.RequireTenantDisabled()")
 							}
-							if err := resources.NewSectorDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewSectorDeletePatchFromPatchSet(id, patchSet)
+							// A tenant's delete takes what each auth holds for it: the accounts that were its alone,
+							// the roles held in it, its groups, its custom roles and its invitations.
+							patch.DeleteAlso(a.CrewIdentity().TenantKinds(accesstypes.Domain(id.String()))...)
+							patch.DeleteAlso(a.MembersIdentity().TenantKinds(accesstypes.Domain(id.String()))...)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDeletePatch.Buffer()")
 							}
-							// A tenant that goes takes what each auth holds for it, in this transaction:
-							// the roles people hold in it, the custom roles made in it and the
-							// invitations into it that still stand.
-							if err := a.CrewIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
-								return errors.Wrap(err, "CrewIdentity().ClearTenant()")
-							}
-							if err := a.MembersIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
-								return errors.Wrap(err, "MembersIdentity().ClearTenant()")
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 
@@ -681,8 +689,16 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewDistressCallDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewDistressCallDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.DistressCallDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 					case "distress-relays":
@@ -713,8 +729,16 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewDistressRelayDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewDistressRelayDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.DistressRelayDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 					case "hangar-passes":
@@ -804,8 +828,16 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewMissionDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewMissionDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.MissionDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 					case "mission-documents":
@@ -875,8 +907,16 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewRefitDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewRefitDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.RefitDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 					case "refit-tasks":
@@ -1039,8 +1079,16 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewSortieDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewSortieDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SortieDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 					case "sortie-expenses":
@@ -1238,8 +1286,16 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewWingDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewWingDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.WingDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 					default:
@@ -1264,6 +1320,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 			if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {
 				logger.FromCtx(ctx).Errorf("tenants: signaling the tenants kind failed; the other instances reload at their backstop: %v", err)
 			}
+		}
+		if left != nil {
+			// A delete that took what fits one save says what is left: the same request,
+			// sent again, goes on.
+			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
 		}
 
 		return httpio.NewEncoder(w).Ok(resp)

@@ -2978,12 +2978,14 @@ export namespace CreateCrewSectorGroup {
 export namespace DeleteCrewGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 
 export namespace DeleteCrewSectorGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 

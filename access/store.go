@@ -88,11 +88,9 @@ import (
 //   - ReadPolicy reads roles, grants, memberships, groups and their members
 //     with snapshot consistency: the row sets observe the same store state.
 //   - A group's member and a group's role each require the group's row
-//     (DB-enforced foreign key), and DeleteGroup refuses a group that still
-//     has a member or a role that has not ended: a group goes once it is
-//     emptied, so no person loses a role by a group's deletion, and the ended
-//     members and roles, which give nobody anything, go with it. A member or a
-//     role written to a group with no row wraps policy.ErrNoGroup.
+//     (DB-enforced foreign key), and DeleteGroup deletes the group with its
+//     members and the roles it holds. A member or a role written to a group
+//     with no row wraps policy.ErrNoGroup.
 type Store interface {
 	// ReadPolicy returns the store's complete policy content as normalized
 	// records for the snapshot compiler: the custom roles, their grants and
@@ -171,10 +169,9 @@ type Store interface {
 	// group where it is kept (a unique index). InsertGroup is no idempotent
 	// insert: an id or a name already taken there is an error, reported by
 	// taken. SetGroupDescription and DeleteGroup report whether the group was
-	// there; DeleteGroup refuses with an error while the group has a member or
-	// a role that has not ended, checked in the delete's own transaction, and
-	// takes the ended ones with the group. ListGroups returns the groups kept
-	// in scope, sorted by name, and Group one by its id.
+	// there. DeleteGroup deletes the group with its members and the roles it
+	// holds, in one transaction. ListGroups returns the groups kept in scope,
+	// sorted by name, and Group one by its id.
 	InsertGroup(ctx context.Context, group *policy.GroupRow) (taken bool, err error)
 	SetGroupDescription(ctx context.Context, group accesstypes.Group, description string) (bool, error)
 	DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error)
@@ -210,9 +207,8 @@ type Store interface {
 	// scope hold, for a listing of them: how many people each has, and the
 	// roles each holds with their periods, sorted by group, then where the
 	// role is held, then role. Both read what has not ended, an assignment
-	// whose period has not begun among it: exactly what DeleteGroup refuses a
-	// group for, so a group the two answer nothing for is one a deletion
-	// takes. A group with no member is absent from the counts.
+	// whose period has not begun among it. A group with no member is absent
+	// from the counts.
 	CountGroupMembersIn(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error)
 	ListGroupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error)
 	InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error

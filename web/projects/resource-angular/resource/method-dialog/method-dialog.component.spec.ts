@@ -1393,15 +1393,18 @@ describe('MethodDialogComponent running a method that warns', () => {
               consequence: 'ada loses the role Auditor.',
               names: ['ada'],
               also: [
-                { says: 'They hold nothing else, so their account is deleted with it.', names: ['ada (Ada Byron)'] },
+                {
+                  says: "They remain one of this customer's people through a role held outside it, which this does not take away.",
+                  names: ['ada (Ada Byron)'],
+                },
               ],
-              confirm: 'Take the role away and delete the account',
+              confirm: 'Take the role away',
             },
           }),
         );
       });
     const o = await open(
-      { method: 'TakeRoleAway', label: 'Take the role away', preset: { userId: 'u-1', role: 'Auditor' } },
+      { method: 'TakeRoleAway', label: 'Remove the role', preset: { userId: 'u-1', role: 'Auditor' } },
       server(),
     );
     const root = o.fixture.nativeElement as HTMLElement;
@@ -1417,7 +1420,7 @@ describe('MethodDialogComponent running a method that warns', () => {
     await settle(o);
 
     expect(runButton(o).disabled).toBe(false);
-    expect(runButton(o).textContent?.trim()).toBe('Take the role away and delete the account');
+    expect(runButton(o).textContent?.trim()).toBe('Take the role away');
     expect(runButton(o).classList.contains('warns')).toBe(false);
     expect(root.querySelector('.typed-word')).toBeNull();
     // The server's words are the question: no warning icon, no alert.
@@ -1429,7 +1432,9 @@ describe('MethodDialogComponent running a method that warns', () => {
     expect(
       Array.from(root.querySelectorAll('.warning.asks .warning-names li')).map((li) => li.textContent?.trim()),
     ).toEqual(['ada', 'ada (Ada Byron)']);
-    expect(text(o, '.warning.asks .warning-note')).toBe('They hold nothing else, so their account is deleted with it.');
+    expect(text(o, '.warning.asks .warning-note')).toBe(
+      "They remain one of this customer's people through a role held outside it, which this does not take away.",
+    );
     expect(text(o, '.question')).toBe('');
 
     await o.component.run();

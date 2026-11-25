@@ -9,7 +9,6 @@ import (
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/internal/spannertxn"
-	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
 
@@ -38,9 +37,7 @@ const (
 type groupStatements struct {
 	setDescription string
 	deleteGroup    string
-	hasMembers     string
-	hasRoles       string
-	deleteEnded    []string
+	deleteHeld     []string
 	group          string
 	listGroups     string
 	listMembers    string
@@ -63,11 +60,9 @@ func newGroupStatements(n *tableNames) groupStatements {
 	return groupStatements{
 		setDescription: fmt.Sprintf("UPDATE %s SET Description = @description, UpdatedAt = PENDING_COMMIT_TIMESTAMP() WHERE Id = @group", n.groups),
 		deleteGroup:    fmt.Sprintf("DELETE FROM %s WHERE Id = @group", n.groups),
-		hasMembers:     fmt.Sprintf("SELECT 1 FROM %s WHERE GroupId = @group AND %s LIMIT 1", n.groupMembers, standing("")),
-		hasRoles:       fmt.Sprintf("SELECT 1 FROM %s WHERE GroupId = @group AND %s LIMIT 1", n.groupRoles, standing("")),
-		deleteEnded: []string{
-			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group AND %s", n.groupMembers, ended),
-			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group AND %s", n.groupRoles, ended),
+		deleteHeld: []string{
+			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group", n.groupMembers),
+			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group", n.groupRoles),
 		},
 		group: fmt.Sprintf("SELECT Id, Kind, Axis, DomainId, Name, Description FROM %s WHERE Id = @group", n.groups),
 		listGroups: fmt.Sprintf("SELECT Id, Kind, Axis, DomainId, Name, Description FROM %s@{FORCE_INDEX=%s} WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Name",
@@ -244,26 +239,15 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 	return found, nil
 }
 
-// DeleteGroup deletes the group's row and reports whether it was there. A
-// group that still has a member or a role that has not ended is refused,
-// checked in the delete's own transaction; the ended ones go with the group,
-// and the foreign keys of the two tables stand behind the check.
+// DeleteGroup deletes the group with its members and the roles it holds, in one
+// transaction, whatever their periods, and reports whether the group was there.
 func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error) {
 	params := map[string]any{paramGroup: string(group)}
 	var deleted bool
 	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		for _, check := range []struct{ sql, what string }{{s.groups.hasMembers, "members"}, {s.groups.hasRoles, "roles"}} {
-			held, err := queryHasRow(ctx, txn, spanner.Statement{SQL: check.sql, Params: params})
-			if err != nil {
-				return err
-			}
-			if held {
-				return errors.Wrapf(policy.ErrStillAssigned, "group %s still has %s", group, check.what)
-			}
-		}
-		for _, sql := range s.groups.deleteEnded {
+		for _, sql := range s.groups.deleteHeld {
 			if _, err := txn.Update(ctx, spanner.Statement{SQL: sql, Params: params}); err != nil {
-				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended rows")
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() the group's members and roles")
 			}
 		}
 		count, err := txn.Update(ctx, spanner.Statement{SQL: s.groups.deleteGroup, Params: params})
@@ -279,21 +263,6 @@ func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool,
 	}
 
 	return deleted, nil
-}
-
-// queryHasRow reports whether the statement yields a row.
-func queryHasRow(ctx context.Context, txn *spanner.ReadWriteTransaction, stmt spanner.Statement) (bool, error) {
-	iter := txn.Query(ctx, stmt)
-	defer iter.Stop()
-	if _, err := iter.Next(); err != nil {
-		if errors.Is(err, iterator.Done) {
-			return false, nil
-		}
-
-		return false, errors.Wrap(err, "spanner.RowIterator.Next()")
-	}
-
-	return true, nil
 }
 
 // Group returns the group kept under the id; found is false where none is.
@@ -480,8 +449,7 @@ func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]
 
 // CountGroupMembersIn returns how many people each group kept in scope has: the
 // places in it that have not ended, the ones that count now and the ones that
-// have not begun, which are what stands in the way of the group's deletion. A
-// group with none is not in the answer.
+// have not begun. A group with none is not in the answer.
 func (s *Store) CountGroupMembersIn(ctx context.Context, scope accesstypes.PolicyScope) (map[accesstypes.Group]int, error) {
 	kind, axis, domain, err := policy.GroupColumns(scope)
 	if err != nil {

@@ -862,19 +862,41 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the application's that is the {{ .Resource.Name }}'s own or leads to one that
 // is, each deleted through its kind's delete, with its delete rule asked, its change
-// record written and its files released. The grant to delete the {{ .Resource.Name }} answers
-// for them all. Without it, a delete of a {{ .Resource.Name }} that has such rows deletes
+// record written and its files released. It takes the kinds handed to the delete as well
+// (DeleteAlso). The grant to delete the {{ .Resource.Name }} answers for them all. Without it, a delete of a {{ .Resource.Name }} that has such rows deletes
 // nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired).
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left says what is left: buffer the delete
+// again, in a transaction of its own, until Left answers nil.
 {{- else }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
-// delete would delete it. Without it, a delete of a {{ .Resource.Name }} that has such rows
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a {{ .Resource.Name }} that has such rows
 // deletes nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired).
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left says what is left: buffer the delete
+// again, in a transaction of its own, until Left answers nil.
 {{- end }}
 func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Name }}DeletePatch {
 	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// Left is what the delete left under the {{ .Resource.Name }} once it is buffered
+// (resource.DeleteLeft): nil where the delete finished, the {{ .Resource.Name }} with it.
+func (p *{{ .Resource.Name }}DeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+{{ end }}
+{{- if .Resource.TakesRowsUnder }}
+// DeleteAlso hands the delete kinds of row it takes with the {{ .Resource.Name }} that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the {{ .Resource.Name }}.
+func (p *{{ .Resource.Name }}DeletePatch) DeleteAlso(kinds ...resource.TakenKind) *{{ .Resource.Name }}DeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
 
 	return p
 }
@@ -981,19 +1003,38 @@ const (
 			}
 		}`
 
-	// tenantCleared is spliced into the tenant record's delete, after the row's removal
-	// is buffered under its id (id, which the splice's place sets): what each auth holds
-	// for the tenant goes in the same transaction, through the generated identity client
-	// of every auth whose management the program generates (identity.Manager.ClearTenant).
-	// The id's text is the tenant's domain. The application's rows under the tenant, its
-	// directory among them, went with the row's removal (the record's DeleteTree).
-	tenantCleared = `// A tenant that goes takes what each auth holds for it, in this transaction:
-					// the roles people hold in it, the custom roles made in it and the
-					// invitations into it that still stand.
-					{{- range $clear := .Clears }}
-					if err := {{ $.ReceiverName }}.{{ $clear }}().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
-						return errors.Wrap(err, "{{ $clear }}().ClearTenant()")
-					}
+	// deleteLeftKept is spliced into the delete of a record that takes rows, after the
+	// delete patch (patch, which the splice's place sets) is buffered: what the delete left
+	// under its record (DeletePatch.Left) is added to what the request's other deletes
+	// left (left, declared before the transaction), which the handler answers 202 with.
+	deleteLeftKept = `if taken := patch.Left(); taken != nil {
+						if left == nil {
+							left = &resource.DeleteLeft{}
+						}
+						left.Deleted += taken.Deleted
+						left.Left += taken.Left
+					}`
+
+	// deleteLeftAnswered is spliced into a handler's answer once the commit has landed and
+	// open pages are told: a request with a delete that left rows under its record
+	// answers 202 with what its deletes left (deleteLeftKept).
+	deleteLeftAnswered = `if left != nil {
+			// A delete that took what fits one save says what is left: the same request,
+			// sent again, goes on.
+			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
+		}`
+
+	// tenantKindsHanded is spliced into the tenant record's delete, after its delete patch
+	// is made (patch, under the tenant's id, id, which the splice's place sets) and before
+	// it is buffered: the patch is handed what each auth holds for the tenant as kinds of
+	// the delete, through the generated identity client of every auth whose management the
+	// program generates (identity.Manager.TenantKinds), so the delete counts them in its
+	// question and takes them in its rounds after the application's rows under the tenant.
+	// The id's text is the tenant's domain.
+	tenantKindsHanded = `// A tenant's delete takes what each auth holds for it: the accounts that were its alone,
+					// the roles held in it, its groups, its custom roles and its invitations.
+					{{- range $source := .KindsFrom }}
+					patch.DeleteAlso({{ $.ReceiverName }}.{{ $source }}().TenantKinds(accesstypes.Domain(id.String()))...)
 					{{- end }}`
 
 	// directoryCreateRefused is spliced into the directories record's create in place of
@@ -3642,6 +3683,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		tenantsWritten := false
 		{{- end }}
 
+		{{- if .Resource.TakesRowsUnder }}
+
+		// What the request's deletes left under their records, summed: the answer is a 202
+		// with it where one left any.
+		var left *resource.DeleteLeft
+		{{- end }}
+
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer.
 		ctx, touched := resource.CollectTouchedRows(ctx)
@@ -3651,6 +3699,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 			{{- end }}
 			{{- if .Resource.SignalsTenants }}
 			tenantsWritten = false
+			{{- end }}
+			{{- if .Resource.TakesRowsUnder }}
+			left = nil
 			{{- end }}
 			r, err := resource.CloneRequest(r)
 			if err != nil {
@@ -3772,9 +3823,17 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					{{- range $i, $field := .Resource.PrimaryKeys }}
 						id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](op.Req, "id{{ Add $i 1 }}")
 					{{- end }}
+					{{- if .Resource.TakesRowsUnder }}
+					patch := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet({{- range $i := .Resource.PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet)
+					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
+					}
+					` + deleteLeftKept + `
+					{{- else }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet({{- range $i := .Resource.PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
+					{{- end }}
 				{{- else }}
 					id := httpio.Param[{{ $PrimaryKeyType }}](op.Req, "id")
 					{{- if .Resource.IsTenantDirectory }}
@@ -3785,11 +3844,19 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					{{- with .RequiresDisabled }}
 					` + tenantDisabledRequired + `
 					{{- end }}
+					{{- if .Resource.TakesRowsUnder }}
+					patch := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet)
+					{{- if .KindsFrom }}
+					` + tenantKindsHanded + `
+					{{- end }}
+					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
+					}
+					` + deleteLeftKept + `
+					{{- else }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
-					{{- if .Clears }}
-					` + tenantCleared + `
 					{{- end }}
 				{{- end }}
 				}
@@ -3805,6 +3872,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		{{- end }}
 		{{- if .Resource.SignalsTenants }}
 		` + tenantsSignaled + `
+		{{- end }}
+		{{- if .Resource.TakesRowsUnder }}
+		` + deleteLeftAnswered + `
 		{{- end }}
 
 		{{ if $PrimaryKeyIsGeneratedUUID  }}
@@ -3865,6 +3935,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		tenantsWritten := false
 		{{- end }}
 
+		{{- if .TakesRowsUnder }}
+
+		// What the request's deletes left under their records, summed: the answer is a 202
+		// with it where one left any.
+		var left *resource.DeleteLeft
+		{{- end }}
+
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
@@ -3873,6 +3950,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 			resp = response{}
 			{{- if .HasTenant }}
 			tenantsWritten = false
+			{{- end }}
+			{{- if .TakesRowsUnder }}
+			left = nil
 			{{- end }}
 			r, err := resource.CloneRequest(r)
 			if err != nil {
@@ -3942,6 +4022,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		{{- end }}
 		{{- if .HasTenant }}
 		` + tenantsSignaled + `
+		{{- end }}
+		{{- if .TakesRowsUnder }}
+		` + deleteLeftAnswered + `
 		{{- end }}
 
 		return httpio.NewEncoder(w).Ok(resp)
@@ -4075,9 +4158,17 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- range $i, $field := .PrimaryKeys }}
 							id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](req, "id{{ Add $i 1 }}")
 							{{- end }}
+							{{- if .TakesRowsUnder }}
+							patch := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet({{- range $i := .PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
+							}
+							` + deleteLeftKept + `
+							{{- else }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet({{- range $i := .PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
+							{{- end }}
 							{{- else }}
 							id := httpio.Param[{{ $primaryKeyType }}](req, "id")
 							{{- if .IsTenantDirectory }}
@@ -4086,11 +4177,19 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- with .RequiresDisabled }}
 							` + tenantDisabledRequired + `
 							{{- end }}
+							{{- if .TakesRowsUnder }}
+							patch := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet)
+							{{- if .KindsFrom }}
+							` + tenantKindsHanded + `
+							{{- end }}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
+							}
+							` + deleteLeftKept + `
+							{{- else }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
-							{{- if .Clears }}
-							` + tenantCleared + `
 							{{- end }}
 							{{- end }}
 						}

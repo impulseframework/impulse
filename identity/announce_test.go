@@ -282,7 +282,7 @@ func TestManager_OwnTenants_Leave_announces(t *testing.T) {
 
 		m, recorder := build(t, newStore())
 		client := resource.NewMockClient(stubTxn{}, nil, nil)
-		if _, err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, "alpha", false); err != nil {
+		if err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, "alpha"); err != nil {
 			t.Fatalf("Leave() error = %v", err)
 		}
 		want := []announcement{{Rows: rowsOf(map[accesstypes.Resource][]resource.RowChange{"Memberships": {key(row)}})}}
@@ -296,7 +296,7 @@ func TestManager_OwnTenants_Leave_announces(t *testing.T) {
 
 		m, recorder := build(t, newStore())
 		client := resource.NewMockClient(stubTxn{}, nil, nil)
-		if _, err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, "gamma", false); err == nil {
+		if err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, "gamma"); err == nil {
 			t.Fatal("Leave() of a tenant the person holds nothing in error = nil, want a refusal")
 		}
 		if got := recorder.got(); len(got) != 0 {

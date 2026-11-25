@@ -199,21 +199,45 @@ export interface CreateCrewSectorGroupResult {
 
 export interface DeleteCrewGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteCrewGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteCrewGroup answers with. */
+export interface DeleteCrewGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteCrewGroup declares; the method chooses one per response. */
-export type DeleteCrewGroupStatus = 204;
+export type DeleteCrewGroupStatus = 202 | 204;
+/** The answer DeleteCrewGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteCrewGroupAnswer {
+  status: DeleteCrewGroupStatus;
+  result: DeleteCrewGroupResult;
+}
 
 export interface DeleteCrewSectorGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteCrewSectorGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteCrewSectorGroup answers with. */
+export interface DeleteCrewSectorGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteCrewSectorGroup declares; the method chooses one per response. */
-export type DeleteCrewSectorGroupStatus = 204;
+export type DeleteCrewSectorGroupStatus = 202 | 204;
+/** The answer DeleteCrewSectorGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteCrewSectorGroupAnswer {
+  status: DeleteCrewSectorGroupStatus;
+  result: DeleteCrewSectorGroupResult;
+}
 
 export interface DeleteCrewSectorUserConfig {
   userId: string | FieldPointer;
@@ -1446,19 +1470,23 @@ const methodMap: MethodMap = {
   [Methods.DeleteCrewGroup]: {
     route: 'delete-crew-group',
     target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteCrewSectorGroup]: {
     route: 'delete-crew-sector-group',
     target: { resource: Resources.CrewSectorGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteCrewSectorUser]: {

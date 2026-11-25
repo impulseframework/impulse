@@ -52,7 +52,6 @@ func (Squadron) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
 					},
 				},
-				RemovedWith: []string{"CrewGroups"},
 			},
 			{
 				Resource: "Missions",

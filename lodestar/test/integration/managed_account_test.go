@@ -101,8 +101,9 @@ func (w *tenantListsWorld) facts(ctx context.Context, t *testing.T, name, identi
 // account is disabled alone. A person who signs in through Cinder's directory and
 // holds nothing is in Cinder's list and no other, and Cinder disables and deletes them.
 // Anvil's removal of such a person, or of their last role, leaves the account standing
-// in Cinder's list, holding nothing; Cinder's removal of its own directory person who
-// holds a role at Cinder alone deletes the account, as before.
+// in Cinder's list, holding nothing, and the warning before the removal says nothing of
+// the account; so does Cinder's removal of its own directory person who holds a role at
+// Cinder alone.
 func TestManagedAccountSectorMethods(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -126,7 +127,7 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 	// signs in through it and is a Cadet at Cinder alone.
 	rioIdentity := w.directoryPerson(ctx, t, "rio", anvil)
 	solIdentity := w.directoryPerson(ctx, t, "sol", anvil)
-	w.directoryPerson(ctx, t, "tam", cinder)
+	tamIdentity := w.directoryPerson(ctx, t, "tam", cinder)
 
 	post := func(user accesstypes.User, sector, method, body string) (int, []byte) {
 		return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, method), body)
@@ -277,8 +278,8 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 	t.Run("another sector's removal of the person leaves the account standing, holding nothing, in Cinder's list, and Cinder deletes it", func(t *testing.T) {
 		status, body := w.askRemovalWarning(t, "rio")
 		assertStatus(t, status, http.StatusOK, body)
-		if warning := decodeWarning(t, body); len(warning.Also) != 1 || warning.Also[0].Says != removalManagedElsewhere {
-			t.Errorf("the warning before Anvil's removal of rio = %+v, want the one note %q", warning, removalManagedElsewhere)
+		if warning := decodeWarning(t, body); len(warning.Also) != 0 {
+			t.Errorf("the warning before Anvil's removal of rio = %+v, want no note", warning)
 		}
 		status, body = w.removeFromSector(t, "marshal", "rio")
 		assertStatus(t, status, http.StatusNoContent, body)
@@ -295,27 +296,21 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 		assertStatus(t, status, http.StatusNoContent, body)
 		w.standsHoldingNothing(t, "sol", solIdentity)
 	})
-	t.Run("the sector whose directory a person signs in through removes them and the account goes, as before", func(t *testing.T) {
+	t.Run("the sector whose directory a person signs in through removes them and the account stays, holding nothing, in its list", func(t *testing.T) {
 		status, body := post("cora", cinder, sectorRemovalPath, userBody("tam"))
 		assertStatus(t, status, http.StatusNoContent, body)
-		if crewAccountExists(t, w.db, w.ids["tam"]) {
-			t.Error("tam's account is still there after Cinder removed them, the last thing they held")
-		}
+		w.standsHoldingNothing(t, "tam", tamIdentity)
 	})
 }
 
-// removalManagedElsewhere is the note of a removal's warning where the person then holds
-// nothing and the account stays, because another sector's directory signs them in.
-const removalManagedElsewhere = "They then hold nothing, but their account stays: the sector whose directory they sign in through manages it."
-
-// standsHoldingNothing fails unless the person's account stands after a removal by Anvil,
-// its identity still linked and holding nothing, with no row in Anvil's list and a row in
+// standsHoldingNothing fails unless the person's account stands after a removal, its
+// identity still linked and holding nothing, with no row in Anvil's list and a row in
 // Cinder's that says Cinder manages it and the person holds nothing there.
 func (w *tenantListsWorld) standsHoldingNothing(t *testing.T, name, identity string) {
 	t.Helper()
 
 	if !crewAccountExists(t, w.db, w.ids[name]) {
-		t.Fatalf("%s's account is gone, want it standing: Cinder's directory signs them in", name)
+		t.Fatalf("%s's account is gone, want it standing", name)
 	}
 	if f := w.facts(t.Context(), t, name, identity); !f.Linked || len(f.Held) != 0 {
 		t.Errorf("%s's account is linked = %t and holds %v, want linked and holding nothing", name, f.Linked, f.Held)

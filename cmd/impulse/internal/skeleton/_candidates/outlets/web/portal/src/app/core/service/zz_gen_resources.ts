@@ -797,7 +797,7 @@ const resourceMap = defineResourceMap({
     rowWords: { one: 'session', many: 'sessions' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },

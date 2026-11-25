@@ -4,8 +4,9 @@ package integration
 // server's words. The two methods the generated management of the crew auth writes for
 // it, RemoveCrewRole for the whole application and RemoveCrewSectorRole under a sector,
 // declare a warning with no word to type, asked with X-Warning: true, which writes
-// nothing. It says whose role goes and where it is held, and, where the role is the last
-// thing the person holds, that the account is deleted with it, which the call then does.
+// nothing. It says whose role goes and where it is held. Where the role is the last thing
+// the person holds, the account stays, holding nothing, and the warning says nothing of
+// it.
 //
 // The harness's session API names no sector (noSessionAPI), so a role held in one sector
 // is said to be held "in this sector", by the application's word for a sector alone,
@@ -24,12 +25,10 @@ import (
 
 // The routes of the two removals, and the sentences the served stack answers with.
 const (
-	removeRolePath            = consoleAPI + "/remove-crew-role"
-	removeSectorRolePath      = "remove-crew-sector-role"
-	roleRemovalConfirm        = "Take the role away"
-	roleRemovalDeletesConfirm = "Take the role away and delete the account"
-	roleRemovalDeletesNote    = "They hold nothing else, so their account is deleted with its sign-in identities and sessions."
-	onlySuperAdministrators   = "Only a super administrator takes the Super administrator role away, and you are not one."
+	removeRolePath          = consoleAPI + "/remove-crew-role"
+	removeSectorRolePath    = "remove-crew-sector-role"
+	roleRemovalConfirm      = "Take the role away"
+	onlySuperAdministrators = "Only a super administrator takes the Super administrator role away, and you are not one."
 )
 
 // askRoleRemoval asks the method at the target for its warning as the user: the
@@ -54,8 +53,9 @@ func (w *tenantListsWorld) roleBody(name, role, sector string) string {
 
 // TestRoleRemovalWarning holds the question before a role is taken away: the warning
 // names the person, the role and where it is held, and writes nothing; where the role is
-// the last thing the person holds it says the account goes, and the call then takes the
-// account with it; a role held in one sector is held "in this sector" through either
+// the last thing the person holds it says nothing of the account, with the plain button,
+// and the account stays, holding nothing, with its sign-in identity and its session; a
+// role held in one sector is held "in this sector" through either
 // method; and a caller the call refuses is refused the warning in the same words.
 func TestRoleRemovalWarning(t *testing.T) {
 	t.Parallel()
@@ -69,6 +69,7 @@ func TestRoleRemovalWarning(t *testing.T) {
 	w.ids["gil"] = string(makeCrewAccount(ctx, t, w.db, "gil"))
 	w.giveCrewRole(ctx, t, "gil", "CrewCommon", accesstypes.GlobalPolicyScope())
 	w.giveCrewRole(ctx, t, "gil", "BulletinOfficer", accesstypes.GlobalPolicyScope())
+	gilSession := w.signedInBy(ctx, t, "gil")
 	w.seat(ctx, t, "jo", "Pilot", anvil)
 	w.giveCrewRole(ctx, t, "jo", "Cadet", accesstypes.DomainPolicyScope(anvil))
 	w.seat(ctx, t, "sam", "Cadet", bastion)
@@ -100,28 +101,19 @@ func TestRoleRemovalWarning(t *testing.T) {
 			t.Errorf("gil holds %v after the removal, want %v", got, want)
 		}
 		if !crewAccountExists(t, w.db, w.ids["gil"]) {
-			t.Error("gil's account is gone, want it kept: gil holds another role")
+			t.Error("gil's account is gone, want it kept")
 		}
 	})
-	t.Run("the last role: the warning says the account goes, and the call takes it", func(t *testing.T) {
+	t.Run("the last role: the warning says nothing of the account, and the account stays", func(t *testing.T) {
 		status, body := w.askRoleRemoval(t, "governor", removeRolePath, w.roleBody("gil", "BulletinOfficer", ""))
 		assertStatus(t, status, http.StatusOK, body)
-		want := resource.Warning{
-			Consequence: "gil loses the role Bulletin officer.",
-			Confirm:     roleRemovalDeletesConfirm,
-			Also:        []resource.WarningNote{{Says: roleRemovalDeletesNote}},
-		}
+		want := resource.Warning{Consequence: "gil loses the role Bulletin officer.", Confirm: roleRemovalConfirm}
 		if got := decodeWarning(t, body); !reflect.DeepEqual(got, want) {
-			t.Errorf("the warning = %+v, want %+v", got, want)
-		}
-		if !crewAccountExists(t, w.db, w.ids["gil"]) {
-			t.Fatal("gil's account is gone after the warning, want it kept: the warning writes nothing")
+			t.Errorf("the warning = %+v, want %+v: no note on the account and the plain button", got, want)
 		}
 		status, body = doRequestAs(t, w.h, "governor", http.MethodPost, removeRolePath, w.roleBody("gil", "BulletinOfficer", ""))
 		assertStatus(t, status, http.StatusNoContent, body)
-		if crewAccountExists(t, w.db, w.ids["gil"]) {
-			t.Error("gil's account is still there after the removal of the last role, want it deleted")
-		}
+		w.accountKept(t, "gil", gilSession)
 	})
 	t.Run("a role held in one sector, through the whole application's method, is held in this sector", func(t *testing.T) {
 		status, body := w.askRoleRemoval(t, "governor", removeRolePath, w.roleBody("jo", "Pilot", anvil))

@@ -93,22 +93,18 @@ interface TenantBody {
   readonly name: string;
   readonly roles: readonly string[];
   readonly refusal?: string;
-  readonly deletesAccount: boolean;
 }
 /** A tenant the person holds two roles in, and others besides. */
-const acme: TenantBody = { domain: 't-acme', name: 'Acme', roles: ['Reader', 'Warden'], deletesAccount: false };
+const acme: TenantBody = { domain: 't-acme', name: 'Acme', roles: ['Reader', 'Warden'] };
 /** A tenant the person holds no role of their own in: a place in one of its groups. */
-const beta: TenantBody = { domain: 't-beta', name: 'Beta', roles: [], deletesAccount: false };
+const beta: TenantBody = { domain: 't-beta', name: 'Beta', roles: [] };
 /** A tenant the person is the only administrator of. */
 const gamma: TenantBody = {
   domain: 't-gamma',
   name: 'Gamma',
   roles: ['Administrator'],
   refusal: 'You are the only administrator of Gamma. Make someone else an administrator there first.',
-  deletesAccount: false,
 };
-/** The one tenant of a person who holds nothing else: leaving it deletes the account. */
-const only: TenantBody = { domain: 't-acme', name: 'Acme', roles: ['Reader'], deletesAccount: true };
 /** The record of a session that acts for the person. */
 const impersonation = { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' };
 
@@ -317,7 +313,7 @@ describe('AccountPageComponent', () => {
           server.domains = server.domains?.filter((tenant) => tenant.domain !== left?.domain);
           return Promise.resolve(
             left
-              ? { status: 200, body: { accountDeleted: left.deletesAccount } }
+              ? { status: 200, body: undefined }
               : { status: 404, body: { message: 'You are not in that customer.' } },
           );
         }
@@ -1665,26 +1661,13 @@ describe('AccountPageComponent', () => {
       expect(tenantsSaid()).toBeUndefined();
     });
 
-    it('opens the window in the form that deletes the account where the list says leaving deletes it', async () => {
-      await open({ tenants: [only] });
-      await press(leaveOf('Acme'));
-      expect(windowText('title')).toBe('Leave Acme and delete your account?');
-      expect(windowText('what')).toBe(
-        'Acme is your only customer. Leaving it deletes your account: your sign-in and every role you hold. You are signed out everywhere. This cannot be undone.',
-      );
-      await typeInWindow('Delete me');
-      expect(inWindow<HTMLButtonElement>('leave')?.disabled).toBe(true);
-      await typeInWindow('Delete my account');
-      expect(inWindow<HTMLButtonElement>('leave')?.disabled).toBe(false);
-    });
-
-    it('leaves once the words are typed, posting the key and what the list said, reads the permissions and the list again, and says so', async () => {
+    it('leaves once the words are typed, posting the key alone, reads the permissions and the list again, and says so', async () => {
       await open({ tenants: [acme, beta] });
       const went = watchNavigations();
       const domains = domainReads();
       const reads = tenantReads();
       await leaveWith('Acme', ' delete ME ');
-      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme', deletesAccount: false }]);
+      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme' }]);
       expect(domainReads()).toBe(domains + 1);
       expect(tenantReads()).toBe(reads + 1);
       expect(tenantNames()).toEqual(['Beta']);
@@ -1709,32 +1692,33 @@ describe('AccountPageComponent', () => {
       vi.spyOn(TestBed.inject(PlaceService), 'current').mockReturnValue({ id: acme.domain, label: acme.name });
       const reads = tenantReads();
       await leaveWith('Acme', 'Delete me');
-      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme', deletesAccount: false }]);
+      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme' }]);
       expect(went()).toEqual(['/tenants/t-beta/dashboard']);
       expect(tenantReads()).toBe(reads);
       expect(tenantsSaid()).toBeUndefined();
     });
 
-    it('goes where Sign out goes where the account went with the tenant', async () => {
-      await open({ tenants: [only] });
+    it('stays on the page after the person leaves their only tenant, and reads the list again', async () => {
+      await open({ tenants: [acme] });
       const went = watchNavigations();
-      const domains = domainReads();
-      await leaveWith('Acme', 'delete my account');
-      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme', deletesAccount: true }]);
-      expect(went()).toEqual(['/logout']);
-      expect(domainReads()).toBe(domains);
+      const reads = tenantReads();
+      await leaveWith('Acme', 'Delete me');
+      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme' }]);
+      expect(went()).toEqual([]);
+      expect(tenantReads()).toBe(reads + 1);
+      expect(tenantsSaid()).toBe('You left Acme.');
     });
 
     it("says the server's words where it refuses the leave, and reads the list again", async () => {
-      const refusal = 'Leaving Acme would no longer do what this page said. Read the page again.';
+      const refusal = 'You are the last administrator of this customer. Give another person the role before you leave.';
       await open({
         tenants: [acme, beta],
-        answers: { [tenantRoutes.leave]: { status: 409, body: { message: refusal } } },
+        answers: { [tenantRoutes.leave]: { status: 403, body: { message: refusal } } },
       });
       const went = watchNavigations();
       const reads = tenantReads();
       await leaveWith('Acme', 'Delete me');
-      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme', deletesAccount: false }]);
+      expect(postedTo(tenantRoutes.leave)).toEqual([{ domain: 't-acme' }]);
       expect(tenantsSaid()).toBe(refusal);
       expect(tenantReads()).toBe(reads + 1);
       expect(tenantNames()).toEqual(['Acme', 'Beta']);
@@ -1769,7 +1753,7 @@ describe('AccountPageComponent', () => {
       );
       expect(buttons.length).toBeGreaterThan(3);
       expect(buttons.every((button) => button.disabled)).toBe(true);
-      held[0]?.answer({ status: 200, body: { accountDeleted: false } });
+      held[0]?.answer({ status: 200, body: undefined });
       await settle();
       expect(leaveOf('Beta')?.disabled).toBe(false);
       expect(tenantsSaid()).toBe('You left Acme.');

@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef, MatDialogState } from '@angular/material/dialog';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { ApiError } from '@impulseframework/resource';
+import { ApiError, DeleteLeft, RemoveOptions } from '@impulseframework/resource';
 
 import {
   DeleteConfirmation,
@@ -39,6 +39,33 @@ describe('DeleteResourceConfirmationModal', () => {
 
     return { ref, answers };
   }
+
+  // A delete whose every request the test answers in turn: `answer` settles the request
+  // that waits, with what the server left, nothing, or a failure, and rests so the dialog
+  // draws what it heard.
+  function answered(): {
+    run: (options?: RemoveOptions) => Promise<DeleteLeft | void>;
+    said: unknown[];
+    answer: (value: DeleteLeft | Error | undefined) => Promise<void>;
+  } {
+    const said: unknown[] = [];
+    let settle: (value: DeleteLeft | Error | undefined) => void = () => undefined;
+    const run = (options?: RemoveOptions): Promise<DeleteLeft | void> => {
+      said.push(options);
+
+      return new Promise<DeleteLeft | void>((resolve, reject) => {
+        settle = (value) => (value instanceof Error ? reject(value) : resolve(value));
+      });
+    };
+    const answer = async (value: DeleteLeft | Error | undefined): Promise<void> => {
+      settle(value);
+      await rest();
+    };
+
+    return { run, said, answer };
+  }
+  const overlay = (): Element | null => document.querySelector('.cdk-overlay-container');
+  const asksFirst = (message: string): ApiError => new ApiError('PATCH', '/api/resources', 428, { message });
 
   async function drawn(asked?: DeleteConfirmation): Promise<HTMLElement> {
     await TestBed.configureTestingModule({
@@ -187,7 +214,7 @@ describe('DeleteResourceConfirmationModal', () => {
 
   it("asks the server's question in the first one's place, and deletes everything under the row at the next press", async () => {
     const sentence =
-      "Delete this mission and everything under it: 2 sorties, 1 mission document. This can't be undone.";
+      "Delete this mission and everything under it: 1 mission document, 2 sorties. This can't be undone.";
     const said: unknown[] = [];
     const { ref, answers } = opened({
       from: 'Missions',
@@ -260,6 +287,99 @@ describe('DeleteResourceConfirmationModal', () => {
     expect(textOf(overlay?.querySelector('.refusal') ?? null)).toBe(refusal);
     expect(buttons().map((button) => textOf(button))).toEqual(['Close']);
     expect(answers).toEqual([]);
+  });
+
+  it('shows no line of what is gone for a delete that finishes at once', async () => {
+    const server = answered();
+    const { answers } = opened({ from: 'Squadrons', delete: server.run });
+
+    await press('Delete');
+
+    expect(overlay()?.querySelector('.progress')).toBeNull();
+
+    await server.answer(undefined);
+
+    expect(server.said).toEqual([undefined]);
+    expect(answers).toEqual([true]);
+  });
+
+  it('carries a delete too large for one request through its rounds from one press, saying how many records are gone, and answers true once nothing is left', async () => {
+    const server = answered();
+    const { ref, answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 38,000 sorties. This can't be undone."),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 6800, left: 31200 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 6,800 of 38,000 records…');
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+      ['Cancel', true],
+      ['Delete', true],
+    ]);
+    expect(ref.disableClose).toBe(true);
+    expect(answers).toEqual([]);
+
+    await server.answer({ deleted: 30000, left: 1200 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 36,800 of 38,000 records…');
+    expect(answers).toEqual([]);
+
+    await server.answer(undefined);
+
+    expect(server.said).toEqual([
+      undefined,
+      { everythingUnder: true },
+      { everythingUnder: true },
+      { everythingUnder: true },
+    ]);
+    expect(answers).toEqual([true]);
+  });
+
+  it('sends the delete again after an answer that leaves no record, since the row still stands, and answers true on the answer after it', async () => {
+    const server = answered();
+    const { answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(asksFirst("Delete this mission and everything under it: 84 sorties. This can't be undone."));
+    await press('Delete');
+    await server.answer({ deleted: 84, left: 0 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 84 of 84 records…');
+    expect(server.said).toEqual([undefined, { everythingUnder: true }, { everythingUnder: true }]);
+    expect(answers).toEqual([]);
+
+    await server.answer(undefined);
+
+    expect(server.said).toHaveLength(3);
+    expect(answers).toEqual([true]);
+  });
+
+  it("keeps a delete refused part way open with the server's sentence and how many records were deleted before it, and sends it no more", async () => {
+    const refusal = 'A sortie that is being flown cannot be deleted.';
+    const server = answered();
+    const { answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(asksFirst("Delete this mission and everything under it: 600 sorties. This can't be undone."));
+    await press('Delete');
+    await server.answer({ deleted: 500, left: 100 });
+    await server.answer(new ApiError('PATCH', '/api/resources', 400, { message: refusal }));
+
+    expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe(refusal);
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe(
+      '500 records were deleted before this. Press Delete again once that is put right.',
+    );
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+    expect(server.said).toHaveLength(3);
+    expect(answers).toEqual([]);
+
+    await press('Close');
+
+    expect(server.said).toHaveLength(3);
+    expect(answers).toEqual([false]);
   });
 
   it('closes with false on any other failure and leaves it to the page', async () => {
