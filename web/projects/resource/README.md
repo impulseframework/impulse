@@ -612,8 +612,10 @@ const history = await api.features.changes('debriefs'); // each flip, newest fir
 
 **A record's history.** `handle.changes(key, { after, field })` reads a page of the
 record's change records, newest first: `{ changes: [{ at, sequence, operation, source,
-fields: [{ field, old, new }] }], next }`. `operation` is `create`, `update` or `delete`,
-and `source` is who made the change, as one sentence. Pass `next` back as `after` for the
+fields: [{ field, old, new, oldName, newName }] }], next }`. `operation` is `create`,
+`update` or `delete`, and `source` is who made the change, as one sentence. `oldName` and
+`newName` are the names of the rows the two values pointed at, as they were when the change
+was made, where the record kept them and the caller may read them. Pass `next` back as `after` for the
 page before, and `field` for the changes to one field. The server leaves out every field the caller cannot
 see on the record, and answers 404 for a resource that does not track its changes.
 

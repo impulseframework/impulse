@@ -155,7 +155,7 @@ func readWholeHistory(t *testing.T, client Client, history *ChangeHistoryQuery[t
 	t.Helper()
 
 	for {
-		page, err := history.readPage(t.Context(), client, visible, nil)
+		page, err := history.readPage(t.Context(), client, visible, nil, nil)
 		if err != nil {
 			t.Fatalf("readPage() error = %v", err)
 		}
@@ -299,7 +299,7 @@ func TestChangeHistoryRead(t *testing.T) {
 		// tenant: it is not found.
 		history := keyedHistory("moved")
 		history.querySet.scope = accesstypes.DomainScope("north")
-		page, err := history.readPage(t.Context(), client, visible, nil)
+		page, err := history.readPage(t.Context(), client, visible, nil, nil)
 		if err != nil {
 			t.Fatalf("readPage() in a tenant's request error = %v", err)
 		}
@@ -307,7 +307,7 @@ func TestChangeHistoryRead(t *testing.T) {
 			t.Errorf("a record of no tenant, there, in a tenant's request: %d records, want both", len(page.Changes))
 		}
 		notFound := recordNotFound[trackedForkRow]("moved")
-		if _, err := history.readPage(t.Context(), client, visible, notFound); !errors.Is(err, notFound) {
+		if _, err := history.readPage(t.Context(), client, visible, nil, notFound); !errors.Is(err, notFound) {
 			t.Errorf("a record of no tenant, not there, in a tenant's request: readPage() error = %v, want its not found", err)
 		}
 	})
@@ -329,7 +329,7 @@ func TestChangeHistoryRead(t *testing.T) {
 				t.Fatalf("Apply(%s) error = %v", write.patchType, err)
 			}
 		}
-		page, err := keyedHistory("sourced").readPage(t.Context(), client, visible, nil)
+		page, err := keyedHistory("sourced").readPage(t.Context(), client, visible, nil, nil)
 		if err != nil {
 			t.Fatalf("readPage() error = %v", err)
 		}
@@ -358,10 +358,10 @@ func TestChangeHistoryRead(t *testing.T) {
 		w.write(DeletePatchType, "gone", "")
 		notFound := recordNotFound[trackedForkRow]("gone")
 
-		if _, err := keyedHistory("never").readPage(t.Context(), client, visible, notFound); !errors.Is(err, notFound) {
+		if _, err := keyedHistory("never").readPage(t.Context(), client, visible, nil, notFound); !errors.Is(err, notFound) {
 			t.Errorf("a record with no change record: readPage() error = %v, want its not found", err)
 		}
-		page, err := keyedHistory("gone").readPage(t.Context(), client, visible, notFound)
+		page, err := keyedHistory("gone").readPage(t.Context(), client, visible, nil, notFound)
 		if err != nil {
 			t.Fatalf("a deleted record: readPage() error = %v", err)
 		}
@@ -370,7 +370,7 @@ func TestChangeHistoryRead(t *testing.T) {
 		}
 		older := keyedHistory("gone")
 		older.after = &changeHistoryToken{at: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)}
-		page, err = older.readPage(t.Context(), client, visible, notFound)
+		page, err = older.readPage(t.Context(), client, visible, nil, notFound)
 		if err != nil {
 			t.Fatalf("a deleted record, past its oldest record: readPage() error = %v", err)
 		}
@@ -811,7 +811,7 @@ func TestChangeHistoryRead_presentRowTenant(t *testing.T) {
 				docks := q.resourceSet.BaseResource()
 				q.conditionalDecisions = accesstypes.Decisions{docks: accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{docks}, Condition: testCondition})}
 			}
-			page, err := (&ChangeHistoryQuery[changeDock]{querySet: q}).readPage(t.Context(), client, visible, nil)
+			page, err := (&ChangeHistoryQuery[changeDock]{querySet: q}).readPage(t.Context(), client, visible, nil, nil)
 			if err != nil {
 				t.Fatalf("readPage() error = %v", err)
 			}

@@ -10,6 +10,16 @@ export interface ChangedField {
   old: unknown;
   /** The value after the change, as JSON decodes it; null where there is none. */
   new: unknown;
+  /**
+   * The name of the row the old value pointed at, as it was when the change was made;
+   * absent where none was kept or the caller may not read it.
+   */
+  oldName?: string;
+  /**
+   * The name of the row the new value pointed at, as it was when the change was made;
+   * absent where none was kept or the caller may not read it.
+   */
+  newName?: string;
   /** True for a field that holds a secret: it was changed, and neither value is kept. */
   secret?: boolean;
 }

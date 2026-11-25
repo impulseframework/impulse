@@ -85,7 +85,8 @@ function writtenAt(at: string): string {
 /**
  * The rows of one change record: one for each field it lists, each with when, by whom and
  * what kind of change, so a row reads alone; and one row with only those three for a
- * record that lists no field the caller may see.
+ * record that lists no field the caller may see. From and To write the name the record
+ * kept of the row a value pointed at, where it kept one, and the value otherwise.
  */
 function recordRows(record: ChangeRecord, labels: ReadonlyMap<string, string>): RecordData[] {
   const at = writtenAt(record.at);
@@ -98,8 +99,8 @@ function recordRows(record: ChangeRecord, labels: ReadonlyMap<string, string>): 
     by: record.source,
     change,
     field: labels.get(changed.field) ?? changed.field,
-    from: changed.secret ? notKept : written(changed.old),
-    to: changed.secret ? notKept : written(changed.new),
+    from: changed.secret ? notKept : (changed.oldName ?? written(changed.old)),
+    to: changed.secret ? notKept : (changed.newName ?? written(changed.new)),
   }));
 }
 

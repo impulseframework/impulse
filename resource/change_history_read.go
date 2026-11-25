@@ -63,7 +63,7 @@ func (d *QueryDecoder[Resource, Request]) DecodeChangeHistory(request *http.Requ
 		return nil, httpio.NewBadRequestMessagef("A record's history takes two parameters, after and field. Take %s out of the request.", strings.Join(others, ", "))
 	}
 
-	history := &ChangeHistoryQuery[Resource]{neverReturned: slices.Clone(neverReturned)}
+	history := &ChangeHistoryQuery[Resource]{neverReturned: slices.Clone(neverReturned), flaggedNames: d.flaggedRecordedNames()}
 	if name := params.Get(changeHistoryFieldParam); name != "" {
 		field, found := d.structFieldName(name, d.hiddenFields())
 		if !found || slices.Contains(neverReturned, field) {
@@ -90,6 +90,30 @@ func (d *QueryDecoder[Resource, Request]) DecodeChangeHistory(request *http.Requ
 	return history, nil
 }
 
+// flaggedRecordedNames answers the fields whose recorded names (RecordedNames) stand behind
+// a flag that is off (NameField.Features), by the decision that hides a name field from a
+// list (flagsOn); nil where there are none.
+func (d *QueryDecoder[Resource, Request]) flaggedRecordedNames() map[accesstypes.Field]bool {
+	var res Resource
+	namer, ok := any(res).(recordedNamer)
+	if !ok {
+		return nil
+	}
+	var flagged map[accesstypes.Field]bool
+	described := namer.RecordedNames()
+	for i := range described {
+		if flagsOn(d.features, described[i].Features) {
+			continue
+		}
+		if flagged == nil {
+			flagged = make(map[accesstypes.Field]bool)
+		}
+		flagged[described[i].Key] = true
+	}
+
+	return flagged
+}
+
 // ChangeHistoryQuery is a decoded request for one record's history
 // (QueryDecoder.DecodeChangeHistory): the record, named by its key on QuerySet, and a page
 // of its change records, read by Read.
@@ -104,6 +128,9 @@ type ChangeHistoryQuery[Resource Resourcer] struct {
 	// neverReturned are the fields the record's own read never returns, which no change
 	// record lists.
 	neverReturned []accesstypes.Field
+	// flaggedNames are the fields whose recorded names stand behind a flag that is off for
+	// the request, which no reader is answered (flaggedRecordedNames).
+	flaggedNames map[accesstypes.Field]bool
 }
 
 // QuerySet returns the read of the record whose history is asked for: the generated
@@ -137,7 +164,9 @@ func (h *ChangeHistoryQuery[Resource]) QuerySet() *QuerySet[Resource] {
 // whose grant carries no condition reads them with the later row's, and a caller under a
 // condition reads only the records of the row that is there now, which end above the
 // newest delete's record, so that their condition is never judged on a row that is gone.
-// Last it shapes the page (ChangeHistoryPage).
+// Last it shapes the page (ChangeHistoryPage): beside the values of a field that points at
+// another row it answers the names the record kept, to a reader who may list the
+// pointed-to resource's names as a list would show them (namedFields).
 func (h *ChangeHistoryQuery[Resource]) Read(ctx context.Context, client Client) (*ChangeHistoryPage, error) {
 	if client.DBType() != SpannerDBType {
 		return nil, errChangeHistoryUnsupportedDatabase
@@ -172,7 +201,78 @@ func (h *ChangeHistoryQuery[Resource]) Read(ctx context.Context, client Client) 
 		)
 	}
 
-	return h.readPage(ctx, txn, visible, notFound)
+	named, err := h.namedFields(ctx, visible)
+	if err != nil {
+		return nil, err
+	}
+
+	return h.readPage(ctx, txn, visible, named, notFound)
+}
+
+// namedFields answers the fields among visible whose kept names the reader is answered
+// (ChangedField.OldName and NewName), by the rule a list shows a name field by
+// (NameField): a name of an enumeration table to every reader of the field; any other only
+// where the reader holds List on the pointed-to resource's name field (grantResource),
+// asked in the request's scope where that resource belongs to a tenant and globally where
+// it does not (nameGrantScope), and granted with no condition, since a condition is judged
+// on a row and the row whose name was kept is the row as it was then; and none while a
+// flag the name stands behind is off for the request (flaggedNames). On a set that
+// enforces no grants every name is answered. The grants are asked once a request, in one
+// Check for each scope, and only where a visible field has a recorded name.
+func (h *ChangeHistoryQuery[Resource]) namedFields(ctx context.Context, visible []accesstypes.Field) (map[accesstypes.Field]bool, error) {
+	var res Resource
+	namer, ok := any(res).(recordedNamer)
+	if !ok {
+		return nil, nil
+	}
+
+	type pending struct {
+		field accesstypes.Field
+		res   accesstypes.Resource
+		scope accesstypes.Scope
+	}
+	q := h.querySet
+	named := make(map[accesstypes.Field]bool)
+	var asks []pending
+	var scopes []accesstypes.Scope
+	resources := make(map[accesstypes.Scope][]accesstypes.Resource)
+	described := namer.RecordedNames()
+	for i := range described {
+		name := &described[i]
+		if !slices.Contains(visible, name.Key) || h.flaggedNames[name.Key] {
+			continue
+		}
+		grant := name.grantResource()
+		if grant == "" || q.resourceSet == nil {
+			named[name.Key] = true
+
+			continue
+		}
+		scope := q.nameGrantScope(name)
+		if _, seen := resources[scope]; !seen {
+			scopes = append(scopes, scope)
+		}
+		if !slices.Contains(resources[scope], grant) {
+			resources[scope] = append(resources[scope], grant)
+		}
+		asks = append(asks, pending{field: name.Key, res: grant, scope: scope})
+	}
+
+	answers := make(map[accesstypes.Scope]accesstypes.Decisions, len(scopes))
+	for _, scope := range scopes {
+		decisions, err := q.userPermissions.Check(ctx, q.env, scope, accesstypes.List, resources[scope]...)
+		if err != nil {
+			return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
+		}
+		answers[scope] = decisions
+	}
+	for _, ask := range asks {
+		if answers[ask.scope][ask.res].IsGranted() {
+			named[ask.field] = true
+		}
+	}
+
+	return named, nil
 }
 
 // visibleFields answers the fields of the record the reader may see in its history, as
@@ -215,8 +315,9 @@ func (h *ChangeHistoryQuery[Resource]) visibleFields(row *Row[Resource], notFoun
 }
 
 // readPage reads and shapes the page of the record's history that the request asks for,
-// with visible the fields the reader may see (visibleFields) and notFound as there.
-func (h *ChangeHistoryQuery[Resource]) readPage(ctx context.Context, txn ReadOnlyTransaction, visible []accesstypes.Field, notFound error) (*ChangeHistoryPage, error) {
+// with visible the fields the reader may see (visibleFields), named those whose kept
+// names the reader is answered (namedFields) and notFound as there.
+func (h *ChangeHistoryQuery[Resource]) readPage(ctx context.Context, txn ReadOnlyTransaction, visible []accesstypes.Field, named map[accesstypes.Field]bool, notFound error) (*ChangeHistoryPage, error) {
 	q := h.querySet
 	records := changeRecordsQuery{
 		table: string(q.Resource()),
@@ -256,7 +357,7 @@ func (h *ChangeHistoryQuery[Resource]) readPage(ctx context.Context, txn ReadOnl
 		rows = cutAtDelete(rows)
 	}
 
-	return changeHistoryPage(rows, visible, q.jsonName, q.rMeta.secret)
+	return changeHistoryPage(rows, visible, named, q.jsonName, q.rMeta.secret)
 }
 
 // underCondition reports whether the reader's grant on the record carries a condition:
@@ -327,6 +428,11 @@ type ChangedField struct {
 	Old json.RawMessage `json:"old"`
 	// New is the value after the change, JSON null where there is none.
 	New json.RawMessage `json:"new"`
+	// OldName and NewName are the names of the rows Old and New pointed at, as the change
+	// record kept them. Each is left out where the record kept none, and both where the
+	// caller may not list the pointed-to resource's names: the ids are answered alone.
+	OldName string `json:"oldName,omitempty"`
+	NewName string `json:"newName,omitempty"`
 	// Secret says the field holds a secret, by the resource's declaration or by the
 	// record: it was changed, and no value of it is answered.
 	Secret bool `json:"secret,omitempty"`
@@ -501,11 +607,13 @@ func deleteAtOrAbove(ctx context.Context, txn ReadOnlyTransaction, records *chan
 }
 
 // changeSetEntry is one field's entry in a change set as the history reads it: each
-// value kept as the change set holds it, byte for byte, and the marks of a secret and of
-// a value set to the commit's own time.
+// value kept as the change set holds it, byte for byte, the names kept beside them, and
+// the marks of a secret and of a value set to the commit's own time.
 type changeSetEntry struct {
 	Old        json.RawMessage
 	New        json.RawMessage
+	OldName    string
+	NewName    string
 	Secret     bool
 	CommitTime bool
 }
@@ -513,9 +621,10 @@ type changeSetEntry struct {
 // changeHistoryPage shapes the rows a read gave, newest first, into a page: at most
 // ChangeHistoryPageSize records, Next the token of the last where a further row came
 // back, and in each record the entries of the fields in visible, in its order, under
-// their JSON names (jsonName), a secret's (secret) with no value. An entry of any other
-// field is left out, and a record left with none is listed all the same.
-func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, jsonName func(accesstypes.Field) string, secret func(accesstypes.Field) bool) (*ChangeHistoryPage, error) {
+// their JSON names (jsonName), a secret's (secret) with no value, and the kept names of
+// the fields in named. An entry of any other field is left out, and a record left with
+// none is listed all the same.
+func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, named map[accesstypes.Field]bool, jsonName func(accesstypes.Field) string, secret func(accesstypes.Field) bool) (*ChangeHistoryPage, error) {
 	page := &ChangeHistoryPage{Changes: make([]ChangeRecord, 0, min(len(rows), ChangeHistoryPageSize))}
 	if len(rows) > ChangeHistoryPageSize {
 		rows = rows[:ChangeHistoryPageSize]
@@ -525,7 +634,7 @@ func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, json
 
 	for i := range rows {
 		row := &rows[i]
-		fields, err := changedFields(row.ChangeSet, row.EventTime, visible, jsonName, secret)
+		fields, err := changedFields(row.ChangeSet, row.EventTime, visible, named, jsonName, secret)
 		if err != nil {
 			return nil, errors.Wrapf(err, "the change record of %s at sequence %d", row.EventTime.UTC().Format(time.RFC3339Nano), row.Sequence)
 		}
@@ -544,10 +653,12 @@ func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, json
 // changedFields answers the entries of one change set for the fields in visible, in its
 // order; a value the entry does not hold, or holds as JSON null, is JSON null. An entry of
 // a field that is a secret, by the resource's declaration (secret) or by the entry's own
-// mark, is answered with both values JSON null, whatever the entry holds. An entry marked
-// as set to the commit's own time is answered with its old value and, as its new one, the
-// record's time (at), in UTC.
-func changedFields(changeSet spanner.NullString, at time.Time, visible []accesstypes.Field, jsonName func(accesstypes.Field) string, secret func(accesstypes.Field) bool) ([]ChangedField, error) {
+// mark, is answered with both values JSON null, whatever the entry holds, and no name. An
+// entry marked as set to the commit's own time is answered with its old value and, as its
+// new one, the record's time (at), in UTC. Any other entry of a field in named is answered
+// with the names it kept beside its values (OldName, NewName), each left out where it
+// kept none; of any other field, with its values alone.
+func changedFields(changeSet spanner.NullString, at time.Time, visible []accesstypes.Field, named map[accesstypes.Field]bool, jsonName func(accesstypes.Field) string, secret func(accesstypes.Field) bool) ([]ChangedField, error) {
 	fields := []ChangedField{}
 	if !changeSet.Valid {
 		return fields, nil
@@ -576,7 +687,11 @@ func changedFields(changeSet spanner.NullString, at time.Time, visible []accesst
 
 			continue
 		}
-		fields = append(fields, ChangedField{Field: jsonName(field), Old: jsonValue(entry.Old), New: jsonValue(entry.New)})
+		changed := ChangedField{Field: jsonName(field), Old: jsonValue(entry.Old), New: jsonValue(entry.New)}
+		if named[field] {
+			changed.OldName, changed.NewName = entry.OldName, entry.NewName
+		}
+		fields = append(fields, changed)
 	}
 
 	return fields, nil

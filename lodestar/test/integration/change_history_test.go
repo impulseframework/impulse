@@ -40,10 +40,12 @@ type changeHistoryRecord struct {
 
 // changeHistoryField is one changed field of a change record.
 type changeHistoryField struct {
-	Field  string          `json:"field"`
-	Old    json.RawMessage `json:"old"`
-	New    json.RawMessage `json:"new"`
-	Secret bool            `json:"secret"`
+	Field   string          `json:"field"`
+	Old     json.RawMessage `json:"old"`
+	New     json.RawMessage `json:"new"`
+	OldName string          `json:"oldName"`
+	NewName string          `json:"newName"`
+	Secret  bool            `json:"secret"`
 }
 
 // names answers the record's fields by name.
@@ -564,6 +566,71 @@ func TestChangeHistory_keepsNames(t *testing.T) {
 	}
 	if got, want := *state, (storedChange{Old: "open", New: "claimed", OldName: "Open", NewName: "Claimed"}); got != want {
 		t.Errorf("the stamp's StatusID entry = %+v, want %+v", got, want)
+	}
+}
+
+// TestChangeHistory_names pins the names a mission's history answers beside the ids of
+// the rows its fields pointed at: a claim through claim-mission is answered with the
+// squadron's name, and the frame's own stamp of the state, a record of its own, with the
+// two statuses' words; once the squadron is renamed the same record still answers the
+// name it had. The quartermaster, who reads a mission's squadron and may not list the
+// squadrons' names, is answered the id alone, and the statuses' words, which every reader
+// of the state reads.
+//
+// Demonstrates: change-history.names.
+func TestChangeHistory_names(t *testing.T) {
+	t.Parallel()
+
+	_, db, h := demoWorld(t)
+	id := createMission(t, h, db, "Claimed, with names on its history")
+	status, body := doRequestAs(t, h, "marshal", http.MethodPost, sectorPath(anvil, "claim-mission"),
+		fmt.Sprintf(`{"missionId":%q,"squadronId":%q}`, id, squadronHammerID))
+	assertStatus(t, status, http.StatusOK, body)
+	if _, err := db.Apply(t.Context(), []*spanner.Mutation{
+		spanner.UpdateMap("Squadrons", map[string]any{"Id": squadronHammerID, "Name": "Hammer, renamed"}),
+	}); err != nil {
+		t.Fatalf("renaming the squadron: %v", err)
+	}
+
+	// newest answers the newest change of the squadron and of the state, as user reads
+	// the history.
+	newest := func(user accesstypes.User) (squadron, state changeHistoryField, separate bool) {
+		t.Helper()
+
+		page := readHistory(t, h, user, missionHistory(id, ""))
+		squadronAt, stateAt := -1, -1
+		for i := range page.Changes {
+			if change, ok := page.Changes[i].field("assignedSquadronId"); ok && squadronAt < 0 {
+				squadron, squadronAt = change, i
+			}
+			if change, ok := page.Changes[i].field("statusId"); ok && stateAt < 0 {
+				state, stateAt = change, i
+			}
+		}
+		if squadronAt < 0 || stateAt < 0 {
+			t.Fatalf("%s reads no change of the squadron or of the state: %+v", user, page)
+		}
+
+		return squadron, state, squadronAt != stateAt
+	}
+
+	squadron, state, separate := newest("marshal")
+	if got, want := jsonText(t, squadron.New)+" "+squadron.OldName+" -> "+squadron.NewName, squadronHammerID+"  -> Hammer"; got != want {
+		t.Errorf("the marshal reads the claim's squadron as %q, want %q: the name as it was", got, want)
+	}
+	if got, want := jsonText(t, state.Old)+" -> "+jsonText(t, state.New)+": "+state.OldName+" -> "+state.NewName, "open -> claimed: Open -> Claimed"; got != want {
+		t.Errorf("the marshal reads the stamp of the state as %q, want %q", got, want)
+	}
+	if !separate {
+		t.Errorf("the claim and the stamp of the state are one record, want the stamp a record of its own")
+	}
+
+	squadron, state, _ = newest("quartermaster")
+	if got, want := jsonText(t, squadron.New)+" "+squadron.OldName+" -> "+squadron.NewName, squadronHammerID+"  -> "; got != want {
+		t.Errorf("the quartermaster reads the claim's squadron as %q, want %q: the id alone", got, want)
+	}
+	if got, want := state.OldName+" -> "+state.NewName, "Open -> Claimed"; got != want {
+		t.Errorf("the quartermaster reads the stamp's statuses as %q, want %q", got, want)
 	}
 }
 

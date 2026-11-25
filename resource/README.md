@@ -6555,6 +6555,21 @@ The value has a package of its own, which holds no database code and imports no 
 driver, so a library that records who acted can use the same value without importing this
 package.
 
+**The names of the rows a record points at.** A changed field that points at another row
+holds that row's id, and the name behind an id is lost once the row is renamed or deleted.
+So a change record keeps, beside the old and the new value of such a field, the name of
+the row each pointed at, as it was when the change was made (`OldName` and `NewName` in the
+field's entry of `ChangeSet`). A field points at a row where its column has a foreign key,
+or the field declares what its picker lists (`@enumerate`), into a table whose resource
+says what its rows are known by (`@name`, or `@tenantName` on the tenant record), or into
+an enumeration table, whose rows are known by `Description`. The name is read in the
+write's own transaction: a write that changes such a field makes one more read, and a
+write that changes none makes none. A row that belongs to a tenant is looked up in the
+tenant of the row being written, so a pointer into another tenant keeps no name. Where the
+pointed-to resource declares no name, the pointed-to resource is a view, or no one row is
+found, the record keeps the id alone. A delete's record keeps the name of every row the
+deleted row pointed at.
+
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
 statements. For Spanner the first creates the table:
 
@@ -6619,9 +6634,13 @@ gives the column is not known before the commit.
 
 **One record's history.** `GET <the record's read route>/changes` answers a page of the
 record's change records, newest first: `{"changes": [{"at", "sequence", "operation",
-"source", "fields": [{"field", "old", "new"}]}], "next"}`. `operation` is what kind of
-write it was (`create`, `update` or `delete`), and `source` who made it, as the sentence
-above. A page holds 50 records; `next` is there when older ones exist, and
+"source", "fields": [{"field", "old", "new", "oldName", "newName"}]}], "next"}`.
+`operation` is what kind of write it was (`create`, `update` or `delete`), and `source`
+who made it, as the sentence above. `oldName` and `newName` are the names the record kept
+for a field that points at another row (above), each left out where there is none. They
+are answered to a caller who may list the pointed-to resource's names, as a list would
+show them: the `List` grant on its name field, with no condition. Anyone else is answered
+the ids alone. A page holds 50 records; `next` is there when older ones exist, and
 `?after=<next>` reads the page after it. `?field=<name>` keeps only the records that
 changed that field, so "when was this account's email last changed" is the first record
 of `?field=email`. The generator writes the route for every table-backed resource that

@@ -57,9 +57,11 @@ const callSheet: FieldElement[] = [
  * page alike: the library's pop-up (`@impulseframework/resource-angular/change-history`),
  * loaded when a person first asks for one, titled with the mission's name. It reads the
  * mission's change records in the open sector, and names each field of the call sheet by
- * the label the page gives it, the fields a person can narrow the history to.
+ * the label the page gives it, the fields a person can narrow the history to. Where a
+ * change record kept the name of the row a field pointed at (the squadron, the status),
+ * From and To read the name as it was then.
  *
- * Demonstrates: change-history, change-tracking, event-source.
+ * Demonstrates: change-history, change-history.names, change-tracking, event-source.
  */
 export function openMissionHistory(row: RecordData, injector: Injector): void {
   const dialog = injector.get(MatDialog);

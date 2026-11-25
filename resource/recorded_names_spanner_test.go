@@ -3,6 +3,8 @@ package resource
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
@@ -59,7 +61,8 @@ func (namedPilot) TenantBinding() TenantBinding {
 }
 
 // namedVoyage is a harbor's tracked row that points at a ship by its key and by its code,
-// at a pilot of a harbor and at a rank, and keeps the name of each.
+// at a pilot of a harbor and at a rank, and keeps the name of each; the name by the code
+// stands behind the flag ship_codes.
 type namedVoyage struct {
 	ID       string  `spanner:"Id"`
 	HarborID string  `spanner:"HarborId"`
@@ -85,7 +88,7 @@ func (namedVoyage) TenantBinding() TenantBinding {
 func (namedVoyage) RecordedNames() []NameField {
 	return []NameField{
 		{Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name"},
-		{Key: "ShipCode", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Code", NameColumn: "Name"},
+		{Key: "ShipCode", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Code", NameColumn: "Name", Features: []Feature{"ship_codes"}},
 		{Key: "PilotID", Resource: "Pilots", Tag: "name", Table: "Pilots", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HarborId"},
 		{Key: "RankID", Table: "Ranks", KeyColumn: "Id", NameColumn: "Description"},
 	}
@@ -491,6 +494,161 @@ func TestRecordedNames_spannerStatements(t *testing.T) {
 		namedCount := countStatements(t, client, statements, namedDeletes...)
 		if namedCount != plainCount+1 {
 			t.Errorf("statements = %d, want %d, one more than the same deletes that keep no names", namedCount, plainCount+1)
+		}
+	})
+}
+
+// voyageRead is a voyage's read type, as a generated one is written: the key asks no grant.
+type voyageRead struct {
+	ID       string  `json:"id"       perm:"-"`
+	HarborID string  `json:"harborId"`
+	ShipID   *string `json:"shipId"`
+	ShipCode *string `json:"shipCode"`
+	PilotID  *string `json:"pilotId"`
+	RankID   *string `json:"rankId"`
+	Note     *string `json:"note"`
+}
+
+// voyageFields are the grants on every field of a voyage.
+var voyageFields = []accesstypes.Resource{"Voyages", "Voyages.harborId", "Voyages.shipId", "Voyages.shipCode", "Voyages.pilotId", "Voyages.rankId", "Voyages.note"}
+
+// voyageHistory reads the north harbor's history of one voyage as R through perms, with
+// the flag ship_codes as codesOn says.
+func voyageHistory[R Resourcer](t *testing.T, client Client, perms UserPermissions, id string, codesOn bool) *ChangeHistoryPage {
+	t.Helper()
+
+	decoder := MustNewQueryDecoder[R, voyageRead](nil, accesstypes.Read).WithFeatures(featureSetOf(map[Feature]bool{"ship_codes": codesOn}))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/"+id, http.NoBody)
+	history, err := decoder.DecodeChangeHistory(request, perms, accesstypes.DomainScope(namedHarborNorth))
+	if err != nil {
+		t.Fatalf("DecodeChangeHistory() error = %v", err)
+	}
+	history.QuerySet().SetKey("ID", id)
+	page, err := history.Read(t.Context(), client)
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+
+	return page
+}
+
+// historyNames answers each field of each record of a page with the names it was
+// answered, "old/new", oldest record first.
+func historyNames(page *ChangeHistoryPage) []map[string]string {
+	records := []map[string]string{}
+	for i := len(page.Changes) - 1; i >= 0; i-- {
+		fields := map[string]string{}
+		for _, field := range page.Changes[i].Fields {
+			fields[field.Field] = field.OldName + "/" + field.NewName
+		}
+		records = append(records, fields)
+	}
+
+	return records
+}
+
+// TestRecordedNames_spannerHistory pins, through DecodeChangeHistory and Read on the
+// emulator, who reads the names a voyage's change records kept: a reader granted List on
+// the pointed-to resource's name outright reads them; one denied it, and one granted it
+// under a condition, read the ids alone and are refused nothing; an enumeration's names
+// are read by every reader of the field; a name behind a flag that is off is read by no
+// one; and the grants are asked in one Check for each scope, and not at all where no
+// visible field has a recorded name.
+func TestRecordedNames_spannerHistory(t *testing.T) {
+	t.Parallel()
+
+	db := namesDatabase(t, "recorded-names-history")
+	client := NewSpannerClient(db)
+	applyEach(t, client,
+		voyage(CreatePatchType, "v-history", map[accesstypes.Field]any{
+			"HarborID": namedHarborNorth, "ShipID": "ship-1", "ShipCode": "solo", "PilotID": "pilot-north", "RankID": "rank-1", "Note": "out",
+		}),
+		voyage(UpdatePatchType, "v-history", map[accesstypes.Field]any{"ShipID": "ship-2", "PilotID": nil}),
+	)
+	granted := func(list ...accesstypes.Resource) *fakeUserPermissions {
+		return &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: voyageFields, accesstypes.List: list}}
+	}
+
+	tests := []struct {
+		name    string
+		perms   *fakeUserPermissions
+		codesOn bool
+		want    []map[string]string
+	}{
+		{
+			name:    "granted List on both names outright: every name",
+			perms:   granted("Ships.name", "Pilots.name"),
+			codesOn: true,
+			want: []map[string]string{
+				{"harborId": "/", "shipId": "/Endeavor", "shipCode": "/Endeavor", "pilotId": "/Ada", "rankId": "/Captain", "note": "/"},
+				{"shipId": "Endeavor/Resolution", "pilotId": "Ada/"},
+			},
+		},
+		{
+			name:    "denied List on the names: the ids alone, but the enumeration's",
+			perms:   granted(),
+			codesOn: true,
+			want: []map[string]string{
+				{"harborId": "/", "shipId": "/", "shipCode": "/", "pilotId": "/", "rankId": "/Captain", "note": "/"},
+				{"shipId": "/", "pilotId": "/"},
+			},
+		},
+		{
+			name: "granted List on the ships' name under a condition: the ships' ids alone",
+			perms: &fakeUserPermissions{
+				granted:     map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: voyageFields, accesstypes.List: {"Pilots.name"}},
+				conditional: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: {"Ships.name"}},
+			},
+			codesOn: true,
+			want: []map[string]string{
+				{"harborId": "/", "shipId": "/", "shipCode": "/", "pilotId": "/Ada", "rankId": "/Captain", "note": "/"},
+				{"shipId": "/", "pilotId": "Ada/"},
+			},
+		},
+		{
+			name:    "the flag the name by the code stands behind is off: that name alone is read by no one",
+			perms:   granted("Ships.name", "Pilots.name"),
+			codesOn: false,
+			want: []map[string]string{
+				{"harborId": "/", "shipId": "/Endeavor", "shipCode": "/", "pilotId": "/Ada", "rankId": "/Captain", "note": "/"},
+				{"shipId": "Endeavor/Resolution", "pilotId": "Ada/"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			page := voyageHistory[namedVoyage](t, client, tt.perms, "v-history", tt.codesOn)
+			if diff := cmp.Diff(tt.want, historyNames(page)); diff != "" {
+				t.Errorf("names mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	t.Run("the names' grants are one Check for each scope, and none where no visible field has a recorded name", func(t *testing.T) {
+		t.Parallel()
+
+		checks := func(read func(perms *fakeUserPermissions), perms *fakeUserPermissions) int {
+			read(perms)
+
+			return perms.checkCalls
+		}
+		named := func(perms *fakeUserPermissions) {
+			voyageHistory[namedVoyage](t, client, perms, "v-history", true)
+		}
+		plain := func(perms *fakeUserPermissions) {
+			voyageHistory[plainVoyage](t, client, perms, "v-history", true)
+		}
+		// The ships' names are asked globally and the pilots' in the harbor: two scopes.
+		if got, want := checks(named, granted("Ships.name", "Pilots.name")), checks(plain, granted("Ships.name", "Pilots.name"))+2; got != want {
+			t.Errorf("a reader of every field: %d checks, want %d, two more than a history with no recorded name", got, want)
+		}
+		noteAlone := func() *fakeUserPermissions {
+			return &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {"Voyages", "Voyages.note"}, accesstypes.List: {"Ships.name", "Pilots.name"}}}
+		}
+		if got, want := checks(named, noteAlone()), checks(plain, noteAlone()); got != want {
+			t.Errorf("a reader of the note alone: %d checks, want %d, as many as a history with no recorded name", got, want)
 		}
 	})
 }

@@ -23,7 +23,8 @@ import { openChangeHistory } from './open-change-history';
 // The pop-up of one record's history: each change record the server answers, newest
 // first, drawn a row for each field it changed, with when, by whom and what kind of change
 // on every row (Created, Changed or Deleted), the field by the label its page gives it,
-// and from what to what as a person reads a value.
+// and from what to what as a person reads a value, or by the name the record kept of the
+// row a value pointed at.
 // It only reads: "Show older" reads the page before while there is one, a choice of field
 // reads again from the newest page, and a refusal is shown in the server's words in
 // place of the table.
@@ -225,6 +226,30 @@ describe('ChangeHistoryDialogComponent', () => {
     const fixture = await historyOver(server(() => pageOf(secret)));
 
     expect(cellsOf(fixture)).toEqual([[writtenAt(secret.at), 'gale', 'Changed', 'accessCode', 'Not kept', 'Not kept']]);
+  });
+
+  it('writes in From and To the name the record kept of the row a value pointed at, and the value where it kept none', async () => {
+    const pointing: ChangeRecord = {
+      at: '2026-11-21T10:00:00Z',
+      sequence: 1,
+      operation: 'update',
+      source: 'gale',
+      fields: [
+        { field: 'ownerId', old: 'o-1', new: 'o-2', oldName: 'Alpha', newName: 'Bravo' },
+        { field: 'reviewerId', old: null, new: 'o-3', newName: 'Charlie' },
+        { field: 'leadId', old: 'o-4', new: 'o-5', oldName: 'Delta' },
+        // A secret is "Not kept" whatever its entry holds.
+        { field: 'accessCode', old: null, new: null, secret: true, oldName: 'Echo', newName: 'Foxtrot' },
+      ],
+    };
+    const fixture = await historyOver(server(() => pageOf(pointing)));
+
+    expect(cellsOf(fixture).map((row) => row.slice(3))).toEqual([
+      ['ownerId', 'Alpha', 'Bravo'],
+      ['reviewerId', '', 'Charlie'],
+      ['leadId', 'Delta', 'o-5'],
+      ['accessCode', 'Not kept', 'Not kept'],
+    ]);
   });
 
   it('writes each kind of value as a person reads it, an object or a list as its JSON on one line', async () => {
