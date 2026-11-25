@@ -317,8 +317,13 @@ func TestManager_TenantKinds_otherKindsInRounds(t *testing.T) {
 			},
 		},
 		{
-			name: "groups: no room for the group with its members and its role", kind: 2, budget: 3,
-			want: takenRows{More: true},
+			name: "groups: no room for the group with its members and its role, which it takes in part", kind: 2, budget: 3,
+			want: takenRows{Mutations: 3, More: true},
+			wantWrites: []string{
+				"delete group member " + nightID.String() + " " + benID.String(),
+				"delete group member " + nightID.String() + " " + caraID.String(),
+				"delete group role " + groupRoleText(&nightInAlpha),
+			},
 		},
 		{
 			name: "groups: the group's own delete left rows under it", kind: 2, budget: 4,
@@ -360,6 +365,75 @@ func TestManager_TenantKinds_otherKindsInRounds(t *testing.T) {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestManager_TenantKinds_aGroupInParts pins the groups kind with a group that costs more
+// than a save has room for: each save takes what fits of it, its members and then its
+// role, one at a time, answering no row, the mutations spent and that rows are left, and
+// the engine is told at each commit; the save in which what is left of the group fits
+// deletes it through the store's delete of a group, once, and says nothing is left. No
+// member or role is deleted twice.
+func TestManager_TenantKinds_aGroupInParts(t *testing.T) {
+	t.Parallel()
+
+	store := alphaStore()
+	store.costs = TenantDeleteCosts{Group: 1, GroupMember: 1, GroupRole: 1}
+	m, engine := newManager(t, store, engineRoles)
+	var got []takenRows
+	for save := 1; save <= 5; save++ {
+		before := len(store.writes)
+		var more bool
+		if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			rows, mutations, left, err := m.TenantKinds("alpha")[2].Take(ctx, txn, 1)
+			if err != nil {
+				return errors.Wrap(err, "resource.TakenKind.Take()")
+			}
+			got = append(got, takenRows{Rows: rows, Mutations: mutations, More: left})
+			more = left
+
+			return nil
+		}); err != nil {
+			t.Fatalf("save %d: Take() error = %v", save, err)
+		}
+		if engine.changed != save {
+			t.Errorf("save %d: the engine was told the policy changed %d time(s), want %d", save, engine.changed, save)
+		}
+		// What the save wrote is gone once it commits.
+		for _, write := range store.writes[before:] {
+			for key := range store.groupMembers {
+				if write == "delete group member "+string(key.Group)+" "+string(key.User) {
+					delete(store.groupMembers, key)
+				}
+			}
+			for key := range store.groupRoles {
+				if write == "delete group role "+groupRoleText(&key) {
+					delete(store.groupRoles, key)
+				}
+			}
+		}
+		if !more {
+			break
+		}
+	}
+	want := []takenRows{
+		{Mutations: 1, More: true},
+		{Mutations: 1, More: true},
+		{Mutations: 1, More: true},
+		// The group's own row, with nothing left under it.
+		{Rows: 1, Mutations: 1},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Take() by save (-want +got):\n%s", diff)
+	}
+	wantWrites := []string{
+		"delete group member " + nightID.String() + " " + benID.String(),
+		"delete group member " + nightID.String() + " " + caraID.String(),
+		"delete group role " + groupRoleText(&nightInAlpha),
+		"delete group " + nightID.String() + " with everything under it",
+	}
+	if diff := cmp.Diff(wantWrites, store.writes); diff != "" {
+		t.Errorf("buffered writes (-want +got):\n%s", diff)
 	}
 }
 

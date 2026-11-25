@@ -362,12 +362,15 @@ func (k *tenantRolesHeld) rolesHeld(ctx context.Context, txn resource.ReadWriteT
 		return cmp.Or(strings.Compare(a.Kind, b.Kind), strings.Compare(a.Axis, b.Axis), strings.Compare(a.Domain, b.Domain),
 			strings.Compare(string(a.Role), string(b.Role)), strings.Compare(string(a.User), string(b.User)))
 	})
-	slices.SortFunc(roles, func(a, b access.GroupRoleKey) int {
-		return cmp.Or(strings.Compare(string(a.Group), string(b.Group)), strings.Compare(a.Kind, b.Kind), strings.Compare(a.Axis, b.Axis),
-			strings.Compare(a.Domain, b.Domain), strings.Compare(string(a.Role), string(b.Role)))
-	})
+	slices.SortFunc(roles, func(a, b access.GroupRoleKey) int { return compareGroupRoles(&a, &b) })
 
 	return held, roles, nil
+}
+
+// compareGroupRoles orders the rows of a group's roles by their table's key.
+func compareGroupRoles(a, b *access.GroupRoleKey) int {
+	return cmp.Or(strings.Compare(string(a.Group), string(b.Group)), strings.Compare(a.Kind, b.Kind), strings.Compare(a.Axis, b.Axis),
+		strings.Compare(a.Domain, b.Domain), strings.Compare(string(a.Role), string(b.Role)))
 }
 
 // Count is the number of roles held in the tenant.
@@ -455,7 +458,9 @@ func (k *tenantGroups) Check(context.Context, resource.ReadWriteTransaction) err
 
 // Take deletes the groups in key order while the next one's cost fits the budget, each by
 // the store's delete of a group with everything under it. A group its own delete could not
-// take in one save leaves rows of the kind.
+// take in one save leaves rows of the kind. A group whose cost does not fit what the round
+// has left is taken in part, its members and then its roles one at a time while the next
+// fits, and goes in the round in which the rest of it fits.
 func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
 	if err := k.named(); err != nil {
 		return 0, 0, false, err
@@ -478,7 +483,12 @@ func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransacti
 		}
 		cost := costs.Group + len(members)*costs.GroupMember + len(roles)*costs.GroupRole
 		if mutations+cost > budget {
-			return rows, mutations, true, k.policyChanged(txn, rows)
+			taken, spent, err := k.takeInPart(ctx, txn, id, members, roles, budget-mutations)
+			if err != nil {
+				return rows, mutations + spent, false, err
+			}
+
+			return rows, mutations + spent, true, k.policyChanged(txn, rows+taken)
 		}
 		left, err := store.DeleteGroup(ctx, txn, id, true)
 		if err != nil {
@@ -492,6 +502,40 @@ func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransacti
 	}
 
 	return rows, mutations, false, k.policyChanged(txn, rows)
+}
+
+// takeInPart deletes what fits the budget of a group too large for it: its members in key
+// order, then its roles in key order, one row each, while the next one's cost fits. The
+// group's own row stays for a later round. It reports the rows it deleted and their cost.
+func (k *tenantGroups) takeInPart(
+	ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, members []accesstypes.User, roles []access.GroupRoleKey, budget int,
+) (taken int64, mutations int, err error) {
+	store := k.manager.store
+	costs := store.DeleteCosts()
+	slices.SortFunc(members, func(a, b accesstypes.User) int { return strings.Compare(string(a), string(b)) })
+	slices.SortFunc(roles, func(a, b access.GroupRoleKey) int { return compareGroupRoles(&a, &b) })
+	for _, member := range members {
+		if mutations+costs.GroupMember > budget {
+			return taken, mutations, nil
+		}
+		if err := store.DeleteGroupMember(ctx, txn, &access.GroupMemberKey{Group: GroupID(id), User: member}); err != nil {
+			return taken, mutations, errors.Wrap(err, "identity.Store.DeleteGroupMember()")
+		}
+		taken++
+		mutations += costs.GroupMember
+	}
+	for i := range roles {
+		if mutations+costs.GroupRole > budget {
+			return taken, mutations, nil
+		}
+		if err := store.DeleteGroupRole(ctx, txn, &roles[i]); err != nil {
+			return taken, mutations, errors.Wrap(err, "identity.Store.DeleteGroupRole()")
+		}
+		taken++
+		mutations += costs.GroupRole
+	}
+
+	return taken, mutations, nil
 }
 
 // tenantCustomRoles is the kind of the custom roles made in the tenant, taken together

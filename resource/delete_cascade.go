@@ -657,9 +657,9 @@ type takenRound struct {
 }
 
 // left is what the round says of the delete (PatchSet.DeleteLeft): nil where it
-// finished or took nothing.
+// finished.
 func (r *takenRound) left() *DeleteLeft {
-	if r.finished || r.deleted == 0 {
+	if r.finished {
 		return nil
 	}
 
@@ -820,7 +820,9 @@ func (d *takingDelete) handedRows(handed []int64) []kindRows {
 // record too, once each kind code handed the delete has had what is left of the size
 // (TakenKind.Take), in the order handed: one that says rows of it are left ends the round
 // there. handed is each handed kind's count, and counted the rows counted under the
-// record, the handed kinds' among them.
+// record, the handed kinds' among them. A round that can buffer nothing at all, neither a
+// row of the description's kinds nor a mutation of a handed kind, is an error: one row,
+// or a handed kind taken the only way it is taken, costs more than a save holds.
 func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[*DeleteKind]*takenAsks, handed []int64, counted int64, tracked map[accesstypes.Resource]bool, eventSource ...string) (*takenRound, error) {
 	tree := d.query.tree
 	size := d.size
@@ -840,6 +842,10 @@ func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[
 			}
 			most := (size - tree.Mutations(taken, isTracked)) / kind.Cost.Mutations(tracked[kind.Resource])
 			if most <= 0 {
+				if round.deleted == 0 {
+					return nil, errors.Newf("the delete of a %s can take nothing in one save: one of its %s costs more than a save holds", tree.Words.One, kind.Words.Many)
+				}
+
 				return round, nil
 			}
 			rows, err := d.takeAt(ctx, kind, level, levels.deepest, asks[kind], most, eventSource...)
@@ -854,6 +860,7 @@ func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[
 		}
 	}
 	spent := tree.Mutations(taken, isTracked)
+	before := spent
 	for i, kind := range d.also {
 		if handed[i] == 0 {
 			continue
@@ -865,6 +872,9 @@ func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[
 		rows, mutations, more, err := kind.Take(ctx, d.txn, budget, eventSource...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "deleting the %s under a %s", kind.Words().Many, tree.Words.One)
+		}
+		if more && rows == 0 && mutations == 0 && round.deleted == 0 && spent == before {
+			return nil, errors.Newf("the delete of a %s can take nothing in one save: its %s cost more than a save holds, taken the only way they are taken", tree.Words.One, kind.Words().Many)
 		}
 		round.deleted += rows
 		spent += mutations

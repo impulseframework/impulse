@@ -734,9 +734,9 @@ func (p *PatchSet[Resource]) DeleteAlso(kinds ...TakenKind) *PatchSet[Resource] 
 }
 
 // DeleteLeft is what the delete the patch carries left under its record once it is
-// buffered: nil for a delete that finished, the record's row with it, or that took
-// nothing; otherwise the rows this save deleted and the rows still under the record,
-// whose own row stands until a save takes the last of them.
+// buffered: nil for a delete that finished, the record's row with it; otherwise the rows
+// this save deleted, none where the save only made room for a later one, and the rows
+// still under the record, whose own row stands until a save takes the last of them.
 func (p *PatchSet[Resource]) DeleteLeft() *DeleteLeft {
 	return p.deleteLeft
 }

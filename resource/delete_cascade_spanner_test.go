@@ -55,15 +55,26 @@ type cascadeRun struct {
 // handedKind is a kind of row a test hands the delete (TakenKind): rows of it under the
 // record, each costing cost mutations, and what its check answers. It notes its check
 // with the rows asked about and what it took with the rows deleted. A kind that drains
-// has fewer rows once it has taken some, as a committed save leaves it.
+// has fewer rows once it has taken some, as a committed save leaves it. A kind with an
+// answer takes what the answer gives, whatever its rows and the budget.
 type handedKind struct {
 	words   DeleteWords
 	rows    int64
 	cost    int
 	drains  bool
 	refused error
+	answer  *handedTake
 	asked   *[]string
 	made    *[]string
+}
+
+// handedTake is what a handed kind's Take answers in place of what its rows and the
+// budget give: a kind that makes room without taking a row, or one that cannot take
+// anything.
+type handedTake struct {
+	rows      int64
+	mutations int
+	more      bool
 }
 
 func (k *handedKind) Words() DeleteWords {
@@ -81,6 +92,11 @@ func (k *handedKind) Check(context.Context, ReadWriteTransaction) error {
 }
 
 func (k *handedKind) Take(_ context.Context, _ ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
+	if k.answer != nil {
+		*k.made = append(*k.made, fmt.Sprintf("%d %s and %d mutations of %d", k.answer.rows, k.words.Many, k.answer.mutations, budget))
+
+		return k.answer.rows, k.answer.mutations, k.answer.more, nil
+	}
 	rows = min(k.rows, int64(budget/k.cost))
 	*k.made = append(*k.made, fmt.Sprintf("%d %s of %d mutations", rows, k.words.Many, budget))
 	more = rows < k.rows
@@ -417,6 +433,7 @@ func TestTakingDelete_handedKinds(t *testing.T) {
 		wantAsked       []string
 		wantMade        []string
 		wantRound       *takenRound
+		wantError       string
 	}{
 		{
 			name:       "the question counts the handed kinds after the description's, two with the same words as one",
@@ -444,6 +461,19 @@ func TestTakingDelete_handedKinds(t *testing.T) {
 			wantRound: &takenRound{counted: 13, deleted: 7},
 		},
 		{
+			name:   "a handed kind that can take nothing, after the description's kinds took rows, leaves the record with what the round took",
+			handed: []*handedKind{{words: DeleteWords{One: "group", Many: "groups"}, rows: 1, answer: &handedTake{more: true}}}, everythingUnder: true,
+			wantMade:  []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "0 groups and 0 mutations of 79997"},
+			wantRound: &takenRound{counted: 3, deleted: 2},
+		},
+		{
+			name:            "a round in which a kind of the description cannot take one row, and nothing was taken before it, is an error",
+			everythingUnder: true,
+			// The record alone.
+			size:      1,
+			wantError: "the delete of a project can take nothing in one save: one of its tasks costs more than a save holds",
+		},
+		{
 			name:   "a round that takes the last of the handed kinds takes the record",
 			handed: []*handedKind{roles(10), invitations(1)}, everythingUnder: true,
 			wantMade:  []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "10 roles of 79997 mutations", "1 invitations of 79987 mutations"},
@@ -457,6 +487,10 @@ func TestTakingDelete_handedKinds(t *testing.T) {
 
 			run := runTakingAlso(t, db, projectTree(), project, cascadeRows{}, tt.everythingUnder, tt.size, tt.handed...)
 			switch {
+			case tt.wantError != "":
+				if run.err == nil || errors.Cause(run.err).Error() != tt.wantError || statusOf(run.err) != 0 {
+					t.Errorf("the delete error = %v (status %d), want a plain error %q", run.err, statusOf(run.err), tt.wantError)
+				}
 			case tt.wantStatus == 0 && run.err != nil:
 				t.Fatalf("the delete error = %v, want none", run.err)
 			case tt.wantStatus != 0:
@@ -834,6 +868,8 @@ func TestPatchSet_DeleteAlso(t *testing.T) {
 	if _, err := db.Apply(t.Context(), []*spanner.Mutation{
 		spanner.InsertMap("ForkRows", map[string]any{"Id": "r1", "Title": "record"}),
 		spanner.InsertMap("ForkRows", map[string]any{"Id": "r2", "Title": "record"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "r3", "Title": "record"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "r4", "Title": "record"}),
 	}); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
@@ -901,5 +937,42 @@ func TestPatchSet_DeleteAlso(t *testing.T) {
 		if standing := readForkRow(t, db, "r2") != nil; standing != (want != nil) {
 			t.Errorf("round %d: the record is there = %t, want %t", i+1, standing, want != nil)
 		}
+	}
+
+	// A save that only made room for a later one, deleting no row, still says what is
+	// left, and the record stands; the save that finishes takes it.
+	roomy := &handedKind{words: DeleteWords{One: "note", Many: "notes"}, rows: 2, answer: &handedTake{mutations: 3, more: true}, asked: &asked, made: &made}
+	left, err = deleteRecordOf("r3", roomy, true, 0)
+	if err != nil {
+		t.Fatalf("the save that makes room: error = %v", err)
+	}
+	if diff := cmp.Diff(&DeleteLeft{Deleted: 0, Left: 2}, left); diff != "" {
+		t.Errorf("the save that makes room: DeleteLeft() (-want +got):\n%s", diff)
+	}
+	if readForkRow(t, db, "r3") == nil {
+		t.Error("the save that makes room deleted the record")
+	}
+	left, err = deleteRecordOf("r3", &handedKind{words: DeleteWords{One: "note", Many: "notes"}, rows: 2, cost: 1, asked: &asked, made: &made}, true, 0)
+	if err != nil {
+		t.Fatalf("the save that finishes: error = %v", err)
+	}
+	if left != nil {
+		t.Errorf("the save that finishes: DeleteLeft() = %+v, want nil", left)
+	}
+	if row := readForkRow(t, db, "r3"); row != nil {
+		t.Errorf("the save that finishes left the record: %+v", row)
+	}
+
+	// A save that can take nothing at all is an error, and buffers nothing.
+	stuck := &handedKind{words: DeleteWords{One: "note", Many: "notes"}, rows: 2, answer: &handedTake{more: true}, asked: &asked, made: &made}
+	left, err = deleteRecordOf("r4", stuck, true, 0)
+	if want := "the delete of a row can take nothing in one save: its notes cost more than a save holds, taken the only way they are taken"; err == nil || errors.Cause(err).Error() != want || statusOf(err) != 0 {
+		t.Errorf("the save that can take nothing: error = %v (status %d), want a plain error %q", err, statusOf(err), want)
+	}
+	if left != nil {
+		t.Errorf("the save that can take nothing: DeleteLeft() = %+v, want nil", left)
+	}
+	if readForkRow(t, db, "r4") == nil {
+		t.Error("the save that can take nothing deleted the record")
 	}
 }
