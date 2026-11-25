@@ -41,9 +41,10 @@ type SignInMethod = keyof TenantSignIn['methods'];
 /**
  * A tenant's Sign-in settings page: how people enter the tenant, and what the person
  * reading can do about it right now. It says, in one line, how the tenant stands; then the
- * tenant's directory by the name people know it by, the role a person gets the first time
- * they sign in through it in plain words, and whether the tenant is directory only, with
- * how many of its people that keeps out, a count that opens those people on the People page.
+ * tenant's directory by the name people know it by, the role a person gets when they sign
+ * in through it and hold nothing in the tenant, in plain words, and whether the tenant is
+ * directory only, with how many of its people that keeps out, a count that opens those
+ * people on the People page.
  * Where the application's directories carry it, the page also says whether the tenant
  * vouches for its directory's own second factor, with the control that says so or takes it
  * back.
@@ -299,7 +300,7 @@ export class TenantSignInPageComponent {
       (this.facts() !== undefined || this.canOpen() || this.canInviteOnly()),
   );
 
-  /** The role a person gets the first time they sign in through the directory, in words. */
+  /** The role a person gets when they sign in through the directory and hold nothing in the tenant, in words. */
   readonly defaultRole = computed(() => this.facts()?.defaultRole || 'Nobody: by invitation only');
 
   /** Whether the button that opens the dialog with the role says the role is changed rather than chosen. */
@@ -447,7 +448,7 @@ export class TenantSignInPageComponent {
       'openToDirectory',
       'Choose the role',
       {
-        labels: { role: 'The role a person gets the first time they sign in through it' },
+        labels: { role: 'The role a person gets when they sign in through it and hold nothing here' },
         shows: { role: ['name', 'description'] },
       },
       { role: '' },
