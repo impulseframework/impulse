@@ -83,7 +83,7 @@ func (s *SessionStorageDriver) SetDeviceCodesTableName(name string) error {
 	return nil
 }
 
-// insertToken inserts each token through q: created at the database's time, unused and
+// insertTokens inserts each token through q: created at the database's time, unused and
 // not revoked, whatever it carries.
 func (s *SessionStorageDriver) insertTokens(ctx context.Context, q execer, tokens ...*dbtype.Token) error {
 	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, NULL, NULL)`, s.tokensTable(), tokenColumns)
