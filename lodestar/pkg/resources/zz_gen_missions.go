@@ -149,6 +149,7 @@ func (Mission) NameFields() []resource.NameField {
 func (Mission) RecordedNames() []resource.NameField {
 	return []resource.NameField{
 		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "ClientID", Resource: "Clients", Tag: "name", Table: "Clients", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
 		{Field: "", Key: "KindID", Resource: "", Tag: "", Table: "MissionKinds", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 		{Field: "", Key: "RequiredCertID", Resource: "", Tag: "", Table: "Certifications", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 		{Field: "", Key: "AssignedSquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},

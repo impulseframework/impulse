@@ -634,6 +634,62 @@ func TestChangeHistory_names(t *testing.T) {
 	}
 }
 
+// TestChangeHistory_keepsClientNames pins the name a mission's change record keeps for
+// its client, whom the mission's picker lists from the sector's roster of clients, a
+// view: the name is read from the clients' table the roster's rows are rows of, by the
+// column's foreign key, and answered to a reader who may list the clients' names; a
+// reader who may list the roster's names and not the clients' is answered the id alone,
+// and refused nothing.
+func TestChangeHistory_keepsClientNames(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := newTestApp(db, grants{accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline")})
+	status, body := doRequest(t, writer, http.MethodPatch, "/console/api/resources",
+		fmt.Sprintf(`[{"op":"add","path":%q,"value":{"clientId":%q,"kindId":"rescue","title":"Booked for a client","hazard":1,"fee":100,"deadline":%q}}]`, opPath(anvil, "missions"), clientHalvardID, deadline(365)))
+	assertStatus(t, status, http.StatusOK, body)
+	ids, _ := decodeRow(t, body)["missions"].([]any)
+	if len(ids) != 1 {
+		t.Fatalf("created ids = %v, want one mission id: %s", ids, body)
+	}
+	id, _ := ids[0].(string)
+
+	changeSets := storedChangeSets(t, db, id)
+	if len(changeSets) != 1 {
+		t.Fatalf("the mission has %d change records, want its create's", len(changeSets))
+	}
+	if got, want := changeSets[0]["ClientID"], (storedChange{Old: nil, New: clientHalvardID, OldName: "", NewName: "Halvard Freight"}); got != want {
+		t.Errorf("the create's ClientID entry = %+v, want %+v: the name Clients.Name holds", got, want)
+	}
+
+	read := withFields(missionsResource, "clientId", "title")
+	for _, tt := range []struct {
+		name string
+		list accesstypes.Resource
+		want string
+	}{
+		{name: "a reader who may list the clients' names", list: fieldResource("Clients", "name"), want: "Halvard Freight"},
+		{name: "a reader who may list the roster's names and not the clients'", list: fieldResource("ClientRosters", "name"), want: ""},
+	} {
+		h := newTestApp(db, grants{accesstypes.Read: read, accesstypes.List: {tt.list}})
+		page := readHistory(t, h, "integration-test-user", missionHistory(id, ""))
+		if len(page.Changes) != 1 {
+			t.Fatalf("%s reads %d records, want the create's", tt.name, len(page.Changes))
+		}
+		client, ok := page.Changes[0].field("clientId")
+		if !ok {
+			t.Fatalf("%s reads the fields %v, want clientId among them", tt.name, page.Changes[0].names())
+		}
+		if got := jsonText(t, client.New) + " " + client.NewName; got != clientHalvardID+" "+tt.want {
+			t.Errorf("%s reads the client as %q, want %q", tt.name, got, clientHalvardID+" "+tt.want)
+		}
+	}
+}
+
 // TestChangeHistory_untracked pins a resource that does not track its changes: the
 // hangars answer 404 to a reader of the hangar, and 403 to a person who may not read it.
 func TestChangeHistory_untracked(t *testing.T) {

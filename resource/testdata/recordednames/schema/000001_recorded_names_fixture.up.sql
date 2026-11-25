@@ -1,10 +1,11 @@
 -- The fixture of the tests of the names a change record keeps: the change history table as
 -- an application's first migration carries it; ships, which belong to no tenant and carry a
 -- code two ships may share (Ships); pilots, each of a harbor (the tenant, a column of the
--- row: Pilots); ranks, an enumeration table (Ranks); and voyages, each of a harbor, which
--- point at a ship by its key and by its code, at a pilot and at a rank (Voyages). No table
--- has a foreign key, so a ship a voyage points at can be deleted. Names are the fixture's
--- own.
+-- row: Pilots); ranks, an enumeration table (Ranks); sailors, which belong to no harbor and
+-- are listed for each harbor, as a tenant's people are accounts (Sailors); and voyages,
+-- each of a harbor, which point at a ship by its key and by its code, at a pilot, at a
+-- rank and at a sailor, their captain (Voyages). No table has a foreign key, so a ship a
+-- voyage points at can be deleted. Names are the fixture's own.
 
 CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
@@ -45,6 +46,11 @@ CREATE TABLE Ranks (
   Description STRING(MAX) NOT NULL,
 ) PRIMARY KEY (Id);
 
+CREATE TABLE Sailors (
+  Id STRING(36) NOT NULL,
+  Username STRING(MAX) NOT NULL,
+) PRIMARY KEY (Id);
+
 CREATE TABLE Voyages (
   Id STRING(36) NOT NULL,
   HarborId STRING(36) NOT NULL,
@@ -52,5 +58,6 @@ CREATE TABLE Voyages (
   ShipCode STRING(36),
   PilotId STRING(36),
   RankId STRING(36),
+  CaptainId STRING(36),
   Note STRING(MAX),
 ) PRIMARY KEY (Id);

@@ -47,6 +47,7 @@ func (SquadronMembership) NameFields() []resource.NameField {
 func (SquadronMembership) RecordedNames() []resource.NameField {
 	return []resource.NameField{
 		{Field: "", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "UserID", Resource: "CrewSectorUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: "", GrantInTenant: true},
 	}
 }
 

@@ -4561,7 +4561,9 @@ names (a record named `Session`, `User` or `Listed`) is refused at generation:
   have none. It is the view's name (`@name`), so a field of another resource that holds a
   person's id gets a name field read from it. It is made of `name` and `username`: a role
   that grants `displayName` shows a person's name, or their username, whatever condition
-  the role keeps on those two.
+  the role keeps on those two. A change record of a field that holds a person's id keeps
+  the person's username and not this name, and it is the grant on `username` that shows
+  it in a record's history (section 24).
 - `CrewSectorUserRoles`, the roles held there: one row per person and role, keyed by the
   account's id and the role (`userId`, `role`), with `username` and `createdAt`. Two facts: `role`, the role itself, and `everyDomain`, true
   where the role is held there through a membership in every tenant alone, so it is not
@@ -6566,9 +6568,24 @@ an enumeration table, whose rows are known by `Description`. The name is read in
 write's own transaction: a write that changes such a field makes one more read, and a
 write that changes none makes none. A row that belongs to a tenant is looked up in the
 tenant of the row being written, so a pointer into another tenant keeps no name. Where the
-pointed-to resource declares no name, the pointed-to resource is a view, or no one row is
-found, the record keeps the id alone. A delete's record keeps the name of every row the
-deleted row pointed at.
+pointed-to resource declares no name, or no one row is found, the record keeps the id
+alone. A delete's record keeps the name of every row the deleted row pointed at.
+
+**A field that picks from a view.** A view's name is worked out by the view's query, which
+a write does not run. So where a field's picker lists a view (`@enumerate` of a `@virtual`
+resource) or a computed list, the name a change record keeps is read from the table the
+row is really in. One of a tenant's people (the generated list `<Auth><Record>Users`,
+Lodestar's `CrewSectorUsers`) is kept by the account's username, read from the auth's
+users table: the username is what every other column of a change record keeps a person
+by, where a list shows the person's name. It is read by the account's id alone, since an
+account belongs to no tenant, so a row written with the id of an account outside the
+tenant keeps that account's username. One of a tenant's groups (`<Auth><Record>Groups`) is
+kept by the group's name, read from the auth's groups table within the tenant of the row
+being written. For any other view, and for a computed list, the row is the row of the
+table the field's column has a foreign key to, and the name is that table's, as for a
+field with the foreign key and no picker. A field that picks from a view of the
+application's own and has no foreign key keeps the id alone: declare the foreign key, and
+the history keeps the name.
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
 statements. For Spanner the first creates the table:
@@ -6640,7 +6657,13 @@ who made it, as the sentence above. `oldName` and `newName` are the names the re
 for a field that points at another row (above), each left out where there is none. They
 are answered to a caller who may list the pointed-to resource's names, as a list would
 show them: the `List` grant on its name field, with no condition. Anyone else is answered
-the ids alone. A page holds 50 records; `next` is there when older ones exist, and
+the ids alone. For a field that picks from a view, the grant is on what was kept. A
+person's username is answered to a caller granted `List` on the `username` of the tenant's
+list of its people, and a group's name to a caller granted `List` on the `name` of the
+tenant's list of its groups, each in the request's tenant and with no condition; a grant
+on the people list's `displayName` shows no username. A name read from a foreign key's
+table is answered to a caller who may list that table's name, whoever may read the view.
+A page holds 50 records; `next` is there when older ones exist, and
 `?after=<next>` reads the page after it. `?field=<name>` keeps only the records that
 changed that field, so "when was this account's email last changed" is the first record
 of `?field=email`. The generator writes the route for every table-backed resource that

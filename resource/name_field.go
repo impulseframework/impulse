@@ -20,6 +20,11 @@ const nameOfTagKey = "nameof"
 // column: the name is looked up in the pointed-to table by the id. Reading it takes two
 // grants: the request's own grant on the id field, and the List grant on the
 // pointed-to resource's name field (Resource and Tag).
+//
+// A name a change record keeps (RecordedNames) is described the same way, with one
+// difference: where the id is picked from a view, Table is the table the row is
+// really in, read by its key when the change is written, and never the view (View is
+// false). Resource and Tag are then the field whose grant shows the kept name.
 type NameField struct {
 	// Field is the name field as the generated request types spell it, and Key the id
 	// field it stands beside.
@@ -27,8 +32,8 @@ type NameField struct {
 	Key   accesstypes.Field
 	// Resource is the pointed-to resource and Tag its name field: reading a name takes
 	// the List grant on that field as well as the grant on the id, asked in the
-	// request's tenant where the resource belongs to one (TenantColumn) and globally
-	// where it does not; Tag is empty where the name is the resource's key, whose
+	// request's tenant where the resource belongs to one (TenantColumn, or
+	// GrantInTenant) and globally where it does not; Tag is empty where the name is the resource's key, whose
 	// grant is the resource's own. Both are empty for an enumeration table, whose
 	// names every page carries already.
 	Resource accesstypes.Resource
@@ -49,6 +54,12 @@ type NameField struct {
 	// tenant binding walks it.
 	TenantColumn string
 	TenantPath   []BindingHop
+	// GrantInTenant says the grant on Resource and Tag is asked in the request's tenant
+	// although the lookup is held to none (TenantColumn is empty): Resource is one tenant's
+	// list whose rows are rows of a table of the whole application, as a tenant's people
+	// are rows of the auth's accounts. Only a name a change record keeps (RecordedNames)
+	// sets it, and never with a TenantColumn.
+	GrantInTenant bool
 	// Features are the feature flags the name stands behind: the pointed-to
 	// resource's, then its name field's, each only where it is declared; empty where
 	// neither is gated, and for an enumeration table. While any of them is off the
@@ -78,9 +89,20 @@ func (n *NameField) GoLiteral() string {
 	if n.View {
 		view = ", View: true"
 	}
+	inTenant := ""
+	if n.GrantInTenant {
+		inTenant = ", GrantInTenant: true"
+	}
 
-	return fmt.Sprintf("{Field: %q, Key: %q, Resource: %q, Tag: %q, Table: %q, KeyColumn: %q, NameColumn: %q%s, TenantColumn: %q%s}",
-		n.Field, n.Key, n.Resource, n.Tag, n.Table, n.KeyColumn, n.NameColumn, view, n.TenantColumn, path.String())
+	return fmt.Sprintf("{Field: %q, Key: %q, Resource: %q, Tag: %q, Table: %q, KeyColumn: %q, NameColumn: %q%s, TenantColumn: %q%s%s}",
+		n.Field, n.Key, n.Resource, n.Tag, n.Table, n.KeyColumn, n.NameColumn, view, n.TenantColumn, inTenant, path.String())
+}
+
+// grantInTenant reports whether the name's grant is asked in the request's tenant: the
+// pointed-to resource belongs to one (TenantColumn), or its rows are rows of a table of
+// the whole application listed for one tenant (GrantInTenant).
+func (n *NameField) grantInTenant() bool {
+	return n.TenantColumn != "" || n.GrantInTenant
 }
 
 // NameViews maps a view's resource to the view, for the decoders whose names are read

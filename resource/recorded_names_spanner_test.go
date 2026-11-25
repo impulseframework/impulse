@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -61,16 +62,19 @@ func (namedPilot) TenantBinding() TenantBinding {
 }
 
 // namedVoyage is a harbor's tracked row that points at a ship by its key and by its code,
-// at a pilot of a harbor and at a rank, and keeps the name of each; the name by the code
-// stands behind the flag ship_codes.
+// at a pilot of a harbor, at a rank and at its captain, a sailor picked from the harbor's
+// list of its sailors (HarborSailors), and keeps the name of each: the captain's is read
+// from the sailors' table, which belongs to no harbor, under a grant on the harbor's
+// list. The name by the code stands behind the flag ship_codes.
 type namedVoyage struct {
-	ID       string  `spanner:"Id"`
-	HarborID string  `spanner:"HarborId"`
-	ShipID   *string `spanner:"ShipId"`
-	ShipCode *string `spanner:"ShipCode"`
-	PilotID  *string `spanner:"PilotId"`
-	RankID   *string `spanner:"RankId"`
-	Note     *string `spanner:"Note"`
+	ID        string  `spanner:"Id"`
+	HarborID  string  `spanner:"HarborId"`
+	ShipID    *string `spanner:"ShipId"`
+	ShipCode  *string `spanner:"ShipCode"`
+	PilotID   *string `spanner:"PilotId"`
+	RankID    *string `spanner:"RankId"`
+	CaptainID *string `spanner:"CaptainId"`
+	Note      *string `spanner:"Note"`
 }
 
 func (namedVoyage) Resource() accesstypes.Resource {
@@ -91,19 +95,21 @@ func (namedVoyage) RecordedNames() []NameField {
 		{Key: "ShipCode", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Code", NameColumn: "Name", Features: []Feature{"ship_codes"}},
 		{Key: "PilotID", Resource: "Pilots", Tag: "name", Table: "Pilots", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HarborId"},
 		{Key: "RankID", Table: "Ranks", KeyColumn: "Id", NameColumn: "Description"},
+		{Key: "CaptainID", Resource: "HarborSailors", Tag: "username", Table: "Sailors", KeyColumn: "Id", NameColumn: "Username", GrantInTenant: true},
 	}
 }
 
 // plainVoyage is the same tracked row, which keeps no names: the write as it was before a
 // change record kept them.
 type plainVoyage struct {
-	ID       string  `spanner:"Id"`
-	HarborID string  `spanner:"HarborId"`
-	ShipID   *string `spanner:"ShipId"`
-	ShipCode *string `spanner:"ShipCode"`
-	PilotID  *string `spanner:"PilotId"`
-	RankID   *string `spanner:"RankId"`
-	Note     *string `spanner:"Note"`
+	ID        string  `spanner:"Id"`
+	HarborID  string  `spanner:"HarborId"`
+	ShipID    *string `spanner:"ShipId"`
+	ShipCode  *string `spanner:"ShipCode"`
+	PilotID   *string `spanner:"PilotId"`
+	RankID    *string `spanner:"RankId"`
+	CaptainID *string `spanner:"CaptainId"`
+	Note      *string `spanner:"Note"`
 }
 
 func (plainVoyage) Resource() accesstypes.Resource {
@@ -153,6 +159,7 @@ func namesDatabase(t *testing.T, name string) *spanner.Client {
 		spanner.InsertMap("Pilots", map[string]any{"Id": "pilot-south", "HarborId": namedHarborSouth, "Name": "Grace"}),
 		spanner.InsertMap("Ranks", map[string]any{"Id": "rank-1", "Description": "Captain"}),
 		spanner.InsertMap("Ranks", map[string]any{"Id": "rank-2", "Description": "Mate"}),
+		spanner.InsertMap("Sailors", map[string]any{"Id": "sailor-1", "Username": "kestrel"}),
 	)
 
 	return db.Client
@@ -500,17 +507,18 @@ func TestRecordedNames_spannerStatements(t *testing.T) {
 
 // voyageRead is a voyage's read type, as a generated one is written: the key asks no grant.
 type voyageRead struct {
-	ID       string  `json:"id"       perm:"-"`
-	HarborID string  `json:"harborId"`
-	ShipID   *string `json:"shipId"`
-	ShipCode *string `json:"shipCode"`
-	PilotID  *string `json:"pilotId"`
-	RankID   *string `json:"rankId"`
-	Note     *string `json:"note"`
+	ID        string  `json:"id"        perm:"-"`
+	HarborID  string  `json:"harborId"`
+	ShipID    *string `json:"shipId"`
+	ShipCode  *string `json:"shipCode"`
+	PilotID   *string `json:"pilotId"`
+	RankID    *string `json:"rankId"`
+	CaptainID *string `json:"captainId"`
+	Note      *string `json:"note"`
 }
 
 // voyageFields are the grants on every field of a voyage.
-var voyageFields = []accesstypes.Resource{"Voyages", "Voyages.harborId", "Voyages.shipId", "Voyages.shipCode", "Voyages.pilotId", "Voyages.rankId", "Voyages.note"}
+var voyageFields = []accesstypes.Resource{"Voyages", "Voyages.harborId", "Voyages.shipId", "Voyages.shipCode", "Voyages.pilotId", "Voyages.rankId", "Voyages.captainId", "Voyages.note"}
 
 // voyageHistory reads the north harbor's history of one voyage as R through perms, with
 // the flag ship_codes as codesOn says.
@@ -552,8 +560,10 @@ func historyNames(page *ChangeHistoryPage) []map[string]string {
 // the pointed-to resource's name outright reads them; one denied it, and one granted it
 // under a condition, read the ids alone and are refused nothing; an enumeration's names
 // are read by every reader of the field; a name behind a flag that is off is read by no
-// one; and the grants are asked in one Check for each scope, and not at all where no
-// visible field has a recorded name.
+// one; each grant is asked in its scope, the harbor's for a pilot and for the captain,
+// whose list is a harbor's though the sailors belong to none (GrantInTenant), and the
+// global one for a ship; and the grants are asked in one Check for each scope, and not at
+// all where no visible field has a recorded name.
 func TestRecordedNames_spannerHistory(t *testing.T) {
 	t.Parallel()
 
@@ -561,7 +571,7 @@ func TestRecordedNames_spannerHistory(t *testing.T) {
 	client := NewSpannerClient(db)
 	applyEach(t, client,
 		voyage(CreatePatchType, "v-history", map[accesstypes.Field]any{
-			"HarborID": namedHarborNorth, "ShipID": "ship-1", "ShipCode": "solo", "PilotID": "pilot-north", "RankID": "rank-1", "Note": "out",
+			"HarborID": namedHarborNorth, "ShipID": "ship-1", "ShipCode": "solo", "PilotID": "pilot-north", "RankID": "rank-1", "CaptainID": "sailor-1", "Note": "out",
 		}),
 		voyage(UpdatePatchType, "v-history", map[accesstypes.Field]any{"ShipID": "ship-2", "PilotID": nil}),
 	)
@@ -576,11 +586,11 @@ func TestRecordedNames_spannerHistory(t *testing.T) {
 		want    []map[string]string
 	}{
 		{
-			name:    "granted List on both names outright: every name",
-			perms:   granted("Ships.name", "Pilots.name"),
+			name:    "granted List on every name outright: every name",
+			perms:   granted("Ships.name", "Pilots.name", "HarborSailors.username"),
 			codesOn: true,
 			want: []map[string]string{
-				{"harborId": "/", "shipId": "/Endeavor", "shipCode": "/Endeavor", "pilotId": "/Ada", "rankId": "/Captain", "note": "/"},
+				{"harborId": "/", "shipId": "/Endeavor", "shipCode": "/Endeavor", "pilotId": "/Ada", "rankId": "/Captain", "captainId": "/kestrel", "note": "/"},
 				{"shipId": "Endeavor/Resolution", "pilotId": "Ada/"},
 			},
 		},
@@ -589,28 +599,28 @@ func TestRecordedNames_spannerHistory(t *testing.T) {
 			perms:   granted(),
 			codesOn: true,
 			want: []map[string]string{
-				{"harborId": "/", "shipId": "/", "shipCode": "/", "pilotId": "/", "rankId": "/Captain", "note": "/"},
+				{"harborId": "/", "shipId": "/", "shipCode": "/", "pilotId": "/", "rankId": "/Captain", "captainId": "/", "note": "/"},
 				{"shipId": "/", "pilotId": "/"},
 			},
 		},
 		{
-			name: "granted List on the ships' name under a condition: the ships' ids alone",
+			name: "granted List on the ships' name and the sailors' username under a condition: their ids alone",
 			perms: &fakeUserPermissions{
 				granted:     map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: voyageFields, accesstypes.List: {"Pilots.name"}},
-				conditional: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: {"Ships.name"}},
+				conditional: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: {"Ships.name", "HarborSailors.username"}},
 			},
 			codesOn: true,
 			want: []map[string]string{
-				{"harborId": "/", "shipId": "/", "shipCode": "/", "pilotId": "/Ada", "rankId": "/Captain", "note": "/"},
+				{"harborId": "/", "shipId": "/", "shipCode": "/", "pilotId": "/Ada", "rankId": "/Captain", "captainId": "/", "note": "/"},
 				{"shipId": "/", "pilotId": "Ada/"},
 			},
 		},
 		{
 			name:    "the flag the name by the code stands behind is off: that name alone is read by no one",
-			perms:   granted("Ships.name", "Pilots.name"),
+			perms:   granted("Ships.name", "Pilots.name", "HarborSailors.username"),
 			codesOn: false,
 			want: []map[string]string{
-				{"harborId": "/", "shipId": "/Endeavor", "shipCode": "/", "pilotId": "/Ada", "rankId": "/Captain", "note": "/"},
+				{"harborId": "/", "shipId": "/Endeavor", "shipCode": "/", "pilotId": "/Ada", "rankId": "/Captain", "captainId": "/kestrel", "note": "/"},
 				{"shipId": "Endeavor/Resolution", "pilotId": "Ada/"},
 			},
 		},
@@ -626,6 +636,27 @@ func TestRecordedNames_spannerHistory(t *testing.T) {
 		})
 	}
 
+	t.Run("each name's grant is asked in its scope: the captain's, a harbor's list of rows of no harbor, in the harbor", func(t *testing.T) {
+		t.Parallel()
+
+		names := []accesstypes.Resource{"Ships.name", "Pilots.name", "HarborSailors.username"}
+		perms := granted(names...)
+		voyageHistory[namedVoyage](t, client, perms, "v-history", true)
+		asked := map[accesstypes.Resource][]string{}
+		for i, resources := range perms.gotResources {
+			for _, res := range resources {
+				if slices.Contains(names, res) {
+					asked[res] = append(asked[res], perms.gotScopes[i].String())
+				}
+			}
+		}
+		harbor := accesstypes.DomainScope(namedHarborNorth).String()
+		want := map[accesstypes.Resource][]string{"Ships.name": {accesstypes.GlobalScope().String()}, "Pilots.name": {harbor}, "HarborSailors.username": {harbor}}
+		if diff := cmp.Diff(want, asked); diff != "" {
+			t.Errorf("the scopes each name's grant was asked in mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("the names' grants are one Check for each scope, and none where no visible field has a recorded name", func(t *testing.T) {
 		t.Parallel()
 
@@ -640,8 +671,9 @@ func TestRecordedNames_spannerHistory(t *testing.T) {
 		plain := func(perms *fakeUserPermissions) {
 			voyageHistory[plainVoyage](t, client, perms, "v-history", true)
 		}
-		// The ships' names are asked globally and the pilots' in the harbor: two scopes.
-		if got, want := checks(named, granted("Ships.name", "Pilots.name")), checks(plain, granted("Ships.name", "Pilots.name"))+2; got != want {
+		// The ships' names are asked globally, and the pilots' and the captains' in the
+		// harbor: two scopes.
+		if got, want := checks(named, granted("Ships.name", "Pilots.name", "HarborSailors.username")), checks(plain, granted("Ships.name", "Pilots.name", "HarborSailors.username"))+2; got != want {
 			t.Errorf("a reader of every field: %d checks, want %d, two more than a history with no recorded name", got, want)
 		}
 		noteAlone := func() *fakeUserPermissions {

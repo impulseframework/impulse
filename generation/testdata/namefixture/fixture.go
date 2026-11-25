@@ -239,6 +239,81 @@ type (
 		Wing   impulse.UUID `spanner:"Wing"` // @enumerate(Wings)
 	}
 
+	// CrewBaseUser is shaped as the library lists a tenant's people, for an auth Crew over
+	// the tenant record Base: each an account, by its username, known by the name it
+	// shows.
+	//
+	// @virtual
+	// @permissionScope(domain)
+	CrewBaseUser struct {
+		ID impulse.UUID `spanner:"Id" index:"true"` // @primarykey
+		// @domain
+		DomainID string `spanner:"DomainId"`
+		Username string `spanner:"Username"`
+		// @name
+		DisplayName string `spanner:"DisplayName"`
+	}
+
+	// CrewBaseGroup is shaped as the library lists a tenant's groups, known by their
+	// name.
+	//
+	// @virtual
+	// @permissionScope(domain)
+	CrewBaseGroup struct {
+		ID impulse.UUID `spanner:"Id" index:"true"` // @primarykey
+		// @domain
+		DomainID string `spanner:"DomainId"`
+		// @name
+		Name string `spanner:"Name"`
+	}
+
+	// Pass is a tenant's resource whose fields pick from the lists of a tenant's people
+	// and of its groups: a holder, a group on a column with a foreign key to the groups'
+	// table and one on a column with none, and an issuer the server never returns.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Pass struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID       impulse.UUID `spanner:"BaseId"`
+		HolderID     impulse.UUID `spanner:"HolderId"`                         // @enumerate(CrewBaseUsers)
+		GroupID      impulse.UUID `spanner:"GroupId"`                          // @enumerate(CrewBaseGroups)
+		LooseGroupID impulse.UUID `spanner:"LooseGroupId"`                     // @enumerate(CrewBaseGroups)
+		IssuerID     impulse.UUID `spanner:"IssuerId" conditions:"input_only"` // @enumerate(CrewBaseUsers)
+	}
+
+	// Roll is a resource of no tenant whose fields pick from the lists of a tenant's
+	// people and of its groups.
+	//
+	// @resource
+	Roll struct {
+		ID       impulse.UUID `spanner:"Id"`
+		HolderID impulse.UUID `spanner:"HolderId"` // @enumerate(CrewBaseUsers)
+		GroupID  impulse.UUID `spanner:"GroupId"`  // @enumerate(CrewBaseGroups)
+	}
+
+	// Route is a tenant's resource whose fields pick from an application's views on
+	// columns with foreign keys, each beside a sibling with the same foreign key and no
+	// picker: into a named table of no tenant and a tenant's named table, through a view
+	// with a name and one with none, and into a table with no name. A picker on a key
+	// into an enumeration table is refused, so there is none of those.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Route struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID        impulse.UUID `spanner:"BaseId"`
+		KitID         impulse.UUID `spanner:"KitId"`
+		PickedKitID   impulse.UUID `spanner:"PickedKitId"` // @enumerate(Beacons)
+		PatrolKitID   impulse.UUID `spanner:"PatrolKitId"` // @enumerate(Patrols)
+		WingID        impulse.UUID `spanner:"WingId"`
+		PickedWingID  impulse.UUID `spanner:"PickedWingId"` // @enumerate(Hangars)
+		CrateID       impulse.UUID `spanner:"CrateId"`
+		PickedCrateID impulse.UUID `spanner:"PickedCrateId"` // @enumerate(Beacons)
+	}
+
 	// Waybill points at a named resource through a field the server never returns.
 	//
 	// @resource
