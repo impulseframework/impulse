@@ -390,27 +390,6 @@ func (m *Manager) standing(ctx context.Context, txn resource.ReadWriteTransactio
 	return own, places, nil
 }
 
-// keeps answers everything that keeps a person's account: every membership of their
-// own and a key for each group they are in, as the tables hold them, whatever their
-// periods. The rule on an account nothing admits reads it: an assignment that has ended
-// counts for nothing and still keeps its account, which goes when nothing at all is left
-// of what was given to it, by an act of somebody's and never by a period ending.
-func (m *Manager) keeps(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {
-	kept, err := m.store.Memberships(ctx, txn, userID)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.Memberships()")
-	}
-	places, err := m.store.UserGroups(ctx, txn, userID)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.UserGroups()")
-	}
-	for _, place := range places {
-		kept = append(kept, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(userID)})
-	}
-
-	return kept, nil
-}
-
 // countingHolders lists who holds the role where the key says it is held and counts as
 // its holder now: the holders the store lists, less the ones whose membership is outside
 // its period and the ones whose account cannot sign in. The rule on a tenant's last

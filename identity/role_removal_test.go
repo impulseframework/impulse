@@ -2,7 +2,6 @@ package identity
 
 import (
 	"context"
-	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -17,8 +16,6 @@ import (
 // that calls a tenant a sector.
 const (
 	roleGoesConfirmSays        = "Take the role away"
-	roleAndAccountConfirmSays  = "Take the role away and delete the account"
-	roleTakesAccountSays       = "They hold nothing else, so their account is deleted with its sign-in identities and sessions."
 	roleNoLongerHeldSays       = "This person no longer holds that role. Refresh the page to see what they hold."
 	roleHeldEverywhereSays     = "This person holds the role Reader in every sector, which is not one sector's to take away."
 	roleNamedNoneSays          = "No role is named. Name the role to take away."
@@ -51,10 +48,9 @@ func roleRemovalManager(t *testing.T, store Store, tenantNames map[accesstypes.D
 
 // TestManager_RoleRemovalWarning pins what an administrator is told before a role is
 // taken from a person, from the judgment the removal runs: whose role goes and where, the
-// tenant named by what the application calls it and otherwise as "this sector", and,
-// where the role is the last thing that keeps the account, that the account goes with it,
-// on the button and in a note. A place in a group keeps the account, and a role whose
-// period is over still does until it is taken away. A role the person no longer holds,
+// tenant named by what the application calls it and otherwise as "this sector", with the
+// one button and no note, the last role the person holds among them. A role the person
+// no longer holds,
 // an account that is not there, and a removal the rules refuse are answered as refusals.
 // Each warning is one a dialog can draw (resource.CheckWarning), and reading it writes
 // nothing.
@@ -99,27 +95,21 @@ func TestManager_RoleRemovalWarning(t *testing.T) {
 			want: &resource.Warning{Consequence: "dana loses the role Reader in this sector.", Names: nil, Confirm: roleGoesConfirmSays, Also: nil},
 		},
 		{
-			name: "the last role anywhere: the account goes with it",
+			name: "the last role anywhere: the one button and no note",
 			held: []access.MembershipKey{danaAlphaLead}, names: named, caller: erin, scope: alphaScope, role: "NightShiftLead",
-			want: &resource.Warning{
-				Consequence: "dana loses the role Night shift lead in the sector North Yard.", Names: nil, Confirm: roleAndAccountConfirmSays,
-				Also: []resource.WarningNote{{Says: roleTakesAccountSays, Names: nil}},
-			},
+			want: &resource.Warning{Consequence: "dana loses the role Night shift lead in the sector North Yard.", Names: nil, Confirm: roleGoesConfirmSays, Also: nil},
 		},
 		{
-			name: "the last role of a person who has a place in a group: the account stays",
+			name: "the last role of a person who has a place in a group",
 			held: []access.MembershipKey{danaSteward}, caller: erin, scope: globalScope, role: "Steward",
 			store: func(store *fakeStore) { store.groupMembers[memberKey(staffID, userID)] = true },
 			want:  &resource.Warning{Consequence: "dana loses the role Steward.", Names: nil, Confirm: roleGoesConfirmSays, Also: nil},
 		},
 		{
-			name: "a role whose period is over, and the last thing kept: the account goes with it",
+			name: "a role whose period is over, and the last thing held: the one button and no note",
 			held: []access.MembershipKey{danaAlphaReader}, caller: erin, scope: alphaScope, role: "Reader",
 			store: func(store *fakeStore) { store.membershipPeriods[danaAlphaReader] = ended },
-			want: &resource.Warning{
-				Consequence: "dana loses the role Reader in this sector.", Names: nil, Confirm: roleAndAccountConfirmSays,
-				Also: []resource.WarningNote{{Says: roleTakesAccountSays, Names: nil}},
-			},
+			want:  &resource.Warning{Consequence: "dana loses the role Reader in this sector.", Names: nil, Confirm: roleGoesConfirmSays, Also: nil},
 		},
 		{
 			name: "a role the person no longer holds is refused, and says to refresh",
@@ -264,26 +254,24 @@ func TestTenant_RoleRemovalWarning(t *testing.T) {
 }
 
 // TestManager_RoleRemovalWarning_agreesWithRemoveRole pins that the warning and the act
-// read one judgment: over the cases of the rule on an account nothing admits
-// (TestManager_RemoveRole_lastRole), the warning says the account goes exactly when the
-// removal that follows deletes it, and an id no user holds is not found before anything
-// is said.
+// read one judgment: the warning says nothing of the account and the removal that follows
+// deletes none, where the role is the last thing the person holds and where it is not,
+// and an id no user holds is not found before anything is said.
 func TestManager_RoleRemovalWarning_agreesWithRemoveRole(t *testing.T) {
 	t.Parallel()
 
 	steward := access.NewMembershipKey(globalScope, dana, "Steward")
 	reader := access.NewMembershipKey(alphaScope, dana, "Reader")
-	deleted := "delete user " + userID.String()
 	tests := []struct {
 		name    string
 		held    []access.MembershipKey
 		account bool
 		caller  accesstypes.User
 	}{
-		{name: "the last role anywhere takes the account with it", held: []access.MembershipKey{steward}, account: true, caller: erin},
-		{name: "a call outside any request deletes the account the same", held: []access.MembershipKey{steward}, account: true},
-		{name: "a person who holds a role in a tenant stays", held: []access.MembershipKey{steward, reader}, account: true, caller: erin},
-		{name: "an id no user holds has no account to delete", held: []access.MembershipKey{steward}},
+		{name: "the last role anywhere", held: []access.MembershipKey{steward}, account: true, caller: erin},
+		{name: "the last role anywhere, by a call outside any request", held: []access.MembershipKey{steward}, account: true},
+		{name: "a person who holds a role in a tenant", held: []access.MembershipKey{steward, reader}, account: true, caller: erin},
+		{name: "an id no user holds is not found", held: []access.MembershipKey{steward}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -322,9 +310,11 @@ func TestManager_RoleRemovalWarning_agreesWithRemoveRole(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("RemoveRole() error = %v", err)
 			}
-			says := warning != nil && len(warning.Also) == 1 && warning.Also[0].Says == roleTakesAccountSays
-			if goes := slices.Contains(store.writes, deleted); says != goes {
-				t.Errorf("the warning says the account goes = %t, the removal deletes it = %t (writes %v)", says, goes, store.writes)
+			if warning != nil && (len(warning.Also) != 0 || warning.Confirm != roleGoesConfirmSays) {
+				t.Errorf("RoleRemovalWarning() = %+v, want the one button and no note", warning)
+			}
+			if diff := cmp.Diff([]string{"delete membership " + membershipText(&steward)}, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
 		})
 	}

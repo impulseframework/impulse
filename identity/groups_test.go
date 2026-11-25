@@ -477,9 +477,8 @@ func TestManager_AddGroupMember(t *testing.T) {
 	}
 }
 
-// TestManager_RemoveGroupMember pins a person's removal from a group, and the rule on an
-// account nothing admits: a person left with no role of their own and no place in a
-// group is deleted with the removal, and one who holds either stays.
+// TestManager_RemoveGroupMember pins a person's removal from a group: the place goes and
+// nothing else, the last thing the person holds among them.
 func TestManager_RemoveGroupMember(t *testing.T) {
 	t.Parallel()
 
@@ -493,9 +492,9 @@ func TestManager_RemoveGroupMember(t *testing.T) {
 	}{
 		{name: "a person who is not in the group is no error"},
 		{
-			name:        "the last thing a person held: the account goes with the removal",
+			name:        "the last thing a person held: the account stays",
 			in:          []access.GroupMemberKey{memberKey(nightID, userID)},
-			wantWrites:  []string{"delete user " + userID.String(), removal},
+			wantWrites:  []string{removal},
 			wantChanged: 1,
 		},
 		{
@@ -535,34 +534,6 @@ func TestManager_RemoveGroupMember(t *testing.T) {
 				t.Errorf("the engine was told %d time(s), want %d", engine.changed, tt.wantChanged)
 			}
 		})
-	}
-}
-
-// TestManager_RemoveRole_keepsAnAccountInAGroup pins that a place in a group keeps an
-// account as a role does: the person's last role of their own goes, and the account
-// stays while they are in a group.
-func TestManager_RemoveRole_keepsAnAccountInAGroup(t *testing.T) {
-	t.Parallel()
-
-	reader := access.NewMembershipKey(alphaScope, dana, "Reader")
-	for _, inGroup := range []bool{true, false} {
-		store := groupStore()
-		store.memberships[reader] = true
-		if inGroup {
-			store.groupMembers[memberKey(staffID, userID)] = true
-		}
-		m, _ := newManager(t, store, engineRoles)
-
-		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			return m.RemoveRole(ctx, txn, alphaScope, userID, "Reader")
-		})
-		if err != nil {
-			t.Fatalf("RemoveRole() error = %v", err)
-		}
-		deleted := slices.Contains(store.writes, "delete user "+userID.String())
-		if deleted == inGroup {
-			t.Errorf("in a group = %v: account deleted = %v, want an account kept exactly while its person is in a group (writes %v)", inGroup, deleted, store.writes)
-		}
 	}
 }
 

@@ -964,7 +964,7 @@ before anything is saved. A warning is made of these, and the method declares th
   word a person types before the confirm button works. A bare `@warning` names none: the
   dialog asks in the server's words and its button works once they are on the screen,
   which suits an act a person does often and should still read first (taking a role
-  away, which says when the account goes with it).
+  away, which says whose role goes and where it is held).
 - **The style.** The library's method dialog draws the consequence of a method with a
   typed word in its warning colors under a warning icon, and that of a method without
   one as the dialog's question, with no configuration.
@@ -4752,8 +4752,8 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
 - The rules are the whole application's, in the same code: nobody disables or deletes
   their own account, the last administrator of a tenant's own cannot leave it or give
   up the role (someone whose role lets them take the role away may), a rename moves the
-  roles, the last role a person holds anywhere takes the account with it, an
-  invitation gives at least one role. A tenant's administrators are counted as the
+  roles, the last role a person holds anywhere leaves the account standing, holding
+  nothing, and an invitation gives at least one role. A tenant's administrators are counted as the
   permission engine counts them (`access.AdministersTenant`): the people who hold an
   administrator's role in the tenant itself, themselves or through a group kept in the
   tenant. A person who holds the role in every tenant, or through a group kept for the
@@ -4988,8 +4988,7 @@ holding some of them is refused at generation.
   through, which is none for a role of the person's own, the row a request that names
   no group names. A row that comes through a group is refused (400), and the refusal
   says where the role is changed. It asks first (a bare `@warning`): the server says
-  whose role goes and where it is held, and that the account is deleted with it where it
-  is the last thing the person holds.
+  whose role goes and where it is held.
 - No group holds the Super Administrator role (400): a super administrator gives it to
   one person at a time, so a group is no way around the rule that only a super
   administrator makes another. The methods a super administrator always executes stay
@@ -5002,11 +5001,10 @@ holding some of them is refused at generation.
   tenant's groups with their members and roles, and every role a group of the whole
   application holds in it (`ClearTenant`); deleting a person takes them out of their
   groups.
-- A place in a group keeps an account as a role of the person's own does: a person whose
-  last role is taken away stays while they are in a group, and a person taken out of
-  their last group who holds no role is deleted with their identity links and sessions.
-  Where a person belongs to one tenant (`identity.WithOneTenantPerPerson()`), a place in
-  a tenant's group counts as a role in that tenant.
+- A person taken out of their last group who holds no role keeps their account: the
+  account stays, holding nothing. Where a person belongs to one tenant
+  (`identity.WithOneTenantPerPerson()`), a place in a tenant's group counts as a role in
+  that tenant.
 - The declaration over the members table declares a subject set, the ids of the groups
   the caller is in, named after the auth: `subject.crewGroups` for Lodestar's auth
   `crew`, `subject.staffGroups` for an auth `staff` (section 2, `@subjectSet`). Every

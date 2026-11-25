@@ -474,7 +474,7 @@ func asksFirst(fn *ast.FuncDecl, accepted func(call *ast.CallExpr) bool) bool {
 // are the Manager's own steps that write or send.
 var (
 	writeVerbs = []string{"Insert", "Update", "Delete", "Set", "Remove", "Revoke", "End", "Clear", "Consume", "Rename"}
-	writeSteps = []string{"mailAfterCommit", "noticeAfterCommit", "resetLinksEndAtCommit", "endUserSessions", "endSession", "endSessionAndRecord", "removeMembership", "deleteAccount", "deleteWithLastRole"}
+	writeSteps = []string{"mailAfterCommit", "noticeAfterCommit", "resetLinksEndAtCommit", "endUserSessions", "endSession", "endSessionAndRecord", "removeMembership", "deleteAccount"}
 )
 
 // writesSomething reports whether the node calls a write: a method of the store whose

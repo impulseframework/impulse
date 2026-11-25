@@ -1718,18 +1718,12 @@ import (
 // other way. It names a row of {{ .SubjectGroupUser }}, the people of {{ if .ForTenant }}the tenant's groups{{ else }}every group{{ end }}, by
 // the row's two key columns (the group's id and the person's).
 //
-// A place in a group keeps an account as a role of its own does: a person left with no
-// role anywhere and no place in a group is deleted with their identity links and
-// sessions, in the same transaction, since an account nothing admits is not kept. An
-// account that signs in through a tenant's directory is that tenant's to delete: it goes
-// this way only with the last thing it holds in that tenant itself, and otherwise stays,
-// holding nothing, in that tenant's list of its people. A person who takes themselves
-// out keeps a place that makes them the last administrator of a tenant, as they keep the
-// role itself.` + identityJudgedNote + identityGroupCallerEntersNote + `
+// Where the place is the last thing the person holds, the account stays, holding nothing.
+// A person who takes themselves out keeps a place that makes them the last administrator
+// of a tenant, as they keep the role itself.` + identityJudgedNote + identityGroupCallerEntersNote + `
 //
 // The method declares a warning with no word to type: asked first, the server says who
-// leaves which group, and, where the place is the last thing the person holds, that the
-// account is deleted with it.
+// leaves which group.
 //
 // @rpc` + identityTenantScope + identityGroupCallerEnters + `
 // @outlet({{ .Outlets }})
@@ -1742,8 +1736,7 @@ type Remove{{ .Subject }}GroupMember struct {
 	UserID impulse.UUID
 }
 
-// Warning says who would leave which group, and whether the account goes with it. It
-// writes nothing.
+// Warning says who would leave which group. It writes nothing.
 func (m *Remove{{ .Subject }}GroupMember) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
 	{{- if .ForTenant }}
 	tenant, err := client.manager.Tenant(ctx)

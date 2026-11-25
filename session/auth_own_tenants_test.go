@@ -18,7 +18,6 @@ import (
 // what it was asked.
 type ownTenantsHookFake struct {
 	tenants  []OwnTenant
-	deleted  bool
 	leaveErr error
 
 	listedFor []impulse.UUID
@@ -27,9 +26,8 @@ type ownTenantsHookFake struct {
 
 // leftTenant is one call of the hook's Leave.
 type leftTenant struct {
-	UserID         impulse.UUID
-	Domain         accesstypes.Domain
-	DeletesAccount bool
+	UserID impulse.UUID
+	Domain accesstypes.Domain
 }
 
 func (h *ownTenantsHookFake) hook() OwnTenantsHook {
@@ -39,10 +37,10 @@ func (h *ownTenantsHookFake) hook() OwnTenantsHook {
 
 			return h.tenants, nil
 		},
-		Leave: func(_ context.Context, userID impulse.UUID, domain accesstypes.Domain, deletesAccount bool) (bool, error) {
-			h.left = append(h.left, leftTenant{UserID: userID, Domain: domain, DeletesAccount: deletesAccount})
+		Leave: func(_ context.Context, userID impulse.UUID, domain accesstypes.Domain) error {
+			h.left = append(h.left, leftTenant{UserID: userID, Domain: domain})
 
-			return h.deleted, h.leaveErr
+			return h.leaveErr
 		},
 	}
 }
@@ -55,7 +53,7 @@ func unaskedOwnTenants() OwnTenantsHook {
 		List: func(context.Context, impulse.UUID) ([]OwnTenant, error) {
 			panic("the own-tenants hook was asked to list")
 		},
-		Leave: func(context.Context, impulse.UUID, accesstypes.Domain, bool) (bool, error) {
+		Leave: func(context.Context, impulse.UUID, accesstypes.Domain) error {
 			panic("the own-tenants hook was asked to leave")
 		},
 	}
@@ -84,7 +82,7 @@ func TestAuth_OwnTenants(t *testing.T) {
 		c.f.auth.SetTenantNames(namedTenants{"t-acme-2": "acme", "t-acme-1": "Acme", "t-bay": "bayside", "t-zeta": "Zeta Docks"})
 		fake := &ownTenantsHookFake{tenants: []OwnTenant{
 			{Domain: "t-zeta", Roles: []string{"Viewer"}},
-			{Domain: "t-acme-2", Roles: []string{"Editor", "Viewer"}, DeletesAccount: true},
+			{Domain: "t-acme-2", Roles: []string{"Editor", "Viewer"}},
 			{Domain: "c-unnamed", Roles: nil},
 			{Domain: "t-bay", Roles: []string{"Administrator"}, Refusal: "You are the last administrator of this tenant. Give another person the role before you leave."},
 			{Domain: "t-acme-1", Roles: []string{"Viewer"}},
@@ -101,14 +99,14 @@ func TestAuth_OwnTenants(t *testing.T) {
 			t.Fatalf("json.Unmarshal(%s) error = %v", rr.Body.String(), err)
 		}
 		want := map[string]any{"tenants": []any{
-			map[string]any{"domain": "t-acme-1", "name": "Acme", "roles": []any{"Viewer"}, "deletesAccount": false},
-			map[string]any{"domain": "t-acme-2", "name": "acme", "roles": []any{"Editor", "Viewer"}, "deletesAccount": true},
+			map[string]any{"domain": "t-acme-1", "name": "Acme", "roles": []any{"Viewer"}},
+			map[string]any{"domain": "t-acme-2", "name": "acme", "roles": []any{"Editor", "Viewer"}},
 			map[string]any{
-				"domain": "t-bay", "name": "bayside", "roles": []any{"Administrator"}, "deletesAccount": false,
+				"domain": "t-bay", "name": "bayside", "roles": []any{"Administrator"},
 				"refusal": "You are the last administrator of this tenant. Give another person the role before you leave.",
 			},
-			map[string]any{"domain": "c-unnamed", "name": "c-unnamed", "roles": []any{}, "deletesAccount": false},
-			map[string]any{"domain": "t-zeta", "name": "Zeta Docks", "roles": []any{"Viewer"}, "deletesAccount": false},
+			map[string]any{"domain": "c-unnamed", "name": "c-unnamed", "roles": []any{}},
+			map[string]any{"domain": "t-zeta", "name": "Zeta Docks", "roles": []any{"Viewer"}},
 		}}
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("OwnTenants() answer mismatch (-want +got):\n%s", diff)
@@ -125,7 +123,7 @@ func TestAuth_OwnTenants(t *testing.T) {
 		c.signedIn()
 
 		rr := c.serve(c.f.auth.OwnTenants(), c.ctx(), http.MethodGet, "")
-		want := `{"tenants":[{"domain":"t-acme","name":"t-acme","roles":["Viewer"],"deletesAccount":false},{"domain":"t-bay","name":"t-bay","roles":["Viewer"],"deletesAccount":false}]}`
+		want := `{"tenants":[{"domain":"t-acme","name":"t-acme","roles":["Viewer"]},{"domain":"t-bay","name":"t-bay","roles":["Viewer"]}]}`
 		if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != want {
 			t.Errorf("OwnTenants() = %d %s, want 200 %s", rr.Code, rr.Body.String(), want)
 		}
@@ -144,35 +142,27 @@ func TestAuth_OwnTenants(t *testing.T) {
 	})
 }
 
-// TestAuth_LeaveTenant proves the leave hands the hook the session's own user, the
-// tenant and deletesAccount as the page sent them, tells whether the account was
-// deleted, and answers the hook's refusal as it is, with its status and words.
+// TestAuth_LeaveTenant proves the leave hands the hook the session's own user and the
+// tenant the page sent, answers 200 with no body, and answers the hook's refusal as it
+// is, with its status and words.
 func TestAuth_LeaveTenant(t *testing.T) {
 	t.Parallel()
 
-	for _, deletes := range []bool{false, true} {
-		t.Run("the hook is handed the user, the tenant and deletesAccount as sent, and its answer is told: deletesAccount "+map[bool]string{false: "false", true: "true"}[deletes], func(t *testing.T) {
-			t.Parallel()
-			c := newOwnSessionsCase(t)
-			fake := &ownTenantsHookFake{deleted: deletes}
-			c.f.auth.SetOwnTenants(fake.hook())
-			c.signedIn()
+	t.Run("the hook is handed the user and the tenant, and the answer is 200 with no body", func(t *testing.T) {
+		t.Parallel()
+		c := newOwnSessionsCase(t)
+		fake := &ownTenantsHookFake{}
+		c.f.auth.SetOwnTenants(fake.hook())
+		c.signedIn()
 
-			body := `{"domain":"t-acme","deletesAccount":false}`
-			want := `{"accountDeleted":false}`
-			if deletes {
-				body = `{"domain":"t-acme","deletesAccount":true}`
-				want = `{"accountDeleted":true}`
-			}
-			rr := c.serve(c.f.auth.LeaveTenant(), c.ctx(), http.MethodPost, body)
-			if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != want {
-				t.Errorf("LeaveTenant() = %d %s, want 200 %s", rr.Code, rr.Body.String(), want)
-			}
-			if diff := cmp.Diff([]leftTenant{{UserID: c.userID, Domain: "t-acme", DeletesAccount: deletes}}, fake.left); diff != "" {
-				t.Errorf("the hook was asked to leave (-want +got):\n%s", diff)
-			}
-		})
-	}
+		rr := c.serve(c.f.auth.LeaveTenant(), c.ctx(), http.MethodPost, `{"domain":"t-acme"}`)
+		if rr.Code != http.StatusOK || rr.Body.Len() != 0 {
+			t.Errorf("LeaveTenant() = %d %s, want 200 with no body", rr.Code, rr.Body.String())
+		}
+		if diff := cmp.Diff([]leftTenant{{UserID: c.userID, Domain: "t-acme"}}, fake.left); diff != "" {
+			t.Errorf("the hook was asked to leave (-want +got):\n%s", diff)
+		}
+	})
 
 	refusals := []struct {
 		name    string
@@ -185,11 +175,6 @@ func TestAuth_LeaveTenant(t *testing.T) {
 			err:     httpio.NewForbiddenMessage("You are the last administrator of this tenant. Give another person the role before you leave."),
 			message: "You are the last administrator of this tenant. Give another person the role before you leave.",
 		},
-		{
-			name: "a changed list", status: http.StatusConflict,
-			err:     httpio.NewConflictMessage("What you hold changed while this page was open. Look at the list again before you leave."),
-			message: "What you hold changed while this page was open. Look at the list again before you leave.",
-		},
 		{name: "a tenant the person is not in", status: http.StatusNotFound, err: httpio.NewNotFoundMessagef("You hold no role in that %s.", "tenant"), message: "You hold no role in that tenant."},
 		{name: "no tenant named", status: http.StatusBadRequest, err: httpio.NewBadRequestMessagef("Name the %s to leave.", "tenant"), message: "Name the tenant to leave."},
 	}
@@ -200,7 +185,7 @@ func TestAuth_LeaveTenant(t *testing.T) {
 			c.f.auth.SetOwnTenants((&ownTenantsHookFake{leaveErr: tt.err}).hook())
 			c.signedIn()
 
-			rr := c.serve(c.f.auth.LeaveTenant(), c.ctx(), http.MethodPost, `{"domain":"t-acme","deletesAccount":false}`)
+			rr := c.serve(c.f.auth.LeaveTenant(), c.ctx(), http.MethodPost, `{"domain":"t-acme"}`)
 			if rr.Code != tt.status || messageOf(t, rr) != tt.message {
 				t.Errorf("LeaveTenant() = %d %s, want %d %q", rr.Code, rr.Body.String(), tt.status, tt.message)
 			}
@@ -220,7 +205,7 @@ func TestAuth_OwnTenants_noHook(t *testing.T) {
 		body    string
 	}{
 		{name: "OwnTenants", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).OwnTenants, method: http.MethodGet},
-		{name: "LeaveTenant", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant, method: http.MethodPost, body: `{"domain":"t-acme","deletesAccount":false}`},
+		{name: "LeaveTenant", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant, method: http.MethodPost, body: `{"domain":"t-acme"}`},
 	}
 	for _, h := range handlers {
 		t.Run(h.name, func(t *testing.T) {

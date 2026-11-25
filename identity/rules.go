@@ -587,41 +587,11 @@ func (m *Manager) deleteAccount(ctx context.Context, txn resource.ReadWriteTrans
 	return nil
 }
 
-// deleteWithLastRole applies the rule on an account nothing admits, once a membership
-// is removed: a person who then holds no role anywhere, in the global scope, in a
-// tenant or in every tenant, is deleted with their identity links and sessions. Under
-// a directory's open rule the next sign-in creates the row again, and under password
-// sign-up the person signs up again; a person who holds a role somewhere stays. An
-// account that signs in through a tenant's directory is that tenant's to delete: it goes
-// this way only with the last thing it holds in that tenant itself, and otherwise stays,
-// holding nothing, in that tenant's list of its people. held
-// is every membership the person held before the removal, and removed the one that
-// goes. An id no user holds has no account to delete.
-func (m *Manager) deleteWithLastRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, held []access.MembershipKey, removed *access.MembershipKey) error {
-	if slices.ContainsFunc(held, func(key access.MembershipKey) bool { return key != *removed }) {
-		return nil
-	}
-	username, found, err := m.store.Username(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
-	}
-	if !found {
-		return nil
-	}
-	if err := m.deleteAccount(ctx, txn, userID); err != nil {
-		return err
-	}
-	logger.FromCtx(ctx).Infof("identity: %q (%s) holds no role anywhere after the removal of %s, so the account is deleted with its identity links and sessions", username, userID, removed.Role)
-
-	return nil
-}
-
-// managedElsewhere asks the one question a removal asks where it would leave the person
-// holding nothing: does a tenant other than tenant manage the person's account? tenant is
-// the one the last thing is held in, "" where it is held in none. It answers the managing
-// tenant too, the first by key, for the log. A person with no identity link signs in
-// through no directory, so the store is not asked who manages the account
-// (Store.ManagingTenants).
+// managedElsewhere answers whether a tenant other than tenant manages the person's
+// account: whether they sign in through another tenant's directory. tenant is "" for
+// none. It answers the managing tenant too, the first by key, for the log. A person with
+// no identity link signs in through no directory, so the store is not asked who manages
+// the account (Store.ManagingTenants).
 func (m *Manager) managedElsewhere(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, tenant accesstypes.Domain) (managing accesstypes.Domain, elsewhere bool, err error) {
 	links, err := m.store.Identities(ctx, txn, userID)
 	if err != nil {
@@ -640,16 +610,4 @@ func (m *Manager) managedElsewhere(ctx context.Context, txn resource.ReadWriteTr
 	}
 
 	return slices.Min(others), true, nil
-}
-
-// logManagedElsewhere logs an account a removal leaves holding nothing, which stays
-// because the tenant managing manages it (managedElsewhere).
-func (m *Manager) logManagedElsewhere(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, managing accesstypes.Domain) error {
-	username, _, err := m.store.Username(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
-	}
-	logger.FromCtx(ctx).Infof("identity: %q (%s) holds nothing after the removal, and the account stays: the %s %s manages it", username, userID, m.tenantWord, managing)
-
-	return nil
 }

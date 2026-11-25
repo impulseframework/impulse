@@ -126,7 +126,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		"crewidentity/remove_crew_group_member.go": {
 			"// @target(CrewGroupUser, key: GroupID)\n\tGroupID impulse.UUID\n\t// @target(CrewGroupUser, key: UserID)\n\tUserID impulse.UUID",
 			"client.manager.RemoveGroupMember(ctx, txn, m.GroupID, m.UserID)",
-			// Asked first, the server says who leaves which group, and whether the account goes.
+			// Asked first, the server says who leaves which group.
 			"// @answers(204)\n// @warning\n", "client.manager.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)",
 		},
 		"crewidentity/give_crew_group_role.go": {

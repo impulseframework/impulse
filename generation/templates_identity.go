@@ -995,8 +995,8 @@ func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransa
 // tenants they hold something in, with the roles held in each, and takes them out of one
 // at their own word (identity.Manager.OwnTenants), each in a transaction of the hook's
 // own on db, the application's database. A tenant's last administrator does not leave
-// it, and an account left holding nothing is deleted with its sessions. The auth's
-// package sets it where it sets the after-sign-in hook.
+// it, and an account left holding nothing stays. The auth's package sets it where it sets
+// the after-sign-in hook.
 func (c *Client) OwnTenants(db resource.Client) session.OwnTenantsHook {
 	return c.manager.OwnTenants("{{ .Auth }}", db)
 }
@@ -1896,7 +1896,7 @@ func (store) RevokeTrustedDevice(_ context.Context, _ resource.ReadWriteTransact
 // ManagingTenants lists the {{ .TenantWord }}s whose own list of their people
 // ({{ .TenantUser }}) says they manage the user's account, the rows of the user whose
 // ManagedHere is true, read in the caller's transaction through the list's query type.
-// A removal that would leave the person holding nothing asks it
+// A tenant's delete asks it of each account it considers
 // (identity.Store.ManagingTenants).
 func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {
 	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
@@ -2544,15 +2544,11 @@ import (
 // A person who removes a role from themselves in a domain keeps an administrator role
 // nobody else would hold there (identity.WithAdministratorRoles names them). The Super
 // Administrator role is taken away by a super administrator alone, and never from the
-// last one who can sign in. A person left with no role anywhere is deleted with their
-// identity links and sessions, in the same transaction: an account nothing admits is
-// not kept. An account that signs in through a tenant's directory is that tenant's to
-// delete: it goes this way only with the last thing it holds in that tenant itself, and
-// otherwise stays, holding nothing, in that tenant's list of its people.` + identityRoleRemovalEntersNote + `
+// last one who can sign in. Where the role is the last thing the person holds, the
+// account stays, holding nothing.` + identityRoleRemovalEntersNote + `
 //
 // The method declares a warning with no word to type: asked first, the server says whose
-// role goes and where it is held, and, where it is the last thing the person holds, that
-// the account is deleted with it.
+// role goes and where it is held.
 //
 // @rpc
 {{- with .RoleRemovalRows }}
@@ -2570,8 +2566,7 @@ type Remove{{ .Auth }}Role struct {
 	{{- end }}
 }
 
-// Warning says whose role would go and where it is held, and whether the account goes
-// with it. It writes nothing.
+// Warning says whose role would go and where it is held. It writes nothing.
 func (m *Remove{{ .Auth }}Role) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
 	{{- if .HasTenant }}
 	scope, err := identity.Scope(m.Domain, m.EveryDomain)

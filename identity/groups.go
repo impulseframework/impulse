@@ -11,7 +11,6 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
-	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/tracer"
 )
@@ -313,15 +312,8 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 // the person's next request is served without the group's roles. A person who is not in
 // the group is no error.
 //
-// A place in a group keeps an account as a role of its own does, so the rule on an
-// account nothing admits applies here as it does to a role taken away (RemoveRole): a
-// person left with no role of their own and no place in any group is deleted with their
-// identity links and sessions, in the same transaction. What the person holds is read as
-// committed, and a row whose period has ended keeps the account like any other: an
-// account goes when nothing at all is left of what was given to it (keeps). An account
-// that signs in through a tenant's directory is that tenant's to delete: it goes this way
-// only with the last thing it holds in that tenant itself, and otherwise stays, holding
-// nothing, in that tenant's list of its people.
+// Where the place is the last thing the person holds, the account stays, holding
+// nothing.
 //
 // Taking a person out of a group takes each of the group's roles from them, so the
 // removal is held to what a role's removal is: a request needs what taking each role
@@ -349,19 +341,8 @@ func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteT
 	if !in {
 		return nil
 	}
-	removal, err := m.judgeGroupMemberRemoval(ctx, txn, groupID, userID)
-	if err != nil {
+	if err := m.refuseTakingPlace(ctx, txn, groupID, userID); err != nil {
 		return err
-	}
-	switch {
-	case removal.deletes:
-		if err := m.deleteLeftWithNothing(ctx, txn, userID, "the group they were removed from was the last thing they held"); err != nil {
-			return err
-		}
-	case removal.last:
-		if err := m.logManagedElsewhere(ctx, txn, userID, removal.managedBy); err != nil {
-			return err
-		}
 	}
 	if err := m.store.DeleteGroupMember(ctx, txn, &key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
@@ -484,25 +465,6 @@ func (m *Manager) refuseTakingPlace(ctx context.Context, txn resource.ReadWriteT
 	}
 
 	return m.refuseSeveralTenantsLeft(&removed, held)
-}
-
-// deleteLeftWithNothing deletes the account of a person who holds no role of their own
-// and no place in a group once the caller's removal is applied, with their identity
-// links and sessions (deleteAccount). An id no user holds has no account to delete.
-func (m *Manager) deleteLeftWithNothing(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, why string) error {
-	username, found, err := m.store.Username(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
-	}
-	if !found {
-		return nil
-	}
-	if err := m.deleteAccount(ctx, txn, userID); err != nil {
-		return err
-	}
-	logger.FromCtx(ctx).Infof("identity: %q (%s) holds no role and no place in a group: %s, so the account is deleted with its identity links and sessions", username, userID, why)
-
-	return nil
 }
 
 // GiveGroupRoleFor buffers the role a group holds in the scope, in the caller's

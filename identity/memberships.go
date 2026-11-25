@@ -180,24 +180,18 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 // and the role need not exist any more: a membership of a role since deleted is removed
 // like any other.
 //
-// Two rules of the user management are held here. A person who removes a role from
-// themselves in a tenant is held to the rule on the tenant's last administrator
-// (refuseLastAdministrator). And a person left with no role anywhere and no place in a
-// group is deleted with their identity links and sessions in the same transaction
-// (deleteWithLastRole), whoever removed the role. An account that signs in through a
-// tenant's directory is that tenant's to delete: it goes this way only with the last
-// thing it holds in that tenant itself, and otherwise stays, holding nothing, in that
-// tenant's list of its people. The Super Administrator role has its own: it is taken away
-// by a caller who holds it, and never from the last holder who can sign in, whoever
-// asks (requireSuperAdministrator, refuseLastSuperAdministrator).
-// Where a person belongs to one tenant (WithOneTenantPerPerson) there is a third: the
+// A person who removes a role from themselves in a tenant is held to the rule on the
+// tenant's last administrator (refuseLastAdministrator). The Super Administrator role has
+// its own rule: it is taken away by a caller who holds it, and never from the last holder
+// who can sign in, whoever asks (requireSuperAdministrator, refuseLastSuperAdministrator).
+// Where a person belongs to one tenant (WithOneTenantPerPerson) there is another: the
 // last role a person holds outside the tenants stays while they hold roles in more than
-// one tenant (refuseLeavingSeveralTenants).
+// one tenant (refuseLeavingSeveralTenants). Where the role is the last thing the person
+// holds, the account stays, holding nothing.
 //
 // What the person holds is read as committed: a second removal for the same person in
-// one transaction does not see the first, as no read sees a buffered write, so the
-// account is deleted only when one call removes the last role. Remove one role of a
-// person per transaction.
+// one transaction does not see the first, as no read sees a buffered write. Remove one
+// role of a person per transaction.
 //
 // RoleRemovalWarning answers what a call would do, from the same judgment, and writes
 // nothing.
@@ -225,19 +219,8 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 // permission engine told once the transaction has committed. key is the membership, read
 // as held by the caller.
 func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
-	removal, err := m.judgeRoleRemoval(ctx, txn, scope, userID, key)
-	if err != nil {
+	if _, err := m.judgeRoleRemoval(ctx, txn, scope, userID, key); err != nil {
 		return err
-	}
-	switch {
-	case removal.deletes:
-		if err := m.deleteWithLastRole(ctx, txn, userID, removal.kept, key); err != nil {
-			return err
-		}
-	case removal.last:
-		if err := m.logManagedElsewhere(ctx, txn, userID, removal.managedBy); err != nil {
-			return err
-		}
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteMembership()")

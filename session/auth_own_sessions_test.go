@@ -430,7 +430,7 @@ func TestAuth_ownSessionHandlers_refuse(t *testing.T) {
 		{name: "OwnTenants", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).OwnTenants), method: http.MethodGet, body: func(impulse.UUID) string { return "" }},
 		{
 			name: "LeaveTenant", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant), method: http.MethodPost,
-			body: func(impulse.UUID) string { return `{"domain":"t-acme","deletesAccount":false}` },
+			body: func(impulse.UUID) string { return `{"domain":"t-acme"}` },
 		},
 	}
 	for _, h := range handlers {
@@ -492,7 +492,7 @@ func TestAuth_ownAccountHandlers_refuseAToken(t *testing.T) {
 		{name: "ChangeUsername", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).ChangeUsername, method: http.MethodPost, body: `{"username":"patricia"}`},
 		{name: "UsernameFree", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).UsernameFree, method: http.MethodPost, body: `{"username":"patricia"}`},
 		{name: "OwnTenants", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).OwnTenants), method: http.MethodGet},
-		{name: "LeaveTenant", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant), method: http.MethodPost, body: `{"domain":"t-acme","deletesAccount":false}`},
+		{name: "LeaveTenant", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant), method: http.MethodPost, body: `{"domain":"t-acme"}`},
 	}
 	for _, h := range handlers {
 		t.Run(h.name, func(t *testing.T) {

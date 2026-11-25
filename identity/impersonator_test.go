@@ -221,9 +221,7 @@ var impersonatorActs = []struct {
 	{
 		name: "RemoveFromTenant", says: "remove yourself from a tenant",
 		act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, who *person) error {
-			_, err := m.RemoveFromTenant(ctx, txn, who.id, "alpha")
-
-			return err
+			return m.RemoveFromTenant(ctx, txn, who.id, "alpha")
 		},
 	},
 	{

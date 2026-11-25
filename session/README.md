@@ -2282,16 +2282,11 @@ and refuse an impersonated session. These four, and the two of the username, als
 a request a token authenticated.
 
 **The person sees their tenants and leaves one**, signed in: `Auth.OwnTenants()` answers
-`{"tenants": [{"domain", "name", "roles", "refusal", "deletesAccount"}]}`, the tenants the
-person holds something in, each by its name (`SetTenantNames`; the tenant's key where no name
-is known) with the roles they hold there in words, why they cannot leave it where they cannot
-(`refusal`, absent where they can), and whether leaving it deletes their account.
-`Auth.LeaveTenant()` accepts `{"domain", "deletesAccount"}` and answers `{"accountDeleted"}`:
-everything the person holds in the tenant goes, and the account goes with it, and every
-session of theirs, when the person then holds nothing still in force anywhere: a role or a
-place whose time has ended keeps no account against its person's own leaving, and goes with
-it. `deletesAccount` is what the page told the person; where it is no longer true the request
-is refused (409) and nothing changes, so nobody deletes their account having agreed to less.
+`{"tenants": [{"domain", "name", "roles", "refusal"}]}`, the tenants the person holds
+something in, each by its name (`SetTenantNames`; the tenant's key where no name is known)
+with the roles they hold there in words, and why they cannot leave it where they cannot
+(`refusal`, absent where they can). `Auth.LeaveTenant()` accepts `{"domain"}` and answers 200
+with no body. Leaving takes every role the person holds in the tenant. The account stays.
 Who belongs where is the application's to say: both handlers answer through the hook the
 auth's package sets (`SetOwnTenants`, the generated identity client's `OwnTenants`), which
 holds the rules: a tenant's last administrator does not leave it. Both validate the session
