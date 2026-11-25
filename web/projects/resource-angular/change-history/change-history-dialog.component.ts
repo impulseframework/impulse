@@ -33,10 +33,18 @@ export interface ChangeHistoryDialogData {
   fields?: ChangeHistoryField[];
 }
 
+/**
+ * The width By declares, in pixels: what a method's sentence needs whole ("lead, through
+ * the RPC CompleteMission"), since most changes to a record are made by its methods. The
+ * columns that declare none share the rest, so From and To give it up. A longer sentence
+ * (a person acting as a role, through a method) is cut and reads whole in its tooltip.
+ */
+const byColumnWidth = 280;
+
 /** The columns of a record's history: when, by whom, what kind of change, which field, from what, to what. */
 const changeHistoryColumns: ColumnConfig[] = [
   { id: 'at' as FieldName, header: 'When' },
-  { id: 'by' as FieldName, header: 'By' },
+  { id: 'by' as FieldName, header: 'By', width: byColumnWidth },
   { id: 'change' as FieldName, header: 'Change' },
   { id: 'field' as FieldName, header: 'Field' },
   { id: 'from' as FieldName, header: 'From' },

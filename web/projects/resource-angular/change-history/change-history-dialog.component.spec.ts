@@ -187,6 +187,21 @@ describe('ChangeHistoryDialogComponent', () => {
     expect(element(fixture).querySelectorAll('th button')).toHaveLength(0);
   });
 
+  it("gives By the width a method's sentence needs, and every other column the room that is left", async () => {
+    const transport = server(() => pageOf(newest, created));
+    const fixture = await historyOver(transport, { fields });
+
+    const firstRow = element(fixture).querySelector('tr.impulse-row');
+    expect(Array.from(firstRow?.querySelectorAll('td') ?? []).map((cell) => cell.style.width)).toEqual([
+      '',
+      '280px',
+      '',
+      '',
+      '',
+      '',
+    ]);
+  });
+
   it('draws a record that lists no field as one row of when, by and change alone', async () => {
     const hidden: ChangeRecord = {
       at: '2026-11-21T10:00:00Z',
