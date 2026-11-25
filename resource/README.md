@@ -2003,6 +2003,11 @@ says what to write.
   save that deletes the rows that name a group or an account and then the group or the
   account itself is refused over those rows where their column says nothing: the rows are
   deleted in an earlier save, or the column says `@deletedWith`.
+- **The save that takes the account's row** also ends the person's sessions and removes
+  their sign-ins, their roles and their places in groups, and the size of a save does not
+  count those writes. An account whose last rows fill that save to within them is refused
+  by the database at the commit, at every try, for holding too many changes; it is deleted
+  once a few of its rows are deleted first.
 - **The application's resources package must not import the auth's generated packages.**
   The generated description of the group or the account names the delete of the
   application's record (`<Record>TakenRows`, which the generator writes in the
