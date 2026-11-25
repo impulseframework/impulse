@@ -353,6 +353,62 @@ func testDirectorySeatNotForDisabledLink(ctx context.Context, t *testing.T, h *A
 	}
 }
 
+func testDirectorySeatNotForDisabledFirstLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open,
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook, OnlyIn: rec.onlyIn},
+	})
+
+	// Gus's account was created ahead in Lakeside, with no password, so the sign-in
+	// through Lakeside's directory links his identity for the first time; his account is
+	// disabled. The link is written and the sign-in refused, as before, and the
+	// directory's default seat is not handed to the hook.
+	const name = "gus@lakeside.edu"
+	gus := createUser(ctx, t, in.Driver, name)
+	rec.roleAhead(gus.ID, "lakeside")
+	if err := in.Driver.DeactivateUser(ctx, gus.ID); err != nil {
+		t.Fatalf("DeactivateUser() error = %v", err)
+	}
+	identity := entra("oid-gus", name)
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
+	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled)
+	assertLinkedTo(ctx, t, in.Driver, identity, gus.ID, "tenant-1")
+	if got := rec.times(name); got != 0 {
+		t.Errorf("the seat hook was called %d time(s) for a disabled account at the sign-in that linked it, want never", got)
+	}
+	if value, found := h.Recorded(ctx, t, in.Raw, "seated:"+name); found {
+		t.Errorf("HookRecords[seated:%s] = %q after a disabled account's first sign-in through the directory, want nothing", name, value)
+	}
+}
+
+func testDirectorySeatNotForDisabledConfirmedLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open,
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
+	})
+
+	// Kim's account has a password and is disabled. The link her password confirms is
+	// made, as before, and the directory's default seat is not handed to the hook.
+	const name = "kim@lakeside.edu"
+	kim := passwordUser(ctx, t, in.Driver, name)
+	if err := in.Driver.DeactivateUser(ctx, kim.ID); err != nil {
+		t.Fatalf("DeactivateUser() error = %v", err)
+	}
+	identity := entra("oid-kim", name)
+	if err := in.LinkConfirmed(ctx, kim.ID, name, identity, "tenant-1"); err != nil {
+		t.Fatalf("LinkConfirmed() error = %v", err)
+	}
+	assertLinkedTo(ctx, t, in.Driver, identity, kim.ID, "tenant-1")
+	if got := rec.times(name); got != 0 {
+		t.Errorf("the seat hook was called %d time(s) for a disabled account's confirmed link, want never", got)
+	}
+	if value, found := h.Recorded(ctx, t, in.Raw, "seated:"+name); found {
+		t.Errorf("HookRecords[seated:%s] = %q after a disabled account's confirmed link, want nothing", name, value)
+	}
+}
+
 func testDirectorySeatBeyondInvitationAtLink(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newSeatings()
 	acc := newAcceptances()
