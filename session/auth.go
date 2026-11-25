@@ -32,14 +32,15 @@ type authSettings struct {
 	pendingTimeout time.Duration
 	pendingCookie  string
 	// identitiesTable, pendingSignInsTable, signInAttemptsTable, mailLinksTable,
-	// signInMethodsTable and signInSettingsTable name the group's tables; nil keeps the
-	// store's defaults.
+	// signInMethodsTable, signInSettingsTable and auditRecordsTable name the group's
+	// tables; nil keeps the store's defaults.
 	identitiesTable     *string
 	pendingSignInsTable *string
 	signInAttemptsTable *string
 	mailLinksTable      *string
 	signInMethodsTable  *string
 	signInSettingsTable *string
+	auditRecordsTable   *string
 	// mail is how the Auth sends mail: NewAuth's argument, validated.
 	mail *mailSettings
 	// invitationCookie names the cookie that carries an opened invitation into the
@@ -157,6 +158,12 @@ func WithSignInSettingsTableName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.signInSettingsTable = &name }}
 }
 
+// WithAuditRecordsTableName sets the name of the group's audit records table, where the
+// Auth keeps its audit log. (default: SessionAuditRecords)
+func WithAuditRecordsTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.auditRecordsTable = &name }}
+}
+
 // WithInvitationCookieName sets the name of the cookie that carries an invitation the
 // browser opened into the sign-in. (default: auth-invitation)
 func WithInvitationCookieName(name string) AuthOption {
@@ -214,6 +221,7 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 		{option: "WithMailLinksTableName", name: settings.mailLinksTable, set: storage.SetMailLinksTableName},
 		{option: "WithSignInMethodsTableName", name: settings.signInMethodsTable, set: storage.SetSignInMethodsTableName},
 		{option: "WithSignInSettingsTableName", name: settings.signInSettingsTable, set: storage.SetSignInSettingsTableName},
+		{option: "WithAuditRecordsTableName", name: settings.auditRecordsTable, set: storage.SetAuditRecordsTableName},
 		{option: "WithTokensTableName", name: settings.tokensTable, set: storage.SetTokensTableName},
 		{option: "WithDeviceCodesTableName", name: settings.deviceCodesTable, set: storage.SetDeviceCodesTableName},
 		{option: "WithFactorCodesTableName", name: settings.factorCodesTable, set: storage.SetFactorCodesTableName},
