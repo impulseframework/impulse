@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/api/iterator"
 )
@@ -103,12 +104,13 @@ func (c *SpannerReadWriteTransaction) tenantName(ctx context.Context, tenants *D
 // does not reach, before any row is asked about and on a request that asks as on one
 // that takes. Whoever the delete is for is the asked caller: with none, or one whose
 // scope is the whole application's, every row is within reach and no statement is sent.
-// Otherwise the rows of the caller's tenant are within reach. Each marked kind with rows
-// is counted by tenant, level by level, in the question's order; a kind whose rows are no
-// tenant's has every row of no tenant and sends no statement. A row of another tenant
-// refuses in the sentence for the first such tenant, its key read as text, counting each
-// marked kind's rows in it; with none, a row of no tenant refuses in the sentence for
-// those.
+// Otherwise the rows of the caller's tenant are within reach, and those of each other
+// tenant in which the same permission holds (Caller.reachesTenant), each such tenant
+// asked once, in the order of its key. Each marked kind with rows is counted by tenant,
+// level by level, in the question's order; a kind whose rows are no tenant's has every
+// row of no tenant and sends no statement. A row of a tenant out of reach refuses in the
+// sentence for the first such tenant, its key read as text, counting each marked kind's
+// rows in it; with none, a row of no tenant refuses in the sentence for those.
 func (d *takingDelete) refusedBeyondReach(ctx context.Context, levels *takenLevels) error {
 	caller := d.asked.caller
 	if caller.IsZero() || caller.Scope.IsGlobal() {
@@ -133,28 +135,9 @@ func (d *takingDelete) refusedBeyondReach(ctx context.Context, levels *takenLeve
 
 			continue
 		}
-		inTenant := make(map[string]int64)
-		var ofNone int64
-		for level := 0; level <= levels.deepest; level++ {
-			if levels.at(kind, level) == 0 {
-				continue
-			}
-			statement, ok := d.query.byTenant(kind, level, levels.deepest)
-			if !ok {
-				continue
-			}
-			counted, err := d.countByTenant(ctx, statement)
-			if err != nil {
-				return errors.Wrapf(err, "counting the %s under a %s by their tenant", kind.Words.Many, tree.Words.One)
-			}
-			for _, tenant := range counted {
-				switch {
-				case !tenant.tenant.Valid:
-					ofNone += tenant.rows
-				case tenant.tenant.StringVal != string(own):
-					inTenant[tenant.tenant.StringVal] += tenant.rows
-				}
-			}
+		inTenant, ofNone, err := d.kindByTenant(ctx, kind, levels, own)
+		if err != nil {
+			return err
 		}
 		for tenant, rows := range inTenant {
 			beyond[tenant] = append(beyond[tenant], kindRows{kind: kind, rows: rows})
@@ -164,6 +147,15 @@ func (d *takingDelete) refusedBeyondReach(ctx context.Context, levels *takenLeve
 		}
 	}
 
+	for _, tenant := range slices.Sorted(maps.Keys(beyond)) {
+		reached, err := caller.reachesTenant(ctx, accesstypes.Domain(tenant))
+		if err != nil {
+			return errors.Wrapf(err, "asking whether the delete of a %s reaches tenant %s", tree.Words.One, tenant)
+		}
+		if reached {
+			delete(beyond, tenant)
+		}
+	}
 	if len(beyond) > 0 {
 		first := slices.Min(slices.Collect(maps.Keys(beyond)))
 		name, err := d.txn.tenantName(ctx, tree.Tenants, first)
@@ -178,6 +170,35 @@ func (d *takingDelete) refusedBeyondReach(ctx context.Context, levels *takenLeve
 	}
 
 	return nil
+}
+
+// kindByTenant counts a marked kind's rows by their tenant, level by level: the rows of
+// each tenant but the caller's own (own), and the rows of no tenant.
+func (d *takingDelete) kindByTenant(ctx context.Context, kind *DeleteKind, levels *takenLevels, own accesstypes.Domain) (inTenant map[string]int64, ofNone int64, err error) {
+	inTenant = make(map[string]int64)
+	for level := 0; level <= levels.deepest; level++ {
+		if levels.at(kind, level) == 0 {
+			continue
+		}
+		statement, ok := d.query.byTenant(kind, level, levels.deepest)
+		if !ok {
+			continue
+		}
+		counted, err := d.countByTenant(ctx, statement)
+		if err != nil {
+			return nil, 0, errors.Wrapf(err, "counting the %s under a %s by their tenant", kind.Words.Many, d.query.tree.Words.One)
+		}
+		for _, tenant := range counted {
+			switch {
+			case !tenant.tenant.Valid:
+				ofNone += tenant.rows
+			case tenant.tenant.StringVal != string(own):
+				inTenant[tenant.tenant.StringVal] += tenant.rows
+			}
+		}
+	}
+
+	return inTenant, ofNone, nil
 }
 
 // countByTenant runs a statement that counts a kind's rows by their tenant: through the

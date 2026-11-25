@@ -1629,7 +1629,7 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 		deleteSay = "// Before it runs on a tenant's side, the method says what it does (Warning): where the\n// tenant is open to its directory and the person signs in through it, that they can sign\n// in again and will get a new account."
 		noWarning = "// @answers(204)\ntype Delete"
 		// Both sides say whose grant the rows that go with the account go on.
-		rowsGo = "// go with the account. Nobody deletes themselves: the caller's own account is refused.\n//\n// The rows that go with the account go on this method's grant: no grant is asked on\n// their own tables. For a request made for the whole application every such row goes.\n// For one made under a tenant's address the rows of that tenant go, and a row of another\n// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says\n// where it is.\n"
+		rowsGo = "// go with the account. Nobody deletes themselves: the caller's own account is refused.\n//\n// The rows that go with the account go on this method's grant: no grant is asked on\n// their own tables. For a request made for the whole application every such row goes.\n// For one made under a tenant's address the rows of that tenant go, and those of each\n// other tenant in which the person holds the same permission; a row of any other\n// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says\n// where it is.\n"
 	)
 	for _, tt := range []struct {
 		name  string

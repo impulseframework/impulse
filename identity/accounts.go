@@ -110,10 +110,11 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // delete is asked first: it takes with it the application's rows that name the account
 // in a column that says so (@deletedWith). They go on the permission the request was let
 // in by, with no grant asked on them: every row for a request made for the whole
-// application, and for one made under a tenant's address the rows of that tenant, a row
-// of another tenant or of none refusing the delete. Asked without everythingUnder of an
-// account that has such a row, it deletes nothing and answers the question a person is asked
-// first, with their counts; where they are more than one save holds, it answers what the
+// application, and for one made under a tenant's address the rows of that tenant and of
+// each other tenant in which the person holds the same permission, a row of any other
+// tenant or of none refusing the delete. Asked without everythingUnder of an account that
+// has such a row, it deletes nothing and answers the question a person is asked first,
+// with their counts; where they are more than one save holds, it answers what the
 // save left, and the account stands whole, with its sessions and its ways to sign in,
 // until a save takes the last of them. Once the row goes, every session the person holds
 // is ended, and their identity links, every membership they hold and their place in

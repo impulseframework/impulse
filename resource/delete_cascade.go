@@ -40,9 +40,10 @@ import (
 // sentence and before any row is asked about: "This group has 5 tasks. Move or delete
 // them first."
 //
-// A kind marked WithinReach goes on the permission the delete's request was let in by:
-// no grant is asked on its rows, and a row in a tenant that permission does not reach
-// refuses the delete before any row is asked about: "This account still has 2 task
+// A kind marked WithinReach goes on the permission the delete's request was let in by,
+// in the request's tenant and in each other tenant in which the person holds the same
+// permission: no grant is asked on its rows, and a row in a tenant that permission does
+// not reach refuses the delete before any row is asked about: "This account still has 2 task
 // assignments in Borealis. They have to be removed there before the account can be
 // deleted."
 //

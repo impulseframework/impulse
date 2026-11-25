@@ -2,7 +2,10 @@ package resource
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -437,5 +440,207 @@ func TestPatchSet_deleteTaken_withinReachRounds(t *testing.T) {
 	}
 	if rounds == 0 || rowsStanding(t, db, "CascadeAccounts", "rounds") != 0 || rowsStanding(t, db, "CascadeAssignments", "rounds-1", "rounds-2", "rounds-3") != 0 {
 		t.Errorf("the delete in rounds ran %d round(s) before the last and left rows, want more than one round and everything gone", rounds)
+	}
+}
+
+// reachPermissions is a person's checker that answers one permission on one method by
+// the tenant it is asked in: the decision the map gives the tenant, Denied in any other
+// tenant and for anything else. It records every scope it is asked in.
+type reachPermissions struct {
+	renderStubPermissions
+	method     accesstypes.Resource
+	permission accesstypes.Permission
+	decided    map[accesstypes.Domain]accesstypes.Decision
+
+	mu    sync.Mutex
+	asked []string
+}
+
+func (p *reachPermissions) Check(_ context.Context, _ accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
+	p.mu.Lock()
+	p.asked = append(p.asked, fmt.Sprintf("%s %s %v", scope, perm, resources))
+	p.mu.Unlock()
+
+	out := make(accesstypes.Decisions, len(resources))
+	domain, _ := scope.Domain()
+	for _, res := range resources {
+		decision, ok := p.decided[domain]
+		if !ok || res != p.method || perm != p.permission {
+			decision = accesstypes.Denied()
+		}
+		out[res] = decision
+	}
+
+	return out, nil
+}
+
+// askedScopes is what the checker was asked, in order.
+func (p *reachPermissions) askedScopes() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return slices.Clone(p.asked)
+}
+
+// askedOnceEachTry reports whether what a checker was asked is the asks wanted, once in
+// each try of the transaction: the emulator may abort a transaction, and the delete is
+// run again from the start.
+func askedOnceEachTry(got, want []string) bool {
+	if len(want) == 0 || len(got) == 0 {
+		return len(got) == len(want)
+	}
+	if len(got)%len(want) != 0 {
+		return false
+	}
+	for try := range slices.Chunk(got, len(want)) {
+		if !slices.Equal(try, want) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// reachMethod is the method an account's delete is asked through in the tests of the
+// reach into other tenants.
+const reachMethod = accesstypes.Resource("DeleteCrewUser")
+
+// methodCaller is a person whose request to delete an account was let in by Execute on
+// the method, checked in Acme, whose checker answers by tenant as decided says. Without
+// the method, it is a caller whose entry check is not known.
+func methodCaller(t *testing.T, withMethod bool, decided map[accesstypes.Domain]accesstypes.Decision) (*Caller, *reachPermissions) {
+	t.Helper()
+
+	perms := &reachPermissions{method: reachMethod, permission: accesstypes.Execute, decided: decided}
+	caller := &Caller{Permissions: perms, Scope: accesstypes.DomainScope("acme"), Env: RequestEnvironment(), collection: callerCollection(t)}
+	if withMethod {
+		caller.method, caller.permission = reachMethod, accesstypes.Execute
+	}
+
+	return caller, perms
+}
+
+// TestTakingDelete_reachOtherTenants holds, over the emulator, an account's delete
+// under Acme's address by a person who may delete accounts in another tenant too: the
+// permission the request was let in by, held in Borealis, granted or under a condition,
+// reaches the rows of Borealis, which the question counts and the delete takes; denied
+// there, the delete is refused in the sentence that names Borealis. Of two other
+// tenants, the one reached is passed over and the sentence names the other. A caller
+// whose entry check is not known reaches no other tenant and asks nothing. Rows of no
+// tenant still refuse. Each other tenant is asked once, for the method and the
+// permission the request was let in by, in each try of the transaction.
+func TestTakingDelete_reachOtherTenants(t *testing.T) {
+	t.Parallel()
+
+	db := reachDatabase(t, "delete-reach-other-tenants",
+		spanner.InsertMap("CascadeCompanies", map[string]any{"Id": "eastwind", "Name": "Eastwind"}),
+		assignment("dana-1", "dana", "acme"), assignment("dana-2", "dana", "borealis"), assignment("dana-3", "dana", "borealis"),
+		assignment("spread-1", "spread", "acme"), assignment("spread-2", "spread", "borealis"), assignment("spread-3", "spread", "eastwind"),
+		assignment("kept-1", "kept", "acme"), assignment("kept-2", "kept", "borealis"), filter("kept-3", "kept"),
+	)
+	granted := map[accesstypes.Domain]accesstypes.Decision{"borealis": accesstypes.Granted()}
+	conditional := map[accesstypes.Domain]accesstypes.Decision{
+		"borealis": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{reachMethod}, Condition: testCondition}),
+	}
+	borealisAsked := "borealis Execute [DeleteCrewUser]"
+
+	tests := []struct {
+		name       string
+		account    string
+		withMethod bool
+		decided    map[accesstypes.Domain]accesstypes.Decision
+		wantAsked  string
+		wantRefuse string
+		wantScopes []string
+	}{
+		{
+			name: "granted in the other tenant", account: "dana", withMethod: true, decided: granted,
+			wantAsked: "Delete this account and everything under it: 3 assignments.", wantScopes: []string{borealisAsked},
+		},
+		{
+			name: "held there under a condition", account: "dana", withMethod: true, decided: conditional,
+			wantAsked: "Delete this account and everything under it: 3 assignments.", wantScopes: []string{borealisAsked},
+		},
+		{
+			name: "denied there", account: "dana", withMethod: true,
+			wantRefuse: "This account still has 2 assignments in Borealis. They have to be removed there before the account can be deleted.", wantScopes: []string{borealisAsked},
+		},
+		{
+			name: "two other tenants, one reached", account: "spread", withMethod: true, decided: granted,
+			wantRefuse: "This account still has 1 assignment in Eastwind. It has to be removed there before the account can be deleted.",
+			wantScopes: []string{borealisAsked, "eastwind Execute [DeleteCrewUser]"},
+		},
+		{
+			name: "a caller whose entry check is not known", account: "dana", decided: granted,
+			wantRefuse: "This account still has 2 assignments in Borealis. They have to be removed there before the account can be deleted.",
+		},
+		{
+			name: "rows of no tenant", account: "kept", withMethod: true, decided: granted,
+			wantRefuse: "This account still has 1 filter that is not part of any company. Only someone who manages accounts for the whole application can delete it.",
+			wantScopes: []string{borealisAsked},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tree := accountTree(reachCompanies, filterKind(withinReach), assignmentKind(withinReach))
+			for _, everythingUnder := range []bool{false, true} {
+				caller, perms := methodCaller(t, tt.withMethod, tt.decided)
+				run := runTakingFor(t, db, tree, map[string]any{"Id": tt.account}, cascadeRows{}, everythingUnder, 0, caller)
+				switch {
+				case tt.wantRefuse != "":
+					if !httpio.HasConflict(run.err) || !strings.Contains(run.err.Error(), tt.wantRefuse) {
+						t.Errorf("everythingUnder %t: the delete = %v, want 409 %q", everythingUnder, run.err, tt.wantRefuse)
+					}
+					if len(run.made) != 0 {
+						t.Errorf("everythingUnder %t: the refused delete took %v, want nothing", everythingUnder, run.made)
+					}
+				case !everythingUnder:
+					if !httpio.HasPreconditionRequired(run.err) || !strings.Contains(run.err.Error(), tt.wantAsked) {
+						t.Errorf("the asking delete = %v, want the question %q", run.err, tt.wantAsked)
+					}
+				default:
+					if run.err != nil || run.round == nil || !run.round.finished || len(run.made) != 3 {
+						t.Errorf("the taking delete = %v, round %+v, took %v, want the 3 assignments taken", run.err, run.round, run.made)
+					}
+				}
+				if got := perms.askedScopes(); !askedOnceEachTry(got, tt.wantScopes) {
+					t.Errorf("everythingUnder %t: the checker was asked %q, want %q in each try of the transaction", everythingUnder, got, tt.wantScopes)
+				}
+			}
+		})
+	}
+}
+
+// TestPatchSet_deleteTaken_reachOtherTenants holds, over the emulator, a real save of an
+// account's delete under Acme's address by a person who may delete accounts in Borealis
+// too: told to take them, the assignments of both tenants go with the account; with the
+// permission denied in Borealis, nothing goes.
+func TestPatchSet_deleteTaken_reachOtherTenants(t *testing.T) {
+	t.Parallel()
+
+	db := reachDatabase(t, "delete-reach-other-tenants-saved",
+		spanner.InsertMap("CascadeAccounts", map[string]any{"Id": "dana"}),
+		assignment("dana-1", "dana", "acme"), assignment("dana-2", "dana", "borealis"),
+		spanner.InsertMap("CascadeAccounts", map[string]any{"Id": "kept"}),
+		assignment("kept-1", "kept", "acme"), assignment("kept-2", "kept", "borealis"),
+	)
+
+	reaching, _ := methodCaller(t, true, map[accesstypes.Domain]accesstypes.Decision{"borealis": accesstypes.Granted()})
+	if err := deleteUnarmed[reachAccount](t, db, reaching, "dana", true); err != nil {
+		t.Fatalf("the delete by a person who may delete accounts in Borealis = %v", err)
+	}
+	if rowsStanding(t, db, "CascadeAccounts", "dana") != 0 || rowsStanding(t, db, "CascadeAssignments", "dana-1", "dana-2") != 0 {
+		t.Error("the delete left rows, want the account and the assignments of both tenants gone")
+	}
+
+	denied, _ := methodCaller(t, true, nil)
+	err := deleteUnarmed[reachAccount](t, db, denied, "kept", true)
+	if want := "This account still has 1 assignment in Borealis."; !httpio.HasConflict(err) || !strings.Contains(err.Error(), want) {
+		t.Errorf("the delete by a person who may not delete accounts in Borealis = %v, want 409 %q", err, want)
+	}
+	if rowsStanding(t, db, "CascadeAccounts", "kept") != 1 || rowsStanding(t, db, "CascadeAssignments", "kept-1", "kept-2") != 2 {
+		t.Error("the refused delete deleted rows, want none")
 	}
 }

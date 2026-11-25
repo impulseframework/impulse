@@ -157,9 +157,10 @@ type DeleteKind struct {
 	// takes with it: its rows go on the permission the delete's request was let in by,
 	// with no grant asked on them and nothing asked for the caller, as far as that
 	// permission reaches. A request checked for the whole application reaches every row.
-	// One checked in a tenant reaches the rows of that tenant, and a row of another
-	// tenant, or of none, refuses the delete before anything goes, in a sentence that
-	// says where it is. Outside a request every row goes. The kind's delete rule is asked
+	// One checked in a tenant reaches the rows of that tenant, and of each other tenant in
+	// which the person holds the same permission, with or without a condition; a row of
+	// any other tenant, or of none, refuses the delete before anything goes, in a sentence
+	// that says where it is. Outside a request every row goes. The kind's delete rule is asked
 	// all the same, every caller is told its count, and a delete told to take the
 	// library's rows alone leaves the kind out (PatchSet.DeleteLibraryRowsAlone). The
 	// generator writes it.
