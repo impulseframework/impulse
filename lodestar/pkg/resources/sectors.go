@@ -139,10 +139,10 @@ type (
 		// Disabled says the sector is disabled: its crew are shut out while its records
 		// stay, and nobody enters it but a super administrator, the sector's own marshal
 		// included. It is an ordinary field of the record: whoever holds Update on it
-		// disables a sector and enables it again, and enabling gives everyone back what
-		// they held, since no role, group or invitation is touched. No role Lodestar ships
-		// holds Update on it; the suite gives one to prove it. A sector is disabled before
-		// it is deleted: the record's delete refuses one that is not.
+		// disables a sector and enables it again (Headquarters), and enabling gives
+		// everyone back what they held, since no role, group or invitation is touched. A
+		// sector is disabled before it is deleted: the record's delete refuses one that is
+		// not.
 		// @tenantDisabled
 		Disabled bool `spanner:"Disabled"`
 	}

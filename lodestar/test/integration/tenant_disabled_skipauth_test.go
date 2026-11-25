@@ -17,18 +17,12 @@ import (
 	"github.com/impulseframework/impulse/session"
 )
 
-// sectorWarden is the role the suite makes for the whole application that disables a
-// sector and enables it again: Update on Sectors with the one field disabled. No role
-// Lodestar ships holds Update on the field, so the suite gives one to prove it.
-const sectorWarden accesstypes.Role = "SectorWarden"
-
 // TestTenantDisabled_aDisabledSectorShutsItsCrewOut proves on the served stack what a
 // disabled sector is. Anvil seats a cadet who holds no other sector, the liaison, who
 // holds Cinder too, its own marshal, the surveyor, who holds a role in every sector,
 // and the governor, a super administrator. Whether a sector is disabled is an ordinary
 // field of the record: the surveyor, who corrects a sector's other fields, is refused
-// it, and the warden, given the suite's role that holds Update on the field alone,
-// disables Anvil. From their next request its crew hold nothing in it: the liaison, in
+// it, and the adjutant, made Headquarters and no super administrator, disables Anvil. From their next request its crew hold nothing in it: the liaison, in
 // the session she held before, the marshal, signed in again with her password, and the
 // surveyor are answered as by a sector that does not exist, and the liaison's and the
 // marshal's charts list Anvil with the one reason ("Anvil is disabled."), the
@@ -39,7 +33,7 @@ const sectorWarden accesstypes.Role = "SectorWarden"
 // the portal and is told the same. Nothing anybody holds in Anvil is touched: its
 // roles and groups are as many as before. Enabled again, the liaison and the marshal
 // enter it as before. A second sector, founded for the test and disabled, is deleted
-// by the warden, who is no super administrator and cannot enter it: the delete asks
+// by the adjutant, who is no super administrator and cannot enter it: the delete asks
 // the record's grant, and the sector's own door is not its question.
 //
 // Demonstrates: tenancy.disabled.
@@ -65,9 +59,11 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 			t.Fatalf("the governor giving the cadet %s in Anvil: status %d, want 204: %s", role, status, answer)
 		}
 	}
-	makeWardens(ctx, t, s, "adjutant")
-	warden := newBrowser(t, s, consoleAPI)
-	warden.signIn(ctx, "adjutant")
+	// Headquarters disables a sector and enables it again. The adjutant is made
+	// Headquarters, the role Lodestar ships, and is no super administrator.
+	giveCrewRole(ctx, t, s, "Headquarters", "adjutant")
+	hq := newBrowser(t, s, consoleAPI)
+	hq.signIn(ctx, "adjutant")
 
 	signedIn := map[string]*browser{"the governor": governor}
 	for name, username := range map[string]string{"the liaison": "liaison", "the marshal": "marshal", "the surveyor": "surveyor", "the cadet": cadet} {
@@ -109,9 +105,9 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 	if disabled() {
 		t.Fatal("Anvil is disabled after the surveyor's refused update, want it as it was")
 	}
-	setSectorDisabled(ctx, t, warden, anvil, true)
+	setSectorDisabled(ctx, t, hq, anvil, true)
 	if !disabled() {
-		t.Fatal("Anvil is not disabled after the warden's update")
+		t.Fatal("Anvil is not disabled after Headquarters' update")
 	}
 
 	// Its crew hold nothing in it from their next request.
@@ -176,7 +172,7 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 	}
 
 	// Enabled again, everyone has what they had.
-	setSectorDisabled(ctx, t, warden, anvil, false)
+	setSectorDisabled(ctx, t, hq, anvil, false)
 	for _, name := range []string{"the liaison", "the marshal"} {
 		if status, body := signedIn[name].do(ctx, http.MethodGet, wings, nil); status != http.StatusOK {
 			t.Errorf("GET Anvil's wings as %s once Anvil is enabled again: status %d, want 200: %s", name, status, body)
@@ -192,7 +188,7 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 		t.Errorf("the rows of what the crew hold in Anvil once it is enabled again = %v, want %v", got, heldBefore)
 	}
 
-	// A person who cannot enter a disabled sector still deletes it: the warden, given
+	// A person who cannot enter a disabled sector still deletes it: the adjutant, given
 	// the suite's role that deletes a sector, deletes Drift once it is disabled.
 	const remover accesstypes.Role = "SectorRemover"
 	sectors := accesstypes.Resource("Sectors")
@@ -211,41 +207,12 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 		t.Fatalf("Delete on Sectors for the adjutant holding %s = %s, want granted", remover, d)
 	}
 	drift := foundSector(ctx, t, s, governor, "Drift", "Far frontier", "2226-12-01", "drift-founder")
-	setSectorDisabled(ctx, t, warden, drift, true)
-	if status, answer := writeRecords(ctx, warden, recordOp("remove", "/sectors/"+drift, `{"everythingUnder":true}`)); status != http.StatusOK {
-		t.Fatalf("the warden deleting Drift once it is disabled: status %d, want 200: %s", status, answer)
+	setSectorDisabled(ctx, t, hq, drift, true)
+	if status, answer := writeRecords(ctx, hq, recordOp("remove", "/sectors/"+drift, `{"everythingUnder":true}`)); status != http.StatusOK {
+		t.Fatalf("the adjutant deleting Drift once it is disabled: status %d, want 200: %s", status, answer)
 	}
 	if n := rowsWhere(ctx, t, s, "Sectors", "Id", drift); n != 0 {
 		t.Errorf("Sectors holds %d row(s) of Drift after the delete, want none", n)
-	}
-}
-
-// makeWardens makes the suite's role that disables a sector (sectorWarden) in the
-// crew's permission store and gives it to each persona for the whole application, once
-// the engine grants each of them the field. A persona signed in before it holds it at
-// their next request.
-func makeWardens(ctx context.Context, t *testing.T, s *served, usernames ...accesstypes.User) {
-	t.Helper()
-
-	manager, global := s.access.UserManager(), accesstypes.GlobalPolicyScope()
-	sectors := accesstypes.Resource("Sectors")
-	if err := manager.AddRole(ctx, global, sectorWarden, "Disables a sector and enables it again."); err != nil {
-		t.Fatalf("access.UserManager.AddRole(%s) error = %v", sectorWarden, err)
-	}
-	if err := manager.AddRoleGrants(ctx, global, sectorWarden,
-		access.GrantRow{Permission: accesstypes.Update, Resource: sectors},
-		access.GrantRow{Permission: accesstypes.Update, Resource: fieldResource(sectors, "disabled")},
-	); err != nil {
-		t.Fatalf("access.UserManager.AddRoleGrants(%s) error = %v", sectorWarden, err)
-	}
-	for _, username := range usernames {
-		user := account(t, username)
-		if err := manager.AddUserRoles(ctx, global, user, sectorWarden); err != nil {
-			t.Fatalf("access.UserManager.AddUserRoles(%s, %s) error = %v", username, sectorWarden, err)
-		}
-		if d := decisionFor(ctx, t, s.access.ForUser(user), accesstypes.GlobalScope(), accesstypes.Update, fieldResource(sectors, "disabled"), time.Now().Add(15*time.Second)); !d.IsGranted() {
-			t.Fatalf("Update on the sector's disabled field for %s holding %s = %s, want granted", username, sectorWarden, d)
-		}
 	}
 }
 

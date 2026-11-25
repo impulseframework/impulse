@@ -547,10 +547,9 @@ the surveyor's `SectorCrew`, the governor's `SectorMarshal`, the archivist's rol
 client's directory role are each held in every sector, so Dawn lights on their charts
 with nothing written for it.
 
-A sector can be disabled ([`tenancy.disabled`](pkg/resources/sectors.go)): whoever holds
-Update on the sector's Disabled field changes it on All sectors (no role Lodestar ships
-does; the suite gives one to prove it), and from their next request the sector's crew, its
-marshal among them, hold nothing in it. It answers them as a sector that does not exist,
+A sector can be disabled ([`tenancy.disabled`](pkg/resources/sectors.go)): Headquarters
+changes the sector's Disabled field on All sectors, and from their next request the
+sector's crew, its marshal among them, hold nothing in it. It answers them as a sector that does not exist,
 their chart lists it under "Not available" with the reason ("Ember is disabled."), and the
 governor, a super administrator, still enters it. Enabling it gives everyone back what they
 held (`test/integration/tenant_disabled_skipauth_test.go`).

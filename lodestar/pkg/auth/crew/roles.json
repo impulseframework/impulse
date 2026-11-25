@@ -1176,7 +1176,8 @@
               "fields": [
                 "name",
                 "region",
-                "established"
+                "established",
+                "disabled"
               ]
             },
             {

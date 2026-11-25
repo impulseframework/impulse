@@ -316,9 +316,8 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		}
 		nothingGone(refused.name + " of a sector that is not disabled")
 	}
-	// Ember is disabled, by the record's update, by the governor given the suite's role
-	// that does it.
-	makeWardens(ctx, t, s, "governor")
+	// Ember is disabled, by the record's update, by the governor, who holds
+	// Headquarters.
 	setSectorDisabled(ctx, t, hq, ember, true)
 
 	// A request that does not say it takes what is under the sector is asked the

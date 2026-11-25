@@ -394,8 +394,8 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 // generator gives the delete of the tenant record that class, so the kind refuses it
 // whatever the person acted as may do. No role the release ships deletes a sector, so
 // the suite makes one that does and gives it to the governor, as the suite of a deleted
-// sector does, with the suite's role that disables one: a sector is disabled before it
-// is deleted. The cadet, standing in for the governor, is refused the delete of a
+// sector does, and he disables the sector first, as Headquarters does: a sector is
+// disabled before it is deleted. The cadet, standing in for the governor, is refused the delete of a
 // disabled sector founded for the test: the sector stands, and so does every role held
 // in the crew. The governor, in a session of his own, then deletes it: the grant was
 // there all along, and the class is what refused.
@@ -429,7 +429,6 @@ func TestImpersonation_sectorDeletedActingAsAPerson(t *testing.T) {
 	}
 	forge := foundSector(ctx, t, s, hq, "Forge", "Far frontier", "2226-11-20", "forge-founder")
 	// A sector is disabled before it is deleted.
-	makeWardens(ctx, t, s, "governor")
 	setSectorDisabled(ctx, t, hq, forge, true)
 
 	giveCrewRole(ctx, t, s, "StandIn", "cadet")
