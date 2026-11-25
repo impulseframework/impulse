@@ -201,3 +201,29 @@ func TestMigrations_withdrawnLinks(t *testing.T) {
 		t.Errorf("the mail links table lacks %q:\n%s", column, table)
 	}
 }
+
+// TestMigrations_sessionsNameTheirUser holds that the sessions table names its user with
+// no foreign key: a deleted user's sessions are ended in code, and their rows stay until
+// the timed removal takes them, so nothing of the user's delete reaches them.
+func TestMigrations_sessionsNameTheirUser(t *testing.T) {
+	t.Parallel()
+
+	var up strings.Builder
+	for _, m := range Migrations("Staff", "staff", false) {
+		up.WriteString(m.Up)
+	}
+	_, table, found := strings.Cut(up.String(), "CREATE TABLE StaffSessions (")
+	if !found {
+		t.Fatal("the migrations make no sessions table")
+	}
+	table, _, _ = strings.Cut(table, ") PRIMARY KEY (Id);")
+	if !strings.Contains(table, "    UserId                STRING(36),\n") {
+		t.Errorf("the sessions table lacks its UserId column:\n%s", table)
+	}
+	if strings.Contains(table, "FOREIGN KEY") {
+		t.Errorf("the sessions table holds a foreign key, want none:\n%s", table)
+	}
+	if strings.Contains(up.String(), "ALTER TABLE StaffSessions ADD CONSTRAINT") {
+		t.Error("the migrations add a constraint to the sessions table, want none")
+	}
+}

@@ -1,0 +1,3 @@
+BEGIN;
+ALTER TABLE "Sessions" ADD CONSTRAINT "Sessions_UserId_fkey" FOREIGN KEY ("UserId") REFERENCES "SessionUsers" ("Id") ON DELETE CASCADE;
+COMMIT;

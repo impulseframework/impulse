@@ -235,12 +235,15 @@ as it is, and a mail links table named per group, or kept in the application's o
 migrations, carries the column as the shipped one does. A table without it fails the
 first link written or read.
 
-The schema keeps its own integrity: a session belongs to an existing user (`UserId`,
-null only for a role-principal impersonation), and deleting a user deletes its
-sessions, their auth events and its identity links; your custom data tables cascade
-from the session and user rows likewise. A session that ends is marked expired, and its
-row stays until it has been idle 30 days (see "Rows that are over are removed" under
-"Schema"); auth events last exactly as long as their session rows.
+A session names its user (`UserId`, null only for a role-principal impersonation) and
+is not held to it by a foreign key: a deleted user's sessions are ended in code, and
+their rows stay until the timed removal takes them. The auth set's
+`SessionRowsOutliveUsers` migration drops the key its first migration made; a sessions
+table named per group, or kept in the application's own migrations, needs the same drop
+under its name. Deleting a user deletes its identity links with it, and your custom data
+tables cascade from the session and user rows likewise. A session that ends is marked
+expired, and its row stays until it has been idle 30 days (see "Rows that are over are
+removed" under "Schema"); auth events last exactly as long as their session rows.
 
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
