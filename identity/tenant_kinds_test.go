@@ -368,6 +368,53 @@ func TestManager_TenantKinds_otherKindsInRounds(t *testing.T) {
 	}
 }
 
+// TestManager_TenantKinds_sessionsCost pins what an account costs with the ending of its
+// sessions: anna, the tenant's alone, has two live sessions, in one of which she acts as
+// someone else, and one session that ended before. Her cost is her membership and her
+// row, two endings of a session and one of an impersonation record; the ended session
+// costs nothing. With a budget one mutation short of it she is not taken and the kind
+// says accounts are left; with the budget exact she is.
+func TestManager_TenantKinds_sessionsCost(t *testing.T) {
+	t.Parallel()
+
+	acting := mustUUID("0190c000-0000-7000-8000-000000000041")
+	ended := mustUUID("0190c000-0000-7000-8000-000000000042")
+	// The membership and the row (2), two session endings (10) and a record's (7).
+	const cost = 2 + 2*5 + 7
+	for _, tt := range []struct {
+		name   string
+		budget int
+		want   takenRows
+	}{
+		{name: "one mutation short", budget: cost - 1, want: takenRows{More: true}},
+		{name: "exact", budget: cost, want: takenRows{Rows: 1, Mutations: cost, More: true}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := alphaStore()
+			store.costs = TenantDeleteCosts{Membership: 1, User: 1, SessionEnd: 5, ImpersonationEnd: 7}
+			store.sessions[annaID] = []impulse.UUID{annaLogin, acting}
+			store.records = map[impulse.UUID]bool{acting: true}
+			store.ended = map[impulse.UUID]bool{ended: true}
+			m, _ := newManager(t, store, engineRoles)
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				rows, mutations, more, err := m.TenantKinds("alpha")[0].Take(ctx, txn, tt.budget)
+				if err != nil {
+					return errors.Wrap(err, "resource.TakenKind.Take()")
+				}
+				if got := (takenRows{Rows: rows, Mutations: mutations, More: more}); got != tt.want {
+					t.Errorf("Take() = %+v, want %+v", got, tt.want)
+				}
+
+				return nil
+			}); err != nil {
+				t.Fatalf("Take() error = %v", err)
+			}
+		})
+	}
+}
+
 // TestManager_TenantKinds_aGroupInParts pins the groups kind with a group that costs more
 // than a save has room for: each save takes what fits of it, its members and then its
 // role, one at a time, answering no row, the mutations spent and that rows are left, and

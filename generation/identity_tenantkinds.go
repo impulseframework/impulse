@@ -36,11 +36,20 @@ type identityUserCascade struct {
 // invitation writes (the store's ConsumeMailLink).
 var withdrawnColumns = []string{"ConsumedAt", "WithdrawnAt"}
 
+// sessionEndColumns are the columns of the sessions table the ending of a session writes
+// (the store's EndSession), and impersonationEndColumns those of the impersonations table
+// the ending of an impersonation record writes (the store's EndImpersonation).
+var (
+	sessionEndColumns       = []string{"Expired", "UpdatedAt"}
+	impersonationEndColumns = []string{"EndedAt", "EndReason"}
+)
+
 // identityDeleteCosts reads what the delete of one row of each of the instance's tables
 // a tenant's delete takes costs, for the tables the schema holds: the delete and an entry
 // out of each of the table's indexes besides its key, with no change record, since the
-// instance's declarations write none (defaultConfig). An invitation's withdrawal costs
-// the columns it writes and an entry of each index that holds one of them.
+// instance's declarations write none (defaultConfig). An invitation's withdrawal, a
+// session's end and an impersonation record's end each cost the columns they write and an
+// entry of each index that holds one of them.
 func (c *client) identityDeleteCosts(inst *identityInstance) []identityDeleteCost {
 	var costs []identityDeleteCost
 	for _, field := range []struct {
@@ -61,14 +70,26 @@ func (c *client) identityDeleteCosts(inst *identityInstance) []identityDeleteCos
 		}
 		costs = append(costs, identityDeleteCost{Field: field.name, Cost: fmt.Sprintf("resource.DeleteCost{IndexEntries: %d}.Mutations(false)", table.secondaryIndexes())})
 	}
-	if table, ok := c.tableMap[inst.tableName(identityMailLinks)]; ok && inst.has(identityMailLinks) {
-		writes := len(withdrawnColumns)
+	for _, field := range []struct {
+		name    string
+		kind    identityTable
+		columns []string
+	}{
+		{"Invitation", identityMailLinks, withdrawnColumns},
+		{"SessionEnd", identitySessions, sessionEndColumns},
+		{"ImpersonationEnd", identityImpersonations, impersonationEndColumns},
+	} {
+		table, ok := c.tableMap[inst.tableName(field.kind)]
+		if !ok || !inst.has(field.kind) {
+			continue
+		}
+		writes := len(field.columns)
 		for _, index := range table.Indexes {
-			if !index.PrimaryKey && index.holdsAny(withdrawnColumns) {
+			if !index.PrimaryKey && index.holdsAny(field.columns) {
 				writes++
 			}
 		}
-		costs = append(costs, identityDeleteCost{Field: "Invitation", Cost: strconv.Itoa(writes)})
+		costs = append(costs, identityDeleteCost{Field: field.name, Cost: strconv.Itoa(writes)})
 	}
 
 	return costs

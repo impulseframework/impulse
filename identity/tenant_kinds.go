@@ -35,6 +35,11 @@ type TenantDeleteCosts struct {
 	// Invitation is the withdrawal of one invitation: the columns it writes, and an entry
 	// of each index that holds one of them.
 	Invitation int
+	// SessionEnd is the ending of one session of an account that is deleted, and
+	// ImpersonationEnd the ending of one impersonation record it holds: the columns each
+	// writes, and an entry of each index that holds one of them.
+	SessionEnd       int
+	ImpersonationEnd int
 }
 
 // TenantKinds answers what the auth holds for a tenant as kinds of the tenant's delete
@@ -214,8 +219,9 @@ func (h *tenantHeld) refuseImpersonator(ctx context.Context, accounts []tenantAc
 }
 
 // tenantAccounts is the kind of the accounts that are the tenant's alone. One costs its
-// memberships, its places, its identity links, its row and what the database removes with
-// the row, and is taken whole or not at all.
+// memberships, its places, its identity links, its row, the ending of its sessions and of
+// the impersonation records it holds, and what the database removes with the row, and is
+// taken whole or not at all.
 type tenantAccounts struct {
 	*tenantHeld
 }
@@ -289,11 +295,26 @@ func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransac
 	return rows, mutations, false, k.policyChanged(txn, rows)
 }
 
-// cost is what taking the account costs in the commit.
+// cost is what taking the account costs in the commit: its memberships, its places, its
+// identity links, its row, the ending of its sessions and of the impersonation records it
+// holds, and what the database removes with the row.
 func (k *tenantAccounts) cost(ctx context.Context, txn resource.ReadWriteTransaction, account *tenantAccount, costs *TenantDeleteCosts) (int, error) {
 	links, err := k.manager.store.Identities(ctx, txn, account.id)
 	if err != nil {
 		return 0, errors.Wrap(err, "identity.Store.Identities()")
+	}
+	endings, err := k.manager.sessionEndings(ctx, txn, account.id)
+	if err != nil {
+		return 0, err
+	}
+	ended := 0
+	for i := range endings {
+		if endings[i].session {
+			ended += costs.SessionEnd
+		}
+		if endings[i].record {
+			ended += costs.ImpersonationEnd
+		}
 	}
 	withUser, err := k.manager.store.RowsWithUser(ctx, txn, account.id)
 	if err != nil {
@@ -301,7 +322,7 @@ func (k *tenantAccounts) cost(ctx context.Context, txn resource.ReadWriteTransac
 	}
 
 	return len(account.memberships)*costs.Membership + len(account.places)*costs.GroupMember +
-		len(links)*costs.Identity + costs.User + withUser, nil
+		len(links)*costs.Identity + costs.User + ended + withUser, nil
 }
 
 // take buffers the delete of the account and of what it holds in the tenant.

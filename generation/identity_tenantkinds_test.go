@@ -1,6 +1,8 @@
 package generation
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -70,9 +72,17 @@ func Test_identityDeleteCosts(t *testing.T) {
 			indexOn("ByKind", []string{"Kind", "ConsumedAt", "ExpiresAt"}),
 			indexOn("ByTenantId", []string{"TenantId", "Kind"}, "Email", "ConsumedAt", "WithdrawnAt"),
 		}),
+		"CrewSessions": tenantKindsTable("Id", []indexMeta{
+			indexOn("ByUserId", []string{"UserId", "Expired"}),
+			indexOn("ByUsername", []string{"Username"}),
+		}),
+		"CrewSessionImpersonations": tenantKindsTable("SessionId", []indexMeta{
+			indexOn("ByActor", []string{"ActorUsername"}, "EndedAt"),
+			indexOn("BySubject", []string{"SubjectUsername"}),
+		}),
 	}}
 	every := crewTablesInstance(t, identityUsers, identitySessions, identityIdentities, identityMailLinks, identityMemberships, identityRoles,
-		identityGroups, identityGroupMembers, identityGroupRoles)
+		identityGroups, identityGroupMembers, identityGroupRoles, identityImpersonations)
 	want := []identityDeleteCost{
 		{Field: "Membership", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(false)"},
 		{Field: "Group", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(false)"},
@@ -83,15 +93,54 @@ func Test_identityDeleteCosts(t *testing.T) {
 		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
 		// ConsumedAt and WithdrawnAt, the index by kind and the index by tenant.
 		{Field: "Invitation", Cost: "4"},
+		// Expired and UpdatedAt, and the index by user, which holds Expired.
+		{Field: "SessionEnd", Cost: "3"},
+		// EndedAt and EndReason, and the index by actor, which stores EndedAt.
+		{Field: "ImpersonationEnd", Cost: "3"},
 	}
 	if diff := cmp.Diff(want, c.identityDeleteCosts(every)); diff != "" {
 		t.Errorf("identityDeleteCosts() of every table (-want +got):\n%s", diff)
 	}
 
 	bare := crewTablesInstance(t, identityUsers, identitySessions)
-	wantBare := []identityDeleteCost{{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"}}
+	wantBare := []identityDeleteCost{
+		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
+		{Field: "SessionEnd", Cost: "3"},
+	}
 	if diff := cmp.Diff(wantBare, c.identityDeleteCosts(bare)); diff != "" {
 		t.Errorf("identityDeleteCosts() of the users and sessions alone (-want +got):\n%s", diff)
+	}
+}
+
+// Test_identityDeleteCosts_heldToTheStore holds the columns the costs of a session's end
+// and of an impersonation record's end count to the store's writes of them: each list is
+// the columns its update in the store's template sets, so a column added to the write and
+// not to the list fails here.
+func Test_identityDeleteCosts_heldToTheStore(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		method  string
+		columns []string
+	}{
+		{method: "EndSession", columns: sessionEndColumns},
+		{method: "EndImpersonation", columns: impersonationEndColumns},
+	} {
+		at := strings.Index(identityStoreTemplate, "func (store) "+tt.method+"(ctx ")
+		if at < 0 {
+			t.Fatalf("the store's template holds no %s that writes", tt.method)
+		}
+		body, _, found := strings.Cut(identityStoreTemplate[at:], "\n}\n")
+		if !found {
+			t.Fatalf("the store's template's %s has no end", tt.method)
+		}
+		var set []string
+		for _, match := range regexp.MustCompile(`\.Set([A-Z][A-Za-z]*)\(`).FindAllStringSubmatch(body, -1) {
+			set = append(set, match[1])
+		}
+		if diff := cmp.Diff(tt.columns, set); diff != "" {
+			t.Errorf("the columns %s sets and its cost counts (-counted +set):\n%s", tt.method, diff)
+		}
 	}
 }
 
