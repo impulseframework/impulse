@@ -71,7 +71,10 @@ export interface ListPage {
   offset: number;
   hasPrev: boolean;
   hasNext: boolean;
-  /** The total the first page answered, kept while turning; undefined until it answers. */
+  /**
+   * The total the first page answered, kept while turning; undefined until it answers, and
+   * where the page asked for none (drawsTotal).
+   */
   total?: number;
 }
 
@@ -105,6 +108,14 @@ export class ResourceStore {
   searchPII = signal(false);
   /** Set while the page has nothing to ask for (the digest grants none of its columns): no request is made. */
   listSuspended = signal(false);
+  /**
+   * Whether the page draws the list's total in its title (`showRowCount`). The first page
+   * asks the server for a total only where the page draws one: in the title, or in the
+   * search box's line of matches while text is committed. A total costs the server a read
+   * of every row the filter admits, which a computed list makes by building each row; a
+   * page that draws none pages by the server's cursor alone.
+   */
+  drawsTotal = signal(true);
   /**
    * The per-row capabilities the list page asks the server to answer with its rows: none
    * by default, `Execute` on a list whose rows offer methods. A change asks for a first
@@ -185,7 +196,7 @@ export class ResourceStore {
   // next page exist, and the total the first page asked for, kept while turning — and
   // performs the turns the grid asks for through the page's own relations. A change to
   // the sorts, the filters, the columns, or the page size drops the cursor and asks for
-  // a first page with the count.
+  // a first page, with the count where the page draws one (drawsTotal).
   private readonly currentPage = signal<Page<RecordData> | undefined>(undefined);
   private readonly position = signal<PagePosition>({ offset: 0 });
   private pageEffect: EffectRef | undefined;
@@ -284,6 +295,7 @@ export class ResourceStore {
       live: this.live(),
       capabilities: this.pageCapabilities(),
       acrossTenants: this.acrossTenants(),
+      count: this.drawsTotal() || this.searchText().trim() !== '',
     };
   });
 
@@ -370,7 +382,7 @@ export class ResourceStore {
     return page.rows;
   }
 
-  /** The first page of the current request, with the count. */
+  /** The first page of the current request, with the count where the page draws one. */
   firstPage(): void {
     this.loadFirstPage(untracked(() => this.pageQuery()));
   }
@@ -444,7 +456,7 @@ export class ResourceStore {
             sensitiveFilter: query.sensitive || undefined,
             sort: acrossSorts.length > 0 ? (acrossSorts as ListQuery<RecordData>['sort']) : undefined,
             limit: query.limit,
-            count: true,
+            count: query.count || undefined,
             live: query.live || undefined,
           }) as Promise<Page<RecordData>>,
         'first',
@@ -466,7 +478,7 @@ export class ResourceStore {
       columns: query.columns.length > 0 ? query.columns : undefined,
       sort: sorts.length > 0 ? (sorts as ListQuery<RecordData>['sort']) : undefined,
       limit: query.limit,
-      count: true,
+      count: query.count || undefined,
       live: query.live || undefined,
       capabilities: query.capabilities.length > 0 ? query.capabilities : undefined,
     };
