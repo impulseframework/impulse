@@ -13,13 +13,12 @@ import (
 
 // under is a kind with rows directly under a record, by one column that holds the
 // record's Id.
-func under(table accesstypes.Resource, one, many, column, record string, removedWith ...string) DeleteKind {
+func under(table accesstypes.Resource, one, many, column, record string) DeleteKind {
 	return DeleteKind{
-		Resource:    table,
-		Words:       DeleteWords{One: one, Many: many},
-		Key:         []string{"Id"},
-		Paths:       []DeletePath{{{Columns: []string{column}, Table: record, References: []string{"Id"}}}},
-		RemovedWith: removedWith,
+		Resource: table,
+		Words:    DeleteWords{One: one, Many: many},
+		Key:      []string{"Id"},
+		Paths:    []DeletePath{{{Columns: []string{column}, Table: record, References: []string{"Id"}}}},
 	}
 }
 
@@ -62,7 +61,7 @@ func squadronTree() *DeleteTree {
 		Record: "RefusalSquadrons",
 		Words:  DeleteWords{One: "squadron", Many: "squadrons"},
 		Key:    []string{"Id"},
-		Under:  []DeleteKind{under("RefusalMissions", "mission", "missions", "AssignedSquadronId", "RefusalSquadrons", "RefusalSectors")},
+		Under:  []DeleteKind{under("RefusalMissions", "mission", "missions", "AssignedSquadronId", "RefusalSquadrons")},
 	}
 }
 
@@ -104,7 +103,7 @@ func folderTree() *DeleteTree {
 		Record: "RefusalFolders",
 		Words:  DeleteWords{One: "folder", Many: "folders"},
 		Key:    []string{"Id"},
-		Under:  []DeleteKind{under("RefusalFolders", "folder", "folders", "ShortcutToId", "RefusalFolders", "RefusalFolders")},
+		Under:  []DeleteKind{under("RefusalFolders", "folder", "folders", "ShortcutToId", "RefusalFolders")},
 	}
 }
 
@@ -147,8 +146,6 @@ func TestTransactionDeletes_refuse(t *testing.T) {
 		name string
 		// deletes are the deletes the transaction buffered, in order.
 		deletes []recordedDelete
-		// deleted is how many rows of each table the transaction deleted.
-		deleted map[accesstypes.Resource]int
 		rows    map[string]int64
 		want    string
 		// wantAsked is the tables counted, in order.
@@ -309,24 +306,11 @@ func TestTransactionDeletes_refuse(t *testing.T) {
 			wantAsked: []string{"RefusalMissions", "RefusalConsignments"},
 		},
 		{
-			name:    "a kind the database may remove with another row the transaction deleted is not counted",
-			deletes: []recordedDelete{{tree: squadronTree(), key: map[string]any{"Id": "s1"}}},
-			deleted: map[accesstypes.Resource]int{"RefusalSquadrons": 1, "RefusalSectors": 1},
-			rows:    map[string]int64{"RefusalMissions": 3},
-		},
-		{
-			name:      "the record's own delete is not such a row",
+			name:      "a folder under the folder is counted",
 			deletes:   []recordedDelete{{tree: folderTree(), key: map[string]any{"Id": "f1"}}},
-			deleted:   map[accesstypes.Resource]int{"RefusalFolders": 1},
 			rows:      map[string]int64{"RefusalFolders": 2},
 			want:      "This folder has 2 folders. Delete them first.",
 			wantAsked: []string{"RefusalFolders"},
-		},
-		{
-			name:    "another row of the record's table is",
-			deletes: []recordedDelete{{tree: folderTree(), key: map[string]any{"Id": "f1"}}},
-			deleted: map[accesstypes.Resource]int{"RefusalFolders": 2},
-			rows:    map[string]int64{"RefusalFolders": 2},
 		},
 		{
 			name: "the first delete with rows under it answers",
@@ -347,9 +331,6 @@ func TestTransactionDeletes_refuse(t *testing.T) {
 			deletes := newTransactionDeletes()
 			for _, d := range tt.deletes {
 				deletes.recordDelete(d)
-			}
-			for table, rows := range tt.deleted {
-				deletes.deleted[table] = rows
 			}
 			counts := &tableCounts{rows: tt.rows}
 
@@ -628,22 +609,16 @@ func TestRecordedDelete_seen(t *testing.T) {
 }
 
 // Test_newRowsUnderStatement pins the count of a kind's rows under a record as each
-// database takes it: the kind's own columns against the record's key, by any of its
-// ways; a way of more than one step through the rows between; and the rows the
-// transaction itself deleted left out, of the kind and of every table on the way. A
-// transaction that deleted more rows of a table than a statement leaves out is not
-// counted over that table, and a way that ends on a column the record's key does not
-// hold is an error. Where the kind's rows and the record are a tenant's, the count is of
+// database takes it: the kind's rows read under their table's name, the kind's own
+// columns against the record's key, by any of its ways; a way of more than one step
+// through the rows between, nothing left out; and a way that ends on a column the
+// record's key does not hold through the record's own row. Where the kind's rows and the record are a tenant's, the count is of
 // the rows of the record's own tenant: the tenant its key holds, or the one its row
 // resolves to, against the tenant each row resolves to, by its column or through other
 // rows. A record or a kind that is no tenant's counts every row its ways put there.
 func Test_newRowsUnderStatement(t *testing.T) {
 	t.Parallel()
 
-	manyWritten := make([]map[string]any, deleteExclusionLimit+1)
-	for i := range manyWritten {
-		manyWritten[i] = map[string]any{"Id": i}
-	}
 	bySector := &DomainBindingData{Column: "SectorId"}
 	byWing := &DomainBindingData{Column: "WingId", Path: []BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}}
 	byCaseNumber := DeleteLink{Columns: []string{"CaseNumber"}, Table: "Calls", References: []string{"CaseNumber"}}
@@ -657,10 +632,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 		tree      *DeleteTree
 		kind      DeleteKind
 		recordKey map[string]any
-		written   map[accesstypes.Resource][]map[string]any
 		wantSQL   string
 		wantArgs  []any
-		wantSkip  bool
 	}{
 		{
 			name:      "one step",
@@ -671,17 +644,15 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			wantArgs:  []any{"s1"},
 		},
 		{
-			name:   "two ways, and the rows the transaction wrote left out",
+			name:   "two ways",
 			dbType: SpannerDBType,
 			kind: DeleteKind{Resource: "Transfers", Paths: []DeletePath{
 				{{Columns: []string{"FromHangarId"}, Table: "Hangars", References: []string{"Id"}}},
 				{{Columns: []string{"ToHangarId"}, Table: "Hangars", References: []string{"Id"}}},
 			}},
 			recordKey: map[string]any{"Id": "h1"},
-			written:   map[accesstypes.Resource][]map[string]any{"Transfers": {{"Id": "t1"}, {"Id": "t2"}}, "Hangars": {{"Id": "h1"}}},
-			wantSQL: "SELECT COUNT(*) FROM `Transfers` WHERE ((`Transfers`.`FromHangarId` = @d1) OR (`Transfers`.`ToHangarId` = @d2))" +
-				" AND NOT (`Transfers`.`Id` = @d3) AND NOT (`Transfers`.`Id` = @d4)",
-			wantArgs: []any{"h1", "h1", "t1", "t2"},
+			wantSQL:   "SELECT COUNT(*) FROM `Transfers` WHERE ((`Transfers`.`FromHangarId` = @d1) OR (`Transfers`.`ToHangarId` = @d2))",
+			wantArgs:  []any{"h1", "h1"},
 		},
 		{
 			name:   "a key of two columns, on PostgreSQL",
@@ -690,13 +661,11 @@ func Test_newRowsUnderStatement(t *testing.T) {
 				{{Columns: []string{"TenantId", "HomeHangarId"}, Table: "Hangars", References: []string{"TenantId", "Id"}}},
 			}},
 			recordKey: map[string]any{"TenantId": "anvil", "Id": "h1"},
-			written:   map[accesstypes.Resource][]map[string]any{"Ships": {{"TenantId": "anvil", "Id": "x1"}}},
-			wantSQL: `SELECT COUNT(*) FROM "Ships" WHERE (("Ships"."TenantId" = $1 AND "Ships"."HomeHangarId" = $2))` +
-				` AND NOT ("Ships"."Id" = $3 AND "Ships"."TenantId" = $4)`,
-			wantArgs: []any{"anvil", "h1", "x1", "anvil"},
+			wantSQL:   `SELECT COUNT(*) FROM "Ships" WHERE (("Ships"."TenantId" = $1 AND "Ships"."HomeHangarId" = $2))`,
+			wantArgs:  []any{"anvil", "h1"},
 		},
 		{
-			name:   "a way of two steps, with the rows written on the way left out",
+			name:   "a way of two steps",
 			dbType: SpannerDBType,
 			kind: DeleteKind{Resource: "Sorties", Paths: []DeletePath{
 				{
@@ -705,19 +674,9 @@ func Test_newRowsUnderStatement(t *testing.T) {
 				},
 			}},
 			recordKey: map[string]any{"Id": "c1"},
-			written:   map[accesstypes.Resource][]map[string]any{"Missions": {{"Id": "m9"}}, "Sorties": {{"Id": "x1"}}},
 			wantSQL: "SELECT COUNT(*) FROM `Sorties` WHERE (EXISTS (SELECT 1 FROM `Missions` AS w0_1" +
-				" WHERE w0_1.`Id` = `Sorties`.`MissionId` AND w0_1.`ClientId` = @d1 AND NOT (w0_1.`Id` = @d2)))" +
-				" AND NOT (`Sorties`.`Id` = @d3)",
-			wantArgs: []any{"c1", "m9", "x1"},
-		},
-		{
-			name:      "more rows written than a statement leaves out",
-			dbType:    SpannerDBType,
-			kind:      under("Missions", "mission", "missions", "AssignedSquadronId", "Squadrons"),
-			recordKey: map[string]any{"Id": "s1"},
-			written:   map[accesstypes.Resource][]map[string]any{"Missions": manyWritten},
-			wantSkip:  true,
+				" WHERE w0_1.`Id` = `Sorties`.`MissionId` AND w0_1.`ClientId` = @d1))",
+			wantArgs: []any{"c1"},
 		},
 		{
 			// A foreign key to columns that are not the other table's key: the record's
@@ -790,16 +749,15 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			wantArgs: []any{"w1", "q1", "q1", "w1"},
 		},
 		{
-			name:      "the values in the order the text names them, with the rows written left out",
+			name:      "the values in the order the text names them",
 			dbType:    SpannerDBType,
 			tree:      calls,
 			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
 			recordKey: map[string]any{"Id": "c1"},
-			written:   map[accesstypes.Resource][]map[string]any{"Relays": {{"Id": "r9"}}},
 			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
 				" WHERE `Relays`.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))" +
-				" AND `Relays`.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2) AND NOT (`Relays`.`Id` = @d3)",
-			wantArgs: []any{"c1", "c1", "r9"},
+				" AND `Relays`.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2)",
+			wantArgs: []any{"c1", "c1"},
 		},
 		{
 			name:      "the tenant record, on PostgreSQL",
@@ -836,9 +794,9 @@ func Test_newRowsUnderStatement(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, ok := newRowsUnderStatement(tt.dbType, tt.tree, &tt.kind, tt.recordKey, tt.written)
-			if ok == tt.wantSkip {
-				t.Fatalf("newRowsUnderStatement() ok = %v, want %v", ok, !tt.wantSkip)
+			got, ok := newRowsUnderStatement(tt.dbType, tt.tree, &tt.kind, tt.recordKey)
+			if !ok {
+				t.Fatal("newRowsUnderStatement() wrote no count")
 			}
 			if got.SQL != tt.wantSQL {
 				t.Errorf("newRowsUnderStatement() SQL mismatch\n got: %s\nwant: %s", got.SQL, tt.wantSQL)
@@ -883,11 +841,9 @@ type countingTxn struct {
 
 // TestPatchSet_recordsDeletes pins what a patch notes on its transaction for the check
 // before the commit: a delete of a record whose description names kinds under it is
-// noted with the record's key by column and who it is for, and its row as one the
-// transaction deleted; an update's row as one the transaction changed, which no count
-// leaves out; a create nothing; and the delete of a record with no description its row
-// alone. The person is the one the patch is armed against, else the caller the request
-// stamped, else nobody.
+// noted with the record's key by column and who it is for; an update, a create and the
+// delete of a record with no description nothing. The person is the one the patch is
+// armed against, else the caller the request stamped, else nobody.
 func TestPatchSet_recordsDeletes(t *testing.T) {
 	t.Parallel()
 
@@ -898,10 +854,6 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 		name        string
 		patch       func() bufferer
 		ctx         func(ctx context.Context) context.Context
-		wantWritten map[accesstypes.Resource][]map[string]any
-		wantDeleted map[accesstypes.Resource]int
-		// wantChanged are the rows noted as changed and not deleted.
-		wantChanged map[accesstypes.Resource][]map[string]any
 		wantCounted bool
 		// wantLists is whether the person the delete is noted for may list missions: the
 		// armed person may, the stamped caller may not.
@@ -916,8 +868,6 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 
 				return p
 			},
-			wantWritten:  map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
-			wantDeleted:  map[accesstypes.Resource]int{"RefusalSquadrons": 1},
 			wantCounted:  true,
 			wantNoPerson: true,
 		},
@@ -933,8 +883,6 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 			ctx: func(ctx context.Context) context.Context {
 				return WithCaller(ctx, stamped)
 			},
-			wantWritten: map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
-			wantDeleted: map[accesstypes.Resource]int{"RefusalSquadrons": 1},
 			wantCounted: true,
 			wantLists:   true,
 		},
@@ -949,8 +897,6 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 			ctx: func(ctx context.Context) context.Context {
 				return WithCaller(ctx, stamped)
 			},
-			wantWritten: map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
-			wantDeleted: map[accesstypes.Resource]int{"RefusalSquadrons": 1},
 			wantCounted: true,
 			wantLists:   false,
 		},
@@ -963,11 +909,9 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 
 				return p
 			},
-			wantWritten: map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
-			wantDeleted: map[accesstypes.Resource]int{"RefusalSquadrons": 1},
 		},
 		{
-			name: "an update's row is one the transaction changed",
+			name: "an update notes nothing",
 			patch: func() bufferer {
 				p := NewPatchSet(NewMetadata[refusalSquadron]()).SetPatchType(UpdatePatchType)
 				p.SetKey("ID", "s1")
@@ -975,9 +919,6 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 
 				return p
 			},
-			wantWritten: map[accesstypes.Resource][]map[string]any{},
-			wantDeleted: map[accesstypes.Resource]int{},
-			wantChanged: map[accesstypes.Resource][]map[string]any{"RefusalSquadrons": {{"Id": "s1"}}},
 		},
 		{
 			name: "a create notes nothing",
@@ -988,19 +929,15 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 
 				return p
 			},
-			wantWritten: map[accesstypes.Resource][]map[string]any{},
-			wantDeleted: map[accesstypes.Resource]int{},
 		},
 		{
-			name: "the delete of a record with no description notes its row alone",
+			name: "the delete of a record with no description notes nothing",
 			patch: func() bufferer {
 				p := NewPatchSet(NewMetadata[forkRow]()).SetPatchType(DeletePatchType)
 				p.SetKey("ID", "row-1")
 
 				return p
 			},
-			wantWritten: map[accesstypes.Resource][]map[string]any{"ForkRows": {{"Id": "row-1"}}},
-			wantDeleted: map[accesstypes.Resource]int{"ForkRows": 1},
 		},
 	}
 
@@ -1017,30 +954,6 @@ func TestPatchSet_recordsDeletes(t *testing.T) {
 				t.Fatalf("PatchSet.Buffer() error = %v", err)
 			}
 
-			if diff := cmp.Diff(tt.wantWritten, txn.gone); diff != "" {
-				t.Errorf("the rows noted as deleted, which a count leaves out, mismatch (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tt.wantDeleted, txn.deleted); diff != "" {
-				t.Errorf("the deletes noted by table mismatch (-want +got):\n%s", diff)
-			}
-			for table, keys := range tt.wantWritten {
-				for _, key := range keys {
-					if !txn.deletedRow(table, key) || txn.changedRow(table, key) {
-						t.Errorf("the transaction does not answer that it deleted the row %v of %s", key, table)
-					}
-				}
-			}
-			for table, keys := range tt.wantChanged {
-				for _, key := range keys {
-					if !txn.changedRow(table, key) || txn.deletedRow(table, key) {
-						t.Errorf("the transaction does not answer that it changed the row %v of %s without deleting it", key, table)
-					}
-				}
-			}
-			another := map[string]any{"Id": "another"}
-			if txn.deletedRow("RefusalSquadrons", another) || txn.changedRow("RefusalSquadrons", another) {
-				t.Error("the transaction answers that it wrote a row it did not")
-			}
 			if !tt.wantCounted {
 				if len(txn.deletes) != 0 {
 					t.Fatalf("%d deletes are noted to count over, want none", len(txn.deletes))

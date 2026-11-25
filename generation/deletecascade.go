@@ -3,7 +3,6 @@ package generation
 import (
 	"cmp"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -111,9 +110,6 @@ type deleteKind struct {
 	// key column, the row being its tenant. It is nil for a kind whose rows are no
 	// tenant's, and for the tenant record under a tenant.
 	Tenant *resource.DomainBindingData
-	// RemovedWith is the tables whose row's delete makes the database remove rows of
-	// the kind (removedWith). It is written for the kinds under Under alone.
-	RemovedWith []string
 	// Within is the kind's links to itself: a row under a row of its own kind
 	// (selfLinks). It is written for the taken kinds alone, since a delete that takes
 	// a row takes the rows of its kind under it too. The record's own kind has none:
@@ -313,35 +309,13 @@ func cascadingLinks(links map[string][]deleteLink) map[string][]deleteLink {
 	return cascading
 }
 
-// removedWith is the tables whose row's delete makes the database remove rows of the
-// table: every table up from it by steps the database follows on a delete, the table
-// itself among them where a row goes with the row of its own kind it is under. In name
-// order.
-func removedWith(cascading, self map[string][]deleteLink, table string) []string {
-	reached := make(map[string]bool)
-	var walk func(from string)
-	walk = func(from string) {
-		for _, link := range slices.Concat(cascading[from], self[from]) {
-			if !link.Cascades || reached[link.Table] {
-				continue
-			}
-			reached[link.Table] = true
-			walk(link.Table)
-		}
-	}
-	walk(table)
-
-	return slices.Sorted(maps.Keys(reached))
-}
-
 // kindsUnder is the kinds whose rows refuse a plain delete of the record, by table
 // name: each kind with a step straight up to the record that the database does not
 // follow, and no way up to the record that the database follows all along, since the
 // database removes that kind's rows with the record. The record's own kind is one
 // where a row names another row of its kind and no such link is followed by the
-// database. Each kind carries those steps alone, one path each, and the tables its rows
-// go with at the database (removedWith). A table no resource declares has no words and
-// no grant to ask of, and is left to the database's refusal.
+// database. Each kind carries those steps alone, one path each. A table no resource
+// declares has no words and no grant to ask of, and is left to the database's refusal.
 func (c *client) kindsUnder(res *resourceInfo, byTable map[string]*resourceInfo, links, self, cascading map[string][]deleteLink) []*deleteKind {
 	record := c.pluralize(res.Name())
 	swept := pathsUnder(cascading, record, nil)
@@ -364,17 +338,13 @@ func (c *client) kindsUnder(res *resourceInfo, byTable map[string]*resourceInfo,
 		if len(paths) == 0 || len(swept[table]) > 0 || !ok {
 			continue
 		}
-		under := c.deleteKindOf(kind, paths)
-		under.RemovedWith = removedWith(cascading, self, table)
-		kinds = append(kinds, under)
+		kinds = append(kinds, c.deleteKindOf(kind, paths))
 	}
 	followed := slices.ContainsFunc(self[record], func(link deleteLink) bool {
 		return link.Cascades
 	})
 	if paths := straight(self[record]); len(paths) > 0 && !followed {
-		under := c.deleteKindOf(res, paths)
-		under.RemovedWith = removedWith(cascading, self, record)
-		kinds = append(kinds, under)
+		kinds = append(kinds, c.deleteKindOf(res, paths))
 	}
 	slices.SortFunc(kinds, func(a, b *deleteKind) int {
 		return cmp.Compare(a.Table, b.Table)
@@ -831,9 +801,6 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 			b.WriteString("},\n")
 		}
 		b.WriteString("},\n")
-		if len(kind.RemovedWith) > 0 {
-			fmt.Fprintf(b, "RemovedWith: %s,\n", stringsLiteral(kind.RemovedWith))
-		}
 		if len(kind.Within) > 0 {
 			b.WriteString("Within: []resource.DeleteLink{\n")
 			for _, link := range kind.Within {

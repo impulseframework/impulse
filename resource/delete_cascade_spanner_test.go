@@ -50,9 +50,9 @@ type cascadeRun struct {
 }
 
 // runTaking runs the delete of the record with the key as deleteTaken runs it, over
-// the emulator, each kind's rows reached through rows, with whatever the transaction
-// buffered first (before). It asks only, where everythingUnder is false.
-func runTaking(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, before func(txn *SpannerReadWriteTransaction)) *cascadeRun {
+// the emulator, each kind's rows reached through rows. It asks only, where
+// everythingUnder is false.
+func runTaking(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool) *cascadeRun {
 	t.Helper()
 
 	run := &cascadeRun{}
@@ -68,9 +68,6 @@ func runTaking(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[strin
 			return errors.Newf("the transaction is a %T, want Spanner's", txn)
 		}
 		run.asked, run.made, run.counts, run.pages = nil, nil, 0, 0
-		if before != nil {
-			before(spannerTxn)
-		}
 		taking := &takingDelete{
 			asked: &recordedDelete{tree: tree, key: key},
 			query: &takenQuery{tree: tree, key: key},
@@ -105,7 +102,7 @@ func runTaking(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[strin
 // about once and deleted the deepest first, with a comment under a nested task found
 // under it, whether or not the nested tasks hold the project's key; a folder in a
 // folder is taken; a refusing row under a nested task refuses the delete in the counted
-// sentence, and one the transaction itself deleted does not; a kind that asks nothing of
+// sentence; a kind that asks nothing of
 // its rows is counted and never read; a row a condition of the grant refuses refuses the
 // whole delete, its page read by one statement; and a row a rule refuses refuses the
 // whole delete in the rule's sentence, asked or taken alike. Nothing is deleted where
@@ -184,12 +181,10 @@ func TestTakingDelete(t *testing.T) {
 		key             map[string]any
 		rows            cascadeRows
 		everythingUnder bool
-		// before is what the transaction buffered before the delete.
-		before      func(txn *SpannerReadWriteTransaction)
-		wantStatus  int
-		wantMessage string
-		wantAsked   []string
-		wantMade    []string
+		wantStatus      int
+		wantMessage     string
+		wantAsked       []string
+		wantMade        []string
 		// wantPages is the page statements the delete sent; -1 is not checked.
 		wantPages int
 	}{
@@ -226,14 +221,6 @@ func TestTakingDelete(t *testing.T) {
 			wantPages: 0,
 		},
 		{
-			name: "an invoice the transaction deleted refuses nothing", tree: invoicedTree(), key: project("deep"), everythingUnder: true,
-			before: func(txn *SpannerReadWriteTransaction) {
-				txn.recordWritten("CascadeInvoices", map[string]any{"Id": "deep-i1"}, true)
-			},
-			wantMade:  []string{"ID=deep-c3 trusted", "ID=deep-t3 trusted", "ID=deep-t2 trusted", "ID=deep-t1 trusted"},
-			wantPages: -1,
-		},
-		{
 			name: "a kind that asks nothing of its rows is counted and never read", tree: projectTree(nil), key: project("plain"),
 			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 2 tasks. This can't be undone.",
 			wantPages: 0,
@@ -265,7 +252,7 @@ func TestTakingDelete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			run := runTaking(t, db, tt.tree, tt.key, tt.rows, tt.everythingUnder, tt.before)
+			run := runTaking(t, db, tt.tree, tt.key, tt.rows, tt.everythingUnder)
 			switch {
 			case tt.wantStatus == 0 && run.err != nil:
 				t.Fatalf("the delete error = %v, want none", run.err)
@@ -556,5 +543,64 @@ func TestPatchSet_deleteTaken_rowsTheSaveWrote(t *testing.T) {
 	}
 	if row := readForkRow(t, db, "r1"); row != nil {
 		t.Errorf("the record is still there: %+v", row)
+	}
+}
+
+// underForkRow is a ForkRows record that declares nothing of the tracked rows that name
+// it: a delete of one is refused while it has one.
+type underForkRow struct {
+	ID        string `spanner:"Id"`
+	Title     string `spanner:"Title"`
+	CreatedBy string `spanner:"CreatedBy"`
+	UpdatedBy string `spanner:"UpdatedBy"`
+}
+
+func (underForkRow) Resource() accesstypes.Resource {
+	return "ForkRows"
+}
+
+func (underForkRow) DeleteTree() *DeleteTree {
+	return &DeleteTree{
+		Record: "ForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"},
+		Under: []DeleteKind{{
+			Resource: "TrackedForkRows", Words: DeleteWords{One: "tracked row", Many: "tracked rows"}, Key: []string{"Id"},
+			Paths: []DeletePath{{{Columns: []string{"Title"}, Table: "ForkRows", References: []string{"Id"}}}},
+		}},
+	}
+}
+
+// TestTransactionDeletes_refuse_whatTheDatabaseHeld holds, over the emulator, the count
+// before the commit of a record that declares nothing of the rows under it: a save that
+// deletes one of the rows and then the record is refused with the count of the rows as
+// they stood before the save, and commits nothing.
+func TestTransactionDeletes_refuse_whatTheDatabaseHeld(t *testing.T) {
+	t.Parallel()
+
+	db := forkDatabase(t, "refuse-what-the-database-held")
+	ctx := context.Background()
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "r1", "Title": "record"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "ta", "Title": "r1"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "tb", "Title": "r1"}),
+	}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+
+	err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+		row := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(DeletePatchType)
+		row.SetKey("ID", "ta")
+		if err := row.Buffer(ctx, txn, "test"); err != nil {
+			return errors.Wrap(err, "the tracked row's delete")
+		}
+		record := NewPatchSet(NewMetadata[underForkRow]()).SetPatchType(DeletePatchType)
+		record.SetKey("ID", "r1")
+
+		return record.Buffer(ctx, txn, "test")
+	})
+	if want := "This row has 2 tracked rows. Delete them first."; !httpio.HasConflict(err) || httpio.Message(err) != want {
+		t.Fatalf("the save's error = %v (%q), want a conflict saying %q", err, httpio.Message(err), want)
+	}
+	if row := readForkRow(t, db, "r1"); row == nil {
+		t.Error("the record is gone, want it kept")
 	}
 }

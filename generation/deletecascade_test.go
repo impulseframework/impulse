@@ -195,10 +195,9 @@ func Test_deleteWords(t *testing.T) {
 // the database removes some rows itself: a kind the database removes with the record is
 // not one, whether by a foreign key that says so or by an interleave that does while a
 // foreign key on the same columns says nothing; a kind under the record by a link the
-// database does not follow is one, and carries the tables its rows go with at the
-// database; a row under a row of its own kind is one, unless the database follows a
-// link of the table to itself; a table no resource declares is left out; and a
-// read-only table (@enumerate) gets no description, whatever is under it.
+// database does not follow is one; a row under a row of its own kind is one, unless the
+// database follows a link of the table to itself; a table no resource declares is left
+// out; and a read-only table (@enumerate) gets no description, whatever is under it.
 func Test_kindsUnder(t *testing.T) {
 	t.Parallel()
 
@@ -237,13 +236,12 @@ func Test_kindsUnder(t *testing.T) {
 	}
 
 	type kindUnder struct {
-		Table       string
-		Paths       [][]deleteLink
-		RemovedWith []string
+		Table string
+		Paths [][]deleteLink
 	}
 	want := map[string][]kindUnder{
 		"Client": {
-			{Table: "Invoices", Paths: [][]deleteLink{{link("ClientId", "Clients")}}, RemovedWith: []string{"Projects"}},
+			{Table: "Invoices", Paths: [][]deleteLink{{link("ClientId", "Clients")}}},
 			{Table: "Projects", Paths: [][]deleteLink{{link("ClientId", "Clients")}}},
 		},
 		"Task":   {{Table: "TaskComments", Paths: [][]deleteLink{{link("TaskId", "Tasks")}}}},
@@ -258,7 +256,7 @@ func Test_kindsUnder(t *testing.T) {
 			t.Errorf("%s declares nothing, and its description lists kinds taken or refusing", name)
 		}
 		for _, kind := range res.DeleteTree.Under {
-			got[name] = append(got[name], kindUnder{Table: kind.Table, Paths: kind.Paths, RemovedWith: kind.RemovedWith})
+			got[name] = append(got[name], kindUnder{Table: kind.Table, Paths: kind.Paths})
 		}
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -279,7 +277,6 @@ func Test_kindsUnder(t *testing.T) {
 		"// DeleteTree describes what keeps a Client from being deleted:",
 		"func (Client) DeleteTree() *resource.DeleteTree {",
 		"Under: []resource.DeleteKind{",
-		`RemovedWith: []string{"Projects"},`,
 	} {
 		if !strings.Contains(rendered, wantLine) {
 			t.Errorf("rendered Client is missing %q", wantLine)
@@ -426,45 +423,6 @@ func Test_deleteLink_mayBeEmpty(t *testing.T) {
 	}
 }
 
-// Test_removedWith pins the tables whose row's delete makes the database remove a
-// table's rows: every table up from it by links the database follows, however many
-// steps, the table itself where a row goes with the row of its own kind it is under,
-// and no table reached by a link the database does not follow.
-func Test_removedWith(t *testing.T) {
-	t.Parallel()
-
-	followed := func(column, table string) deleteLink {
-		l := link(column, table)
-		l.Cascades = true
-
-		return l
-	}
-	cascading := map[string][]deleteLink{
-		"Expenses": {followed("SortieId", "Sorties")},
-		"Sorties":  {followed("MissionId", "Missions")},
-		"Missions": {followed("SectorId", "Sectors")},
-	}
-	self := map[string][]deleteLink{
-		"Expenses": {followed("SplitFromId", "Expenses")},
-		"Sorties":  {link("RepeatsId", "Sorties")},
-	}
-
-	if diff := cmp.Diff([]string{"Expenses", "Missions", "Sectors", "Sorties"}, removedWith(cascading, self, "Expenses")); diff != "" {
-		t.Errorf("removedWith(Expenses) mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff([]string{"Missions", "Sectors"}, removedWith(cascading, self, "Sorties")); diff != "" {
-		t.Errorf("removedWith(Sorties) mismatch (-want +got):\n%s", diff)
-	}
-	if got := removedWith(cascading, self, "Sectors"); len(got) != 0 {
-		t.Errorf("removedWith(Sectors) = %v, want none", got)
-	}
-}
-
-// Test_deleteCascade_refusals pins what a @deleteCascade is held to: a kind under the
-// record that neither list names is refused naming the kind and the record, and so is a
-// name that is no resource, a kind that is not under the record, a kind that can only
-// be under a refusing kind, and a declaration on the tenant record. A kind under a
-// refusing kind alone needs no place in a list.
 func Test_deleteCascade_refusals(t *testing.T) {
 	t.Parallel()
 

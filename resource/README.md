@@ -1800,26 +1800,14 @@ transaction, and answers the first delete that has one with a 409:
   generator writes). A row of another tenant that names the record is not under it, and
   its foreign key refuses the commit in the commit's own sentence (the table that opens
   this section).
-- A row the transaction's own patches deleted is left out of the count, by its key: a
-  read inside the transaction does not see its buffered writes. So the rows and the
-  record go together in one transaction, in either order. A row the transaction's
-  patches changed is counted as it was before the transaction, so a request that moves
-  a row from under a record and deletes the record is refused: the move and the delete
-  are sent one after the other. A transaction that deleted more than 200 rows of a kind
-  is not counted over that kind.
-- The count never refuses a delete the database would take. A kind whose rows the
-  database removes with a row of another table (`DeleteKind.RemovedWith`) is not counted
-  once the transaction deleted a row of that table, and a kind the database removes with
-  the record itself is not in the description. That is so only of a link that still
-  carries the database's rule, which no link to an application's record does.
+- The count reads what the database held before the save: a read inside the transaction
+  does not see its buffered writes. Rows that go with a record are declared
+  (@deleteCascade). Rows that are not declared are deleted in an earlier save. A kind the
+  database removes with the record itself is not in the description.
 
 What the count does not reach is still the commit's to refuse, in the sentences of the
-table above: a row under a row the database removes with the record, and a row an update
-of the same transaction leaves under the record. The count knows the rows the transaction's patches deleted and no others: code that
-removes the rows under a record with raw mutations and deletes the record with a patch in
-one transaction is refused over rows that are about to go, so those rows are deleted
-through their patches. The mock client holds no rows and refuses nothing here, and
-PostgreSQL has no write path.
+table above: a row under a foreign key the generator does not follow. The mock client
+holds no rows and refuses nothing here, and PostgreSQL has no write path.
 
 Example: [the served suite](../lodestar/test/integration/delete_refusal_test.go).
 
@@ -1932,13 +1920,9 @@ with nothing gone where it cannot be made whole:
   sentences are written for that person, as the count of the part before is. A trusted
   delete (a patch that is not armed) checks no grant, runs each kind's rule, and is told
   every kind; it is asked the question all the same, and takes the rows once it says so.
-- A row the same transaction already deleted is not found again, so a request that deletes
-  a row under the record beside the record deletes it once.
-- A row under the record that the same transaction changed (an update, or an insert or
-  update) refuses the delete, whatever the delete says and before any row is checked.
-  The reads show the row as it was before the request, so neither where the row is
-  after it nor what is under the row can be told, and a row is never taken on a guess.
-  The change and the delete are sent one after the other.
+- The delete reads what the database held before the save: a row the same save deleted
+  is found and deleted again, with the one change record its first delete wrote, and a
+  row the same save changed is found where it stood before the save.
 
 The delete in code is Spanner's write path. The mock client holds no rows and takes none,
 and PostgreSQL has no write path.
@@ -2016,12 +2000,10 @@ Two consequences to know:
 
 The tenancy check's 404 for a referenced row outside the request's partition, and the 404
 a tenanted or tracked update answers when its row is missing, are unchanged; they run before
-the commit, so the same request answers 404 whatever the resource's shape. A request that
-deletes children and their parent in one transaction still succeeds in either order where
-the parent declares no `@deleteCascade`: its count runs once the transaction's function has
-returned and leaves out the rows the request deleted. A record that declares one is judged
-as its delete is buffered, so a row that refuses it (`refusedBy`) is deleted ahead of it in
-the request.
+the commit, so the same request answers 404 whatever the resource's shape. The count of
+the rows under a record reads what the database held before the save. Rows that go with a
+record are declared (@deleteCascade). Rows that are not declared are deleted in an earlier
+save.
 
 ## 11. Value limits from the schema
 

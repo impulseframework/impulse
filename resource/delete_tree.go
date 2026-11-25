@@ -101,12 +101,6 @@ type DeleteKind struct {
 	Paths []DeletePath
 	// Cost is what deleting one row of the kind costs.
 	Cost DeleteCost
-	// RemovedWith are the tables whose row's delete makes the database remove rows of
-	// the kind with it: every table up from the kind's by links declared ON DELETE
-	// CASCADE. The generator writes it for the kinds under Under. A transaction that
-	// deletes a row of one of those tables may take the kind's rows from under the
-	// record, so the kind is then not counted, and the commit answers.
-	RemovedWith []string
 	// Within are the links from a row of the kind to another row of its own kind (a
 	// task under a task), which no path holds, since a path never passes a table twice.
 	// The generator writes them for the kinds under Taken. A row under a taken row by

@@ -259,24 +259,20 @@ func (p *PatchSet[Resource]) checkTaken(ctx context.Context, txn ReadWriteTransa
 }
 
 // takenQuery writes a kind's path statement at a level for the delete of one record: the
-// record's description and key, and the rows of each table the statement leaves out
-// (written: the rows the transaction itself deleted, which the refusing kinds' count
-// leaves out).
+// record's description and key.
 type takenQuery struct {
-	tree    *DeleteTree
-	key     map[string]any
-	written map[accesstypes.Resource][]map[string]any
+	tree *DeleteTree
+	key  map[string]any
 }
 
 // condition is the condition that a row of the kind, read under its table's name, is
 // under the record at the level: by one of its ways at the level (DeleteTree.waysAt),
 // and, above level 0, by none of its ways at level 0, so a row the record's key reaches
 // by a declared way is counted at level 0 alone. ok is false where the kind has no way
-// at the level, or where the transaction deleted more rows of a table the ways read
-// than a statement leaves out (deleteExclusionLimit).
+// at the level.
 func (q *takenQuery) condition(w *rowsUnderWriter, kind *DeleteKind, level int) (string, bool) {
 	ways := q.tree.waysAt(kind, level)
-	if len(ways) == 0 || q.excludesTooMany(kind, ways) {
+	if len(ways) == 0 {
 		return "", false
 	}
 	outer := w.quote(string(kind.Resource))
@@ -287,30 +283,13 @@ func (q *takenQuery) condition(w *rowsUnderWriter, kind *DeleteKind, level int) 
 		condition += " AND NOT COALESCE(" + w.anyWay(q.tree.waysAt(kind, 0), q.key, outer) + ", FALSE)"
 	}
 
-	return condition + w.ofRecordsTenant(outer+".", kind, q.tree, q.key) + w.notWritten(outer, kind.Resource), true
-}
-
-// excludesTooMany reports whether the transaction deleted more rows of the kind's table,
-// or of a table one of the ways reads, than a statement leaves out by key.
-func (q *takenQuery) excludesTooMany(kind *DeleteKind, ways []DeletePath) bool {
-	if len(q.written[kind.Resource]) > deleteExclusionLimit {
-		return true
-	}
-	for _, way := range ways {
-		for _, link := range way[:len(way)-1] {
-			if len(q.written[accesstypes.Resource(link.Table)]) > deleteExclusionLimit {
-				return true
-			}
-		}
-	}
-
-	return false
+	return condition + w.ofRecordsTenant(outer+".", kind, q.tree, q.key), true
 }
 
 // count is the count of the kind's rows at the level; ok is false where the kind is not
 // counted there (condition).
 func (q *takenQuery) count(kind *DeleteKind, level int) (rowsUnderStatement, bool) {
-	w := &rowsUnderWriter{dbType: SpannerDBType, written: q.written}
+	w := &rowsUnderWriter{dbType: SpannerDBType}
 	condition, ok := q.condition(w, kind, level)
 	if !ok {
 		return rowsUnderStatement{}, false
@@ -323,7 +302,7 @@ func (q *takenQuery) count(kind *DeleteKind, level int) (rowsUnderStatement, boo
 // first offset rows: each row's key, then each of the terms asks reads of it (none
 // where asks is nil: a page read to delete its rows).
 func (q *takenQuery) page(kind *DeleteKind, level int, asks *takenAsks, offset int) (rowsUnderStatement, bool) {
-	w := &rowsUnderWriter{dbType: SpannerDBType, written: q.written}
+	w := &rowsUnderWriter{dbType: SpannerDBType}
 	condition, ok := q.condition(w, kind, level)
 	if !ok {
 		return rowsUnderStatement{}, false
@@ -539,8 +518,7 @@ func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level int, 
 // transaction changed is found where it stood, and a row it deleted is found and deleted
 // again. The answers come in this order: a record with rows that refuse its delete
 // (refusedBy), counted level by level as the taken kinds are, is refused in the
-// sentence that names them, the rows the transaction itself deleted left out; then a
-// kind with rows under the record that the caller's grants refuse; then a delete with
+// sentence that names them; then a kind with rows under the record that the caller's grants refuse; then a delete with
 // more rows under it than one commit takes; then the first row of a kind that asks
 // anything of its rows that is refused, each row asked as its own delete would ask it.
 // A row is checked as the person the record's own delete is armed against, in that
@@ -590,12 +568,11 @@ func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[ac
 }
 
 // count counts the refusing kinds' rows and the taken kinds' under the record, level by
-// level, the refusing kinds leaving out the rows the transaction itself deleted.
+// level.
 func (d *takingDelete) count(ctx context.Context, count rowCounter) (*takenLevels, error) {
-	refusing := &takenQuery{tree: d.query.tree, key: d.query.key, written: d.txn.deleted.gone}
 	kinds := make([]countedKind, 0, len(d.query.tree.RefusedBy)+len(d.query.tree.Taken))
 	for i := range d.query.tree.RefusedBy {
-		kinds = append(kinds, countedKind{kind: &d.query.tree.RefusedBy[i], query: refusing})
+		kinds = append(kinds, countedKind{kind: &d.query.tree.RefusedBy[i], query: d.query})
 	}
 	for i := range d.query.tree.Taken {
 		kinds = append(kinds, countedKind{kind: &d.query.tree.Taken[i], query: d.query})
@@ -716,8 +693,7 @@ func takenTracked(tree *DeleteTree, record bool) (tracked map[accesstypes.Resour
 
 // refusedNow refuses the delete of a record that has rows of a kind its description
 // lists under refusedBy, in the sentence that names them. The rows are the ones under
-// the record as the database held them before the transaction, at every level, less
-// the ones the transaction itself deleted.
+// the record as the database held them before the transaction, at every level.
 func (d *recordedDelete) refusedNow(ctx context.Context, levels *takenLevels) error {
 	var refusing []kindRows
 	for i := range d.tree.RefusedBy {
