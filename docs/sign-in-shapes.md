@@ -546,13 +546,10 @@ link mailed to the confirmed address of their account.
 - The address an account held is told when the account's address was changed.
 - A person is told when an administrator forgets the browsers they trusted, so that their
   next sign-in asks for the code again.
-- A person is told when an administrator removes them from a tenant: when the last role
-  they held there is taken, whether it was their own or one they had through a group. The
-  message says so when the account was deleted with it.
 
-Nothing is mailed when an account is disabled or enabled, when a role ends by itself, when
-a person leaves a tenant themselves, or when an administrator deletes the account
-outright.
+Nothing is mailed when an account is disabled or enabled, when a role ends by itself, when a
+person is removed from a tenant or leaves one themselves, or when an administrator deletes
+the account outright.
 
 ### Acting as someone else
 

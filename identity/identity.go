@@ -284,10 +284,6 @@ type SessionAPI interface {
 	// NoticeFactorReset tells the user, at the address they confirmed, that an
 	// administrator reset their second factor (session.AuthAPI.NoticeFactorReset).
 	NoticeFactorReset(ctx context.Context, userID impulse.UUID) error
-	// NoticeRemovedFromTenant tells a person, at the confirmed address read before the
-	// removal, that an administrator removed them from the tenant, and says so when
-	// their account went with it (session.AuthAPI.NoticeRemovedFromTenant).
-	NoticeRemovedFromTenant(ctx context.Context, to, tenant string, accountDeleted bool) error
 }
 
 // Link is one identity linked to a user, as the rules read it: its id, and the sign-in

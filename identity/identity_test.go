@@ -835,10 +835,6 @@ func (s fakeSessions) NoticeFactorReset(_ context.Context, userID impulse.UUID) 
 	return s.asked("factor reset notice to " + userID.String())
 }
 
-func (s fakeSessions) NoticeRemovedFromTenant(_ context.Context, to, tenant string, accountDeleted bool) error {
-	return s.asked("removal notice to " + to + " from " + tenant + " deleted=" + boolText(accountDeleted))
-}
-
 func (s fakeSessions) SignInMethods() []session.RegisteredMethod {
 	return s.methods
 }

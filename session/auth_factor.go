@@ -1301,27 +1301,6 @@ func (p *AuthAPI[S, U, Tx]) NoticeFactorReset(ctx context.Context, userID impuls
 	return p.auth.send(ctx, m.factorResetMessage(*user.Email))
 }
 
-// NoticeRemovedFromTenant tells a person by mail that an administrator removed them
-// from a tenant: the act that left them with no role there. to is the address the
-// account held confirmed when it was removed, which the caller read before the removal,
-// since the account is gone when the removal took its last role (accountDeleted, which
-// the notice then says); tenant is the tenant's key, named in the message as the Auth's
-// tenant names do (SetTenantNames). The caller sends it once the removal has committed,
-// and only for an administrator's act: a role that ends by itself and a person who
-// leaves by themselves are not written to.
-func (p *AuthAPI[S, U, Tx]) NoticeRemovedFromTenant(ctx context.Context, to, tenant string, accountDeleted bool) error {
-	ctx, span := tracer.Start(ctx)
-	defer span.End()
-
-	m := p.auth.settings.mail
-	bare, err := address(to)
-	if err != nil {
-		return err
-	}
-
-	return p.auth.send(ctx, m.removedFromTenantMessage(bare, p.auth.tenantName(tenant), accountDeleted))
-}
-
 // ForgetBrowser is the handler a signed-in person's account page calls to forget this
 // browser as a trusted device of theirs (AuthAPI.ForgetTrustedDevice): their next sign-in
 // from it asks for the second factor again, and the other people the browser was

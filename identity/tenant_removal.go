@@ -122,9 +122,7 @@ func (m *Manager) JudgeTenantRemoval(ctx context.Context, txn resource.ReadWrite
 // (refuseTakingPlace). The grant of the group's own method is not asked: the removal's
 // own grant says who takes a person out of the tenant, their places in its groups with
 // them. The rule that keeps a tenant's last administrator is not asked: it holds a
-// person's own leaving, and another person removes them. The person is told at the
-// address they confirmed, read before anything goes, unless they stay one of the
-// tenant's people another way.
+// person's own leaving, and another person removes them.
 //
 // What the person holds is read as committed: remove one person from one tenant per
 // transaction.
@@ -138,19 +136,6 @@ func (m *Manager) RemoveFromTenant(ctx context.Context, txn resource.ReadWriteTr
 	removal, judged, managedBy, err := m.judgeTenantRemoval(ctx, txn, userID, domain)
 	if err != nil {
 		return false, err
-	}
-	if !removal.Stays {
-		address, confirmed, err := m.store.ConfirmedEmail(ctx, txn, userID)
-		if err != nil {
-			return false, errors.Wrap(err, "identity.Store.ConfirmedEmail()")
-		}
-		if confirmed {
-			if err := m.noticeAfterCommit(txn, "the notice of a removal from "+string(domain)+" to user "+userID.String(), func(ctx context.Context) error {
-				return m.sessions.NoticeRemovedFromTenant(ctx, address, string(domain), judged.deletesAccount)
-			}); err != nil {
-				return false, err
-			}
-		}
 	}
 	if err := m.applyLeaving(ctx, txn, userID, judged, "they were removed from the last "+m.tenantWord+" they were in"); err != nil {
 		return false, err

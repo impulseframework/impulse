@@ -2,7 +2,6 @@ package identity
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -74,7 +73,7 @@ func accountWrites(tt *managedCase, row string) []string {
 }
 
 // checkManaged fails unless the act buffered want, asked who manages the account as the
-// case says, and mailed notices that each say whether the account went as the case does.
+// case says, and mailed nobody.
 func checkManaged(t *testing.T, tt *managedCase, store *fakeStore, mail *fakeMail, want []string) {
 	t.Helper()
 
@@ -84,10 +83,8 @@ func checkManaged(t *testing.T, tt *managedCase, store *fakeStore, mail *fakeMai
 	if asked := store.managingAsked > 0; asked != tt.asked {
 		t.Errorf("ManagingTenants() asked %d time(s), want asked = %t", store.managingAsked, tt.asked)
 	}
-	for _, notice := range mail.asked {
-		if !strings.HasSuffix(notice, " deleted="+boolText(tt.deletes)) {
-			t.Errorf("notice %q, want one that says deleted=%s", notice, boolText(tt.deletes))
-		}
+	if len(mail.asked)+len(mail.sent) != 0 {
+		t.Errorf("mailed %v and asked for %v, want nothing", mail.sent, mail.asked)
 	}
 }
 
@@ -103,7 +100,7 @@ func warningNote(w *resource.Warning) string {
 // TestManager_RemoveFromTenant_managedElsewhere pins that a removal from a tenant deletes
 // the account it leaves holding nothing only where no other tenant manages it: an account
 // another tenant's directory signs in stays, with the rows in the tenant gone, and the
-// judgment, the warning, the act's answer and the notice say it stays. The tenant's own
+// judgment, the warning and the act's answer say it stays. The tenant's own
 // directory, no directory and no identity link delete it as today.
 func TestManager_RemoveFromTenant_managedElsewhere(t *testing.T) {
 	t.Parallel()
@@ -151,9 +148,6 @@ func TestManager_RemoveFromTenant_managedElsewhere(t *testing.T) {
 				t.Errorf("RemoveFromTenant() deleted = %t, want %t", deleted, tt.deletes)
 			}
 			checkManaged(t, tt, store, mail, accountWrites(tt, "delete membership "+membershipText(&danaAlphaReader)))
-			if len(mail.asked) != 1 {
-				t.Errorf("notices asked for = %v, want one", mail.asked)
-			}
 		})
 	}
 }
@@ -215,9 +209,6 @@ func TestManager_RemoveRole_managedElsewhere(t *testing.T) {
 					t.Fatalf("RemoveRole() error = %v", err)
 				}
 				checkManaged(t, tt, store, mail, accountWrites(tt, "delete membership "+membershipText(&danaAlphaReader)))
-				if len(mail.asked) != 1 {
-					t.Errorf("notices asked for = %v, want one", mail.asked)
-				}
 			})
 		}
 	}
@@ -325,9 +316,6 @@ func TestManager_RemoveGroupMember_managedElsewhere(t *testing.T) {
 					t.Fatalf("RemoveGroupMember() error = %v", err)
 				}
 				checkManaged(t, tt, store, mail, accountWrites(tt, "delete group member "+nightID.String()+" "+string(dana)))
-				if len(mail.asked) != 1 {
-					t.Errorf("notices asked for = %v, want one", mail.asked)
-				}
 			})
 		}
 	}

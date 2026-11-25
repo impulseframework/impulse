@@ -1707,7 +1707,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `UserByEmail(ctx, email)` | The user holding an address, verified or not. See "Users and their email address". |
 | `RequestAddressChange(ctx, id, email, by)` | An administrator's change of a person's address: mails the link that confirms the new address to it and changes nothing until the link is followed. Refused for a person who signs in through an organization's directory and holds a confirmed address (Conflict). See "Users and their email address". |
 | `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address, and for one whose password the tenants' sign-in settings disable. See "A password reset". |
-| `NoticeFactorReset(ctx, id)`, `NoticeRemovedFromTenant(ctx, to, tenant, accountDeleted)` | The notices of an administrator's reset of the second factor and of a removal from a tenant, for an application that makes either change in rows of its own; each goes to a confirmed address and to no other. |
+| `NoticeFactorReset(ctx, id)` | The notice of an administrator's reset of the second factor, for an application that makes the change in rows of its own; it goes to a confirmed address and to no other. |
 | `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
 | `Invite(ctx, &InvitationRequest{Email, Name, TenantID, EveryTenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
@@ -3004,15 +3004,9 @@ that resets a password, the link that confirms an address an administrator set, 
 sign-in code of the second factor, and the code that accepts an invitation, which comes
 in a message of its own. It also sends notices, which carry no link and are
 not counted against the limit on mail to an address: that an account's address changed
-(to the old address), that an administrator reset a person's second factor, and that an
-administrator removed a person from a tenant, which says so when the account went with
-it. The removal notice is for an administrator's act that leaves the person with no role
-in the tenant, of their own or through a group: a role taken, the person taken out of a
-group, or a role taken from a group; where that was the last thing the person held
-anywhere and the account went with it, the notice says so. It is not sent when an
-administrator deletes the account outright or a tenant is cleared, for a role that ends
-by itself, or when the person leaves themselves. A link, a code or a notice goes to a confirmed address or, where it is what
-confirms one, to the address being confirmed. It writes
+(to the old address), and that an administrator reset a person's second factor. A link,
+a code or a notice goes to a confirmed address or, where it is what confirms one, to the
+address being confirmed. It writes
 to one interface, `mail.Sender` (`session/mail`), and knows nothing of the mail system
 behind it; an application configures a driver and hands it to the `Auth`. A message is
 plain text with one link in it (`mail.Message`: the recipient, the subject and the body),

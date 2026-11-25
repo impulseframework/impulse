@@ -353,11 +353,6 @@ func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteT
 	if err != nil {
 		return err
 	}
-	// The notice of a removal from a tenant is mailed to the address the person
-	// confirmed, read while the account is still there to read it from.
-	if err := m.noticePlaceTaken(ctx, txn, groupID, userID, removal.deletes); err != nil {
-		return err
-	}
 	switch {
 	case removal.deletes:
 		if err := m.deleteLeftWithNothing(ctx, txn, userID, "the group they were removed from was the last thing they held"); err != nil {
@@ -616,9 +611,6 @@ func (m *Manager) TakeGroupRole(ctx context.Context, txn resource.ReadWriteTrans
 		return nil
 	}
 	if err := m.refuseTakingGroupRole(ctx, txn, groupID, scope, &key); err != nil {
-		return err
-	}
-	if err := m.noticeGroupRoleTaken(ctx, txn, groupID, &key); err != nil {
 		return err
 	}
 	if err := m.store.DeleteGroupRole(ctx, txn, &key); err != nil {

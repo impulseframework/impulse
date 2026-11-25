@@ -101,18 +101,11 @@ func judgeDana(t *testing.T, m *Manager, request func(context.Context) context.C
 	return judged, err
 }
 
-// removalNotice is what the fake session library records of the notice of a removal
-// from the tenant, mailed to dana's confirmed address.
-func removalNotice(tenant string, deleted bool) string {
-	return "removal notice to " + danaAddress + " from " + tenant + " deleted=" + boolText(deleted)
-}
-
 // TestManager_RemoveFromTenant_rows pins what a removal takes: every row the person has in
 // the tenant, a membership whose period has ended among them, and each place in a group
 // of the tenant, and no row anywhere else, the person's own in another tenant or the whole
 // application, a place in a whole-application group or another tenant's, or another
-// person's. The engine is told once, and the person is mailed one notice at the address
-// they confirmed, which says the account stays.
+// person's. The engine is told once, and nobody is mailed.
 func TestManager_RemoveFromTenant_rows(t *testing.T) {
 	t.Parallel()
 
@@ -144,15 +137,14 @@ func TestManager_RemoveFromTenant_rows(t *testing.T) {
 	if engine.changed != 1 {
 		t.Errorf("the engine was told the policy changed %d time(s), want once", engine.changed)
 	}
-	if diff := cmp.Diff([]string{removalNotice("alpha", false)}, mail.asked); diff != "" {
-		t.Errorf("notices asked for (-want +got):\n%s", diff)
+	if len(mail.asked)+len(mail.sent) != 0 {
+		t.Errorf("mailed %v and asked for %v, want nothing", mail.sent, mail.asked)
 	}
 }
 
 // TestManager_RemoveFromTenant_account pins when the account goes with a removal: when the
 // person then holds nothing that has not ended, with its sign-in identities and sessions
-// and every row that had ended elsewhere, in the same transaction, and the notice says it
-// went. Anything held elsewhere that has not ended keeps it, and a row elsewhere the
+// and every row that had ended elsewhere, in the same transaction. Anything held elsewhere that has not ended keeps it, and a row elsewhere the
 // server's clock reads as ended and the database's does not keeps it too, and stays.
 func TestManager_RemoveFromTenant_account(t *testing.T) {
 	t.Parallel()
@@ -231,18 +223,18 @@ func TestManager_RemoveFromTenant_account(t *testing.T) {
 			if engine.changed != 1 {
 				t.Errorf("the engine was told the policy changed %d time(s), want once", engine.changed)
 			}
-			if diff := cmp.Diff([]string{removalNotice("alpha", tt.wantDeleted)}, mail.asked); diff != "" {
-				t.Errorf("notices asked for (-want +got):\n%s", diff)
+			if len(mail.asked)+len(mail.sent) != 0 {
+				t.Errorf("mailed %v and asked for %v, want nothing", mail.sent, mail.asked)
 			}
 		})
 	}
 }
 
-// TestManager_RemoveFromTenant_noNotice pins when no notice is mailed: the person stays
+// TestManager_RemoveFromTenant_noNotice pins that nobody is mailed where the person stays
 // one of the tenant's people another way, by a role of their own held in every tenant or
 // through a group kept for the whole application that holds a role in the tenant or in
-// every tenant for them; or they confirmed no address. Their rows in the tenant go all
-// the same.
+// every tenant for them, or where they confirmed no address. Their rows in the tenant go
+// all the same.
 func TestManager_RemoveFromTenant_noNotice(t *testing.T) {
 	t.Parallel()
 
@@ -291,8 +283,7 @@ func TestManager_RemoveFromTenant_noNotice(t *testing.T) {
 // only by what reaches it now: a role of their own held in every tenant, a place in a
 // group kept for the whole application, or that group's role, whose period has not begun
 // keeps nobody among the tenant's people. The warning says the account stays and nothing
-// more, the person is mailed that they were removed, and the account stands, since what
-// has not begun is still held.
+// more, nobody is mailed, and the account stands, since what has not begun is still held.
 func TestManager_RemoveFromTenant_staysNow(t *testing.T) {
 	t.Parallel()
 
@@ -353,8 +344,8 @@ func TestManager_RemoveFromTenant_staysNow(t *testing.T) {
 			if deleted {
 				t.Error("RemoveFromTenant() deleted = true, want the account kept by what has not begun")
 			}
-			if diff := cmp.Diff([]string{removalNotice("alpha", false)}, mail.asked); diff != "" {
-				t.Errorf("notices asked for (-want +got):\n%s", diff)
+			if len(mail.asked)+len(mail.sent) != 0 {
+				t.Errorf("mailed %v and asked for %v, want nothing", mail.sent, mail.asked)
 			}
 		})
 	}

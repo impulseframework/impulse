@@ -156,10 +156,9 @@ func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTrans
 // them, and a row that has ended elsewhere keeps nothing against the person's own leaving
 // and goes with the account. What has ended elsewhere is the database's to say, by its
 // own clock, before anything goes by it (EndedAssignments, as ClearEnded has it): a row
-// the database still counts keeps the account, and stays. No notice is mailed: the
-// person left themselves. The rule that keeps a directory-only tenant's administrators
-// to callers who enter it is not asked: giving up one's own roles makes nobody an
-// administrator.
+// the database still counts keeps the account, and stays. The rule that keeps a
+// directory-only tenant's administrators to callers who enter it is not asked: giving
+// up one's own roles makes nobody an administrator.
 //
 // What the person holds is read as committed: a second leaving in one transaction does
 // not see the first. Leave one tenant per transaction.

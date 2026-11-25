@@ -819,7 +819,7 @@ import (
 // deleted with their sign-in identities and sessions. An account that signs in through a
 // tenant's directory is that tenant's to delete: it goes this way only with the last thing
 // it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's
-// list of its people. A person who reaches the tenant no more is told by mail.
+// list of its people.
 //
 // It is a tenant's method: it names a row of {{ .TenantUser }}, the tenant's own list of the
 // auth's people. It takes only what is the tenant's own, so its grant needs no condition on

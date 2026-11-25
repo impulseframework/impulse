@@ -5288,14 +5288,6 @@ every policy store's schema holds it).
   them, so their next sign-in from any of them is asked for the factor. The sessions
   that stand are left. The person is told at their confirmed address, once the
   transaction has committed.
-- A person an administrator takes out of a tenant is told at their confirmed address,
-  once the transaction has committed: when the last role they held there is taken away,
-  when they are taken out of the group that gave them their last holding there, and
-  when that group's role is taken away, each of its people who held nothing else there
-  told. Where it was the last thing the person held anywhere and the account went with
-  it, the notice says so. Nothing is mailed when an administrator deletes the account
-  outright, when a tenant is cleared, for a role that ended by itself, or to a person
-  who still holds something in the tenant, of their own or through another group.
 - A lockout is cleared by removing the count of failed sign-ins kept under the name.
   Each instance of the application trusts what it remembers of a name for five seconds,
   a lock included, so the lock is gone from every instance within that time of the
