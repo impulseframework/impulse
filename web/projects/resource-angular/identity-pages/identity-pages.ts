@@ -4,7 +4,6 @@ import {
   IdentityDescriptor,
   IdentitySideDescriptor,
   quoteFilterValue,
-  rowCapabilities,
   ScopeKind,
 } from '@impulseframework/resource';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
@@ -341,7 +340,7 @@ class SideBuilder {
         // people are those who hold a role in it and those who sign in through its directory:
         // the last role taken away takes a person off the list unless the tenant's directory
         // signs them in. An account that left the whole application's list was deleted: by
-        // its own Delete, or with the last thing it held.
+        // its own Delete, or with the tenant it belonged to alone.
         rowGone: this.tenant
           ? (row: RecordData): string => `${String(row['username'] ?? 'This person')} no longer holds a role here.`
           : (row: RecordData): string => {
@@ -1865,7 +1864,6 @@ class SideBuilder {
   private onPerson(): MethodPresentation[] {
     const { methods } = this.side;
     const named = (row: RecordData): string => String(row['username'] ?? 'this person');
-    const removal = this.tenant ? methods.removeFromTenant : undefined;
     return this.present([
       // The group is the menu entry's alone: giveRole() draws the button above the person's
       // roles too, which is in no menu.
@@ -1964,16 +1962,12 @@ class SideBuilder {
           when: (row) => row['heldHere'] !== false,
         },
       ],
-      // On a tenant's side that has the removal from the tenant, the removal stands in
-      // Delete's place on a row whose answer lists it: taking a person the tenant holds
-      // alone out of it takes the account. Delete is drawn beside it, or alone, where the
-      // row says the tenant manages the account through its directory (managedHere) and the
-      // removal would leave the account standing: a person of the directory who holds
-      // nothing in the tenant itself, or who holds roles elsewhere too. A row whose answer
-      // does not list the removal keeps Delete. Where the method warns before it runs (on a
-      // tenant's side whose server says what the delete does, and whether the person can
-      // come back through the directory), the page asks only whom, and the server's words
-      // follow in the dialog. Where it does not, the page says all of it.
+      // Delete is the account's own delete, drawn wherever the row's answer lists it; the
+      // removal from the tenant beside it takes what the person holds there and leaves the
+      // account standing. Where the method warns before it runs (on a tenant's side whose
+      // server says what the delete does, and whether the person can come back through the
+      // directory), the page asks only whom, and the server's words follow in the dialog.
+      // Where it does not, the page says all of it.
       [
         methods.delete,
         {
@@ -1988,7 +1982,6 @@ class SideBuilder {
               ? `Delete ${named(row)}? The account is removed from every ${this.tenantWord}, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.`
               : `Delete ${named(row)}? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.`;
           },
-          ...(removal === undefined ? {} : { when: (row: RecordData) => deleteBesideRemoval(row, removal) }),
         },
       ],
     ]);
@@ -2427,9 +2420,8 @@ class SideBuilder {
   /**
    * The fields a tenant's side reads with a person and does not draw besides the State's:
    * whether the person holds something in the tenant itself, by which the removal from
-   * the tenant is offered, and whether the tenant manages the account (managedHere), by
-   * which Delete is drawn beside the removal (deleteBesideRemoval). Each only where the
-   * list has it.
+   * the tenant is offered, and whether the tenant manages the account (managedHere). Each
+   * only where the list has it.
    */
   private tenantFacts(resource: Resource): string[] {
     return this.tenant ? ['heldHere', 'managedHere'].filter((name) => this.has(resource, name)) : [];
@@ -2555,26 +2547,6 @@ const doneWords: Partial<Record<MethodKind, string>> = {
  */
 function decidedElsewhere(row: RecordData): boolean {
   return row['directoryGivesRoles'] === true || row['ownRule'] === true;
-}
-
-/**
- * Whether a tenant's people page draws Delete on a person's row, where the tenant's side
- * has the removal from the tenant (removal, its method). A row whose answer does not list
- * the removal keeps Delete. A row whose answer lists it draws Delete only where the row
- * says the tenant manages the account (managedHere) and the removal would leave the
- * account standing: the person holds nothing in the tenant itself, or holds a role in
- * another tenant or for the whole application too. A row that carries no managedHere is
- * read as one the tenant does not manage. Whether Delete is offered at all is still the
- * server's answer for the row.
- */
-function deleteBesideRemoval(row: RecordData, removal: string): boolean {
-  if (!(rowCapabilities(row)?.Execute ?? []).includes(removal)) {
-    return true;
-  }
-  if (row['managedHere'] !== true) {
-    return false;
-  }
-  return row['heldHere'] === false || row['heldElsewhere'] === true || row['heldGlobally'] === true;
 }
 
 /** What a sign-in method's row says of sign-up: who decides, or what an administrator chose. */
