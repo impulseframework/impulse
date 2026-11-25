@@ -315,7 +315,8 @@ func groupsHeld(t *testing.T, rows []map[string]any) map[string]groupRow {
 // period has not begun counts, one that has ended does not; the whole fleet's list says
 // where a role is held when that is not where the group is kept, the sector by its name.
 // A group's delete asks first whatever the list says, counting every place and role the
-// group has, ended or not, and takes them all once confirmed.
+// group has, ended or not, and takes them all once confirmed; the sector's marshal, who
+// asks it of the sector's own method, needs no grant for what has ended.
 func TestGeneratedIdentityGroupsSayWhatTheyHold(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -381,12 +382,10 @@ func TestGeneratedIdentityGroupsSayWhatTheyHold(t *testing.T) {
 	endNow(t, w.db, "CrewGroupRoles", map[string]any{"GroupId": watch, "Kind": "domain", "Axis": "", "DomainId": anvil, "Role": "Harbormaster"})
 	holds("one place and one role ended", sector()["Night watch"], groupRow{People: 1, Roles: []string{"Engineer"}})
 
-	// The delete asks first, and its question counts the ended rows with the rest. It is
-	// asked through headquarters' method, which names the group by its row of the whole
-	// fleet's list.
+	// The delete asks first, and its question counts the ended rows with the rest.
 	asked := func(want string) {
 		t.Helper()
-		status, body := hq("delete-crew-group", fmt.Sprintf(`{"groupId":%q}`, watch))
+		status, body := post("marshal", "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, watch))
 		assertStatus(t, status, http.StatusPreconditionRequired, body)
 		if got := refusalMessage(t, body); got != want {
 			t.Errorf("the question = %q, want %q", got, want)
@@ -394,12 +393,13 @@ func TestGeneratedIdentityGroupsSayWhatTheyHold(t *testing.T) {
 	}
 	asked("Delete this group and everything under it: 2 roles, 2 members. This can't be undone.")
 	// Emptied of what has not ended, the list says it holds nothing, and the delete
-	// still asks, counting the ended place and the ended role; confirmed, it takes them.
+	// still asks, counting the ended place and the ended role; confirmed, it takes them,
+	// with no grant asked for either: each has ended.
 	done(post("marshal", "remove-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, watch, w.ids["ada"])))
 	done(post("marshal", "take-crew-sector-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Engineer"}`, watch)))
 	holds("emptied", sector()["Night watch"], groupRow{Roles: []string{}})
 	asked("Delete this group and everything under it: 1 role, 1 member. This can't be undone.")
-	done(hq("delete-crew-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, watch)))
+	done(post("marshal", "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, watch)))
 	if _, listed := sector()["Night watch"]; listed {
 		t.Error("the night watch is listed after it was deleted")
 	}

@@ -6,6 +6,7 @@ package crewidentity
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -73,23 +74,32 @@ func (m *DeleteCrewSectorGroup) Execute(ctx context.Context, txn resource.ReadWr
 }
 
 // mayEmpty asks, in a request, what the caller needs to take each member out of the
-// group and each role from it, whatever its period: the Execute grants of
-// RemoveCrewSectorGroupMember and TakeCrewSectorGroupRole, each asked of the request's
-// own check (resource.Caller.ExecuteGate) with the group and the member or the role, and
-// judged against the row that method names where its fields do not settle it, as the
-// method's own frame judges it. A grant not held refuses the delete. Outside a request
-// nothing is asked.
+// group and each role from it: the Execute grants of RemoveCrewSectorGroupMember and
+// TakeCrewSectorGroupRole, each asked of the request's own check
+// (resource.Caller.ExecuteGate) with the group and the member or the role, and judged
+// against the row that method names where its fields do not settle it, as the method's
+// own frame judges it. A grant not held refuses the delete. A member or a role whose
+// period has ended gives nobody anything and is asked nothing: it goes with the group.
+// Outside a request nothing is asked.
 func (m *DeleteCrewSectorGroup) mayEmpty(ctx context.Context, txn resource.ReadWriteTransaction) error {
 	caller := resource.CallerFrom(ctx)
 	if caller.IsZero() {
 		return nil
 	}
+	periods, err := store{}.GroupPeriods(ctx, txn, m.GroupID)
+	if err != nil {
+		return errors.Wrap(err, "store.GroupPeriods()")
+	}
+	now := time.Now()
 	members, err := store{}.GroupMembers(ctx, txn, m.GroupID)
 	if err != nil {
 		return errors.Wrap(err, "store.GroupMembers()")
 	}
 	people := resource.ExecuteTarget{Resource: "CrewSectorGroupUsers", Label: "CrewSectorGroupUser", PKColumns: []string{"GroupId", "UserId"}, View: crewresources.CrewSectorGroupUser{}}
 	for _, member := range members {
+		if periods.Members[member].Ended(now) {
+			continue
+		}
 		userID, err := impulse.UUIDFromString(string(member))
 		if err != nil {
 			return errors.Wrap(err, "impulse.UUIDFromString()")
@@ -111,6 +121,9 @@ func (m *DeleteCrewSectorGroup) mayEmpty(ctx context.Context, txn resource.ReadW
 	}
 	held := resource.ExecuteTarget{Resource: "CrewSectorGroupRoles", Label: "CrewSectorGroupRole", PKColumns: []string{"GroupId", "Role"}, View: crewresources.CrewSectorGroupRole{}}
 	for _, key := range roles {
+		if periods.Roles[key].Ended(now) {
+			continue
+		}
 		gate, err := caller.ExecuteGate(ctx, TakeCrewSectorGroupRole{}.Method(), &TakeCrewSectorGroupRole{GroupID: m.GroupID, Role: string(key.Role)})
 		may, err := judgedOnRow(gate, err, func() error {
 			return gate.EnforceView(ctx, txn, held, m.GroupID, string(key.Role))

@@ -121,7 +121,8 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
 		// A group's delete takes its members and roles, after the question, and answers
 		// what one save left; the caller needs the grants of removing each member and
-		// taking each role, whatever its period.
+		// taking each role whose period has not ended, and nothing is asked of one that
+		// has ended.
 		"crewidentity/delete_crew_group.go": {
 			"// @answers(202, 204)\n// @class(access)\ntype DeleteCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID",
 			"\tEverythingUnder bool\n}",
@@ -129,6 +130,9 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"return &DeleteCrewGroupResult{Deleted: left.Deleted, Left: left.Left}, nil",
 			"type DeleteCrewGroupResult struct {\n\tDeleted int64 `json:\"deleted\"`\n\tLeft    int64 `json:\"left\"`\n}",
 			"func (*DeleteCrewGroupResult) HTTPStatus() int {\n\treturn http.StatusAccepted\n}",
+			"periods, err := store{}.GroupPeriods(ctx, txn, m.GroupID)",
+			"for _, member := range members {\n\t\tif periods.Members[member].Ended(now) {\n\t\t\tcontinue\n\t\t}",
+			"for _, key := range roles {\n\t\tif periods.Roles[key].Ended(now) {\n\t\t\tcontinue\n\t\t}",
 			"caller.ExecuteGate(ctx, RemoveCrewGroupMember{}.Method(), &RemoveCrewGroupMember{GroupID: m.GroupID, UserID: userID})",
 			"gate.EnforceView(ctx, txn, people, m.GroupID, userID)",
 			`httpio.NewForbiddenMessage("This group has members, and you can't remove people from a group, so it can't be deleted.")`,
@@ -339,6 +343,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 			// The tenant's two methods each name a row of the tenant's own lists.
 			"caller.ExecuteGate(ctx, RemoveCrewShipGroupMember{}.Method(), &RemoveCrewShipGroupMember{GroupID: m.GroupID, UserID: userID})",
 			`resource.ExecuteTarget{Resource: "CrewShipGroupUsers", Label: "CrewShipGroupUser", PKColumns: []string{"GroupId", "UserId"}, View: crewresources.CrewShipGroupUser{}}`,
+			"for _, key := range roles {\n\t\tif periods.Roles[key].Ended(now) {\n\t\t\tcontinue\n\t\t}",
 			"caller.ExecuteGate(ctx, TakeCrewShipGroupRole{}.Method(), &TakeCrewShipGroupRole{GroupID: m.GroupID, Role: string(key.Role)})",
 			`resource.ExecuteTarget{Resource: "CrewShipGroupRoles", Label: "CrewShipGroupRole", PKColumns: []string{"GroupId", "Role"}, View: crewresources.CrewShipGroupRole{}}`,
 		},

@@ -241,7 +241,9 @@ func TestManager_AssignRoleFor(t *testing.T) {
 // TestManager_groupPeriods pins the period of a place in a group and of a group's role
 // as the rules give them, each replaced by giving again, and the deletion of a group
 // against the periods: a member and a role that have ended are taken with the group as
-// any are, by the group's own delete.
+// any are, by the group's own delete, and nothing their removal asks is asked of them,
+// so dana, acting as someone else, deletes a group whose place of hers has ended and is
+// refused one whose place of hers counts.
 func TestManager_groupPeriods(t *testing.T) {
 	t.Parallel()
 
@@ -330,24 +332,42 @@ func TestManager_groupPeriods(t *testing.T) {
 		}
 	})
 
-	t.Run("a member and a role that have ended go with the group", func(t *testing.T) {
-		t.Parallel()
-		store := groupStore()
-		store.groupMembers[place], store.groupRoles[role] = true, true
-		store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{place: ended}
-		store.rolePeriods = map[access.GroupRoleKey]accesstypes.Period{role: ended}
-		m, _ := newManager(t, store, engineRoles)
+	deletes := []struct {
+		name    string
+		place   accesstypes.Period
+		wantErr bool
+	}{
+		{name: "a member and a role that have ended go with the group, and are not asked about", place: ended},
+		{name: "a member whose place counts is asked what removing them asks", wantErr: true},
+	}
+	for _, tt := range deletes {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := groupStore()
+			store.groupMembers[place], store.groupRoles[role] = true, true
+			store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{place: tt.place}
+			store.rolePeriods = map[access.GroupRoleKey]accesstypes.Period{role: ended}
+			m, _ := newManager(t, store, engineRoles)
 
-		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			_, err := m.DeleteGroup(ctx, txn, nightID, true)
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				_, err := m.DeleteGroup(viewedBy(asErin(ctx, managedAuth, false), userID), txn, nightID, true)
 
-			return err
+				return err
+			})
+			if tt.wantErr {
+				says := actingAsSomeoneElse + "take yourself out of a group."
+				if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), says) || len(store.writes) != 0 {
+					t.Fatalf("DeleteGroup() = %v with writes %v, want the refusal %q and nothing written", err, store.writes, says)
+				}
+
+				return
+			}
+			want := []string{"delete group " + nightID.String() + " with everything under it"}
+			if diff := cmp.Diff(want, store.writes); err != nil || diff != "" {
+				t.Errorf("DeleteGroup() error = %v, buffered writes (-want +got):\n%s", err, diff)
+			}
 		})
-		want := []string{"delete group " + nightID.String() + " with everything under it"}
-		if diff := cmp.Diff(want, store.writes); err != nil || diff != "" {
-			t.Errorf("DeleteGroup() error = %v, buffered writes (-want +got):\n%s", err, diff)
-		}
-	})
+	}
 }
 
 // clearStore is a fake store where dana holds Reader in alpha for a period that has

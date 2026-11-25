@@ -399,10 +399,10 @@ func TestManager_CreateGroup(t *testing.T) {
 // TestManager_DeleteGroup pins a group's delete: one call of the store's delete, which
 // takes the group's members and roles where it is told to and otherwise asks first
 // (428), with no member or role deleted by hand, whatever their periods, and the engine
-// told once the transaction has committed. Each role and each member is asked what its
-// own removal asks before the store is called, so a delete that would take a tenant's
-// last administrator is refused in the words of a role taken from a group. What one save
-// left is answered, and nobody is mailed.
+// told once the transaction has committed. Each role and each member whose period has
+// not ended is asked what its own removal asks before the store is called, so a delete
+// that would take a tenant's last administrator is refused in the words of a role taken
+// from a group. What one save left is answered, and nobody is mailed.
 func TestManager_DeleteGroup(t *testing.T) {
 	t.Parallel()
 

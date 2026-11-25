@@ -32,7 +32,7 @@ const (
 	reads     = "it reads, and the rule is for changes: the person's own row is still listed and read"
 	atSignIn  = "it answers a hook the session library runs as a person signs in, which no impersonated session does"
 	ofAGroup  = "it names a group and no person; a role that reaches the real person through a group they are in is what the rule cannot see, and what a mask that refuses the class access refuses"
-	groupGoes = "it names a group and no person; each member the group's delete takes is asked what removing them from the group asks, the guard among them"
+	groupGoes = "it names a group and no person; each member the group's delete takes whose place has not ended is asked what removing them from the group asks, the guard among them"
 	ofAMethod = "it sets what a sign-in method of the auth offers everyone, and names no person"
 	withdrawn = "it takes back what an invitation would have given, and gives the real person nothing"
 	ofSignIn  = "it sets what every sign-in of the auth asks for, and names no person"

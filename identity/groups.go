@@ -183,8 +183,10 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 // answers the question a person is asked first, with their counts; asked with it, it
 // takes them. Each member and each role is asked what its own removal asks
 // (RemoveGroupMember, TakeGroupRole), so a group whose going would leave a tenant
-// without an administrator is refused. It answers what one save left where the group
-// had more under it than one save holds (nil once the group is gone).
+// without an administrator is refused. A member or a role whose period has ended gives
+// nobody anything and is asked nothing: it goes with the group, and is counted in the
+// question. It answers what one save left where the group had more under it than one
+// save holds (nil once the group is gone).
 func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -192,11 +194,19 @@ func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransac
 	if _, err := m.requireGroup(ctx, txn, groupID); err != nil {
 		return nil, err
 	}
+	periods, err := m.store.GroupPeriods(ctx, txn, groupID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.GroupPeriods()")
+	}
+	now := time.Now()
 	roles, err := m.store.GroupRoles(ctx, txn, groupID)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.GroupRoles()")
 	}
 	for i := range roles {
+		if periods.Roles[roles[i]].Ended(now) {
+			continue
+		}
 		scope, err := roles[i].Scope()
 		if err != nil {
 			return nil, errors.Wrap(err, "access.GroupRoleKey.Scope()")
@@ -210,6 +220,9 @@ func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransac
 		return nil, errors.Wrap(err, "identity.Store.GroupMembers()")
 	}
 	for _, member := range members {
+		if periods.Members[member].Ended(now) {
+			continue
+		}
 		userID, ok := UserID(member)
 		if !ok {
 			return nil, errors.Newf("the group %s has a member %q that is no account's id", groupID, member)
