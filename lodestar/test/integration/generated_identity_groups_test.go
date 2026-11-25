@@ -511,3 +511,64 @@ func TestGeneratedIdentityGroupDeleteRefusals(t *testing.T) {
 		t.Error("bo's account went with the group he was in, want it kept")
 	}
 }
+
+// TestGeneratedIdentitySectorGroupDeleteCondition holds a sector's delete of one of its
+// groups to the condition on the Marshal's grant to take a role from a group, judged on
+// each role the group holds whose period has not ended. The bridge watch holds the
+// Marshal's role, which headquarters gave it and the condition refuses: its delete is
+// refused in the roles' sentence, and nothing goes. The dawn watch holds the Engineer's
+// role from an hour on, which the condition allows: its delete asks first, counting the
+// role, and confirmed, takes it.
+func TestGeneratedIdentitySectorGroupDeleteCondition(t *testing.T) {
+	t.Parallel()
+	w := newTenantListsWorld(t)
+
+	// The grant this suite proves, pinned to the roles file (conditions-proven).
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "TakeCrewSectorGroupRole", "role != 'SectorMarshal'")
+
+	post := func(method, body string) (int, []byte) {
+		return doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, method), body)
+	}
+	makeGroup := func(name string) string {
+		t.Helper()
+		status, body := post("create-crew-sector-group", fmt.Sprintf(`{"name":%q,"description":"A watch of Anvil's."}`, name))
+		assertStatus(t, status, http.StatusOK, body)
+
+		return cell[string](t, decodeRow(t, body), "id")
+	}
+	deleteGroup := func(group string, everythingUnder bool) (int, []byte) {
+		return post("delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":%t}`, group, everythingUnder))
+	}
+	rolesStanding := func(group string) int64 {
+		t.Helper()
+
+		return rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroupRoles WHERE GroupId = @group", map[string]any{"group": group})
+	}
+
+	bridge := makeGroup("Bridge watch")
+	status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":"SectorMarshal","domain":%q}`, bridge, anvil))
+	assertStatus(t, status, http.StatusNoContent, body)
+	status, body = deleteGroup(bridge, true)
+	assertStatus(t, status, http.StatusForbidden, body)
+	if got, want := refusalMessage(t, body), "This group holds roles, and you can't take a role from a group, so it can't be deleted."; got != want {
+		t.Errorf("the refusal = %q, want %q", got, want)
+	}
+	if n := rolesStanding(bridge); n != 1 {
+		t.Errorf("the bridge watch holds %d roles after the refusal, want 1: nothing goes", n)
+	}
+
+	dawn := makeGroup("Dawn watch")
+	later := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	status, body = post("give-crew-sector-group-role", periodBody(t, map[string]any{"groupId": dawn, "role": "Engineer"}, later, time.Time{}))
+	assertStatus(t, status, http.StatusNoContent, body)
+	status, body = deleteGroup(dawn, false)
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 1 role. This can't be undone."; got != want {
+		t.Errorf("the question = %q, want %q", got, want)
+	}
+	status, body = deleteGroup(dawn, true)
+	assertStatus(t, status, http.StatusNoContent, body)
+	if n := rolesStanding(dawn); n != 0 {
+		t.Errorf("the deleted dawn watch leaves %d roles, want none", n)
+	}
+}
