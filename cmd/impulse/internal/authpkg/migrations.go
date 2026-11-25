@@ -247,6 +247,10 @@ CREATE UNIQUE INDEX %[1]sSessionPendingSignInsByTokenHash ON %[1]sSessionPending
 
 CREATE INDEX %[1]sSessionPendingSignInsByExpiresAt ON %[1]sSessionPendingSignIns(ExpiresAt);
 
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE %[1]sSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The sign-in attempts: the attempt limiter's count of failed password attempts per
 -- sign-in name, known or not, within a window, and the lock those failures earned. The
 -- row is keyed by the submitted name, never by the user row, so an unknown name is
@@ -417,6 +421,11 @@ CREATE INDEX %[1]sSessionTokensByUser ON %[1]sSessionTokens(UserId, RevokedAt, E
 
 CREATE INDEX %[1]sSessionTokensByFamilyId ON %[1]sSessionTokens(FamilyId, RevokedAt);
 
+-- A token's row is removed 30 days after the token expired (ExpiresAt), revoked or not. A
+-- refresh token that was rotated stays until then, so one presented again before it
+-- expires is still caught as a reuse.
+ALTER TABLE %[1]sSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The device codes: the device authorizations command-line clients start for a machine
 -- outlet whose tokens the %[2]s auth issues (RFC 8628). The client holds the opaque
 -- device code and the row keeps its hash; the person is shown the user code, normalized
@@ -445,6 +454,10 @@ CREATE TABLE %[1]sSessionDeviceCodes (
 CREATE UNIQUE INDEX %[1]sSessionDeviceCodesByHash ON %[1]sSessionDeviceCodes(DeviceCodeHash);
 
 CREATE INDEX %[1]sSessionDeviceCodesByUserCode ON %[1]sSessionDeviceCodes(UserCode, ExpiresAt);
+
+-- A device code's row is removed one day after the code expired (ExpiresAt), whether it
+-- was approved, denied or never decided.
+ALTER TABLE %[1]sSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 `, p, who, guidCheck)
 }
 
@@ -496,6 +509,9 @@ CREATE TABLE %[1]sSessionTrustedDevices (
 CREATE UNIQUE INDEX %[1]sSessionTrustedDevicesByTokenHash ON %[1]sSessionTrustedDevices(TokenHash);
 
 CREATE INDEX %[1]sSessionTrustedDevicesByUser ON %[1]sSessionTrustedDevices(UserId, RevokedAt);
+
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE %[1]sSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 `, p, who, guidCheck)
 }
 

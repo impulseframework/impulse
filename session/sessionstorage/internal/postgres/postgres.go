@@ -449,7 +449,10 @@ func (s *SessionStorageDriver) UpdateSessionActivity(ctx context.Context, sessio
 // request carries caller-supplied custom data it is written atomically with the session
 // insert and the configured resolver is not invoked. Otherwise, when a custom session
 // data configuration with a resolver is attached, the resolver runs within the same
-// transaction as the session insert; a resolver error aborts the insert.
+// transaction as the session insert; a resolver error aborts the insert. Once the session
+// is in, the sessions idle more than 30 days are removed in a statement of their own,
+// with the rows that reference them by a cascading foreign key: a removal that fails is
+// logged, and the insert stands.
 func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -464,6 +467,7 @@ func (s *SessionStorageDriver) InsertSession(ctx context.Context, insertSession 
 	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, nil, nil)); err != nil {
 		return impulse.NilUUID, err
 	}
+	sessionsRemoval.remove(ctx, s.conn, s.sessionTable())
 
 	return id, nil
 }

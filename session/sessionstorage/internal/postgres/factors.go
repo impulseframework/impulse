@@ -189,7 +189,8 @@ func (s *SessionStorageDriver) FactorCodeState(ctx context.Context, id impulse.U
 }
 
 // InsertTrustedDevice inserts d, created at the database's time, unused and not
-// revoked, whatever d carries.
+// revoked, whatever d carries. It then removes the trusted devices that expired more than
+// 30 days ago.
 func (s *SessionStorageDriver) InsertTrustedDevice(ctx context.Context, d *dbtype.TrustedDevice) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -198,6 +199,7 @@ func (s *SessionStorageDriver) InsertTrustedDevice(ctx context.Context, d *dbtyp
 	if _, err := s.conn.Exec(ctx, query, d.ID, d.UserID, d.TokenHash, d.ExpiresAt); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
+	trustedDevicesRemoval.remove(ctx, s.conn, s.trustedDevicesTable())
 
 	return nil
 }

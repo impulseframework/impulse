@@ -211,8 +211,9 @@ func TestSessionStorageDriver_InsertSession(t *testing.T) {
 			preAssertions: []string{
 				`SELECT COUNT(*) = 5 FROM "Sessions"`,
 			},
+			// The five the fixture holds were last active years ago: the insert removes them.
 			postAssertions: []string{
-				`SELECT COUNT(*) = 6 FROM "Sessions"`,
+				`SELECT COUNT(*) = 1 FROM "Sessions"`,
 			},
 		},
 		{

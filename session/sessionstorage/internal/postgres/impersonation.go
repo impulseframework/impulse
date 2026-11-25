@@ -109,7 +109,8 @@ func throwaways(n int) []any {
 
 // InsertImpersonatedSession inserts a session row and its impersonation record
 // atomically, honoring the request's custom session data semantics exactly as
-// InsertSession does (per-call data, configured resolver, or neither).
+// InsertSession does (per-call data, configured resolver, or neither), and removes the
+// sessions idle more than 30 days once the session is in, as it does.
 func (s *SessionStorageDriver) InsertImpersonatedSession(
 	ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation,
 ) (impulse.UUID, error) {
@@ -133,6 +134,7 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, imp, insertRecord)); err != nil {
 		return impulse.NilUUID, err
 	}
+	sessionsRemoval.remove(ctx, s.conn, s.sessionTable())
 
 	return id, nil
 }

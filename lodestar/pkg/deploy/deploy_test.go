@@ -163,3 +163,33 @@ func TestChangeHistoryMigration(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionRowDeletionPolicies pins the row deletion policy of each session table of
+// Lodestar's two auths that would otherwise keep every row ever written, as the generator
+// writes them for an auth.
+func TestSessionRowDeletionPolicies(t *testing.T) {
+	t.Parallel()
+
+	migration, err := os.ReadFile("../../schema/migrations/000001_Baseline.up.sql")
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	for _, stmt := range []string{
+		"ALTER TABLE CrewSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY))",
+		"ALTER TABLE CrewSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY))",
+		"ALTER TABLE CrewSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE CrewSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE CrewSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE CrewSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY))",
+		"ALTER TABLE CrewSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY))",
+		"ALTER TABLE MembersSessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 DAY))",
+		"ALTER TABLE MembersSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY))",
+		"ALTER TABLE MembersSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE MembersSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY))",
+		"ALTER TABLE MembersSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY))",
+	} {
+		if !strings.Contains(string(migration), stmt+";") {
+			t.Errorf("the migration does not carry the statement:\n%s", stmt)
+		}
+	}
+}
