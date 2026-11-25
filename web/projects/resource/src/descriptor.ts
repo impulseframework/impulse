@@ -435,13 +435,16 @@ export interface IdentityMethods {
   readonly withdrawInvitedTenant?: string;
   readonly takeRole?: string;
   /**
-   * On a tenant's side, how the tenant's people enter: `openToDirectory` names the role a
+   * On a tenant's side, how the tenant's people enter: `takeDirectory` makes the
+   * directory the caller is signed in through the tenant's own, behind the statement that
+   * they are authorized to act for the organization, `openToDirectory` names the role a
    * person gets when they sign in through the tenant's directory and hold nothing in the
    * tenant, `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and
    * `endDirectoryOnly` turn the directory-only switch, and `vouchForDirectorySecondFactor` and
    * `stopVouchingForDirectorySecondFactor` say, and take back, that the tenant's
    * directory asks its people for a second factor of its own. None names a row.
    */
+  readonly takeDirectory?: string;
   readonly openToDirectory?: string;
   readonly makeDirectoryInviteOnly?: string;
   readonly makeDirectoryOnly?: string;

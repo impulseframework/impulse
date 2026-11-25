@@ -34,8 +34,9 @@ export interface TenantSignIn {
    * settings.
    */
   tenantRecord?: { resource: Resource; directoryOnlyField: string };
-  /** The tenant's methods that set how its people enter. */
+  /** The tenant's method that takes its directory, and its methods that set how its people enter. */
   methods: {
+    takeDirectory?: Method;
     openToDirectory?: Method;
     makeDirectoryInviteOnly?: Method;
     makeDirectoryOnly?: Method;
