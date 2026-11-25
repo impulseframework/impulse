@@ -1034,7 +1034,10 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 				// are spelled (a named set chains before the call).
 				assertContains(t, name, out, nil, []string{".Remove(ctx, txn,"})
 				assertInOrder(t, out,
-					".New"+tt.resource+"DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
+					// The patch is buffered as it is built, or kept to say what it left where the
+					// record takes rows.
+					".New"+tt.resource+"DeletePatchFromPatchSet(id, patchSet)",
+					"Buffer(ctx, txn, eventSource); err != nil {",
 					"if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {",
 				)
 			}
@@ -1131,7 +1134,10 @@ func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
 					"if err := patchSet.Permitted(ctx, txn); err != nil {",
 					`if err := resource.RequireTenantDisabled(ctx, txn, "Havens", "Id", "Disabled", accesstypes.Domain(id.String()), "haven"); err != nil {`,
 					`return errors.Wrap(err, "resource.RequireTenantDisabled()")`,
-					".NewHavenDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
+					// The patch is buffered as it is built, or kept to say what it left where the
+					// record takes rows.
+					".NewHavenDeletePatchFromPatchSet(id, patchSet)",
+					"Buffer(ctx, txn, eventSource); err != nil {",
 					"if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {",
 				)
 				if got := strings.Count(out, "RequireTenantDisabled(ctx"); got != 1 {

@@ -60,6 +60,11 @@ type PatchSet[Resource Resourcer] struct {
 	// to take were counted and checked (deleteTaken), and a row a record's delete takes
 	// with it (bufferTaken).
 	underAnswered bool
+	// deleteLeft is what the delete the patch buffered left under its record (DeleteLeft).
+	deleteLeft *DeleteLeft
+	// deleteSaveSize is the most mutations one save of a delete that takes rows holds,
+	// DeleteMutationLimit where it is zero: a test makes it small.
+	deleteSaveSize int
 	// fork is set on an update-or-create (OrCreate) and on a create-unless-there
 	// (OrSkip) patch, and nil on every other (patch_fork.go).
 	fork *patchFork[Resource]
@@ -714,18 +719,35 @@ func (p *PatchSet[Resource]) DeleteEverythingUnder() *PatchSet[Resource] {
 	return p
 }
 
+// DeleteLeft is what the delete the patch carries left under its record once it is
+// buffered: nil for a delete that finished, the record's row with it, or that took
+// nothing; otherwise the rows this save deleted and the rows still under the record,
+// whose own row stands until a save takes the last of them.
+func (p *PatchSet[Resource]) DeleteLeft() *DeleteLeft {
+	return p.deleteLeft
+}
+
 // bufferDelete buffers the delete of the patch's row: the row's check, then the rows
-// the record's delete takes with it (deleteTaken), then the row itself.
+// the record's delete takes with it (deleteTaken), then the row itself, once a save
+// takes the last row under it.
 func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+	p.deleteLeft = nil
 	if _, err := p.checkDelete(ctx, txn); err != nil {
 		return err
 	}
 
-	answered, err := p.deleteTaken(ctx, txn, eventSource...)
+	round, err := p.deleteTaken(ctx, txn, eventSource...)
 	if err != nil {
 		return err
 	}
-	p.underAnswered = p.underAnswered || answered
+	if round != nil {
+		p.underAnswered = true
+		if !round.finished {
+			p.deleteLeft = round.left()
+
+			return nil
+		}
+	}
 
 	return p.bufferCheckedDelete(ctx, txn, eventSource...)
 }

@@ -10,7 +10,8 @@ import (
 
 const (
 	// DeleteMutationLimit is the most mutations Spanner takes in one commit. A delete
-	// that would need more is refused before anything is deleted (DeleteTree.Mutations).
+	// that would need more takes what fits and says what is left (PatchSet.DeleteLeft);
+	// the same delete sent again takes the next part.
 	DeleteMutationLimit = 80_000
 
 	// rowDeleteMutations is what the delete of one row costs by itself: Spanner counts a
@@ -194,8 +195,7 @@ func (t *DeleteTree) rowNameInside() string {
 // costs in a commit: the record's own row, and for each taken kind the number of its
 // rows under the record (rows, by the kind's resource) times what one of them costs. A
 // kind's rows cost a change record each where the kind's changes are tracked (tracked,
-// by resource, the record's own among them). The delete is refused when the count
-// passes DeleteMutationLimit.
+// by resource, the record's own among them). A round of a delete is sized by it.
 func (t *DeleteTree) Mutations(rows map[accesstypes.Resource]int, tracked func(accesstypes.Resource) bool) int {
 	mutations := t.Cost.Mutations(tracked(t.Record))
 	for i := range t.Taken {

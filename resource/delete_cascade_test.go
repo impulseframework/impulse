@@ -119,7 +119,7 @@ func (r *cascadeRow) bufferTaken(context.Context, ReadWriteTransaction, ...strin
 // projectTree describes a record whose delete takes three kinds: its tasks, which name
 // it and may be under another task, the comments on its tasks, and its labels, which
 // name it by its code and not by its key.
-func projectTree(rows TakenRows) *DeleteTree {
+func projectTree() *DeleteTree {
 	return &DeleteTree{
 		Record: "CascadeProjects",
 		Words:  DeleteWords{One: "project", Many: "projects"},
@@ -133,14 +133,12 @@ func projectTree(rows TakenRows) *DeleteTree {
 					{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}},
 					{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
 				}},
-				Rows: rows,
 			},
 			{
 				Resource: "CascadeLabels",
 				Words:    DeleteWords{One: "label", Many: "labels"},
 				Key:      []string{"Id"},
 				Paths:    []DeletePath{{{Columns: []string{"ProjectCode"}, Table: "CascadeProjects", References: []string{"Code"}}}},
-				Rows:     rows,
 			},
 			{
 				Resource: "CascadeTasks",
@@ -148,7 +146,6 @@ func projectTree(rows TakenRows) *DeleteTree {
 				Key:      []string{"Id"},
 				Paths:    []DeletePath{{{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}}}},
 				Within:   []DeleteLink{{Columns: []string{"ParentTaskId"}, Table: "CascadeTasks", References: []string{"Id"}}},
-				Rows:     rows,
 			},
 		},
 	}
@@ -164,7 +161,7 @@ func invoicedTree() *DeleteTree {
 			{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
 		}
 	}
-	tree := projectTree(nil)
+	tree := projectTree()
 	tree.RefusedBy = []DeleteKind{
 		{
 			Resource: "CascadeInvoices",
@@ -191,7 +188,7 @@ func invoicedTree() *DeleteTree {
 func TestRecordedDelete_refuseRow(t *testing.T) {
 	t.Parallel()
 
-	tree := projectTree(nil)
+	tree := projectTree()
 	tasks := &tree.Taken[2]
 
 	tests := []struct {
@@ -283,7 +280,7 @@ func statusOf(err error) int {
 func TestRecordedDelete_question(t *testing.T) {
 	t.Parallel()
 
-	tree := projectTree(nil)
+	tree := projectTree()
 	levels := &takenLevels{deepest: 1, rows: map[*DeleteKind][]int64{&tree.Taken[2]: {1, 2}, &tree.Taken[0]: {1, 0}, &tree.Taken[1]: {0}}}
 
 	tests := []struct {
@@ -325,10 +322,6 @@ func TestRecordedDelete_question(t *testing.T) {
 				t.Errorf("question() = %q, want %q", got, tt.want)
 			}
 		})
-	}
-
-	if got, want := deleteTooManySentence(projectTree(nil)), "This project has too many records under it to delete at once. Delete some of them first."; got != want {
-		t.Errorf("deleteTooManySentence() = %q, want %q", got, want)
 	}
 }
 
@@ -402,7 +395,7 @@ func TestDecoder_readsWhatARemoveSays(t *testing.T) {
 func Test_takenQuery(t *testing.T) {
 	t.Parallel()
 
-	tree := projectTree(nil)
+	tree := projectTree()
 	replies := DeleteKind{
 		Resource: "CascadeReplies",
 		Words:    DeleteWords{One: "reply", Many: "replies"},
@@ -432,7 +425,7 @@ func Test_takenQuery(t *testing.T) {
 	// level 1 compares nothing of the task's own project.
 	tasks, labels := &tree.Taken[2], &tree.Taken[1]
 	asks := &takenAsks{groups: [][]accesstypes.Resource{{"CascadeTasks"}}, terms: []string{"(CascadeTasks.Title != @_c1)"}, params: map[string]any{"_c1": "secret"}}
-	page, ok := query.page(tasks, 1, 2, asks, takenPageRows)
+	page, ok := query.page(tasks, 1, 2, asks, takenPageRows, takenPageRows)
 	if !ok {
 		t.Fatal("page() of the tasks at level 1 wrote no read")
 	}
@@ -445,7 +438,7 @@ func Test_takenQuery(t *testing.T) {
 	if diff := cmp.Diff(map[string]any{"_c1": "secret", "d1": "p1", "d2": "p1"}, page.spannerStatement().Params); diff != "" {
 		t.Errorf("page() of the tasks at level 1 values (-want +got):\n%s", diff)
 	}
-	if page, ok := query.page(tasks, 2, 2, nil, 0); !ok || strings.Contains(page.SQL, "NOT") {
+	if page, ok := query.page(tasks, 2, 2, nil, takenPageRows, 0); !ok || strings.Contains(page.SQL, "NOT") {
 		t.Errorf("page() of the tasks at the deepest level = %q (written %t), want a read that leaves nothing out", page.SQL, ok)
 	}
 	statement, ok = query.count(tasks, 0, 2)

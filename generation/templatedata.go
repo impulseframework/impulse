@@ -116,7 +116,11 @@ type consolidatedPatchData struct {
 	// HasTenant says the tenant record or the directories record is among the cases:
 	// the dispatcher then reloads the roster after a commit that wrote either, and
 	// signals the tenants kind.
-	HasTenant           bool
+	HasTenant bool
+	// TakesRowsUnder says a case's delete may take rows under its record
+	// (resourceInfo.TakesRowsUnder): the dispatcher keeps what its deletes left under
+	// their records and answers 202 with it.
+	TakesRowsUnder      bool
 	DomainRouteSegment  string
 	DomainPatternPrefix string // "/stations/{stationID}" — the chi pattern the descent case prefix-matches
 	Package             string

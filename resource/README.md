@@ -1856,7 +1856,7 @@ with nothing gone where it cannot be made whole:
 | What stops it | Status | Message |
 | --- | --- | --- |
 | A row of a kind the record lists under `refusedBy` | 409 | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
-| More rows than one commit takes | 409 | `This mission has too many records under it to delete at once. Delete some of them first.` |
+| More rows than one commit takes | 202 | `{"deleted": 6800, "left": 31200}`: the rows this save deleted and the rows still under the record. Send the same remove again. |
 | A row the person may not delete, of a kind they may list | 403 | `This mission has sortie expenses that you can't delete, so it can't be deleted.` |
 | A row the person may not delete, of a kind they may not list | 403 | `This mission has records under it that you can't delete, so it can't be deleted.` |
 | A row its delete rule refuses (`@validateDeleteType`) | the rule's | the rule's own sentence |
@@ -1916,9 +1916,11 @@ with nothing gone where it cannot be made whole:
   tenant need hold no role in it. Each kind's delete rule is asked on every row all the
   same, with its change record and the release of its files (section 16, "Deleting a
   tenant").
-- The rows are counted against what one commit takes before any is deleted
-  (`DeleteTree.Mutations` against `resource.DeleteMutationLimit`, 80,000 mutations): the
-  delete of each row, an entry in each index of its table, its change record and its files.
+- A delete larger than one save runs in rounds: each request deletes what fits one save,
+  deepest rows first, and answers 202 with what is left; the record goes last. Each round
+  checks the rows it takes. A refusal that comes after rounds have run stops the delete
+  there: what is gone stays gone, what is left is a whole, smaller record, and the same
+  delete goes on once the refusal's cause is gone. Nothing is kept between rounds.
 - The rows are checked as the person the record's delete is armed against, and the
   sentences are written for that person, as the count of the part before is. A trusted
   delete (a patch that is not armed) checks no grant, runs each kind's rule, and is told

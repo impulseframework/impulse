@@ -169,7 +169,7 @@ func TestTakingDelete(t *testing.T) {
 		return map[string]any{"Id": id}
 	}
 	twoWays := func() *DeleteTree {
-		tree := projectTree(nil)
+		tree := projectTree()
 		tree.Taken[0].Paths = append(tree.Taken[0].Paths, DeletePath{{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}}})
 
 		return tree
@@ -206,42 +206,42 @@ func TestTakingDelete(t *testing.T) {
 			wantPages: 0,
 		},
 		{
-			name: "nested tasks that hold no project are counted once and asked about once", tree: projectTree(nil), key: project("deep"), rows: cascadeRows{asks: asksEveryRow},
+			name: "nested tasks that hold no project are counted once and asked about once", tree: projectTree(), key: project("deep"), rows: cascadeRows{asks: asksEveryRow},
 			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 3 tasks, 1 comment. This can't be undone.",
 			wantAsked: []string{"ID=deep-c3 trusted", "ID=deep-t3 trusted", "ID=deep-t2 trusted", "ID=deep-t1 trusted"},
 			wantPages: -1,
 		},
 		{
-			name: "nested tasks that hold no project are deleted the deepest first, a comment under the deepest before it", tree: projectTree(nil), key: project("deep"), everythingUnder: true,
+			name: "nested tasks that hold no project are deleted the deepest first, a comment under the deepest before it", tree: projectTree(), key: project("deep"), everythingUnder: true,
 			wantMade:  []string{"ID=deep-c3 trusted", "ID=deep-t3 trusted", "ID=deep-t2 trusted", "ID=deep-t1 trusted"},
 			wantPages: -1,
 		},
 		{
-			name: "nested tasks that hold the project are counted once each", tree: projectTree(nil), key: project("keyed"),
+			name: "nested tasks that hold the project are counted once each", tree: projectTree(), key: project("keyed"),
 			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 3 tasks. This can't be undone.",
 			wantPages: 0,
 		},
 		{
-			name: "nested tasks that hold the project are counted and asked about once each and deleted the deepest first", tree: projectTree(nil), key: project("keyed"), rows: cascadeRows{asks: asksEveryRow}, everythingUnder: true,
+			name: "nested tasks that hold the project are counted and asked about once each and deleted the deepest first", tree: projectTree(), key: project("keyed"), rows: cascadeRows{asks: asksEveryRow}, everythingUnder: true,
 			wantAsked: []string{"ID=keyed-t3 trusted", "ID=keyed-t2 trusted", "ID=keyed-t1 trusted"},
 			wantMade:  []string{"ID=keyed-t3 trusted", "ID=keyed-t2 trusted", "ID=keyed-t1 trusted"},
 			wantPages: -1,
 		},
 		{
-			name: "nested tasks the top two of which hold the project are counted and asked about once each", tree: projectTree(nil), key: project("mixed"), rows: cascadeRows{asks: asksEveryRow},
+			name: "nested tasks the top two of which hold the project are counted and asked about once each", tree: projectTree(), key: project("mixed"), rows: cascadeRows{asks: asksEveryRow},
 			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 3 tasks. This can't be undone.",
 			wantAsked: []string{"ID=mixed-t3 trusted", "ID=mixed-t2 trusted", "ID=mixed-t1 trusted"},
 			wantPages: -1,
 		},
 		{
-			name: "nested tasks the top two of which hold the project are deleted once each, the deepest first", tree: projectTree(nil), key: project("mixed"), everythingUnder: true,
+			name: "nested tasks the top two of which hold the project are deleted once each, the deepest first", tree: projectTree(), key: project("mixed"), everythingUnder: true,
 			wantMade:  []string{"ID=mixed-t3 trusted", "ID=mixed-t2 trusted", "ID=mixed-t1 trusted"},
 			wantPages: -1,
 		},
 		{
 			// The third task is found at levels 0 and 2, so it is taken at level 2, before the
 			// second, and again at level 0; the count is not asserted.
-			name: "a nested task that holds the project under one that does not is deleted before the task it is under", tree: projectTree(nil), key: project("gap"), everythingUnder: true,
+			name: "a nested task that holds the project under one that does not is deleted before the task it is under", tree: projectTree(), key: project("gap"), everythingUnder: true,
 			wantFirstMade: []string{"ID=gap-t3 trusted", "ID=gap-t2 trusted", "ID=gap-t1 trusted"},
 			wantPages:     -1,
 		},
@@ -256,26 +256,26 @@ func TestTakingDelete(t *testing.T) {
 			wantPages: 0,
 		},
 		{
-			name: "a kind that asks nothing of its rows is counted and never read", tree: projectTree(nil), key: project("plain"),
+			name: "a kind that asks nothing of its rows is counted and never read", tree: projectTree(), key: project("plain"),
 			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 2 tasks. This can't be undone.",
 			wantPages: 0,
 		},
 		{
-			name: "a row the grant's condition refuses refuses the whole delete, its page read once", tree: projectTree(nil), key: project("plain"), everythingUnder: true,
+			name: "a row the grant's condition refuses refuses the whole delete, its page read once", tree: projectTree(), key: project("plain"), everythingUnder: true,
 			rows:       cascadeRows{asks: &takenAsks{groups: [][]accesstypes.Resource{{"CascadeTasks"}}, terms: []string{"(CascadeTasks.Title != 'secret')"}}},
 			wantStatus: http.StatusForbidden, wantMessage: "This project has tasks that you can't delete, so it can't be deleted.",
 			wantAsked: []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted"},
 			wantPages: 1,
 		},
 		{
-			name: "a row a rule refuses refuses a delete that asks in the rule's sentence", tree: projectTree(nil), key: project("plain"),
+			name: "a row a rule refuses refuses a delete that asks in the rule's sentence", tree: projectTree(), key: project("plain"),
 			rows:       cascadeRows{asks: &takenAsks{rule: true}, refused: map[string]cascadeRefusal{"plain-t1": {byRule: true, err: httpio.NewBadRequestMessage("A task that is being worked on can't be deleted.")}}},
 			wantStatus: http.StatusBadRequest, wantMessage: "A task that is being worked on can't be deleted.",
 			wantAsked: []string{"ID=plain-t1 trusted"},
 			wantPages: 1,
 		},
 		{
-			name: "a row a rule refuses refuses a delete that takes in the rule's sentence", tree: projectTree(nil), key: project("plain"), everythingUnder: true,
+			name: "a row a rule refuses refuses a delete that takes in the rule's sentence", tree: projectTree(), key: project("plain"), everythingUnder: true,
 			rows:       cascadeRows{asks: &takenAsks{rule: true}, refused: map[string]cascadeRefusal{"plain-t2": {byRule: true, err: httpio.NewBadRequestMessage("A task that is being worked on can't be deleted.")}}},
 			wantStatus: http.StatusBadRequest, wantMessage: "A task that is being worked on can't be deleted.",
 			wantAsked: []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted"},
@@ -464,7 +464,7 @@ func TestTakingDelete_anotherTenantsRow(t *testing.T) {
 						return err
 					}
 					counted = levels.total(&tree.Taken[0])
-					statement, ok := query.page(&tree.Taken[0], 0, levels.deepest, nil, 0)
+					statement, ok := query.page(&tree.Taken[0], 0, levels.deepest, nil, takenPageRows, 0)
 					if !ok {
 						return errors.New("page() wrote no read")
 					}

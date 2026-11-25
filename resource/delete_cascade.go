@@ -26,11 +26,14 @@ import (
 // them: the caller's grants on each kind once, then, for a kind whose rows have anything
 // to be asked (what the kind's generated code asks of a delete, a condition on the
 // grant, a tenant the row must be found in, the kind's delete rule), each of its rows,
-// read a page at a time with the answers of the grant's conditions. The whole is sized
-// against what one commit takes (DeleteTree.Mutations). Nothing goes unless everything
-// may go, and a refusal says why. Then the rows are deleted deepest first and the record
-// last, each through the delete of one row (bufferTaken), so each has its change record,
-// is announced to open pages, and has its stored files released.
+// read a page at a time with the answers of the grant's conditions: every row by a delete
+// that asks, the rows it takes by a delete that takes them. A refusal says why. A delete
+// larger than one save runs in rounds: each request deletes what fits one save, deepest
+// rows first, and answers 202 with what is left; the record goes last (DeleteLeft). Each
+// row goes through the delete of one row (bufferTaken), so each has its change record, is
+// announced to open pages, and has its stored files released. Each round checks the rows
+// it takes, and nothing is kept between rounds: a refusal that comes after rounds have run
+// stops the delete there, and what is left is a whole, smaller record.
 //
 // A delete that does not say it takes the rows, of a record that has some, deletes
 // nothing and is answered with the question a person is asked first: "Delete this
@@ -303,10 +306,10 @@ func (q *takenQuery) count(kind *DeleteKind, level, deepest int) (rowsUnderState
 	return rowsUnderStatement{SQL: fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", w.quote(string(kind.Resource)), condition), Args: w.args}, true
 }
 
-// page is the read of one page of the kind's rows at the level, below the deepest
-// level, in key order, after the first offset rows: each row's key, then each of the
-// terms asks reads of it (none where asks is nil: a page read to delete its rows).
-func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks, offset int) (rowsUnderStatement, bool) {
+// page is the read of one page of at most limit of the kind's rows at the level, below
+// the deepest level, in key order, after the first offset rows: each row's key, then each
+// of the terms asks reads of it (none where asks is nil).
+func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks, limit, offset int) (rowsUnderStatement, bool) {
 	w := &rowsUnderWriter{dbType: SpannerDBType}
 	condition, ok := q.condition(w, kind, level, deepest)
 	if !ok {
@@ -325,7 +328,7 @@ func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks,
 		}
 		named = asks.params
 	}
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT %d", strings.Join(columns, ", "), outer, condition, strings.Join(key, ", "), takenPageRows)
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT %d", strings.Join(columns, ", "), outer, condition, strings.Join(key, ", "), limit)
 	if offset > 0 {
 		sql += fmt.Sprintf(" OFFSET %d", offset)
 	}
@@ -479,6 +482,17 @@ func (c *SpannerReadWriteTransaction) readPage(ctx context.Context, statement ro
 	return rows, nil
 }
 
+// DeleteLeft is what a delete that takes rows says when one save did not hold them all:
+// the rows this save deleted, and the rows still under the record. The record's own row
+// stands until a save takes the last of them. The same delete, sent again, goes on.
+type DeleteLeft struct {
+	// Deleted is the rows this save deleted.
+	Deleted int64 `json:"deleted"`
+	// Left is the rows still under the record, as they were counted when the save began,
+	// less those it deleted.
+	Left int64 `json:"left"`
+}
+
 // takenDelete is one row a delete takes, with its kind.
 type takenDelete struct {
 	kind *DeleteKind
@@ -496,6 +510,8 @@ type takingDelete struct {
 	caller *Caller
 	// page reads one page of a kind's rows (SpannerReadWriteTransaction.readPage).
 	page func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error)
+	// size is the most mutations the save holds, DeleteMutationLimit where it is zero.
+	size int
 }
 
 // keyFields are the fields that hold the kind's key columns, in key order, and their Go
@@ -529,7 +545,7 @@ func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level, deep
 		answers = len(asks.terms)
 	}
 	for offset := 0; ; offset += takenPageRows {
-		statement, ok := d.query.page(kind, level, deepest, asks, offset)
+		statement, ok := d.query.page(kind, level, deepest, asks, takenPageRows, offset)
 		if !ok {
 			return nil
 		}
@@ -549,9 +565,10 @@ func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level, deep
 }
 
 // deleteTaken takes the rows the record's description lists as going with it, before
-// the record's own row is deleted: the whole procedure this file opens with. answered
-// says the rows under the record were answered for here, so nothing is left to count
-// under it before the commit. It does nothing for a record that lists none, for a
+// the record's own row is deleted: the whole procedure this file opens with. The round
+// says what the save took and whether it took the last row under the record, so the
+// record goes too; nil says the rows under the record were not answered for here, and
+// are counted before the commit. It does nothing for a record that lists none, for a
 // description written before its kinds had their deletes (DeleteKind.Rows), and on a
 // transaction that is not Spanner's (the Mock's has no rows to read; PostgreSQL has no
 // write path): the count before the commit answers for those.
@@ -560,28 +577,29 @@ func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level, deep
 // transaction changed is found where it stood, and a row it deleted is found and deleted
 // again. The answers come in this order: a record with rows that refuse its delete
 // (refusedBy), counted level by level as the taken kinds are, is refused in the
-// sentence that names them; then a kind with rows under the record that the caller's grants refuse; then a delete with
-// more rows under it than one commit takes; then the first row of a kind that asks
-// anything of its rows that is refused, each row asked as its own delete would ask it.
-// A row is checked as the person the record's own delete is armed against, in that
-// delete's scope, and runs trusted where the record's delete does. The sentences are
-// written for whoever asked (deleteCaller).
-func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) (answered bool, err error) {
+// sentence that names them; then a kind with rows under the record that the caller's
+// grants refuse; then the first row of a kind that asks anything of its rows that is
+// refused, each row asked as its own delete would ask it: every row by a delete that
+// asks, the rows the save takes by one that takes them. A row is checked as the person
+// the record's own delete is armed against, in that delete's scope, and runs trusted
+// where the record's delete does. The sentences are written for whoever asked
+// (deleteCaller).
+func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) (*takenRound, error) {
 	tree := p.querySet.rMeta.deleteTree
 	if tree == nil || len(tree.Taken) == 0 {
-		return false, nil
+		return nil, nil
 	}
 	spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
 	if !ok {
-		return false, nil
+		return nil, nil
 	}
 	key, ok := p.keyByColumn(txn.DBType())
 	if !ok {
-		return false, nil
+		return nil, nil
 	}
 	tracked, ok := takenTracked(tree, p.querySet.rMeta.trackChanges)
 	if !ok {
-		return false, nil
+		return nil, nil
 	}
 
 	taking := &takingDelete{
@@ -590,20 +608,40 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 		txn:    spannerTxn,
 		caller: p.querySet.Caller(),
 		page:   spannerTxn.readPage,
+		size:   p.deleteSaveSize,
 	}
 
 	return taking.run(ctx, spannerTxn.countRows, tracked, p.everythingUnder, eventSource...)
 }
 
+// takenRound is what one save of a delete that takes rows did: the rows counted under
+// the record as the save began, the rows the save buffered the delete of, and whether
+// it took the last of them, so the record goes in the same save.
+type takenRound struct {
+	counted  int64
+	deleted  int64
+	finished bool
+}
+
+// left is what the round says of the delete (PatchSet.DeleteLeft): nil where it
+// finished or took nothing.
+func (r *takenRound) left() *DeleteLeft {
+	if r.finished || r.deleted == 0 {
+		return nil
+	}
+
+	return &DeleteLeft{Deleted: r.deleted, Left: max(0, r.counted-r.deleted)}
+}
+
 // run is the delete, each count statement run by count: the counts, the refusing kinds'
 // refusal, then the taken kinds' checks and the rows taken (take).
-func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...string) (bool, error) {
+func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...string) (*takenRound, error) {
 	levels, err := d.count(ctx, count)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	if err := d.asked.refusedNow(ctx, levels); err != nil {
-		return false, err
+		return nil, err
 	}
 
 	return d.take(ctx, levels, tracked, everythingUnder, eventSource...)
@@ -623,36 +661,38 @@ func (d *takingDelete) count(ctx context.Context, count rowCounter) (*takenLevel
 	return countLevels(ctx, count, kinds)
 }
 
-// take checks the taken kinds and their rows, once no refusing row is in the way, and
-// takes the rows where the request says so (everythingUnder), deepest level first and in
-// the description's order within a level; without it the person is asked the question.
-// With no row under the record the delete goes on as a plain one.
-func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...string) (bool, error) {
+// take checks the caller's grants on each taken kind with rows under the record, once no
+// refusing row is in the way. A delete that takes the rows (everythingUnder) then takes
+// one round of them (round). Without it every row of a kind that asks anything of its
+// rows is asked, deepest level first and in the description's order within a level, and
+// the person is asked the question. With no row under the record the delete goes on as
+// a plain one.
+func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...string) (*takenRound, error) {
 	tree := d.query.tree
-	rows := make(map[accesstypes.Resource]int, len(tree.Taken))
 	asks := make(map[*DeleteKind]*takenAsks, len(tree.Taken))
+	var counted int64
 	for i := range tree.Taken {
 		kind := &tree.Taken[i]
 		total := levels.total(kind)
 		if total == 0 {
 			continue
 		}
-		rows[kind.Resource] += int(total)
+		counted += total
 		armed := kind.Rows.kind(d.caller)
 		if err := armed.checkPermissions(ctx, d.txn.DBType()); err != nil {
-			return false, d.asked.refuseRow(ctx, kind, false, err)
+			return nil, d.asked.refuseRow(ctx, kind, false, err)
 		}
 		kindAsks, err := armed.takenAsks(d.txn.DBType())
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		asks[kind] = kindAsks
 	}
-	if len(rows) == 0 {
-		return true, nil
+	if counted == 0 {
+		return &takenRound{finished: true}, nil
 	}
-	if tree.Mutations(rows, func(res accesstypes.Resource) bool { return tracked[res] }) > DeleteMutationLimit {
-		return false, httpio.NewConflictMessage(deleteTooManySentence(tree))
+	if everythingUnder {
+		return d.round(ctx, levels, asks, counted, tracked, eventSource...)
 	}
 
 	if err := d.eachLevel(levels, func(kind *DeleteKind, level int) error {
@@ -669,31 +709,101 @@ func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked ma
 			return nil
 		})
 	}); err != nil {
-		return false, err
+		return nil, err
+	}
+	question, err := d.asked.question(ctx, levels)
+	if err != nil {
+		return nil, err
 	}
 
-	if !everythingUnder {
-		question, err := d.asked.question(ctx, levels)
-		if err != nil {
-			return false, err
-		}
+	return nil, httpio.NewPreconditionRequiredMessage(question)
+}
 
-		return false, httpio.NewPreconditionRequiredMessage(question)
+// round takes what fits one save, from the deepest level to level 0 and in the
+// description's order within a level. The save's size is d.size less what the record's
+// own row costs; for each kind with rows at a level, the most rows it may take is what
+// is left of the size over what one of them costs, read in one page, each asked where
+// the kind asks anything (asks) and buffered. None left, or a page that came back full,
+// ends the round with the record left standing; a round that reaches the end takes the
+// record too. counted is the rows counted under the record.
+func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[*DeleteKind]*takenAsks, counted int64, tracked map[accesstypes.Resource]bool, eventSource ...string) (*takenRound, error) {
+	tree := d.query.tree
+	size := d.size
+	if size == 0 {
+		size = DeleteMutationLimit
 	}
-
-	if err := d.eachLevel(levels, func(kind *DeleteKind, level int) error {
-		return d.rowsAt(ctx, kind, level, levels.deepest, nil, func(taken takenDelete, _ []spanner.NullBool) error {
-			if err := taken.row.bufferTaken(ctx, d.txn, eventSource...); err != nil {
-				return errors.Wrapf(err, "deleting a %s under a %s", kind.Words.One, tree.Words.One)
+	isTracked := func(res accesstypes.Resource) bool {
+		return tracked[res]
+	}
+	taken := make(map[accesstypes.Resource]int, len(tree.Taken))
+	round := &takenRound{counted: counted}
+	for level := levels.deepest; level >= 0; level-- {
+		for i := range tree.Taken {
+			kind := &tree.Taken[i]
+			if levels.at(kind, level) == 0 {
+				continue
 			}
+			most := (size - tree.Mutations(taken, isTracked)) / kind.Cost.Mutations(tracked[kind.Resource])
+			if most <= 0 {
+				return round, nil
+			}
+			rows, err := d.takeAt(ctx, kind, level, levels.deepest, asks[kind], most, eventSource...)
+			if err != nil {
+				return nil, err
+			}
+			taken[kind.Resource] += rows
+			round.deleted += int64(rows)
+			if rows == most {
+				return round, nil
+			}
+		}
+	}
+	round.finished = true
 
-			return nil
-		})
-	}); err != nil {
-		return false, err
+	return round, nil
+}
+
+// takeAt takes at most most of the kind's rows at the level, below the deepest level, in
+// key order, read in one page: each row is asked what its own delete asks where the kind
+// asks anything of its rows (asks), and once every row of the page has passed, each is
+// buffered. It reports how many it took.
+func (d *takingDelete) takeAt(ctx context.Context, kind *DeleteKind, level, deepest int, asks *takenAsks, most int, eventSource ...string) (int, error) {
+	fields, types, err := d.keyFields(kind)
+	if err != nil {
+		return 0, err
+	}
+	if !asks.asksRows() {
+		asks = nil
+	}
+	answers := 0
+	if asks != nil {
+		answers = len(asks.terms)
+	}
+	statement, ok := d.query.page(kind, level, deepest, asks, most, 0)
+	if !ok {
+		return 0, nil
+	}
+	rows, err := d.page(ctx, statement, types, answers)
+	if err != nil {
+		return 0, errors.Wrapf(err, "reading the %s under a %s", kind.Words.Many, d.query.tree.Words.One)
+	}
+	taken := make([]takenRow, 0, len(rows))
+	for _, read := range rows {
+		row := kind.Rows.row(fields, read.key, d.caller)
+		if asks != nil {
+			if byRule, err := row.checkTaken(ctx, d.txn, asks, read.answers); err != nil {
+				return 0, d.asked.refuseRow(ctx, kind, byRule, err)
+			}
+		}
+		taken = append(taken, row)
+	}
+	for _, row := range taken {
+		if err := row.bufferTaken(ctx, d.txn, eventSource...); err != nil {
+			return 0, errors.Wrapf(err, "deleting a %s under a %s", kind.Words.One, d.query.tree.Words.One)
+		}
 	}
 
-	return true, nil
+	return len(taken), nil
 }
 
 // eachLevel calls each with every taken kind that has rows at a level, from the deepest
@@ -822,10 +932,4 @@ func deleteNotAllowedSentence(tree *DeleteTree, kind *DeleteKind, seen bool) str
 	}
 
 	return tree.RowName() + " has " + kind.Words.Many + " that you can't delete, so it can't be deleted."
-}
-
-// deleteTooManySentence is the sentence that refuses a delete whose rows cost more than
-// one commit takes (DeleteMutationLimit).
-func deleteTooManySentence(tree *DeleteTree) string {
-	return tree.RowName() + " has too many records under it to delete at once. Delete some of them first."
 }

@@ -144,6 +144,7 @@ func Test_deleteCascade_description(t *testing.T) {
 		"Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Task], caller *resource.Caller) {",
 		"patch := &TaskDeletePatch{patchSet: patchSet}",
 		"func (p *ClientDeletePatch) WithEverythingUnder() *ClientDeletePatch {",
+		"func (p *ClientDeletePatch) Left() *resource.DeleteLeft {",
 	} {
 		if !strings.Contains(rendered, wantLine) {
 			t.Errorf("rendered Client is missing %q", wantLine)
@@ -156,6 +157,74 @@ func Test_deleteCascade_description(t *testing.T) {
 	project := strings.Index(rendered, `Resource: "Projects",`)
 	if comment < 0 || task < comment || project < task {
 		t.Errorf("rendered Client lists its taken kinds out of delete order: TaskComments at %d, Tasks at %d, Projects at %d", comment, task, project)
+	}
+}
+
+// Test_patchTemplates_deleteLeft pins the answer of a delete larger than one save: the
+// patch handler of a record that takes rows and the dispatcher that serves one keep what
+// each delete left (the delete patch's Left), summed and reset with the transaction, and
+// once the commit has landed and open pages are told answer 202 with it. A record that
+// takes no rows carries none of it.
+func Test_patchTemplates_deleteLeft(t *testing.T) {
+	t.Parallel()
+
+	c, byName := deleteFixtureResources(t)
+	render := func(t *testing.T, res *resourceInfo) map[string]string {
+		t.Helper()
+
+		consolidated, err := c.generateTemplateOutput("consolidatedPatchTemplate", consolidatedPatchTemplate, consolidatedPatchData{
+			Resources:       []*resourceInfo{res},
+			GlobalCases:     []consolidatedCaseData{{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a"}},
+			TakesRowsUnder:  res.TakesRowsUnder(),
+			Package:         "app",
+			ResourcePackage: "resources",
+			ApplicationName: "App",
+			ReceiverName:    "a",
+			HandlerName:     "PatchResources",
+		})
+		if err != nil {
+			t.Fatalf("generateTemplateOutput(consolidatedPatchTemplate) error = %v", err)
+		}
+		own, err := c.generateTemplateOutput("handler", patchTemplate, handlerContentData{
+			ResourcePackage: "resources",
+			Resource:        res,
+			ApplicationName: "App",
+			ReceiverName:    "a",
+		})
+		if err != nil {
+			t.Fatalf("generateTemplateOutput(patchTemplate) error = %v", err)
+		}
+
+		return map[string]string{"the dispatcher": string(consolidated), "the resource's own handler": string(own)}
+	}
+
+	for handler, rendered := range render(t, byName["Client"]) {
+		flat := strings.Join(strings.Fields(rendered), " ")
+		for _, want := range []string{
+			"var left *resource.DeleteLeft",
+			"left = nil",
+			"patch := resources.NewClientDeletePatchFromPatchSet(id, patchSet) if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+			"if taken := patch.Left(); taken != nil { if left == nil { left = &resource.DeleteLeft{} } left.Deleted += taken.Deleted left.Left += taken.Left }",
+			"if left != nil {",
+			"return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)",
+		} {
+			if !strings.Contains(flat, want) {
+				t.Errorf("%s lacks %q:\n%s", handler, want, rendered)
+			}
+		}
+		published := strings.Index(rendered, "live.Publish(")
+		accepted := strings.Index(rendered, "StatusCodeWithBody(http.StatusAccepted, left)")
+		answered := strings.LastIndex(rendered, "return httpio.NewEncoder(w).Ok(")
+		if published < 0 || accepted < published || answered < accepted {
+			t.Errorf("%s answers out of order: open pages told at %d, the 202 at %d, the plain answer at %d:\n%s", handler, published, accepted, answered, rendered)
+		}
+	}
+	for handler, rendered := range render(t, byName["Invoice"]) {
+		for _, unwanted := range []string{"DeleteLeft", "Left()", "StatusAccepted"} {
+			if strings.Contains(rendered, unwanted) {
+				t.Errorf("%s of a record that takes no rows holds %q:\n%s", handler, unwanted, rendered)
+			}
+		}
 	}
 }
 
