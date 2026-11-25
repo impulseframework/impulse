@@ -187,14 +187,14 @@ describe('ChangeHistoryDialogComponent', () => {
     expect(element(fixture).querySelectorAll('th button')).toHaveLength(0);
   });
 
-  it("gives By the width a method's sentence needs, and every other column the room that is left", async () => {
+  it('declares no width for any column, so the grid can narrow each one to fit the pop-up', async () => {
     const transport = server(() => pageOf(newest, created));
     const fixture = await historyOver(transport, { fields });
 
     const firstRow = element(fixture).querySelector('tr.impulse-row');
     expect(Array.from(firstRow?.querySelectorAll('td') ?? []).map((cell) => cell.style.width)).toEqual([
       '',
-      '280px',
+      '',
       '',
       '',
       '',
