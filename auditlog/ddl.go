@@ -55,7 +55,7 @@ type column struct {
 func columns() []column {
 	return []column{
 		{name: "Id", spanner: "STRING(36) NOT NULL", postgres: "character varying NOT NULL"},
-		{name: "At", spanner: "TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true)", postgres: "timestamp with time zone NOT NULL"},
+		{name: "CreatedAt", spanner: "TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true)", postgres: "timestamp with time zone NOT NULL"},
 		requiredText("Act"),
 		text("Form"),
 		text("Auth"),
@@ -112,11 +112,12 @@ func Columns() []string {
 
 // SpannerDDL is the statements of an auth's audit records table on Spanner, under the
 // table's name with the auth's prefix (CrewSessionAuditRecords). The first creates the
-// table, the second the index {table}ByAt, by which the whole log is read newest first,
-// and the third the null-filtered index {table}ByTenant, by which one tenant's rows are
-// read newest first. For a period of days a fourth gives the table a row deletion policy
-// on At, by which Spanner removes each row older than the period in the background; for a
-// period of forever there is no fourth. A period that declares nothing has none.
+// table, the second the index {table}ByCreatedAt, by which the whole log is read newest
+// first, and the third the null-filtered index {table}ByTenant, by which one tenant's rows
+// are read newest first. For a period of days a fourth gives the table a row deletion
+// policy on CreatedAt, the commit time of the act, by which Spanner removes each row older
+// than the period in the background; for a period of forever there is no fourth. A period
+// that declares nothing has none.
 func SpannerDDL(table string, period Period) []string {
 	if !period.forever && period.days < 1 {
 		return nil
@@ -132,11 +133,11 @@ func SpannerDDL(table string, period Period) []string {
 
 	statements := []string{
 		create.String(),
-		"CREATE INDEX " + table + "ByAt ON " + table + "(At DESC)",
-		"CREATE NULL_FILTERED INDEX " + table + "ByTenant ON " + table + "(TenantId, At DESC)",
+		"CREATE INDEX " + table + "ByCreatedAt ON " + table + "(CreatedAt DESC)",
+		"CREATE NULL_FILTERED INDEX " + table + "ByTenant ON " + table + "(TenantId, CreatedAt DESC)",
 	}
 	if !period.forever {
-		statements = append(statements, "ALTER TABLE "+table+" ADD ROW DELETION POLICY (OLDER_THAN(At, INTERVAL "+strconv.Itoa(period.days)+" DAY))")
+		statements = append(statements, "ALTER TABLE "+table+" ADD ROW DELETION POLICY (OLDER_THAN(CreatedAt, INTERVAL "+strconv.Itoa(period.days)+" DAY))")
 	}
 
 	return statements
@@ -156,7 +157,7 @@ func PostgresDDL(table string) []string {
 
 	return []string{
 		create.String(),
-		`CREATE INDEX "` + table + `_At_idx" ON "` + table + `" USING btree ("At")`,
-		`CREATE INDEX "` + table + `_TenantId_At_idx" ON "` + table + `" USING btree ("TenantId", "At")`,
+		`CREATE INDEX "` + table + `_CreatedAt_idx" ON "` + table + `" USING btree ("CreatedAt")`,
+		`CREATE INDEX "` + table + `_TenantId_CreatedAt_idx" ON "` + table + `" USING btree ("TenantId", "CreatedAt")`,
 	}
 }

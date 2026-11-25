@@ -10,7 +10,7 @@ import "time"
 // row sets none.
 type Stored struct {
 	ID                string      // the row's id
-	At                time.Time   // when the act's transaction committed
+	At                time.Time   // when the act's transaction committed: the table's CreatedAt
 	Act               Act         // the act's fixed name
 	Form              Form        // which form of the act, where it has more than one
 	Directory         string      // the directory that acted, by the name the sign-in page gave it

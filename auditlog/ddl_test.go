@@ -11,7 +11,7 @@ import (
 // declares them.
 func wantColumns() []string {
 	return []string{
-		"Id", "At", "Act", "Form",
+		"Id", "CreatedAt", "Act", "Form",
 		"Auth", "ActorUserId", "ActorUsername", "PrincipalUserId", "PrincipalUsername", "PrincipalRole", "SessionId", "Process", "Rpc",
 		"Directory", "SubjectKind", "SubjectId", "SubjectName", "TenantId", "TenantName",
 		"RoleName", "OtherRoleNames", "RoleScope", "GroupId", "GroupName", "OldValue", "NewValue",
@@ -64,7 +64,7 @@ func TestSpannerDDL(t *testing.T) {
 
 	createTable := `CREATE TABLE SessionAuditRecords (
   Id STRING(36) NOT NULL,
-  At TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   Act STRING(MAX) NOT NULL,
   Form STRING(MAX),
   Auth STRING(MAX),
@@ -96,21 +96,21 @@ func TestSpannerDDL(t *testing.T) {
   Reason STRING(MAX),
   CONSTRAINT CK_SessionAuditRecordsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id)`
-	byAt := "CREATE INDEX SessionAuditRecordsByAt ON SessionAuditRecords(At DESC)"
-	byTenant := "CREATE NULL_FILTERED INDEX SessionAuditRecordsByTenant ON SessionAuditRecords(TenantId, At DESC)"
+	byCreatedAt := "CREATE INDEX SessionAuditRecordsByCreatedAt ON SessionAuditRecords(CreatedAt DESC)"
+	byTenant := "CREATE NULL_FILTERED INDEX SessionAuditRecordsByTenant ON SessionAuditRecords(TenantId, CreatedAt DESC)"
 
 	tests := []struct {
 		name   string
 		period Period
 		want   []string
 	}{
-		{name: "forever", period: KeepForever(), want: []string{createTable, byAt, byTenant}},
+		{name: "forever", period: KeepForever(), want: []string{createTable, byCreatedAt, byTenant}},
 		{
 			name:   "90 days",
 			period: KeepDays(90),
 			want: []string{
-				createTable, byAt, byTenant,
-				"ALTER TABLE SessionAuditRecords ADD ROW DELETION POLICY (OLDER_THAN(At, INTERVAL 90 DAY))",
+				createTable, byCreatedAt, byTenant,
+				"ALTER TABLE SessionAuditRecords ADD ROW DELETION POLICY (OLDER_THAN(CreatedAt, INTERVAL 90 DAY))",
 			},
 		},
 		{name: "the zero period", period: Period{}, want: nil},
@@ -142,7 +142,7 @@ func TestPostgresDDL(t *testing.T) {
 		`CREATE TABLE "SessionAuditRecords"
 (
     "Id" character varying NOT NULL,
-    "At" timestamp with time zone NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
     "Act" character varying NOT NULL,
     "Form" character varying,
     "Auth" character varying,
@@ -174,8 +174,8 @@ func TestPostgresDDL(t *testing.T) {
     "Reason" character varying,
     CONSTRAINT "SessionAuditRecords_pkey" PRIMARY KEY ("Id")
 )`,
-		`CREATE INDEX "SessionAuditRecords_At_idx" ON "SessionAuditRecords" USING btree ("At")`,
-		`CREATE INDEX "SessionAuditRecords_TenantId_At_idx" ON "SessionAuditRecords" USING btree ("TenantId", "At")`,
+		`CREATE INDEX "SessionAuditRecords_CreatedAt_idx" ON "SessionAuditRecords" USING btree ("CreatedAt")`,
+		`CREATE INDEX "SessionAuditRecords_TenantId_CreatedAt_idx" ON "SessionAuditRecords" USING btree ("TenantId", "CreatedAt")`,
 	}
 
 	got := PostgresDDL("SessionAuditRecords")
@@ -226,6 +226,24 @@ func TestDDLNamesEveryColumn(t *testing.T) {
 	}
 }
 
+// TestColumnsNeedNoQuote holds every column to a name that is no reserved word of
+// GoogleSQL, so a statement anyone writes against the table names each one unquoted.
+func TestColumnsNeedNoQuote(t *testing.T) {
+	t.Parallel()
+
+	reserved := strings.Fields(`ALL AND ANY ARRAY AS ASC ASSERT_ROWS_MODIFIED AT BETWEEN BY CASE CAST COLLATE CONTAINS
+		CREATE CROSS CUBE CURRENT DEFAULT DEFINE DESC DISTINCT ELSE END ENUM ESCAPE EXCEPT EXCLUDE EXISTS EXTRACT
+		FALSE FETCH FOLLOWING FOR FROM FULL GROUP GROUPING GROUPS HASH HAVING IF IGNORE IN INNER INTERSECT INTERVAL
+		INTO IS JOIN LATERAL LEFT LIKE LIMIT LOOKUP MERGE NATURAL NEW NO NOT NULL NULLS OF ON OR ORDER OUTER OVER
+		PARTITION PRECEDING PROTO RANGE RECURSIVE RESPECT RIGHT ROLLUP ROWS SELECT SET SOME STRUCT TABLESAMPLE THEN
+		TO TREAT TRUE UNBOUNDED UNION UNNEST USING WHEN WHERE WINDOW WITH WITHIN`)
+	for _, column := range Columns() {
+		if slices.Contains(reserved, strings.ToUpper(column)) {
+			t.Errorf("the column %s is a reserved word of GoogleSQL, which every Spanner statement would have to quote", column)
+		}
+	}
+}
+
 // TestDDLCarriesThePrefix holds every statement and constraint of both databases to the
 // table's name as it is handed, prefix and all.
 func TestDDLCarriesThePrefix(t *testing.T) {
@@ -239,12 +257,12 @@ func TestDDLCarriesThePrefix(t *testing.T) {
 		{
 			name:       "Spanner",
 			statements: SpannerDDL("CrewSessionAuditRecords", KeepDays(30)),
-			names:      []string{"CK_CrewSessionAuditRecordsId", "CrewSessionAuditRecordsByAt", "CrewSessionAuditRecordsByTenant"},
+			names:      []string{"CK_CrewSessionAuditRecordsId", "CrewSessionAuditRecordsByCreatedAt", "CrewSessionAuditRecordsByTenant"},
 		},
 		{
 			name:       "PostgreSQL",
 			statements: PostgresDDL("CrewSessionAuditRecords"),
-			names:      []string{`"CrewSessionAuditRecords_pkey"`, `"CrewSessionAuditRecords_At_idx"`, `"CrewSessionAuditRecords_TenantId_At_idx"`},
+			names:      []string{`"CrewSessionAuditRecords_pkey"`, `"CrewSessionAuditRecords_CreatedAt_idx"`, `"CrewSessionAuditRecords_TenantId_CreatedAt_idx"`},
 		},
 	}
 	for _, tt := range tests {
