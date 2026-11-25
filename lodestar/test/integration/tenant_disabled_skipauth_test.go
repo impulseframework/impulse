@@ -23,9 +23,10 @@ import (
 // holds Cinder too, its own marshal, the surveyor, who holds a role in every sector,
 // and the governor, a super administrator. Whether a sector is disabled is an ordinary
 // field of the record: the surveyor, who corrects a sector's other fields, is refused
-// it, and the adjutant, made Headquarters and no super administrator, disables Anvil. From their next request its crew hold nothing in it: the liaison, in
-// the session she held before, the marshal, signed in again with her password, and the
-// surveyor are answered as by a sector that does not exist, and the liaison's and the
+// it, and the adjutant, made Headquarters and no super administrator, disables Anvil.
+// From their next request its crew hold nothing in it: the liaison, in the session she
+// held before, the marshal, signed in again with her password, and the surveyor are
+// answered as by a sector that does not exist, and the liaison's and the
 // marshal's charts list Anvil with the one reason ("Anvil is disabled."), the
 // marshal's with no word of a way in. The governor still enters it, and his chart
 // lists it as a place. The cadet's next sign-in is admitted as a person who holds no
