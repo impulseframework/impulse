@@ -308,7 +308,9 @@ describe('DeleteResourceConfirmationModal', () => {
     const { ref, answers } = opened({ from: 'Missions', delete: server.run });
 
     await press('Delete');
-    await server.answer(asksFirst("Delete this mission and everything under it: 38,000 sorties. This can't be undone."));
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 38,000 sorties. This can't be undone."),
+    );
     await press('Delete');
     await server.answer({ deleted: 6800, left: 31200 });
 
