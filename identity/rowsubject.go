@@ -80,9 +80,9 @@ import (
 // that deletes a tenant in its own body (accesstypes.RefuseAction), because an action
 // is asked for Execute on its name and not for Delete on the record.
 //
-// A row a foreign key's own rule removes or rewrites is another: no write of the row is
-// made, so nothing is asked. impulse check refuses ON DELETE CASCADE on an application's
-// tables, wherever the link points. PostgreSQL has referential actions that change the
+// A row a foreign key's referential action removes or rewrites is another: no write of
+// the row is made, so nothing is asked. impulse check refuses ON DELETE CASCADE on an
+// application's tables, wherever the link points. PostgreSQL has referential actions that change the
 // row where it stands. ON DELETE SET NULL and ON DELETE SET DEFAULT rewrite the column
 // that named the parent when the parent is deleted, which refusing the parent's delete
 // under the mask closes

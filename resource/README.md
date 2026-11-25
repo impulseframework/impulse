@@ -5835,8 +5835,8 @@ own, outside any request, has no caller and is the application's act):
     (`accesstypes.RefuseAction(action)`): an action is asked for Execute on its name,
     not for Delete on the record.
 
-  A row a foreign key's own rule removes or rewrites is another: no write of the row is
-  made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` on an
+  A row a foreign key's referential action removes or rewrites is another: no write of
+  the row is made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` on an
   application's tables, wherever the link points (`no-delete-cascade`). An application's
   record that names a group of the library's is not removed by the database when the group
   is deleted. PostgreSQL has referential actions that change the row where it stands.

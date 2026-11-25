@@ -463,8 +463,8 @@ func Test_userManager_groupPeriods(t *testing.T) {
 		t.Errorf("AssignGroupRole() with an end before its start: error = %v, want a bad request", err)
 	}
 
-	// A member whose period has not begun goes with the group, and so does a role
-	// that has ended.
+	// The group's delete takes a member whose period has not begun, and a role that
+	// has ended.
 	assign(upcoming, ended)
 	if err := manager.DeleteGroup(ctx, night); err != nil {
 		t.Fatalf("DeleteGroup() of a group with a member who has not begun: error = %v", err)

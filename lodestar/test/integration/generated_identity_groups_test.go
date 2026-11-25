@@ -56,7 +56,7 @@ func namesOf(t *testing.T, rows []map[string]any, key string) []string {
 // role its Marshal may not give a person is not given to a group either, a person sees
 // the groups they are in themselves (group IN subject.crewGroups), a group of one
 // sector is not found in another and holds no role there, no group holds the Super
-// Administrator role, and a group's delete is asked first, with what goes with the group
+// Administrator role, and a group's delete is asked first, with what the delete takes
 // counted, and once confirmed takes the group with its members and its roles, the
 // members' accounts left standing.
 func TestGeneratedIdentityGroups(t *testing.T) {

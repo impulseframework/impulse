@@ -428,7 +428,7 @@ func periodDeletes(t *testing.T, store access.Store) {
 	}
 
 	// The shift: dan's place has ended, eve's has not begun, fay's counts, and
-	// the role it holds has ended. All of it goes with the group.
+	// the role it holds has ended. The group's delete takes all of it.
 	if deleted, err := store.DeleteGroup(ctx, shiftGroup); err != nil || !deleted {
 		t.Fatalf("DeleteGroup() of the shift with its places and its role = (%v, %v), want it deleted", deleted, err)
 	}

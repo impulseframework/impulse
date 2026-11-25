@@ -392,12 +392,12 @@ func TestGeneratedIdentityGroupsSayWhatTheyHold(t *testing.T) {
 		}
 	}
 	asked("Delete this group and everything under it: 2 roles, 2 members. This can't be undone.")
-	// Emptied of what has not ended, the list says it holds nothing, and the delete
-	// still asks, counting the ended place and the ended role; confirmed, it takes them,
+	// With nothing left in it that has not ended, the list says it holds nothing, and
+	// the delete still asks, counting the ended place and the ended role; confirmed, it takes them,
 	// with no grant asked for either: each has ended.
 	done(post("marshal", "remove-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, watch, w.ids["ada"])))
 	done(post("marshal", "take-crew-sector-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Engineer"}`, watch)))
-	holds("emptied", sector()["Night watch"], groupRow{Roles: []string{}})
+	holds("nothing left that counts", sector()["Night watch"], groupRow{Roles: []string{}})
 	asked("Delete this group and everything under it: 1 role, 1 member. This can't be undone.")
 	done(post("marshal", "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, watch)))
 	if _, listed := sector()["Night watch"]; listed {

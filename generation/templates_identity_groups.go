@@ -1345,7 +1345,7 @@ import (
 type Delete{{ .Subject }}Group struct {
 	// @target({{ .SubjectGroup }})
 	GroupID impulse.UUID
-	// EverythingUnder says the person was asked what goes with the group and confirmed
+	// EverythingUnder says the person was asked what the group's delete takes and confirmed
 	// it, so the delete takes the group's members and roles.
 	EverythingUnder bool
 }
@@ -1398,8 +1398,8 @@ func (m *Delete{{ .Subject }}Group) Execute(ctx context.Context, txn resource.Re
 // (resource.Caller.ExecuteGate) with the group and the member or the role, and judged
 // against the row that method names where its fields do not settle it, as the method's
 // own frame judges it. A grant not held refuses the delete. A member or a role whose
-// period has ended gives nobody anything and is asked nothing: it goes with the group.
-// Outside a request nothing is asked.
+// period has ended gives nobody anything and is asked nothing: the delete takes it with
+// the rest. Outside a request nothing is asked.
 func (m *Delete{{ .Subject }}Group) mayEmpty(ctx context.Context, txn resource.ReadWriteTransaction) error {
 	caller := resource.CallerFrom(ctx)
 	if caller.IsZero() {

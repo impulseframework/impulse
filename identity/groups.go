@@ -184,9 +184,9 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 // takes them. Each member and each role is asked what its own removal asks
 // (RemoveGroupMember, TakeGroupRole), so a group whose going would leave a tenant
 // without an administrator is refused. A member or a role whose period has ended gives
-// nobody anything and is asked nothing: it goes with the group, and is counted in the
-// question. It answers what one save left where the group had more under it than one
-// save holds (nil once the group is gone).
+// nobody anything and is asked nothing: the delete takes it with the rest, and counts it
+// in the question. It answers what one save left where the group had more under it than
+// one save holds (nil once the group is gone).
 func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
