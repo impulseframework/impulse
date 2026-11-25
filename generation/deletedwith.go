@@ -152,11 +152,16 @@ func (r *resourceGenerator) resolveLibraryDeleteTrees(resources []*resourceInfo)
 // deletedWithStep holds a column that says a row of the record goes with what it names
 // (@deletedWith) to the schema, and answers the column's step up to the table it names:
 // the column is one the schema holds, alone, by a foreign key to the key of the groups
-// table or the users table of an auth's (library). A column the schema holds to a record
-// of the application's (the tenant record and a read-only table each in a sentence of
-// its own), a read-only table and any other column are refused, each in a sentence that
-// says what to write.
+// table or the users table of an auth's (library). A column of the tenant record is
+// refused first, whatever it names: a tenant is deleted by its own delete. A column the
+// schema holds to a record of the application's (the tenant record and a read-only table
+// each in a sentence of its own), a read-only table and any other column are refused,
+// each in a sentence that says what to write.
 func (c *client) deletedWithStep(res *resourceInfo, field *resourceField, application, library map[string]*resourceInfo) (deleteLink, error) {
+	if res.IsTenant {
+		return deleteLink{}, errors.Newf("@%s on %s.%s: %s is the tenant record, and a tenant is deleted by its own delete. Remove @%s.",
+			deletedWithKeyword, res.Name(), field.Name(), res.Name(), deletedWithKeyword)
+	}
 	table := c.tableMap[c.pluralize(res.Name())]
 	column := fieldColumn(field)
 	for _, foreignKey := range table.ForeignKeys {

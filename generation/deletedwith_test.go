@@ -325,7 +325,8 @@ func Test_deletedWith_groupNoApplicationNames(t *testing.T) {
 // Test_deletedWith_refusals pins the places @deletedWith is refused, each in the sentence
 // that says what to write: a column that names a record of the application's, the
 // tenant record and a read-only table among them, a column that names no group and no
-// account of an auth by a foreign key, and a read-only table.
+// account of an auth by a foreign key, a read-only table, and a column of the tenant
+// record, whatever it names.
 func Test_deletedWith_refusals(t *testing.T) {
 	t.Parallel()
 
@@ -376,6 +377,24 @@ func Test_deletedWith_refusals(t *testing.T) {
 				run["Rank"].EnumerationType = "RankType"
 			},
 			wantErr: "@deletedWith on Rank.GroupID: Rank is a read-only table (@enumerate): its rows are never deleted. Remove @deletedWith.",
+		},
+		{
+			name:    "a column of the tenant record that names a group",
+			records: []string{"Task", "TaskAssignment"},
+			edit: func(run map[string]*resourceInfo) {
+				run["TaskAssignment"].IsTenant = true
+			},
+			wantErr: "@deletedWith on TaskAssignment.GroupID: TaskAssignment is the tenant record, and a tenant is deleted by its own delete. Remove @deletedWith.",
+		},
+		{
+			name:    "a column of the tenant record that names an account",
+			records: []string{"Task", "TaskAssignment"},
+			edit: func(run map[string]*resourceInfo) {
+				run["TaskAssignment"].IsTenant = true
+				markField(run, "TaskAssignment", "GroupID", false)
+				markField(run, "TaskAssignment", "UserID", true)
+			},
+			wantErr: "@deletedWith on TaskAssignment.UserID: TaskAssignment is the tenant record, and a tenant is deleted by its own delete. Remove @deletedWith.",
 		},
 	}
 	for _, tt := range tests {
