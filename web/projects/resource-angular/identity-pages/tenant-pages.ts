@@ -234,7 +234,12 @@ function buildTenants(
       showRowCount: true,
       emptyMessage: `There are no ${words.many} yet.`,
       listColumns: columns,
-      ...(nameField ? { rowTitle: (row: RecordData) => String(row[nameField] ?? '') } : {}),
+      ...(nameField
+        ? {
+            rowTitle: (row: RecordData) => String(row[nameField] ?? ''),
+            deleteTyped: (row: RecordData) => String(row[nameField] ?? ''),
+          }
+        : {}),
       rowButtons: [opens],
       ...(invite ? { listMethods: invite } : {}),
       ...(waiting ? { above: [waitingAbove(waiting, words)] } : {}),

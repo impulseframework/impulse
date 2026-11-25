@@ -1,6 +1,23 @@
 <div mat-dialog-title>Delete</div>
 <mat-dialog-content>
   <p class="question" aria-live="polite" aria-atomic="true">{{ question() }}</p>
+  @if (typedText && !refusal()) {
+    <p class="typed-asks" [id]="typedAsksId">
+      Type <strong>{{ typedText }}</strong> to confirm.
+    </p>
+    <mat-form-field class="typed-name">
+      <input
+        #typedInput
+        matInput
+        type="text"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        [attr.aria-labelledby]="typedAsksId"
+        [(ngModel)]="typed"
+        [disabled]="busy()" />
+    </mat-form-field>
+  }
   @if (refusal()) {
     <p class="refusal" role="alert">{{ refusal() }}</p>
   }
@@ -15,7 +32,13 @@
     <button mat-raised-button type="button" color="warn" class="cancel" [mat-dialog-close]="false" [disabled]="busy()">
       Cancel
     </button>
-    <button mat-raised-button type="button" color="accent" class="delete" (click)="confirm()" [disabled]="busy()">
+    <button
+      mat-raised-button
+      type="button"
+      color="accent"
+      class="delete"
+      (click)="confirm()"
+      [disabled]="busy() || held()">
       Delete
     </button>
   }

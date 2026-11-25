@@ -1454,6 +1454,7 @@ export class ResourceListComponent implements OnInit {
       from: config.title,
       word: this.rowWords()?.one,
       inList: true,
+      typed: config.deleteTyped?.(row),
       delete: (options) => this.deleteRow(row, options),
     };
     this.dialog.open(DeleteResourceConfirmationModalComponent, { data, delayFocusTrap: false });

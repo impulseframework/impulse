@@ -1983,6 +1983,43 @@ describe('ResourceListComponent', () => {
         { op: 'remove', path: '/s-1', value: { everythingUnder: true } },
       ]);
     });
+
+    /** Opens the confirmation for a row and says what the dialog was handed. */
+    const handedFor = (row: RecordData): DeleteConfirmation | undefined => {
+      const component = fixture.componentInstance;
+      let handed: DeleteConfirmation | undefined;
+      component.dialog.open = ((_: unknown, config: { data: DeleteConfirmation }) => {
+        handed = config.data;
+
+        return {};
+      }) as unknown as typeof component.dialog.open;
+
+      component.confirmDeleteRow(row);
+
+      return handed;
+    };
+
+    it('and hands the dialog the text to type that the config answers for the row', async () => {
+      await create({
+        primaryResource: ships,
+        title: 'Ships',
+        listColumns: [{ id: 'name' as FieldName }],
+        deleteTyped: (row) => String(row['name']),
+      });
+      fixture.detectChanges();
+
+      expect(handedFor(kestrel)?.typed).toBe('Kestrel');
+    });
+
+    it('and hands the dialog no text to type where the config sets none', async () => {
+      await create({ primaryResource: ships, title: 'Ships', listColumns: [{ id: 'name' as FieldName }] });
+      fixture.detectChanges();
+
+      const handed = handedFor(kestrel);
+
+      expect(handed).toBeDefined();
+      expect(handed?.typed).toBeUndefined();
+    });
   });
 
   describe("names its row by the word the resource's rows go by", () => {

@@ -431,6 +431,227 @@ describe('DeleteResourceConfirmationModal', () => {
 
     expect(closedWith).toEqual([]);
   });
+
+  // A page that hands the dialog a text (a tenant's name) has it typed before the row is
+  // deleted: from the first question on, Delete is held at every press until the input
+  // holds the text, in any case and however its spaces are typed. What is typed is never
+  // sent.
+  describe('told a text to type', () => {
+    const sentence = "Delete this sector and everything under it: 4 roles held, 2 accounts. This can't be undone.";
+    const field = (): HTMLInputElement | null =>
+      overlay()?.querySelector<HTMLInputElement>('.typed-name input') ?? null;
+    const held = (): boolean | undefined => buttons().find((button) => textOf(button) === 'Delete')?.disabled;
+    const type = async (value: string): Promise<void> => {
+      await rest();
+      const input = field();
+      expect(input, 'the dialog has no input for the text').toBeTruthy();
+      if (input) {
+        input.value = value;
+        input.dispatchEvent(new Event('input'));
+      }
+      await rest();
+    };
+
+    it('asks for it under the first question, with the text in full, the input taking the focus, and holds Delete until it is typed', async () => {
+      const server = answered();
+      opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+      await rest();
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe('Delete West Reach from Sectors?');
+      const asks = overlay()?.querySelector('.typed-asks') ?? null;
+      expect(textOf(asks)).toBe('Type West Reach to confirm.');
+      expect(textOf(asks?.querySelector('strong') ?? null)).toBe('West Reach');
+      const input = field();
+      expect(input, 'the dialog has no input for the text').toBeTruthy();
+      expect(document.activeElement).toBe(input);
+      expect(asks?.id).toBeTruthy();
+      expect([
+        input?.getAttribute('autocomplete'),
+        input?.getAttribute('autocapitalize'),
+        input?.getAttribute('spellcheck'),
+        input?.getAttribute('aria-labelledby'),
+      ]).toEqual(['off', 'off', 'false', asks?.id]);
+      expect(overlay()?.querySelector('.typed-name mat-label')).toBeNull();
+      expect(held()).toBe(true);
+
+      await press('Delete');
+
+      expect(server.said).toEqual([]);
+
+      await type('West');
+
+      expect(held()).toBe(true);
+
+      await type(' west  reach ');
+
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(server.said).toEqual([undefined]);
+    });
+
+    it("keeps what was typed under the server's question, holds Delete again while the input does not hold the text, and sends everything under the row and nothing else", async () => {
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('west reach');
+      await press('Delete');
+      await server.answer(asksFirst(sentence));
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(sentence);
+      expect(textOf(overlay()?.querySelector('.typed-asks') ?? null)).toBe('Type West Reach to confirm.');
+      expect(field()?.value).toBe('west reach');
+      expect(held()).toBe(false);
+
+      await type('West');
+
+      expect(held()).toBe(true);
+
+      await type('WEST  REACH');
+      await press('Delete');
+
+      expect(server.said).toEqual([undefined, { everythingUnder: true }]);
+
+      await server.answer(undefined);
+
+      expect(server.said).toEqual([undefined, { everythingUnder: true }]);
+      expect(answers).toEqual([true]);
+    });
+
+    it('carries a delete in rounds from the one press, the input off with the buttons meanwhile', async () => {
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(
+        asksFirst("Delete this sector and everything under it: 38,000 sorties. This can't be undone."),
+      );
+      await press('Delete');
+      await server.answer({ deleted: 6800, left: 31200 });
+
+      expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 6,800 of 38,000 records…');
+      expect(field()?.disabled).toBe(true);
+      expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+        ['Cancel', true],
+        ['Delete', true],
+      ]);
+
+      await server.answer({ deleted: 31200, left: 0 });
+      await server.answer(undefined);
+
+      expect(server.said).toEqual([
+        undefined,
+        { everythingUnder: true },
+        { everythingUnder: true },
+        { everythingUnder: true },
+      ]);
+      expect(answers).toEqual([true]);
+    });
+
+    it('draws no input beside a refusal at the first press, which comes after the text was typed', async () => {
+      const refusal = 'Disable this tenant before deleting it.';
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(new ApiError('PATCH', '/api/resources', 409, { message: refusal }));
+
+      expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe(refusal);
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+      expect(server.said).toEqual([undefined]);
+      expect(answers).toEqual([]);
+    });
+
+    it("takes the input away from a refusal after the server's question", async () => {
+      const refusal = "This sector has missions that you can't delete, so it can't be deleted.";
+      const server = answered();
+      opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(asksFirst(sentence));
+
+      expect(field()).toBeTruthy();
+
+      await press('Delete');
+      await server.answer(new ApiError('PATCH', '/api/resources', 403, { message: refusal }));
+
+      expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe(refusal);
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(buttons().map((button) => textOf(button))).toEqual(['Close']);
+    });
+
+    it('closes with true where the server deletes the row at the first press, once the text was typed', async () => {
+      const server = answered();
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach', delete: server.run });
+
+      await press('Delete');
+
+      expect(server.said).toEqual([]);
+
+      await type('West Reach');
+      await press('Delete');
+      await server.answer(undefined);
+
+      expect(server.said).toEqual([undefined]);
+      expect(answers).toEqual([true]);
+    });
+
+    it('handed no delete, holds Delete until the text is typed and closes with true', async () => {
+      const { ref, answers } = opened({ name: 'West Reach', from: 'Sectors', typed: 'West Reach' });
+      await rest();
+
+      expect(textOf(overlay()?.querySelector('.typed-asks') ?? null)).toBe('Type West Reach to confirm.');
+      expect(held()).toBe(true);
+
+      await press('Delete');
+      // Held, the button's own action answers nothing either.
+      await ref.componentInstance.confirm();
+      await rest();
+
+      expect(answers).toEqual([]);
+
+      await type('West Reach');
+
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(answers).toEqual([true]);
+    });
+
+    it('asks nothing to be typed for a text of spaces alone', async () => {
+      const { answers } = opened({ name: 'West Reach', from: 'Sectors', typed: '   ' });
+      await rest();
+
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(answers).toEqual([true]);
+    });
+
+    it("draws no input at the server's question where it is told no text", async () => {
+      const server = answered();
+      opened({ name: 'West Reach', from: 'Sectors', delete: server.run });
+
+      await press('Delete');
+      await server.answer(asksFirst(sentence));
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(sentence);
+      expect(overlay()?.querySelector('.typed-asks')).toBeNull();
+      expect(field()).toBeNull();
+      expect(held()).toBe(false);
+    });
+  });
 });
 
 describe('deleteQuestion', () => {
