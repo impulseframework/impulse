@@ -22,16 +22,19 @@ import (
 )
 
 // TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations proves a sector that is
-// deleted leaves nothing of itself behind in either auth, on the served stack: the roles
-// people held in it are removed, the custom role made in it goes with its grants, and the
-// invitations into it that still stood are withdrawn, in the transaction that deletes
-// the row, so nothing is left for a later sector to pick up. The generated delete of the
-// Sector record clears the crew's tables and the members' through each auth's generated
-// identity client (ClearTenant). A person who held roles in the sector alone is deleted
-// with it, by the rule on an account nothing admits, and a person who holds a role
-// elsewhere stays, in the crew and among the members alike. The sector is made the way
-// every sector is, by an invitation: its founder, the first marshal, holds roles there
-// alone and goes with it.
+// deleted leaves nothing of itself behind in either auth, on the served stack. The
+// generated delete of the Sector record takes, as kinds of its own delete, what each
+// auth holds for the sector: the roles people held in it, its groups with their members
+// and roles, the custom role made in it with its grants, the invitations into it that
+// still stood, which are withdrawn, and the accounts that were the sector's alone, all in
+// the transaction that deletes the row, so nothing is left for a later sector to pick
+// up. An account is the sector's alone where it held roles there and nowhere else, or
+// where the sector's directory signs the person in and they hold nothing: it goes with
+// its sign-in identities, and its sessions are ended, their rows left for the timed
+// removal. A person who holds a role elsewhere stays, in the crew and among the members
+// alike, and so does a person another sector's directory signs in. The sector is made
+// the way every sector is, by an invitation: its founder, the first marshal, holds roles
+// there alone and goes with it.
 //
 // The sector's directory goes with it in the same request, though the sector is
 // directory only by then: nothing is turned off or removed first, the directory's
@@ -52,8 +55,9 @@ import (
 // A sector that is not disabled is not deleted: the remove is refused, saying to
 // disable it first, and nothing is gone. A sector with rows under it is not deleted by
 // a request that does not say so: the plain remove is answered with the question a
-// person is asked first, and nothing is gone. The request that goes ahead says it takes
-// everything under the sector.
+// person is asked first, which counts every kind of the sector's rows and of what the
+// auths hold for it, for whoever may delete the sector, and nothing is gone. The request
+// that goes ahead says it takes everything under the sector.
 //
 // No role the release ships deletes a sector, so the suite makes one that does: a custom
 // role of the whole application holding Delete on Sectors, given to the governor.
@@ -75,6 +79,8 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		hand            accesstypes.User = "emberhand"
 		drifter         accesstypes.User = "ember-drifter"
 		commuter        accesstypes.User = "ember-commuter"
+		local           accesstypes.User = "ember-local"
+		visitor         accesstypes.User = "ember-visitor"
 		sectorsResource                  = accesstypes.Resource("Sectors")
 	)
 	crewManager, membersManager := s.access.UserManager(), s.members.UserManager()
@@ -104,8 +110,10 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	anvilScope := accesstypes.DomainPolicyScope(anvil)
 
 	// The crew in Ember: the marshal of Anvil is given a role there; a person whose
-	// account is there already is given a role there and holds one nowhere else; an
-	// invitation into Ember stands; and a custom role is made in Ember.
+	// account is there already is given a role there and holds one nowhere else; a
+	// person Cinder's directory signs in is given a role there; an invitation into Ember
+	// stands; a custom role is made in Ember; and a group of Ember's holds a role there,
+	// with the marshal and the person seated in Ember alone in it.
 	status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+string(marshalUser)+`","role":"Pilot","domain":"`+ember+`"}`))
 	assertStatus(t, status, http.StatusNoContent, body)
 	handAddress := "hand@example.com"
@@ -113,6 +121,24 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	handUser := accesstypes.User(handID)
 	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+handID+`","role":"Cadet","domain":"`+ember+`"}`))
 	assertStatus(t, status, http.StatusNoContent, body)
+	visitorID := s.seedCrewAccount(ctx, t, string(visitor), nil).String()
+	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+visitorID+`","role":"Cadet","domain":"`+ember+`"}`))
+	assertStatus(t, status, http.StatusNoContent, body)
+	status, body = hq.do(ctx, http.MethodPost, sectorPath(ember, "create-crew-sector-group"), []byte(`{"name":"Ember watch","description":"Keeps Ember's lights on."}`))
+	assertStatus(t, status, http.StatusOK, body)
+	emberGroup := cell[string](t, decodeRow(t, body), "id")
+	for _, member := range []string{string(marshalUser), handID} {
+		status, body = hq.do(ctx, http.MethodPost, sectorPath(ember, "add-crew-sector-group-member"), []byte(`{"groupId":"`+emberGroup+`","userId":"`+member+`"}`))
+		assertStatus(t, status, http.StatusNoContent, body)
+	}
+	status, body = hq.do(ctx, http.MethodPost, sectorPath(ember, "give-crew-sector-group-role"), []byte(`{"groupId":"`+emberGroup+`","role":"Cadet"}`))
+	assertStatus(t, status, http.StatusNoContent, body)
+	// What a sign-in left of each: an identity, under the fleet's own connection, which
+	// is no sector's directory, or under Cinder's directory for the person it signs in,
+	// and a session.
+	founderSession := leftBySignIn(ctx, t, s, "ember-founder", founderID, "google", "fleet")
+	handSession := leftBySignIn(ctx, t, s, hand, handID, "google", "fleet")
+	visitorSession := leftBySignIn(ctx, t, s, visitor, visitorID, "google", "example")
 	status, body = hq.do(ctx, http.MethodPost, sectorPath(ember, "invite-crew-sector-user"), []byte(`{"email":"invited@example.com","roles":["Cadet"]}`))
 	assertStatus(t, status, http.StatusOK, body)
 	var invitation invited
@@ -155,6 +181,9 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	if !crewAccountExists(t, s.db, handID) {
 		t.Fatal("the person seated in Ember alone has no account")
 	}
+	if n := rowsWhere(ctx, t, s, "CrewGroupMembers", "GroupId", emberGroup) + rowsWhere(ctx, t, s, "CrewGroupRoles", "GroupId", emberGroup); n != 3 {
+		t.Fatalf("Ember's group holds %d member(s) and role(s) before the delete, want the two members and the role", n)
+	}
 	for _, held := range []struct {
 		name    string
 		manager access.UserManager
@@ -163,6 +192,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		{name: "Ember's founder, its first marshal", manager: crewManager, user: founderUser},
 		{name: "the marshal", manager: crewManager, user: marshalUser},
 		{name: "the person seated in Ember alone", manager: crewManager, user: handUser},
+		{name: "the person Cinder's directory signs in", manager: crewManager, user: accesstypes.User(visitorID)},
 		{name: "the drifter, a member", manager: membersManager, user: drifterUser},
 		{name: "the commuter, a member", manager: membersManager, user: commuterUser},
 	} {
@@ -194,6 +224,10 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	if _, err := s.db.Apply(ctx, directoryRow(anvil)); spanner.ErrCode(err) != codes.AlreadyExists {
 		t.Fatalf("giving Anvil the directory Ember has: err = %v, want the unique index to refuse it", err)
 	}
+	// A person Ember's directory signed in, who holds nothing: the account is Ember's
+	// alone.
+	localID := s.seedCrewAccount(ctx, t, string(local), nil).String()
+	localSession := leftBySignIn(ctx, t, s, local, localID, "azure", entra)
 	// Ember holds rows of its own by now, written here as rows: one in each table that
 	// carries a sector's key, and one in each table that reaches its sector through
 	// another row. The pass is into Ember's own hangar, in a person's name; the ship is
@@ -295,6 +329,19 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		if events := changeEvents(ctx, t, s, tracked...); !maps.Equal(events, eventsBefore) {
 			t.Errorf("change events after %s: %v, want %v: nothing was deleted", after, events, eventsBefore)
 		}
+		if n := rowsWhere(ctx, t, s, "CrewGroups", "Id", emberGroup); n != 1 {
+			t.Errorf("Ember's group after %s: %d row(s), want the one", after, n)
+		}
+		for _, id := range []string{founderID, handID, localID, visitorID} {
+			if !crewAccountExists(t, s.db, id) {
+				t.Errorf("the account %s is gone after %s, want it standing", id, after)
+			}
+		}
+		for _, session := range []string{founderSession, handSession, localSession, visitorSession} {
+			if n := rowsWhere(ctx, t, s, "CrewSessions", "Id", session); n != 1 || readColumn[bool](ctx, t, s.db, "CrewSessions", spanner.Key{session}, "Expired") {
+				t.Errorf("the session %s after %s is ended or gone, want it standing", session, after)
+			}
+		}
 	}
 
 	// A sector that is not disabled is not deleted, whether or not the request says it
@@ -323,22 +370,25 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	// A request that does not say it takes what is under the sector is asked the
 	// question, and nothing is gone: not the sector, not its directory, not a row.
 	//
-	// The question counts each kind the person may list in the tenant being deleted.
-	// The governor holds the sector's marshal role in every sector, and it lists each
-	// kind of Ember's rows but a droid's report, which is not named: one of each, the
-	// kind nearest the sector first. He is a super administrator, so he still lists
-	// them in a disabled sector.
+	// The question counts every kind of the sector's rows, and then what the two auths
+	// hold for it, for whoever may delete the sector, whatever they may list there: one
+	// of each of Ember's rows, the kind nearest the sector first, a droid's report among
+	// them; the four accounts that were Ember's alone (its founder's, the person's seated
+	// there alone, the one its directory signed in, and the drifter's among the members);
+	// the six roles held in it; its group; its custom role; and the crew's invitation
+	// and the members'. The governor, a super administrator, is asked it.
 	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", remove)
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
 	const counted = "Delete this sector and everything under it: 1 wing, 1 sector directory, 1 hangar, 1 distress call, " +
 		"1 consignment, 1 squadron, 1 ship, 1 distress relay, 1 squadron membership, 1 refit, 1 mission, 1 hangar pass, " +
-		"1 sortie, 1 refit task, 1 mission document, 1 sortie expense, and records you can't see. This can't be undone."
+		"1 droid report, 1 sortie, 1 refit task, 1 mission document, 1 sortie expense, " +
+		"4 accounts, 6 roles held, 1 group, 1 custom role, 2 invitations. This can't be undone."
 	if got := refusalMessage(t, body); got != counted {
 		t.Errorf("the governor's question = %q, want %q", got, counted)
 	}
-	// The person lists none of the tenant's kinds in the tenant being deleted: the
-	// question says "everything under it" and no count. The deckhand, given the closing
-	// role, may delete the sector, and holds no role in Ember or in every sector.
+	// So is a person who may list none of the sector's kinds there: the deckhand, given
+	// the closing role, may delete the sector, and holds no role in Ember or in every
+	// sector.
 	deckhand := newBrowser(t, s, consoleAPI)
 	deckhand.signIn(ctx, "deckhand")
 	deckhandUser := account(t, "deckhand")
@@ -350,9 +400,8 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	}
 	status, body = deckhand.do(ctx, http.MethodPatch, consoleAPI+"/resources", remove)
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
-	const question = "Delete this sector and everything under it? This can't be undone."
-	if got := refusalMessage(t, body); got != question {
-		t.Errorf("the deckhand's question = %q, want %q", got, question)
+	if got := refusalMessage(t, body); got != counted {
+		t.Errorf("the deckhand's question = %q, want %q", got, counted)
 	}
 	nothingGone("the question")
 
@@ -439,17 +488,51 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	if hasRole(ctx, t, crewManager, emberScope, watch) {
 		t.Errorf("the custom role %s made in Ember still exists, want it deleted with the sector", watch)
 	}
+	// So did Ember's group, with its members and its role.
+	for _, table := range []struct{ name, column string }{{"CrewGroups", "Id"}, {"CrewGroupMembers", "GroupId"}, {"CrewGroupRoles", "GroupId"}} {
+		if n := rowsWhere(ctx, t, s, table.name, table.column, emberGroup); n != 0 {
+			t.Errorf("%s holds %d row(s) of Ember's group after the delete, want none", table.name, n)
+		}
+	}
 
-	// A person who holds a role elsewhere stays, with that role; a person who held
-	// roles in Ember alone is deleted with it.
+	// A person who holds a role elsewhere stays, with that role, and so does the person
+	// Cinder's directory signs in, with the identity and the session, holding nothing in
+	// Ember.
 	if got := crewHolds(t, s.db, "marshal"); !slices.Contains(got, "domain/"+anvil+" SectorMarshal") {
 		t.Errorf("the marshal holds %v after the delete, want Anvil's marshal role kept", got)
 	}
-	if crewAccountExists(t, s.db, handID) {
-		t.Error("the account of the crew member who held roles in Ember alone still exists, want it deleted with the sector")
+	if !crewAccountExists(t, s.db, visitorID) {
+		t.Error("the account of the person Cinder's directory signs in is gone, want it standing: Cinder manages it")
 	}
-	if crewAccountExists(t, s.db, founderID) {
-		t.Error("the account of Ember's founder, who held roles in Ember alone, still exists, want it deleted with the sector")
+	if got := crewHolds(t, s.db, string(visitor)); len(got) != 0 {
+		t.Errorf("the person Cinder's directory signs in holds %v after the delete, want nothing", got)
+	}
+	if n := rowsWhere(ctx, t, s, "CrewSessionIdentities", "UserId", visitorID); n != 1 {
+		t.Errorf("the person Cinder's directory signs in has %d sign-in identities after the delete, want the one", n)
+	}
+	if n := rowsWhere(ctx, t, s, "CrewSessions", "Id", visitorSession); n != 1 || readColumn[bool](ctx, t, s.db, "CrewSessions", spanner.Key{visitorSession}, "Expired") {
+		t.Error("the session of the person Cinder's directory signs in is ended or gone after the delete, want it standing")
+	}
+	// The accounts that were Ember's alone are gone with their sign-in identities: its
+	// founder's, the person's seated in Ember alone, and the one Ember's directory signed
+	// in, who held nothing. Their sessions are ended, and the sessions' rows stand until
+	// the timed removal takes them.
+	for _, gone := range []struct{ name, id, session string }{
+		{name: "Ember's founder", id: founderID, session: founderSession},
+		{name: "the person seated in Ember alone", id: handID, session: handSession},
+		{name: "the person Ember's directory signed in", id: localID, session: localSession},
+	} {
+		if crewAccountExists(t, s.db, gone.id) {
+			t.Errorf("the account of %s still exists, want it deleted with the sector: it was Ember's alone", gone.name)
+		}
+		if n := rowsWhere(ctx, t, s, "CrewSessionIdentities", "UserId", gone.id); n != 0 {
+			t.Errorf("%s has %d sign-in identities after the delete, want none: they go with the account", gone.name, n)
+		}
+		if n := rowsWhere(ctx, t, s, "CrewSessions", "Id", gone.session); n != 1 {
+			t.Errorf("%s's session: %d row(s) after the delete, want the row left for the timed removal", gone.name, n)
+		} else if !readColumn[bool](ctx, t, s.db, "CrewSessions", spanner.Key{gone.session}, "Expired") {
+			t.Errorf("%s's session is not ended after the account was deleted", gone.name)
+		}
 	}
 	if got := rolesHeldIn(ctx, t, membersManager, commuterUser, anvilScope); !slices.Equal(got, []accesstypes.Role{"ClientPortal"}) {
 		t.Errorf("the commuter holds %v in Anvil after the delete, want ClientPortal kept", got)
@@ -458,7 +541,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		t.Errorf("the commuter's account after the delete: %v, want it kept: the commuter holds a role in Anvil", err)
 	}
 	if _, err := s.db.Single().ReadRow(ctx, "MembersSessionUsers", spanner.Key{drifterID}, []string{"Id"}); spanner.ErrCode(err) != codes.NotFound {
-		t.Errorf("the account of the member who held roles in Ember alone: err = %v, want not found: it is deleted with the sector", err)
+		t.Errorf("the account of the member who held roles in Ember alone: err = %v, want not found: it was Ember's alone", err)
 	}
 
 	// The invitations into Ember are withdrawn, the crew's and the members': each link
@@ -469,6 +552,28 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	if !readColumn[spanner.NullTime](ctx, t, s.db, "MembersSessionMailLinks", spanner.Key{memberLink}, "ConsumedAt").Valid {
 		t.Error("the members' invitation into the deleted sector still stands, want it withdrawn")
 	}
+}
+
+// leftBySignIn writes what a sign-in leaves of a person of the crew: an identity under
+// the method and the connection, and a session. It answers the session's id.
+func leftBySignIn(ctx context.Context, t *testing.T, s *served, username accesstypes.User, userID, method, connection string) string {
+	t.Helper()
+
+	identity, session := newID(t), newID(t)
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{
+		spanner.InsertMap("CrewSessionIdentities", map[string]any{
+			"Id": identity, "UserId": userID, "Method": method, "Connection": connection, "Subject": "subject-of-" + string(username),
+			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		}),
+		spanner.InsertMap("CrewSessions", map[string]any{
+			"Id": session, "Username": string(username), "Expired": false, "UserId": userID,
+			"CreatedAt": spanner.CommitTimestamp, "UpdatedAt": spanner.CommitTimestamp,
+		}),
+	}); err != nil {
+		t.Fatalf("writing %s's sign-in identity and session: %v", username, err)
+	}
+
+	return session
 }
 
 // sectorKeyedTables are Lodestar's tables that carry a sector's key on the row itself,
