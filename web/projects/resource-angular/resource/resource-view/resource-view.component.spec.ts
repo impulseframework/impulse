@@ -826,7 +826,7 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
 
   /** Draws the row's page under the config's own words and the resource's word for a row, and waits until the row is read. */
   const drawn = async (
-    words: { rowTitle?: (row: RecordData) => string },
+    words: { rowTitle?: (row: RecordData) => string; deleteTyped?: (row: RecordData) => string },
     rowWords?: RowWords,
   ): Promise<ResourceViewComponent> => {
     await TestBed.configureTestingModule({
@@ -963,6 +963,33 @@ describe('ResourceViewComponent asks before its row is deleted', () => {
       { op: 'remove', path: '/b-1' },
       { op: 'remove', path: '/b-1', value: { everythingUnder: true } },
     ]);
+  });
+
+  /** Opens the confirmation and says what the dialog was handed. */
+  const handedFor = (component: ResourceViewComponent): DeleteConfirmation | undefined => {
+    let handed: DeleteConfirmation | undefined;
+    component.dialog.open = ((_: unknown, config: { data: DeleteConfirmation }) => {
+      handed = config.data;
+
+      return {};
+    }) as unknown as typeof component.dialog.open;
+
+    component.confirmDeleteResource();
+
+    return handed;
+  };
+
+  it('and hands the dialog the text to type that the config answers for the row read', async () => {
+    const handed = handedFor(await drawn({ deleteTyped: (row) => String(row['name']) }));
+
+    expect(handed?.typed).toBe('Outer reef');
+  });
+
+  it('and hands the dialog no text to type where the config sets none', async () => {
+    const handed = handedFor(await drawn({}));
+
+    expect(handed).toBeDefined();
+    expect(handed?.typed).toBeUndefined();
   });
 
   it('and opens no second question while one is open', async () => {

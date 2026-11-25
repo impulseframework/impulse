@@ -13,3 +13,16 @@
 .progress {
   margin: 12px 0 0;
 }
+
+// The line that says what to type before Delete, under the question; a long name wraps
+// and is read whole.
+.typed-asks {
+  margin: 12px 0 0;
+  overflow-wrap: anywhere;
+}
+
+// The input the text is typed into, as wide as the dialog.
+.typed-name {
+  display: block;
+  margin: 12px 0 0;
+}
