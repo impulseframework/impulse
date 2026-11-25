@@ -611,7 +611,10 @@ directory-only tenant whose directory the person did not sign in through, stays 
 list marked `closed`, with the reason as a sentence
 (`{"domain": "…", "name": "Acme", "closed": "Acme admits only people who sign in through its own directory. You signed in with a password."}`):
 the person holds a seat there, so the list tells them nothing new, and it says why this
-sign-in does not open the tenant. A session that came through another directory is told
+sign-in does not open the tenant. A tenant that is disabled is listed the same way, with
+one reason whatever way the person signed in
+(`{"domain": "…", "name": "Acme", "closed": "Acme is disabled."}`), and its own
+administrator is told of no way in, since there is none. A session that came through another directory is told
 which, in the words a person knows it by ("You signed in through Google Workspace
 north.example.", "You signed in through your organization's Microsoft directory."): the
 generated handler passes `WithDirectoryNames` with each auth's namer (section 16, "How a
@@ -877,7 +880,9 @@ about it:
   other. So a session reaches every tenant that seats the person, except a tenant that
   is directory only and whose directory is not the one the person signed in through;
   those are the session's closed tenants (`ClosedDomains`), which the tenant list of a
-  person's own sign-in names with the reason (section 5). An account that signs in
+  person's own sign-in names with the reason (section 5). A tenant that is disabled is
+  apart from all of this: whatever its sign-in settings admit, no session reaches it but
+  a super administrator's (section 16, "A disabled tenant"). An account that signs in
   through a directory-only tenant's directory does not get that far another way: the
   sign-in policy refuses it a password, a personal account and any other directory at
   the sign-in, whichever tenants seat the person (the session library's reference, "The
@@ -3333,12 +3338,13 @@ request asks.
 record has tenants with no directories: no tenant takes one, none is opened to one and
 none is made directory only, so a tenant's people come by invitation alone. Where that
 package makes the tenant record's rows itself (the record's patch handler is not
-suppressed), the generator still emits `New<Record>DeclarationReader()`, over no
-columns: `resource.NewTenantDeclarationReader(table, key, nil)` answers nothing for
-every tenant, without a read. Each auth's `New` therefore sets `signin.TenantPolicy`
-over the generated reader in both kinds of application, and here every tenant admits
-everyone it seats, however they signed in. The roster reads no declarations, and
-`Declarations` answers nil for every tenant. A package that declares the tenant record
+suppressed), the generator still emits `New<Record>DeclarationReader()`, over the one
+column such a tenant declares, whether it is disabled
+(`resource.NewTenantDeclarationReader(table, key, &<record>Declaration)`, which reads the
+tenant's row in the sign-in's transaction). Each auth's `New` therefore sets
+`signin.TenantPolicy` over the generated reader in both kinds of application, and here
+every tenant that is not disabled admits everyone it seats, however they signed in. The
+roster keeps the same column beside each key, and `Declarations` answers it. A package that declares the tenant record
 another site serves, with its handlers suppressed, is given no reader: the site that
 makes the record's rows is where the directories record is declared or left out.
 
@@ -3947,12 +3953,49 @@ transaction has committed, the maker has this instance's roster reread its table
 signals the tenants kind, so the person's first request stands in the new tenant and
 every instance serves it at once.
 
+**A disabled tenant.** An application shuts a tenant without deleting anything of it: a
+customer that has left, has not paid, or is about to be deleted. The tenant record marks
+a bool column `@tenantDisabled` (section 1), and every tenant record carries one:
+generation fails without it, in a sentence that gives the column and the field to add.
+The column is an ordinary field of the record. Whoever holds Update on it disables a
+tenant and enables it again, by the record's own update, so the role file says who; there
+is no method for it and no permission of its own.
+
+A disabled tenant is entered by nobody but a super administrator (the session's actor, as
+for a tenant's sign-in settings). Its own administrators are shut out with everyone else:
+the way in that a directory-only tenant keeps for them is not open while the tenant is
+disabled. The door is the one the tenant's sign-in settings are asked at
+(`UserPermissions.Reaches`), so from their next request the tenant's people hold nothing
+in it: every check there is denied, the digest is empty, and the generated guard answers
+as for a tenant that does not exist. The instance that saved the change knows at once, the
+others when they hear the tenants signal, and every one by its backstop at the latest. The
+tenant list of a person's own sign-in keeps the tenant, with the reason ("Acme is
+disabled."), and the place switcher lists it under "Not available".
+
+At sign-in the tenant policy passes a disabled tenant over (`signin.TenantPolicy`,
+`TenantDeclaration.Disabled`): a person whose every tenant is disabled is answered as a
+member of no tenant is, refused `no_tenant`, or admitted where the policy was built with
+`signin.AdmitWithoutTenant()`; a person with another tenant signs in by what that tenant
+declares.
+
+Nothing else changes. No role, group or invitation is touched, so enabling the tenant
+gives everyone back what they held; an invitation into a disabled tenant is accepted, and
+its person holds a place in a tenant they cannot enter until it is enabled; a person who
+holds a role in a disabled tenant still holds a tenant (`HeldDomains`); and a
+directory-only tenant that is disabled still keeps the accounts of its directory to that
+directory. Code that runs without a session, a scheduled task or a consumer, is not asked
+the door and reads and writes a disabled tenant's records as any other's.
+
 **Deleting a tenant.** The record's generated delete clears what each auth holds for the
 tenant in the transaction that deletes its row, through the generated identity client of
 every auth whose management the program generates (`<Auth>Identity().ClearTenant`,
 `identity.Manager.ClearTenant`): every membership held in the tenant, the custom roles
 made in it with their grants, and the invitations into it that still stand, which are
-withdrawn. A person who held roles in the tenant alone then holds none anywhere and is
+withdrawn. The delete is of a disabled tenant: the generated delete refuses a tenant that
+is not disabled, after the caller's grant and before the question below (409, "Disable
+this tenant before deleting it.", with the application's word for one;
+`resource.RequireTenantDisabled`), so nobody of the tenant is at work in it while its
+records go. A person who held roles in the tenant alone then holds none anywhere and is
 deleted with their identity links and sessions, by the rule on an account nothing admits
 (section 21, "The rules"); a person who holds a role anywhere else stays, and so does a
 role held in every tenant, which is no one tenant's. The permission engine is told once

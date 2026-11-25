@@ -318,9 +318,9 @@ or one per domain), loaded on demand and cached for the session.
   read, and `domainsUnread()` is true while its last read failed and no list is held from
   before (`domainsKnown(snapshot)` and `domainsUnread(snapshot)` answer the same of a
   snapshot).
-  A tenant the person holds a seat in and this session cannot enter (a tenant that admits
-  only people who sign in through its own directory, when the person signed in another
-  way) is listed with `closed`, the reason in a sentence the server writes. `domains()`
+  A tenant the person holds a seat in and this session cannot enter is listed with
+  `closed`, with the server's reason: the tenant is directory only and the person signed
+  in another way, or the tenant is disabled. `domains()`
   holds the tenants the session reaches and never a closed one; `closedDomains()` answers
   the closed ones with their reasons, for a picker to show marked and not as places to
   open.

@@ -104,7 +104,10 @@ templates, this README, and the tool's source.
   tenant that seats the person, except a tenant that is directory only and whose
   directory is not the one they signed in through, which stays in the list marked
   closed to this sign-in, with the reason, so the picker never offers a tenant the session cannot enter and a direct
-  request for one is refused as a tenant that does not exist. The declaration is two
+  request for one is refused as a tenant that does not exist. A tenant can also be
+  disabled, by a change of its record's `Disabled` field: nobody but a super
+  administrator then enters it, its people's list says "… is disabled.", and its delete,
+  which is refused until then, can go ahead. The declaration is two
   things on the tenant record: the tenant's directory, the organization its people sign
   in through (a child record, `@tenantDirectory`, one row for a tenant and a directory
   in one tenant's row only, set from a sign-in through it and never typed: a sign-in
