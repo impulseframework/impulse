@@ -241,13 +241,21 @@ func (a *App) CreateSector() http.HandlerFunc {
 // which any signed-in person
 // makes, and nothing is written or logged. The POST decides again in its own
 // transaction: what is offered here may be refused there a moment later.
+// Where a creation by this session would take a directory (an application that holds a
+// person to one tenant, a session signed in through an organization's directory), the
+// answer carries the statement the person reads and types under before they create
+// (resource.TenantDirectoryRules.TakeDirectoryWarning).
 func (a *App) CreateSectorOffered() http.HandlerFunc {
 	type offer struct {
 		Offered bool `json:"offered"`
+		// Warning is the statement in front of a creation that takes the directory the
+		// session signed in through; absent where the creation takes none.
+		Warning *resource.Warning `json:"warning,omitempty"`
 	}
 
 	identityClient := a.CrewIdentity()
 	collection := router.Collection()
+	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName)
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -276,6 +284,17 @@ func (a *App) CreateSectorOffered() http.HandlerFunc {
 		open, err := identityClient.SessionSignInMethodOpen(ctx, a.ResourceClient())
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "CrewIdentity().SessionSignInMethodOpen()"))
+		}
+		// The statement, where the POST would set the directory on the new sector:
+		// the creation is offered, the application holds a person to one tenant, and the
+		// session signed in through an organization's directory. The person reads it and
+		// types the phrase under it before they create; the POST checks no phrase.
+		if open && identityClient.OneTenantPerPerson() {
+			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+				if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
+					return httpio.NewEncoder(w).Ok(offer{Offered: true, Warning: rules.TakeDirectoryWarning(directory, true)})
+				}
+			}
 		}
 
 		return httpio.NewEncoder(w).Ok(offer{Offered: open})

@@ -272,8 +272,9 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 	}
 
 	// A sector with no directory has nobody to open to: both methods say so, and the
-	// warning does too. A directory is set without a default role, since the create
-	// takes nothing from the request: one that names a role is refused.
+	// warning does too. A directory is taken without a default role, since the method
+	// that takes it takes nothing from the request, and a create of the record that
+	// names a role is refused, as its every create is.
 	remove := `[{"op":"remove","path":"` + row + `"}]`
 	if status, body := marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(remove)); status != http.StatusOK {
 		t.Fatalf("removing Cinder's directory: status %d: %s", status, body)
@@ -288,13 +289,16 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 			t.Errorf("%s, for a sector with no directory: status %d, want 409 saying %q: %s", name, status, nobody, body)
 		}
 	}
-	set := func(b *browser, value string) (int, []byte) {
+	take := func(b *browser) (int, []byte) {
+		return b.do(ctx, http.MethodPost, sectorPath(cinder, "take-sector-directory"), []byte(`{}`))
+	}
+	create := func(b *browser, value string) (int, []byte) {
 		return b.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"add","path":"/sectors/`+cinder+`/sector-directories","value":{`+value+`}}]`))
 	}
-	if status, body := set(marshal, ``); status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
+	if status, body := take(marshal); status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
 		t.Errorf("setting Cinder's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}
-	if status, body := set(marshal, `"defaultSeat":"SectorCrew"`); status != http.StatusBadRequest && status != http.StatusForbidden {
+	if status, body := create(marshal, `"defaultSeat":"SectorCrew"`); status != http.StatusBadRequest && status != http.StatusForbidden {
 		t.Errorf("setting Cinder's directory with a default role from a password session: status %d, want a refusal: %s", status, body)
 	}
 	if rows := directories(ctx, t, governor, cinder); len(rows) != 0 {
@@ -308,21 +312,21 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 	// sessions she holds are a super administrator's from then on: the one by her
 	// password, and the one through the fleet's directory (through). A
 	// create that names a default role is refused her whatever the role, and writes
-	// nothing; the create that names nothing makes the fleet's Workspace Cinder's, with
-	// no default role.
+	// nothing; the sector's own method, which names nothing, makes the fleet's
+	// Workspace Cinder's, with no default role.
 	superAdministrator := jsonBody(t, map[string]any{"userId": crewAccountID(ctx, t, governor, "marshal"), "role": "SuperAdministrator"})
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), superAdministrator); status != http.StatusNoContent {
 		t.Fatalf("making the marshal a super administrator: status %d: %s", status, body)
 	}
 	for _, role := range []string{"SectorMarshal", "SectorCrew"} {
-		if status, body := set(through, `"defaultSeat":"`+role+`"`); status != http.StatusBadRequest && status != http.StatusForbidden {
+		if status, body := create(through, `"defaultSeat":"`+role+`"`); status != http.StatusBadRequest && status != http.StatusForbidden {
 			t.Errorf("setting Cinder's directory with %s as its default role: status %d, want a refusal: %s", role, status, body)
 		}
 	}
 	if rows := directories(ctx, t, marshal, cinder); len(rows) != 0 {
 		t.Fatalf("Cinder's directory after the refused calls = %+v, want none", rows)
 	}
-	if status, body := set(through, ``); status != http.StatusOK {
+	if status, body := take(through); status != http.StatusOK {
 		t.Fatalf("making the fleet's Workspace Cinder's directory from a sign-in through it: status %d, want 200: %s", status, body)
 	}
 	rows = directories(ctx, t, marshal, cinder)
@@ -554,8 +558,7 @@ func TestDirectoryDefaultRole_seatsAPersonLinkedBefore(t *testing.T) {
 	}
 
 	// Cinder takes the Workspace again and is opened to it with SectorCrew.
-	makeCinders := `[{"op":"add","path":"/sectors/` + cinder + `/sector-directories","value":{}}]`
-	if status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(makeCinders)); status != http.StatusOK {
+	if status, body := navigator.do(ctx, http.MethodPost, sectorPath(cinder, "take-sector-directory"), []byte(`{}`)); status != http.StatusOK {
 		t.Fatalf("making the fleet's Workspace Cinder's directory again: status %d: %s", status, body)
 	}
 	if status, body := navigator.do(ctx, http.MethodPost, sectorPath(cinder, "open-sector-to-directory"), jsonBody(t, map[string]string{"role": "SectorCrew"})); status != http.StatusOK {
@@ -572,8 +575,7 @@ func TestDirectoryDefaultRole_seatsAPersonLinkedBefore(t *testing.T) {
 		t.Errorf("the marshal's chart after Cinder seated her = %v, want %v", got, want)
 	}
 	// A directory belongs to one sector: taking the Workspace for Anvil is refused.
-	makeAnvils := `[{"op":"add","path":"/sectors/` + anvil + `/sector-directories","value":{}}]`
-	status, body := b.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(makeAnvils))
+	status, body := b.do(ctx, http.MethodPost, sectorPath(anvil, "take-sector-directory"), []byte(`{}`))
 	if want := "Google Workspace example already has a sector here, and a directory belongs to one sector. Ask that sector's administrator to invite you."; status != http.StatusConflict || !strings.Contains(string(body), want) {
 		t.Errorf("taking Cinder's directory for Anvil: status %d, want 409 saying %q: %s", status, want, body)
 	}

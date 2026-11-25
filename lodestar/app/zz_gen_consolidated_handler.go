@@ -942,26 +942,15 @@ func (a *App) PatchResources() http.HandlerFunc {
 
 						switch op.Type {
 						case resource.OperationCreate:
-							patch, err := resources.NewSectorDirectoryCreatePatchFromPatchSet(patchSet)
-							if err != nil {
-								return errors.Wrap(err, "sectorDirectoryCreatePatchFromPatchSet()")
-							}
-							// A directory is never typed in: the row takes the directory the caller is
-							// signed in through, held to the rules of a sector's directory. The
-							// caller's grants answer first, so a caller they refuse learns nothing
-							// from a rule.
+							// A sector's directory is taken with the sector's own
+							// method, behind the statement that the caller is authorized to act
+							// for the organization: the record's create writes nothing. The
+							// caller's grants answer first.
 							if err := patchSet.Permitted(ctx, txn); err != nil {
 								return errors.Wrap(err, "resource.PatchSet.Permitted()")
 							}
-							directory, err := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).FromSession(ctx, txn, domain)
-							if err != nil {
-								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
-							}
-							patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)
-							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
-								return errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
-							}
-							resp["sectorDirectories"] = append(resp["sectorDirectories"], patch.ID())
+
+							return httpio.NewBadRequestMessage("A sector's directory is not created directly. Take it with TakeSectorDirectory, which says what taking it does before anything is written.")
 						case resource.OperationUpdate:
 							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewSectorDirectoryUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {

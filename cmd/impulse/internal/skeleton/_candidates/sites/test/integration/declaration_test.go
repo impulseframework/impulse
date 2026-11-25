@@ -25,9 +25,10 @@ import (
 // TestDeclaration_whoMayEnterATenant proves the Tenant record's declaration end to end
 // on both sites' served stacks, which share the auth and the roster. A tenant has one
 // directory and a directory belongs to one tenant, and nobody types one in: the staff
-// sign in by password, so the console's create is refused with how a directory is set,
-// a request that names a method and a connection is refused, and the directory is set
-// in code through the generated step a sign-in takes (setDirectory), which holds it to
+// sign in by password, so the console's method that takes a directory
+// (TakeTenantDirectory) is refused with how a directory is set, a create of the record
+// that names a method and a connection is refused, and the directory is set in code
+// through the generated step a sign-in takes (setDirectory), which holds it to
 // the rules: a second directory for a tenant, and the directory on another tenant, are
 // each refused with what to do. A tenant's sign-in settings restrict its own door
 // alone, and a directory closes its tenant to nobody until the tenant is directory
@@ -58,14 +59,13 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	portalMember := signedIn(ctx, t, s, s.portal, memberUser)
 
 	// Nobody types a directory in. The administrator is signed in with a password: the
-	// session read reports no directory, the create that names none is refused with how
-	// a directory is set, and one that types a method and a connection is refused as
-	// naming fields the record does not take. Neither writes.
+	// session read reports no directory, the tenant's own method, which names none, is
+	// refused with how a directory is set, and a create of the record that types a method
+	// and a connection is refused, as its every create is. Neither writes.
 	if status, body := admin.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK || strings.Contains(string(body), `"directory"`) {
 		t.Errorf("the administrator's password session: status %d: %s, want no directory reported", status, body)
 	}
-	fromSession := `[{"op":"add","path":"/tenants/` + north + `/tenant-directories","value":{}}]`
-	status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(fromSession))
+	status, body := admin.do(ctx, http.MethodPost, "/api/tenants/"+north+"/take-tenant-directory", []byte(`{}`))
 	if status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
 		t.Errorf("setting north's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}

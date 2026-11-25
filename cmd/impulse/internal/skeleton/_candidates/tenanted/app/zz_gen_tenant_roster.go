@@ -85,9 +85,10 @@ func NewTenantDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransac
 // (resource.TenantDirectoryRules) over the Tenant record's table and its declaration's
 // columns: a tenant has one directory, a directory is one tenant's, a personal account
 // is no directory, and the directory of a tenant that is directory only is not removed.
-// Every write of the TenantDirectory record a request asks for is held to them. The generated
-// TenantDirectory write paths ask them: the create stamps the directory the caller is signed in
-// through, which no request types, and the delete asks before it removes. The one
+// Every write of the TenantDirectory record a request asks for is held to them. The tenant's
+// own method that takes a directory (TakeTenantDirectory) asks them for the directory the
+// caller is signed in through, which no request types, the record's own create being
+// refused, and the delete asks before it removes. The one
 // removal they are not asked is the delete of the tenant itself, which takes its
 // directory with it like every other row under the tenant (Tenant.DeleteTree): the
 // rule keeps a tenant that stays from being left with no way in, and that tenant

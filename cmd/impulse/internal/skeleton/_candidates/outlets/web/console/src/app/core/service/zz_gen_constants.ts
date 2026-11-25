@@ -139,6 +139,7 @@ export const Methods = {
   OpenTenantToDirectory: 'OpenTenantToDirectory' as Method,
   SetFeature: 'SetFeature' as Method,
   StopVouchingForTenantDirectorySecondFactor: 'StopVouchingForTenantDirectorySecondFactor' as Method,
+  TakeTenantDirectory: 'TakeTenantDirectory' as Method,
   VouchForTenantDirectorySecondFactor: 'VouchForTenantDirectorySecondFactor' as Method,
 };
 

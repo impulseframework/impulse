@@ -86,9 +86,10 @@ func NewSectorDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransac
 // (resource.TenantDirectoryRules) over the Sector record's table and its declaration's
 // columns: a sector has one directory, a directory is one sector's, a personal account
 // is no directory, and the directory of a sector that is directory only is not removed.
-// Every write of the SectorDirectory record a request asks for is held to them. The generated
-// SectorDirectory write paths ask them: the create stamps the directory the caller is signed in
-// through, which no request types, and the delete asks before it removes. The one
+// Every write of the SectorDirectory record a request asks for is held to them. The sector's
+// own method that takes a directory (TakeSectorDirectory) asks them for the directory the
+// caller is signed in through, which no request types, the record's own create being
+// refused, and the delete asks before it removes. The one
 // removal they are not asked is the delete of the sector itself, which takes its
 // directory with it like every other row under the sector (Sector.DeleteTree): the
 // rule keeps a sector that stays from being left with no way in, and that sector

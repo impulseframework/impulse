@@ -245,6 +245,7 @@ export const Methods = {
   OpenSectorToDirectory: 'OpenSectorToDirectory' as Method,
   SetFeature: 'SetFeature' as Method,
   StopVouchingForSectorDirectorySecondFactor: 'StopVouchingForSectorDirectorySecondFactor' as Method,
+  TakeSectorDirectory: 'TakeSectorDirectory' as Method,
   ViewAsUser: 'ViewAsUser' as Method,
   VouchForSectorDirectorySecondFactor: 'VouchForSectorDirectorySecondFactor' as Method,
 };

@@ -712,6 +712,10 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
+/** The body TakeTenantDirectory takes. The method takes the directory you are signed in through as the tenant's own, after the statement that you are authorized to act for the organization. */
+export interface TakeTenantDirectoryConfig {}
+export interface TakeTenantDirectory {}
+
 /** The body MakeTenantDirectoryOnly takes. The method turns the tenant's directory-only switch on, which closes the tenant to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the tenant has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on. */
 export interface MakeTenantDirectoryOnlyConfig {}
 export interface MakeTenantDirectoryOnly {}
@@ -1446,6 +1450,12 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string' },
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
+  },
+  [Methods.TakeTenantDirectory]: {
+    route: 'take-tenant-directory',
+    dryRun: true,
+    warning: { typed: 'I am authorized' },
+    fields: [],
   },
   [Methods.MakeTenantDirectoryOnly]: {
     route: 'make-tenant-directory-only',
