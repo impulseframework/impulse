@@ -568,6 +568,11 @@ type authzCase struct {
 	// as if the domain did not exist: 404 from the route guard, 400 from the
 	// consolidated dispatcher's operation-path descent.
 	DeniedStatus string
+	// OutsideTenantGuard marks a case for a route the tenant guard does not wrap: a
+	// route of a resource that is not domain scoped, the tenant record's history (below
+	// its read, under the tenant's key) among them. Concealed domains leave its denied
+	// case the plain refusal.
+	OutsideTenantGuard bool
 	// Headers are request headers the case sends (the dry-run header).
 	Headers []authzHeader
 	// Open marks a route anyone signed in may call: the case carries no grant and

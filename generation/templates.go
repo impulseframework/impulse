@@ -32,6 +32,7 @@ import (
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/go-playground/errors/v5"
@@ -146,6 +147,20 @@ func ({{ .Resource.Name }}) SearchBranches() []resource.SearchBranch {
 func ({{ .Resource.Name }}) NameFields() []resource.NameField {
 	return []resource.NameField{
 	{{- range $name := .Resource.NameFields }}
+		{{ $name.GoLiteral }},
+	{{- end }}
+	}
+}
+{{- end }}
+{{- if .Resource.RecordedNames }}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func ({{ .Resource.Name }}) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+	{{- range $name := .Resource.RecordedNames }}
 		{{ $name.GoLiteral }},
 	{{- end }}
 	}
@@ -579,11 +594,11 @@ func (p *{{ .Resource.Name }}CreatePatch) ToStruct() *{{ .Resource.Name }} {
 	return p.patchSet.ToStruct()
 }
 
-func (p *{{ .Resource.Name }}CreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *{{ .Resource.Name }}CreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *{{ .Resource.Name }}CreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *{{ .Resource.Name }}CreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -703,11 +718,11 @@ func (p *{{ .Resource.Name }}UpdatePatch) ToStruct() *{{ .Resource.Name }} {
 	return p.patchSet.ToStruct()
 }
 
-func (p *{{ .Resource.Name }}UpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *{{ .Resource.Name }}UpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *{{ .Resource.Name }}UpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *{{ .Resource.Name }}UpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -803,11 +818,11 @@ func New{{ .Resource.Name }}Touch(
 	return &{{ .Resource.Name }}Touch{patchSet: patchSet}
 }
 
-func (p *{{ .Resource.Name }}Touch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *{{ .Resource.Name }}Touch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *{{ .Resource.Name }}Touch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *{{ .Resource.Name }}Touch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 {{ end }}
@@ -939,11 +954,11 @@ func (p *{{ .Resource.Name }}DeletePatch) WithLibraryRowsAlone() *{{ .Resource.N
 	return p
 }
 {{ end }}
-func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *{{ .Resource.Name }}DeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *{{ .Resource.Name }}DeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -1451,6 +1466,7 @@ import (
 
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -1520,7 +1536,7 @@ func TestGeneratedFeatureGates(t *testing.T) {
 
 	call := func(t *testing.T, feature resource.Feature, enabled bool, g grants, method, target, body string) *httptest.ResponseRecorder {
 		t.Helper()
-		if err := resource.SetFeatureEnabled(ctx, client, feature, enabled, "TestGeneratedFeatureGates"); err != nil {
+		if err := resource.SetFeatureEnabled(ctx, client, feature, enabled, eventsource.ProcessEvent("TestGeneratedFeatureGates")); err != nil {
 			t.Fatalf("resource.SetFeatureEnabled() error = %v", err)
 		}
 		h := newTestHandler(t, db, g)
@@ -1859,6 +1875,9 @@ import (
 {{- if or .Declaration .Maker }}
 	"github.com/impulseframework/impulse/accesstypes"
 {{- end }}
+{{- if .Declaration }}
+	"github.com/impulseframework/impulse/eventsource"
+{{- end }}
 {{- if .Maker }}
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
@@ -2013,7 +2032,7 @@ func New{{ .Name }}DirectoryRules() *resource.TenantDirectoryRules {
 // has. Then the {{ .Directories }} row is buffered through the record's create patch, so its
 // change event is written with it. The caller reloads the roster and signals the
 // tenants kind once the transaction has committed, as the record's write paths do.
-func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, directory signin.Directory, eventSource ...string) error {
+func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, directory signin.Directory, eventSource ...eventsource.EventSource) error {
 	if err := New{{ .Name }}DirectoryRules().Set(ctx, txn, {{ .Directory.TenantDomain }}, directory); err != nil {
 		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
 	}
@@ -2209,6 +2228,7 @@ import (
 
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -2332,7 +2352,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		// The row and its administrator, in one transaction: the person's membership is
 		// written with the row or not at all. The id is the one the attempt that
@@ -2530,6 +2550,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -2630,6 +2651,7 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, method)
 
 		// A request that asks for the method's warning ({{ WarningHeader }}: true) is decoded
 		// and checked as the call is. Turning the switch on answers its warning in
@@ -2653,7 +2675,7 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 		{{- else }}
 		id := {{ .KeyType }}(domain)
 		{{- end }}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)
@@ -2727,6 +2749,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -2784,6 +2807,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .Open.Name }})
 		role := accesstypes.Role(strings.TrimSpace(req.Role))
 
 		// A request that asks for the method's warning ({{ WarningHeader }}: true) is decoded
@@ -2800,7 +2824,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 		if role == "" && !asksWarning {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("Choose the role each person from the directory gets: a {{ .Word }} is not opened to its directory without one."))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)
@@ -2891,6 +2915,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .InviteOnly.Name }}() http
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .InviteOnly.Name }})
 		// The header takes the value true or is left off the request: any other value
 		// is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
@@ -2902,7 +2927,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .InviteOnly.Name }}() http
 			// and never runs the call.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("{{ .InviteOnly.Name }} declares no warning: send the call without the {{ WarningHeader }} header"))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)
@@ -3212,6 +3237,7 @@ import (
 
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 {{- else }}
 
@@ -3363,7 +3389,7 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 		t.Fatalf("resource.MigrateFeatures() error = %v", err)
 	}
 	for _, declared := range {{ .ResourcePackage }}.Features() {
-		if err := resource.SetFeatureEnabled(t.Context(), client, declared.Name, true, "TestGeneratedAuthorizationMatrix"); err != nil {
+		if err := resource.SetFeatureEnabled(t.Context(), client, declared.Name, true, eventsource.ProcessEvent("TestGeneratedAuthorizationMatrix")); err != nil {
 			t.Fatalf("resource.SetFeatureEnabled(%s) error = %v", declared.Name, err)
 		}
 	}
@@ -3401,6 +3427,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -3713,7 +3740,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		{{ if $PrimaryKeyIsGeneratedUUID }}
 		var resp response
 		{{- end }}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 		{{- if .Resource.SignalsTenants }}
 
 		// The roster follows the commit: a {{ .Resource.Name }} this transaction writes
@@ -3935,6 +3962,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -3962,7 +3990,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		defer span.End()
 
 		var (
-			eventSource = resource.UserEvent(ctx)
+			eventSource = eventsource.UserEvent(ctx)
 			resp    response
 		)
 		userPermissions := {{ .ReceiverName }}.UserPermissions(r)
@@ -6137,6 +6165,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -6179,6 +6208,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, caller)
 		{{- end }}
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .RPCMethod.Name }})
 
 		{{- if .RPCMethod.Request.Flat }}
 
@@ -6276,6 +6309,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -6323,6 +6357,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, caller)
 		{{- end }}
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .RPCMethod.Name }})
 
 		{{- if .RPCMethod.Request.Flat }}
 
@@ -6403,6 +6441,7 @@ import (
 	"net/http"
 
 	{{ .LocalPackageImports }}
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -6650,7 +6689,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 				{{- with $t := .RPCMethod.Transition }}
 
 				// The framework stamps the declared target state as the last mutation.
-				if err := {{ $.ResourcesPackage }}.New{{ $t.RootStruct }}UpdatePatch({{ $t.KeyArgs "p" }}).Set{{ $t.StateField }}("{{ $t.To }}").Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+				if err := {{ $.ResourcesPackage }}.New{{ $t.RootStruct }}UpdatePatch({{ $t.KeyArgs "p" }}).Set{{ $t.StateField }}("{{ $t.To }}").Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 					return errors.Wrap(err, "{{ $.ResourcesPackage }}.{{ $t.RootStruct }}UpdatePatch.Buffer()")
 				}
 				{{- end }}

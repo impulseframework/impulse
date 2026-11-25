@@ -175,3 +175,37 @@ func (a *App) Pilot() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// PilotChangeHistory answers a page of one pilot's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) PilotChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID          impulse.UUID    `json:"id"          index:"true" perm:"-"`
+		UserID      string          `json:"userId"      index:"true"`
+		DisplayName string          `json:"displayName"`
+		Clearance   int64           `json:"clearance"`
+		FeeLimit    decimal.Decimal `json:"feeLimit"`
+	}
+
+	decoder := NewQueryDecoder[resources.Pilot, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.PilotID)
+
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewPilotQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

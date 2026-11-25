@@ -4,21 +4,31 @@
 -- what a later migration had dropped is gone. Schema changes from here append files after
 -- this one.
 
+-- The change history: one record for every create, update and delete of a tracked row.
+-- The key puts a row's records together, newest first, so reading a page of one record's
+-- history reads that page and nothing else. The statement is the resource package's
+-- (resource.DataChangeEventsDDL); impulse check holds the two together.
 CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
   RowId STRING(MAX) NOT NULL,
-  Sequence INT64 NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
-  EventSource STRING(MAX) NOT NULL,
+  Sequence INT64 NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-  TenantId STRING(MAX) NOT NULL,
-) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
-
--- One sector's change records, newest first: the ship's log reads them by this index.
-CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);
 
 -- How long change records are kept: Spanner removes a record once it is older than this
--- many days. The table's three statements are the library's own
+-- many days. The table's two statements are the library's own
 -- (resource.DataChangeEventsDDL(resource.SpannerDBType, resource.KeepChangeHistoryDays(365))),
 -- which a test pins.
 ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));
@@ -526,7 +536,7 @@ CREATE TABLE Ships (
   CargoBays ARRAY<INT64> NOT NULL DEFAULT (ARRAY<INT64>[]),
   -- TransponderKey is the key a ship's transponder signs its answers with: a secret. The
   -- resource declares it conditions:"secret" and types it resource.Secret, so it is
-  -- written and never served, the ship's log names a change of it without the value, and
+  -- written and never served, its change record names a change of it without the value, and
   -- the column holds it encrypted: BYTES, with room for the 64 bytes a key may be and the
   -- 42 sealing adds (the version of the application secret that sealed it, the random
   -- number drawn for the write, and the check).
@@ -998,7 +1008,15 @@ CREATE TABLE FeatureFlagChanges (
   Name STRING(64) NOT NULL,
   ChangedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   Enabled BOOL NOT NULL,
-  ChangedBy STRING(MAX) NOT NULL,
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
 ) PRIMARY KEY (Name, ChangedAt);
 
 -- Commendations is the commendations desk: a citation on a pilot's record for a sortie

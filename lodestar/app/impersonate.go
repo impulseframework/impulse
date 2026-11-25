@@ -209,7 +209,7 @@ type impersonateResponse struct {
 // actor's session; the actor's own session is linked as the source. Every minted session
 // carries a two-hour hard cap (MaxDuration), which the banner counts down.
 //
-// Demonstrates: impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, impersonation.mask, impersonation.grant-mask, impersonation.max-duration, @manualAddResource.execute, impersonation.identity-proof, impersonation.session-permissions.
+// Demonstrates: impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, impersonation.mask, impersonation.grant-mask, impersonation.max-duration, @manualAddResource, @manualAddResource.execute, hand-written-route, impersonation.identity-proof, impersonation.session-permissions.
 func (a *App) Impersonate() http.HandlerFunc {
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx := r.Context()

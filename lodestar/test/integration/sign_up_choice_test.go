@@ -9,11 +9,9 @@ import (
 	"maps"
 	"net/http"
 	"slices"
-	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
-	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -115,8 +113,10 @@ func TestSignUpChoice_openedAndClosedAtRunTime(t *testing.T) {
 	if cell[bool](t, methods["google"], "openSignUp") || cell[bool](t, methods["sign-up"], "openSignUp") {
 		t.Errorf("the other methods once the password method is open = %v, want each invite only still", methods)
 	}
-	if sources := changeSources(ctx, t, s, "CrewSessionSignInMethods"); len(sources) != 1 || !strings.HasPrefix(sources[0], "governor ("+governorID+"), session ") {
-		t.Errorf("who changed the crew's sign-in methods = %q, want the one change, by the governor", sources)
+	if sources := changeSources(ctx, t, s, "CrewSessionSignInMethods"); len(sources) != 1 {
+		t.Errorf("the changes of the crew's sign-in methods = %+v, want the one change", sources)
+	} else if differs := sources[0].differs(map[string]string{"ActorUsername": "governor", "ActorUserId": governorID, "SessionId": columnSet, "Rpc": "OpenCrewSignUp"}); differs != "" {
+		t.Errorf("who changed the crew's sign-in methods: %s; want the governor, his session and the method", differs)
 	}
 
 	// A stranger signs up from the mailed link, holds nothing, and charts a sector.
@@ -155,7 +155,7 @@ func TestSignUpChoice_openedAndClosedAtRunTime(t *testing.T) {
 		t.Errorf("the password method once made invite only = %v, want invite only", methods["password"])
 	}
 	if sources := changeSources(ctx, t, s, "CrewSessionSignInMethods"); len(sources) != 2 {
-		t.Errorf("changes to the crew's sign-in methods = %q, want two: opened, then made invite only", sources)
+		t.Errorf("changes to the crew's sign-in methods = %+v, want two: opened, then made invite only", sources)
 	}
 	accounts = tableRows(ctx, t, s, "CrewSessionUsers")
 	if status, body := late.do(ctx, http.MethodPost, consoleAPI+"/user/sign-up/complete", jsonBody(t, map[string]string{"token": lateToken, "username": "drift", "password": signUpPassword})); status != http.StatusNotFound {
@@ -243,20 +243,20 @@ func tableRows(ctx context.Context, t *testing.T, s *served, table string) int64
 	return n
 }
 
-// changeSources lists who made each change the change record holds for a table, oldest
-// first: the person, the id of their account and their session.
-func changeSources(ctx context.Context, t *testing.T, s *served, table string) []string {
+// changeSources lists what the change record says of each change it holds for a table,
+// oldest first: what kind of write it was, and who made it (changeRecordWho).
+func changeSources(ctx context.Context, t *testing.T, s *served, table string) []changeRecordWho {
 	t.Helper()
 
 	iter := s.db.Single().Query(ctx, spanner.Statement{
-		SQL:    "SELECT EventSource FROM DataChangeEvents WHERE TableName = @table ORDER BY EventTime",
+		SQL:    "SELECT " + changeRecordWhoColumns + " FROM DataChangeEvents WHERE TableName = @table ORDER BY EventTime, Sequence",
 		Params: map[string]any{"table": table},
 	})
-	var sources []string
+	var sources []changeRecordWho
 	if err := iter.Do(func(row *spanner.Row) error {
-		var source string
-		if err := row.Columns(&source); err != nil {
-			return errors.Wrap(err, "spanner.Row.Columns()")
+		source, err := scanChangeRecordWho(row)
+		if err != nil {
+			return err
 		}
 		sources = append(sources, source)
 

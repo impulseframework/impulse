@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"go.uber.org/mock/gomock"
 )
 
@@ -537,7 +538,7 @@ func TestChangeRecordTenant_mock(t *testing.T) {
 	buffered := &bufferingTxn{}
 
 	p := changePatch[changeBerth](UpdatePatchType, "berth-1", map[accesstypes.Field]any{"Name": "after"})
-	if err := p.Buffer(context.Background(), NewMockReadWriteTransaction(buffered, reader), "test"); err != nil {
+	if err := p.Buffer(context.Background(), NewMockReadWriteTransaction(buffered, reader), eventsource.ProcessEvent("test")); err != nil {
 		t.Fatalf("Buffer() error = %v", err)
 	}
 	if len(buffered.buffered) != 2 {
@@ -561,7 +562,7 @@ func TestChangeRecordTenant_mockNumberKey(t *testing.T) {
 	bay := int64(7)
 	buffered := &bufferingTxn{}
 	p := numberPatch[changeCrate](CreatePatchType, 70, map[accesstypes.Field]any{"BayNumber": &bay, "Name": "Seventieth"})
-	if err := p.Buffer(context.Background(), NewMockReadWriteTransaction(buffered), "test"); err != nil {
+	if err := p.Buffer(context.Background(), NewMockReadWriteTransaction(buffered), eventsource.ProcessEvent("test")); err != nil {
 		t.Fatalf("Buffer() error = %v", err)
 	}
 	if len(buffered.buffered) != 2 {

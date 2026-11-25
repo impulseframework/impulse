@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -36,6 +37,17 @@ func (SquadronMembership) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
 		{Field: "UserName", Key: "UserID", Resource: "CrewSectorUsers", Tag: "displayName", Table: "CrewSectorUsers", KeyColumn: "Id", NameColumn: "DisplayName", View: true, TenantColumn: "DomainId"},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (SquadronMembership) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "UserID", Resource: "CrewSectorUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: "", GrantInTenant: true},
 	}
 }
 
@@ -338,11 +350,11 @@ func (p *SquadronMembershipCreatePatch) ToStruct() *SquadronMembership {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SquadronMembershipCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronMembershipCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronMembershipCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronMembershipCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -434,11 +446,11 @@ func (p *SquadronMembershipUpdatePatch) ToStruct() *SquadronMembership {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SquadronMembershipUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronMembershipUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronMembershipUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronMembershipUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -520,11 +532,11 @@ func NewSquadronMembershipDeletePatch(squadronID impulse.UUID, userID string) *S
 	return &SquadronMembershipDeletePatch{patchSet: patchSet}
 }
 
-func (p *SquadronMembershipDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronMembershipDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronMembershipDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronMembershipDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

@@ -1,13 +1,19 @@
 package resource
 
 import (
+	"context"
+	"maps"
 	"os"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // wantDataChangeEventsTable is the change history table's CREATE TABLE statement as every
@@ -15,16 +21,21 @@ import (
 const wantDataChangeEventsTable = `CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
   RowId STRING(MAX) NOT NULL,
-  Sequence INT64 NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
-  EventSource STRING(MAX) NOT NULL,
+  Sequence INT64 NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-  TenantId STRING(MAX) NOT NULL,
-) PRIMARY KEY (TableName, RowId, Sequence, EventTime)`
-
-// wantDataChangeEventsIndex is the change history table's index by tenant as every schema
-// in the repository carries it.
-const wantDataChangeEventsIndex = "CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC)"
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC)`
 
 // TestDataChangeEventsDDL pins the change history table's statements for each database
 // and period, and pins the test fixture migration to the Spanner statements for 365 days,
@@ -41,13 +52,12 @@ func TestDataChangeEventsDDL(t *testing.T) {
 		want       []string
 	}{
 		{
-			name:       "Spanner, 365 days: the table, its index by tenant and its row deletion policy",
+			name:       "Spanner, 365 days: the table and its row deletion policy",
 			dbType:     SpannerDBType,
 			period:     KeepChangeHistoryDays(365),
 			periodText: "KeepChangeHistoryDays(365)",
 			want: []string{
 				wantDataChangeEventsTable,
-				wantDataChangeEventsIndex,
 				"ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY))",
 			},
 		},
@@ -58,16 +68,15 @@ func TestDataChangeEventsDDL(t *testing.T) {
 			periodText: "KeepChangeHistoryDays(30)",
 			want: []string{
 				wantDataChangeEventsTable,
-				wantDataChangeEventsIndex,
 				"ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 30 DAY))",
 			},
 		},
 		{
-			name:       "Spanner, forever: the table and its index by tenant",
+			name:       "Spanner, forever: the table alone",
 			dbType:     SpannerDBType,
 			period:     KeepChangeHistoryForever(),
 			periodText: "KeepChangeHistoryForever()",
-			want:       []string{wantDataChangeEventsTable, wantDataChangeEventsIndex},
+			want:       []string{wantDataChangeEventsTable},
 		},
 		{
 			name:       "Spanner, a period never declared: no statement",
@@ -124,6 +133,7 @@ func TestDataChangeEventsDDL(t *testing.T) {
 	for _, path := range []string{
 		"testdata/patchfork/schema/000001_patch_fork_fixture.up.sql",
 		"testdata/changetenant/schema/000001_change_tenant_fixture.up.sql",
+		"testdata/recordednames/schema/000001_recorded_names_fixture.up.sql",
 	} {
 		t.Run("the fixture migration is the Spanner statements for 365 days: "+path, func(t *testing.T) {
 			t.Parallel()
@@ -141,10 +151,12 @@ func TestDataChangeEventsDDL(t *testing.T) {
 	}
 }
 
-// TestDataChangeEventColumns holds the change history table's statement to the record a
-// tracked write commits: the columns the CREATE TABLE names are DataChangeEvent's spanner
-// tags, in order, so a change to one that the other does not follow fails here and not at
-// an application's first tracked write.
+// TestDataChangeEventColumns holds the change history table's statement to the records a
+// tracked write commits: every column the CREATE TABLE names is one a record can set, and
+// every column a record sets is one the statement names, so a change to one that the
+// other does not follow fails here and not at an application's first tracked write. The
+// two fullest records together set them all: a session acting as a person and one acting
+// as a role, each through a process, in an RPC method, on a tenant's row.
 func TestDataChangeEventColumns(t *testing.T) {
 	t.Parallel()
 
@@ -152,25 +164,47 @@ func TestDataChangeEventColumns(t *testing.T) {
 	if len(stmts) == 0 {
 		t.Fatalf("DataChangeEventsDDL(%s, %s) = 0 statements, want 1", SpannerDBType, "KeepChangeHistoryForever()")
 	}
-	lines := strings.Split(stmts[0], "\n")
+	statementColumns := tableColumns(t, stmts[0])
+
+	asPerson := accountCtx("bob", bobID, &sessioninfo.Impersonation{
+		Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
+	})
+	asRole := sessionCtx("alice", &sessioninfo.Impersonation{
+		Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("Support"),
+	})
+	recordColumns := map[string]bool{}
+	for _, ctx := range []context.Context{asPerson, asRole} {
+		record := &DataChangeEvent{
+			TableName: "Orders", RowID: "order-1", EventTime: spanner.CommitTimestamp, Operation: ChangeUpdate,
+			ChangeSet: spanner.NullJSON{Valid: true, Value: map[string]any{}}, TenantID: "tenant-1",
+			Source: eventsource.UserProcessEvent(WithRPC(WithAuth(ctx, "crew"), "CloseOrder"), "Import"),
+		}
+		for column := range record.Columns() {
+			recordColumns[column] = true
+		}
+	}
+
+	if diff := cmp.Diff(statementColumns, slices.Sorted(maps.Keys(recordColumns))); diff != "" {
+		t.Errorf("the statement's columns (-) and those a record sets (+) differ:\n%s", diff)
+	}
+}
+
+// tableColumns answers the columns a CREATE TABLE statement names, sorted.
+func tableColumns(t *testing.T, statement string) []string {
+	t.Helper()
+
+	lines := strings.Split(statement, "\n")
 	end := slices.IndexFunc(lines, func(line string) bool {
 		return strings.HasPrefix(line, ") PRIMARY KEY")
 	})
 	if end < 1 {
-		t.Fatalf("the statement has no ') PRIMARY KEY' line:\n%s", stmts[0])
+		t.Fatalf("the statement has no ') PRIMARY KEY' line:\n%s", statement)
 	}
-	var statementColumns []string
+	var columns []string
 	for _, line := range lines[1:end] {
-		statementColumns = append(statementColumns, strings.Fields(line)[0])
+		columns = append(columns, strings.Fields(line)[0])
 	}
+	slices.Sort(columns)
 
-	var recordColumns []string
-	record := reflect.TypeFor[DataChangeEvent]()
-	for i := range record.NumField() {
-		recordColumns = append(recordColumns, record.Field(i).Tag.Get("spanner"))
-	}
-
-	if !slices.Equal(recordColumns, statementColumns) {
-		t.Errorf("DataChangeEvent's columns are %v, and the statement's are %v", recordColumns, statementColumns)
-	}
+	return columns
 }

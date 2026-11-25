@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -29,6 +30,16 @@ func (StaffSessionMailLink) DefaultConfig() resource.Config {
 func (StaffSessionMailLink) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "TenantName", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (StaffSessionMailLink) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
 	}
 }
 
@@ -491,11 +502,11 @@ func (p *StaffSessionMailLinkCreatePatch) ToStruct() *StaffSessionMailLink {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionMailLinkCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffSessionMailLinkCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionMailLinkCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffSessionMailLinkCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -795,11 +806,11 @@ func (p *StaffSessionMailLinkUpdatePatch) ToStruct() *StaffSessionMailLink {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionMailLinkUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffSessionMailLinkUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionMailLinkUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffSessionMailLinkUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -1109,11 +1120,11 @@ func NewStaffSessionMailLinkDeletePatch(id impulse.UUID) *StaffSessionMailLinkDe
 	return &StaffSessionMailLinkDeletePatch{patchSet: patchSet}
 }
 
-func (p *StaffSessionMailLinkDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffSessionMailLinkDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionMailLinkDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffSessionMailLinkDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

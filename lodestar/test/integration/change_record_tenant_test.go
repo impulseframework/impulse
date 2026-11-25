@@ -20,10 +20,10 @@ import (
 )
 
 // changeRecord is one DataChangeEvents row as this suite reads it: the changed row and
-// the tenant the record carries.
+// the tenant the record carries, which a row of no tenant leaves unset.
 type changeRecord struct {
-	RowID    string `spanner:"RowId"`
-	TenantID string `spanner:"TenantId"`
+	RowID    string             `spanner:"RowId"`
+	TenantID spanner.NullString `spanner:"TenantId"`
 }
 
 // changeRecordsOf reads the change records of a table, oldest first.
@@ -61,7 +61,7 @@ func changeRecordTenantsOf(t *testing.T, db *initiator.SpannerDB, table, rowID s
 	var tenants []string
 	for _, record := range changeRecordsOf(t, db, table) {
 		if record.RowID == rowID {
-			tenants = append(tenants, record.TenantID)
+			tenants = append(tenants, record.TenantID.StringVal)
 		}
 	}
 

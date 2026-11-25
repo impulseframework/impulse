@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
@@ -71,7 +72,7 @@ func (m *ReleaseConsignment) Execute(ctx context.Context, txn resource.ReadWrite
 	}
 
 	now := time.Now().UTC()
-	if err := resources.NewConsignmentUpdatePatch(m.ConsignmentID).SetReleasedAt(&now).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewConsignmentUpdatePatch(m.ConsignmentID).SetReleasedAt(&now).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return nil, errors.Wrap(err, "resources.ConsignmentUpdatePatch.Buffer()")
 	}
 

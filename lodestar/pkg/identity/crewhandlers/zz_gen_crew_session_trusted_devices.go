@@ -185,3 +185,38 @@ func (h *Handlers) CrewSessionTrustedDevice() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// CrewSessionTrustedDeviceChangeHistory answers a page of one crew session trusted device's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) CrewSessionTrustedDeviceChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID         impulse.UUID `json:"id"         index:"true" perm:"-"`
+		UserID     impulse.UUID `json:"userId"`
+		CreatedAt  time.Time    `json:"createdAt"`
+		ExpiresAt  time.Time    `json:"expiresAt"`
+		LastUsedAt *time.Time   `json:"lastUsedAt"`
+		RevokedAt  *time.Time   `json:"revokedAt"`
+	}
+
+	decoder := NewQueryDecoder[crewresources.CrewSessionTrustedDevice, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.CrewSessionTrustedDeviceID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		crewresources.NewCrewSessionTrustedDeviceQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

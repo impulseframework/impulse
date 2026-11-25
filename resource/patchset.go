@@ -17,6 +17,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -358,7 +359,7 @@ func (p *PatchSet[Resource]) recordLabel() string {
 //
 // An OrCreate or OrSkip patch decides its case first, from whether its row is
 // there (patch_fork.go), and then runs as the create or the update it decided on.
-func (p *PatchSet[Resource]) Apply(ctx context.Context, client Client, eventSource ...string) error {
+func (p *PatchSet[Resource]) Apply(ctx context.Context, client Client, eventSource ...eventsource.EventSource) error {
 	if p.fork != nil {
 		return p.applyFork(ctx, client, eventSource...)
 	}
@@ -398,7 +399,7 @@ func (p *PatchSet[Resource]) Apply(ctx context.Context, client Client, eventSour
 //
 // An OrCreate or OrSkip patch decides its case first, from whether its row is
 // there (patch_fork.go), and then runs as the create or the update it decided on.
-func (p *PatchSet[Resource]) Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+func (p *PatchSet[Resource]) Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	if p.fork != nil {
 		return p.bufferFork(ctx, txn, eventSource...)
 	}
@@ -445,7 +446,7 @@ func (p *PatchSet[Resource]) validateTouch() error {
 	return nil
 }
 
-func (p *PatchSet[Resource]) applyInsert(ctx context.Context, c Client, eventSource ...string) error {
+func (p *PatchSet[Resource]) applyInsert(ctx context.Context, c Client, eventSource ...eventsource.EventSource) error {
 	if err := c.ExecuteFunc(ctx, func(c context.Context, txn ReadWriteTransaction) error {
 		if err := p.bufferInsert(c, txn, eventSource...); err != nil {
 			return err
@@ -459,7 +460,7 @@ func (p *PatchSet[Resource]) applyInsert(ctx context.Context, c Client, eventSou
 	return nil
 }
 
-func (p *PatchSet[Resource]) applyUpdate(ctx context.Context, c Client, eventSource ...string) error {
+func (p *PatchSet[Resource]) applyUpdate(ctx context.Context, c Client, eventSource ...eventsource.EventSource) error {
 	if err := c.ExecuteFunc(ctx, func(c context.Context, txn ReadWriteTransaction) error {
 		if err := p.bufferUpdate(c, txn, eventSource...); err != nil {
 			return err
@@ -474,7 +475,7 @@ func (p *PatchSet[Resource]) applyUpdate(ctx context.Context, c Client, eventSou
 }
 
 // applyInsertOrUpdate applies an insert-or-update operation within a new read-write transaction.
-func (p *PatchSet[Resource]) applyInsertOrUpdate(ctx context.Context, c Client, eventSource ...string) error {
+func (p *PatchSet[Resource]) applyInsertOrUpdate(ctx context.Context, c Client, eventSource ...eventsource.EventSource) error {
 	if err := c.ExecuteFunc(ctx, func(c context.Context, txn ReadWriteTransaction) error {
 		if err := p.bufferInsertOrUpdate(c, txn, eventSource...); err != nil {
 			return err
@@ -488,7 +489,7 @@ func (p *PatchSet[Resource]) applyInsertOrUpdate(ctx context.Context, c Client, 
 	return nil
 }
 
-func (p *PatchSet[Resource]) applyDelete(ctx context.Context, c Client, eventSource ...string) error {
+func (p *PatchSet[Resource]) applyDelete(ctx context.Context, c Client, eventSource ...eventsource.EventSource) error {
 	if err := c.ExecuteFunc(ctx, func(c context.Context, txn ReadWriteTransaction) error {
 		if err := p.bufferDelete(c, txn, eventSource...); err != nil {
 			return err
@@ -502,7 +503,7 @@ func (p *PatchSet[Resource]) applyDelete(ctx context.Context, c Client, eventSou
 	return nil
 }
 
-func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	if err := p.checkPermissions(ctx, txn.DBType()); err != nil {
 		return err
 	}
@@ -561,7 +562,7 @@ func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTran
 	return nil
 }
 
-func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	if err := p.checkPermissions(ctx, txn.DBType()); err != nil {
 		return err
 	}
@@ -628,7 +629,7 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 }
 
 // bufferInsertOrUpdate buffers an insert-or-update mutation into an existing transaction buffer.
-func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	if err := p.checkPermissions(ctx, txn.DBType()); err != nil {
 		return err
 	}
@@ -760,7 +761,7 @@ func (p *PatchSet[Resource]) DeleteLeft() *DeleteLeft {
 // bufferDelete buffers the delete of the patch's row: the row's check, then the rows
 // the record's delete takes with it (deleteTaken), then the row itself, once a save
 // takes the last row under it.
-func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	p.deleteLeft = nil
 	if _, err := p.checkDelete(ctx, txn); err != nil {
 		return err
@@ -785,7 +786,7 @@ func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTran
 // bufferTaken buffers the delete of a row that a record's delete takes with it. That
 // delete checked the row already (checkDelete) and takes what is under it too, so
 // nothing is counted under the row before the commit.
-func (p *PatchSet[Resource]) bufferTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+func (p *PatchSet[Resource]) bufferTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	p.underAnswered = true
 
 	return p.bufferCheckedDelete(ctx, txn, eventSource...)
@@ -794,7 +795,7 @@ func (p *PatchSet[Resource]) bufferTaken(ctx context.Context, txn ReadWriteTrans
 // bufferCheckedDelete buffers the delete of a row that passed its check: its stored
 // files are released, the row is deleted and noted on the transaction, and its change
 // record is written where the resource's changes are tracked.
-func (p *PatchSet[Resource]) bufferCheckedDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+func (p *PatchSet[Resource]) bufferCheckedDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	event, err := p.validateEventSource(eventSource)
 	if err != nil {
 		return err
@@ -822,25 +823,27 @@ func (p *PatchSet[Resource]) bufferCheckedDelete(ctx context.Context, txn ReadWr
 	return nil
 }
 
-func (p *PatchSet[Resource]) bufferInsertWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
+func (p *PatchSet[Resource]) bufferInsertWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource eventsource.EventSource) error {
 	changeSet, err := p.insertChangeSet()
 	if err != nil {
 		return err
 	}
 
-	return p.bufferChangeRecord(ctx, txn, eventSource, changeSet)
+	return p.bufferChangeRecord(ctx, txn, ChangeCreate, eventSource, changeSet)
 }
 
 // bufferInsertOrUpdateWithDataChangeEvent buffers the record of what an insert-or-update
 // writes: what it changes in the row that is there, or, where the row is not there, every
 // value of the row it creates. before is the row's image before the write (imageBefore).
-func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string, before *rowImage) error {
+func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource eventsource.EventSource, before *rowImage) error {
+	operation := ChangeUpdate
 	changeSet, where, err := p.updateChangeSet(ctx, txn, before)
 	if err != nil {
 		// The reader answers a row that is not there with its 404 (recordNotFound).
 		if !httpio.HasNotFound(err) {
 			return err
 		}
+		operation = ChangeCreate
 		changeSet, err = p.insertChangeSet()
 		if err != nil {
 			return err
@@ -851,7 +854,7 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context
 		return nothingToChange(p.Resource(), where)
 	}
 
-	return p.bufferChangeRecord(ctx, txn, eventSource, changeSet)
+	return p.bufferChangeRecord(ctx, txn, operation, eventSource, changeSet)
 }
 
 // bufferUpdateWithDataChangeEvent buffers the record of what an update changed. An update
@@ -860,7 +863,7 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context
 // twice and a sync that runs again find the row as they asked, on a resource that keeps
 // change records exactly as on one that does not. before is the row's image before the
 // write (imageBefore).
-func (p *PatchSet[Resource]) bufferUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string, before *rowImage) error {
+func (p *PatchSet[Resource]) bufferUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource eventsource.EventSource, before *rowImage) error {
 	changeSet, _, err := p.updateChangeSet(ctx, txn, before)
 	if err != nil {
 		return err
@@ -869,14 +872,14 @@ func (p *PatchSet[Resource]) bufferUpdateWithDataChangeEvent(ctx context.Context
 		return nil
 	}
 
-	return p.bufferChangeRecord(ctx, txn, eventSource, changeSet)
+	return p.bufferChangeRecord(ctx, txn, ChangeUpdate, eventSource, changeSet)
 }
 
 // bufferDeleteWithDataChangeEvent buffers the record of a delete: every value the row
 // held. before is the row's image before the write (imageBefore). A row an earlier patch
 // of the transaction deleted is not there: the delete stays buffered, as it does on a
 // resource that keeps no change records, and writes no second record.
-func (p *PatchSet[Resource]) bufferDeleteWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string, before *rowImage) error {
+func (p *PatchSet[Resource]) bufferDeleteWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource eventsource.EventSource, before *rowImage) error {
 	if before != nil && before.state == rowDeleted {
 		return nil
 	}
@@ -886,13 +889,15 @@ func (p *PatchSet[Resource]) bufferDeleteWithDataChangeEvent(ctx context.Context
 		return err
 	}
 
-	return p.bufferChangeRecord(ctx, txn, eventSource, changeSet)
+	return p.bufferChangeRecord(ctx, txn, ChangeDelete, eventSource, changeSet)
 }
 
-// bufferChangeRecord buffers the change record of the patch's row: what changed, and
-// the tenant the row belongs to (changeRecordTenant). A delete's change set holds every
-// value the row had, which is where a deleted row's way to its tenant is read.
-func (p *PatchSet[Resource]) bufferChangeRecord(ctx context.Context, txn ReadWriteTransaction, eventSource string, changeSet map[accesstypes.Field]DiffElem) error {
+// bufferChangeRecord buffers the change record of the patch's row: what kind of write it
+// was, who made it (source), what changed, and the tenant the row belongs to
+// (changeRecordTenant). A delete's change set holds every value the row had, which is
+// where a deleted row's way to its tenant is read. The record sets only the columns that
+// hold something (DataChangeEvent.Columns).
+func (p *PatchSet[Resource]) bufferChangeRecord(ctx context.Context, txn ReadWriteTransaction, operation ChangeOperation, source eventsource.EventSource, changeSet map[accesstypes.Field]DiffElem) error {
 	var deleted map[accesstypes.Field]DiffElem
 	if p.patchType == DeletePatchType {
 		deleted = changeSet
@@ -901,20 +906,24 @@ func (p *PatchSet[Resource]) bufferChangeRecord(ctx context.Context, txn ReadWri
 	if err != nil {
 		return err
 	}
+	if err := p.keepNames(ctx, txn, tenant, changeSet); err != nil {
+		return err
+	}
 
 	rowID := p.PrimaryKey().RowID()
 	event := &DataChangeEvent{
-		TableName:   p.Resource(),
-		RowID:       rowID,
-		Sequence:    txn.DataChangeEventIndex(p.Resource(), rowID),
-		EventTime:   spanner.CommitTimestamp,
-		EventSource: eventSource,
-		ChangeSet:   spanner.NullJSON{Valid: true, Value: changeSet},
-		TenantID:    tenant,
+		TableName: p.Resource(),
+		RowID:     rowID,
+		Sequence:  txn.DataChangeEventIndex(p.Resource(), rowID),
+		EventTime: spanner.CommitTimestamp,
+		Operation: operation,
+		ChangeSet: spanner.NullJSON{Valid: true, Value: changeSet},
+		TenantID:  tenant,
+		Source:    source,
 	}
 
-	if err := txn.BufferStruct(event); err != nil {
-		return errors.Wrap(err, "ReadWriteTransaction.BufferStruct()")
+	if err := txn.BufferMap(event, event.Columns()); err != nil {
+		return errors.Wrap(err, "ReadWriteTransaction.BufferMap()")
 	}
 
 	return nil
@@ -1030,13 +1039,33 @@ func (p *PatchSet[Resource]) Resolve(dbType DBType, keys *SecretKeys) (map[strin
 }
 
 // change is a field's entry in a change set: its old and new value, or, for a field the
-// resource declares a secret, the fact that it changed and neither value.
+// resource declares a secret, the fact that it changed and neither value, or, for a field
+// set to the commit's own time, its old value and the mark in place of the new one.
 func (p *PatchSet[Resource]) change(field accesstypes.Field, oldV, newV any) DiffElem {
 	if p.querySet.rMeta.secret(field) {
 		return DiffElem{Secret: true}
 	}
+	if isCommitTime(newV) {
+		return DiffElem{Old: oldV, CommitTime: true}
+	}
 
 	return DiffElem{Old: oldV, New: newV}
+}
+
+// isCommitTime reports whether value is the commit's own time: spanner.CommitTimestamp
+// itself, a pointer to it, or a valid spanner.NullTime that holds it. The stand-in is
+// told by identity, as the client tells it: an equal instant is an ordinary time.
+func isCommitTime(value any) bool {
+	switch t := value.(type) {
+	case time.Time:
+		return t == spanner.CommitTimestamp //nolint:staticcheck // the stand-in is this one value, told by identity; an equal instant is an ordinary time
+	case *time.Time:
+		return t != nil && *t == spanner.CommitTimestamp //nolint:staticcheck // the stand-in is this one value, told by identity; an equal instant is an ordinary time
+	case spanner.NullTime:
+		return t.Valid && t.Time == spanner.CommitTimestamp //nolint:staticcheck // the stand-in is this one value, told by identity; an equal instant is an ordinary time
+	default:
+		return false
+	}
 }
 
 // Diff returns a map of fields that have changed between old and patchSet. A field the
@@ -1092,18 +1121,21 @@ func (p *PatchSet[Resource]) diffValues(old map[accesstypes.Field]reflect.Value,
 	return diff, nil
 }
 
-func (p *PatchSet[Resource]) validateEventSource(eventSource []string) (string, error) {
+func (p *PatchSet[Resource]) validateEventSource(eventSource []eventsource.EventSource) (eventsource.EventSource, error) {
 	if p.querySet.rMeta.trackChanges && len(eventSource) == 0 {
-		return "", errors.New("eventSource must be supplied when trackChanges is enabled")
+		return eventsource.EventSource{}, errors.New("eventSource must be supplied when trackChanges is enabled")
 	}
 
 	if len(eventSource) > 1 {
-		return "", errors.New("eventSource can only be supplied once")
+		return eventsource.EventSource{}, errors.New("eventSource can only be supplied once")
 	}
 
-	var event string
+	var event eventsource.EventSource
 	if len(eventSource) > 0 {
 		event = eventSource[0]
+	}
+	if p.querySet.rMeta.trackChanges && event.IsZero() {
+		return eventsource.EventSource{}, errors.New("resource: a tracked write needs who made the change; pass eventsource.UserEvent(ctx), eventsource.ProcessEvent(name) or eventsource.UserProcessEvent(ctx, name)")
 	}
 
 	return event, nil

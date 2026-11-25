@@ -137,6 +137,40 @@ func (i *identityInstance) listName(suffix string) string {
 	return i.auth + i.tenant.name + suffix
 }
 
+// listedTable is the table a row of one of an instance's lists is really a row of
+// (tableOfList): the table, the column its key is read by, the column its name is read
+// from and the column that holds its tenant, empty where the table holds none; and field,
+// the list's own field the name's grant is on.
+type listedTable struct {
+	table        string
+	keyColumn    string
+	nameColumn   string
+	tenantColumn string
+	field        string
+}
+
+// tableOfList answers the table a row of one of the instance's lists is really a row of,
+// for the name a change record keeps of it: one of a tenant's people is an account, kept
+// by its username, and one of a tenant's groups a row of the groups table, kept by its
+// name within its tenant. A write reads that table by the row's key; it never runs the
+// list's query. It answers nothing for any other list, and for an instance with no tenant
+// record, which has neither.
+func (i *identityInstance) tableOfList(list string) (listedTable, bool) {
+	// The columns of the users and the groups tables, each the column of the list's
+	// field of the same name.
+	const key, username, name = "Id", "Username", "Name"
+	switch {
+	case i.tenant == nil:
+		return listedTable{}, false
+	case list == i.listName(listPeopleSuffix):
+		return listedTable{table: i.tableName(identityUsers), keyColumn: key, nameColumn: username, tenantColumn: "", field: username}, true
+	case i.keepsGroups() && list == i.groupListName(listGroupsSuffix, true):
+		return listedTable{table: i.tableName(identityGroups), keyColumn: key, nameColumn: name, tenantColumn: groupTenantColumn, field: name}, true
+	default:
+		return listedTable{}, false
+	}
+}
+
 // refuseListNamesTaken refuses a tenant record whose name gives one of a tenant's lists
 // the name of a declaration over one of the auth's tables. A list is named by the
 // auth's name, the tenant record's and what it holds, so a tenant record named Session

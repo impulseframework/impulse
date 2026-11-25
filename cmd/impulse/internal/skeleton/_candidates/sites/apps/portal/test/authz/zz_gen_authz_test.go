@@ -104,6 +104,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "AnnouncementChangeHistory denied",
+			method:       http.MethodGet,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "AnnouncementChangeHistory granted",
+			grants:       grants{accesstypes.Read: true},
+			method:       http.MethodGet,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/00000000-0000-0000-0000-000000000001/changes",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "PatchResources Announcement create denied",
 			method:       http.MethodPatch,
 			target:       "/api/resources",

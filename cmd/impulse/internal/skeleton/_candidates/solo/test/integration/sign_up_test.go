@@ -132,8 +132,10 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	if roles["FeatureAdministrator"] == "" || roles["Administrator"] == "" || len(roles) != 2 {
 		t.Errorf("the roles the dialog's picker lists = %v, want Administrator and FeatureAdministrator, each with its description", roles)
 	}
-	if sources := changeSources(ctx, t, s, "StaffSessionSignInMethods"); len(sources) != 1 || !strings.HasPrefix(sources[0], adminUser+" ("+s.adminID+"), session ") {
-		t.Errorf("who changed the sign-in methods = %q, want the one change, by %s", sources, adminUser)
+	if sources := changeSources(ctx, t, s, "StaffSessionSignInMethods"); len(sources) != 1 {
+		t.Errorf("the changes of the sign-in methods = %+v, want the one change", sources)
+	} else if got := sources[0]; got.ActorUsername.StringVal != adminUser || got.ActorUserID.StringVal != s.adminID || !got.SessionID.Valid || got.RPC.StringVal != "OpenStaffSignUp" {
+		t.Errorf("who changed the sign-in methods = %+v, want %s by username and account id, the session, and the method OpenStaffSignUp", got, adminUser)
 	}
 
 	// A stranger signs up from the mailed link and holds the default role and nothing
@@ -186,7 +188,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 		t.Errorf("the sign-in methods once made invite only = %+v, want invite only, naming no role", got)
 	}
 	if sources := changeSources(ctx, t, s, "StaffSessionSignInMethods"); len(sources) != 2 {
-		t.Errorf("changes to the sign-in methods = %q, want two: opened, then made invite only", sources)
+		t.Errorf("changes to the sign-in methods = %+v, want two: opened, then made invite only", sources)
 	}
 	accounts = countRows(ctx, t, s, "StaffSessionUsers")
 	if status, body := late.do(ctx, http.MethodPost, "/api/user/sign-up/complete", []byte(`{"token":"`+lateToken+`","password":"a-long-password-of-my-own","username":"sam"}`)); status != http.StatusNotFound {
@@ -428,21 +430,31 @@ func countRows(ctx context.Context, t *testing.T, s *served, table string) int64
 	return n
 }
 
+// changeSource is who made a change, as its change record keeps it: the person by
+// username and by the id of their account, the session, and the RPC method the change was
+// made in.
+type changeSource struct {
+	ActorUsername cloudspanner.NullString `spanner:"ActorUsername"`
+	ActorUserID   cloudspanner.NullString `spanner:"ActorUserId"`
+	SessionID     cloudspanner.NullString `spanner:"SessionId"`
+	RPC           cloudspanner.NullString `spanner:"Rpc"`
+}
+
 // changeSources lists who made each change the change record holds for a table, oldest
-// first: the person, the id of their account and their session.
-func changeSources(ctx context.Context, t *testing.T, s *served, table string) []string {
+// first.
+func changeSources(ctx context.Context, t *testing.T, s *served, table string) []changeSource {
 	t.Helper()
 
 	iter := s.db.Client.Single().Query(ctx, cloudspanner.Statement{
-		SQL:    "SELECT EventSource FROM DataChangeEvents WHERE TableName = @table ORDER BY EventTime",
+		SQL:    "SELECT ActorUsername, ActorUserId, SessionId, Rpc FROM DataChangeEvents WHERE TableName = @table ORDER BY EventTime, Sequence",
 		Params: map[string]any{"table": table},
 	})
 	defer iter.Stop()
-	var sources []string
+	var sources []changeSource
 	if err := iter.Do(func(row *cloudspanner.Row) error {
-		var source string
-		if err := row.Columns(&source); err != nil {
-			return errors.Wrap(err, "spanner.Row.Columns()")
+		var source changeSource
+		if err := row.ToStruct(&source); err != nil {
+			return errors.Wrap(err, "spanner.Row.ToStruct()")
 		}
 		sources = append(sources, source)
 

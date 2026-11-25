@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -67,6 +68,21 @@ func (HangarPass) NameFields() []resource.NameField {
 		{Field: "SquadronName", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
 		{Field: "GroupName", Key: "GroupID", Resource: "CrewSectorGroups", Tag: "name", Table: "CrewSectorGroups", KeyColumn: "Id", NameColumn: "Name", View: true, TenantColumn: "DomainId"},
 		{Field: "LevelName", Key: "LevelID", Resource: "", Tag: "", Table: "PassLevels", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (HangarPass) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "HangarID", Resource: "Hangars", Tag: "name", Table: "Hangars", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "", Key: "UserID", Resource: "CrewSectorUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: "", GrantInTenant: true},
+		{Field: "", Key: "SquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "GroupID", Resource: "CrewSectorGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "DomainId"},
+		{Field: "", Key: "LevelID", Resource: "", Tag: "", Table: "PassLevels", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 	}
 }
 
@@ -463,11 +479,11 @@ func (p *HangarPassCreatePatch) ToStruct() *HangarPass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *HangarPassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarPassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarPassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarPassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -654,11 +670,11 @@ func (p *HangarPassUpdatePatch) ToStruct() *HangarPass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *HangarPassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarPassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarPassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarPassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -852,11 +868,11 @@ func NewHangarPassDeletePatch(id impulse.UUID) *HangarPassDeletePatch {
 	return &HangarPassDeletePatch{patchSet: patchSet}
 }
 
-func (p *HangarPassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarPassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarPassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarPassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

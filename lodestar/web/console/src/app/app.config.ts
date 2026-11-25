@@ -128,7 +128,7 @@ export const appConfig: ApplicationConfig = {
     // The XSRF cookie is the crew auth's (pkg/auth/crew, XSRFCookie): HttpClient echoes it in
     // the X-XSRF-TOKEN header on every mutating request, and the server verifies the echo.
     // The one interceptor adds the release header to the console's own same-origin
-    // HttpClient calls (the login POST, the ship's log, a session held as someone else); it judges nothing.
+    // HttpClient calls (the login POST, a session held as someone else); it judges nothing.
     provideHttpClient(withInterceptors([apiVersionInterceptor]), withXsrfConfiguration({ cookieName: 'crew-xsrf' })),
     // The console installs as a progressive web app. The service worker (ngsw-worker.js,
     // which the production build emits beside ngsw.json from the workspace's

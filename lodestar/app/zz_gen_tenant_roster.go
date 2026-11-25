@@ -12,6 +12,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
@@ -110,7 +111,7 @@ func NewSectorDirectoryRules() *resource.TenantDirectoryRules {
 // has. Then the SectorDirectory row is buffered through the record's create patch, so its
 // change event is written with it. The caller reloads the roster and signals the
 // tenants kind once the transaction has committed, as the record's write paths do.
-func SetSectorDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...string) error {
+func SetSectorDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...eventsource.EventSource) error {
 	if err := NewSectorDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant.String()), directory); err != nil {
 		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
 	}

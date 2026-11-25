@@ -1,2 +1,0 @@
--- Change history: the ship's log page in Anvil, the route's statement (lodestar/app/ships_log.go) with its parameters bound to literals: one sector's records read off the index by tenant.
-SELECT e.TableName, e.RowId, e.Sequence, e.EventTime, e.EventSource, e.ChangeSet FROM DataChangeEvents@{FORCE_INDEX=DataChangeEventsByTenant} e WHERE e.TenantId = 'a1111111-1111-4111-8111-111111111111' AND e.TableName IN ('Missions', 'Ships', 'Refits') ORDER BY e.EventTime DESC, e.TableName, e.RowId, e.Sequence DESC LIMIT 200

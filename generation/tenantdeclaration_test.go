@@ -552,7 +552,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				// through the record's create patch.
 				"func NewHarborDirectoryRules() *resource.TenantDirectoryRules {",
 				`return resource.NewTenantDirectoryRules("Harbors", "Id", &harborDeclaration, "harbor")`,
-				"func SetHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...string) error {",
+				"func SetHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...eventsource.EventSource) error {",
 				"if err := NewHarborDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant.String()), directory); err != nil {",
 				"patch, err := resources.NewHarborDirectoryCreatePatch()",
 				"patch.SetHarborID(tenant).SetMethod(string(directory.Method)).SetConnection(directory.Connection)",
@@ -637,7 +637,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				LocalPackageImports: `"example.com/app/pkg/resources"`,
 			},
 			wantContains: []string{
-				"func SetHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant string, directory signin.Directory, eventSource ...string) error {",
+				"func SetHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant string, directory signin.Directory, eventSource ...eventsource.EventSource) error {",
 				"if err := NewHarborDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant), directory); err != nil {",
 				"patch, err := resources.NewMarinaCreatePatch()",
 			},
@@ -657,7 +657,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				LocalPackageImports: `"example.com/app/pkg/resources"`,
 			},
 			wantContains: []string{
-				"func SetHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...string) error {",
+				"func SetHarborDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...eventsource.EventSource) error {",
 				"directory with it like every other row under the harbor (Harbor.DeleteTree)",
 			},
 			wantNotContains: []string{"ClearHarborDirectory", "HarborDirectoryDeletePatch", "HarborDirectoryQuery"},

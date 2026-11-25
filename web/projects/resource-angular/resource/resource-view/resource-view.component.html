@@ -137,6 +137,16 @@
           <button mat-raised-button color="primary" (click)="confirmDeleteResource()">Delete</button>
         </action-access-control-wrapper>
 
+        @for (button of rowButtons(); track button.label) {
+          <!-- A button the page's list gives every row, run with the record this page shows. -->
+          <button mat-raised-button type="button" class="row-button" (click)="runRowButton(button)">
+            <div class="button-text">
+              <mat-icon>{{ button.icon }}</mat-icon>
+              <span class="mode-text"> {{ button.label }} </span>
+            </div>
+          </button>
+        }
+
         @if (rowMethods().length > 0) {
           <!-- The methods the server says the caller may run on this row, in one menu as
                on a row of the list: a row may offer a dozen. -->

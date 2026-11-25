@@ -195,3 +195,39 @@ func (h *Handlers) CrewSession() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// CrewSessionChangeHistory answers a page of one crew session's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) CrewSessionChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		UserID          *impulse.UUID `json:"userId"`
+		Username        string        `json:"username"`
+		Expired         bool          `json:"expired"`
+		AuthenticatedAt *time.Time    `json:"authenticatedAt"`
+		CreatedAt       time.Time     `json:"createdAt"`
+		UpdatedAt       time.Time     `json:"updatedAt"`
+	}
+
+	decoder := NewQueryDecoder[crewresources.CrewSession, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.CrewSessionID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		crewresources.NewCrewSessionQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

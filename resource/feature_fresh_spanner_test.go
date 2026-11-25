@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/impulseframework/impulse/eventsource"
 )
 
 // The feature flags these tests declare, both inserted disabled by the migration.
@@ -16,7 +18,7 @@ const (
 )
 
 // flipper is who flips a flag in these tests: another instance's administrator.
-const flipper = "harbormaster (test)"
+var flipper = eventsource.ProcessEvent("harbormaster (test)")
 
 // loadIdleFeatures loads the flags over the client, not yet followed, with the hooks of
 // an instance that gets no CPU between requests: no loop will run (noLoop), so nothing
@@ -152,7 +154,7 @@ func TestFeatureSet_idleInstance_everyLookup(t *testing.T) {
 			sees: func(features *FeatureSet) bool {
 				flag, ok := features.Flag(debriefsFlag)
 
-				return ok && flag.Enabled && flag.UpdatedBy == flipper
+				return ok && flag.Enabled && flag.UpdatedBy == flipper.String()
 			},
 		},
 		{

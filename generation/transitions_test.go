@@ -524,7 +524,7 @@ func Test_rpcHandlerTemplate_transition(t *testing.T) {
 			// which said no (§12).
 			`return resource.TargetRefused("CloseTask", "StatefulTask", p.TaskID)`,
 			`gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "StatefulTasks", Label: "StatefulTask", PKColumns: []string{"Id"}}, p.TaskID)`,
-			`resources.NewStatefulTaskUpdatePatch(p.TaskID).SetState("closed").Buffer(ctx, txn, resource.UserEvent(ctx))`,
+			`resources.NewStatefulTaskUpdatePatch(p.TaskID).SetState("closed").Buffer(ctx, txn, eventsource.UserEvent(ctx))`,
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("transition handler missing %q:\n%s", want, out)

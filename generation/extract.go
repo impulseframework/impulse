@@ -1347,7 +1347,7 @@ func checkOpaqueInner(path string, shape *wireShape, seen map[*wireShape]bool) e
 // generatedSetMethods are the methods the generated set may declare on a resource's
 // struct (resourceFileTemplate), which no field of it may be named.
 func generatedSetMethods() []string {
-	return []string{"Resource", "DefaultConfig", "FileKeys", "GroupColumns", "TenantBinding", "DeleteTree", "SearchBranches", "NameFields", "SecretContext"}
+	return []string{"Resource", "DefaultConfig", "FileKeys", "GroupColumns", "TenantBinding", "DeleteTree", "SearchBranches", "NameFields", "RecordedNames", "SecretContext"}
 }
 
 // reservedRowName reports whether a column or field name collides with one of

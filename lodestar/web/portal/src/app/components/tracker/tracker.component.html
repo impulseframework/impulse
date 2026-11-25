@@ -103,28 +103,6 @@
           }
         </mat-card-content>
       </mat-card>
-
-      <mat-card appearance="outlined" class="table-card">
-        <mat-card-header>
-          <mat-card-title>Your company's statement</mat-card-title>
-          <mat-card-subtitle>Every change made to your missions in this sector.</mat-card-subtitle>
-        </mat-card-header>
-        <mat-card-content>
-          @if (said(statement); as refusal) {
-            <p class="refusal">The server would not give your statement: {{ refusal }}</p>
-          } @else {
-            <ul>
-              @for (line of rows(statement); track line.eventTime + line.missionId) {
-                <li>
-                  <b>{{ line.title }}</b> · {{ line.eventTime | date: 'medium' }} · {{ line.eventSource }}
-                </li>
-              } @empty {
-                <li class="empty">Nothing has changed on your missions yet.</li>
-              }
-            </ul>
-          }
-        </mat-card-content>
-      </mat-card>
     } @else {
       <h1>Your missions</h1>
       <p class="empty">You hold no sector yet. Your company's contact at the service gives you one.</p>

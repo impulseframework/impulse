@@ -15,6 +15,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -72,6 +73,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Take.Name }}() http.Handl
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .Take.Name }})
 
 		// A request that asks for the method's warning ({{ WarningHeader }}: true) is checked
 		// as the call is, and answers the statement in place of running the call: the
@@ -91,7 +93,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Take.Name }}() http.Handl
 		{{- else }}
 		tenant := string(domain)
 		{{- end }}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)

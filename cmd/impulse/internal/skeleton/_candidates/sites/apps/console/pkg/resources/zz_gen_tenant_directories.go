@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -34,6 +35,16 @@ func (TenantDirectory) TenantBinding() resource.TenantBinding {
 func (TenantDirectory) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "TenantName", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (TenantDirectory) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
 	}
 }
 
@@ -400,11 +411,11 @@ func (p *TenantDirectoryCreatePatch) ToStruct() *TenantDirectory {
 	return p.patchSet.ToStruct()
 }
 
-func (p *TenantDirectoryCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantDirectoryCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDirectoryCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDirectoryCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -552,11 +563,11 @@ func (p *TenantDirectoryUpdatePatch) ToStruct() *TenantDirectory {
 	return p.patchSet.ToStruct()
 }
 
-func (p *TenantDirectoryUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantDirectoryUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDirectoryUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDirectoryUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -714,11 +725,11 @@ func NewTenantDirectoryDeletePatch(id impulse.UUID) *TenantDirectoryDeletePatch 
 	return &TenantDirectoryDeletePatch{patchSet: patchSet}
 }
 
-func (p *TenantDirectoryDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantDirectoryDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDirectoryDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDirectoryDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

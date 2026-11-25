@@ -14,19 +14,10 @@ import { TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
 import { nameInWords } from '@impulseframework/resource-angular/types';
-import { ApiError, Domain, Method, Page, ResourceHandle, rowCapabilities } from '@impulseframework/resource';
+import { ApiError, Domain, Method, Page, rowCapabilities } from '@impulseframework/resource';
 import { credits } from './credits';
 import { TrackerGraphComponent } from './graph/tracker-graph.component';
 import { serverWords } from './server-words';
-
-/** One line of the company's statement, as app.clientStatementLine's wire struct. */
-export interface ClientStatementLine {
-  missionId: string;
-  title: string;
-  eventTime: string;
-  eventSource: string;
-  changeSet: Record<string, unknown> | null;
-}
 
 /** What the tracker calls a mission's edges; one it has no words for shows its method's name in words. */
 const edgeWords: Readonly<Record<string, string>> = {
@@ -38,8 +29,7 @@ const edgeWords: Readonly<Record<string, string>> = {
  * in (the frame's, from the address; the place switcher opens another), paged
  * at the size the portal's descriptor carries and each drawn as the same state graph
  * the flight deck uses but with no edge lit except Stand down; the calls they filed
- * listed back, under a File a distress call button; the company's statement over the
- * change log (the portal-only manual resource); and their own contact record. Everything
+ * listed back, under a File a distress call button; and their own contact record. Everything
  * renders from the portal's own generated client, whose digest and user-domains channels
  * live under /portal/api.
  *
@@ -58,7 +48,7 @@ const edgeWords: Readonly<Record<string, string>> = {
  * the page's notice, so what the server refuses is shown in the dialog, in the server's
  * words, and the dialog stays as it was.
  *
- * Demonstrates: outlet.session, typescript.second-target, paging.descriptor-sizes, create-form-narrowing, @manualAddResource.outlet.
+ * Demonstrates: outlet.session, typescript.second-target, paging.descriptor-sizes, create-form-narrowing.
  */
 @Component({
   selector: 'app-tracker',
@@ -173,38 +163,6 @@ export class TrackerComponent {
     this.missionsPage.set({ ...turned, total: turned.total ?? total });
   }
 
-  /**
-   * The company's statement: a manual resource registered on the portal outlet alone
-   * (no struct, no generated handle), described once per sector through the client's
-   * escape hatch. The route scopes it to the caller's company.
-   */
-  private statementHandle(sector: string): ResourceHandle<ClientStatementLine, [], 'list'> {
-    return this.api.define<ClientStatementLine, [], 'list'>(
-      {
-        resource: Resources.ClientStatements,
-        property: 'clientStatements',
-        route: 'client-statements',
-        scope: 'domain',
-        consolidated: false,
-        keys: [],
-        operations: ['list'],
-      },
-      sector as Domain,
-    );
-  }
-
-  /** The sector whose statement the session may list; empty where it may list none. */
-  private statementSector = computed(() => {
-    this.permissions();
-    const sector = this.current();
-    return sector && this.api.can(Permissions.List, Resources.ClientStatements, sector as Domain) ? sector : '';
-  });
-  statement = resource({
-    params: () => ({ sector: this.statementSector() }),
-    loader: ({ params }) => (params.sector ? this.statementHandle(params.sector).list() : Promise.resolve([])),
-    defaultValue: [] as ClientStatementLine[],
-  });
-
   private callsGranted = computed(() => {
     this.permissions();
     const api = this.sectorApi();
@@ -223,9 +181,7 @@ export class TrackerComponent {
    * so the page stays drawn; a list the grants do not allow asks nothing.
    */
   readonly ready = computed(
-    () =>
-      this.known() &&
-      [this.contact, this.missionsPage, this.statement, this.calls].every((list) => list.status() !== 'loading'),
+    () => this.known() && [this.contact, this.missionsPage, this.calls].every((list) => list.status() !== 'loading'),
   );
 
   /** What a list holds; nothing where the server refused it, which the page says in its place. */
@@ -334,7 +290,6 @@ export class TrackerComponent {
     }
     this.close();
     this.missionsPage.reload();
-    this.statement.reload();
   }
 
   /**

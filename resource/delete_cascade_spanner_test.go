@@ -12,6 +12,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -93,7 +94,7 @@ func (k *handedKind) Check(context.Context, ReadWriteTransaction) error {
 	return k.refused
 }
 
-func (k *handedKind) Take(_ context.Context, _ ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
+func (k *handedKind) Take(_ context.Context, _ ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	if k.answer != nil {
 		*k.made = append(*k.made, fmt.Sprintf("%d %s and %d mutations of %d", k.answer.rows, k.words.Many, k.answer.mutations, budget))
 
@@ -753,19 +754,19 @@ func TestPatchSet_deleteTaken_rowsTheSaveWrote(t *testing.T) {
 	err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 		deleted := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(DeletePatchType)
 		deleted.SetKey("ID", "ta")
-		if err := deleted.Buffer(ctx, txn, "test"); err != nil {
+		if err := deleted.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 			return errors.Wrap(err, "the tracked row's own delete")
 		}
 		moved := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(UpdatePatchType)
 		moved.SetKey("ID", "tb")
 		moved.Set("Title", "elsewhere")
-		if err := moved.Buffer(ctx, txn, "test"); err != nil {
+		if err := moved.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 			return errors.Wrap(err, "the tracked row's change")
 		}
 		record := NewPatchSet(NewMetadata[takingForkRow]()).SetPatchType(DeletePatchType).DeleteEverythingUnder()
 		record.SetKey("ID", "r1")
 
-		return record.Buffer(ctx, txn, "test")
+		return record.Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 	})
 	if err != nil {
 		t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v, want the save committed", err)
@@ -841,13 +842,13 @@ func TestTransactionDeletes_refuse_whatTheDatabaseHeld(t *testing.T) {
 	err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 		row := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(DeletePatchType)
 		row.SetKey("ID", "ta")
-		if err := row.Buffer(ctx, txn, "test"); err != nil {
+		if err := row.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 			return errors.Wrap(err, "the tracked row's delete")
 		}
 		record := NewPatchSet(NewMetadata[underForkRow]()).SetPatchType(DeletePatchType)
 		record.SetKey("ID", "r1")
 
-		return record.Buffer(ctx, txn, "test")
+		return record.Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 	})
 	if want := "This row has 2 tracked rows. Delete them first."; !httpio.HasConflict(err) || httpio.Message(err) != want {
 		t.Fatalf("the save's error = %v (%q), want a conflict saying %q", err, httpio.Message(err), want)
@@ -903,7 +904,7 @@ func TestPatchSet_DeleteAlso(t *testing.T) {
 			}
 			record.SetKey("ID", id)
 			record.deleteSaveSize = size
-			if err := record.Buffer(ctx, txn, "test"); err != nil {
+			if err := record.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 				return err
 			}
 			left = record.DeleteLeft()

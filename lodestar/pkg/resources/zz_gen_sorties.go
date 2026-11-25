@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -86,6 +87,17 @@ func (Sortie) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "MissionName", Key: "MissionID", Resource: "Missions", Tag: "title", Table: "Missions", KeyColumn: "Id", NameColumn: "Title", TenantColumn: "SectorId"},
 		{Field: "ShipName", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Sortie) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "MissionID", Resource: "Missions", Tag: "title", Table: "Missions", KeyColumn: "Id", NameColumn: "Title", TenantColumn: "SectorId"},
+		{Field: "", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
 	}
 }
 
@@ -453,11 +465,11 @@ func (p *SortieCreatePatch) ToStruct() *Sortie {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SortieCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -625,11 +637,11 @@ func (p *SortieUpdatePatch) ToStruct() *Sortie {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SortieUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -837,11 +849,11 @@ func (p *SortieDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *SortieDelet
 	return p
 }
 
-func (p *SortieDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

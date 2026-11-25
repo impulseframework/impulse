@@ -31,7 +31,6 @@ describe('the menu file', () => {
       'Flight deck',
       'Hangar deck',
       'Squadron roster',
-      "Ship's log",
       'Briefing',
     ]);
   });

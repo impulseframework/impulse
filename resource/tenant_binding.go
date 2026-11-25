@@ -111,6 +111,10 @@ type transactionRows struct {
 	rowReads map[pointRead]storedRow
 	keyReads map[keyedRead]pointAnswer
 	images   map[string]map[string]rowImage
+	// names are the names the transaction's change records looked up (keepNames), by
+	// what they read: a later record of the same transaction that points at the same row
+	// reads nothing.
+	names map[nameRead]nameAnswer
 }
 
 // newTransactionRows returns an empty record.
@@ -121,6 +125,7 @@ func newTransactionRows() *transactionRows {
 		rowReads: make(map[pointRead]storedRow),
 		keyReads: make(map[keyedRead]pointAnswer),
 		images:   make(map[string]map[string]rowImage),
+		names:    make(map[nameRead]nameAnswer),
 	}
 }
 

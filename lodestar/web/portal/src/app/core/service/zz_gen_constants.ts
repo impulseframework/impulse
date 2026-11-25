@@ -21,7 +21,6 @@ export const Resources = {
   BriefingTemplates: 'BriefingTemplates' as Resource,
   ClientContacts: 'ClientContacts' as Resource,
   ClientRosters: 'ClientRosters' as Resource,
-  ClientStatements: 'ClientStatements' as Resource,
   DistressCalls: 'DistressCalls' as Resource,
   FeatureFlags: 'FeatureFlags' as Resource,
   MembersHeldRoles: 'MembersHeldRoles' as Resource,

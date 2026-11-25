@@ -195,3 +195,39 @@ func (h *Handlers) StaffGroup() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// StaffGroupChangeHistory answers a page of one staff group's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) StaffGroupChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		Kind        string       `json:"kind"`
+		Axis        string       `json:"axis"`
+		DomainID    string       `json:"domainId"`
+		Name        string       `json:"name"`
+		Description string       `json:"description"`
+		UpdatedAt   time.Time    `json:"updatedAt"`
+	}
+
+	decoder := NewQueryDecoder[staffresources.StaffGroup, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.StaffGroupID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		staffresources.NewStaffGroupQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

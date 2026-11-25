@@ -142,7 +142,7 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 			"func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {",
 			// Either write is the generated patch's, buffered under the caller, which is
 			// what leaves the change event.
-			"patch.Buffer(ctx, txn, resource.UserEvent(ctx))",
+			"patch.Buffer(ctx, txn, eventsource.UserEvent(ctx))",
 			// The row is read with the audience it was opened for, and each of the two
 			// writes, of a row that exists and of one that does not, writes it.
 			"Columns().Name().OpenSignUp().OpenedFor().DefaultRole().SelfServiceReset())", "OpenedFor: row.Data.OpenedFor",

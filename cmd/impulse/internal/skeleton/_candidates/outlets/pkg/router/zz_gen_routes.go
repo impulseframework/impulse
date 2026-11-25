@@ -133,6 +133,7 @@ type GeneratedHandlers interface {
 
 	Announcements() http.HandlerFunc
 	Announcement() http.HandlerFunc
+	AnnouncementChangeHistory() http.HandlerFunc
 
 	AssignStaffRole() http.HandlerFunc
 
@@ -257,6 +258,7 @@ type GeneratedHandlers interface {
 
 	StaffGroups() http.HandlerFunc
 	StaffGroup() http.HandlerFunc
+	StaffGroupChangeHistory() http.HandlerFunc
 
 	StaffGroupMembers() http.HandlerFunc
 
@@ -301,25 +303,31 @@ type GeneratedHandlers interface {
 
 	StaffSessions() http.HandlerFunc
 	StaffSession() http.HandlerFunc
+	StaffSessionChangeHistory() http.HandlerFunc
 
 	StaffSessionAuthEvents() http.HandlerFunc
 
 	StaffSessionIdentities() http.HandlerFunc
 	StaffSessionIdentity() http.HandlerFunc
+	StaffSessionIdentityChangeHistory() http.HandlerFunc
 
 	StaffSessionMailLinks() http.HandlerFunc
 	StaffSessionMailLink() http.HandlerFunc
+	StaffSessionMailLinkChangeHistory() http.HandlerFunc
 
 	StaffSessionSignInAttempts() http.HandlerFunc
 
 	StaffSessionTokens() http.HandlerFunc
 	StaffSessionToken() http.HandlerFunc
+	StaffSessionTokenChangeHistory() http.HandlerFunc
 
 	StaffSessionTrustedDevices() http.HandlerFunc
 	StaffSessionTrustedDevice() http.HandlerFunc
+	StaffSessionTrustedDeviceChangeHistory() http.HandlerFunc
 
 	StaffSessionUsers() http.HandlerFunc
 	StaffSessionUser() http.HandlerFunc
+	StaffSessionUserChangeHistory() http.HandlerFunc
 
 	StaffSignInMethods() http.HandlerFunc
 
@@ -380,9 +388,11 @@ type GeneratedHandlers interface {
 
 	Tenants() http.HandlerFunc
 	Tenant() http.HandlerFunc
+	TenantChangeHistory() http.HandlerFunc
 
 	TenantDirectories() http.HandlerFunc
 	TenantDirectory() http.HandlerFunc
+	TenantDirectoryChangeHistory() http.HandlerFunc
 
 	UnlinkStaffSessionIdentity() http.HandlerFunc
 
@@ -437,6 +447,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	announcementHandler := domainGuard(h.Announcement())
 	bounded.Get("/console/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 	bounded.Post("/console/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
+
+	bounded.Get("/console/api/tenants/{tenantID}/announcements/{announcementID}/changes", domainGuard(h.AnnouncementChangeHistory()))
 
 	asked.Post("/console/api/assign-staff-role", h.AssignStaffRole())
 
@@ -582,6 +594,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-groups/{staffGroupID}", staffGroupHandler)
 	bounded.Post("/console/api/staff-groups/{staffGroupID}", staffGroupHandler)
 
+	bounded.Get("/console/api/staff-groups/{staffGroupID}/changes", h.StaffGroupChangeHistory())
+
 	staffGroupMembersHandler := h.StaffGroupMembers()
 	bounded.Get("/console/api/staff-group-members", staffGroupMembersHandler)
 	bounded.Post("/console/api/staff-group-members", staffGroupMembersHandler)
@@ -686,6 +700,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-sessions/{staffSessionID}", staffSessionHandler)
 	bounded.Post("/console/api/staff-sessions/{staffSessionID}", staffSessionHandler)
 
+	bounded.Get("/console/api/staff-sessions/{staffSessionID}/changes", h.StaffSessionChangeHistory())
+
 	staffSessionAuthEventsHandler := h.StaffSessionAuthEvents()
 	bounded.Get("/console/api/staff-session-auth-events", staffSessionAuthEventsHandler)
 	bounded.Post("/console/api/staff-session-auth-events", staffSessionAuthEventsHandler)
@@ -698,6 +714,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-session-identities/{staffSessionIdentityID}", staffSessionIdentityHandler)
 	bounded.Post("/console/api/staff-session-identities/{staffSessionIdentityID}", staffSessionIdentityHandler)
 
+	bounded.Get("/console/api/staff-session-identities/{staffSessionIdentityID}/changes", h.StaffSessionIdentityChangeHistory())
+
 	staffSessionMailLinksHandler := h.StaffSessionMailLinks()
 	bounded.Get("/console/api/staff-session-mail-links", staffSessionMailLinksHandler)
 	bounded.Post("/console/api/staff-session-mail-links", staffSessionMailLinksHandler)
@@ -705,6 +723,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSessionMailLinkHandler := h.StaffSessionMailLink()
 	bounded.Get("/console/api/staff-session-mail-links/{staffSessionMailLinkID}", staffSessionMailLinkHandler)
 	bounded.Post("/console/api/staff-session-mail-links/{staffSessionMailLinkID}", staffSessionMailLinkHandler)
+
+	bounded.Get("/console/api/staff-session-mail-links/{staffSessionMailLinkID}/changes", h.StaffSessionMailLinkChangeHistory())
 
 	staffSessionSignInAttemptsHandler := h.StaffSessionSignInAttempts()
 	bounded.Get("/console/api/staff-session-sign-in-attempts", staffSessionSignInAttemptsHandler)
@@ -718,6 +738,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-session-tokens/{staffSessionTokenID}", staffSessionTokenHandler)
 	bounded.Post("/console/api/staff-session-tokens/{staffSessionTokenID}", staffSessionTokenHandler)
 
+	bounded.Get("/console/api/staff-session-tokens/{staffSessionTokenID}/changes", h.StaffSessionTokenChangeHistory())
+
 	staffSessionTrustedDevicesHandler := h.StaffSessionTrustedDevices()
 	bounded.Get("/console/api/staff-session-trusted-devices", staffSessionTrustedDevicesHandler)
 	bounded.Post("/console/api/staff-session-trusted-devices", staffSessionTrustedDevicesHandler)
@@ -726,6 +748,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}", staffSessionTrustedDeviceHandler)
 	bounded.Post("/console/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}", staffSessionTrustedDeviceHandler)
 
+	bounded.Get("/console/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}/changes", h.StaffSessionTrustedDeviceChangeHistory())
+
 	staffSessionUsersHandler := h.StaffSessionUsers()
 	bounded.Get("/console/api/staff-session-users", staffSessionUsersHandler)
 	bounded.Post("/console/api/staff-session-users", staffSessionUsersHandler)
@@ -733,6 +757,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSessionUserHandler := h.StaffSessionUser()
 	bounded.Get("/console/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 	bounded.Post("/console/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
+
+	bounded.Get("/console/api/staff-session-users/{staffSessionUserID}/changes", h.StaffSessionUserChangeHistory())
 
 	staffSignInMethodsHandler := h.StaffSignInMethods()
 	bounded.Get("/console/api/staff-sign-in-methods", staffSignInMethodsHandler)
@@ -866,6 +892,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/tenants/{tenantID}", tenantHandler)
 	bounded.Post("/console/api/tenants/{tenantID}", tenantHandler)
 
+	bounded.Get("/console/api/tenants/{tenantID}/changes", h.TenantChangeHistory())
+
 	tenantDirectoriesHandler := domainGuard(h.TenantDirectories())
 	bounded.Get("/console/api/tenants/{tenantID}/tenant-directories", tenantDirectoriesHandler)
 	bounded.Post("/console/api/tenants/{tenantID}/tenant-directories", tenantDirectoriesHandler)
@@ -873,6 +901,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	tenantDirectoryHandler := domainGuard(h.TenantDirectory())
 	bounded.Get("/console/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}", tenantDirectoryHandler)
 	bounded.Post("/console/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}", tenantDirectoryHandler)
+
+	bounded.Get("/console/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}/changes", domainGuard(h.TenantDirectoryChangeHistory()))
 
 	asked.Post("/console/api/unlink-staff-session-identity", h.UnlinkStaffSessionIdentity())
 
@@ -917,6 +947,7 @@ type GeneratedPortalHandlers interface {
 
 	Announcements() http.HandlerFunc
 	Announcement() http.HandlerFunc
+	AnnouncementChangeHistory() http.HandlerFunc
 
 	AssignMembersRole() http.HandlerFunc
 
@@ -970,6 +1001,7 @@ type GeneratedPortalHandlers interface {
 
 	MembersGroups() http.HandlerFunc
 	MembersGroup() http.HandlerFunc
+	MembersGroupChangeHistory() http.HandlerFunc
 
 	MembersGroupMembers() http.HandlerFunc
 
@@ -1007,25 +1039,31 @@ type GeneratedPortalHandlers interface {
 
 	MembersSessions() http.HandlerFunc
 	MembersSession() http.HandlerFunc
+	MembersSessionChangeHistory() http.HandlerFunc
 
 	MembersSessionAuthEvents() http.HandlerFunc
 
 	MembersSessionIdentities() http.HandlerFunc
 	MembersSessionIdentity() http.HandlerFunc
+	MembersSessionIdentityChangeHistory() http.HandlerFunc
 
 	MembersSessionMailLinks() http.HandlerFunc
 	MembersSessionMailLink() http.HandlerFunc
+	MembersSessionMailLinkChangeHistory() http.HandlerFunc
 
 	MembersSessionSignInAttempts() http.HandlerFunc
 
 	MembersSessionTokens() http.HandlerFunc
 	MembersSessionToken() http.HandlerFunc
+	MembersSessionTokenChangeHistory() http.HandlerFunc
 
 	MembersSessionTrustedDevices() http.HandlerFunc
 	MembersSessionTrustedDevice() http.HandlerFunc
+	MembersSessionTrustedDeviceChangeHistory() http.HandlerFunc
 
 	MembersSessionUsers() http.HandlerFunc
 	MembersSessionUser() http.HandlerFunc
+	MembersSessionUserChangeHistory() http.HandlerFunc
 
 	MembersSignInMethods() http.HandlerFunc
 
@@ -1168,6 +1206,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 	bounded.Post("/portal/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 
+	bounded.Get("/portal/api/tenants/{tenantID}/announcements/{announcementID}/changes", domainGuard(h.AnnouncementChangeHistory()))
+
 	asked.Post("/portal/api/assign-members-role", h.AssignMembersRole())
 
 	asked.Post("/portal/api/tenants/{tenantID}/assign-members-tenant-role", domainGuard(h.AssignMembersTenantRole()))
@@ -1233,6 +1273,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersGroupHandler := h.MembersGroup()
 	bounded.Get("/portal/api/members-groups/{membersGroupID}", membersGroupHandler)
 	bounded.Post("/portal/api/members-groups/{membersGroupID}", membersGroupHandler)
+
+	bounded.Get("/portal/api/members-groups/{membersGroupID}/changes", h.MembersGroupChangeHistory())
 
 	membersGroupMembersHandler := h.MembersGroupMembers()
 	bounded.Get("/portal/api/members-group-members", membersGroupMembersHandler)
@@ -1322,6 +1364,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-sessions/{membersSessionID}", membersSessionHandler)
 	bounded.Post("/portal/api/members-sessions/{membersSessionID}", membersSessionHandler)
 
+	bounded.Get("/portal/api/members-sessions/{membersSessionID}/changes", h.MembersSessionChangeHistory())
+
 	membersSessionAuthEventsHandler := h.MembersSessionAuthEvents()
 	bounded.Get("/portal/api/members-session-auth-events", membersSessionAuthEventsHandler)
 	bounded.Post("/portal/api/members-session-auth-events", membersSessionAuthEventsHandler)
@@ -1334,6 +1378,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-session-identities/{membersSessionIdentityID}", membersSessionIdentityHandler)
 	bounded.Post("/portal/api/members-session-identities/{membersSessionIdentityID}", membersSessionIdentityHandler)
 
+	bounded.Get("/portal/api/members-session-identities/{membersSessionIdentityID}/changes", h.MembersSessionIdentityChangeHistory())
+
 	membersSessionMailLinksHandler := h.MembersSessionMailLinks()
 	bounded.Get("/portal/api/members-session-mail-links", membersSessionMailLinksHandler)
 	bounded.Post("/portal/api/members-session-mail-links", membersSessionMailLinksHandler)
@@ -1341,6 +1387,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersSessionMailLinkHandler := h.MembersSessionMailLink()
 	bounded.Get("/portal/api/members-session-mail-links/{membersSessionMailLinkID}", membersSessionMailLinkHandler)
 	bounded.Post("/portal/api/members-session-mail-links/{membersSessionMailLinkID}", membersSessionMailLinkHandler)
+
+	bounded.Get("/portal/api/members-session-mail-links/{membersSessionMailLinkID}/changes", h.MembersSessionMailLinkChangeHistory())
 
 	membersSessionSignInAttemptsHandler := h.MembersSessionSignInAttempts()
 	bounded.Get("/portal/api/members-session-sign-in-attempts", membersSessionSignInAttemptsHandler)
@@ -1354,6 +1402,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-session-tokens/{membersSessionTokenID}", membersSessionTokenHandler)
 	bounded.Post("/portal/api/members-session-tokens/{membersSessionTokenID}", membersSessionTokenHandler)
 
+	bounded.Get("/portal/api/members-session-tokens/{membersSessionTokenID}/changes", h.MembersSessionTokenChangeHistory())
+
 	membersSessionTrustedDevicesHandler := h.MembersSessionTrustedDevices()
 	bounded.Get("/portal/api/members-session-trusted-devices", membersSessionTrustedDevicesHandler)
 	bounded.Post("/portal/api/members-session-trusted-devices", membersSessionTrustedDevicesHandler)
@@ -1362,6 +1412,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-session-trusted-devices/{membersSessionTrustedDeviceID}", membersSessionTrustedDeviceHandler)
 	bounded.Post("/portal/api/members-session-trusted-devices/{membersSessionTrustedDeviceID}", membersSessionTrustedDeviceHandler)
 
+	bounded.Get("/portal/api/members-session-trusted-devices/{membersSessionTrustedDeviceID}/changes", h.MembersSessionTrustedDeviceChangeHistory())
+
 	membersSessionUsersHandler := h.MembersSessionUsers()
 	bounded.Get("/portal/api/members-session-users", membersSessionUsersHandler)
 	bounded.Post("/portal/api/members-session-users", membersSessionUsersHandler)
@@ -1369,6 +1421,8 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersSessionUserHandler := h.MembersSessionUser()
 	bounded.Get("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
 	bounded.Post("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
+
+	bounded.Get("/portal/api/members-session-users/{membersSessionUserID}/changes", h.MembersSessionUserChangeHistory())
 
 	membersSignInMethodsHandler := h.MembersSignInMethods()
 	bounded.Get("/portal/api/members-sign-in-methods", membersSignInMethodsHandler)
@@ -1544,6 +1598,7 @@ type GeneratedDevicesHandlers interface {
 
 	Readings() http.HandlerFunc
 	Reading() http.HandlerFunc
+	ReadingChangeHistory() http.HandlerFunc
 
 	PatchDevicesResources() http.HandlerFunc
 }
@@ -1572,6 +1627,8 @@ func generatedDevicesRoutes(r chi.Router, h GeneratedDevicesHandlers) {
 	readingHandler := domainGuard(h.Reading())
 	bounded.Get("/devices/tenants/{tenantID}/readings/{readingID}", readingHandler)
 	bounded.Post("/devices/tenants/{tenantID}/readings/{readingID}", readingHandler)
+
+	bounded.Get("/devices/tenants/{tenantID}/readings/{readingID}/changes", domainGuard(h.ReadingChangeHistory()))
 
 	bounded.Patch("/devices/resources", h.PatchDevicesResources())
 }

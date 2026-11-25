@@ -1857,9 +1857,6 @@
               ]
             },
             {
-              "resource": "ShipsLogEntries"
-            },
-            {
               "resource": "ClientRosters",
               "fields": [
                 "name",
@@ -4192,7 +4189,7 @@
       },
       {
         "name": "Archivist",
-        "description": "Keeps the sector's record: reads missions, sorties, expenses and the ship's log, and compiles briefings.",
+        "description": "Keeps the sector's record: reads missions, sorties and expenses, and compiles briefings.",
         "permissions": {
           "List": [
             {
@@ -4260,9 +4257,6 @@
                 "filedByUserId",
                 "filedByName"
               ]
-            },
-            {
-              "resource": "ShipsLogEntries"
             }
           ],
           "Read": [

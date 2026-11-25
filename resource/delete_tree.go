@@ -1,7 +1,6 @@
 package resource
 
 import (
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,10 +24,13 @@ const (
 	fileReleaseMutations = 0
 )
 
-// changeRecordMutations is what the change record of one removed row costs: an insert
-// counts once for each column it writes, and once for the record's entry in the table's
-// index by tenant.
-var changeRecordMutations = reflect.TypeFor[DataChangeEvent]().NumField() + 1
+// changeRecordMutations is what the change record of one removed row is counted to cost.
+// An insert counts once for each column it writes, and a record writes no more than the
+// table's sixteen columns. A record sets only the columns that hold something (the
+// delete of a tenant's row by an ordinary person sets eleven), but a save is filled to
+// DeleteMutationLimit with no margin, so the count is the most a record can cost. The
+// change history table has no index to enter the record in.
+const changeRecordMutations = 16
 
 // DeleteLink is one step from a row up toward the record it is under: the row's Columns
 // hold the key of a row of Table, in that table's References columns. A foreign key

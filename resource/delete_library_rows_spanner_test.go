@@ -10,6 +10,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -173,7 +174,7 @@ func deleteUnarmed[R Resourcer](t *testing.T, db *spanner.Client, caller *Caller
 		}
 		record.SetKey("ID", id)
 
-		return record.Buffer(ctx, txn, "test")
+		return record.Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 	})
 }
 
@@ -454,7 +455,7 @@ func TestPatchSet_DeleteLibraryRowsAlone(t *testing.T) {
 			child := NewPatchSet(NewMetadata[aloneTask]()).SetPatchType(DeletePatchType).DeleteEverythingUnder()
 			child.SetKey("ID", "z1")
 			for _, row := range []bufferer{invoice, timesheet, child} {
-				if err := row.Buffer(ctx, txn, "test"); err != nil {
+				if err := row.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 					return errors.Wrap(err, "a row's own delete")
 				}
 			}
@@ -464,7 +465,7 @@ func TestPatchSet_DeleteLibraryRowsAlone(t *testing.T) {
 			}
 			record.SetKey("ID", "r")
 
-			return record.Buffer(ctx, txn, "test")
+			return record.Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 		})
 	}
 

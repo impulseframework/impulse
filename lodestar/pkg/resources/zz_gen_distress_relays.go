@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -85,6 +86,17 @@ func (DistressRelay) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
 		{Field: "AnswersRelayName", Key: "AnswersRelayID", Resource: "DistressRelays", Tag: "message", Table: "DistressRelays", KeyColumn: "Id", NameColumn: "Message", TenantColumn: "SectorId"},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (DistressRelay) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "AnswersRelayID", Resource: "DistressRelays", Tag: "message", Table: "DistressRelays", KeyColumn: "Id", NameColumn: "Message", TenantColumn: "SectorId"},
 	}
 }
 
@@ -460,11 +472,11 @@ func (p *DistressRelayCreatePatch) ToStruct() *DistressRelay {
 	return p.patchSet.ToStruct()
 }
 
-func (p *DistressRelayCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *DistressRelayCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DistressRelayCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *DistressRelayCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -626,11 +638,11 @@ func (p *DistressRelayUpdatePatch) ToStruct() *DistressRelay {
 	return p.patchSet.ToStruct()
 }
 
-func (p *DistressRelayUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *DistressRelayUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DistressRelayUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *DistressRelayUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -830,11 +842,11 @@ func (p *DistressRelayDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *Dist
 	return p
 }
 
-func (p *DistressRelayDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *DistressRelayDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DistressRelayDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *DistressRelayDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

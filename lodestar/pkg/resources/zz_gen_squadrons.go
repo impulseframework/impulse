@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -87,6 +88,16 @@ func (Squadron) DeleteTree() *resource.DeleteTree {
 func (Squadron) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "WingName", Key: "WingID", Resource: "Wings", Tag: "name", Table: "Wings", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Squadron) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "WingID", Resource: "Wings", Tag: "name", Table: "Wings", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
 	}
 }
 
@@ -451,11 +462,11 @@ func (p *SquadronCreatePatch) ToStruct() *Squadron {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SquadronCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -567,11 +578,11 @@ func (p *SquadronUpdatePatch) ToStruct() *Squadron {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SquadronUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -693,11 +704,11 @@ func NewSquadronDeletePatch(id impulse.UUID) *SquadronDeletePatch {
 	return &SquadronDeletePatch{patchSet: patchSet}
 }
 
-func (p *SquadronDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

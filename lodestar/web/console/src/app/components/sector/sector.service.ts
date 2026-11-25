@@ -1,6 +1,6 @@
 import { computed, inject, Injectable, resource, ResourceRef, Signal } from '@angular/core';
 import { injectApi } from '@app/api/api';
-import { Permissions, Resources } from '@app/service/zz_gen_constants';
+import { Permissions } from '@app/service/zz_gen_constants';
 import { Api, DomainApi } from '@app/service/zz_gen_api';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
 import { Frame, TenantService } from '@impulseframework/resource-angular/auth-frame';
@@ -18,7 +18,6 @@ import {
   PermissionDigestState,
   Resource,
   ResourceDescriptor,
-  ResourceHandle,
 } from '@impulseframework/resource';
 
 /** The generated client bound to one sector: its resources and RPC methods. */
@@ -64,21 +63,6 @@ interface GlobalRead<Row> {
 }
 
 /**
- * ShipsLogEntry is one change-tracking event from the hand-written
- * /console/api/sectors/{sectorID}/ships-log-entries surface. The resource is registered
- * manually (@manualAddResource(List, domain)) so no generated row type exists; the
- * shape mirrors app.shipsLogEntry's wire struct.
- */
-export interface ShipsLogEntry {
-  tableName: string;
-  rowId: string;
-  sequence: number;
-  eventTime: Date;
-  eventSource: string;
-  changeSet: Record<string, unknown> | null;
-}
-
-/**
  * SectorService binds the generated API client to the sector a deck is open in, and holds
  * the rules the decks follow.
  *
@@ -112,25 +96,6 @@ export class SectorService {
   // The digest cache mirrored into a signal: can() reads it so computeds re-evaluate
   // when a digest loads, then asks the client for the answer.
   private permissions = storeSignal(this.api.permissions.snapshot);
-
-  /**
-   * The ship's log is a manually registered, sector-scoped resource (no struct, no
-   * generated handle): the client's escape hatch describes it once per sector.
-   */
-  shipsLog(sector: string): ResourceHandle<ShipsLogEntry, [], 'list'> {
-    return this.api.define<ShipsLogEntry, [], 'list'>(
-      {
-        resource: Resources.ShipsLogEntries,
-        property: 'shipsLogEntries',
-        route: 'ships-log-entries',
-        scope: 'domain',
-        consolidated: false,
-        keys: [],
-        operations: ['list'],
-      },
-      sector as Domain,
-    );
-  }
 
   /** The sector the deck is open in, the frame's (the tenant guard's alone to write); empty outside the sector segment. */
   readonly current = this.tenants.current;
@@ -209,7 +174,7 @@ export class SectorService {
       return this.api.permissions.state({ resource: target, permission });
     }
     // A target the generated metadata does not place (the manual registrations:
-    // ShipsLogEntries is sector-scoped, ViewAsUser and AssumeRole are global) is asked
+    // ViewAsUser and AssumeRole are global) is asked
     // in the open sector's digest first and the global digest second. A grant sits
     // in exactly one of them, and absence from both still fails closed.
     return (

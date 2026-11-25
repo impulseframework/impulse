@@ -163,4 +163,12 @@ func TestNameField_GoLiteral(t *testing.T) {
 	if got := field.GoLiteral(); got != want {
 		t.Errorf("GoLiteral() with a tenant path = %s, want %s", got, want)
 	}
+
+	// A name a change record keeps of one of a tenant's people: its grant is asked in the
+	// tenant although the lookup is held to none.
+	field = NameField{Key: "HolderID", Resource: "CrewSectorUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", GrantInTenant: true}
+	want = `{Field: "", Key: "HolderID", Resource: "CrewSectorUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: "", GrantInTenant: true}`
+	if got := field.GoLiteral(); got != want {
+		t.Errorf("GoLiteral() with GrantInTenant = %s, want %s", got, want)
+	}
 }

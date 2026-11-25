@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/freshness"
 	"github.com/impulseframework/impulse/logger"
@@ -132,9 +133,11 @@ func ValidateFeatureDeclarations(declared []FeatureDeclaration) error {
 // FeatureFlags holds one row per declared flag: Name (the key), Description, Enabled,
 // UpdatedAt (the commit timestamp of the last write) and UpdatedBy (who wrote it: the
 // migration process, or the principal that flipped it). FeatureFlagChanges holds one row
-// per flip: Name, ChangedAt (the commit timestamp), Enabled (the value written) and
-// ChangedBy. The audit rows are never deleted, so a flag's history outlives the flag;
-// FeatureFlagChangesHandler serves a declared flag's.
+// per flip: Name, ChangedAt (the commit timestamp), Enabled (the value written) and who
+// made it, in the nine columns a change record keeps who made a change in
+// (DataChangeEventsDDL), of which a row sets those that hold something. The audit rows are
+// never deleted, so a flag's history outlives the flag; FeatureFlagChangesHandler serves a
+// declared flag's.
 func FeatureFlagsDDL(dbType DBType) []string {
 	switch dbType {
 	case SpannerDBType:
@@ -150,7 +153,15 @@ func FeatureFlagsDDL(dbType DBType) []string {
   Name STRING(64) NOT NULL,
   ChangedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   Enabled BOOL NOT NULL,
-  ChangedBy STRING(MAX) NOT NULL,
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
 ) PRIMARY KEY (Name, ChangedAt)`,
 		}
 	case PostgresDBType:
@@ -167,7 +178,15 @@ func FeatureFlagsDDL(dbType DBType) []string {
   "Name" VARCHAR(64) NOT NULL,
   "ChangedAt" TIMESTAMPTZ NOT NULL,
   "Enabled" BOOLEAN NOT NULL,
-  "ChangedBy" TEXT NOT NULL,
+  "Auth" TEXT,
+  "ActorUserId" TEXT,
+  "ActorUsername" TEXT,
+  "PrincipalUserId" TEXT,
+  "PrincipalUsername" TEXT,
+  "PrincipalRole" TEXT,
+  "SessionId" TEXT,
+  "Process" TEXT,
+  "Rpc" TEXT,
   PRIMARY KEY ("Name", "ChangedAt")
 )`,
 		}
@@ -189,7 +208,6 @@ const (
 	flagUpdatedAtColumn   = "UpdatedAt"
 	flagUpdatedByColumn   = "UpdatedBy"
 	flagChangedAtColumn   = "ChangedAt"
-	flagChangedByColumn   = "ChangedBy"
 	flagNameField         = "name"
 )
 
@@ -262,7 +280,7 @@ func MigrateFeatures(ctx context.Context, db Client, declared []FeatureDeclarati
 		return errFeaturesUnsupportedDatabase
 	}
 
-	eventSource := ProcessEvent("MigrateFeatures")
+	eventSource := eventsource.ProcessEvent("MigrateFeatures")
 	if err := db.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 		held, err := readFeatureFlags(ctx, txn, txn.DBType())
 		if err != nil {
@@ -283,7 +301,7 @@ func MigrateFeatures(ctx context.Context, db Client, declared []FeatureDeclarati
 					flagDescriptionColumn: description,
 					flagEnabledColumn:     false,
 					flagUpdatedAtColumn:   spanner.CommitTimestamp,
-					flagUpdatedByColumn:   eventSource,
+					flagUpdatedByColumn:   eventSource.String(),
 				}); err != nil {
 					return err
 				}
@@ -329,10 +347,11 @@ func bufferFeatureFlag(txn ReadWriteTransaction, patchType PatchType, name Featu
 }
 
 // SetFeatureEnabled flips one flag in its own transaction: the row takes the value,
-// the commit timestamp and eventSource, and the audit table gains the flip's row. A
-// name the table does not hold is a not-found error. SetFeatureHandler flips through
-// the same write; a bootstrap or a test flips a flag directly through this.
-func SetFeatureEnabled(ctx context.Context, db Client, name Feature, enabled bool, eventSource string) error {
+// the commit timestamp and who flipped it (eventSource), and the audit table gains the
+// flip's row. A name the table does not hold is a not-found error, and a value that
+// names nobody is refused. SetFeatureHandler flips through the same write; a bootstrap or
+// a test flips a flag directly through this.
+func SetFeatureEnabled(ctx context.Context, db Client, name Feature, enabled bool, eventSource eventsource.EventSource) error {
 	if db.DBType() != SpannerDBType {
 		return errFeaturesUnsupportedDatabase
 	}
@@ -346,11 +365,15 @@ func SetFeatureEnabled(ctx context.Context, db Client, name Feature, enabled boo
 }
 
 // bufferFeatureWrite buffers a flip into the transaction: the flag's row updated and the
-// audit row inserted, both stamped with the commit timestamp. The row is read first,
-// so an unknown name is refused as not found before anything is written.
-func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feature, enabled bool, eventSource string) error {
+// audit row inserted, both stamped with the commit timestamp. A value that names nobody
+// is refused first, as a tracked write refuses it; then the row is read, so an unknown
+// name is refused as not found before anything is written.
+func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feature, enabled bool, eventSource eventsource.EventSource) error {
 	if txn.DBType() != SpannerDBType {
 		return errFeaturesUnsupportedDatabase
+	}
+	if eventSource.IsZero() {
+		return errors.New("resource: a feature flag's change needs who made it; pass eventsource.UserEvent(ctx) or eventsource.ProcessEvent(name)")
 	}
 	if !ValidFeatureName(string(name)) {
 		return flagNotFound(name)
@@ -373,7 +396,7 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 		flagNameColumn:      string(name),
 		flagEnabledColumn:   enabled,
 		flagUpdatedAtColumn: spanner.CommitTimestamp,
-		flagUpdatedByColumn: eventSource,
+		flagUpdatedByColumn: eventSource.String(),
 	}); err != nil {
 		return err
 	}
@@ -382,12 +405,13 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 		patchType: CreatePatchType,
 		key:       KeySet{}.Add(flagNameColumn, string(name)).Add(flagChangedAtColumn, spanner.CommitTimestamp),
 	}
-	if err := txn.BufferMap(audit, map[string]any{
-		flagNameColumn:      string(name),
-		flagChangedAtColumn: spanner.CommitTimestamp,
-		flagEnabledColumn:   enabled,
-		flagChangedByColumn: eventSource,
-	}); err != nil {
+	// The history's row keeps who made the change in the columns a change record does,
+	// those that hold something.
+	row := eventSource.Columns()
+	row[flagNameColumn] = string(name)
+	row[flagChangedAtColumn] = spanner.CommitTimestamp
+	row[flagEnabledColumn] = enabled
+	if err := txn.BufferMap(audit, row); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.BufferMap()")
 	}
 
@@ -883,12 +907,12 @@ func refuseSortByLastFlip(order []SortField) error {
 	return nil
 }
 
-// lastFlip is the newest change record of one flag: when it was last flipped, and the
-// event source of who flipped it.
+// lastFlip is the newest change record of one flag: when it was last flipped, and who
+// flipped it, in the columns the history keeps it in.
 type lastFlip struct {
 	Name      string    `spanner:"Name"`
 	ChangedAt time.Time `spanner:"ChangedAt"`
-	ChangedBy string    `spanner:"ChangedBy"`
+	eventSourceColumns
 }
 
 // lastFlips reads the newest change record of each named flag from the audit table,
@@ -912,7 +936,7 @@ func lastFlips(ctx context.Context, client Client, fields []accesstypes.Field, n
 
 	var rows []lastFlip
 	stmt := spanner.Statement{
-		SQL: "SELECT c.Name, c.ChangedAt, c.ChangedBy FROM FeatureFlagChanges AS c WHERE c.Name IN UNNEST(@names)" +
+		SQL: "SELECT c.Name, c.ChangedAt, " + strings.Join(eventsource.ColumnNames(), ", ") + " FROM FeatureFlagChanges AS c WHERE c.Name IN UNNEST(@names)" +
 			" AND c.ChangedAt = (SELECT MAX(d.ChangedAt) FROM FeatureFlagChanges AS d WHERE d.Name = c.Name)",
 		Params: map[string]any{"names": names},
 	}
@@ -920,8 +944,8 @@ func lastFlips(ctx context.Context, client Client, fields []accesstypes.Field, n
 		return nil, errors.Wrap(err, "spxscan.Select()")
 	}
 	flips := make(map[string]lastFlip, len(rows))
-	for _, row := range rows {
-		flips[row.Name] = row
+	for i := range rows {
+		flips[rows[i].Name] = rows[i]
 	}
 
 	return flips, nil
@@ -930,26 +954,31 @@ func lastFlips(ctx context.Context, client Client, fields []accesstypes.Field, n
 // flippedAt is when a flag was last flipped, as the routes serve updatedAt: the time of
 // its newest change record, and nothing (null on the wire) for a flag nobody has flipped,
 // whose row holds only when the deploy step declared it.
-func flippedAt(flip lastFlip, flipped bool) *time.Time {
+func flippedAt(flip *lastFlip, flipped bool) *time.Time {
 	if !flipped {
 		return nil
 	}
+	at := flip.ChangedAt
 
-	return &flip.ChangedAt
+	return &at
 }
 
-// flippedBy is who last flipped a flag, as the routes serve updatedBy: the name the
-// person signs in under (EventActor), read out of the event source the flip recorded, or
-// the source as it was recorded where a process flipped it; and nothing for a flag nobody
-// has flipped. The session and the account's id the audit table keeps as evidence stay
-// there.
-func flippedBy(flip lastFlip, flipped bool) string {
+// flippedBy is who last flipped a flag, as the routes serve updatedBy: the sentence of
+// who the flip's row says flipped it (whoFlipped), and nothing for a flag nobody has
+// flipped.
+func flippedBy(flip *lastFlip, flipped bool) string {
 	if !flipped {
 		return ""
 	}
-	name, _ := EventActor(flip.ChangedBy)
 
-	return name
+	return whoFlipped(&flip.eventSourceColumns)
+}
+
+// whoFlipped is the sentence of who made a flip, from the who columns of its row of
+// FeatureFlagChanges (eventsource.Stored.String). The list, the read and the history
+// each write it here, so they cannot differ.
+func whoFlipped(columns *eventSourceColumns) string {
+	return columns.stored().String()
 }
 
 // featureFlagMap renders a flag's row the way the generated handlers render theirs: the
@@ -976,11 +1005,11 @@ func featureFlagMap(fields []accesstypes.Field, row *Row[FeatureFlag], flips map
 			}
 		case flagUpdatedAtColumn:
 			if !row.Masked("updatedAt") {
-				rmap["updatedAt"] = flippedAt(flip, flipped)
+				rmap["updatedAt"] = flippedAt(&flip, flipped)
 			}
 		case flagUpdatedByColumn:
 			if !row.Masked("updatedBy") {
-				rmap["updatedBy"] = flippedBy(flip, flipped)
+				rmap["updatedBy"] = flippedBy(&flip, flipped)
 			}
 		}
 	}
@@ -1039,7 +1068,7 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 		}
 
 		name := Feature(req.Name)
-		eventSource := UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 		// SetFeature declares no warning: a request that asks for one is refused as a
 		// method's frame refuses it, and never sets the flag.
 		asksWarning, err := AsksWarning(r)

@@ -11,6 +11,7 @@ import {
   UpdatePermission,
 } from './brands';
 import { AuthClient, loginMethodsRoute } from './auth';
+import { ChangeHistoryPage, ChangeHistoryQuery } from './changes';
 import { ApiDescriptor, MethodDescriptor, ResourceDescriptor, ResourceOperation } from './descriptor';
 import { Capability, PermissionDigestState, WithCapabilities, rowCapabilities } from './digest';
 import { FeatureFlag, FeatureState, featureFlagsResource, setFeatureMethod } from './features';
@@ -332,6 +333,15 @@ export interface Readable<Row, Key extends unknown[]> {
     key: Key,
     options?: Options,
   ): Promise<Returned<Row, Options>>;
+  /**
+   * A page of the record's history: its change records, newest first, each with the
+   * fields it changed that the session user may see on the record. Pass the page's `next`
+   * back as `after` for the page of older records, and `field` for the records that
+   * changed that field alone. The server asks the record's own Read grant, and answers
+   * 404 (an `ApiError`) for a record it does not hold and for a resource that does not
+   * track its changes.
+   */
+  changes(key: Key, query?: ChangeHistoryQuery): Promise<ChangeHistoryPage>;
 }
 
 export interface Creatable<Create> {
@@ -1081,6 +1091,12 @@ function scopedRoute(
   return `${descriptor.domainRoute.segment}/${encodeURIComponent(domain)}/${route}`;
 }
 
+/**
+ * The segment a record's history is served under, after the record's read route, as the
+ * generated router registers it for every table-backed resource with a read route.
+ */
+const changeHistoryRoute = 'changes';
+
 function keySegments(key: readonly unknown[] | undefined): string {
   return key && key.length > 0 ? `/${key.map((part) => encodeURIComponent(String(part))).join('/')}` : '';
 }
@@ -1279,6 +1295,18 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
         liveRequest(client.live, wanted, readSearchParams(options)),
       );
     }) as Readable<Row, Key>['read'],
+    changes: async (key, query) => {
+      const params = new URLSearchParams();
+      if (query?.after !== undefined) {
+        params.set('after', query.after);
+      }
+      if (query?.field !== undefined) {
+        params.set('field', query.field);
+      }
+      return client.request<ChangeHistoryPage>('GET', `${route}${keySegments(key)}/${changeHistoryRoute}`, {
+        query: params,
+      });
+    },
     create: async (value) => {
       const result = await mutate(ops.add(value));
       // A consolidated route keys the new keys by resource; a standalone route answers them

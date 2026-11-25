@@ -10,6 +10,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -407,7 +408,7 @@ func TestPatchSet_deleteTaken_withinReachRounds(t *testing.T) {
 			record := NewPatchSet(NewMetadata[reachAccount]()).SetPatchType(DeletePatchType).DeleteEverythingUnder()
 			record.SetKey("ID", id)
 			record.deleteSaveSize = 2
-			if err := record.Buffer(WithCaller(ctx, acme), txn, "test"); err != nil {
+			if err := record.Buffer(WithCaller(ctx, acme), txn, eventsource.ProcessEvent("test")); err != nil {
 				return err
 			}
 			left = record.DeleteLeft()

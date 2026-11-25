@@ -58,6 +58,7 @@ type GeneratedHandlers interface {
 
 	Announcements() http.HandlerFunc
 	Announcement() http.HandlerFunc
+	AnnouncementChangeHistory() http.HandlerFunc
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
@@ -104,6 +105,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	announcementHandler := domainGuard(h.Announcement())
 	bounded.Get("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 	bounded.Post("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
+
+	bounded.Get("/api/tenants/{tenantID}/announcements/{announcementID}/changes", domainGuard(h.AnnouncementChangeHistory()))
 
 	featureFlagsHandler := h.FeatureFlags()
 	bounded.Get("/api/feature-flags", featureFlagsHandler)

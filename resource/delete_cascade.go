@@ -10,6 +10,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/api/iterator"
 )
@@ -90,7 +91,7 @@ type TakenKind interface {
 	// Take checks and buffers the delete of rows of the kind, as many as cost no more than
 	// budget mutations. It answers the rows it took, what they cost, and whether rows of the
 	// kind are left.
-	Take(ctx context.Context, txn ReadWriteTransaction, budget int, eventSource ...string) (rows int64, mutations int, more bool, err error)
+	Take(ctx context.Context, txn ReadWriteTransaction, budget int, eventSource ...eventsource.EventSource) (rows int64, mutations int, more bool, err error)
 }
 
 // takenColumn is a column of a kind's table as its resource holds it.
@@ -103,7 +104,7 @@ type takenColumn struct {
 // of the row's own delete.
 type takenRow interface {
 	checkTaken(ctx context.Context, txn ReadWriteTransaction, asks *takenAsks, answers []spanner.NullBool) (byRule bool, err error)
-	bufferTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error
+	bufferTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error
 }
 
 // takenKind is the delete of a kind's rows as one (TakenRows.kind): the caller's grants
@@ -645,7 +646,7 @@ func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level, deep
 // delete does, or where its kind is trusted; a row of a kind marked AsCaller is checked
 // as whoever the delete is for (callerOf). The sentences are written for whoever asked
 // (deleteCaller).
-func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) (*takenRound, error) {
+func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) (*takenRound, error) {
 	tree := p.deleteDescription()
 	if tree == nil || len(tree.Taken) == 0 && len(p.alsoTaken) == 0 {
 		return nil, nil
@@ -719,7 +720,7 @@ func (r *takenRound) left() *DeleteLeft {
 // take, the refusal over a row beyond the reach of whoever the delete is for, then the
 // taken kinds' checks and the rows taken (take). Each request asks them all again, so
 // every round of a delete larger than one save does.
-func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...string) (*takenRound, error) {
+func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
 	levels, err := d.count(ctx, count)
 	if err != nil {
 		return nil, err
@@ -758,7 +759,7 @@ func (d *takingDelete) count(ctx context.Context, count rowCounter) (*takenLevel
 // description's order within a level, each handed kind is counted and then asked
 // (TakenKind.Check), and the person is asked the question. With no row under the record
 // the delete goes on as a plain one.
-func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...string) (*takenRound, error) {
+func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
 	tree := d.query.tree
 	asks := make(map[*DeleteKind]*takenAsks, len(tree.Taken))
 	var counted int64
@@ -880,7 +881,7 @@ func (d *takingDelete) handedRows(handed []int64) []kindRows {
 // record, the handed kinds' among them. A round that can buffer nothing at all, neither a
 // row of the description's kinds nor a mutation of a handed kind, is an error: one row,
 // or a handed kind taken the only way it is taken, costs more than a save holds.
-func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[*DeleteKind]*takenAsks, handed []int64, counted int64, tracked map[accesstypes.Resource]bool, eventSource ...string) (*takenRound, error) {
+func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[*DeleteKind]*takenAsks, handed []int64, counted int64, tracked map[accesstypes.Resource]bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
 	tree := d.query.tree
 	size := d.size
 	if size == 0 {
@@ -948,7 +949,7 @@ func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[
 // key order, read in one page: each row is asked what its own delete asks where the kind
 // asks anything of its rows (asks), and once every row of the page has passed, each is
 // buffered. It reports how many it took.
-func (d *takingDelete) takeAt(ctx context.Context, kind *DeleteKind, level, deepest int, asks *takenAsks, most int, eventSource ...string) (int, error) {
+func (d *takingDelete) takeAt(ctx context.Context, kind *DeleteKind, level, deepest int, asks *takenAsks, most int, eventSource ...eventsource.EventSource) (int, error) {
 	fields, types, err := d.keyFields(kind)
 	if err != nil {
 		return 0, err

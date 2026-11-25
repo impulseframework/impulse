@@ -29,7 +29,7 @@ type (
 	//
 	// Mission is served on the portal outlet too: clients track their own missions under
 	// a grant whose width never includes assignedSquadron, notes, or settlement. Change
-	// tracking is on, feeding the ship's log. The list is ordered by deadline and paged at
+	// tracking is on, feeding the mission's history. The list is ordered by deadline and paged at
 	// twenty-five, the size the flight deck reads from the descriptor.
 	//
 	// Two fields declare which resource their picker lists (the field-scope form of
@@ -161,7 +161,7 @@ type (
 )
 
 // Config enables change tracking: Mission mutations write DataChangeEvents rows in the
-// same transaction, which the ship's log renders.
+// same transaction, which the mission's history reads back.
 func (Mission) Config() resource.Config {
 	return defaultConfig().SetTrackChanges(true)
 }

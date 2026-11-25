@@ -51,7 +51,7 @@ func Test_tenantDirectoryFactorTemplate(t *testing.T) {
 				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
 				"r.Body = http.MaxBytesReader(w, r.Body, router.BodyLimit)",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
-				"ctx = resource.WithCaller(ctx, caller)",
+				"ctx = resource.WithCaller(ctx, caller)\n\t\tctx = resource.WithRPC(ctx, method)",
 				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif asksWarning && !vouch {",
 				`httpio.NewBadRequestMessagef("%s declares no warning: send the call without the X-Warning header", method)`,
 				"dryRun, err := resource.IsDryRun(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif err := a.ResourceClient().ExecuteFunc(",

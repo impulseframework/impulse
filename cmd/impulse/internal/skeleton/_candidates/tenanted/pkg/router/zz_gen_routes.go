@@ -98,6 +98,7 @@ type GeneratedHandlers interface {
 
 	Announcements() http.HandlerFunc
 	Announcement() http.HandlerFunc
+	AnnouncementChangeHistory() http.HandlerFunc
 
 	AssignStaffRole() http.HandlerFunc
 
@@ -222,6 +223,7 @@ type GeneratedHandlers interface {
 
 	StaffGroups() http.HandlerFunc
 	StaffGroup() http.HandlerFunc
+	StaffGroupChangeHistory() http.HandlerFunc
 
 	StaffGroupMembers() http.HandlerFunc
 
@@ -266,25 +268,31 @@ type GeneratedHandlers interface {
 
 	StaffSessions() http.HandlerFunc
 	StaffSession() http.HandlerFunc
+	StaffSessionChangeHistory() http.HandlerFunc
 
 	StaffSessionAuthEvents() http.HandlerFunc
 
 	StaffSessionIdentities() http.HandlerFunc
 	StaffSessionIdentity() http.HandlerFunc
+	StaffSessionIdentityChangeHistory() http.HandlerFunc
 
 	StaffSessionMailLinks() http.HandlerFunc
 	StaffSessionMailLink() http.HandlerFunc
+	StaffSessionMailLinkChangeHistory() http.HandlerFunc
 
 	StaffSessionSignInAttempts() http.HandlerFunc
 
 	StaffSessionTokens() http.HandlerFunc
 	StaffSessionToken() http.HandlerFunc
+	StaffSessionTokenChangeHistory() http.HandlerFunc
 
 	StaffSessionTrustedDevices() http.HandlerFunc
 	StaffSessionTrustedDevice() http.HandlerFunc
+	StaffSessionTrustedDeviceChangeHistory() http.HandlerFunc
 
 	StaffSessionUsers() http.HandlerFunc
 	StaffSessionUser() http.HandlerFunc
+	StaffSessionUserChangeHistory() http.HandlerFunc
 
 	StaffSignInMethods() http.HandlerFunc
 
@@ -345,9 +353,11 @@ type GeneratedHandlers interface {
 
 	Tenants() http.HandlerFunc
 	Tenant() http.HandlerFunc
+	TenantChangeHistory() http.HandlerFunc
 
 	TenantDirectories() http.HandlerFunc
 	TenantDirectory() http.HandlerFunc
+	TenantDirectoryChangeHistory() http.HandlerFunc
 
 	UnlinkStaffSessionIdentity() http.HandlerFunc
 
@@ -402,6 +412,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	announcementHandler := domainGuard(h.Announcement())
 	bounded.Get("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 	bounded.Post("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
+
+	bounded.Get("/api/tenants/{tenantID}/announcements/{announcementID}/changes", domainGuard(h.AnnouncementChangeHistory()))
 
 	asked.Post("/api/assign-staff-role", h.AssignStaffRole())
 
@@ -547,6 +559,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-groups/{staffGroupID}", staffGroupHandler)
 	bounded.Post("/api/staff-groups/{staffGroupID}", staffGroupHandler)
 
+	bounded.Get("/api/staff-groups/{staffGroupID}/changes", h.StaffGroupChangeHistory())
+
 	staffGroupMembersHandler := h.StaffGroupMembers()
 	bounded.Get("/api/staff-group-members", staffGroupMembersHandler)
 	bounded.Post("/api/staff-group-members", staffGroupMembersHandler)
@@ -651,6 +665,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-sessions/{staffSessionID}", staffSessionHandler)
 	bounded.Post("/api/staff-sessions/{staffSessionID}", staffSessionHandler)
 
+	bounded.Get("/api/staff-sessions/{staffSessionID}/changes", h.StaffSessionChangeHistory())
+
 	staffSessionAuthEventsHandler := h.StaffSessionAuthEvents()
 	bounded.Get("/api/staff-session-auth-events", staffSessionAuthEventsHandler)
 	bounded.Post("/api/staff-session-auth-events", staffSessionAuthEventsHandler)
@@ -663,6 +679,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-session-identities/{staffSessionIdentityID}", staffSessionIdentityHandler)
 	bounded.Post("/api/staff-session-identities/{staffSessionIdentityID}", staffSessionIdentityHandler)
 
+	bounded.Get("/api/staff-session-identities/{staffSessionIdentityID}/changes", h.StaffSessionIdentityChangeHistory())
+
 	staffSessionMailLinksHandler := h.StaffSessionMailLinks()
 	bounded.Get("/api/staff-session-mail-links", staffSessionMailLinksHandler)
 	bounded.Post("/api/staff-session-mail-links", staffSessionMailLinksHandler)
@@ -670,6 +688,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSessionMailLinkHandler := h.StaffSessionMailLink()
 	bounded.Get("/api/staff-session-mail-links/{staffSessionMailLinkID}", staffSessionMailLinkHandler)
 	bounded.Post("/api/staff-session-mail-links/{staffSessionMailLinkID}", staffSessionMailLinkHandler)
+
+	bounded.Get("/api/staff-session-mail-links/{staffSessionMailLinkID}/changes", h.StaffSessionMailLinkChangeHistory())
 
 	staffSessionSignInAttemptsHandler := h.StaffSessionSignInAttempts()
 	bounded.Get("/api/staff-session-sign-in-attempts", staffSessionSignInAttemptsHandler)
@@ -683,6 +703,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-session-tokens/{staffSessionTokenID}", staffSessionTokenHandler)
 	bounded.Post("/api/staff-session-tokens/{staffSessionTokenID}", staffSessionTokenHandler)
 
+	bounded.Get("/api/staff-session-tokens/{staffSessionTokenID}/changes", h.StaffSessionTokenChangeHistory())
+
 	staffSessionTrustedDevicesHandler := h.StaffSessionTrustedDevices()
 	bounded.Get("/api/staff-session-trusted-devices", staffSessionTrustedDevicesHandler)
 	bounded.Post("/api/staff-session-trusted-devices", staffSessionTrustedDevicesHandler)
@@ -691,6 +713,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}", staffSessionTrustedDeviceHandler)
 	bounded.Post("/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}", staffSessionTrustedDeviceHandler)
 
+	bounded.Get("/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}/changes", h.StaffSessionTrustedDeviceChangeHistory())
+
 	staffSessionUsersHandler := h.StaffSessionUsers()
 	bounded.Get("/api/staff-session-users", staffSessionUsersHandler)
 	bounded.Post("/api/staff-session-users", staffSessionUsersHandler)
@@ -698,6 +722,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSessionUserHandler := h.StaffSessionUser()
 	bounded.Get("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 	bounded.Post("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
+
+	bounded.Get("/api/staff-session-users/{staffSessionUserID}/changes", h.StaffSessionUserChangeHistory())
 
 	staffSignInMethodsHandler := h.StaffSignInMethods()
 	bounded.Get("/api/staff-sign-in-methods", staffSignInMethodsHandler)
@@ -831,6 +857,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/tenants/{tenantID}", tenantHandler)
 	bounded.Post("/api/tenants/{tenantID}", tenantHandler)
 
+	bounded.Get("/api/tenants/{tenantID}/changes", h.TenantChangeHistory())
+
 	tenantDirectoriesHandler := domainGuard(h.TenantDirectories())
 	bounded.Get("/api/tenants/{tenantID}/tenant-directories", tenantDirectoriesHandler)
 	bounded.Post("/api/tenants/{tenantID}/tenant-directories", tenantDirectoriesHandler)
@@ -838,6 +866,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	tenantDirectoryHandler := domainGuard(h.TenantDirectory())
 	bounded.Get("/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}", tenantDirectoryHandler)
 	bounded.Post("/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}", tenantDirectoryHandler)
+
+	bounded.Get("/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}/changes", domainGuard(h.TenantDirectoryChangeHistory()))
 
 	asked.Post("/api/unlink-staff-session-identity", h.UnlinkStaffSessionIdentity())
 

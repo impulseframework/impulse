@@ -265,7 +265,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	case err == nil:
 		patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}UpdatePatch(row.Name).
 			SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}UpdatePatch.Buffer()")
 		}
 
@@ -275,7 +275,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}CreatePatch(row.Name).
 		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}CreatePatch.Buffer()")
 	}
 
@@ -293,7 +293,7 @@ func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTran
 	switch {
 	case err == nil:
 		patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}UpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}UpdatePatch.Buffer()")
 		}
 
@@ -302,7 +302,7 @@ func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}Query.Read()")
 	}
 	patch := {{ .ResourcesPackage }}.New{{ .SignInMethodRow }}CreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInMethodRow }}CreatePatch.Buffer()")
 	}
 

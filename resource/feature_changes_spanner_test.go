@@ -10,13 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/spanner"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/spxscan"
 )
 
 // featureHistoryRouter mounts the flags' list, a flag's read and a flag's history the way
@@ -75,9 +78,11 @@ var ignoreChangedAt = cmpopts.IgnoreFields(FeatureFlagChange{}, "ChangedAt")
 // TestFeatureFlagChangesHandler pins a flag's history over the emulator: its flips
 // newest first, each with who made it by the name they sign in under, to a List grant on
 // FeatureFlags and to no other grant; an empty list for a flag nobody has flipped; an
-// unknown flag not found. It pins what the list and the read serve beside it: who last
-// flipped each flag, a person by name and a process as it was recorded, and nobody for
-// a flag only the deploy step has written.
+// unknown flag not found. Each flip's row keeps who made it in the columns a change
+// record uses, those the value fills and no other. It pins what the list and the read
+// serve beside it: who last flipped each flag, a person by name, a process by its name,
+// a person in an RPC method with the method, and nobody for a flag only the deploy step
+// has written.
 func TestFeatureFlagChangesHandler(t *testing.T) {
 	t.Parallel()
 
@@ -90,18 +95,19 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 		{Name: "debriefs", Description: "Debriefs lets a crew write debriefs.", Constant: "Debriefs"},
 		{Name: "cargo_manifest", Description: "CargoManifest shows a ship's cargo bays.", Constant: "CargoManifest"},
 		{Name: "telemetry", Description: "Telemetry reports a ship's position.", Constant: "Telemetry"},
+		{Name: "autopilot", Description: "Autopilot steers a ship between waypoints.", Constant: "Autopilot"},
 	}); err != nil {
 		t.Fatalf("MigrateFeatures() error = %v", err)
 	}
-	// Three flips of one flag, in order: a process's, a person's, and one made through an
-	// impersonated session, which is its actor's.
+	// Three flips of one flag, in order: a process's, a person's, and one made in a
+	// session acting as someone else, which names the person acting first.
 	flips := []struct {
 		enabled bool
-		source  string
+		source  eventsource.EventSource
 	}{
-		{enabled: true, source: ProcessEvent("bootstrap")},
-		{enabled: false, source: UserEvent(gale)},
-		{enabled: true, source: UserEvent(behindRey)},
+		{enabled: true, source: eventsource.ProcessEvent("bootstrap")},
+		{enabled: false, source: eventsource.UserEvent(gale)},
+		{enabled: true, source: eventsource.UserEvent(behindRey)},
 	}
 	for _, flip := range flips {
 		if err := SetFeatureEnabled(gale, client, "cargo_manifest", flip.enabled, flip.source); err != nil {
@@ -109,7 +115,13 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 		}
 	}
 	// A flag only a process has flipped: its row is a process's, as an unflipped flag's is.
-	if err := SetFeatureEnabled(gale, client, "telemetry", true, ProcessEvent("bootstrap")); err != nil {
+	if err := SetFeatureEnabled(gale, client, "telemetry", true, eventsource.ProcessEvent("bootstrap")); err != nil {
+		t.Fatalf("SetFeatureEnabled() error = %v", err)
+	}
+	// A flag an RPC method of the application flipped for a person: the row names the
+	// method too.
+	inStartPilot := eventsource.UserEvent(WithRPC(gale, "StartPilot"))
+	if err := SetFeatureEnabled(gale, client, "autopilot", true, inStartPilot); err != nil {
 		t.Fatalf("SetFeatureEnabled() error = %v", err)
 	}
 	features, err := LoadFeatures(gale, client)
@@ -131,10 +143,17 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 			target:     history,
 			wantStatus: http.StatusOK,
 			want: FeatureFlagChangesResponse{Changes: []FeatureFlagChange{
-				{Enabled: true, ChangedBy: "morgan"},
+				{Enabled: true, ChangedBy: "morgan, acting as rey"},
 				{Enabled: false, ChangedBy: "gale"},
-				{Enabled: true, ChangedBy: "Process bootstrap"},
+				{Enabled: true, ChangedBy: "the process bootstrap"},
 			}},
+		},
+		{
+			name:       "a flip made in an RPC method names the method",
+			perms:      featureGrants(accesstypes.List),
+			target:     "/api/" + FeatureFlagsRoute + "/autopilot/" + FeatureFlagChangesRoute,
+			wantStatus: http.StatusOK,
+			want:       FeatureFlagChangesResponse{Changes: []FeatureFlagChange{{Enabled: true, ChangedBy: "gale, through the RPC StartPilot"}}},
 		},
 		{
 			name:       "a flag nobody has flipped answers an empty list, never null",
@@ -268,6 +287,31 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 		}
 	})
 
+	t.Run("each flip's row keeps who made it in the columns the value fills, and no other", func(t *testing.T) {
+		t.Parallel()
+
+		var rows []struct {
+			Name string `spanner:"Name"`
+			eventSourceColumns
+		}
+		stmt := spanner.Statement{SQL: "SELECT Name, " + strings.Join(eventsource.ColumnNames(), ", ") + " FROM FeatureFlagChanges WHERE Name IN UNNEST(@names) ORDER BY ChangedAt"}
+		stmt.Params = map[string]any{"names": []string{"cargo_manifest", "autopilot"}}
+		txn := client.ReadOnlyTransaction()
+		defer txn.Close()
+		if err := spxscan.Select(t.Context(), txn.SpannerReadOnlyTransaction(), &rows, stmt); err != nil {
+			t.Fatalf("spxscan.Select() error = %v", err)
+		}
+		sources := []eventsource.EventSource{flips[0].source, flips[1].source, flips[2].source, inStartPilot}
+		if len(rows) != len(sources) {
+			t.Fatalf("FeatureFlagChanges holds %d rows of the two flags, want %d", len(rows), len(sources))
+		}
+		for i, source := range sources {
+			if diff := cmp.Diff(whoColumnsOf(source), rows[i].eventSourceColumns); diff != "" {
+				t.Errorf("row %d (%s) mismatch (-want +got):\n%s", i, source, diff)
+			}
+		}
+	})
+
 	t.Run("a read asked for fewer flips than the flag has answers the newest and says there are more", func(t *testing.T) {
 		t.Parallel()
 
@@ -277,7 +321,7 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readFeatureFlagChanges() error = %v", err)
 		}
-		want := []FeatureFlagChange{{Enabled: true, ChangedBy: "morgan"}, {Enabled: false, ChangedBy: "gale"}}
+		want := []FeatureFlagChange{{Enabled: true, ChangedBy: "morgan, acting as rey"}, {Enabled: false, ChangedBy: "gale"}}
 		if diff := cmp.Diff(want, got, ignoreChangedAt); diff != "" || !more {
 			t.Errorf("readFeatureFlagChanges() more = %v, mismatch (-want +got):\n%s", more, diff)
 		}
@@ -340,11 +384,12 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 			Enabled     bool   `json:"enabled"`
 			UpdatedBy   string `json:"updatedBy"`
 		}{
-			{Name: "cargo_manifest", Description: "Cargo manifest shows a ship's cargo bays.", Enabled: true, UpdatedBy: "morgan"},
+			{Name: "autopilot", Description: "Autopilot steers a ship between waypoints.", Enabled: true, UpdatedBy: "gale, through the RPC StartPilot"},
+			{Name: "cargo_manifest", Description: "Cargo manifest shows a ship's cargo bays.", Enabled: true, UpdatedBy: "morgan, acting as rey"},
 			// Nobody has flipped it: the deploy step that declared it is no one's flip.
 			{Name: "debriefs", Description: "Debriefs lets a crew write debriefs.", UpdatedBy: ""},
 			// A process flipped it, which the row says as the history does.
-			{Name: "telemetry", Description: "Telemetry reports a ship's position.", Enabled: true, UpdatedBy: "Process bootstrap"},
+			{Name: "telemetry", Description: "Telemetry reports a ship's position.", Enabled: true, UpdatedBy: "the process bootstrap"},
 		}
 		if diff := cmp.Diff(want, rows); diff != "" {
 			t.Errorf("list mismatch (-want +got):\n%s", diff)
@@ -355,7 +400,7 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 		t.Parallel()
 
 		handler := featureHistoryRouter(&featureTestApp{client: client, perms: featureGrants(accesstypes.Read), features: features})
-		for name, want := range map[string]string{"cargo_manifest": "morgan", "debriefs": "", "telemetry": "Process bootstrap"} {
+		for name, want := range map[string]string{"autopilot": "gale, through the RPC StartPilot", "cargo_manifest": "morgan, acting as rey", "debriefs": "", "telemetry": "the process bootstrap"} {
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, httptest.NewRequestWithContext(gale, http.MethodGet, "/api/"+FeatureFlagsRoute+"/"+name, http.NoBody))
 			if rr.Code != http.StatusOK {
@@ -426,9 +471,9 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 			wantSays  []string
 			wantNames []string
 		}{
-			{name: "no sort asked: by name", perms: lists, wantStatus: http.StatusOK, wantNames: []string{"cargo_manifest", "debriefs", "telemetry"}},
-			{name: "the description, last first", perms: lists, query: "?sort=description:desc", wantStatus: http.StatusOK, wantNames: []string{"telemetry", "debriefs", "cargo_manifest"}},
-			{name: "whether it is on, then the name", perms: lists, query: "?sort=enabled,name", wantStatus: http.StatusOK, wantNames: []string{"debriefs", "cargo_manifest", "telemetry"}},
+			{name: "no sort asked: by name", perms: lists, wantStatus: http.StatusOK, wantNames: []string{"autopilot", "cargo_manifest", "debriefs", "telemetry"}},
+			{name: "the description, last first", perms: lists, query: "?sort=description:desc", wantStatus: http.StatusOK, wantNames: []string{"telemetry", "debriefs", "cargo_manifest", "autopilot"}},
+			{name: "whether it is on, then the name", perms: lists, query: "?sort=enabled,name", wantStatus: http.StatusOK, wantNames: []string{"debriefs", "autopilot", "cargo_manifest", "telemetry"}},
 			{
 				name: "when it was last flipped", perms: lists, query: "?sort=updatedAt", wantStatus: http.StatusBadRequest,
 				wantSays: []string{"the flags cannot be sorted on updatedAt", "are worked out from the flag", "sort on name, description or enabled"},
@@ -515,7 +560,7 @@ func TestFeatureFlagLastFlipFollowsHistory(t *testing.T) {
 	if err := MigrateFeatures(gale, client, beacons); err != nil {
 		t.Fatalf("MigrateFeatures() error = %v", err)
 	}
-	if err := SetFeatureEnabled(gale, client, "beacons", true, UserEvent(gale)); err != nil {
+	if err := SetFeatureEnabled(gale, client, "beacons", true, eventsource.UserEvent(gale)); err != nil {
 		t.Fatalf("SetFeatureEnabled() error = %v", err)
 	}
 	for _, declared := range [][]FeatureDeclaration{nil, beacons} {

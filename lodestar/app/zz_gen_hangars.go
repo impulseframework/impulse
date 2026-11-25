@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -202,7 +203,7 @@ func (a *App) PatchHangars() http.HandlerFunc {
 		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
 
 		var resp response
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		// What the request's deletes left under their records, summed: the answer is a 202
 		// with it where one left any.
@@ -272,5 +273,40 @@ func (a *App) PatchHangars() http.HandlerFunc {
 		}
 
 		return httpio.NewEncoder(w).Ok(resp)
+	})
+}
+
+// HangarChangeHistory answers a page of one hangar's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) HangarChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID         impulse.UUID `json:"id"         index:"true"              perm:"-"`
+		SectorID   impulse.UUID `json:"sectorId"`
+		Name       string       `json:"name"       search:"lower=Name_Lower"`
+		Zone       string       `json:"zone"`
+		SectorName *string      `json:"sectorName" nameof:"SectorID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Hangar, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.HangarID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewHangarQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
 	})
 }

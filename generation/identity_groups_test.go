@@ -164,7 +164,9 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"var _ identity.Store = store{}",
 			"func (store) InsertGroup(ctx context.Context, txn resource.ReadWriteTransaction, group *access.GroupRow) (impulse.UUID, error) {",
 			"func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {",
-			"patch := crewresources.NewCrewGroupDeletePatch(id)\n\tif everythingUnder {\n\t\tpatch = patch.WithEverythingUnder()\n\t}",
+			// A row the delete takes that keeps a change history records its delete as the
+			// request's person's, where the delete is made in a request (deletedBy).
+			"patch := crewresources.NewCrewGroupDeletePatch(id)\n\tif everythingUnder {\n\t\tpatch = patch.WithEverythingUnder()\n\t}\n\tif err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {",
 			// The tenant's delete takes the application's rows under the tenant, so a group
 			// it takes leaves them out.
 			"func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {",

@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -55,6 +56,16 @@ func (ShipClass) DeleteTree() *resource.DeleteTree {
 func (ShipClass) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "RoleName", Key: "RoleID", Resource: "", Tag: "", Table: "ShipRoles", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (ShipClass) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "RoleID", Resource: "", Tag: "", Table: "ShipRoles", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 	}
 }
 
@@ -421,11 +432,11 @@ func (p *ShipClassCreatePatch) ToStruct() *ShipClass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ShipClassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipClassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipClassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipClassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -569,11 +580,11 @@ func (p *ShipClassUpdatePatch) ToStruct() *ShipClass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ShipClassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipClassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipClassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipClassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -727,11 +738,11 @@ func NewShipClassDeletePatch(id impulse.UUID) *ShipClassDeletePatch {
 	return &ShipClassDeletePatch{patchSet: patchSet}
 }
 
-func (p *ShipClassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipClassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipClassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipClassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

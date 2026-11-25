@@ -198,3 +198,40 @@ func (a *App) TenantDirectory() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// TenantDirectoryChangeHistory answers a page of one tenant directory's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) TenantDirectoryChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID               impulse.UUID `json:"id"               index:"true"      perm:"-"`
+		TenantID         impulse.UUID `json:"tenantId"         index:"true"`
+		Method           string       `json:"method"`
+		Connection       string       `json:"connection"`
+		DefaultSeat      *string      `json:"defaultSeat"`
+		AsksSecondFactor bool         `json:"asksSecondFactor"`
+		TenantName       *string      `json:"tenantName"       nameof:"TenantID"`
+	}
+
+	decoder := NewQueryDecoder[resources.TenantDirectory, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.TenantDirectoryID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewTenantDirectoryQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

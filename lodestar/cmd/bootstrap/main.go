@@ -44,6 +44,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
@@ -572,7 +573,8 @@ func seedGroupPasses(ctx context.Context, client *spanner.Client, writer resourc
 			SetGroupID(groupID).
 			SetLevelID(pass.Level).
 			OrCreate()
-		if err := patch.Apply(ctx, writer); err != nil {
+		// A pass keeps a change history, so the write says who made it: this command.
+		if err := patch.Apply(ctx, writer, eventsource.ProcessEvent("Bootstrap")); err != nil {
 			if message := httpio.Message(err); message != "" {
 				return errors.Newf("%s: the pass of the group %s to the hangar %q is refused: %s", usersPath, group.Name, pass.Hangar, message)
 			}

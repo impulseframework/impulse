@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
@@ -238,7 +239,9 @@ func TestGeneratedIdentityDigest(t *testing.T) {
 // TestGeneratedIdentityOneTransaction holds the Go face: two of the auth's methods and
 // one of the application's own writes run in one transaction the application opened.
 // All three land together, and when a later method fails at the commit (the disabling of
-// a user that does not exist), the role given beside it is rolled back with it.
+// a user that does not exist), the role given beside it is rolled back with it. The Go
+// face needs no request: an account is deleted in a transaction the application opened
+// with no session in its context, as a job deletes one.
 func TestGeneratedIdentityOneTransaction(t *testing.T) {
 	t.Parallel()
 	w := newIdentityWorld(t)
@@ -260,7 +263,7 @@ func TestGeneratedIdentityOneTransaction(t *testing.T) {
 			return fmt.Errorf("resources.NewClientCreatePatch(): %w", err)
 		}
 		patch.SetName(clientName).SetContactName("Ada Byron").SetContactEmail("ada@example.com").SetTrusted(true)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return fmt.Errorf("resources.ClientCreatePatch.Buffer(): %w", err)
 		}
 		clientID = patch.ID()
@@ -304,6 +307,24 @@ func TestGeneratedIdentityOneTransaction(t *testing.T) {
 	}
 	if _, err := w.db.Single().ReadRow(ctx, "CrewUserRoles", crewMembershipKey("ClientBrowser", userOf(carol)), []string{"UserId"}); spanner.ErrCode(err) != codes.NotFound {
 		t.Errorf("carol's membership after the rollback: err = %v, want not found", err)
+	}
+
+	// Outside any request: the application deletes an account in a transaction of its own
+	// with no session in the context, as a job does. The store names the request's person
+	// as who made the delete only where there is one.
+	dave := w.seedCrewUser(ctx, t, "dave-"+sfx)
+	err = w.inTransaction(t.Context(), func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if _, err := (&crewidentity.DeleteCrewUser{UserID: dave}).Execute(ctx, txn, w.app.CrewIdentity()); err != nil {
+			return fmt.Errorf("DeleteCrewUser(): %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("deleting an account outside any request: %v", err)
+	}
+	if _, err := w.db.Single().ReadRow(ctx, "CrewSessionUsers", spanner.Key{dave.String()}, []string{"Id"}); spanner.ErrCode(err) != codes.NotFound {
+		t.Errorf("the account after its delete outside a request: err = %v, want not found", err)
 	}
 }
 

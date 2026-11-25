@@ -252,6 +252,49 @@ func (a *App) MissionDocument() http.HandlerFunc {
 	})
 }
 
+// MissionDocumentChangeHistory answers a page of one mission document's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) MissionDocumentChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID               impulse.UUID                      `json:"id"               index:"true"       perm:"-"`
+		MissionID        impulse.UUID                      `json:"missionId"`
+		Title            string                            `json:"title"`
+		FileName         string                            `json:"fileName"`
+		ContentType      string                            `json:"contentType"`
+		Size             int64                             `json:"size"`
+		StoreKey         resource.Key[resources.Documents] `json:"-"`
+		UploadedByUserID string                            `json:"uploadedByUserId"`
+		UploadedByName   string                            `json:"uploadedByName"`
+		UploadedAt       time.Time                         `json:"uploadedAt"`
+		Provenance       *resources.Provenance             `json:"provenance"`
+		Digest           []byte                            `json:"digest"`
+		MissionName      *string                           `json:"missionName"      nameof:"MissionID"`
+	}
+
+	decoder := NewQueryDecoder[resources.MissionDocument, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.MissionDocumentID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain), "StoreKey")
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewMissionDocumentQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}
+
 func (a *App) MissionDocumentContent() http.HandlerFunc {
 	// The frame's projection: the key, and the columns that deliver the file, read for
 	// the frame itself without field grants. The gate is Read on the resource and on
