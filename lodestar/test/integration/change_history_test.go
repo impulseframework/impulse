@@ -9,15 +9,19 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
@@ -509,12 +513,13 @@ type storedChange struct {
 	NewName string
 }
 
-// storedChangeSets reads past the API the change sets of one mission, oldest first.
-func storedChangeSets(t *testing.T, db *initiator.SpannerDB, missionID string) []map[string]storedChange {
+// storedChangeSets reads past the API the change sets of one row of a table, oldest first.
+func storedChangeSets(t *testing.T, db *initiator.SpannerDB, table, rowID string) []map[string]storedChange {
 	t.Helper()
 
-	stmt := spanner.NewStatement("SELECT TO_JSON_STRING(ChangeSet) FROM DataChangeEvents WHERE TableName = 'Missions' AND RowId = @row ORDER BY EventTime, Sequence")
-	stmt.Params["row"] = missionID
+	stmt := spanner.NewStatement("SELECT TO_JSON_STRING(ChangeSet) FROM DataChangeEvents WHERE TableName = @table AND RowId = @row ORDER BY EventTime, Sequence")
+	stmt.Params["table"] = table
+	stmt.Params["row"] = rowID
 	var changeSets []map[string]storedChange
 	if err := db.Single().Query(t.Context(), stmt).Do(func(row *spanner.Row) error {
 		var text string
@@ -529,7 +534,7 @@ func storedChangeSets(t *testing.T, db *initiator.SpannerDB, missionID string) [
 
 		return nil
 	}); err != nil {
-		t.Fatalf("reading the change records of mission %s: %v", missionID, err)
+		t.Fatalf("reading the change records of %s %s: %v", table, rowID, err)
 	}
 
 	return changeSets
@@ -550,7 +555,7 @@ func TestChangeHistory_keepsNames(t *testing.T) {
 	assertStatus(t, status, http.StatusOK, body)
 
 	var squadron, state *storedChange
-	for _, changeSet := range storedChangeSets(t, db, id) {
+	for _, changeSet := range storedChangeSets(t, db, "Missions", id) {
 		if change, ok := changeSet["AssignedSquadronID"]; ok {
 			squadron = &change
 		}
@@ -658,7 +663,7 @@ func TestChangeHistory_keepsClientNames(t *testing.T) {
 	}
 	id, _ := ids[0].(string)
 
-	changeSets := storedChangeSets(t, db, id)
+	changeSets := storedChangeSets(t, db, "Missions", id)
 	if len(changeSets) != 1 {
 		t.Fatalf("the mission has %d change records, want its create's", len(changeSets))
 	}
@@ -686,6 +691,169 @@ func TestChangeHistory_keepsClientNames(t *testing.T) {
 		}
 		if got := jsonText(t, client.New) + " " + client.NewName; got != clientHalvardID+" "+tt.want {
 			t.Errorf("%s reads the client as %q, want %q", tt.name, got, clientHalvardID+" "+tt.want)
+		}
+	}
+}
+
+// conditionalAccess is staticAccess with the resources it names granted under a condition,
+// whatever the permission: a role that may read them on some rows and not on others.
+type conditionalAccess struct {
+	*staticAccess
+	conditional []accesstypes.Resource
+}
+
+func (c *conditionalAccess) ForUser(user accesstypes.User) *access.UserChecker {
+	return access.NewUserChecker(c, user)
+}
+
+func (c *conditionalAccess) CheckUserResources(ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, names ...accesstypes.Resource) (accesstypes.Decisions, error) {
+	decisions, err := c.staticAccess.CheckUserResources(ctx, env, user, scope, perm, names...)
+	if err != nil {
+		return nil, err
+	}
+	condition, err := accesstypes.NewCondition("hazard IN (1, 2)")
+	if err != nil {
+		return nil, fmt.Errorf("accesstypes.NewCondition(): %w", err)
+	}
+	for _, res := range names {
+		if slices.Contains(c.conditional, res) {
+			decisions[res] = accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{res}, Condition: condition})
+		}
+	}
+
+	return decisions, nil
+}
+
+// TestChangeHistory_keepsHolderNames pins the names a hangar pass's history keeps for its
+// holder, as each was that day. A person is kept by the account's username, read from the
+// crew auth's accounts and not from the sector's list of its people, which shows their
+// name: it is answered to a reader who may list the people's usernames outright, and the
+// id alone to one who may list their display names alone, or their usernames under a
+// condition. A group is kept by its name, read from the crew auth's groups within the
+// sector, and the record still answers that name once the group is renamed. Each pass's
+// delete keeps its holder's name again, as it then is.
+func TestChangeHistory_keepsHolderNames(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	person := makeCrewAccount(ctx, t, db, "rook")
+	groupUUID, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID() error = %v", err)
+	}
+	group := groupUUID.String()
+	key := access.NewMembershipKey(accesstypes.DomainPolicyScope(anvil), "", "")
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
+		spanner.UpdateMap("CrewSessionUsers", map[string]any{"Id": string(person), "Name": "Rook Vance"}),
+		spanner.InsertMap("CrewGroups", map[string]any{
+			"Id": group, "Kind": key.Kind, "Axis": key.Axis, "DomainId": key.Domain, "Name": "Dock watch", "Description": "Keeps the dock, for the history's suite.",
+			"UpdatedAt": spanner.CommitTimestamp,
+		}),
+	}); err != nil {
+		t.Fatalf("writing the person's name and the group: %v", err)
+	}
+
+	passes := accesstypes.Resource("HangarPasses")
+	writer := newTestApp(db, grants{accesstypes.Create: withFields(passes, "hangarId", "userId", "groupId", "levelId"), accesstypes.Delete: {passes}})
+	write := func(op, path, value string) []byte {
+		t.Helper()
+
+		operation := fmt.Sprintf(`{"op":%q,"path":%q}`, op, opPath(anvil, path))
+		if value != "" {
+			operation = fmt.Sprintf(`{"op":%q,"path":%q,"value":%s}`, op, opPath(anvil, path), value)
+		}
+		status, body := doRequest(t, writer, http.MethodPatch, "/console/api/resources", "["+operation+"]")
+		assertStatus(t, status, http.StatusOK, body)
+
+		return body
+	}
+	create := func(holder string) string {
+		t.Helper()
+
+		body := write("add", "hangar-passes", fmt.Sprintf(`{"hangarId":%q,%s,"levelId":"visit"}`, hangarAnvilDockID, holder))
+		ids, _ := decodeRow(t, body)["hangarPasses"].([]any)
+		if len(ids) != 1 {
+			t.Fatalf("created ids = %v, want one pass id: %s", ids, body)
+		}
+		id, _ := ids[0].(string)
+
+		return id
+	}
+	read := withFields(passes, "hangarId", "userId", "groupId", "levelId")
+	people, groups := fieldResource("CrewSectorUsers", "username"), fieldResource("CrewSectorGroups", "name")
+	// stored answers one field's entry of the newest of a pass's change records, as the
+	// database holds it.
+	stored := func(pass, field string) storedChange {
+		t.Helper()
+
+		changeSets := storedChangeSets(t, db, "HangarPasses", pass)
+		if len(changeSets) == 0 {
+			t.Fatalf("the pass %s has no change record", pass)
+		}
+
+		return changeSets[len(changeSets)-1][field]
+	}
+	// holderName answers the newName the pass's history answers for one field of its
+	// create, as a reader the access answers for reads it.
+	holderName := func(controller access.Controller, id, field string) string {
+		t.Helper()
+
+		page := readHistory(t, newTestAppWithAccess(db, controller), "integration-test-user", sectorPath(anvil, "hangar-passes/"+id+"/changes"))
+		created := page.Changes[len(page.Changes)-1]
+		change, ok := created.field(field)
+		if !ok {
+			t.Fatalf("the create's record lists %v, want %s among them", created.names(), field)
+		}
+
+		return change.NewName
+	}
+
+	personPass := create(fmt.Sprintf(`"userId":%q`, person))
+	if got := stored(personPass, "UserID").NewName; got != "rook" {
+		t.Errorf("the create's UserID entry keeps %q, want the username rook, not the person's name", got)
+	}
+	for _, tt := range []struct {
+		name       string
+		controller access.Controller
+		want       string
+	}{
+		{name: "a reader of the people's usernames", controller: &staticAccess{g: grants{accesstypes.Read: read, accesstypes.List: {people}}}, want: "rook"},
+		{name: "a reader of the people's display names alone", controller: &staticAccess{g: grants{accesstypes.Read: read, accesstypes.List: {fieldResource("CrewSectorUsers", "displayName")}}}, want: ""},
+		{name: "a reader of the people's usernames under a condition", controller: &conditionalAccess{staticAccess: &staticAccess{g: grants{accesstypes.Read: read}}, conditional: []accesstypes.Resource{people}}, want: ""},
+	} {
+		if got := holderName(tt.controller, personPass, "userId"); got != tt.want {
+			t.Errorf("%s reads the holder's name %q, want %q", tt.name, got, tt.want)
+		}
+	}
+
+	groupPass := create(fmt.Sprintf(`"groupId":%q`, group))
+	if got := stored(groupPass, "GroupID").NewName; got != "Dock watch" {
+		t.Errorf("the create's GroupID entry keeps %q, want the group's name", got)
+	}
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap("CrewGroups", map[string]any{"Id": group, "Name": "Night watch"})}); err != nil {
+		t.Fatalf("renaming the group: %v", err)
+	}
+	if got := holderName(&staticAccess{g: grants{accesstypes.Read: read, accesstypes.List: {groups}}}, groupPass, "groupId"); got != "Dock watch" {
+		t.Errorf("a reader of the groups' names reads the renamed group's pass as %q, want the name it had", got)
+	}
+	if got := holderName(&staticAccess{g: grants{accesstypes.Read: read}}, groupPass, "groupId"); got != "" {
+		t.Errorf("a reader who may not list the groups' names reads %q, want the id alone", got)
+	}
+
+	write("remove", "hangar-passes/"+groupPass, "")
+	write("remove", "hangar-passes/"+personPass, "")
+	for _, tt := range []struct {
+		pass, field, want string
+	}{
+		{pass: groupPass, field: "GroupID", want: "Night watch"},
+		{pass: personPass, field: "UserID", want: "rook"},
+	} {
+		if got := stored(tt.pass, tt.field).OldName; got != tt.want {
+			t.Errorf("the delete's %s entry keeps %q, want %q, the holder's name as it then was", tt.field, got, tt.want)
 		}
 	}
 }

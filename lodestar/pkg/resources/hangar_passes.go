@@ -45,6 +45,14 @@ type (
 	// act on, and by the table's holder check for every other writer. An empty userId
 	// names nobody and is not a holder, in the validator and in the table's check alike.
 	//
+	// A pass keeps a change history (Config): who was given a hangar, and when the pass
+	// was written and deleted, is what an audit of the hangar reads. A pass's record keeps
+	// its holder's name beside the id, as it was that day: the account's username for a
+	// person and the group's name for a group, each read from the crew auth's own table
+	// when the pass is written or deleted, and never from the two lists the pickers read.
+	// The history so still names a holder whose account or group has since been renamed
+	// or deleted (test/integration/change_history_test.go).
+	//
 	// A pass's holder never changes. UserID, SquadronID and GroupID are immutable: an
 	// update that names any of the three is refused for every role with the framework's
 	// own answer (400, "json field groupId is immutable"; for two of them, one sentence
@@ -104,6 +112,13 @@ type (
 		ExpiresAt *time.Time       `spanner:"ExpiresAt"`
 	}
 )
+
+// Config enables change tracking: HangarPass mutations write DataChangeEvents rows in the
+// same transaction, and a pass's create and its delete each keep the name of the holder the
+// pass names.
+func (HangarPass) Config() resource.Config {
+	return defaultConfig().SetTrackChanges(true)
+}
 
 // HangarPassCreateValidator is wired in by the @validateCreateType annotation; the
 // generated create patch calls Validate inside the mutation transaction.
