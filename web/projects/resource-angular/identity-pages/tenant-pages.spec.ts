@@ -386,6 +386,7 @@ describe('tenantsPage and tenantsRoute', () => {
     expect(list(built).listColumns.some((column) => column.opensRow)).toBe(false);
     expect(list(built).showViewButton).toBe(true);
     expect(list(built).rowTitle).toBeUndefined();
+    expect(list(built).deleteTyped).toBeUndefined();
   });
 
   it("draw a tenant's form with the name, the record's fields, and the switch and the key read only", () => {
@@ -407,6 +408,11 @@ describe('tenantsPage and tenantsRoute', () => {
 
   it("head a tenant's page by the tenant's name", () => {
     expect(list(config).rowTitle?.({ id: 'a1', name: 'Driftmoor' })).toBe('Driftmoor');
+  });
+
+  it("ask for a tenant's name typed before it is deleted, and for nothing where the row holds no name", () => {
+    expect(list(config).deleteTyped?.({ id: 'a1', name: 'Driftmoor' })).toBe('Driftmoor');
+    expect(list(config).deleteTyped?.({ id: 'a1' })).toBe('');
   });
 
   it('send an invitation from above the list, with the waiting list above it, titled, keeping Withdraw and no method of its own', () => {
@@ -557,6 +563,8 @@ describe('tenantsPage and tenantsRoute', () => {
     expect(list(built).emptyMessage).toBe('There are no sectors yet.');
     expect(built.relatedConfigs).toEqual([]);
     expect(list(built).rowTitle?.({ id: 'a1', name: 'Driftmoor' })).toBe('Driftmoor');
+    expect(list(built).deleteTyped?.({ id: 'a1', name: 'Driftmoor' })).toBe('Driftmoor');
+    expect(list(built).deleteTyped?.({ id: 'a1' })).toBe('');
     expect(list(built).rowButtons?.map((button) => button.label)).toEqual(['Open this sector']);
     // The record's own field for when a sector was charted is a field of the form, labeled
     // Since, read only where its metadata says the server never takes it.

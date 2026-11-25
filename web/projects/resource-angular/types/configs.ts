@@ -940,6 +940,14 @@ export interface BaseConfigOptions {
    * method did.
    */
   rowGone?: (row: RecordData) => string;
+  /**
+   * The text a person types before a row is deleted, from the row: its own name (the
+   * tenants page asks for a tenant's name). The delete dialog asks for it from its first
+   * question on and holds Delete at every press until it is typed; a row it answers empty
+   * text for is asked nothing more. It guards the row's own Delete, from its page or from
+   * its list, and is no part of the request. Unset, nothing is typed.
+   */
+  deleteTyped?: (row: RecordData) => string;
 }
 export interface BaseConfig {
   title: string;
@@ -960,6 +968,8 @@ export interface BaseConfig {
   rowTitle?: (row: RecordData) => string;
   /** What the list says of a row that left it; see BaseConfigOptions.rowGone. */
   rowGone?: (row: RecordData) => string;
+  /** The text a person types before a row is deleted; see BaseConfigOptions.deleteTyped. */
+  deleteTyped?: (row: RecordData) => string;
 }
 
 @Directive()
