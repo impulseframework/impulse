@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/telemetry"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -404,11 +405,11 @@ func (p *DroidReportCreatePatch) ToStruct() *DroidReport {
 	return p.patchSet.ToStruct()
 }
 
-func (p *DroidReportCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *DroidReportCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DroidReportCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *DroidReportCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -572,11 +573,11 @@ func (p *DroidReportUpdatePatch) ToStruct() *DroidReport {
 	return p.patchSet.ToStruct()
 }
 
-func (p *DroidReportUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *DroidReportUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DroidReportUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *DroidReportUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -750,11 +751,11 @@ func NewDroidReportDeletePatch(id impulse.UUID) *DroidReportDeletePatch {
 	return &DroidReportDeletePatch{patchSet: patchSet}
 }
 
-func (p *DroidReportDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *DroidReportDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DroidReportDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *DroidReportDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

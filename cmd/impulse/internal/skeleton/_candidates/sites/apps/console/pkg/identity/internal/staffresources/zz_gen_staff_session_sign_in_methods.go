@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -354,11 +355,11 @@ func (p *StaffSessionSignInMethodCreatePatch) ToStruct() *StaffSessionSignInMeth
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionSignInMethodCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *StaffSessionSignInMethodCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionSignInMethodCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *StaffSessionSignInMethodCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -530,11 +531,11 @@ func (p *StaffSessionSignInMethodUpdatePatch) ToStruct() *StaffSessionSignInMeth
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionSignInMethodUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *StaffSessionSignInMethodUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionSignInMethodUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *StaffSessionSignInMethodUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -696,11 +697,11 @@ func NewStaffSessionSignInMethodDeletePatch(name string) *StaffSessionSignInMeth
 	return &StaffSessionSignInMethodDeletePatch{patchSet: patchSet}
 }
 
-func (p *StaffSessionSignInMethodDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *StaffSessionSignInMethodDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionSignInMethodDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *StaffSessionSignInMethodDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

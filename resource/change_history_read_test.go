@@ -4,15 +4,74 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
+
+// sessionColumn is the session every test context of the package carries (sessionCtx,
+// accountCtx), as its column holds it.
+const sessionColumn = "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"
+
+// whoColumnsOf answers the who columns a value sets as a row of a table that keeps them
+// holds them, each NULL where the value leaves it empty.
+func whoColumnsOf(source eventsource.EventSource) eventSourceColumns {
+	columns := source.Columns()
+	column := func(name string) spanner.NullString {
+		value, ok := columns[name].(string)
+
+		return spanner.NullString{StringVal: value, Valid: ok}
+	}
+
+	return eventSourceColumns{
+		Auth: column("Auth"), ActorUserID: column("ActorUserId"), ActorUsername: column("ActorUsername"),
+		PrincipalUserID: column("PrincipalUserId"), PrincipalUsername: column("PrincipalUsername"), PrincipalRole: column("PrincipalRole"),
+		SessionID: column("SessionId"), Process: column("Process"), RPC: column("Rpc"),
+	}
+}
+
+// TestEventSourceColumns pins the row a statement scans who made a change into to the
+// names the value's package gives the nine columns: each field's tag is the name
+// eventsource.ColumnNames answers in its place.
+func TestEventSourceColumns(t *testing.T) {
+	t.Parallel()
+
+	fields := reflect.VisibleFields(reflect.TypeFor[eventSourceColumns]())
+	tags := make([]string, 0, len(fields))
+	for _, field := range fields {
+		tags = append(tags, field.Tag.Get("spanner"))
+	}
+	if diff := cmp.Diff(eventsource.ColumnNames(), tags); diff != "" {
+		t.Errorf("eventSourceColumns' spanner tags mismatch (-eventsource.ColumnNames() +tags):\n%s", diff)
+	}
+}
+
+// TestEventSourceColumns_stored pins that a row's who columns answer the sentence of the
+// value they were written from.
+func TestEventSourceColumns_stored(t *testing.T) {
+	t.Parallel()
+
+	aliceAsSupport := sessionCtx("alice", &sessioninfo.Impersonation{Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("Support")})
+	for _, source := range []eventsource.EventSource{
+		eventsource.UserEvent(WithAuth(accountCtx("bob", bobID, nil), "crew")),
+		eventsource.UserProcessEvent(WithRPC(aliceAsSupport, "ImportOrders"), "Import"),
+		eventsource.ProcessEvent("MigrateFeatures"),
+	} {
+		columns := whoColumnsOf(source)
+		if got, want := columns.stored().String(), source.String(); got != want {
+			t.Errorf("the row's sentence = %q, want the value's, %q", got, want)
+		}
+	}
+}
 
 // trackedForkRowRead is a read route's request type of trackedForkRow with the key and
 // the title each under a grant of its own, so that a row whose title a condition masks

@@ -682,7 +682,7 @@ func Test_rpcHandlerTemplate_rpcName(t *testing.T) {
 			client:    bindingClient,
 			method:    closeTask,
 			wantLine:  `ctx = resource.WithRPC(ctx, "CloseTask")`,
-			wantAfter: []string{"ExecuteFunc(", `SetState("closed").Buffer(ctx, txn, resource.UserEvent(ctx))`},
+			wantAfter: []string{"ExecuteFunc(", `SetState("closed").Buffer(ctx, txn, eventsource.UserEvent(ctx))`},
 		},
 	}
 	for _, tt := range tests {

@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -379,11 +380,11 @@ func (p *AnnouncementCreatePatch) ToStruct() *Announcement {
 	return p.patchSet.ToStruct()
 }
 
-func (p *AnnouncementCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *AnnouncementCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *AnnouncementCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *AnnouncementCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -511,11 +512,11 @@ func (p *AnnouncementUpdatePatch) ToStruct() *Announcement {
 	return p.patchSet.ToStruct()
 }
 
-func (p *AnnouncementUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *AnnouncementUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *AnnouncementUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *AnnouncementUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -653,11 +654,11 @@ func NewAnnouncementDeletePatch(id impulse.UUID) *AnnouncementDeletePatch {
 	return &AnnouncementDeletePatch{patchSet: patchSet}
 }
 
-func (p *AnnouncementDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *AnnouncementDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *AnnouncementDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *AnnouncementDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

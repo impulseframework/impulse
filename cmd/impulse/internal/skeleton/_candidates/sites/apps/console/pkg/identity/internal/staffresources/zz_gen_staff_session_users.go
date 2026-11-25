@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -421,11 +422,11 @@ func (p *StaffSessionUserCreatePatch) ToStruct() *StaffSessionUser {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionUserCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *StaffSessionUserCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionUserCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *StaffSessionUserCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -633,11 +634,11 @@ func (p *StaffSessionUserUpdatePatch) ToStruct() *StaffSessionUser {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionUserUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *StaffSessionUserUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionUserUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *StaffSessionUserUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -855,11 +856,11 @@ func NewStaffSessionUserDeletePatch(id impulse.UUID) *StaffSessionUserDeletePatc
 	return &StaffSessionUserDeletePatch{patchSet: patchSet}
 }
 
-func (p *StaffSessionUserDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *StaffSessionUserDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionUserDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *StaffSessionUserDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

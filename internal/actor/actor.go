@@ -1,7 +1,7 @@
 // Package actor holds the person who made a change, named by their account where no
 // session carries them, as the library's own packages hand one to who made a change
-// (resource.AccountProcessEvent). It is internal so that only the library can make one:
-// an application names who made a change from a request's session or by a process's
+// (eventsource.AccountProcessEvent). It is internal so that only the library can make
+// one: an application names who made a change from a request's session or by a process's
 // name, never by texts it holds.
 package actor
 

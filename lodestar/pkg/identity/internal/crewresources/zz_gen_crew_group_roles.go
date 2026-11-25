@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -441,11 +442,11 @@ func (p *CrewGroupRoleCreatePatch) ToStruct() *CrewGroupRole {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewGroupRoleCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *CrewGroupRoleCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupRoleCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *CrewGroupRoleCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -617,11 +618,11 @@ func (p *CrewGroupRoleUpdatePatch) ToStruct() *CrewGroupRole {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewGroupRoleUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *CrewGroupRoleUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupRoleUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *CrewGroupRoleUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -783,11 +784,11 @@ func NewCrewGroupRoleDeletePatch(groupID impulse.UUID, kind string, axis string,
 	return &CrewGroupRoleDeletePatch{patchSet: patchSet}
 }
 
-func (p *CrewGroupRoleDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
+func (p *CrewGroupRoleDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupRoleDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
+func (p *CrewGroupRoleDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

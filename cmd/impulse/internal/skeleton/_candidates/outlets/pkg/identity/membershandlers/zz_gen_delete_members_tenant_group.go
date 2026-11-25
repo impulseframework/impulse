@@ -51,8 +51,9 @@ func (h *Handlers) DeleteMembersTenantGroup() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
-		// The method's name rides the context too: who made a change (resource.UserEvent)
-		// reads it there, so every change record the body writes names the method.
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
 		ctx = resource.WithRPC(ctx, "DeleteMembersTenantGroup")
 
 		p := (*membersidentity.DeleteMembersTenantGroup)(params)

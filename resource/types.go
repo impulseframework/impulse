@@ -7,6 +7,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 )
 
 const (
@@ -46,8 +47,8 @@ type DataChangeEvent struct {
 	Sequence  int
 	Operation ChangeOperation
 	ChangeSet spanner.NullJSON
-	TenantID  string      // empty for a row that has no tenant
-	Source    EventSource // who made the change
+	TenantID  string                  // empty for a row that has no tenant
+	Source    eventsource.EventSource // who made the change
 }
 
 // Columns answers the record as the columns its insert sets: those that hold something.
@@ -55,7 +56,7 @@ type DataChangeEvent struct {
 // column of who made the change that the value fills; no column is set to NULL or to an
 // empty text.
 func (e *DataChangeEvent) Columns() map[string]any {
-	columns := e.Source.columns()
+	columns := e.Source.Columns()
 	columns["TableName"] = string(e.TableName)
 	columns["RowId"] = e.RowID
 	columns["EventTime"] = e.EventTime

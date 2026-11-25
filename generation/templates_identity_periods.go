@@ -131,7 +131,7 @@ func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction,
 	for i := range memberships {
 		key := &memberships[i]
 		patch := {{ .ResourcesPackage }}.New{{ .Membership }}DeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-		if err := patch.Buffer(ctx, txn, resource.ProcessEvent(identity.EndedByItself)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Membership }}DeletePatch.Buffer()")
 		}
 	}
@@ -141,7 +141,7 @@ func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction,
 		if err != nil {
 			return err
 		}
-		if err := {{ .ResourcesPackage }}.New{{ .GroupMember }}DeletePatch(id, string(place.User)).Buffer(ctx, txn, resource.ProcessEvent(identity.EndedByItself)); err != nil {
+		if err := {{ .ResourcesPackage }}.New{{ .GroupMember }}DeletePatch(id, string(place.User)).Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .GroupMember }}DeletePatch.Buffer()")
 		}
 	}

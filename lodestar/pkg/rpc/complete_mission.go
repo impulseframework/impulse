@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/shopspring/decimal"
@@ -111,14 +112,14 @@ func (m *CompleteMission) Execute(ctx context.Context, txn resource.ReadWriteTra
 
 // postSettlementAsPaymaster writes the settlement through the Paymaster role's checker:
 // the caller's identity, the role's grants. The write passes the request's own value
-// (resource.UserEvent), as every write does, so its change record names the caller and,
-// since the method's handler handed its name to the request, the method. It names no
-// role: the session acts as nobody else.
+// (eventsource.UserEvent), as every write does, so its change record names the caller
+// and, since the method's handler handed its name to the request, the method. It names
+// no role: the session acts as nobody else.
 func postSettlementAsPaymaster(ctx context.Context, txn resource.ReadWriteTransaction, caller *resource.Caller, client *Client, missionID impulse.UUID, net decimal.Decimal) error {
 	actor := caller.Permissions.User()
 	paymaster := caller.As(resource.RolePrincipalPermissions(client.ForRole(PaymasterRole), actor))
 
-	if err := resources.NewMissionUpdatePatch(missionID).SetSettlement(decimal.NewNullDecimal(net)).Enforce(paymaster).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewMissionUpdatePatch(missionID).SetSettlement(decimal.NewNullDecimal(net)).Enforce(paymaster).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.MissionUpdatePatch.Buffer()")
 	}
 

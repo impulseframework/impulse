@@ -899,16 +899,17 @@ about it:
   `DomainGuard` refuses a direct request for the tenant exactly as it refuses a domain
   that is not a tenant, and the two can never disagree. One composed value reads a
   tenant's declaration once, whatever is asked about the tenant after.
-- **`UserEvent(ctx)`** is who made a change in a person's request, the value every
-  generated write handler hands a tracked write: the person, by the id of their account
-  and their username on the day; who or what their session acted as, where it acts as
-  someone else; the session; the auth the request came through; and, in an RPC method,
-  the method's name, which the method's generated handler hands the request (section
-  7). In a session acting as someone else the actor is the real person, so every
-  tracked change carries who really made it, and a rename changes nothing about who a
-  change was made by. A job passes `ProcessEvent(name)`, and a job run for the person
-  of a request `UserProcessEvent(ctx, name)`. Section 24 lists the columns the value is
-  kept in.
+- **`eventsource.UserEvent(ctx)`** is who made a change in a person's request, the
+  value every generated write handler hands a tracked write: the person, by the id of
+  their account and their username on the day; who or what their session acted as,
+  where it acts as someone else; the session; the auth the request came through; and,
+  in an RPC method, the method's name, which the method's generated handler hands the
+  request (section 7). In a session acting as someone else the actor is the real
+  person, so every tracked change carries who really made it, and a rename changes
+  nothing about who a change was made by. A job passes
+  `eventsource.ProcessEvent(name)`, and a job run for the person of a request
+  `eventsource.UserProcessEvent(ctx, name)`. The value is of the package `eventsource`,
+  not of this one: section 24 says why, and lists the columns it is kept in.
 
 ## 7. RPC methods: what a method is for
 
@@ -1121,7 +1122,7 @@ who the caller is stamps one itself (`resource.WithCaller`).
 
 A change a method makes says which method made it. The generated frame hands the
 method's name to the request (`resource.WithRPC`) before `Execute` runs, and
-`resource.UserEvent(ctx)` reads it there, so every change record the body writes, and
+`eventsource.UserEvent(ctx)` reads it there, so every change record the body writes, and
 the record of the frame's own stamp of a `@transition`'s state, holds the name in its
 `Rpc` column (section 24) and reads "dana, through the RPC CloseOrder". The body passes
 nothing for it and cannot leave it out. A write the body arms through another role's
@@ -4184,14 +4185,14 @@ names no row or tenant: the struct declares no field, and nothing that adds a pa
 parameter or a body is admitted. It checks no permission and is in no outlet: the
 scheduler's token is its gate, so no role names it, the permission collection and the
 digest leave it out, and no TypeScript client carries it. `Execute` runs as the
-application, with no caller stamped on its context, so `Enforce` and `Check` refuse inside
-it and its queries and patches run trusted; it records its writes under a process
-(`resource.ProcessEvent`) rather than a person. Its change records name that process and
-no RPC method: `ProcessEvent` takes no request to read a method's name from. The frame is
-a method's otherwise: the transaction form runs inside the handler's transaction, the rows
-it writes are published to the live pages after the commit, and it answers with its result
-or its chosen status (`@answers`), which the scheduler records as the call's success or
-failure. There is no dry run.
+application, with no caller stamped on its context, so `Enforce` and `Check` refuse
+inside it and its queries and patches run trusted; it records its writes under a process
+(`eventsource.ProcessEvent`) rather than a person. Its change records name that process
+and no RPC method: `eventsource.ProcessEvent` takes no request to read a method's name
+from. The frame is a method's otherwise: the transaction form runs inside the handler's
+transaction, the rows it writes are published to the live pages after the commit, and it
+answers with its result or its chosen status (`@answers`), which the scheduler records as
+the call's success or failure. There is no dry run.
 
 **The route.** The generated router mounts every scheduled method under one prefix it
 reserves, `/_scheduled` (`scheduled.Prefix`), one `POST` each at the method's name in kebab
@@ -6534,20 +6535,25 @@ record's `EventTime`, and a record's history answers that time as the field's ne
 | `Process` | the name of the process that made the change, alone or for a person | a person made it directly |
 | `Rpc` | the name of the RPC method the change was made in, as grants name the method | the change was not made in an RPC method, or a process acted alone |
 
-A record sets only the columns that hold something, and it is never updated. In code,
-who made a change is one value, `resource.EventSource`: a handler passes
-`resource.UserEvent(ctx)`, a job `resource.ProcessEvent("PruneReports")`, a job run for
-the person of a request `resource.UserProcessEvent(ctx, "Import")`. No text can be
+A record sets only the columns that hold something, and it is never updated. In code, who
+made a change is one value, `eventsource.EventSource`, of the package
+`github.com/impulseframework/impulse/eventsource`: a handler passes
+`eventsource.UserEvent(ctx)`, a job `eventsource.ProcessEvent("PruneReports")`, a job run
+for the person of a request `eventsource.UserProcessEvent(ctx, "Import")`. No text can be
 passed, and a tracked write refuses a value that names nobody. A change made in an RPC
 method names the method too, and the method's code passes nothing for it: the method's
-generated handler hands its name to the request (`resource.WithRPC`), and `UserEvent`
-and `UserProcessEvent` read it there (section 7). Where a person reads who made a
-change, the library writes it from the columns (`EventSource.String()`): "bob", "bob,
-through the RPC CloseOrder", "alice, acting as bob", "alice, acting as the role
-Support", "the process PruneReports". A record's history serves that sentence and no
-id. A tenant an invitation makes is recorded as made by the person who accepted, through
-the process AcceptInvitation, and names no session: the write is made at the sign-in,
-before the person has one.
+generated handler hands its name to the request (`resource.WithRPC`), and `UserEvent` and
+`UserProcessEvent` read it there (section 7). Where a person reads who made a change, the
+library writes it from the columns (`eventsource.Stored`, in the words of
+`EventSource.String()`): "bob", "bob, through the RPC CloseOrder", "alice, acting as
+bob", "alice, acting as the role Support", "the process PruneReports". A record's history
+serves that sentence and no id. A tenant an invitation makes is recorded as made by the
+person who accepted, through the process AcceptInvitation, and names no session: the
+write is made at the sign-in, before the person has one.
+
+The value has a package of its own, which holds no database code and imports no database
+driver, so a library that records who acted can use the same value without importing this
+package.
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
 statements. For Spanner the first creates the table:

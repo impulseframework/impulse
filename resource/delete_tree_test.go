@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -99,7 +100,7 @@ func TestChangeRecordMutations(t *testing.T) {
 	fullest := &DataChangeEvent{
 		TableName: "Orders", RowID: "order-1", EventTime: spanner.CommitTimestamp, Operation: ChangeDelete,
 		ChangeSet: spanner.NullJSON{Valid: true, Value: map[string]any{}}, TenantID: "tenant-1",
-		Source: UserProcessEvent(WithRPC(WithAuth(asPerson, "crew"), "CloseOrder"), "Import"),
+		Source: eventsource.UserProcessEvent(WithRPC(WithAuth(asPerson, "crew"), "CloseOrder"), "Import"),
 	}
 	if got := len(fullest.Columns()); got != 15 || got > changeRecordMutations {
 		t.Errorf("the fullest record sets %d columns, want 15, no more than the count %d", got, changeRecordMutations)

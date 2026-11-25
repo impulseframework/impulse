@@ -15,6 +15,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -92,7 +93,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Take.Name }}() http.Handl
 		{{- else }}
 		tenant := string(domain)
 		{{- end }}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)

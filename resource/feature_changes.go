@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/spxscan"
 	"github.com/impulseframework/impulse/tracer"
@@ -70,8 +71,8 @@ type FeatureFlagChange struct {
 	ChangedAt time.Time `json:"changedAt"`
 	// Enabled is the value written: true for a flag turned on, false for one turned off.
 	Enabled bool `json:"enabled"`
-	// ChangedBy is who flipped it, as one sentence (EventSource.String): the name the
-	// person signs in under, or the process's where no person made the flip.
+	// ChangedBy is who flipped it, as one sentence (eventsource.EventSource.String): the
+	// name the person signs in under, or the process's where no person made the flip.
 	ChangedBy string `json:"changedBy"`
 }
 
@@ -127,7 +128,7 @@ func readFeatureFlagChanges(ctx context.Context, txn ReadOnlyTransaction, dbType
 	}
 	var rows []featureFlagChangeRow
 	stmt := spanner.Statement{
-		SQL:    "SELECT ChangedAt, Enabled, " + eventSourceColumnList + " FROM FeatureFlagChanges WHERE Name = @name ORDER BY ChangedAt DESC LIMIT @limit",
+		SQL:    "SELECT ChangedAt, Enabled, " + strings.Join(eventsource.ColumnNames(), ", ") + " FROM FeatureFlagChanges WHERE Name = @name ORDER BY ChangedAt DESC LIMIT @limit",
 		Params: map[string]any{flagNameField: string(name), "limit": int64(limit) + 1},
 	}
 	if err := spxscan.Select(ctx, txn.SpannerReadOnlyTransaction(), &rows, stmt); err != nil {

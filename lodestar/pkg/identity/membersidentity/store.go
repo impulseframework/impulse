@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/membersresources"
@@ -660,7 +661,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	case err == nil:
 		patch := membersresources.NewMembersSessionSignInMethodUpdatePatch(row.Name).
 			SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersSessionSignInMethodUpdatePatch.Buffer()")
 		}
 
@@ -670,7 +671,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	patch := membersresources.NewMembersSessionSignInMethodCreatePatch(row.Name).
 		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionSignInMethodCreatePatch.Buffer()")
 	}
 
@@ -688,7 +689,7 @@ func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTran
 	switch {
 	case err == nil:
 		patch := membersresources.NewMembersSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersSessionSignInMethodUpdatePatch.Buffer()")
 		}
 
@@ -697,7 +698,7 @@ func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "membersresources.MembersSessionSignInMethodQuery.Read()")
 	}
 	patch := membersresources.NewMembersSessionSignInMethodCreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionSignInMethodCreatePatch.Buffer()")
 	}
 
@@ -730,7 +731,7 @@ func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteT
 	}
 	if found {
 		patch := membersresources.NewMembersSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRequireSecondFactor(on).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersSessionSignInSettingUpdatePatch.Buffer()")
 		}
 
@@ -738,7 +739,7 @@ func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteT
 	}
 	patch := membersresources.NewMembersSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
 		SetRequireSecondFactor(on).SetRememberBrowserDays(session.DefaultRememberedBrowserDays).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionSignInSettingCreatePatch.Buffer()")
 	}
 
@@ -755,7 +756,7 @@ func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteT
 	}
 	if found {
 		patch := membersresources.NewMembersSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersSessionSignInSettingUpdatePatch.Buffer()")
 		}
 
@@ -763,7 +764,7 @@ func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteT
 	}
 	patch := membersresources.NewMembersSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
 		SetRequireSecondFactor(true).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionSignInSettingCreatePatch.Buffer()")
 	}
 
@@ -1125,7 +1126,7 @@ func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction,
 	for i := range memberships {
 		key := &memberships[i]
 		patch := membersresources.NewMembersUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-		if err := patch.Buffer(ctx, txn, resource.ProcessEvent(identity.EndedByItself)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersUserRoleDeletePatch.Buffer()")
 		}
 	}

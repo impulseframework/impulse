@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -44,8 +45,9 @@ func (a *App) ClaimMission() http.HandlerFunc {
 		// write or a read against the caller (Enforce) evaluates the same checker,
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, gate.Caller())
-		// The method's name rides the context too: who made a change (resource.UserEvent)
-		// reads it there, so every change record the body writes names the method.
+		// The method's name rides the context too: who made a change
+		// (eventsource.UserEvent) reads it there, so every change record the body writes
+		// names the method.
 		ctx = resource.WithRPC(ctx, "ClaimMission")
 
 		p := (*rpc.ClaimMission)(params)
@@ -117,7 +119,7 @@ func (a *App) ClaimMission() http.HandlerFunc {
 			}
 
 			// The framework stamps the declared target state as the last mutation.
-			if err := resources.NewMissionUpdatePatch(p.MissionID).SetStatusID("claimed").Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+			if err := resources.NewMissionUpdatePatch(p.MissionID).SetStatusID("claimed").Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 				return errors.Wrap(err, "resources.MissionUpdatePatch.Buffer()")
 			}
 			if dryRun {

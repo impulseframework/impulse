@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/request"
 )
 
 // BindAuth is the middleware that says which auth a group's requests came through: the
@@ -56,15 +57,15 @@ const boundInFrontAuthFmt = "this request was bound to the %s auth before its ou
 // is bound to another auth already: reboundAuthFmt where a group bound it, and
 // boundInFrontAuthFmt where something in front of the group did (WithAuth).
 func bindAuth(ctx context.Context, name string) (context.Context, error) {
-	if record, ok := ctx.Value(authKey{}).(authRecord); ok && record.name != name {
-		if record.byGroup {
-			return ctx, errors.Newf(reboundAuthFmt, record.name, name, name)
+	if record, ok := request.AuthFrom(ctx); ok && record.Name != name {
+		if record.ByGroup {
+			return ctx, errors.Newf(reboundAuthFmt, record.Name, name, name)
 		}
 
-		return ctx, errors.Newf(boundInFrontAuthFmt, record.name, name, name)
+		return ctx, errors.Newf(boundInFrontAuthFmt, record.Name, name, name)
 	}
 
-	return context.WithValue(ctx, authKey{}, authRecord{name: name, byGroup: true}), nil
+	return request.WithAuth(ctx, request.Auth{Name: name, ByGroup: true}), nil
 }
 
 // BoundAuth returns the auth a group bound the request to (BindAuth), or the empty
@@ -72,8 +73,8 @@ func bindAuth(ctx context.Context, name string) (context.Context, error) {
 // (WithAuth) among them: the name an application with several auths chooses a request's
 // permission engine by, and the name SessionPermissions holds the engine to.
 func BoundAuth(ctx context.Context) string {
-	if record, ok := ctx.Value(authKey{}).(authRecord); ok && record.byGroup {
-		return record.name
+	if record, ok := request.AuthFrom(ctx); ok && record.ByGroup {
+		return record.Name
 	}
 
 	return ""

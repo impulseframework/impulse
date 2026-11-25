@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"go.uber.org/mock/gomock"
@@ -1363,53 +1364,53 @@ func TestPatchSet_validateEventSource(t *testing.T) {
 
 	metaWithoutTracking := NewMetadata[nilResource]()
 
-	source := ProcessEvent("test-source")
+	source := eventsource.ProcessEvent("test-source")
 	tests := []struct {
 		name        string
 		patchSet    *PatchSet[nilResource]
-		eventSource []EventSource
-		want        EventSource
+		eventSource []eventsource.EventSource
+		want        eventsource.EventSource
 		wantErr     string
 	}{
 		{
 			name:        "tracking enabled, source provided",
 			patchSet:    NewPatchSet(metaWithTracking),
-			eventSource: []EventSource{source},
+			eventSource: []eventsource.EventSource{source},
 			want:        source,
 		},
 		{
 			name:        "tracking enabled, no source",
 			patchSet:    NewPatchSet(metaWithTracking),
-			eventSource: []EventSource{},
+			eventSource: []eventsource.EventSource{},
 			wantErr:     "eventSource must be supplied when trackChanges is enabled",
 		},
 		{
 			name:        "tracking enabled, multiple sources",
 			patchSet:    NewPatchSet(metaWithTracking),
-			eventSource: []EventSource{ProcessEvent("source1"), ProcessEvent("source2")},
+			eventSource: []eventsource.EventSource{eventsource.ProcessEvent("source1"), eventsource.ProcessEvent("source2")},
 			wantErr:     "eventSource can only be supplied once",
 		},
 		{
 			name:        "tracking enabled, a source that names nobody",
 			patchSet:    NewPatchSet(metaWithTracking),
-			eventSource: []EventSource{{}},
-			wantErr:     "resource: a tracked write needs who made the change; pass resource.UserEvent(ctx), resource.ProcessEvent(name) or resource.UserProcessEvent(ctx, name)",
+			eventSource: []eventsource.EventSource{{}},
+			wantErr:     "resource: a tracked write needs who made the change; pass eventsource.UserEvent(ctx), eventsource.ProcessEvent(name) or eventsource.UserProcessEvent(ctx, name)",
 		},
 		{
 			name:        "tracking disabled, source provided",
 			patchSet:    NewPatchSet(metaWithoutTracking),
-			eventSource: []EventSource{source},
+			eventSource: []eventsource.EventSource{source},
 			want:        source,
 		},
 		{
 			name:        "tracking disabled, no source",
 			patchSet:    NewPatchSet(metaWithoutTracking),
-			eventSource: []EventSource{},
+			eventSource: []eventsource.EventSource{},
 		},
 		{
 			name:        "tracking disabled, a source that names nobody",
 			patchSet:    NewPatchSet(metaWithoutTracking),
-			eventSource: []EventSource{{}},
+			eventSource: []eventsource.EventSource{{}},
 		},
 	}
 	for _, tt := range tests {
@@ -1458,7 +1459,7 @@ func TestPatchSet_changeRecordColumns(t *testing.T) {
 		{
 			name: "an ordinary person's create of a tenant's row sets eleven",
 			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
-				return changePatch[changeDock](CreatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "new"}).Buffer(ctx, txn, UserEvent(person))
+				return changePatch[changeDock](CreatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "new"}).Buffer(ctx, txn, eventsource.UserEvent(person))
 			},
 			wantColumns: ordinary,
 			wantOp:      ChangeCreate,
@@ -1466,7 +1467,7 @@ func TestPatchSet_changeRecordColumns(t *testing.T) {
 		{
 			name: "the same create made in an RPC method sets twelve, the eleven and Rpc",
 			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
-				return changePatch[changeDock](CreatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "new"}).Buffer(ctx, txn, UserEvent(WithRPC(person, "OpenDock")))
+				return changePatch[changeDock](CreatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "new"}).Buffer(ctx, txn, eventsource.UserEvent(WithRPC(person, "OpenDock")))
 			},
 			wantColumns: append(slices.Clone(ordinary), "Rpc"),
 			wantOp:      ChangeCreate,
@@ -1475,7 +1476,7 @@ func TestPatchSet_changeRecordColumns(t *testing.T) {
 			name: "an ordinary person's update",
 			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
 				// The patch names the yard: a mocked transaction has no table to read it from.
-				return changePatch[changeDock](UpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "after"}).Buffer(ctx, txn, UserEvent(person))
+				return changePatch[changeDock](UpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "after"}).Buffer(ctx, txn, eventsource.UserEvent(person))
 			},
 			read:        func() (*Row[changeDock], error) { return stored, nil },
 			wantColumns: ordinary,
@@ -1484,7 +1485,7 @@ func TestPatchSet_changeRecordColumns(t *testing.T) {
 		{
 			name: "an ordinary person's delete",
 			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
-				return changePatch[changeDock](DeletePatchType, "dock-1", nil).Buffer(ctx, txn, UserEvent(person))
+				return changePatch[changeDock](DeletePatchType, "dock-1", nil).Buffer(ctx, txn, eventsource.UserEvent(person))
 			},
 			read:        func() (*Row[changeDock], error) { return stored, nil },
 			wantColumns: ordinary,
@@ -1493,7 +1494,7 @@ func TestPatchSet_changeRecordColumns(t *testing.T) {
 		{
 			name: "an insert-or-update that finds the row is an update",
 			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
-				return changePatch[changeDock](CreateOrUpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "after"}).Buffer(ctx, txn, UserEvent(person))
+				return changePatch[changeDock](CreateOrUpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "after"}).Buffer(ctx, txn, eventsource.UserEvent(person))
 			},
 			read:        func() (*Row[changeDock], error) { return stored, nil },
 			wantColumns: ordinary,
@@ -1502,7 +1503,7 @@ func TestPatchSet_changeRecordColumns(t *testing.T) {
 		{
 			name: "an insert-or-update that finds no row is a create",
 			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
-				return changePatch[changeDock](CreateOrUpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "new"}).Buffer(ctx, txn, UserEvent(person))
+				return changePatch[changeDock](CreateOrUpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "new"}).Buffer(ctx, txn, eventsource.UserEvent(person))
 			},
 			read:        func() (*Row[changeDock], error) { return nil, notThere },
 			wantColumns: ordinary,
@@ -1511,7 +1512,7 @@ func TestPatchSet_changeRecordColumns(t *testing.T) {
 		{
 			name: "a process's update of a row with no tenant sets seven",
 			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
-				return changePatch[changeDock](UpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": "", "Name": "after"}).Buffer(ctx, txn, ProcessEvent("sync"))
+				return changePatch[changeDock](UpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": "", "Name": "after"}).Buffer(ctx, txn, eventsource.ProcessEvent("sync"))
 			},
 			read: func() (*Row[changeDock], error) {
 				return &Row[changeDock]{Data: changeDock{ID: "dock-1", Name: "before"}}, nil
@@ -1563,8 +1564,8 @@ func TestPatchSet_changeRecordColumns(t *testing.T) {
 	t.Run("a tracked write handed a value that names nobody is refused", func(t *testing.T) {
 		t.Parallel()
 
-		err := changePatch[changeDock](CreatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth}).Buffer(t.Context(), NewMockReadWriteTransaction(&capturingTxn{}), EventSource{})
-		want := "resource: a tracked write needs who made the change; pass resource.UserEvent(ctx), resource.ProcessEvent(name) or resource.UserProcessEvent(ctx, name)"
+		err := changePatch[changeDock](CreatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth}).Buffer(t.Context(), NewMockReadWriteTransaction(&capturingTxn{}), eventsource.EventSource{})
+		want := "resource: a tracked write needs who made the change; pass eventsource.UserEvent(ctx), eventsource.ProcessEvent(name) or eventsource.UserProcessEvent(ctx, name)"
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Buffer() error = %v, want %q", err, want)
 		}

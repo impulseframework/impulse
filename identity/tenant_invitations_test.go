@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/actor"
 	"github.com/impulseframework/impulse/resource"
@@ -35,7 +36,7 @@ type fakeMaker struct {
 	err           error
 	made          []string
 	// sources are who each tenant made was handed as having made its rows.
-	sources []resource.EventSource
+	sources []eventsource.EventSource
 	// committed counts the transactions that made a tenant and committed.
 	committed int
 }
@@ -684,7 +685,7 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			}
 			// The tenant's rows are recorded as made by the person who accepted, through the
 			// process AcceptInvitation, and name no session.
-			want := resource.AccountProcessEvent(t.Context(), actor.NewAccount(userID, "dana"), "AcceptInvitation")
+			want := eventsource.AccountProcessEvent(t.Context(), actor.NewAccount(userID, "dana"), "AcceptInvitation")
 			for _, source := range tt.maker.sources {
 				if source != want {
 					t.Errorf("the tenant's source = %q, want %q", source, want)

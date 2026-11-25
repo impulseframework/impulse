@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 )
 
 // changeDatabase makes a database with the change tenant fixture's tables on the shared
@@ -78,8 +79,8 @@ func changeTenants(t *testing.T, db *spanner.Client, table, row string) []string
 
 // changeWrite is one patch a case applies, alone or in a transaction with others.
 type changeWrite interface {
-	Apply(ctx context.Context, client Client, eventSource ...EventSource) error
-	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...EventSource) error
+	Apply(ctx context.Context, client Client, eventSource ...eventsource.EventSource) error
+	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error
 }
 
 // applyEach applies each patch in its own transaction.
@@ -87,7 +88,7 @@ func applyEach(t *testing.T, client Client, writes ...changeWrite) {
 	t.Helper()
 
 	for i, w := range writes {
-		if err := w.Apply(context.Background(), client, ProcessEvent("test")); err != nil {
+		if err := w.Apply(context.Background(), client, eventsource.ProcessEvent("test")); err != nil {
 			t.Fatalf("Apply() of write %d error = %v", i, err)
 		}
 	}
@@ -99,7 +100,7 @@ func applyTogether(t *testing.T, client Client, writes ...changeWrite) {
 
 	if err := client.ExecuteFunc(context.Background(), func(ctx context.Context, txn ReadWriteTransaction) error {
 		for _, w := range writes {
-			if err := w.Buffer(ctx, txn, ProcessEvent("test")); err != nil {
+			if err := w.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 				return errors.Wrap(err, "changeWrite.Buffer()")
 			}
 		}
@@ -417,7 +418,7 @@ func TestChangeRecordTenant_spanner(t *testing.T) {
 				changePatch[changePier](UpdatePatchType, "pier-5a", map[accesstypes.Field]any{"Name": "Renamed"}),
 				changePatch[changeSlip](CreatePatchType, "slip-5", map[accesstypes.Field]any{"PierCode": "code-5b", "Name": "Fifth"}),
 			} {
-				if err := w.Buffer(ctx, txn, ProcessEvent("test")); err != nil {
+				if err := w.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 					return errors.Wrap(err, "changeWrite.Buffer()")
 				}
 			}
@@ -491,7 +492,7 @@ func TestChangeRecordTenant_spanner(t *testing.T) {
 				return errors.Newf("the transaction is a %T, which keeps no record of its point reads", txn)
 			}
 			for _, id := range []string{"mooring-9a", "mooring-9b"} {
-				if err := changePatch[changeMooring](DeletePatchType, id, nil).Buffer(ctx, txn, ProcessEvent("test")); err != nil {
+				if err := changePatch[changeMooring](DeletePatchType, id, nil).Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 					return err
 				}
 			}

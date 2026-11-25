@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -175,7 +176,7 @@ func TestDataChangeEventColumns(t *testing.T) {
 		record := &DataChangeEvent{
 			TableName: "Orders", RowID: "order-1", EventTime: spanner.CommitTimestamp, Operation: ChangeUpdate,
 			ChangeSet: spanner.NullJSON{Valid: true, Value: map[string]any{}}, TenantID: "tenant-1",
-			Source: UserProcessEvent(WithRPC(WithAuth(ctx, "crew"), "CloseOrder"), "Import"),
+			Source: eventsource.UserProcessEvent(WithRPC(WithAuth(ctx, "crew"), "CloseOrder"), "Import"),
 		}
 		for column := range record.Columns() {
 			recordColumns[column] = true

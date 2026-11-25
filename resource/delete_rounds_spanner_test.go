@@ -3,12 +3,14 @@ package resource
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/spxscan"
 )
@@ -135,7 +137,7 @@ func (roundComment) Resource() accesstypes.Resource {
 // deleteRound runs one request's delete of the record R with the id, told to take what
 // is under it, in a save that holds size mutations (DeleteMutationLimit for 0), handed
 // source as who made the change, and returns what the delete left (PatchSet.DeleteLeft).
-func deleteRound[R Resourcer](t *testing.T, db *spanner.Client, id string, size int, source EventSource) (*DeleteLeft, error) {
+func deleteRound[R Resourcer](t *testing.T, db *spanner.Client, id string, size int, source eventsource.EventSource) (*DeleteLeft, error) {
 	t.Helper()
 
 	var left *DeleteLeft
@@ -168,7 +170,7 @@ func roundRecords(t *testing.T, db *spanner.Client, table, rowID string) []round
 
 	var records []roundRecord
 	stmt := spanner.Statement{
-		SQL:    "SELECT Operation, TenantId, " + eventSourceColumnList + " FROM DataChangeEvents WHERE TableName = @table AND RowId = @rowId",
+		SQL:    "SELECT Operation, TenantId, " + strings.Join(eventsource.ColumnNames(), ", ") + " FROM DataChangeEvents WHERE TableName = @table AND RowId = @rowId",
 		Params: map[string]any{"table": table, "rowId": rowID},
 	}
 	if err := spxscan.Select(t.Context(), db.Single(), &records, stmt); err != nil {
@@ -265,7 +267,7 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		rounds := []*DeleteLeft{{Deleted: 3, Left: 8}, {Deleted: 2, Left: 6}, {Deleted: 2, Left: 4}, {Deleted: 3, Left: 1}, nil}
 		before := readRoundState(t, db, "big")
 		for i, want := range rounds {
-			got, err := deleteRound[roundProject](t, db, "big", size, ProcessEvent("test"))
+			got, err := deleteRound[roundProject](t, db, "big", size, eventsource.ProcessEvent("test"))
 			if err != nil {
 				t.Fatalf("round %d: the delete error = %v", i+1, err)
 			}
@@ -307,12 +309,12 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 
 		// The record and two tasks.
 		const size = recordCost + 2*taskCost
-		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2, Left: 3}) {
+		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2, Left: 3}) {
 			t.Fatalf("the first round = %+v, %v, want {Deleted: 2, Left: 3}", got, err)
 		}
 
 		refusingTasks.Store(true)
-		_, err := deleteRound[ruledRoundProject](t, db, "ruled", size, ProcessEvent("test"))
+		_, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test"))
 		refusingTasks.Store(false)
 		if want := "A task that is being worked on can't be deleted."; statusOf(err) != http.StatusBadRequest || httpio.Message(err) != want {
 			t.Errorf("the refused round's error = %v (%q), want a 400 saying %q", err, httpio.Message(err), want)
@@ -321,10 +323,10 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 			t.Errorf("after the refused round the record is there = %t with %d tasks, want it there with the 3 the first round left", state.record, state.tasks)
 		}
 
-		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2, Left: 1}) {
+		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2, Left: 1}) {
 			t.Fatalf("the round once the rule allows = %+v, %v, want {Deleted: 2, Left: 1}", got, err)
 		}
-		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, ProcessEvent("test")); err != nil || got != nil {
+		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test")); err != nil || got != nil {
 			t.Fatalf("the last round = %+v, %v, want nil", got, err)
 		}
 		if state := readRoundState(t, db, "ruled"); state.record || state.tasks != 0 {
@@ -339,7 +341,7 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		// full. The second has room for two: it takes the other task, and with room left,
 		// the record.
 		const record = rowDeleteMutations + changeRecordMutations
-		if got, err := deleteRound[trackedRoundProject](t, db, "two", record+taskCost, ProcessEvent("first round")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 1, Left: 1}) {
+		if got, err := deleteRound[trackedRoundProject](t, db, "two", record+taskCost, eventsource.ProcessEvent("first round")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 1, Left: 1}) {
 			t.Fatalf("the first round = %+v, %v, want {Deleted: 1, Left: 1}", got, err)
 		}
 		var first string
@@ -351,7 +353,7 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		if first == "" {
 			t.Fatal("no task has a change record after the first round")
 		}
-		if got, err := deleteRound[trackedRoundProject](t, db, "two", record+2*taskCost, ProcessEvent("second round")); err != nil || got != nil {
+		if got, err := deleteRound[trackedRoundProject](t, db, "two", record+2*taskCost, eventsource.ProcessEvent("second round")); err != nil || got != nil {
 			t.Fatalf("the second round = %+v, %v, want nil", got, err)
 		}
 
@@ -382,7 +384,7 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 	t.Run("a delete that fits one save deletes the record and says nothing is left", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := deleteRound[roundProject](t, db, "small", 0, ProcessEvent("test"))
+		got, err := deleteRound[roundProject](t, db, "small", 0, eventsource.ProcessEvent("test"))
 		if err != nil {
 			t.Fatalf("the delete error = %v", err)
 		}

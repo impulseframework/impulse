@@ -15,6 +15,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
@@ -83,7 +84,7 @@ func (w historyWriter) patch(patchType PatchType, id, title string) *PatchSet[tr
 func (w historyWriter) write(patchType PatchType, id, title string) {
 	w.t.Helper()
 
-	if err := w.patch(patchType, id, title).Apply(w.t.Context(), w.client, ProcessEvent("test")); err != nil {
+	if err := w.patch(patchType, id, title).Apply(w.t.Context(), w.client, eventsource.ProcessEvent("test")); err != nil {
 		w.t.Fatalf("Apply(%s %s %q) error = %v", patchType, id, title, err)
 	}
 }
@@ -94,11 +95,11 @@ func (w historyWriter) writeTogether(id, first, second string) {
 	w.t.Helper()
 
 	if err := w.client.ExecuteFunc(w.t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
-		if err := w.patch(UpdatePatchType, id, first).Buffer(ctx, txn, ProcessEvent("test")); err != nil {
+		if err := w.patch(UpdatePatchType, id, first).Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 			return err
 		}
 
-		return w.patch(UpdatePatchType, id, second).Buffer(ctx, txn, ProcessEvent("test"))
+		return w.patch(UpdatePatchType, id, second).Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 	}); err != nil {
 		w.t.Fatalf("ExecuteFunc() of two updates of %s error = %v", id, err)
 	}
@@ -318,11 +319,11 @@ func TestChangeHistoryRead(t *testing.T) {
 		for _, write := range []struct {
 			patchType PatchType
 			title     string
-			source    EventSource
+			source    eventsource.EventSource
 		}{
-			{patchType: CreatePatchType, title: "made", source: UserEvent(WithRPC(person, "CloseOrder"))},
-			{patchType: UpdatePatchType, title: "changed", source: UserEvent(person)},
-			{patchType: DeletePatchType, source: ProcessEvent("test")},
+			{patchType: CreatePatchType, title: "made", source: eventsource.UserEvent(WithRPC(person, "CloseOrder"))},
+			{patchType: UpdatePatchType, title: "changed", source: eventsource.UserEvent(person)},
+			{patchType: DeletePatchType, source: eventsource.ProcessEvent("test")},
 		} {
 			if err := w.patch(write.patchType, "sourced", write.title).Apply(t.Context(), client, write.source); err != nil {
 				t.Fatalf("Apply(%s) error = %v", write.patchType, err)
@@ -417,7 +418,7 @@ func TestChangeHistoryRead_grants(t *testing.T) {
 	// A row of a resource that keeps no change records, created and then updated so that
 	// every column holds a value the read scans.
 	for _, patchType := range []PatchType{CreatePatchType, UpdatePatchType} {
-		if err := forkPatchOf(patchType, "untracked", string(patchType)).Apply(t.Context(), client, ProcessEvent("test")); err != nil {
+		if err := forkPatchOf(patchType, "untracked", string(patchType)).Apply(t.Context(), client, eventsource.ProcessEvent("test")); err != nil {
 			t.Fatalf("Apply() of an untracked row error = %v", err)
 		}
 	}

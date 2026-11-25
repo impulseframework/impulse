@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/portal/pkg/resources"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/portal/pkg/router"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -35,7 +36,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		defer span.End()
 
 		var (
-			eventSource = resource.UserEvent(ctx)
+			eventSource = eventsource.UserEvent(ctx)
 			resp        response
 		)
 		userPermissions := a.UserPermissions(r)

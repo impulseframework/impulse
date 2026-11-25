@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
@@ -260,7 +261,7 @@ func TestGeneratedIdentityOneTransaction(t *testing.T) {
 			return fmt.Errorf("resources.NewClientCreatePatch(): %w", err)
 		}
 		patch.SetName(clientName).SetContactName("Ada Byron").SetContactEmail("ada@example.com").SetTrusted(true)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return fmt.Errorf("resources.ClientCreatePatch.Buffer(): %w", err)
 		}
 		clientID = patch.ID()

@@ -86,8 +86,8 @@ func Test_prepareIdentity_periods(t *testing.T) {
 			"AddColumns(crewresources.NewCrewGroupMemberColumns().GroupID().UserID().StartsAt().EndsAt()).\n\t\tWhere(crewresources.NewCrewGroupMemberQueryClause().UserID().Equal(userID.String()))",
 			"func (store) GroupPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (*identity.GroupPeriods, error) {",
 			// An ended row goes under the source that says nobody removed it.
-			"patch := crewresources.NewCrewUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))\n\t\tif err := patch.Buffer(ctx, txn, resource.ProcessEvent(identity.EndedByItself)); err != nil {",
-			"crewresources.NewCrewGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, resource.ProcessEvent(identity.EndedByItself))",
+			"patch := crewresources.NewCrewUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))\n\t\tif err := patch.Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {",
+			"crewresources.NewCrewGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself))",
 		},
 		"crewidentity/client.go": {
 			"func (c *Client) SignedIn(db resource.Client) session.SignedInHook {\n\treturn c.manager.SignedIn(\"Crew\", db)\n}",

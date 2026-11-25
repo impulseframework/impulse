@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -30,7 +31,7 @@ type HailShip struct {
 
 // Execute runs inside the handler's transaction and answers nothing.
 func (m *HailShip) Execute(ctx context.Context, txn resource.ReadWriteTransaction, _ *Client) error {
-	if err := resources.NewShipTouch(m.ShipID).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewShipTouch(m.ShipID).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.ShipTouch.Buffer()")
 	}
 

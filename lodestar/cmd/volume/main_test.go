@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -103,9 +104,9 @@ func TestHistory(t *testing.T) {
 			fields := fieldNames(tt.fields)
 			var before map[accesstypes.Field]resource.DiffElem
 			for k, event := range tt.events {
-				if event.TableName != tt.table || event.RowID != tt.rowID || event.Sequence != 1 || event.TenantID != tt.sectorID || event.Source != resource.ProcessEvent(historySource) {
+				if event.TableName != tt.table || event.RowID != tt.rowID || event.Sequence != 1 || event.TenantID != tt.sectorID || event.Source != eventsource.ProcessEvent(historySource) {
 					t.Errorf("record %d is of %s %s, sequence %d, tenant %q, source %q; want %s %s, 1, %q, %q",
-						k, event.TableName, event.RowID, event.Sequence, event.TenantID, event.Source, tt.table, tt.rowID, tt.sectorID, resource.ProcessEvent(historySource))
+						k, event.TableName, event.RowID, event.Sequence, event.TenantID, event.Source, tt.table, tt.rowID, tt.sectorID, eventsource.ProcessEvent(historySource))
 				}
 				wantOperation := resource.ChangeUpdate
 				if k == 0 {

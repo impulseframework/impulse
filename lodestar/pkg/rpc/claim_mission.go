@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -34,7 +35,7 @@ type (
 // Execute runs inside the handler's transaction.
 func (m *ClaimMission) Execute(ctx context.Context, txn resource.ReadWriteTransaction, _ *Client) error {
 	squadron := impulse.NullUUID{UUID: m.SquadronID, Valid: true}
-	if err := resources.NewMissionUpdatePatch(m.MissionID).SetAssignedSquadronID(squadron).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewMissionUpdatePatch(m.MissionID).SetAssignedSquadronID(squadron).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.MissionUpdatePatch.Buffer()")
 	}
 

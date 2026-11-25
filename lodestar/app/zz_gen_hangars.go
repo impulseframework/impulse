@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -202,7 +203,7 @@ func (a *App) PatchHangars() http.HandlerFunc {
 		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
 
 		var resp response
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		// What the request's deletes left under their records, summed: the answer is a 202
 		// with it where one left any.

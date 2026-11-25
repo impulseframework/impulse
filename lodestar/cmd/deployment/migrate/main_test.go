@@ -16,6 +16,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -327,7 +328,7 @@ func TestExecute_retireSecret(t *testing.T) {
 	}
 	before := resource.NewSpannerClient(db.Client, resource.WithSecretKeys(first))
 	for id, key := range keys {
-		if err := resources.NewShipUpdatePatch(impulse.Must(impulse.UUIDFromString(id))).SetTransponderKey(&key).Apply(ctx, before, resource.ProcessEvent("the retirement test")); err != nil {
+		if err := resources.NewShipUpdatePatch(impulse.Must(impulse.UUIDFromString(id))).SetTransponderKey(&key).Apply(ctx, before, eventsource.ProcessEvent("the retirement test")); err != nil {
 			t.Fatalf("setting the key of ship %s: %v", id, err)
 		}
 	}

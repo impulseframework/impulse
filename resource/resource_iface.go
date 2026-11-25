@@ -5,6 +5,7 @@ import (
 	"iter"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
@@ -265,5 +266,5 @@ type PatchSetMetadata interface {
 // Buffer is an interface for types that can buffer their mutations
 // into a transaction. This is used for batching operations.
 type Buffer interface {
-	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...EventSource) error
+	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error
 }

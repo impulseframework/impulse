@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -112,9 +113,9 @@ func TestFlippedBy(t *testing.T) {
 		want    string
 		wantAt  *time.Time
 	}{
-		{name: "a person's flip", flip: lastFlip{ChangedAt: at, eventSourceColumns: whoColumnsOf(UserEvent(accountCtx("gale", aliceID, nil)))}, flipped: true, want: "gale", wantAt: &at},
-		{name: "a process's flip", flip: lastFlip{ChangedAt: at, eventSourceColumns: whoColumnsOf(ProcessEvent("bootstrap"))}, flipped: true, want: "the process bootstrap", wantAt: &at},
-		{name: "a person's flip in an RPC", flip: lastFlip{ChangedAt: at, eventSourceColumns: whoColumnsOf(UserEvent(WithRPC(accountCtx("gale", aliceID, nil), "StartPilot")))}, flipped: true, want: "gale, through the RPC StartPilot", wantAt: &at},
+		{name: "a person's flip", flip: lastFlip{ChangedAt: at, eventSourceColumns: whoColumnsOf(eventsource.UserEvent(accountCtx("gale", aliceID, nil)))}, flipped: true, want: "gale", wantAt: &at},
+		{name: "a process's flip", flip: lastFlip{ChangedAt: at, eventSourceColumns: whoColumnsOf(eventsource.ProcessEvent("bootstrap"))}, flipped: true, want: "the process bootstrap", wantAt: &at},
+		{name: "a person's flip in an RPC", flip: lastFlip{ChangedAt: at, eventSourceColumns: whoColumnsOf(eventsource.UserEvent(WithRPC(accountCtx("gale", aliceID, nil), "StartPilot")))}, flipped: true, want: "gale, through the RPC StartPilot", wantAt: &at},
 		{name: "a flag nobody has flipped: nobody, and no time", want: "", wantAt: nil},
 	}
 	for _, tt := range tests {

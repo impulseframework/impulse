@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/spxscan"
 	"google.golang.org/api/iterator"
@@ -309,8 +310,8 @@ type ChangeRecord struct {
 	Sequence int64 `json:"sequence"`
 	// Operation is what kind of write it was: create, update or delete.
 	Operation ChangeOperation `json:"operation"`
-	// Source says who made the change, as one sentence (EventSource.String): it names
-	// people by username and holds no id, no session and no auth.
+	// Source says who made the change, as one sentence (eventsource.EventSource.String):
+	// it names people by username and holds no id, no session and no auth.
 	Source string `json:"source"`
 	// Fields are the changed fields the reader may see; never nil, and empty for a change
 	// of fields the reader may not see, which is listed all the same.
@@ -394,6 +395,37 @@ type changeRecordRow struct {
 	eventSourceColumns
 }
 
+// eventSourceColumns are the who columns of a row of a table that keeps who made a
+// change (DataChangeEvents, FeatureFlagChanges), as a read scans them. Their tags are
+// the names eventsource.ColumnNames answers, in its order.
+type eventSourceColumns struct {
+	Auth              spanner.NullString `spanner:"Auth"`
+	ActorUserID       spanner.NullString `spanner:"ActorUserId"`
+	ActorUsername     spanner.NullString `spanner:"ActorUsername"`
+	PrincipalUserID   spanner.NullString `spanner:"PrincipalUserId"`
+	PrincipalUsername spanner.NullString `spanner:"PrincipalUsername"`
+	PrincipalRole     spanner.NullString `spanner:"PrincipalRole"`
+	SessionID         spanner.NullString `spanner:"SessionId"`
+	Process           spanner.NullString `spanner:"Process"`
+	RPC               spanner.NullString `spanner:"Rpc"`
+}
+
+// stored answers who made the change as the row keeps it, for its sentence
+// (eventsource.Stored): the text of each column, and the empty text where it is NULL.
+func (c *eventSourceColumns) stored() eventsource.Stored {
+	return eventsource.Stored{
+		Auth:              c.Auth.StringVal,
+		ActorUserID:       c.ActorUserID.StringVal,
+		ActorUsername:     c.ActorUsername.StringVal,
+		PrincipalUserID:   c.PrincipalUserID.StringVal,
+		PrincipalUsername: c.PrincipalUsername.StringVal,
+		PrincipalRole:     c.PrincipalRole.StringVal,
+		SessionID:         c.SessionID.StringVal,
+		Process:           c.Process.StringVal,
+		RPC:               c.RPC.StringVal,
+	}
+}
+
 // readChangeRecords reads the change records of one record, newest first, one more than
 // a page holds so the page knows whether older ones exist. The page is one range of the
 // table's key, which leads with the table and RowId and orders a row's records by time
@@ -403,7 +435,7 @@ type changeRecordRow struct {
 // from the request is written into the statement's text.
 func readChangeRecords(ctx context.Context, txn ReadOnlyTransaction, records *changeRecordsQuery) ([]changeRecordRow, error) {
 	var sql strings.Builder
-	sql.WriteString("SELECT EventTime, Sequence, Operation, TO_JSON_STRING(ChangeSet) AS ChangeSet, " + eventSourceColumnList + "\n")
+	sql.WriteString("SELECT EventTime, Sequence, Operation, TO_JSON_STRING(ChangeSet) AS ChangeSet, " + strings.Join(eventsource.ColumnNames(), ", ") + "\n")
 	sql.WriteString("  FROM DataChangeEvents\n")
 	sql.WriteString(" WHERE TableName = @table AND RowId = @rowId\n")
 	params := map[string]any{"table": records.table, "rowId": records.rowID}
@@ -501,7 +533,7 @@ func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, json
 			At:        row.EventTime,
 			Sequence:  row.Sequence,
 			Operation: ChangeOperation(row.Operation),
-			Source:    eventSourceFromColumns(&row.eventSourceColumns).String(),
+			Source:    row.eventSourceColumns.stored().String(),
 			Fields:    fields,
 		})
 	}

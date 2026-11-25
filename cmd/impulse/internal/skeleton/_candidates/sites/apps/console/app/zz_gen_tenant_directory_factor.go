@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/router"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -101,7 +102,7 @@ func tenantDirectoryFactor(a *App, method accesstypes.Resource, vouch bool) http
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("%s declares no warning: send the call without the X-Warning header", method))
 		}
 		var warning *resource.Warning
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)

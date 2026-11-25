@@ -16,6 +16,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/spxscan"
@@ -102,11 +103,11 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 	// session acting as someone else, which names the person acting first.
 	flips := []struct {
 		enabled bool
-		source  EventSource
+		source  eventsource.EventSource
 	}{
-		{enabled: true, source: ProcessEvent("bootstrap")},
-		{enabled: false, source: UserEvent(gale)},
-		{enabled: true, source: UserEvent(behindRey)},
+		{enabled: true, source: eventsource.ProcessEvent("bootstrap")},
+		{enabled: false, source: eventsource.UserEvent(gale)},
+		{enabled: true, source: eventsource.UserEvent(behindRey)},
 	}
 	for _, flip := range flips {
 		if err := SetFeatureEnabled(gale, client, "cargo_manifest", flip.enabled, flip.source); err != nil {
@@ -114,12 +115,12 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 		}
 	}
 	// A flag only a process has flipped: its row is a process's, as an unflipped flag's is.
-	if err := SetFeatureEnabled(gale, client, "telemetry", true, ProcessEvent("bootstrap")); err != nil {
+	if err := SetFeatureEnabled(gale, client, "telemetry", true, eventsource.ProcessEvent("bootstrap")); err != nil {
 		t.Fatalf("SetFeatureEnabled() error = %v", err)
 	}
 	// A flag an RPC method of the application flipped for a person: the row names the
 	// method too.
-	inStartPilot := UserEvent(WithRPC(gale, "StartPilot"))
+	inStartPilot := eventsource.UserEvent(WithRPC(gale, "StartPilot"))
 	if err := SetFeatureEnabled(gale, client, "autopilot", true, inStartPilot); err != nil {
 		t.Fatalf("SetFeatureEnabled() error = %v", err)
 	}
@@ -293,14 +294,14 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 			Name string `spanner:"Name"`
 			eventSourceColumns
 		}
-		stmt := spanner.Statement{SQL: "SELECT Name, " + eventSourceColumnList + " FROM FeatureFlagChanges WHERE Name IN UNNEST(@names) ORDER BY ChangedAt"}
+		stmt := spanner.Statement{SQL: "SELECT Name, " + strings.Join(eventsource.ColumnNames(), ", ") + " FROM FeatureFlagChanges WHERE Name IN UNNEST(@names) ORDER BY ChangedAt"}
 		stmt.Params = map[string]any{"names": []string{"cargo_manifest", "autopilot"}}
 		txn := client.ReadOnlyTransaction()
 		defer txn.Close()
 		if err := spxscan.Select(t.Context(), txn.SpannerReadOnlyTransaction(), &rows, stmt); err != nil {
 			t.Fatalf("spxscan.Select() error = %v", err)
 		}
-		sources := []EventSource{flips[0].source, flips[1].source, flips[2].source, inStartPilot}
+		sources := []eventsource.EventSource{flips[0].source, flips[1].source, flips[2].source, inStartPilot}
 		if len(rows) != len(sources) {
 			t.Fatalf("FeatureFlagChanges holds %d rows of the two flags, want %d", len(rows), len(sources))
 		}
@@ -559,7 +560,7 @@ func TestFeatureFlagLastFlipFollowsHistory(t *testing.T) {
 	if err := MigrateFeatures(gale, client, beacons); err != nil {
 		t.Fatalf("MigrateFeatures() error = %v", err)
 	}
-	if err := SetFeatureEnabled(gale, client, "beacons", true, UserEvent(gale)); err != nil {
+	if err := SetFeatureEnabled(gale, client, "beacons", true, eventsource.UserEvent(gale)); err != nil {
 		t.Fatalf("SetFeatureEnabled() error = %v", err)
 	}
 	for _, declared := range [][]FeatureDeclaration{nil, beacons} {

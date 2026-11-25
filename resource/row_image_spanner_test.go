@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/grpc/codes"
 )
@@ -192,10 +193,10 @@ func TestChangeRecordOldValues_spanner(t *testing.T) {
 		seedNotice(t, db, "n-7")
 		var updateErr error
 		err := client.ExecuteFunc(context.Background(), func(ctx context.Context, txn ReadWriteTransaction) error {
-			if err := notice(DeletePatchType, "n-7", "").Buffer(ctx, txn, ProcessEvent("test")); err != nil {
+			if err := notice(DeletePatchType, "n-7", "").Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 				return err
 			}
-			updateErr = notice(UpdatePatchType, "n-7", "second").Buffer(ctx, txn, ProcessEvent("test"))
+			updateErr = notice(UpdatePatchType, "n-7", "second").Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 
 			return updateErr
 		})
@@ -335,7 +336,7 @@ func TestSpannerReadWriteTransaction_changeRecordsNotNoted(t *testing.T) {
 
 	if err := client.ExecuteFunc(t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
 		for _, p := range []*PatchSet[changeNotice]{notice(CreatePatchType, "n-noted", "first"), notice(UpdatePatchType, "n-noted", "second")} {
-			if err := p.Buffer(ctx, txn, ProcessEvent("test")); err != nil {
+			if err := p.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 				return err
 			}
 		}

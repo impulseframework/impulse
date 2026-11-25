@@ -115,7 +115,7 @@ func Test_prepareIdentity_signInSettings(t *testing.T) { //nolint:paralleltest /
 			"func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteTransaction, days int64) error {",
 			"crewresources.NewCrewSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)",
 			"SetRequireSecondFactor(true).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)",
-			"patch.Buffer(ctx, txn, resource.UserEvent(ctx))",
+			"patch.Buffer(ctx, txn, eventsource.UserEvent(ctx))",
 		},
 		"membersidentity/require_members_second_factor.go": {"type RequireMembersSecondFactor struct{}"},
 	} {

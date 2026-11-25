@@ -49,7 +49,7 @@ import (
 
 // EndedByItself is the name of the process a removal is made under when nobody made it:
 // the assignment's period ended, and the row is removed at the person's next sign-in. A
-// store hands each such removal resource.ProcessEvent(EndedByItself) in place of a
+// store hands each such removal eventsource.ProcessEvent(EndedByItself) in place of a
 // person's act.
 const EndedByItself = "PeriodEnd"
 

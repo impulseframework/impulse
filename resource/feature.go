@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/freshness"
 	"github.com/impulseframework/impulse/logger"
@@ -279,7 +280,7 @@ func MigrateFeatures(ctx context.Context, db Client, declared []FeatureDeclarati
 		return errFeaturesUnsupportedDatabase
 	}
 
-	eventSource := ProcessEvent("MigrateFeatures")
+	eventSource := eventsource.ProcessEvent("MigrateFeatures")
 	if err := db.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 		held, err := readFeatureFlags(ctx, txn, txn.DBType())
 		if err != nil {
@@ -350,7 +351,7 @@ func bufferFeatureFlag(txn ReadWriteTransaction, patchType PatchType, name Featu
 // flip's row. A name the table does not hold is a not-found error, and a value that
 // names nobody is refused. SetFeatureHandler flips through the same write; a bootstrap or
 // a test flips a flag directly through this.
-func SetFeatureEnabled(ctx context.Context, db Client, name Feature, enabled bool, eventSource EventSource) error {
+func SetFeatureEnabled(ctx context.Context, db Client, name Feature, enabled bool, eventSource eventsource.EventSource) error {
 	if db.DBType() != SpannerDBType {
 		return errFeaturesUnsupportedDatabase
 	}
@@ -367,12 +368,12 @@ func SetFeatureEnabled(ctx context.Context, db Client, name Feature, enabled boo
 // audit row inserted, both stamped with the commit timestamp. A value that names nobody
 // is refused first, as a tracked write refuses it; then the row is read, so an unknown
 // name is refused as not found before anything is written.
-func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feature, enabled bool, eventSource EventSource) error {
+func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feature, enabled bool, eventSource eventsource.EventSource) error {
 	if txn.DBType() != SpannerDBType {
 		return errFeaturesUnsupportedDatabase
 	}
 	if eventSource.IsZero() {
-		return errors.New("resource: a feature flag's change needs who made it; pass resource.UserEvent(ctx) or resource.ProcessEvent(name)")
+		return errors.New("resource: a feature flag's change needs who made it; pass eventsource.UserEvent(ctx) or eventsource.ProcessEvent(name)")
 	}
 	if !ValidFeatureName(string(name)) {
 		return flagNotFound(name)
@@ -406,7 +407,7 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 	}
 	// The history's row keeps who made the change in the columns a change record does,
 	// those that hold something.
-	row := eventSource.columns()
+	row := eventSource.Columns()
 	row[flagNameColumn] = string(name)
 	row[flagChangedAtColumn] = spanner.CommitTimestamp
 	row[flagEnabledColumn] = enabled
@@ -935,7 +936,7 @@ func lastFlips(ctx context.Context, client Client, fields []accesstypes.Field, n
 
 	var rows []lastFlip
 	stmt := spanner.Statement{
-		SQL: "SELECT c.Name, c.ChangedAt, " + eventSourceColumnList + " FROM FeatureFlagChanges AS c WHERE c.Name IN UNNEST(@names)" +
+		SQL: "SELECT c.Name, c.ChangedAt, " + strings.Join(eventsource.ColumnNames(), ", ") + " FROM FeatureFlagChanges AS c WHERE c.Name IN UNNEST(@names)" +
 			" AND c.ChangedAt = (SELECT MAX(d.ChangedAt) FROM FeatureFlagChanges AS d WHERE d.Name = c.Name)",
 		Params: map[string]any{"names": names},
 	}
@@ -974,10 +975,10 @@ func flippedBy(flip *lastFlip, flipped bool) string {
 }
 
 // whoFlipped is the sentence of who made a flip, from the who columns of its row of
-// FeatureFlagChanges (EventSource.String). The list, the read and the history each write
-// it here, so they cannot differ.
+// FeatureFlagChanges (eventsource.Stored.String). The list, the read and the history
+// each write it here, so they cannot differ.
 func whoFlipped(columns *eventSourceColumns) string {
-	return eventSourceFromColumns(columns).String()
+	return columns.stored().String()
 }
 
 // featureFlagMap renders a flag's row the way the generated handlers render theirs: the
@@ -1067,7 +1068,7 @@ func SetFeatureHandler(a FeatureApp, collection *GeneratedCollection, signals Si
 		}
 
 		name := Feature(req.Name)
-		eventSource := UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 		// SetFeature declares no warning: a request that asks for one is refused as a
 		// method's frame refuses it, and never sets the flag.
 		asksWarning, err := AsksWarning(r)

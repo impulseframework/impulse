@@ -13,6 +13,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -110,7 +111,7 @@ func (r *cascadeRow) checkTaken(_ context.Context, _ ReadWriteTransaction, _ *ta
 	return false, nil
 }
 
-func (r *cascadeRow) bufferTaken(context.Context, ReadWriteTransaction, ...EventSource) error {
+func (r *cascadeRow) bufferTaken(context.Context, ReadWriteTransaction, ...eventsource.EventSource) error {
 	*r.made = append(*r.made, r.name)
 
 	return nil

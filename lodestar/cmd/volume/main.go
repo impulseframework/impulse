@@ -30,6 +30,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/config"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -677,6 +678,6 @@ func historyEvent(now time.Time, table accesstypes.Resource, rowID, sectorID str
 		Operation: operation,
 		ChangeSet: spanner.NullJSON{Valid: true, Value: changeSet},
 		TenantID:  sectorID,
-		Source:    resource.ProcessEvent(historySource),
+		Source:    eventsource.ProcessEvent(historySource),
 	}
 }

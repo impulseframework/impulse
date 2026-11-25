@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/router"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -85,7 +86,7 @@ func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 		if role == "" && !asksWarning {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("Choose the role each person from the directory gets: a tenant is not opened to its directory without one."))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)
@@ -188,7 +189,7 @@ func (a *App) MakeTenantInviteOnly() http.HandlerFunc {
 			// and never runs the call.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("MakeTenantInviteOnly declares no warning: send the call without the X-Warning header"))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)

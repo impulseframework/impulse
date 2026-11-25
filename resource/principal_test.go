@@ -3,7 +3,6 @@ package resource
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 	"testing"
 
@@ -566,103 +565,6 @@ func TestSessionPermissions(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantDomains, domains); diff != "" {
 				t.Errorf("Domains() mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestUserEvent pins the columns who made a change is kept in, for each kind of session:
-// a person as themselves is the actor; a session acting as a person names the real
-// person as the actor and the person acted as as the principal; a session acting as a
-// role names the actor and the role. Each with an account and without, where an id that
-// is not valid is left empty; the auth where the request's context binds one; the session
-// always. In an RPC method each sets Rpc to the method's name beside the columns its
-// session sets, and outside one none; UserProcessEvent sets the process beside all of it.
-func TestUserEvent(t *testing.T) {
-	t.Parallel()
-
-	alice, bob := aliceID.String(), bobID.String()
-	actorAlice := impulse.NullUUIDFromUUID(aliceID)
-
-	tests := []struct {
-		name string
-		ctx  context.Context
-		want map[string]any
-	}{
-		{
-			name: "a person as themselves: the account, the username, the session",
-			ctx:  accountCtx("alice@example.com", aliceID, nil),
-			want: map[string]any{"ActorUserId": alice, "ActorUsername": "alice@example.com", "SessionId": sessionColumn},
-		},
-		{
-			name: "a person as themselves, the auth bound: the auth too",
-			ctx:  WithAuth(accountCtx("alice@example.com", aliceID, nil), "crew"),
-			want: map[string]any{"Auth": "crew", "ActorUserId": alice, "ActorUsername": "alice@example.com", "SessionId": sessionColumn},
-		},
-		{
-			name: "a person of no account: the username alone",
-			ctx:  sessionCtx("alice@example.com", nil),
-			want: map[string]any{"ActorUsername": "alice@example.com", "SessionId": sessionColumn},
-		},
-		{
-			name: "acting as a person: the actor, and the person acted as",
-			ctx: accountCtx("bob@partner.org", bobID, &sessioninfo.Impersonation{
-				Actor: "alice@example.com", ActorID: actorAlice, Principal: accesstypes.UserPrincipal(bobUser),
-			}),
-			want: map[string]any{
-				"ActorUserId": alice, "ActorUsername": "alice@example.com",
-				"PrincipalUserId": bob, "PrincipalUsername": "bob@partner.org", "SessionId": sessionColumn,
-			},
-		},
-		{
-			name: "acting as a person, an actor with no account here: no actor's id",
-			ctx: WithAuth(accountCtx("bob@partner.org", bobID, &sessioninfo.Impersonation{
-				Actor: "alice@example.com", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(bobUser),
-			}), "crew"),
-			want: map[string]any{
-				"Auth": "crew", "ActorUsername": "alice@example.com",
-				"PrincipalUserId": bob, "PrincipalUsername": "bob@partner.org", "SessionId": sessionColumn,
-			},
-		},
-		{
-			name: "acting as a person of no account: no principal's id",
-			ctx: sessionCtx("bob@partner.org", &sessioninfo.Impersonation{
-				Actor: "alice@example.com", ActorID: actorAlice, Principal: accesstypes.UserPrincipal("bob@partner.org"),
-			}),
-			want: map[string]any{
-				"ActorUserId": alice, "ActorUsername": "alice@example.com",
-				"PrincipalUsername": "bob@partner.org", "SessionId": sessionColumn,
-			},
-		},
-		{
-			name: "acting as a role: the actor and the role",
-			ctx: sessionCtx("alice@example.com", &sessioninfo.Impersonation{
-				Actor: "alice@example.com", ActorID: actorAlice, Principal: accesstypes.RolePrincipal("PartnerViewer"),
-			}),
-			want: map[string]any{"ActorUserId": alice, "ActorUsername": "alice@example.com", "PrincipalRole": "PartnerViewer", "SessionId": sessionColumn},
-		},
-		{
-			name: "acting as a role, an actor with no account here, the auth bound",
-			ctx:  WithAuth(sessionCtx("alice@example.com", &sessioninfo.Impersonation{Actor: "alice@example.com", Principal: accesstypes.RolePrincipal("PartnerViewer")}), "crew"),
-			want: map[string]any{"Auth": "crew", "ActorUsername": "alice@example.com", "PrincipalRole": "PartnerViewer", "SessionId": sessionColumn},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if diff := cmp.Diff(tt.want, UserEvent(tt.ctx).columns()); diff != "" {
-				t.Errorf("UserEvent().columns() mismatch (-want +got):\n%s", diff)
-			}
-			inRPC := maps.Clone(tt.want)
-			inRPC["Rpc"] = "CloseOrder"
-			if diff := cmp.Diff(inRPC, UserEvent(WithRPC(tt.ctx, "CloseOrder")).columns()); diff != "" {
-				t.Errorf("UserEvent() in an RPC: columns() mismatch (-want +got):\n%s", diff)
-			}
-			throughProcess := maps.Clone(inRPC)
-			throughProcess["Process"] = "nightly"
-			if diff := cmp.Diff(throughProcess, UserProcessEvent(WithRPC(tt.ctx, "CloseOrder"), "nightly").columns()); diff != "" {
-				t.Errorf("UserProcessEvent() in an RPC: columns() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
