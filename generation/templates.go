@@ -1024,19 +1024,17 @@ const (
 			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
 		}`
 
-	// tenantCleared is spliced into the tenant record's delete, after the row's removal
-	// is buffered under its id (id, which the splice's place sets): what each auth holds
-	// for the tenant goes in the same transaction, through the generated identity client
-	// of every auth whose management the program generates (identity.Manager.ClearTenant).
-	// The id's text is the tenant's domain. The application's rows under the tenant, its
-	// directory among them, went with the row's removal (the record's DeleteTree).
-	tenantCleared = `// A tenant that goes takes what each auth holds for it, in this transaction:
-					// the roles people hold in it, the custom roles made in it and the
-					// invitations into it that still stand.
-					{{- range $clear := .Clears }}
-					if err := {{ $.ReceiverName }}.{{ $clear }}().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
-						return errors.Wrap(err, "{{ $clear }}().ClearTenant()")
-					}
+	// tenantKindsHanded is spliced into the tenant record's delete, after its delete patch
+	// is made (patch, under the tenant's id, id, which the splice's place sets) and before
+	// it is buffered: the patch is handed what each auth holds for the tenant as kinds of
+	// the delete, through the generated identity client of every auth whose management the
+	// program generates (identity.Manager.TenantKinds), so the delete counts them in its
+	// question and takes them in its rounds after the application's rows under the tenant.
+	// The id's text is the tenant's domain.
+	tenantKindsHanded = `// A tenant's delete takes what each auth holds for it: the accounts that were its alone,
+					// the roles held in it, its groups, its custom roles and its invitations.
+					{{- range $source := .KindsFrom }}
+					patch.DeleteAlso({{ $.ReceiverName }}.{{ $source }}().TenantKinds(accesstypes.Domain(id.String()))...)
 					{{- end }}`
 
 	// directoryCreateRefused is spliced into the directories record's create in place of
@@ -3848,6 +3846,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					{{- end }}
 					{{- if .Resource.TakesRowsUnder }}
 					patch := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet)
+					{{- if .KindsFrom }}
+					` + tenantKindsHanded + `
+					{{- end }}
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
@@ -3856,9 +3857,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
-					{{- end }}
-					{{- if .Clears }}
-					` + tenantCleared + `
 					{{- end }}
 				{{- end }}
 				}
@@ -4181,6 +4179,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- end }}
 							{{- if .TakesRowsUnder }}
 							patch := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet)
+							{{- if .KindsFrom }}
+							` + tenantKindsHanded + `
+							{{- end }}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
@@ -4189,9 +4190,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
-							{{- end }}
-							{{- if .Clears }}
-							` + tenantCleared + `
 							{{- end }}
 							{{- end }}
 						}

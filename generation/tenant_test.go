@@ -627,8 +627,8 @@ func Test_patchTemplate_tenant(t *testing.T) {
 		name     string
 		tenant   bool
 		creation tenantCreation
-		// auth binds the default outlet to the staff auth, whose identity client the
-		// record's delete clears the tenant through.
+		// auth binds the default outlet to the staff auth, whose identity client hands the
+		// record's delete what the auth holds for the tenant.
 		auth            bool
 		wantContains    []string
 		wantNotContains []string
@@ -670,26 +670,26 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			},
 		},
 		{
-			name:   "the record's delete clears what the auth holds for the tenant, in the delete's transaction",
+			name:   "the record's delete is handed what the auth holds for the tenant, before its patch is buffered",
 			tenant: true,
 			auth:   true,
 			wantContains: []string{
 				// The tenant record's delete takes rows: its patch is kept, to say what it left.
 				"patch := tenantfixture.NewSectorDeletePatchFromPatchSet(id, patchSet)\n",
+				"patch.DeleteAlso(a.StaffIdentity().TenantKinds(accesstypes.Domain(id.String()))...)\n",
 				"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
-				"if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {",
-				`return errors.Wrap(err, "StaffIdentity().ClearTenant()")`,
 			},
+			wantNotContains: []string{"ClearTenant"},
 		},
 		{
-			name:            "a program that generates no auth's management clears nothing: the memberships are the application's own",
+			name:            "a program that generates no auth's management hands the delete nothing: the memberships are the application's own",
 			tenant:          true,
-			wantNotContains: []string{"ClearTenant"},
+			wantNotContains: []string{"ClearTenant", "DeleteAlso", "TenantKinds"},
 		},
 		{
 			name:            "another resource carries none of it",
 			auth:            true,
-			wantNotContains: []string{"tenantsWritten", "TenantRoster()", "KindTenants", "ClearTenant"},
+			wantNotContains: []string{"tenantsWritten", "TenantRoster()", "KindTenants", "ClearTenant", "DeleteAlso", "TenantKinds"},
 		},
 	}
 

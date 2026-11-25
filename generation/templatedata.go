@@ -142,10 +142,10 @@ type consolidatedCaseData struct {
 	DomainPatternPrefix string // "" for global cases
 	ResourcePackage     string
 	ReceiverName        string
-	// Clears are the application's accessors of the identity clients the tenant
-	// record's delete clears the tenant through (tenantClears); empty on every other
-	// case.
-	Clears []string
+	// KindsFrom are the application's accessors of the identity clients whose kinds the
+	// tenant record's delete is handed, what each auth holds for the tenant
+	// (tenantKindSources); empty on every other case.
+	KindsFrom []string
 	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
 	// removal is buffered (tenantDisabledRequirement); nil on every other case.
 	RequiresDisabled *tenantDisabledRequirement
@@ -166,10 +166,10 @@ type handlerContentData struct {
 	VirtualResourcesPackage string
 	ApplicationName         string
 	ReceiverName            string
-	// Clears are the application's accessors of the identity clients the tenant
-	// record's delete clears the tenant through (tenantClears); empty on every other
-	// resource.
-	Clears []string
+	// KindsFrom are the application's accessors of the identity clients whose kinds the
+	// tenant record's delete is handed, what each auth holds for the tenant
+	// (tenantKindSources); empty on every other resource.
+	KindsFrom []string
 	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
 	// removal is buffered (tenantDisabledRequirement); nil on every other resource.
 	RequiresDisabled *tenantDisabledRequirement

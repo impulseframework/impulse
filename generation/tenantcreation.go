@@ -254,13 +254,14 @@ func (r *resourceGenerator) tenantAuth(record *resourceInfo) (*outletAuth, error
 	return auth, nil
 }
 
-// tenantClears names what the tenant record's delete clears a tenant through: the
-// application's accessor of the generated identity client of every auth whose
-// management the program generates, in declaration order, since each auth keeps its own
-// memberships, custom roles and invitations. It is empty for every other resource, and
-// for a program that generates no auth's management, whose memberships are the
+// tenantKindSources names the identity clients whose kinds the tenant record's delete is
+// handed, what each auth holds for the tenant (identity.Manager.TenantKinds): the
+// application's accessor of the generated identity client of every auth whose management
+// the program generates, in declaration order, since each auth keeps its own accounts,
+// memberships, groups, custom roles and invitations. It is empty for every other resource,
+// and for a program that generates no auth's management, whose memberships are the
 // application's own to remove.
-func (r *resourceGenerator) tenantClears(record *resourceInfo) []string {
+func (r *resourceGenerator) tenantKindSources(record *resourceInfo) []string {
 	if !record.IsTenant {
 		return nil
 	}
