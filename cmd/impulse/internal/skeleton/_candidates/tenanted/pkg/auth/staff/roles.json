@@ -143,6 +143,7 @@
               "resource": "Tenants",
               "fields": [
                 "directoryOnly",
+                "disabled",
                 "name"
               ]
             },
@@ -324,6 +325,7 @@
                 "administrators",
                 "directory",
                 "directoryOnly",
+                "disabled",
                 "name",
                 "people",
                 "since"
@@ -532,6 +534,7 @@
               "resource": "Tenants",
               "fields": [
                 "directoryOnly",
+                "disabled",
                 "name"
               ]
             },
@@ -715,6 +718,7 @@
             {
               "resource": "Tenants",
               "fields": [
+                "disabled",
                 "name"
               ]
             }

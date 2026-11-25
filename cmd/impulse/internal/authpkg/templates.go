@@ -215,8 +215,9 @@ type Settings struct {
 {{- else}}
 	// TenantDeclarations reads what a tenant declares about who may enter it, which the
 	// sign-in rule decides with: the generated reader over the {{.TenantPolicy.Record}} record
-	// ({{.TenantPolicy.Reader}}), which answers nothing for every tenant, since
-	// the application has no tenant directories. Required; New refuses nil.
+	// ({{.TenantPolicy.Reader}}), which reads whether each tenant is disabled and
+	// nothing else, since the application has no tenant directories. Required; New
+	// refuses nil.
 {{- end}}
 	TenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]
 {{- end}}
@@ -575,11 +576,11 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// The sign-in rule: the library's tenant policy. A person's tenants are where they
 	// hold a role (the engine's memberships). The application has no tenant
-	// directories, so no tenant declares who may enter it and the generated reader
-	// answers nothing for every tenant: a tenant admits everyone it seats, however they
-	// signed in, a person who holds a role outside any one tenant (a global role, or
-	// one held in every tenant) is admitted on the library's checks, and a super
-	// administrator before any of it. A sign-in method through an organization's
+	// directories, so a tenant declares one thing, whether it is disabled, which the
+	// generated reader reads: a tenant that is not disabled admits everyone it seats,
+	// however they signed in, a person who holds a role outside any one tenant (a global
+	// role, or one held in every tenant) is admitted on the library's checks, and a
+	// super administrator before any of it. A sign-in method through an organization's
 	// directory is a way for an invited person to sign in and nothing more.
 {{- end}}
 {{- if .TenantPolicy.AdmitWithoutTenant}}

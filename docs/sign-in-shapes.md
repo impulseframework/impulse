@@ -1223,6 +1223,24 @@ A tenant that is made invite only and later opened again gives the default role 
 everyone who signs in through the directory and holds nothing in it by then, the people
 removed in the meantime among them.
 
+### A disabled tenant
+
+The application's staff can disable a tenant: a customer that has left, has not paid, or
+is about to be deleted. Nothing of the tenant is removed. From their next request its
+people, its own administrators among them, cannot enter it, and the switcher lists it
+under "Not available" with the reason, "Acme is disabled." A person whose only tenant is
+disabled is treated at sign-in as a person who is in no tenant. Only a super
+administrator still enters a disabled tenant.
+
+Who may disable a tenant is said in the application's role file: it is a change of one
+field of the tenant's record. In a new application the application's own administrator
+may. When the tenant is enabled again everyone has what they had: no role, group or
+invitation was touched. An invitation into a disabled tenant can still be accepted, and
+its person gets in once the tenant is enabled.
+
+A tenant is disabled before it is deleted. A delete of a tenant that is not disabled is
+refused: "Disable this tenant before deleting it."
+
 ### Who manages an account
 
 A person has one account in the auth, whatever the number of tenants they are in: a
@@ -1353,7 +1371,7 @@ unless they administer that tenant or are a super administrator, and a person wh
 tenant is directory only, who is an administrator of none of them and holds no role
 outside them. The page shows them no Password line, and they cannot choose a first
 password. The switcher next to the application's name lists their tenants. A tenant they
-cannot enter with the way they signed in is listed as closed, with the reason.
+cannot enter is listed under "Not available", with the reason.
 
 ## With tenants, one tenant per person
 

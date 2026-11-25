@@ -17,8 +17,8 @@ import (
 // domain-scoped route: it resolves the route's domain and answers 404 before the
 // handler runs when the application's tenant roster (Tenants) does not hold it, and
 // the same 404 when the session does not reach the tenant (resource.UserPermissions.Reaches:
-// the tenant's declaration does not admit the way the session was established), so a
-// tenant the session may not enter is, for that session, not there.
+// the tenant is disabled, or its declaration does not admit the way the session was
+// established), so a tenant the session may not enter is, for that session, not there.
 // Domains are concealed (generation.WithConcealedDomains), so a domain the caller holds
 // no grant in answers exactly like a domain that does not exist, and tenant existence
 // cannot be probed from the rejection shape. A caller with any foothold in the domain

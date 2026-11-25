@@ -22,11 +22,12 @@ import (
 )
 
 // tenantDeclaration names where the Tenant record keeps its declaration of who
-// may enter a tenant (@directoryOnly on the record, the TenantDirectory record's columns): what
+// may enter a tenant (@directoryOnly and @tenantDisabled on the record, the TenantDirectory record's columns): what
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var tenantDeclaration = resource.TenantDeclarationColumns{
 	DirectoryOnly:        "DirectoryOnly",
+	Disabled:             "Disabled",
 	DirectoriesTable:     "TenantDirectories",
 	TenantColumn:         "TenantId",
 	MethodColumn:         "Method",

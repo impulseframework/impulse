@@ -34,5 +34,13 @@ type (
 		// afterward. The list of tenants says it as Since.
 		// @tenantSince
 		CreatedAt time.Time `spanner:"CreatedAt" conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
+		// Disabled says the tenant is disabled: its people are shut out while its records
+		// stay, and nobody enters it but a super administrator, the tenant's own
+		// administrators included. It is an ordinary field of the record: whoever holds
+		// Update on it disables a tenant and enables it again, and enabling gives everyone
+		// back what they held. A tenant is disabled before it is deleted: the record's
+		// delete refuses one that is not.
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 )

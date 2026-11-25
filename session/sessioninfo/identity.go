@@ -432,9 +432,9 @@ const (
 	// RefusedPersonalAccount is the code for an Entra token of a Microsoft personal
 	// account under a registration that admits work or school accounts only.
 	RefusedPersonalAccount LoginRefusalCode = "personal_account"
-	// RefusedNoTenant is the code for a person who is a member of no tenant, under the
-	// tenant policy (signin.TenantPolicy), which admits such a person only when it was
-	// built with signin.AdmitWithoutTenant.
+	// RefusedNoTenant is the code for a person who is a member of no tenant, or whose
+	// every tenant is disabled, under the tenant policy (signin.TenantPolicy), which
+	// admits such a person only when it was built with signin.AdmitWithoutTenant.
 	RefusedNoTenant LoginRefusalCode = "no_tenant"
 	// RefusedConnectionNotInTenant is the code for a sign-in through a directory that
 	// the tenant policy refuses: by a person whose account a directory-only tenant's

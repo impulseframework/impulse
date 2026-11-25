@@ -72,6 +72,9 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 			"CREATE TABLE Tenants (",
 			"CREATE UNIQUE INDEX TenantsByName ON Tenants(Name);",
 			"  Name STRING(MAX) NOT NULL,\n  -- When the tenant was made: the time of the commit that made the row, written by the\n  -- record's create and never changed. The list of tenants says it as Since.\n  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),\n",
+			// The column that says a tenant is disabled is the table's last, with or
+			// without the directory-only switch.
+			"  -- The tenant is disabled: its people are shut out while its records stay, and nobody\n  -- enters it but a super administrator. A tenant is disabled before it is deleted.\n  Disabled BOOL NOT NULL DEFAULT (FALSE),\n\n  CONSTRAINT CK_Tenants_Id",
 		},
 		"schema/migrations/000003_Tenants.down.sql": {"DROP INDEX TenantsByName;\nDROP TABLE Tenants;"},
 		"schema/devseed/000001_dev_tenants.up.sql": {
@@ -83,6 +86,8 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 			"import (\n\t\"time\"\n\n",
 			"\t\t// @tenantName\n\t\tName string `spanner:\"Name\"`\n\t\t// CreatedAt is when the tenant was made: the database writes it with the row, at the\n\t\t// commit that makes the tenant, whichever way it is made, and nothing changes it\n\t\t// afterward. The list of tenants says it as Since.\n\t\t// @tenantSince\n\t\tCreatedAt time.Time `spanner:\"CreatedAt\" conditions:\"output_only\" default_create_fn:\"resource.CommitTimestamp\"`\n",
 			"return resource.Config{TrackChanges: true}",
+			// The field that says a tenant is disabled is the record's last.
+			"\t\t// Disabled says the tenant is disabled: its people are shut out while its records\n\t\t// stay, and nobody enters it but a super administrator, the tenant's own\n\t\t// administrators included. It is an ordinary field of the record: whoever holds\n\t\t// Update on it disables a tenant and enables it again, and enabling gives everyone\n\t\t// back what they held. A tenant is disabled before it is deleted: the record's\n\t\t// delete refuses one that is not.\n\t\t// @tenantDisabled\n\t\tDisabled bool `spanner:\"Disabled\"`\n\t}\n)\n",
 		},
 		"pkg/auth/staff/staff.go": {
 			"\tTenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]\n",
@@ -105,23 +110,23 @@ func TestTenancyApply_tenantDirectories(t *testing.T) {
 	none := map[string][]string{
 		"pkg/resources/tenants.go": {"\t// No tenant has a directory in this application: the package declares no\n\t// directories record and this record carries no directory-only switch, so a\n\t// tenant's people come by invitation alone"},
 		"pkg/auth/staff/staff.go": {
-			"\t// over the Tenant record (app.NewTenantDeclarationReader), which declares no\n\t// directories, so the reader answers nothing for every tenant. Required; New refuses\n\t// nil.\n",
-			"\t// they signed in: a sign-in method through an organization's directory is a way\n\t// for an invited person to sign in and nothing more.",
+			"\t// over the Tenant record (app.NewTenantDeclarationReader), which declares no\n\t// directories, so the reader reads whether each tenant is disabled and nothing else.\n\t// Required; New refuses nil.\n",
+			"\t// disabled admits everyone it seats, however they signed in: a sign-in method\n\t// through an organization's directory is a way for an invited person to sign in\n\t// and nothing more.",
 		},
-		"pkg/config/tenancy.go": {"// roster's copy. The Tenant record declares no directories, so every tenant declares\n// nothing"},
-		"app/tenancy.go":        {"application knows it: the roster's copy. The tenant record declares no\n\t// directories, so every tenant declares nothing"},
-		"app/app.go":            {"No tenant has a directory in this\n// application, so no tenant declares who may enter it and none is closed to a\n// session: every tenant that seats the person is offered, however they signed in.\n"},
+		"pkg/config/tenancy.go": {"// roster's copy. The Tenant record declares no directories, so a tenant declares one\n// thing, whether it is disabled, and a session is offered every tenant that seats its\n// person and is not disabled"},
+		"app/tenancy.go":        {"application knows it: the roster's copy. The tenant record declares no\n\t// directories, so a tenant declares one thing, whether it is disabled, and\n\t// UserPermissions, which hands it to resource.SessionPermissions, offers a session\n\t// every tenant that seats its person and is not disabled, however they signed in."},
+		"app/app.go":            {"No tenant has a directory in this\n// application, so a tenant declares one thing, whether it is disabled: every tenant\n// that seats the person and is not disabled is offered, however they signed in, and a\n// super administrator reaches every tenant.\n"},
 	}
 	did := map[bool][]string{
 		false: {
-			"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+			"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 			"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 			"pkg/config/data.go: dataConfig.staffSettings passes the declaration reader (app.NewTenantDeclarationReader()), the directory reader (app.NewTenantDirectoryReader()) and what makes a tenant from an accepted invitation (app.NewTenantMaker(tenants, liveService), over the roster built ahead of the auth) to the staff auth",
 			"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 		},
 		true: {
-			"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name and CreatedAt, when the tenant was made; no tenant has a directory, so the table carries no directory-only switch and no directories table is written)",
-			"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), change tracking and no directory-only switch, since no tenant has a directory",
+			"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and Disabled; no tenant has a directory, so the table carries no directory-only switch and no directories table is written)",
+			"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), the column that says a tenant is disabled (Disabled), change tracking and no directory-only switch, since no tenant has a directory",
 			"pkg/auth/staff/staff.go: Settings carries the declaration reader (TenantDeclarations) and what makes a tenant from an accepted invitation (TenantMaker, which New hands the identity client), New refuses a nil one, and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles) with the password-disabled check beside it (signin.PasswordsDisabledByTenants over the same reader, through resource.OutsideSignIn)",
 			"pkg/config/data.go: dataConfig.staffSettings passes the declaration reader (app.NewTenantDeclarationReader()) and what makes a tenant from an accepted invitation (app.NewTenantMaker(tenants, liveService), over the roster built ahead of the auth) to the staff auth",
 			"web/console/src/app/app.menus.ts: the tenant menus ahead of the others, as the reference's: Tenants (All tenants, in the place outside every tenant) and People (the tenant's side of the auth's people), each showing in its place only, and no menu for Sign-in settings, since no tenant has a directory to set there; Feature flags, whose address has no tenant in it, is a page of the place outside every one",
@@ -392,8 +397,10 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		"Giving the application tenant directories later is the author's act and no command's: the directories record (`@tenantDirectory`) and its table with its two unique indexes, the directory-only column on `Tenant` (`@directoryOnly`), each auth's directory reader and admission (`SetDirectoryAdmission`), the grants on the generated methods and the tenant's Sign-in page, as an application made with tenant directories has them (the tenanted skeleton); no `impulse add method` does it.",
 		"where the auth has a sign-in method through an organization's directory, an invited person accepts through it and is seated, a person of the same organization with no invitation is refused as a stranger while the method is invite only, with no account made, and no route of the API sets a tenant's directory.",
 		"and no menu for Sign-in settings, since no tenant has a directory to set there, each showing in its place only;",
-		"Sign-up. No tenant declares who may enter it, so there are no grants to give on a directories record and no Sign-in page to place.",
+		"Sign-up. No tenant has a directory, so there are no grants to give on a directories record and no Sign-in page to place.",
 		"that person's first sign-in makes the tenant and gives them the roles `TenantAdministratorRoles()` names, in one transaction, however they signed in.",
+		"which reads whether each tenant is disabled and nothing else: a tenant that is not disabled admits everyone it seats, however they signed in,",
+		"is handed to `resource.SessionPermissions` as in an application whose tenants have directories, and reads whether each tenant is disabled and nothing else.",
 	}
 	everywhere := []string{
 		"Tenancy is data. The Tenants table is the domain universe",
@@ -401,6 +408,7 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		"How a tenant comes to exist. Nobody creates one directly: the record's create answers 400 with a sentence saying so.",
 		"`no-delete-cascade`",
 		"is taken by the tenant's delete the same way",
+		"so a new tenant is usable at once, without a restart. A tenant can be disabled (`Tenant.Disabled`, `@tenantDisabled`): its people are shut out at their next request while its records stay, a super administrator alone enters it, and the record's delete refuses a tenant that is not disabled; the role file says who may change the field. The generated DomainGuard",
 	}
 	for _, noDirectories := range []bool{false, true} {
 		meaning := Tenancy{Table: "Tenants", NoDirectories: noDirectories}.Meaning()

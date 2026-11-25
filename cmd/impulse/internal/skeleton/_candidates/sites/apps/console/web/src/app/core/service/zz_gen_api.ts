@@ -127,6 +127,7 @@ export type StaffUserRolesKey = [kind: string, axis: string, domainId: string, r
 /** The fields a client may change on Tenants. Keys, server-owned, and immutable fields are absent. */
 export interface TenantsPatch {
   name?: string;
+  disabled?: boolean;
 }
 /** The primary key of Tenants, in route order. */
 export type TenantsKey = [id: string];
@@ -599,7 +600,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'patch', 'remove', 'batch'],
       page: { default: 50 },
       order: [{ field: 'name', direction: 'asc' }],
-      patchable: ['name'],
+      patchable: ['name', 'disabled'],
     },
     [Resources.TenantDirectories]: {
       resource: Resources.TenantDirectories,

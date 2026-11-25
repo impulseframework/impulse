@@ -49,9 +49,11 @@ import (
 // sortie and the droid's report is of it: those two references say nothing of a delete,
 // and hold nothing here, since what names the ship goes in the same transaction.
 //
-// A sector with rows under it is not deleted by a request that does not say so: the
-// plain remove is answered with the question a person is asked first, and nothing is
-// gone. The request that goes ahead says it takes everything under the sector.
+// A sector that is not disabled is not deleted: the remove is refused, saying to
+// disable it first, and nothing is gone. A sector with rows under it is not deleted by
+// a request that does not say so: the plain remove is answered with the question a
+// person is asked first, and nothing is gone. The request that goes ahead says it takes
+// everything under the sector.
 //
 // No role the release ships deletes a sector, so the suite makes one that does: a custom
 // role of the whole application holding Delete on Sectors, given to the governor.
@@ -270,6 +272,53 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	// The kinds of Ember's rows that keep a change record, each with one row of Ember's.
 	tracked := []string{"SectorDirectories", "Missions", "Ships", "Refits"}
 	eventsBefore := changeEvents(ctx, t, s, tracked...)
+	// nothingGone fails the test unless Ember, its directory and each of its rows stand
+	// after the refused request, and no change event was written.
+	nothingGone := func(after string) {
+		t.Helper()
+		if n := rowsWhere(ctx, t, s, "Sectors", "Id", ember); n != 1 {
+			t.Fatalf("Sectors holds %d row(s) of Ember after %s, want the one: a refused delete deletes nothing", n, after)
+		}
+		if n := sectorDirectoryRows(ctx, t, s, ember); n != 1 {
+			t.Errorf("Ember's directory after %s: %d row(s), want the one", after, n)
+		}
+		for _, table := range sectorKeyedTables {
+			if n := sectorRows(ctx, t, s, table, ember); n != 1 {
+				t.Errorf("%s holds %d row(s) of Ember after %s, want the one written", table, n, after)
+			}
+		}
+		for _, row := range throughEmber {
+			if n := rowsWhere(ctx, t, s, row.table, row.column, row.value); n != 1 {
+				t.Errorf("%s holds %d row(s) of Ember after %s, want the one written", row.table, n, after)
+			}
+		}
+		if events := changeEvents(ctx, t, s, tracked...); !maps.Equal(events, eventsBefore) {
+			t.Errorf("change events after %s: %v, want %v: nothing was deleted", after, events, eventsBefore)
+		}
+	}
+
+	// A sector that is not disabled is not deleted, whether or not the request says it
+	// takes what is under the sector: each is refused, saying to disable it first.
+	remove := []byte(`[{"op":"remove","path":"/sectors/` + ember + `"}]`)
+	everythingUnder := []byte(`[{"op":"remove","path":"/sectors/` + ember + `","value":{"everythingUnder":true}}]`)
+	const disableFirst = "Disable this sector before deleting it."
+	for _, refused := range []struct {
+		name string
+		body []byte
+	}{
+		{name: "the plain remove", body: remove},
+		{name: "the remove that says it takes everything under the sector", body: everythingUnder},
+	} {
+		status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", refused.body)
+		assertStatus(t, status, http.StatusConflict, body)
+		if got := refusalMessage(t, body); got != disableFirst {
+			t.Errorf("%s of Ember while it is not disabled: the refusal = %q, want %q", refused.name, got, disableFirst)
+		}
+		nothingGone(refused.name + " of a sector that is not disabled")
+	}
+	// Ember is disabled, by the record's update, by the governor, who holds
+	// Headquarters.
+	setSectorDisabled(ctx, t, hq, ember, true)
 
 	// A request that does not say it takes what is under the sector is asked the
 	// question, and nothing is gone: not the sector, not its directory, not a row.
@@ -277,8 +326,8 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	// The question counts each kind the person may list in the tenant being deleted.
 	// The governor holds the sector's marshal role in every sector, and it lists each
 	// kind of Ember's rows but a droid's report, which is not named: one of each, the
-	// kind nearest the sector first.
-	remove := []byte(`[{"op":"remove","path":"/sectors/` + ember + `"}]`)
+	// kind nearest the sector first. He is a super administrator, so he still lists
+	// them in a disabled sector.
 	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", remove)
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
 	const counted = "Delete this sector and everything under it: 1 wing, 1 sector directory, 1 hangar, 1 distress call, " +
@@ -305,29 +354,11 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	if got := refusalMessage(t, body); got != question {
 		t.Errorf("the deckhand's question = %q, want %q", got, question)
 	}
-	if n := rowsWhere(ctx, t, s, "Sectors", "Id", ember); n != 1 {
-		t.Fatalf("Sectors holds %d row(s) of Ember after the question, want the one: a delete that is asked the question deletes nothing", n)
-	}
-	if n := sectorDirectoryRows(ctx, t, s, ember); n != 1 {
-		t.Errorf("Ember's directory after the question: %d row(s), want the one", n)
-	}
-	for _, table := range sectorKeyedTables {
-		if n := sectorRows(ctx, t, s, table, ember); n != 1 {
-			t.Errorf("%s holds %d row(s) of Ember after the question, want the one written", table, n)
-		}
-	}
-	for _, row := range throughEmber {
-		if n := rowsWhere(ctx, t, s, row.table, row.column, row.value); n != 1 {
-			t.Errorf("%s holds %d row(s) of Ember after the question, want the one written", row.table, n)
-		}
-	}
-	if after := changeEvents(ctx, t, s, tracked...); !maps.Equal(after, eventsBefore) {
-		t.Errorf("change events after the question: %v, want %v: nothing was deleted", after, eventsBefore)
-	}
+	nothingGone("the question")
 
-	// One request that says so, with nothing before it: directory only is not turned
-	// off and the directory is not removed first.
-	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+ember+`","value":{"everythingUnder":true}}]`))
+	// One request that says so, with nothing before it but the disable: directory only
+	// is not turned off and the directory is not removed first.
+	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", everythingUnder)
 	assertStatus(t, status, http.StatusOK, body)
 
 	// The directory went with the sector and every other sector's directory stands.

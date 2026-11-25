@@ -1030,6 +1030,22 @@ const (
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 					}`
 
+	// tenantDisabledRequired is spliced into the tenant record's delete, before the row's
+	// removal is buffered (patchSet and id, which the splice's place sets), where the
+	// record marks the column saying a tenant is disabled: a tenant is disabled before it
+	// is deleted (resource.RequireTenantDisabled), which reads what the database held
+	// before the transaction. The caller's grants are asked before the rule, as
+	// directoryKept asks them. The splice reads the requirement as its dot
+	// (tenantDisabledRequirement).
+	tenantDisabledRequired = `// A {{ .Word }} is disabled before it is deleted, so nobody of it is at work in it
+					// while its records go. The caller's grants answer first.
+					if err := patchSet.Permitted(ctx, txn); err != nil {
+						return errors.Wrap(err, "resource.PatchSet.Permitted()")
+					}
+					if err := resource.RequireTenantDisabled(ctx, txn, {{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, {{ printf "%q" .Column }}, accesstypes.Domain(id.String()), {{ printf "%q" .Word }}); err != nil {
+						return errors.Wrap(err, "resource.RequireTenantDisabled()")
+					}`
+
 	// subjectGuarded is spliced into the generated write of a record that decides what
 	// a person may do (resourceInfo.SubjectGuarded), once the operation is decoded and
 	// before its create, update or delete is built (op, patchSet and $subjectReq, the
@@ -1678,8 +1694,8 @@ import (
 // domain-scoped route: it resolves the route's domain and answers 404 before the
 // handler runs when the application's tenant roster (Tenants) does not hold it, and
 // the same 404 when the session does not reach the tenant (resource.UserPermissions.Reaches:
-// the tenant's declaration does not admit the way the session was established), so a
-// tenant the session may not enter is, for that session, not there.
+// the tenant is disabled, or its declaration does not admit the way the session was
+// established), so a tenant the session may not enter is, for that session, not there.
 // Domains are concealed (generation.WithConcealedDomains), so a domain the caller holds
 // no grant in answers exactly like a domain that does not exist, and tenant existence
 // cannot be probed from the rejection shape. A caller with any foothold in the domain
@@ -1691,8 +1707,8 @@ import (
 // domain-scoped route: it resolves the route's domain and answers 404 before the
 // handler runs when the application's tenant roster (Tenants) does not hold it, and
 // the same 404 when the session does not reach the tenant (resource.UserPermissions.Reaches:
-// the tenant's declaration does not admit the way the session was established), so a
-// tenant the session may not enter is, for that session, not there.
+// the tenant is disabled, or its declaration does not admit the way the session was
+// established), so a tenant the session may not enter is, for that session, not there.
 // Each 404 says the one sentence, "This {{ .Word }} does not exist.", with nothing of what was
 // asked for; what the guard found is the cause, which the server logs.
 {{- end }}
@@ -1783,11 +1799,12 @@ import (
 {{- if .Declaration }}
 
 // {{ GoCamel .Name }}Declaration names where the {{ .Name }} record keeps its declaration of who
-// may enter a {{ .RecordLower }} (@directoryOnly on the record, the {{ .Directories }} record's columns): what
+// may enter a {{ .RecordLower }} (@directoryOnly and @tenantDisabled on the record, the {{ .Directories }} record's columns): what
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 	DirectoryOnly:    {{ printf "%q" .Declaration.DirectoryOnly }},
+	Disabled:         {{ printf "%q" .Declaration.Disabled }},
 	DirectoriesTable: {{ printf "%q" .Declaration.DirectoriesTable }},
 	TenantColumn:     {{ printf "%q" .Declaration.TenantColumn }},
 	MethodColumn:     {{ printf "%q" .Declaration.MethodColumn }},
@@ -1801,6 +1818,14 @@ var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 	{{- if .Declaration.SecondFactorColumn }}
 	SecondFactorColumn: {{ printf "%q" .Declaration.SecondFactorColumn }},
 	{{- end }}
+}
+{{- else }}
+
+// {{ GoCamel .Name }}Declaration names the {{ .Name }} record's column that says a {{ .RecordLower }} is disabled
+// (@tenantDisabled): what the roster reads beside the keys and the sign-in's reader
+// reads in its own transaction.
+var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
+	Disabled: {{ printf "%q" .Disabled }},
 }
 {{- end }}
 
@@ -1816,15 +1841,18 @@ var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 // ({{ .Name }}.DirectoryOnly and the {{ .Directories }} rows), so its Declarations is what the
 // application hands resource.SessionPermissions as the tenant declarations, and the
 // generated {{ .Directories }} write paths reload it too.
+{{- else }}
+// The roster reads whether each {{ .RecordLower }} is disabled beside its key ({{ .Name }}.{{ .DisabledField }}), so
+// its Declarations is what the application hands resource.SessionPermissions as the
+// tenant declarations: a disabled {{ .RecordLower }} is entered by nobody but a super
+// administrator.
 {{- end }}
 {{- if .NameColumn }}
 // It reads each {{ .RecordLower }}'s name ({{ .Name }}.{{ .NameField }}) beside its key, so the session's
 // tenant list names each tenant from the copy (resource.WithDomainNames).
 {{- end }}
 func New{{ .Name }}Roster(client resource.Client, opts ...resource.TenantRosterOption) *resource.TenantRoster {
-	{{- if .Declaration }}
 	opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&{{ GoCamel .Name }}Declaration)}, opts...)
-	{{- end }}
 	{{- if .NameColumn }}
 	opts = append([]resource.TenantRosterOption{resource.WithTenantNames({{ printf "%q" .NameColumn }})}, opts...)
 	{{- end }}
@@ -1833,16 +1861,16 @@ func New{{ .Name }}Roster(client resource.Client, opts ...resource.TenantRosterO
 }
 {{- if .NoDirectories }}
 
-// New{{ .Name }}DeclarationReader builds the sign-in policy's reader of what a {{ .RecordLower }} declares
-// about who may enter it (signin.TenantPolicy, through signin.DeclarationReader). The
-// {{ .Name }} record declares no directories (no record is annotated @tenantDirectory), so no
-// {{ .RecordLower }} declares anything: the reader answers nothing for every one and makes no
-// read, and the policy admits everyone a {{ .RecordLower }} seats, however they signed in. The
+// New{{ .Name }}DeclarationReader builds the sign-in policy's reader of what a {{ .RecordLower }}
+// declares (signin.TenantPolicy, through signin.DeclarationReader). The {{ .Name }} record
+// declares no directories (no record is annotated @tenantDirectory), so a {{ .RecordLower }}
+// declares one thing, whether it is disabled, which the reader reads from the {{ .Name }}
+// row in the sign-in's own transaction: the policy admits everyone a {{ .RecordLower }} that is
+// not disabled seats, however they signed in, and passes a disabled one over. The
 // application hands it to each auth through the auth's settings, as an application
-// whose {{ .RecordLower }}s have directories does, so the sign-in rule is set the same way
-// in both.
+// whose {{ .RecordLower }}s have directories does.
 func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTransaction] {
-	return resource.NewTenantDeclarationReader({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, nil)
+	return resource.NewTenantDeclarationReader({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, &{{ GoCamel .Name }}Declaration)
 }
 {{- end }}
 {{- if .Declaration }}
@@ -3754,6 +3782,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					` + directoryKept + `
 					{{- end }}
 					{{- end }}
+					{{- with .RequiresDisabled }}
+					` + tenantDisabledRequired + `
+					{{- end }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
@@ -4051,6 +4082,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							id := httpio.Param[{{ $primaryKeyType }}](req, "id")
 							{{- if .IsTenantDirectory }}
 							` + directoryKept + `
+							{{- end }}
+							{{- with .RequiresDisabled }}
+							` + tenantDisabledRequired + `
 							{{- end }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")

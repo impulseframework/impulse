@@ -176,6 +176,7 @@ export interface CrewListedSectors {
   region?: string;
   established?: Date;
   directoryOnly?: boolean;
+  disabled?: boolean;
   people?: number;
   since?: Date;
   directory?: string;
@@ -985,6 +986,7 @@ export interface Sectors {
   established?: Date;
   chartedAt?: Date;
   directoryOnly?: boolean;
+  disabled?: boolean;
 }
 
 export interface SectorDirectories {
@@ -1565,6 +1567,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'region', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
       { fieldName: 'directoryOnly', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'since', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'directory', displayType: 'string', required: false, isIndex: false },
@@ -2693,6 +2696,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'established', displayType: 'civildate', required: true, isIndex: false },
       { fieldName: 'chartedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'directoryOnly', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
+      { fieldName: 'disabled', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
     ],
   },
   [Resources.SectorDirectories]: {

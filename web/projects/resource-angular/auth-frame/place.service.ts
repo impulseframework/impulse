@@ -20,9 +20,9 @@ export interface Place {
 /**
  * A tenant the person holds a seat in and this session cannot enter: its name, and the
  * server's reason in a sentence ("Acme admits only people who sign in through its own
- * directory. You signed in with a password.").
+ * directory. You signed in with a password.", "Acme is disabled.").
  */
-export interface ClosedPlace {
+export interface UnavailablePlace {
   readonly id: string;
   readonly label: string;
   readonly reason: string;
@@ -92,13 +92,13 @@ export class PlaceService {
   });
 
   /**
-   * The tenants that are closed to this sign-in, by name: the person holds a seat in each
-   * and the session cannot enter it, for the reason the server gives. They are no places
-   * to work in or to land on; the place switcher lists them under the person's places,
-   * marked, so a seat is never missing without a word.
+   * The tenants this session cannot enter, by name: the person holds a seat in each and
+   * the session cannot enter it, for the reason the server gives. They are no places to
+   * work in or to land on; the place switcher lists them under the person's places, under
+   * "Not available", so a seat is never missing without a word.
    */
-  readonly closed = computed<readonly ClosedPlace[]>(() =>
-    [...this.auth.closedDomains()]
+  readonly unavailable = computed<readonly UnavailablePlace[]>(() =>
+    [...this.auth.unavailableDomains()]
       .map(([id, reason]) => ({ id, label: this.client.permissions.domainName(id), reason }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   );
@@ -236,7 +236,7 @@ export class PlaceService {
   /**
    * Where the person lands: the tenant an invitation they have just accepted seated them
    * in; else where they last worked if they still can, else the first place. An
-   * invitation's tenant that is no place of theirs (it is closed to this sign-in) is
+   * invitation's tenant that is no place of theirs (this session cannot enter it) is
    * passed over.
    */
   defaultPlace(): Place | undefined {

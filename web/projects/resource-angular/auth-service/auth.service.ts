@@ -141,10 +141,13 @@ export class AuthService {
   /**
    * The domains the person holds a seat in and this session cannot enter, each with the
    * server's reason: a tenant that admits only people who sign in through its own
-   * directory, when the person signed in another way. Never among `domains`; the tenant
-   * picker shows them marked, with the reason. Empty until the session authenticates.
+   * directory, when the person signed in another way, or a tenant that is disabled. Never
+   * among `domains`; the tenant picker lists them under "Not available", with the reason.
+   * Empty until the session authenticates.
    */
-  closedDomains = computed<ReadonlyMap<Domain, string>>(() => this.snapshot().closed ?? new Map<Domain, string>());
+  unavailableDomains = computed<ReadonlyMap<Domain, string>>(
+    () => this.snapshot().unavailable ?? new Map<Domain, string>(),
+  );
 
   /**
    * The names of the feature flags that are on in this environment, as loaded when the

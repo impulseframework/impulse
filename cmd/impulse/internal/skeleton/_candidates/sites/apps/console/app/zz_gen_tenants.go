@@ -24,6 +24,7 @@ func (a *App) Tenants() http.HandlerFunc {
 		Name          string       `json:"name"          index:"true"`
 		CreatedAt     time.Time    `json:"createdAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	type response []map[string]any
@@ -82,6 +83,10 @@ func (a *App) Tenants() http.HandlerFunc {
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
 					}
+				case "Disabled":
+					if !row.Masked("disabled") {
+						rmap["disabled"] = rec.Disabled
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -109,6 +114,7 @@ func (a *App) Tenant() http.HandlerFunc {
 		Name          string       `json:"name"          index:"true"`
 		CreatedAt     time.Time    `json:"createdAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	decoder := NewQueryDecoder[resources.Tenant, response](a, accesstypes.Read)
@@ -154,6 +160,10 @@ func (a *App) Tenant() http.HandlerFunc {
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {
 					rmap["directoryOnly"] = rec.DirectoryOnly
+				}
+			case "Disabled":
+				if !row.Masked("disabled") {
+					rmap["disabled"] = rec.Disabled
 				}
 			}
 		}

@@ -92,7 +92,8 @@ type accessWrite struct {
 // management the program generates). Each of those done one at a time is an action of
 // the class, so the delete that does them all carries it, whether the library removes
 // the rows or the application does. The record's change carries none: a tenant renamed
-// holds what it held.
+// holds what it held, and a tenant disabled or enabled is the work a person who stands
+// in for an administrator is there to do, as an account disabled or enabled is.
 //
 // Nobody lists these by hand: an application's mask refuses the class, and a record that
 // gains a subject value, or a value that takes a new path, is covered when the

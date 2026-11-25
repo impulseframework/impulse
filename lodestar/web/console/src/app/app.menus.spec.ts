@@ -58,6 +58,7 @@ describe('the menu file', () => {
       'Name',
       'Region',
       'Established',
+      'Disabled',
       'Directory',
       'Directory only',
       'People',

@@ -135,7 +135,9 @@ const tenantNeeded = "a tenant-scoped resource needs a tenant record; annotate i
 // record known, the domain route segment is its route name and the domain route
 // parameter its key's route parameter (ToGoCamel(name+key)), the one chi wildcard name
 // the record's read route and the segment pair share at that tree position. The RPC
-// methods are extracted later and checked by requireTenantRecordForMethods.
+// methods are extracted later and checked by requireTenantRecordForMethods. A record
+// that marks no column saying a tenant is disabled (@tenantDisabled) is refused: every
+// tenant record carries one.
 func (r *resourceGenerator) resolveTenantRecord() error {
 	tenant := r.tenantRecord()
 	if tenant == nil {
@@ -155,6 +157,9 @@ func (r *resourceGenerator) resolveTenantRecord() error {
 		}
 
 		return nil
+	}
+	if tenant.TenantDisabledField == nil {
+		return errors.Newf("struct %s: the tenant record has no @%s column, and every tenant record carries one: a disabled tenant's people are shut out while its records stay, and a tenant is disabled before it is deleted. Add the column to the table (ALTER TABLE %s ADD COLUMN Disabled BOOL NOT NULL DEFAULT (FALSE)) and its field to the struct, annotated @%s (Disabled bool `spanner:\"Disabled\"`)", tenant.Name(), tenantDisabledKeyword, r.pluralize(tenant.Name()), tenantDisabledKeyword)
 	}
 
 	r.domainRouteSegment = strcase.ToKebab(r.pluralize(tenant.Name()))
@@ -233,9 +238,10 @@ func declaresNoDirectories(tenant *resourceInfo, declaration *tenantDeclarationC
 }
 
 // tenantsData feeds the handler package's tenants file: the record's roster constructor
-// and the sign-in policy's reader constructor, over the declaration's columns where the
-// record declares who may enter a tenant, and answering nothing where the application's
-// tenants have no directories (NoDirectories).
+// and the sign-in policy's reader constructor, over the declaration's columns: the
+// directory-only switch and the directories where the record declares who may enter a
+// tenant, and the column that says a tenant is disabled, which every tenant record
+// carries, alone where the application's tenants have no directories (NoDirectories).
 type tenantsData struct {
 	Source  string
 	Package string
@@ -258,11 +264,16 @@ type tenantsData struct {
 	// package of the record's create patch; all three are empty where the record
 	// declares none.
 	Declaration *tenantDeclarationColumns
+	// Disabled is the record's @tenantDisabled column and DisabledField its field. Where
+	// the record declares no directories, the declaration's variable names it alone, the
+	// roster reads it and, where the rows are made here, the reader reads it.
+	Disabled      string
+	DisabledField string
 	// NoDirectories reports a record that declares no directories and whose rows are
 	// made in this package (its patch handler is not suppressed): the application's
-	// tenants have no directories, and the file carries the reader that answers nothing
-	// for every tenant. It is false for a record another site serves, declared here for
-	// its segment and its roster alone, which gets no reader.
+	// tenants have no directories, and the file carries the reader that reads whether
+	// each tenant is disabled and nothing else. It is false for a record another site
+	// serves, declared here for its segment and its roster alone, which gets no reader.
 	NoDirectories       bool
 	Directories         string
 	DefaultSeat         string
@@ -346,11 +357,12 @@ func (r *resourceGenerator) tenantMakerData(record *resourceInfo) *tenantMakerDa
 // the handler package whenever the package declares a tenant record, and beside it
 // New<Record>DeclarationReader, the sign-in policy's reader of what a tenant declares
 // about who may enter it: the reader of the declaration when the record declares one,
-// and a reader that answers nothing when it declares no directories and its rows are
-// made here, so every application with tenants hands its auths the same constructor. A
-// package that declares the record another site serves (its patch handler suppressed)
-// and no directories record gets no reader: the directories, where the application has
-// them, are that site's to declare, and its reader is the one the auths are handed.
+// and a reader of whether each tenant is disabled when it declares no directories and
+// its rows are made here, so every application with tenants hands its auths the same
+// constructor. A package that declares the record another site serves (its patch
+// handler suppressed) and no directories record gets no reader: the directories, where
+// the application has them, are that site's to declare, and its reader is the one the
+// auths are handed.
 func (r *resourceGenerator) generateTenants() error {
 	tenant := r.tenantRecord()
 	if tenant == nil {
@@ -383,6 +395,8 @@ func (r *resourceGenerator) generateTenants() error {
 		data.NameColumn, _ = field.LookupTag(spannerTagKey)
 		data.NameField = field.Name()
 	}
+	data.Disabled = spannerColumn(tenant.TenantDisabledField)
+	data.DisabledField = tenant.TenantDisabledField.Name()
 	if tenant.HasDeclaration() {
 		data.Directories = tenant.declaration.Directories.Name()
 		if field := tenant.declaration.Directories.DirectoryDefaultSeatField; field != nil {

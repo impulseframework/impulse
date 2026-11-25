@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"testing"
@@ -10,6 +11,58 @@ import (
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
 )
+
+// TestTenants_aDisabledTenantShutsItsPeopleOut proves the application's administrator
+// disables a tenant with the record's update, and from their next request its people
+// hold nothing in it: the member, north's administrator, is answered as by a tenant that
+// does not exist, and the member's list of tenants keeps north with the reason ("North
+// is disabled."). Enabled again, north answers the member as before.
+func TestTenants_aDisabledTenantShutsItsPeopleOut(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	admin := signedIn(ctx, t, s, adminUser)
+	member := signedIn(ctx, t, s, memberUser)
+	northSegment := "/api/tenants/" + north + "/announcements"
+	if status, body := member.do(ctx, http.MethodGet, northSegment, nil); status != http.StatusOK {
+		t.Fatalf("GET %s as the member before north is disabled: status %d, want 200: %s", northSegment, status, body)
+	}
+
+	setTenantDisabled(ctx, t, admin, north, true)
+	if status, body := member.do(ctx, http.MethodGet, northSegment, nil); status != http.StatusNotFound {
+		t.Errorf("GET %s as the member once north is disabled: status %d, want 404: %s", northSegment, status, body)
+	}
+	const reason = "North is disabled."
+	if unavailable := unavailableDomains(ctx, t, member); len(unavailable) != 1 || unavailable[north] != reason {
+		t.Errorf("the tenants the member's list keeps as not available once north is disabled = %v, want north alone, with %q", unavailable, reason)
+	}
+	if domains := userDomains(ctx, t, member); len(domains) != 0 {
+		t.Errorf("the member's tenants once north is disabled = %v, want none", domains)
+	}
+
+	setTenantDisabled(ctx, t, admin, north, false)
+	if status, body := member.do(ctx, http.MethodGet, northSegment, nil); status != http.StatusOK {
+		t.Errorf("GET %s as the member once north is enabled again: status %d, want 200: %s", northSegment, status, body)
+	}
+	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
+		t.Errorf("the member's tenants once north is enabled again = %v, want north", domains)
+	}
+	if unavailable := unavailableDomains(ctx, t, member); len(unavailable) != 0 {
+		t.Errorf("the tenants the member's list keeps as not available once north is enabled again = %v, want none", unavailable)
+	}
+}
+
+// setTenantDisabled disables the tenant, or enables it again, through the record's
+// update in the browser's session, and fails the test unless it answers 200.
+func setTenantDisabled(ctx context.Context, t *testing.T, b *browser, tenant string, disabled bool) {
+	t.Helper()
+
+	body := fmt.Appendf(nil, `[{"op":"patch","path":"/tenants/%s","value":{"disabled":%t}}]`, tenant, disabled)
+	if status, answer := b.do(ctx, http.MethodPatch, "/api/resources", body); status != http.StatusOK {
+		t.Fatalf("setting the disabled field of tenant %s to %t: status %d, want 200: %s", tenant, disabled, status, answer)
+	}
+}
 
 // TestTenants_aDeletedTenantTakesItsRolesAndInvitations proves a tenant that is deleted
 // leaves nothing of itself behind: the roles people held in it are removed and the
@@ -74,6 +127,8 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 		}
 	}
 
+	// A tenant is disabled before it is deleted.
+	setTenantDisabled(ctx, t, admin, east, true)
 	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`"}]`)); status != http.StatusOK {
 		t.Fatalf("deleting the tenant: status %d: %s", status, body)
 	}

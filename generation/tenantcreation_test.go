@@ -307,6 +307,18 @@ func Test_tenantCreationFields(t *testing.T) {
 	if diff := cmp.Diff([]string{"Name", "Motto", "Opened"}, setters); diff != "" {
 		t.Errorf("tenantCreationFields() setters mismatch (-want +got):\n%s", diff)
 	}
+
+	// A new tenant is made enabled, by the column's default: the request does not take
+	// whether it is disabled.
+	haven := tenantCreationFixtureGenerator(t, "Haven", nil)
+	_, fields, setters = tenantCreationFields(haven.resources[0])
+	wantFields = []*tenantCreationField{{Name: "Name", Type: "string", Wire: "name", Tags: `json:"name" validate:"required"`}}
+	if diff := cmp.Diff(wantFields, fields); diff != "" {
+		t.Errorf("tenantCreationFields() of a record that marks the column saying a tenant is disabled, fields mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"Name"}, setters); diff != "" {
+		t.Errorf("tenantCreationFields() of a record that marks the column saying a tenant is disabled, setters mismatch (-want +got):\n%s", diff)
+	}
 }
 
 // Test_tenantCreationData_typeImports pins the payload's import scope: the packages the

@@ -41,6 +41,7 @@ type (
 		ID             impulse.UUID `spanner:"Id"             index:"true"`
 		Name           string       `spanner:"Name"           index:"true"`
 		DirectoryOnly  bool         `spanner:"DirectoryOnly"`
+		Disabled       bool         `spanner:"Disabled"`
 		People         int64        `spanner:"People"`
 		Since          *time.Time   `spanner:"Since"`
 		Directory      *string      `spanner:"Directory"`
@@ -55,6 +56,7 @@ SELECT
   s.Id AS Id,
   s.Name AS Name,
   s.DirectoryOnly AS DirectoryOnly,
+  s.Disabled AS Disabled,
   (SELECT COUNT(DISTINCT p.UserId) FROM (
     SELECT m.UserId AS UserId
     FROM StaffUserRoles m

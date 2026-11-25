@@ -162,6 +162,7 @@ export interface StaffListedTenants {
   id: string;
   name?: string;
   directoryOnly?: boolean;
+  disabled?: boolean;
   people?: number;
   since?: Date;
   directory?: string;
@@ -470,6 +471,7 @@ export interface Tenants {
   name?: string;
   createdAt?: Date;
   directoryOnly?: boolean;
+  disabled?: boolean;
 }
 
 export interface TenantDirectories {
@@ -843,6 +845,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'directoryOnly', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'since', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'directory', displayType: 'string', required: false, isIndex: false },
@@ -1284,6 +1287,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'directoryOnly', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false, readOnly: true },
+      { fieldName: 'disabled', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
     ],
   },
   [Resources.TenantDirectories]: {

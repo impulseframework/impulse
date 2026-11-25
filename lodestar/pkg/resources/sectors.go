@@ -35,8 +35,10 @@ type (
 	// removes, in the transaction that deletes the row, the roles people held in the
 	// sector, the custom roles made in it and the invitations into it that still stood,
 	// in the crew's tables and the members' alike (each auth's generated identity client,
-	// ClearTenant), and a person who held roles in that sector alone goes with it. No
-	// role Lodestar ships holds Delete on Sectors; the suite gives one to prove it.
+	// ClearTenant), and a person who held roles in that sector alone goes with it. The
+	// delete is of a disabled sector: one that is not disabled is refused, in a sentence
+	// that says to disable it first. No role Lodestar ships holds Delete on Sectors; the
+	// suite gives one to prove it.
 	//
 	// Sector itself is a GLOBAL resource: administering the sector list is a global
 	// concern. The place switcher lists only the sectors a login holds a grant in.
@@ -86,7 +88,7 @@ type (
 	// Cinder's), reaches Cinder and every other sector that seats him and is not
 	// directory only; the rigger, by password, reaches Anvil and not Bastion, which
 	// admits its people through its directory only (the seed makes the persona
-	// provider its directory) and stays on her chart marked closed, with the reason;
+	// provider its directory) and stays on her chart as not available, with the reason;
 	// the bosun, whose only sector is Bastion, is refused at sign-in. The pioneer signs
 	// up with a personal Google account, which is no organization's directory: the
 	// create-sector route sets none on her Ember, and
@@ -95,7 +97,15 @@ type (
 	// the row's transaction, and is refused when another sector has it. The record's
 	// change events (DataChangeEvents, Config) are the audit of every edit.
 	//
-	// Demonstrates: tenancy.tenant-record, tenancy.run-time-tenant, tenancy.invited-tenant, tenancy.deleted-tenant, tenancy.concealed, tenancy.self-service, tenancy.declaration, tenancy.directory-only, tenancy.creator-directory, @order, @page.
+	// A sector can be disabled (Disabled): from their next request its crew hold nothing
+	// in it and it answers them as a sector that does not exist, their chart lists it
+	// under "Not available" with the reason ("Ember is disabled."), and a person whose
+	// every sector is disabled signs in as a person who holds none does: admitted to the
+	// console, which admits a person with no sector so that she can chart one. The
+	// governor, a super administrator, still enters it. Enabled again, everyone has what
+	// they had.
+	//
+	// Demonstrates: tenancy.tenant-record, tenancy.run-time-tenant, tenancy.invited-tenant, tenancy.deleted-tenant, tenancy.concealed, tenancy.self-service, tenancy.declaration, tenancy.directory-only, tenancy.disabled, tenancy.creator-directory, @order, @page.
 	//
 	// @resource
 	// @tenant
@@ -126,6 +136,15 @@ type (
 		// sets the flag with the directory.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
+		// Disabled says the sector is disabled: its crew are shut out while its records
+		// stay, and nobody enters it but a super administrator, the sector's own marshal
+		// included. It is an ordinary field of the record: whoever holds Update on it
+		// disables a sector and enables it again (Headquarters), and enabling gives
+		// everyone back what they held, since no role, group or invitation is touched. A
+		// sector is disabled before it is deleted: the record's delete refuses one that is
+		// not.
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 )
 

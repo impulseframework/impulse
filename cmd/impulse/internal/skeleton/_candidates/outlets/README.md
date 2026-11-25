@@ -116,7 +116,7 @@ role outside any one tenant (a global role, or one held in every tenant) is admi
 then enters a tenant only where its declaration admits their session, and a person
 holding no tenant is refused. Which tenants the session
 then reaches is decided again per tenant where its tenant list is computed, and a tenant
-that seats the person and is closed to their session stays in the list marked closed,
+that seats the person and is closed to their session stays in the list as not available,
 with the reason: the data
 level's roster keeps every tenant's declaration beside its key
 (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions`), the

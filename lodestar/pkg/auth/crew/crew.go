@@ -838,7 +838,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Which sectors the session then reaches is decided again, sector by sector, where
 	// its chart is computed (app.UserPermissions): every sector that seats the person,
 	// but a directory-only sector whose directory they did not sign in through, which
-	// stays on the chart marked closed, with the reason. The memberships are read
+	// stays on the chart, listed as not available, with the reason. The memberships are read
 	// outside the sign-in's transaction (resource.SignInRoles): the Spanner client
 	// refuses the engine's read under the transaction's context as a nested transaction.
 	// Whether a session then carries a second factor is the auth's sign-in setting (the

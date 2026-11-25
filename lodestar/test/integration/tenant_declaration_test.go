@@ -24,7 +24,7 @@ import (
 // directory only, the persona provider's (oidc, persona). A sector's declaration
 // restricts its own door alone. The rigger, by password, holding SectorCrew in Anvil
 // and Bastion and no global role, charts Anvil alone; Bastion stays on her chart
-// marked closed, with the reason, and answers her as a sector that does not exist. The
+// as not available, with the reason, and answers her as a sector that does not exist. The
 // bosun, whose only sector is Bastion, is refused at sign-in naming the rule; the
 // navigator, through the fleet's directory on no manifest, is created at his first
 // sign-in seated at Cinder.
@@ -66,15 +66,15 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 
 	// The rigger: a password session, admitted since Anvil is not directory only;
 	// Bastion, directory only, is not hers to enter, and since she holds a seat in it
-	// her chart names it closed, with the reason.
+	// her chart lists it as not available, with the reason.
 	rigger := newBrowser(t, s, consoleAPI)
 	rigger.signIn(ctx, "rigger")
 	if got, want := rigger.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
 		t.Errorf("the rigger's chart = %v, want %v: Bastion admits its people through its directory only", got, want)
 	}
 	byPassword := map[string]string{bastion: "Bastion admits only people who sign in through its own directory. You signed in with a password."}
-	if got := rigger.closed(ctx); !maps.Equal(got, byPassword) {
-		t.Errorf("the sectors the rigger's chart names closed = %v, want %v", got, byPassword)
+	if got := rigger.unavailable(ctx); !maps.Equal(got, byPassword) {
+		t.Errorf("the sectors the rigger's chart lists as not available = %v, want %v", got, byPassword)
 	}
 	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusNotFound {
 		t.Errorf("GET Bastion's wings as the rigger: status %d, want 404: %s", status, body)
@@ -185,8 +185,8 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 		t.Fatalf("the navigator's chart as a marshal in every sector = %v, want %v: every sector that is not directory only admits him however he signed in", got, want)
 	}
 	throughTheWorkspace := map[string]string{bastion: "Bastion admits only people who sign in through its own directory. You signed in through Google Workspace example."}
-	if got := navigator.closed(ctx); !maps.Equal(got, throughTheWorkspace) {
-		t.Fatalf("the sectors the navigator's chart names closed = %v, want %v", got, throughTheWorkspace)
+	if got := navigator.unavailable(ctx); !maps.Equal(got, throughTheWorkspace) {
+		t.Fatalf("the sectors the navigator's chart lists as not available = %v, want %v", got, throughTheWorkspace)
 	}
 	if status, body := navigator.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusNotFound {
 		t.Errorf("GET Bastion's wings as the navigator, a marshal in every sector: status %d, want 404: %s", status, body)
@@ -218,8 +218,8 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if got, want := navigator.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
 		t.Fatalf("the navigator's chart as a super administrator = %v, want %v", got, want)
 	}
-	if got := navigator.closed(ctx); len(got) != 0 {
-		t.Errorf("the sectors a super administrator's chart names closed = %v, want none", got)
+	if got := navigator.unavailable(ctx); len(got) != 0 {
+		t.Errorf("the sectors a super administrator's chart lists as not available = %v, want none", got)
 	}
 	status, body = takeDirectoryOf(navigator, bastion)
 	if want := "This sector already has a directory, OpenID Connect provider persona. A sector has one directory: remove it first to set another."; status != http.StatusConflict || !strings.Contains(string(body), want) {
@@ -309,15 +309,15 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	// Bastion's directory only is turned off with the sector's own method, which is
 	// plain: the governor, a super administrator, whom no sector's sign-in settings
 	// shut out, does it signed in with a password. The rigger's chart lights Bastion,
-	// with nothing closed, and the bosun signs in. The directory may be removed now.
+	// with nothing listed as not available, and the bosun signs in. The directory may be removed now.
 	if status, body := governor.do(ctx, http.MethodPost, sectorPath(bastion, "end-sector-directory-only"), []byte(`{}`)); status != http.StatusOK {
 		t.Fatalf("turning Bastion's directory only off: status %d: %s", status, body)
 	}
 	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
 		t.Errorf("the rigger's chart once Bastion is not directory only = %v, want %v", got, want)
 	}
-	if got := rigger.closed(ctx); len(got) != 0 {
-		t.Errorf("the sectors the rigger's chart names closed once Bastion is not directory only = %v, want none", got)
+	if got := rigger.unavailable(ctx); len(got) != 0 {
+		t.Errorf("the sectors the rigger's chart lists as not available once Bastion is not directory only = %v, want none", got)
 	}
 	if status, body := bosun.login(ctx, "bosun", personaPassword); status != http.StatusOK {
 		t.Errorf("the bosun's password sign-in once Bastion is not directory only: status %d, want 200: %s", status, body)

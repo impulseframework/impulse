@@ -221,6 +221,12 @@ func TestTenantDeclaration_Admits(t *testing.T) {
 			connection:  GoogleAnyAccountConnection,
 			want:        false,
 		},
+		{
+			name:        "a disabled tenant that is not directory only admits a password: Admits says what its sign-in settings admit, and nothing of whether it is disabled",
+			declaration: &TenantDeclaration{Directories: []Directory{lakesideEntra}, Disabled: true},
+			method:      sessioninfo.MethodPassword,
+			want:        true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -260,6 +266,7 @@ func TestTenantDeclaration_AdmitsAdministrator(t *testing.T) {
 		{name: "a directory-only tenant with no directory still has its administrators", declaration: &TenantDeclaration{DirectoryOnly: true}, method: sessioninfo.MethodPassword, secondFactor: true, administers: true, want: true},
 		{name: "a tenant that is not directory only has no such way in: Admits answers for it", declaration: &TenantDeclaration{Directories: []Directory{lakesideEntra}}, method: sessioninfo.MethodPassword, secondFactor: true, administers: true},
 		{name: "a tenant that declares nothing", method: sessioninfo.MethodPassword, secondFactor: true, administers: true},
+		{name: "a disabled directory-only tenant's administrator, by password, with a second factor: the decision says what the sign-in settings admit, and nothing of whether the tenant is disabled", declaration: &TenantDeclaration{Directories: []Directory{lakesideEntra}, DirectoryOnly: true, Disabled: true}, method: sessioninfo.MethodPassword, secondFactor: true, administers: true, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -267,6 +274,32 @@ func TestTenantDeclaration_AdmitsAdministrator(t *testing.T) {
 
 			if got := tt.declaration.AdmitsAdministrator(tt.method, tt.secondFactor, tt.administers); got != tt.want {
 				t.Errorf("AdmitsAdministrator(%q, %v, %v) = %v, want %v", tt.method, tt.secondFactor, tt.administers, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTenantDeclaration_IsDisabled pins what IsDisabled answers: the declaration's
+// Disabled, and false for a declaration that declares nothing.
+func TestTenantDeclaration_IsDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		declaration *TenantDeclaration
+		want        bool
+	}{
+		{name: "a nil declaration declares nothing and is not disabled"},
+		{name: "an empty declaration is not disabled", declaration: &TenantDeclaration{}},
+		{name: "a directory-only tenant is not disabled", declaration: &TenantDeclaration{Directories: []Directory{lakesideEntra}, DirectoryOnly: true}},
+		{name: "a disabled tenant is disabled", declaration: &TenantDeclaration{Disabled: true}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.declaration.IsDisabled(); got != tt.want {
+				t.Errorf("IsDisabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -291,6 +324,11 @@ func TestTenantPolicy(t *testing.T) {
 	// linked is an account that signs in through Lakeside's directory, which Lakeside
 	// declares.
 	linked := []sessioninfo.UserDirectory{{Method: lakesideEntra.Method, Connection: lakesideEntra.Connection, Tenants: []accesstypes.Domain{"lakeside"}}}
+	// disabled is a tenant that is disabled and declares nothing else; disabledOpen and
+	// disabledDirectoryOnly are disabled tenants with Lakeside's directory.
+	disabled := &TenantDeclaration{Disabled: true}
+	disabledOpen := &TenantDeclaration{Directories: []Directory{lakesideEntra}, Disabled: true}
+	disabledDirectoryOnly := &TenantDeclaration{Directories: []Directory{lakesideEntra}, DirectoryOnly: true, Disabled: true}
 
 	tests := []struct {
 		name string
@@ -825,6 +863,105 @@ func TestTenantPolicy(t *testing.T) {
 			wantRead:    []accesstypes.Domain{"lakeside", "riverside"},
 		},
 		{
+			name:        "a member whose only tenant is disabled is refused with no_tenant, as a member of no tenant is",
+			held:        accesstypes.RoleCollection{lakeside: member},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": disabled},
+			wantOutcome: DenySignIn,
+			wantCode:    sessioninfo.RefusedNoTenant,
+			wantCause:   ErrNoTenant,
+			wantRead:    []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:        "a member whose only tenant is disabled is admitted with AdmitWithoutTenant, as a member of no tenant is",
+			held:        accesstypes.RoleCollection{lakeside: member},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": disabled},
+			opts:        []TenantPolicyOption{AdmitWithoutTenant()},
+			wantOutcome: AllowSignIn,
+			wantRead:    []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:        "a disabled tenant is passed over: a password is admitted by the person's other tenant, which declares nothing, both read in order",
+			held:        accesstypes.RoleCollection{lakeside: member, riverside: member},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": disabled},
+			wantOutcome: AllowSignIn,
+			wantRead:    []accesstypes.Domain{"lakeside", "riverside"},
+		},
+		{
+			name:     "a disabled tenant is passed over: the person's other tenant, directory only with another directory, refuses a password with directory_only",
+			held:     accesstypes.RoleCollection{lakeside: member, riverside: member},
+			identity: passwordIdentity,
+			declared: map[accesstypes.Domain]*TenantDeclaration{
+				"lakeside":  disabled,
+				"riverside": {Directories: []Directory{{Method: sessioninfo.MethodGoogle, Connection: "riverside"}}, DirectoryOnly: true},
+			},
+			wantOutcome: DenySignIn,
+			wantCode:    sessioninfo.RefusedDirectoryOnly,
+			wantCause:   ErrDirectoryOnly,
+			wantRead:    []accesstypes.Domain{"lakeside", "riverside"},
+		},
+		{
+			name:         "the administrator of a disabled tenant that is not directory only is refused with no_tenant",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     passwordIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": disabledOpen},
+			wantOutcome:  DenySignIn,
+			wantCode:     sessioninfo.RefusedNoTenant,
+			wantCause:    ErrNoTenant,
+			wantRead:     []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:         "the administrator of a disabled directory-only tenant is refused with no_tenant and never held for the code: a disabled tenant gives no way in",
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     passwordIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": disabledDirectoryOnly},
+			wantOutcome:  DenySignIn,
+			wantCode:     sessioninfo.RefusedNoTenant,
+			wantCause:    ErrNoTenant,
+			wantRead:     []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:         "the administrator of a disabled directory-only tenant, whose account signs in through its directory, is refused a password with directory_only and never held for the code",
+			directories:  linked,
+			held:         accesstypes.RoleCollection{lakeside: {"TenantAdministrator"}},
+			administered: []accesstypes.Domain{"lakeside"},
+			identity:     passwordIdentity,
+			declared:     map[accesstypes.Domain]*TenantDeclaration{"lakeside": disabledDirectoryOnly},
+			wantOutcome:  DenySignIn,
+			wantCode:     sessioninfo.RefusedDirectoryOnly,
+			wantCause:    ErrDirectoryOnly,
+			wantRead:     []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:        "an account that signs in through a disabled directory-only tenant's directory is refused through it with no_tenant: the directory admits the sign-in, and the tenant seats nobody",
+			directories: linked,
+			held:        accesstypes.RoleCollection{lakeside: member},
+			identity:    entraIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": disabledDirectoryOnly},
+			wantOutcome: DenySignIn,
+			wantCode:    sessioninfo.RefusedNoTenant,
+			wantCause:   ErrNoTenant,
+			wantRead:    []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:        "a super administrator who is a member of a disabled tenant is admitted by password, and no declaration is read",
+			held:        accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator}, lakeside: member},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": disabled},
+			wantOutcome: AllowSignIn,
+		},
+		{
+			name:        "a global role admits a member of a disabled tenant by password, and no declaration is read",
+			held:        accesstypes.RoleCollection{global: {"Administrator"}, lakeside: member},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": disabled},
+			wantOutcome: AllowSignIn,
+		},
+		{
 			name:     "a role store error fails the sign-in",
 			heldErr:  errors.New("store blip"),
 			identity: passwordIdentity,
@@ -1159,6 +1296,12 @@ func passwordDisabledCases() []passwordDisabledCase {
 			held:     accesstypes.RoleCollection{lakeside: member, riverside: member},
 			declared: bothDirectoryOnly,
 			want:     true,
+		},
+		{
+			name:     "a member whose only tenant is directory only and disabled: the password is refused as no_tenant, another refusal",
+			held:     accesstypes.RoleCollection{lakeside: member},
+			declared: map[accesstypes.Domain]*TenantDeclaration{"lakeside": {Directories: []Directory{lakesideEntra}, DirectoryOnly: true, Disabled: true}},
+			want:     false,
 		},
 		{
 			name:         "a member of two directory-only tenants who administers one of them keeps the administrators' way in",

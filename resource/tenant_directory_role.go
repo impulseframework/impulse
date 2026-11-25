@@ -53,7 +53,7 @@ type TenantDirectory struct {
 // tenant with no directory has nobody to open to and nothing to make invite only, and
 // is refused with a Conflict that says to set the directory first.
 func (r *TenantDirectoryRules) Directory(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*TenantDirectory, error) {
-	if !r.columns.declared() {
+	if !r.columns.hasDirectories() {
 		return nil, errors.New("resource: a tenant's directory rules need the directories record's columns: build them with the generated New<Record>DirectoryRules")
 	}
 	if r.columns.DirectoriesKeyColumn == "" || r.columns.DefaultSeatColumn == "" {

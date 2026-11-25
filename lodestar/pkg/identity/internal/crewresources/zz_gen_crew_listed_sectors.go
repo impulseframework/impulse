@@ -32,6 +32,7 @@ type crewListedSectorRead struct {
 	Region         string       `json:"region"`
 	Established    civil.Date   `json:"established"`
 	DirectoryOnly  bool         `json:"directoryOnly"`
+	Disabled       bool         `json:"disabled"`
 	People         int64        `json:"people"`
 	Since          *time.Time   `json:"since"`
 	Directory      *string      `json:"directory"`
@@ -149,6 +150,7 @@ func (c *CrewListedSectorColumns) All() *CrewListedSectorColumns {
 		"Region",
 		"Established",
 		"DirectoryOnly",
+		"Disabled",
 		"People",
 		"Since",
 		"Directory",
@@ -184,6 +186,12 @@ func (c *CrewListedSectorColumns) Established() *CrewListedSectorColumns {
 
 func (c *CrewListedSectorColumns) DirectoryOnly() *CrewListedSectorColumns {
 	c.fields = append(c.fields, "DirectoryOnly")
+
+	return c
+}
+
+func (c *CrewListedSectorColumns) Disabled() *CrewListedSectorColumns {
+	c.fields = append(c.fields, "Disabled")
 
 	return c
 }
@@ -316,6 +324,10 @@ func (c *crewListedSectorSort) Established() *CrewListedSectorSort {
 
 func (c *crewListedSectorSort) DirectoryOnly() *CrewListedSectorSort {
 	return c.addField("DirectoryOnly")
+}
+
+func (c *crewListedSectorSort) Disabled() *CrewListedSectorSort {
+	return c.addField("Disabled")
 }
 
 func (c *crewListedSectorSort) People() *CrewListedSectorSort {

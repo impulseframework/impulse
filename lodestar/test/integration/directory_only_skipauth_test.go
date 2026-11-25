@@ -32,7 +32,7 @@ import (
 // settings restrict its own door alone: the warden, a marshal in every sector signed in
 // through the persona provider, enters Bastion through its directory and every other
 // sector however he signed in, and the rigger, by password, enters Anvil and finds
-// Bastion on her chart marked closed, with the reason. Bastion's list of its people
+// Bastion on her chart as not available, with the reason. Bastion's list of its people
 // keeps everyone who holds a role there, whether or not they can sign in: the rigger
 // stays in it, and while Bastion is directory only her row says she cannot enter; the
 // warden's, who signed in through the directory, and the governor's, a super
@@ -102,8 +102,8 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if got, want := warden.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
 		t.Errorf("the warden's chart = %v, want %v: Bastion through its directory, the others however he signed in", got, want)
 	}
-	if got := warden.closed(ctx); len(got) != 0 {
-		t.Errorf("the sectors the warden's chart names closed = %v, want none", got)
+	if got := warden.unavailable(ctx); len(got) != 0 {
+		t.Errorf("the sectors the warden's chart lists as not available = %v, want none", got)
 	}
 	if status, body := warden.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusOK {
 		t.Errorf("GET Bastion's wings as the warden, signed in through its directory: status %d, want 200: %s", status, body)
@@ -112,8 +112,8 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if got, want := rigger.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
 		t.Errorf("the rigger's chart = %v, want %v", got, want)
 	}
-	if got := rigger.closed(ctx); !maps.Equal(got, byPassword) {
-		t.Errorf("the sectors the rigger's chart names closed = %v, want %v", got, byPassword)
+	if got := rigger.unavailable(ctx); !maps.Equal(got, byPassword) {
+		t.Errorf("the sectors the rigger's chart lists as not available = %v, want %v", got, byPassword)
 	}
 
 	// Bastion's list of its people keeps everyone who holds a role there, and says who
@@ -286,8 +286,8 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
 		t.Errorf("the rigger's chart once Bastion is not directory only = %v, want %v", got, want)
 	}
-	if got := rigger.closed(ctx); len(got) != 0 {
-		t.Errorf("the sectors the rigger's chart names closed once Bastion is not directory only = %v, want none", got)
+	if got := rigger.unavailable(ctx); len(got) != 0 {
+		t.Errorf("the sectors the rigger's chart lists as not available once Bastion is not directory only = %v, want none", got)
 	}
 	for username, sentence := range cannotEnter(ctx, t, warden) {
 		if sentence != "" {
@@ -703,8 +703,8 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if got, want := rigger.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
 		t.Errorf("the rigger's chart once Bastion is directory only again = %v, want %v", got, want)
 	}
-	if got := rigger.closed(ctx); !maps.Equal(got, byPassword) {
-		t.Errorf("the sectors the rigger's chart names closed = %v, want %v", got, byPassword)
+	if got := rigger.unavailable(ctx); !maps.Equal(got, byPassword) {
+		t.Errorf("the sectors the rigger's chart lists as not available = %v, want %v", got, byPassword)
 	}
 	if got := cannotEnter(ctx, t, warden)["rigger"]; got != keptOut {
 		t.Errorf("Bastion's people once it is directory only again: the rigger's row says %q, want %q", got, keptOut)

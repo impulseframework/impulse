@@ -94,6 +94,14 @@ func TestHeldDomains(t *testing.T) {
 			wantHeld:    []accesstypes.Domain{"lakeside"},
 		},
 		{
+			name:        "a disabled tenant is off the session's list, and the person holds it",
+			declared:    map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Disabled: true}},
+			seated:      []accesstypes.Domain{"lakeside"},
+			established: password,
+			wantListed:  []accesstypes.Domain{},
+			wantHeld:    []accesstypes.Domain{"lakeside"},
+		},
+		{
 			name:          "a tenant closed to a session that acts as its person, under a mask that hides the other: the person holds both",
 			declared:      directoryOnly,
 			seated:        []accesstypes.Domain{"lakeside", "riverside"},
