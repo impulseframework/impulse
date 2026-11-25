@@ -9,10 +9,11 @@ package integration
 // sign-in through its directory; a role held in every sector and a group kept for the whole
 // fleet count for nobody. Since is when the sector was charted, the record's ChartedAt, and
 // stays when roles are given and taken away. Directory is the kind of directory its people
-// sign in through, with a Google Workspace's domain and never another kind's connection.
-// Administrators names each person who holds a sector administrator's role in the sector
-// itself, by a role of their own or through one of its groups, by name, and by username
-// where the account has none.
+// sign in through, and of a Google Workspace its connection too: the Workspace's domain, or
+// the name the application's sign-in registration gives it. No other kind's connection is
+// said. Administrators names each person who holds a sector administrator's role in the
+// sector itself, by a role of their own or through one of its groups, by name, and by
+// username where the account has none.
 //
 // The facts are read off the tables, so the suites write the rows they read straight into
 // the database, as the lists' other suites write a row whose period is over
@@ -255,9 +256,9 @@ func TestListedSectors(t *testing.T) {
 		t.Errorf("Quietfall's administrators = %v, want none", got)
 	}
 
-	// Directories: a Google Workspace by its domain, a Microsoft Entra tenant by its kind
-	// alone. A person who signs in through the sector's directory and holds no role there
-	// is one of its people.
+	// Directories: a Google Workspace by its connection, here its domain; a Microsoft Entra
+	// tenant by its kind alone. A person who signs in through the sector's directory and
+	// holds no role there is one of its people.
 	galeport, hazebrook := w.sector(ctx, "Galeport", now), w.sector(ctx, "Hazebrook", now)
 	const entra = "7c3e9a41-5d2b-4f8e-9b61-2a4d8c0e1f37"
 	signer := w.account(ctx, "signer", "")
