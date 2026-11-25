@@ -20,6 +20,7 @@ func TestDefaultTablesAreTheLibrarys(t *testing.T) {
 		FactorCodes: DefaultFactorCodesTable, TrustedDevices: DefaultTrustedDevicesTable,
 		Tokens: DefaultTokensTable, DeviceCodes: DefaultDeviceCodesTable,
 		AuthEvents: DefaultAuthEventsTable, Impersonations: DefaultImpersonationTable,
+		AuditRecords: DefaultAuditRecordsTable,
 	}
 	if diff := cmp.Diff(session.DefaultTables(), got); diff != "" {
 		t.Errorf("the scan's default table names differ from session.DefaultTables() (-library +scan):\n%s", diff)

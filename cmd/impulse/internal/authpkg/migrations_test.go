@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 // TestMigrations_listIndexes holds the three indexes a tenant's generated lists read
@@ -176,6 +178,39 @@ func TestMigrations_signInSettings(t *testing.T) {
 		t.Errorf("the sign-in settings table is created at %d, before the sign-in methods table at %d, want it directly after", settings, methods)
 	}
 	const drops = "DROP TABLE StaffSessionSignInSettings;\nDROP TABLE StaffSessionSignInMethods;"
+	if !strings.Contains(down.String(), drops) {
+		t.Errorf("the down migrations lack %q", drops)
+	}
+}
+
+// TestMigrations_auditRecords holds the audit records table to the auditlog package's
+// statements for it under the auth's prefix, kept forever, as the session library's schema
+// sets create it: made directly after the sign-in settings table, and dropped, indexes
+// first, directly before it.
+func TestMigrations_auditRecords(t *testing.T) {
+	t.Parallel()
+
+	var up, down strings.Builder
+	for _, m := range Migrations("Staff", "staff", false) {
+		up.WriteString(m.Up)
+		down.WriteString(m.Down)
+	}
+	statements := auditlog.SpannerDDL("StaffSessionAuditRecords", auditlog.KeepForever())
+	if len(statements) == 0 {
+		t.Fatal("auditlog.SpannerDDL() declares no statement")
+	}
+	for _, statement := range statements {
+		if !strings.Contains(up.String(), statement+";") {
+			t.Errorf("the migrations lack %q", statement+";")
+		}
+	}
+	settings := strings.Index(up.String(), "CREATE TABLE StaffSessionSignInSettings (")
+	audit := strings.Index(up.String(), statements[0])
+	mailLinks := strings.Index(up.String(), "CREATE TABLE StaffSessionMailLinks (")
+	if settings < 0 || audit < settings || mailLinks < audit {
+		t.Errorf("the audit records table is created at %d, want it between the sign-in settings table at %d and the mail links table at %d", audit, settings, mailLinks)
+	}
+	const drops = "DROP INDEX StaffSessionAuditRecordsByTenant;\nDROP INDEX StaffSessionAuditRecordsByCreatedAt;\nDROP TABLE StaffSessionAuditRecords;\nDROP TABLE StaffSessionSignInSettings;"
 	if !strings.Contains(down.String(), drops) {
 		t.Errorf("the down migrations lack %q", drops)
 	}

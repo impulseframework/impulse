@@ -173,6 +173,10 @@ type Auth struct {
 	// remembered, which every sign-in reads: WithSignInSettingsTableName or the library
 	// default.
 	SignInSettingsTable string
+	// AuditRecordsTable is the table the Auth keeps its audit log in, one row for each act
+	// that changes an account, who holds what, or how people sign in:
+	// WithAuditRecordsTableName or the library default.
+	AuditRecordsTable string
 	// MailLinksTable is the mail links table the Auth's invitations, address
 	// verifications and sign-ups are kept in: WithMailLinksTableName or the library
 	// default.
