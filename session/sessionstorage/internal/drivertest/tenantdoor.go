@@ -354,46 +354,7 @@ func testTenantDoor(_ context.Context, t *testing.T, h *AuthHarness) {
 	})
 
 	t.Run("a stranger invited into a disabled tenant is refused with no_tenant and holds the invitation's role, and once the tenant is enabled signs in and reaches it", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-
-		w := newDoorWorld(map[accesstypes.Domain]*signin.TenantDeclaration{"riverside": {Disabled: true}}, nil)
-		in := w.start(ctx, t, h)
-
-		const name = "pat@lakeside.edu"
-		invitation := insertInvitation(ctx, t, in.Driver, name, "riverside", []string{"Teacher"}, tokenHash(1))
-		identity := entra("oid-pat", name)
-		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity, Invitation: invitationOf(invitation)}
-		err := signInRequest(ctx, in, req)
-		assertRefused(t, err, sessioninfo.RefusedNoTenant, signin.ErrNoTenant)
-
-		// The invitation is left alone: it is accepted, and the person holds its role in
-		// the tenant they cannot enter while it is disabled.
-		if !req.Invitation.Accepted {
-			t.Error("Invitation.Accepted = false after the sign-in, want accepted")
-		}
-		pat, err := in.Driver.UserByUserName(ctx, name)
-		if err != nil {
-			t.Fatalf("UserByUserName(%q) error = %v, want the account the sign-in made", name, err)
-		}
-		want := accesstypes.RoleCollection{accesstypes.DomainPolicyScope("riverside"): {"Teacher"}}
-		held, err := w.seats.UserRoles(ctx, accesstypes.User(pat.ID.String()))
-		if err != nil {
-			t.Fatalf("UserRoles() error = %v", err)
-		}
-		if diff := cmp.Diff(want, held); diff != "" {
-			t.Errorf("seats after the refused sign-in (-want +got):\n%s", diff)
-		}
-		assertReached(t, w, pat.ID, identity)
-
-		// The tenant is enabled: the same person's next sign-in is admitted, and the
-		// session reaches it with the role the invitation gave.
-		w.declare(ctx, t, h, in, "riverside", &signin.TenantDeclaration{})
-		again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
-		if err := signInRequest(ctx, in, again); err != nil {
-			t.Errorf("sign-in once the tenant is enabled error = %v (code %q), want allowed", err, sessioninfo.LoginRefusalCodeOf(err))
-		}
-		assertReached(t, w, pat.ID, identity, "riverside")
+		testDisabledTenantInvitation(t, h)
 	})
 
 	t.Run("an account that signs in through a directory-only tenant's directory is refused a password, though an open tenant seats the person too", func(t *testing.T) {
@@ -668,6 +629,52 @@ func testTenantDoor(_ context.Context, t *testing.T, h *AuthHarness) {
 			sessioninfo.UserDirectory{Method: sessioninfo.MethodOIDC, Connection: issuer},
 		)
 	})
+}
+
+// testDisabledTenantInvitation is testTenantDoor's case of a stranger invited into a
+// disabled tenant: refused with no_tenant, holding the invitation's role, and admitted
+// once the tenant is enabled.
+func testDisabledTenantInvitation(t *testing.T, h *AuthHarness) {
+	t.Parallel()
+	ctx := t.Context()
+
+	w := newDoorWorld(map[accesstypes.Domain]*signin.TenantDeclaration{"riverside": {Disabled: true}}, nil)
+	in := w.start(ctx, t, h)
+
+	const name = "pat@lakeside.edu"
+	invitation := insertInvitation(ctx, t, in.Driver, name, "riverside", []string{"Teacher"}, tokenHash(1))
+	identity := entra("oid-pat", name)
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity, Invitation: invitationOf(invitation)}
+	err := signInRequest(ctx, in, req)
+	assertRefused(t, err, sessioninfo.RefusedNoTenant, signin.ErrNoTenant)
+
+	// The invitation is left alone: it is accepted, and the person holds its role in
+	// the tenant they cannot enter while it is disabled.
+	if !req.Invitation.Accepted {
+		t.Error("Invitation.Accepted = false after the sign-in, want accepted")
+	}
+	pat, err := in.Driver.UserByUserName(ctx, name)
+	if err != nil {
+		t.Fatalf("UserByUserName(%q) error = %v, want the account the sign-in made", name, err)
+	}
+	want := accesstypes.RoleCollection{accesstypes.DomainPolicyScope("riverside"): {"Teacher"}}
+	held, err := w.seats.UserRoles(ctx, accesstypes.User(pat.ID.String()))
+	if err != nil {
+		t.Fatalf("UserRoles() error = %v", err)
+	}
+	if diff := cmp.Diff(want, held); diff != "" {
+		t.Errorf("seats after the refused sign-in (-want +got):\n%s", diff)
+	}
+	assertReached(t, w, pat.ID, identity)
+
+	// The tenant is enabled: the same person's next sign-in is admitted, and the
+	// session reaches it with the role the invitation gave.
+	w.declare(ctx, t, h, in, "riverside", &signin.TenantDeclaration{})
+	again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
+	if err := signInRequest(ctx, in, again); err != nil {
+		t.Errorf("sign-in once the tenant is enabled error = %v (code %q), want allowed", err, sessioninfo.LoginRefusalCodeOf(err))
+	}
+	assertReached(t, w, pat.ID, identity, "riverside")
 }
 
 // assertDirectories fails unless the sign-in told its policy want, in any order, as the

@@ -34,7 +34,7 @@ func RequireTenantDisabled(ctx context.Context, txn ReadWriteTransaction, table,
 		return errTenantDisabledUnsupportedDatabase
 	}
 	if word == "" {
-		word = "tenant"
+		word = defaultTenantWord
 	}
 	g := newSQLGenerator(Spanner)
 	statement := spanner.Statement{

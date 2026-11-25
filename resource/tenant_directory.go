@@ -62,12 +62,16 @@ type TenantDirectoryRules struct {
 	people []DirectoryPeople
 }
 
+// defaultTenantWord is what a refusal calls one tenant when the application names no
+// word of its own.
+const defaultTenantWord = "tenant"
+
 // NewTenantDirectoryRules builds the rules over the tenant record's table and key
 // column and its declaration's columns. word is what the refusals call one tenant
 // ("tenant", "sector"), as the application's people say it.
 func NewTenantDirectoryRules(table, keyColumn string, columns *TenantDeclarationColumns, word string) *TenantDirectoryRules {
 	if word == "" {
-		word = "tenant"
+		word = defaultTenantWord
 	}
 
 	return &TenantDirectoryRules{table: table, keyColumn: keyColumn, columns: columns, word: word}

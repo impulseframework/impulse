@@ -337,12 +337,6 @@ func (p rosterPermissions) AdmitsSession(ctx context.Context, domain accesstypes
 	return p.admission.admitsSession(ctx, domain)
 }
 
-// AdmitsSession passes through: a mask attenuates what the session may do, never what a
-// tenant's sign-in settings say of it.
-func (m *maskedPermissions) AdmitsSession(ctx context.Context, domain accesstypes.Domain) (bool, error) {
-	return AdmitsSession(ctx, m.UserPermissions, domain)
-}
-
 // admittedPermissions attenuates a checker to the tenants the session reaches
 // (UserPermissions.Reaches): in a tenant whose declaration refuses the way the
 // session was established the session holds nothing — every check Denied, an
@@ -965,6 +959,12 @@ func (m *maskedPermissions) Reaches(ctx context.Context, domain accesstypes.Doma
 	}
 
 	return reaches, nil
+}
+
+// AdmitsSession passes through: a mask attenuates what the session may do, never what a
+// tenant's sign-in settings say of it.
+func (m *maskedPermissions) AdmitsSession(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	return AdmitsSession(ctx, m.UserPermissions, domain)
 }
 
 // MaskRefusesAction reports whether the permission mask of the session in the context

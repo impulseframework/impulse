@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"maps"
@@ -115,7 +116,7 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 	shutOut := func(name string) {
 		t.Helper()
 		status, body := signedIn[name].do(ctx, http.MethodGet, wings, nil)
-		if status != http.StatusNotFound || string(body) != string(nowhere) {
+		if status != http.StatusNotFound || !bytes.Equal(body, nowhere) {
 			t.Errorf("GET Anvil's wings as %s once Anvil is disabled: status %d %s, want 404 %s, as a sector that does not exist", name, status, body, nowhere)
 		}
 	}

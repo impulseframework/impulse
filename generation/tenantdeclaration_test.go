@@ -522,7 +522,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 	}{
 		{
 			name: "the declaration's columns, the option and the reader constructor",
-			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
+			data: &tenantsData{
+				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
 				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 				Directory:           harborDirectoryWrite(),
@@ -561,7 +562,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "the tenant's word for its directory's second factor, with no seat column",
-			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
+			data: &tenantsData{
+				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "Landing", SecondFactor: "AsksSecondFactor",
 				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Landings", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", SecondFactorColumn: "AsksSecondFactor"},
 				Directory:           harborDirectoryWrite(),
@@ -579,7 +581,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "a record with directories that marks the column saying a tenant is disabled carries it in the declaration",
-			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
+			data: &tenantsData{
+				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
 				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", Disabled: "Disabled", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 				Directory:           harborDirectoryWrite(),
@@ -624,7 +627,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "a directories record whose tenant column is a string takes the tenant's key as text",
-			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
+			data: &tenantsData{
+				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "Marina",
 				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoriesTable: "Marinas", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 				Directory:           &tenantDirectoryWrite{TenantField: "HarborID", TenantType: "string", TenantParam: "tenant", TenantDomain: "accesstypes.Domain(tenant)", MethodField: "Method", ConnectionField: "Connection"},
@@ -643,7 +647,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			// through the record's description (Test_tenantDeleteTree): the roster file
 			// holds no removal of its own, which would be a second one.
 			name: "the roster of a record that declares directories holds no removal of a harbor's directory",
-			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
+			data: &tenantsData{
+				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
 				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 				Directory:           harborDirectoryWrite(),
@@ -659,7 +664,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "the seat column, and the maker of a tenant from an accepted invitation",
-			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
+			data: &tenantsData{
+				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory", DefaultSeat: "DefaultSeat",
 				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
 				Directory:           harborDirectoryWrite(),
@@ -741,7 +747,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "a maker for a record that declares no directory makes the row alone, and refuses a directory-only tenant",
-			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
+			data: &tenantsData{
+				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Sector", Table: "Sectors", KeyColumn: "Id", RecordLower: "sector",
 				NoDirectories:       true,
 				ResourcePackage:     "resources",
@@ -764,7 +771,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "a maker reads a field of an imported type, whose package the file imports by the record's own fields",
-			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
+			data: &tenantsData{
+				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Citadel", Table: "Citadels", KeyColumn: "Id", RecordLower: "citadel",
 				ResourcePackage:     "resources",
 				LocalPackageImports: `"example.com/app/pkg/resources"`,
