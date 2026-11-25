@@ -327,7 +327,7 @@ func (a *App) Devices() router.DevicesTokens {
 // sign-in where the tenant is not directory only, a sign-in through the tenant's own
 // directory where it is), and a super administrator of the engine reaches every
 // tenant. A tenant that seats the person and is closed to the session stays in its
-// tenant list marked closed, with the reason.
+// tenant list as not available, with the reason.
 // The mask reads each action's classes off the generated collection, so a session whose
 // mask refuses a class of actions is refused every action that carries it.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {

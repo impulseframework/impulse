@@ -11,11 +11,11 @@ import (
 	"github.com/impulseframework/impulse/session/signin"
 )
 
-// closedDomainLister is what the permissions SessionPermissions composes answer beside
-// UserPermissions: the tenants that seat the person and that this session cannot
-// enter. ClosedDomains asks it.
-type closedDomainLister interface {
-	ClosedDomains(ctx context.Context) ([]accesstypes.Domain, error)
+// unavailableDomainLister is what the permissions SessionPermissions composes answer
+// beside UserPermissions: the tenants that seat the person and that this session cannot
+// enter. UnavailableDomains asks it.
+type unavailableDomainLister interface {
+	UnavailableDomains(ctx context.Context) ([]accesstypes.Domain, error)
 }
 
 // secondFactorOpener is what the permissions SessionPermissions composes answer about
@@ -44,17 +44,17 @@ var (
 )
 
 var (
-	_ closedDomainLister   = rosterPermissions{}
-	_ closedDomainLister   = (*maskedPermissions)(nil)
-	_ secondFactorOpener   = rosterPermissions{}
-	_ secondFactorOpener   = (*maskedPermissions)(nil)
-	_ disabledTenantTeller = rosterPermissions{}
-	_ disabledTenantTeller = (*maskedPermissions)(nil)
+	_ unavailableDomainLister = rosterPermissions{}
+	_ unavailableDomainLister = (*maskedPermissions)(nil)
+	_ secondFactorOpener      = rosterPermissions{}
+	_ secondFactorOpener      = (*maskedPermissions)(nil)
+	_ disabledTenantTeller    = rosterPermissions{}
+	_ disabledTenantTeller    = (*maskedPermissions)(nil)
 )
 
-// ClosedDomains lists the tenants this session cannot enter though the person holds a
-// seat in them: the domains of the application's roster where the person holds at
-// least one grant and that the session does not reach (UserPermissions.Reaches),
+// UnavailableDomains lists the tenants this session cannot enter though the person
+// holds a seat in them: the domains of the application's roster where the person holds
+// at least one grant and that the session does not reach (UserPermissions.Reaches),
 // sorted; never nil. A tenant is one of them when it admits its people through its own
 // directory only and the session was not established through that directory, or when
 // it is disabled. The session's tenant list carries each with the reason
@@ -68,27 +68,27 @@ var (
 // list none: the list is the word a person is given about their own seats and their
 // own sign-in, and such a session is neither. Any other UserPermissions, and an
 // application that keeps no declarations, list none.
-func ClosedDomains(ctx context.Context, perms UserPermissions) ([]accesstypes.Domain, error) {
-	lister, ok := perms.(closedDomainLister)
+func UnavailableDomains(ctx context.Context, perms UserPermissions) ([]accesstypes.Domain, error) {
+	lister, ok := perms.(unavailableDomainLister)
 	if !ok {
 		return []accesstypes.Domain{}, nil
 	}
-	closed, err := lister.ClosedDomains(ctx)
+	unavailable, err := lister.UnavailableDomains(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "resource.ClosedDomains()")
+		return nil, errors.Wrap(err, "resource.UnavailableDomains()")
 	}
 
-	return closed, nil
+	return unavailable, nil
 }
 
-// ClosedDomains lists the roster's domains where the checker holds a grant and that
+// UnavailableDomains lists the roster's domains where the checker holds a grant and that
 // the session does not reach, sorted; never nil. The grant is the checker's own, asked
 // before the admission attenuates it: in a tenant the session does not reach, the
 // admitted checker holds nothing.
-func (p rosterPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Domain, error) {
-	closed := []accesstypes.Domain{}
+func (p rosterPermissions) UnavailableDomains(ctx context.Context) ([]accesstypes.Domain, error) {
+	unavailable := []accesstypes.Domain{}
 	if p.roster == nil || p.admission == nil || !p.ownSignIn {
-		return closed, nil
+		return unavailable, nil
 	}
 	all, err := p.roster(ctx)
 	if err != nil {
@@ -107,18 +107,18 @@ func (p rosterPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Dom
 			return nil, err
 		}
 		if !reaches {
-			closed = append(closed, domain)
+			unavailable = append(unavailable, domain)
 		}
 	}
-	slices.Sort(closed)
+	slices.Sort(unavailable)
 
-	return slices.Compact(closed), nil
+	return slices.Compact(unavailable), nil
 }
 
-// ClosedDomains passes through. A mask belongs to an impersonated session, which is
+// UnavailableDomains passes through. A mask belongs to an impersonated session, which is
 // told of no such tenant, so the permissions under it answer none.
-func (m *maskedPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Domain, error) {
-	return ClosedDomains(ctx, m.UserPermissions)
+func (m *maskedPermissions) UnavailableDomains(ctx context.Context) ([]accesstypes.Domain, error) {
+	return UnavailableDomains(ctx, m.UserPermissions)
 }
 
 // unenteredDomains lists the tenants of the application's roster whose sign-in settings
@@ -127,7 +127,7 @@ func (m *maskedPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Do
 // row's tenants (TenantsToEnter): the same question the method's own refusal asks of
 // each tenant, asked once for the roster. Whether a tenant is disabled is not asked: a
 // disabled tenant is listed where its settings would keep the session out, as before it
-// was disabled. Unlike ClosedDomains it is asked of every session, a person's own
+// was disabled. Unlike UnavailableDomains it is asked of every session, a person's own
 // sign-in or not, and of tenants the session holds no grant in. The permissions
 // SessionPermissions composes answer it; any other UserPermissions, and an application
 // that keeps no declarations or no tenants, list none, and the row then offers what the
@@ -198,8 +198,8 @@ func opensWithSecondFactor(ctx context.Context, perms UserPermissions, domain ac
 
 // OpensWithSecondFactor reports whether domain would open to the session by the
 // administrators' way in had the session a second factor (admittedPermissions): no for
-// a session that is not a person's own sign-in, which is told of no closed tenant, and
-// in an application that keeps no declarations.
+// a session that is not a person's own sign-in, which is told of no tenant it cannot
+// enter, and in an application that keeps no declarations.
 func (p rosterPermissions) OpensWithSecondFactor(ctx context.Context, domain accesstypes.Domain) (bool, error) {
 	if p.admission == nil || !p.ownSignIn {
 		return false, nil
@@ -208,7 +208,7 @@ func (p rosterPermissions) OpensWithSecondFactor(ctx context.Context, domain acc
 	return p.admission.opensWithSecondFactor(ctx, domain)
 }
 
-// OpensWithSecondFactor passes through, as ClosedDomains does.
+// OpensWithSecondFactor passes through, as UnavailableDomains does.
 func (m *maskedPermissions) OpensWithSecondFactor(ctx context.Context, domain accesstypes.Domain) (bool, error) {
 	return opensWithSecondFactor(ctx, m.UserPermissions, domain)
 }
@@ -240,7 +240,7 @@ func (p rosterPermissions) TenantDisabled(ctx context.Context, domain accesstype
 	return p.admission.tenantDisabled(ctx, domain)
 }
 
-// TenantDisabled passes through, as ClosedDomains does.
+// TenantDisabled passes through, as UnavailableDomains does.
 func (m *maskedPermissions) TenantDisabled(ctx context.Context, domain accesstypes.Domain) (bool, error) {
 	return tenantDisabled(ctx, m.UserPermissions, domain)
 }

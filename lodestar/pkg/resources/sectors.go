@@ -88,7 +88,7 @@ type (
 	// Cinder's), reaches Cinder and every other sector that seats him and is not
 	// directory only; the rigger, by password, reaches Anvil and not Bastion, which
 	// admits its people through its directory only (the seed makes the persona
-	// provider its directory) and stays on her chart marked closed, with the reason;
+	// provider its directory) and stays on her chart as not available, with the reason;
 	// the bosun, whose only sector is Bastion, is refused at sign-in. The pioneer signs
 	// up with a personal Google account, which is no organization's directory: the
 	// create-sector route sets none on her Ember, and

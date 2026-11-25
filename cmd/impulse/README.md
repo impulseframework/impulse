@@ -102,8 +102,8 @@ templates, this README, and the tool's source.
   admits its people through it only) decides against the way the session was
   established. A declaration restricts its own tenant alone: a session reaches every
   tenant that seats the person, except a tenant that is directory only and whose
-  directory is not the one they signed in through, which stays in the list marked
-  closed to this sign-in, with the reason, so the picker never offers a tenant the session cannot enter and a direct
+  directory is not the one they signed in through, which stays in the list under "Not
+  available", with the reason, so the picker never offers a tenant the session cannot enter and a direct
   request for one is refused as a tenant that does not exist. A tenant can also be
   disabled, by a change of its record's `Disabled` field: nobody but a super
   administrator then enters it, its people's list says "… is disabled.", and its delete,

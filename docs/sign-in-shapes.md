@@ -1371,7 +1371,7 @@ unless they administer that tenant or are a super administrator, and a person wh
 tenant is directory only, who is an administrator of none of them and holds no role
 outside them. The page shows them no Password line, and they cannot choose a first
 password. The switcher next to the application's name lists their tenants. A tenant they
-cannot enter with the way they signed in is listed as closed, with the reason.
+cannot enter is listed under "Not available", with the reason.
 
 ## With tenants, one tenant per person
 

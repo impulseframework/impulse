@@ -34,8 +34,8 @@ func TestTenants_aDisabledTenantShutsItsPeopleOut(t *testing.T) {
 		t.Errorf("GET %s as the member once north is disabled: status %d, want 404: %s", northSegment, status, body)
 	}
 	const reason = "North is disabled."
-	if closed := closedDomains(ctx, t, member, "/api/user-domains"); len(closed) != 1 || closed[north] != reason {
-		t.Errorf("the tenants the member's list keeps as not available once north is disabled = %v, want north alone, with %q", closed, reason)
+	if unavailable := unavailableDomains(ctx, t, member, "/api/user-domains"); len(unavailable) != 1 || unavailable[north] != reason {
+		t.Errorf("the tenants the member's list keeps as not available once north is disabled = %v, want north alone, with %q", unavailable, reason)
 	}
 	if domains := userDomains(ctx, t, member); len(domains) != 0 {
 		t.Errorf("the member's tenants once north is disabled = %v, want none", domains)
@@ -48,8 +48,8 @@ func TestTenants_aDisabledTenantShutsItsPeopleOut(t *testing.T) {
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Errorf("the member's tenants once north is enabled again = %v, want north", domains)
 	}
-	if closed := closedDomains(ctx, t, member, "/api/user-domains"); len(closed) != 0 {
-		t.Errorf("the tenants the member's list keeps as not available once north is enabled again = %v, want none", closed)
+	if unavailable := unavailableDomains(ctx, t, member, "/api/user-domains"); len(unavailable) != 0 {
+		t.Errorf("the tenants the member's list keeps as not available once north is enabled again = %v, want none", unavailable)
 	}
 }
 

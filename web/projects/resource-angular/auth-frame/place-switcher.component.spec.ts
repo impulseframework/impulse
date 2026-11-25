@@ -36,7 +36,7 @@ describe('PlaceSwitcherComponent', () => {
 
   const open = async (
     digest: PermissionDigest,
-    domains: { domain: string; name: string; closed?: string }[],
+    domains: { domain: string; name: string; unavailable?: string }[],
   ): Promise<void> => {
     const transport = specTransport({ digests: { '': digest }, domains });
     await TestBed.configureTestingModule({
@@ -139,24 +139,26 @@ describe('PlaceSwitcherComponent', () => {
     const reason = 'Bastion admits only people who sign in through its own directory. You signed in with a password.';
     await open({}, [
       { domain: 'anvil', name: 'Anvil' },
-      { domain: 'bastion', name: 'Bastion', closed: reason },
+      { domain: 'bastion', name: 'Bastion', unavailable: reason },
       { domain: 'cinder', name: 'Cinder' },
     ]);
     expect(fixture.componentInstance.groups().flatMap((group) => group.entries.map((entry) => entry.label))).toEqual([
       'Anvil',
       'Cinder',
     ]);
-    expect(fixture.componentInstance.closed()).toEqual([{ id: 'bastion', label: 'Bastion', reason }]);
+    expect(fixture.componentInstance.unavailable()).toEqual([{ id: 'bastion', label: 'Bastion', reason }]);
 
     // The list draws it apart: named, with the reason, and no button to choose.
     (element().querySelector('button.impulse-place-switcher-place') as HTMLButtonElement).click();
     fixture.detectChanges();
     await TestBed.inject(ApplicationRef).whenStable();
-    const closed = document.querySelector('.impulse-place-switcher-closed');
-    expect(closed?.querySelector('.impulse-place-switcher-closed-heading')?.textContent).toBe('Not available');
-    expect(closed?.querySelector('.impulse-place-switcher-closed-name')?.textContent).toBe('Bastion');
-    expect(closed?.querySelector('.impulse-place-switcher-closed-reason')?.textContent).toBe(reason);
-    expect(closed?.querySelector('button')).toBeNull();
+    const unavailable = document.querySelector('.impulse-place-switcher-unavailable');
+    expect(unavailable?.querySelector('.impulse-place-switcher-unavailable-heading')?.textContent).toBe(
+      'Not available',
+    );
+    expect(unavailable?.querySelector('.impulse-place-switcher-unavailable-name')?.textContent).toBe('Bastion');
+    expect(unavailable?.querySelector('.impulse-place-switcher-unavailable-reason')?.textContent).toBe(reason);
+    expect(unavailable?.querySelector('button')).toBeNull();
     expect(
       [
         ...document.querySelectorAll('.impulse-menu-list-menu button.impulse-menu-list-item .impulse-menu-list-label'),
@@ -169,7 +171,7 @@ describe('PlaceSwitcherComponent', () => {
       {
         domain: 'bastion',
         name: 'Bastion',
-        closed: 'Bastion admits only people who sign in through its own directory.',
+        unavailable: 'Bastion admits only people who sign in through its own directory.',
       },
     ]);
     expect(fixture.componentInstance.listed()).toBe(true);
@@ -179,19 +181,19 @@ describe('PlaceSwitcherComponent', () => {
     expect(element().querySelector('.impulse-place-switcher-place.impulse-place-switcher-alone')).toBeNull();
   });
 
-  it('narrows the closed tenants with the places as the person types', async () => {
+  it('narrows the tenants listed as not available with the places as the person types', async () => {
     await open({}, [
       { domain: 'anvil', name: 'Anvil' },
       {
         domain: 'bastion',
         name: 'Bastion',
-        closed: 'Bastion admits only people who sign in through its own directory.',
+        unavailable: 'Bastion admits only people who sign in through its own directory.',
       },
     ]);
     fixture.componentInstance.filter.set('anv');
-    expect(fixture.componentInstance.closed()).toEqual([]);
+    expect(fixture.componentInstance.unavailable()).toEqual([]);
     fixture.componentInstance.filter.set('bas');
-    expect(fixture.componentInstance.closed().map((place) => place.label)).toEqual(['Bastion']);
+    expect(fixture.componentInstance.unavailable().map((place) => place.label)).toEqual(['Bastion']);
     expect(fixture.componentInstance.groups()).toEqual([]);
   });
 
@@ -205,13 +207,13 @@ describe('PlaceSwitcherComponent', () => {
     ]);
   });
 
-  it("names every element for the switcher, in the bar and in the list it opens: an application's rule for its own .name or .closed lands on none", async () => {
+  it("names every element for the switcher, in the bar and in the list it opens: an application's rule for its own .name or .unavailable lands on none", async () => {
     await open({ FeatureFlags: { List: 'granted' } }, [
       { domain: 'anvil', name: 'Anvil' },
       {
         domain: 'bastion',
         name: 'Bastion',
-        closed: 'Bastion admits only people who sign in through its own directory.',
+        unavailable: 'Bastion admits only people who sign in through its own directory.',
       },
     ]);
     element().querySelector<HTMLButtonElement>('button')?.click();
@@ -220,6 +222,6 @@ describe('PlaceSwitcherComponent', () => {
 
     expect(notNamedFor('impulse-place-switcher-', element())).toEqual([]);
     expect(document.querySelector('impulse-menu-list.impulse-place-switcher-places')).not.toBeNull();
-    expect(document.querySelector('.impulse-place-switcher-closed-name')?.textContent).toBe('Bastion');
+    expect(document.querySelector('.impulse-place-switcher-unavailable-name')?.textContent).toBe('Bastion');
   });
 });

@@ -235,7 +235,7 @@ func (a *App) Assets() http.HandlerFunc {
 // admits the session's first sign-in (any sign-in where the tenant is not directory
 // only, a sign-in through the tenant's own directory where it is), and a super
 // administrator reaches every tenant. A tenant that seats the person and is closed to
-// the session stays in its tenant list marked closed, with the reason.
+// the session stays in its tenant list as not available, with the reason.
 // The mask reads each action's classes off the generated collection, so a session whose
 // mask refuses a class of actions is refused every action that carries it.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {

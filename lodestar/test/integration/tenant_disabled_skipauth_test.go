@@ -123,14 +123,14 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 	if got := signedIn["the liaison"].domains(ctx); !slices.Equal(got, []string{cinder}) {
 		t.Errorf("the liaison's chart once Anvil is disabled = %v, want Cinder alone", got)
 	}
-	if got := signedIn["the liaison"].closed(ctx); len(got) != 1 || got[anvil] != reason {
+	if got := signedIn["the liaison"].unavailable(ctx); len(got) != 1 || got[anvil] != reason {
 		t.Errorf("the sectors the liaison's chart lists as not available = %v, want Anvil alone, with %q", got, reason)
 	}
 	marshal := newBrowser(t, s, consoleAPI)
 	marshal.signIn(ctx, "marshal")
 	signedIn["the marshal"] = marshal
 	shutOut("the marshal")
-	if got := marshal.closed(ctx); len(got) != 1 || got[anvil] != reason {
+	if got := marshal.unavailable(ctx); len(got) != 1 || got[anvil] != reason {
 		t.Errorf("the sectors the marshal's chart lists as not available = %v, want Anvil alone, with %q and no word of a way in", got, reason)
 	}
 	shutOut("the surveyor")
@@ -140,7 +140,7 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 	if got := governor.domains(ctx); !slices.Contains(got, anvil) {
 		t.Errorf("the governor's chart once Anvil is disabled = %v, want Anvil among his places", got)
 	}
-	if got := governor.closed(ctx); len(got) != 0 {
+	if got := governor.unavailable(ctx); len(got) != 0 {
 		t.Errorf("the sectors the governor's chart lists as not available = %v, want none", got)
 	}
 
@@ -150,7 +150,7 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 	if got := again.domains(ctx); len(got) != 0 {
 		t.Errorf("the cadet's chart at a sign-in once Anvil is disabled = %v, want none", got)
 	}
-	if got := again.closed(ctx); len(got) != 1 || got[anvil] != reason {
+	if got := again.unavailable(ctx); len(got) != 1 || got[anvil] != reason {
 		t.Errorf("the sectors the cadet's chart lists as not available = %v, want Anvil alone, with %q", got, reason)
 	}
 	client := newBrowser(t, s, portalAPI)
@@ -160,7 +160,7 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 	if status, location := client.loginPortal(ctx, clientUser, "ClientPortal"); status != http.StatusFound || location != portalPage {
 		t.Fatalf("the client's portal login once Anvil is disabled: status %d to %q, want %d to %q", status, location, http.StatusFound, portalPage)
 	}
-	if got := client.closed(ctx); got[anvil] != reason {
+	if got := client.unavailable(ctx); got[anvil] != reason {
 		t.Errorf("the sectors the client's portal lists as not available = %v, want Anvil among them, with %q", got, reason)
 	}
 	if status, body := client.do(ctx, http.MethodGet, portalPath(anvil, "missions"), nil); status != http.StatusNotFound {
@@ -180,7 +180,7 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 		if got := signedIn[name].domains(ctx); !slices.Contains(got, anvil) {
 			t.Errorf("%s's chart once Anvil is enabled again = %v, want Anvil among the places", name, got)
 		}
-		if got := signedIn[name].closed(ctx); len(got) != 0 {
+		if got := signedIn[name].unavailable(ctx); len(got) != 0 {
 			t.Errorf("the sectors %s's chart lists as not available once Anvil is enabled again = %v, want none", name, got)
 		}
 	}

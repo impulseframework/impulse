@@ -83,10 +83,10 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // to open and the generated domain guard refuses a direct request for it as it
 // refuses a domain that is not a tenant (UserPermissions.Reaches). The person
 // holds a seat there all the same, so the tenant list of a person's own sign-in
-// carries the tenant closed, with the reason (ClosedDomains, UserDomainsHandler);
-// an impersonated session and a session that acts as a role are told of none. An
-// application that keeps no declarations passes nil, and every tenant admits
-// every session.
+// carries the tenant as not available, with the reason (UnavailableDomains,
+// UserDomainsHandler); an impersonated session and a session that acts as a role
+// are told of none. An application that keeps no declarations passes nil, and every
+// tenant admits every session.
 //
 // A tenant that is disabled (the tenant record's @tenantDisabled column,
 // signin.TenantDeclaration.Disabled) is entered by nobody but a super administrator.
@@ -241,7 +241,7 @@ type rosterPermissions struct {
 	admission *admittedPermissions
 	// ownSignIn says the session is a person's own sign-in: a user principal that
 	// nobody is viewing the application as. Only such a session is told which tenants
-	// are closed to it (ClosedDomains).
+	// it cannot enter (UnavailableDomains).
 	ownSignIn bool
 	// person builds the checker of the session's person where the checker above is not
 	// theirs: a session that runs with a role's grants, whose person is the real person

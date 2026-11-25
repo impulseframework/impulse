@@ -8,7 +8,7 @@ import {
   Resource,
   ResourceMeta,
 } from '@impulseframework/resource';
-import { ClosedPlace, pageDataKey, Place, PlaceService } from '@impulseframework/resource-angular/auth-frame';
+import { pageDataKey, Place, PlaceService, UnavailablePlace } from '@impulseframework/resource-angular/auth-frame';
 import {
   AlertType,
   ColumnConfig,
@@ -477,13 +477,13 @@ describe('tenantsPage and tenantsRoute', () => {
     const driftmoor: Place = { id: 'a1', label: 'Driftmoor' };
     // A sector that seats the person and admits only people who sign in through its own
     // directory: closed to this sign-in, with the server's reason.
-    const bastion: ClosedPlace = {
+    const bastion: UnavailablePlace = {
       id: 'c3',
       label: 'Bastion Prime',
       reason: 'The bastion admits only people who sign in through its own directory. You signed in with a password.',
     };
-    const run = (row: RecordData, held: Place[], closed: ClosedPlace[] = []) => {
-      const places = { places: () => held, closed: () => closed, open: vi.fn(() => Promise.resolve(true)) };
+    const run = (row: RecordData, held: Place[], unavailable: UnavailablePlace[] = []) => {
+      const places = { places: () => held, unavailable: () => unavailable, open: vi.fn(() => Promise.resolve(true)) };
       const notices: CreateNotificationMessage[] = [];
       const notifications = {
         addGlobalNotification: (notice: CreateNotificationMessage) => notices.push(notice),

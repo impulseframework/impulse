@@ -54,7 +54,7 @@ type UserPermissions interface {
 	// sorted; never nil. It answers a question about the person, where Domains
 	// answers one about the session: Domains leaves out a tenant the session's
 	// permission mask leaves nothing of, a tenant that is closed to the way the
-	// session signed in and a tenant that is disabled (ClosedDomains), and the
+	// session signed in and a tenant that is disabled (UnavailableDomains), and the
 	// person holds all three. A rule
 	// that counts a person's tenants asks here, so that no mask a session runs
 	// under makes a tenant not theirs: the generated create-your-tenant route

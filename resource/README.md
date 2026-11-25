@@ -608,12 +608,12 @@ least one grant, each with the tenant's name
 the library so no application hand-writes it. A tenant the session reaches is listed
 plainly. A tenant that seats the person and that this session cannot enter, a
 directory-only tenant whose directory the person did not sign in through, stays in the
-list marked `closed`, with the reason as a sentence
-(`{"domain": "…", "name": "Acme", "closed": "Acme admits only people who sign in through its own directory. You signed in with a password."}`):
+list under "Not available", with the reason as a sentence
+(`{"domain": "…", "name": "Acme", "unavailable": "Acme admits only people who sign in through its own directory. You signed in with a password."}`):
 the person holds a seat there, so the list tells them nothing new, and it says why this
 sign-in does not open the tenant. A tenant that is disabled is listed the same way, with
 one reason whatever way the person signed in
-(`{"domain": "…", "name": "Acme", "closed": "Acme is disabled."}`), and its own
+(`{"domain": "…", "name": "Acme", "unavailable": "Acme is disabled."}`), and its own
 administrator is told of no way in, since there is none. A session that came through another directory is told
 which, in the words a person knows it by ("You signed in through Google Workspace
 north.example.", "You signed in through your organization's Microsoft directory."): the
@@ -628,11 +628,11 @@ sentence and the next sign-in agree; such a session arises when the role, or the
 came after the sign-in, and when a password change left the session without its code.
 Only a person's own sign-in is told so: a session that
 views the application as someone else, and one that acts as a role, are refused the
-tenant and are listed none closed. The browser library keeps a closed tenant out of the
+tenant and are listed none as not available. The browser library keeps such a tenant out of the
 session's domains (`PermissionStore.domains`, so the tenant guard refuses it as it
 refuses any tenant the session does not reach) and lists it apart in the place switcher,
-under "Not available", with the reason (`PermissionStore.closedDomains`,
-`AuthService.closedDomains`, `PlaceService.closed`). `resource.ClosedDomains(ctx, perms)`
+under "Not available", with the reason (`PermissionStore.unavailableDomains`,
+`AuthService.unavailableDomains`, `PlaceService.unavailable`). `resource.UnavailableDomains(ctx, perms)`
 is the list on the server. The name is the tenant roster's copy of the
 record's name column, the field the record marks `@tenantName` (section 1): the generated
 roster constructor passes `WithTenantNames` and the generated handler `WithDomainNames(roster)`
@@ -642,8 +642,8 @@ foothold test (`access.Client.UserHasGrants`) over the session's admission
 (`UserPermissions.Reaches`), so a domain listed here is exactly a domain whose routes
 answer the user with ordinary 403s rather than a concealing 404: the switcher and the
 domain guard can never disagree. A tenant is offered only when the session may enter it,
-and the application's tenant declaration decides (section 6); a tenant marked `closed`
-answers the session as a tenant that does not exist, as it did before the list named it. The global scope is never
+and the application's tenant declaration decides (section 6); a tenant listed under "Not
+available" answers the session as a tenant that does not exist, as it did before the list named it. The global scope is never
 a domain. The answer reports grants, not tenants — a domain the application has since
 removed still lists while grants in it remain; existence is the tenant roster's
 (`@tenant`, section 16). An empty membership is `[]`, never `null`.
@@ -880,8 +880,9 @@ about it:
   a directory-only tenant admits a session established through its own directory and no
   other. So a session reaches every tenant that seats the person, except a tenant that
   is directory only and whose directory is not the one the person signed in through;
-  those are the session's closed tenants (`ClosedDomains`), which the tenant list of a
-  person's own sign-in names with the reason (section 5). A tenant that is disabled is
+  those tenants are closed to the session, and the tenant list of a person's own
+  sign-in lists them under "Not available", with the reason (`UnavailableDomains`,
+  section 5). A tenant that is disabled is
   apart from all of this: whatever its sign-in settings admit, no session reaches it but
   a super administrator's (section 16, "A disabled tenant"). An account that signs in
   through a directory-only tenant's directory does not get that far another way: the

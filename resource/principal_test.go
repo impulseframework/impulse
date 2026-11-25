@@ -735,8 +735,8 @@ func (d *declarationReader) read(_ context.Context, domain accesstypes.Domain) (
 // unless the session's actor is a super administrator, or the tenant's own
 // administrator come with a password and a second factor, and nobody else
 // enters it another way; in a tenant the session does not reach it holds nothing, on every
-// question the composed permissions answer, and the tenant is listed closed
-// (ClosedDomains).
+// question the composed permissions answer, and the tenant is listed as not available
+// (UnavailableDomains).
 func TestSessionPermissions_admission(t *testing.T) {
 	t.Parallel()
 
@@ -784,9 +784,9 @@ func TestSessionPermissions_admission(t *testing.T) {
 		// tenant of the roster (anvil, bastion) when the list is not the whole story.
 		wantDomains []accesstypes.Domain
 		wantReaches map[accesstypes.Domain]bool
-		// wantClosed are the tenants the session holds a grant in and does not reach
-		// (ClosedDomains); nil expects none.
-		wantClosed []accesstypes.Domain
+		// wantUnavailable are the tenants the session holds a grant in and does not reach
+		// (UnavailableDomains); nil expects none.
+		wantUnavailable []accesstypes.Domain
 		// wantReads is how many times each tenant's declaration was read.
 		wantReads map[accesstypes.Domain]int
 		wantErr   bool
@@ -838,19 +838,19 @@ func TestSessionPermissions_admission(t *testing.T) {
 			reader: &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{
 				anvil: workspaceOnly,
 			}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			wantDomains: []accesstypes.Domain{bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
-			name:        "a directory-only tenant refuses a password session; the other tenant admits it",
-			ctx:         sessionCtx("alice", nil, password),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			wantDomains: []accesstypes.Domain{bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
+			name:            "a directory-only tenant refuses a password session; the other tenant admits it",
+			ctx:             sessionCtx("alice", nil, password),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
 			name:        "a directory-only tenant admits the session that came through its directory, and so does the open tenant beside it",
@@ -861,15 +861,15 @@ func TestSessionPermissions_admission(t *testing.T) {
 			wantReaches: map[accesstypes.Domain]bool{anvil: true, bastion: true},
 		},
 		{
-			name:        "a session that records no establishment is not through a directory",
-			ctx:         sessionCtx("alice", nil),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly, bastion: declaresWorkspace}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			wantDomains: []accesstypes.Domain{bastion},
-			wantClosed:  []accesstypes.Domain{anvil},
+			name:            "a session that records no establishment is not through a directory",
+			ctx:             sessionCtx("alice", nil),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly, bastion: declaresWorkspace}},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
-			name:        "a tenant the session holds no grant in is closed to nobody: it is not theirs to see",
+			name:        "a tenant the session holds no grant in is not listed as not available: it is not theirs to see",
 			ctx:         sessionCtx("alice", nil, password),
 			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
 			holds:       []accesstypes.Domain{bastion},
@@ -887,29 +887,29 @@ func TestSessionPermissions_admission(t *testing.T) {
 			wantReaches: map[accesstypes.Domain]bool{anvil: true, bastion: true},
 		},
 		{
-			name:        "a person holding another global role does not enter it: a grant in the global partition exempts nobody",
-			ctx:         sessionCtx("alice", nil, password),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: lockedOut}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			global:      true,
-			wantDomains: []accesstypes.Domain{bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
+			name:            "a person holding another global role does not enter it: a grant in the global partition exempts nobody",
+			ctx:             sessionCtx("alice", nil, password),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: lockedOut}},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			global:          true,
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
 			// A membership that covers every tenant domain is a grant in each tenant and
 			// none in the global partition: held to each tenant's declaration, as the
 			// sign-in rule holds it to be no super administrator's.
-			name:        "a person whose only membership covers every tenant is held to each tenant's declaration",
-			ctx:         sessionCtx("alice", nil, password),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			wantDomains: []accesstypes.Domain{bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
+			name:            "a person whose only membership covers every tenant is held to each tenant's declaration",
+			ctx:             sessionCtx("alice", nil, password),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
-			// The tenant is refused and not listed as closed: that list is a person's own
+			// The tenant is refused and not listed as not available: that list is a person's own
 			// sign-in's, and this session views the application as someone else.
 			name:        "an impersonated session is established by its impersonation, which a directory-only tenant refuses",
 			ctx:         sessionCtx("bob", asBob, impersonation),
@@ -975,23 +975,23 @@ func TestSessionPermissions_admission(t *testing.T) {
 			wantReaches: map[accesstypes.Domain]bool{anvil: true},
 		},
 		{
-			name:        "the same administrator without the second factor does not enter",
-			ctx:         sessionCtx("alice", nil, password),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			administers: []accesstypes.Domain{anvil},
-			wantDomains: []accesstypes.Domain{bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
+			name:            "the same administrator without the second factor does not enter",
+			ctx:             sessionCtx("alice", nil, password),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			administers:     []accesstypes.Domain{anvil},
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
-			name:        "a member with a password and the mailed code does not enter: the way in is the administrator's",
-			ctx:         sessionCtx("alice", nil, password, mailedCode),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			wantDomains: []accesstypes.Domain{bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
+			name:            "a member with a password and the mailed code does not enter: the way in is the administrator's",
+			ctx:             sessionCtx("alice", nil, password, mailedCode),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
 			name: "the administrator of one directory-only tenant enters that one and not the other they hold a seat in",
@@ -999,31 +999,31 @@ func TestSessionPermissions_admission(t *testing.T) {
 			reader: &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{
 				anvil: workspaceOnly, bastion: lockedOut,
 			}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			administers: []accesstypes.Domain{anvil},
-			wantDomains: []accesstypes.Domain{anvil},
-			wantReaches: map[accesstypes.Domain]bool{anvil: true, bastion: false},
-			wantClosed:  []accesstypes.Domain{bastion},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			administers:     []accesstypes.Domain{anvil},
+			wantDomains:     []accesstypes.Domain{anvil},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: true, bastion: false},
+			wantUnavailable: []accesstypes.Domain{bastion},
 		},
 		{
-			name:        "the tenant's administrator who signed in through another organization's directory does not enter, attested or not",
-			ctx:         sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "other"}, sessioninfo.AuthEvent{Method: sessioninfo.MethodAttestedByEvidence, Connection: "other"}),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
-			holds:       []accesstypes.Domain{anvil},
-			administers: []accesstypes.Domain{anvil},
-			wantDomains: []accesstypes.Domain{},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false},
-			wantClosed:  []accesstypes.Domain{anvil},
+			name:            "the tenant's administrator who signed in through another organization's directory does not enter, attested or not",
+			ctx:             sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "other"}, sessioninfo.AuthEvent{Method: sessioninfo.MethodAttestedByEvidence, Connection: "other"}),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:           []accesstypes.Domain{anvil},
+			administers:     []accesstypes.Domain{anvil},
+			wantDomains:     []accesstypes.Domain{},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
-			name:        "the tenant's administrator who signed in with a personal account does not enter",
-			ctx:         sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: signin.GoogleAnyAccountConnection}, mailedCode),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
-			holds:       []accesstypes.Domain{anvil},
-			administers: []accesstypes.Domain{anvil},
-			wantDomains: []accesstypes.Domain{},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false},
-			wantClosed:  []accesstypes.Domain{anvil},
+			name:            "the tenant's administrator who signed in with a personal account does not enter",
+			ctx:             sessionCtx("alice", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: signin.GoogleAnyAccountConnection}, mailedCode),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
+			holds:           []accesstypes.Domain{anvil},
+			administers:     []accesstypes.Domain{anvil},
+			wantDomains:     []accesstypes.Domain{},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
 			name:        "a session that views the application as the tenant's administrator does not enter by their password: it was established by the impersonation",
@@ -1088,14 +1088,14 @@ func TestSessionPermissions_admission(t *testing.T) {
 		{
 			// The stub holds a membership in each tenant and one that covers every tenant
 			// alike: both are held to a disabled tenant's door.
-			name:        "a member, or a person whose membership covers every tenant, holds nothing in a disabled tenant, and it is listed with the tenants their own sign-in cannot enter",
-			ctx:         sessionCtx("alice", nil, password),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: disabled}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			wantDomains: []accesstypes.Domain{bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
-			wantReads:   map[accesstypes.Domain]int{anvil: 1, bastion: 1},
+			name:            "a member, or a person whose membership covers every tenant, holds nothing in a disabled tenant, and it is listed with the tenants their own sign-in cannot enter",
+			ctx:             sessionCtx("alice", nil, password),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: disabled}},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantUnavailable: []accesstypes.Domain{anvil},
+			wantReads:       map[accesstypes.Domain]int{anvil: 1, bastion: 1},
 		},
 		{
 			name:             "the tenant's own administrator with a password and the mailed code does not enter a disabled directory-only tenant, and who administers it is never asked",
@@ -1106,28 +1106,28 @@ func TestSessionPermissions_admission(t *testing.T) {
 			countAdministers: true,
 			wantDomains:      []accesstypes.Domain{bastion},
 			wantReaches:      map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:       []accesstypes.Domain{anvil},
+			wantUnavailable:  []accesstypes.Domain{anvil},
 			wantReads:        map[accesstypes.Domain]int{anvil: 1, bastion: 1},
 		},
 		{
-			name:        "a person who came through a disabled tenant's directory does not enter it",
-			ctx:         sessionCtx("alice", nil, workspace),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: disabledWorkspaceOnly}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			wantDomains: []accesstypes.Domain{bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
-			wantReads:   map[accesstypes.Domain]int{anvil: 1, bastion: 1},
+			name:            "a person who came through a disabled tenant's directory does not enter it",
+			ctx:             sessionCtx("alice", nil, workspace),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: disabledWorkspaceOnly}},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantUnavailable: []accesstypes.Domain{anvil},
+			wantReads:       map[accesstypes.Domain]int{anvil: 1, bastion: 1},
 		},
 		{
-			name:        "a person holding another global role does not enter a disabled tenant",
-			ctx:         sessionCtx("alice", nil, password),
-			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: disabled}},
-			holds:       []accesstypes.Domain{anvil, bastion},
-			global:      true,
-			wantDomains: []accesstypes.Domain{bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
-			wantClosed:  []accesstypes.Domain{anvil},
+			name:            "a person holding another global role does not enter a disabled tenant",
+			ctx:             sessionCtx("alice", nil, password),
+			reader:          &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: disabled}},
+			holds:           []accesstypes.Domain{anvil, bastion},
+			global:          true,
+			wantDomains:     []accesstypes.Domain{bastion},
+			wantReaches:     map[accesstypes.Domain]bool{anvil: false, bastion: true},
+			wantUnavailable: []accesstypes.Domain{anvil},
 		},
 		{
 			// The tenant is refused and not listed: that list is a person's own sign-in's.
@@ -1185,12 +1185,12 @@ func TestSessionPermissions_admission(t *testing.T) {
 			if diff := cmp.Diff(tt.wantDomains, domains); diff != "" {
 				t.Errorf("Domains() mismatch (-want +got):\n%s", diff)
 			}
-			closed, err := ClosedDomains(context.Background(), perms)
+			unavailable, err := UnavailableDomains(context.Background(), perms)
 			if err != nil {
-				t.Fatalf("ClosedDomains() error = %v", err)
+				t.Fatalf("UnavailableDomains() error = %v", err)
 			}
-			if diff := cmp.Diff(tt.wantClosed, closed, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("ClosedDomains() mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.wantUnavailable, unavailable, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("UnavailableDomains() mismatch (-want +got):\n%s", diff)
 			}
 			for domain, want := range tt.wantReaches {
 				reaches, err := perms.Reaches(context.Background(), domain)

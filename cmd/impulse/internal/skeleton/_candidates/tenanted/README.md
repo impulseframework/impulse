@@ -125,8 +125,8 @@ level's roster keeps every tenant's declaration beside its key
 (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions`), the
 records' generated write paths reload it after their commit and signal every instance,
 so a declaration edited anywhere decides the next request everywhere, and a tenant that
-seats the person and that their session may not enter is listed as closed to this
-sign-in, with the reason, and answers as one that does not exist. The
+seats the person and that their session may not enter is listed as not available, with
+the reason, and answers as one that does not exist. The
 console's Sign-in page under the tenant (`/tenants/{tenantID}/sign-in`) shows the
 tenant's directory, sets it and removes it, and changes everything else with the
 tenant's own generated methods, each run through the library's method dialog under the
