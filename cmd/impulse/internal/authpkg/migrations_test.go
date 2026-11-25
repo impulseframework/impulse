@@ -123,7 +123,7 @@ func TestMigrations_normalizedUsername(t *testing.T) {
 	}
 }
 
-// TestMigrations_rowDeletionPolicies holds the row deletion policies of the three tables
+// TestMigrations_rowDeletionPolicies holds the row deletion policies of the seven tables
 // that would otherwise keep every row ever written, and the column the sign-in attempts
 // table's policy is counted from: the same statements as the session library's shipped
 // sets, under the auth's prefix.
@@ -139,6 +139,10 @@ func TestMigrations_rowDeletionPolicies(t *testing.T) {
 		"    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,\n) PRIMARY KEY (Name);",
 		"ALTER TABLE StaffSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));",
 		"ALTER TABLE StaffSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));",
+		"ALTER TABLE StaffSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));",
+		"ALTER TABLE StaffSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));",
+		"ALTER TABLE StaffSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));",
+		"ALTER TABLE StaffSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));",
 	} {
 		if !strings.Contains(up.String(), statement) {
 			t.Errorf("the migrations lack %q", statement)

@@ -116,6 +116,10 @@ CREATE UNIQUE INDEX MembersSessionPendingSignInsByTokenHash ON MembersSessionPen
 
 CREATE INDEX MembersSessionPendingSignInsByExpiresAt ON MembersSessionPendingSignIns(ExpiresAt);
 
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE MembersSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The sign-in attempts: the attempt limiter's count of failed password attempts per
 -- sign-in name, known or not, within a window, and the lock those failures earned. The
 -- row is keyed by the submitted name, never by the user row, so an unknown name is
@@ -267,6 +271,11 @@ CREATE INDEX MembersSessionTokensByUser ON MembersSessionTokens(UserId, RevokedA
 
 CREATE INDEX MembersSessionTokensByFamilyId ON MembersSessionTokens(FamilyId, RevokedAt);
 
+-- A token's row is removed 30 days after the token expired (ExpiresAt), revoked or not. A
+-- refresh token that was rotated stays until then, so one presented again before it
+-- expires is still caught as a reuse.
+ALTER TABLE MembersSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The device codes: the device authorizations command-line clients start for a machine
 -- outlet whose tokens the members auth issues (RFC 8628). The client holds the opaque
 -- device code and the row keeps its hash; the person is shown the user code, normalized
@@ -295,6 +304,10 @@ CREATE TABLE MembersSessionDeviceCodes (
 CREATE UNIQUE INDEX MembersSessionDeviceCodesByHash ON MembersSessionDeviceCodes(DeviceCodeHash);
 
 CREATE INDEX MembersSessionDeviceCodesByUserCode ON MembersSessionDeviceCodes(UserCode, ExpiresAt);
+
+-- A device code's row is removed one day after the code expired (ExpiresAt), whether it
+-- was approved, denied or never decided.
+ALTER TABLE MembersSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 
 -- The second factor of the members auth's sessions: the sign-in codes and the trusted
 -- devices. A sign-in code is one code mailed for a pending sign-in (PendingId): the mail
@@ -340,3 +353,6 @@ CREATE TABLE MembersSessionTrustedDevices (
 CREATE UNIQUE INDEX MembersSessionTrustedDevicesByTokenHash ON MembersSessionTrustedDevices(TokenHash);
 
 CREATE INDEX MembersSessionTrustedDevicesByUser ON MembersSessionTrustedDevices(UserId, RevokedAt);
+
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE MembersSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));

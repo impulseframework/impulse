@@ -1108,6 +1108,10 @@ CREATE UNIQUE INDEX CrewSessionPendingSignInsByTokenHash ON CrewSessionPendingSi
 
 CREATE INDEX CrewSessionPendingSignInsByExpiresAt ON CrewSessionPendingSignIns(ExpiresAt);
 
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE CrewSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The members's identity links: which provider subject is which person. A Members session
 -- user holds one row per registration they have signed in through (the Google
 -- registration's subject under its method and connection), keyed uniquely so a
@@ -1193,6 +1197,10 @@ CREATE TABLE MembersSessionPendingSignIns (
 CREATE UNIQUE INDEX MembersSessionPendingSignInsByTokenHash ON MembersSessionPendingSignIns(TokenHash);
 
 CREATE INDEX MembersSessionPendingSignInsByExpiresAt ON MembersSessionPendingSignIns(ExpiresAt);
+
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE MembersSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 
 -- The crew's sign-in attempts: the password method's attempt limiter counts the failed
 -- attempts on one name, known or not, within a window, and the lock those failures
@@ -1492,6 +1500,11 @@ CREATE INDEX CrewSessionTokensByUser ON CrewSessionTokens(UserId, RevokedAt, Exp
 
 CREATE INDEX CrewSessionTokensByFamilyId ON CrewSessionTokens(FamilyId, RevokedAt);
 
+-- A token's row is removed 30 days after the token expired (ExpiresAt), revoked or not. A
+-- refresh token that was rotated stays until then, so one presented again before it
+-- expires is still caught as a reuse.
+ALTER TABLE CrewSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The crew's device codes: the device authorizations command-line clients start for
 -- the droids outlet (RFC 8628; the session library's SessionDeviceCodes migration,
 -- under the auth's prefix). The client holds the opaque device code and the row keeps
@@ -1521,6 +1534,10 @@ CREATE TABLE CrewSessionDeviceCodes (
 CREATE UNIQUE INDEX CrewSessionDeviceCodesByHash ON CrewSessionDeviceCodes(DeviceCodeHash);
 
 CREATE INDEX CrewSessionDeviceCodesByUserCode ON CrewSessionDeviceCodes(UserCode, ExpiresAt);
+
+-- A device code's row is removed one day after the code expired (ExpiresAt), whether it
+-- was approved, denied or never decided.
+ALTER TABLE CrewSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 
 -- The crew's second factor (the session library's SessionFactors migration, under the
 -- auth's prefix): the sign-in codes and the trusted devices. A factor code is one code
@@ -1568,6 +1585,9 @@ CREATE UNIQUE INDEX CrewSessionTrustedDevicesByTokenHash ON CrewSessionTrustedDe
 
 CREATE INDEX CrewSessionTrustedDevicesByUser ON CrewSessionTrustedDevices(UserId, RevokedAt);
 
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE CrewSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The members' second factor (the session library's SessionFactors migration, under the
 -- auth's prefix): the sign-in codes mailed for a pending sign-in and the browsers a
 -- member asked to be remembered after one, shaped as the crew's
@@ -1605,6 +1625,9 @@ CREATE TABLE MembersSessionTrustedDevices (
 CREATE UNIQUE INDEX MembersSessionTrustedDevicesByTokenHash ON MembersSessionTrustedDevices(TokenHash);
 
 CREATE INDEX MembersSessionTrustedDevicesByUser ON MembersSessionTrustedDevices(UserId, RevokedAt);
+
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE MembersSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 
 CREATE SEARCH INDEX ClientsSearch ON Clients(Name_Search, ContactName_Search, ContactEmail_Search);
 

@@ -18,10 +18,131 @@ import (
 )
 
 // PostgreSQL has no row deletion policy, so the store removes the rows that are over as
-// it writes: a sign-in removes the sessions idle more than 30 days, a recorded failure
-// the sign-in attempts rows that stopped counting more than a day before, and a link's
-// insert the mail links that expired more than 30 days before. These tests stage a row's
-// age with SQL through the pool.
+// it writes: a write that inserts a session removes the sessions idle more than 30 days, a
+// recorded failure the sign-in attempts rows that stopped counting more than a day before,
+// a link's insert the mail links that expired more than 30 days before, and a write that
+// inserts a token, a trusted device, a device code or a pending sign-in the rows of its
+// own table that expired more than 30 days before (the first two) or a day before (the
+// last two). These tests stage a row's age with SQL through the pool.
+
+// TestSessions_InsertRemovesIdleSessions proves that a store on the base set alone, which
+// signs nobody in (a Preauth store's Login), removes the sessions idle more than 30 days
+// as it inserts a session.
+func TestSessions_InsertRemovesIdleSessions(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newImpersonationInstance(ctx, t, drivertest.Sessions, drivertest.Config{})
+	idle31 := insertSessionAs(ctx, t, in.Driver, "pat")
+	active29 := insertSessionAs(ctx, t, in.Driver, "sam")
+	live := insertSessionAs(ctx, t, in.Driver, "kim")
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, idle31)
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '696 hours' WHERE "Id" = $1`, active29)
+
+	fresh := insertSessionAs(ctx, t, in.Driver, "lee")
+
+	for _, tt := range []struct {
+		name string
+		id   impulse.UUID
+		want bool
+	}{
+		{name: "a session made and last active 31 days ago", id: idle31, want: false},
+		{name: "a session made 31 days ago and active 29 days ago", id: active29, want: true},
+		{name: "a session in use", id: live, want: true},
+		{name: "the new session", id: fresh, want: true},
+	} {
+		if got := exists(ctx, t, in.Raw, `"Sessions"`, tt.id); got != tt.want {
+			t.Errorf("%s is there after another session's insert = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+// TestSessions_ImpersonatedInsertRemovesIdleSessions proves that an impersonated session's
+// insert removes the sessions idle more than 30 days, as any other session's does.
+func TestSessions_ImpersonatedInsertRemovesIdleSessions(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newImpersonationInstance(ctx, t, drivertest.Sessions, drivertest.Config{Impersonation: true})
+	idle := insertSessionAs(ctx, t, in.Driver, "pat")
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, idle)
+
+	role := "PartnerViewer"
+	id, err := in.Driver.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: "alice@example.com"},
+		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice@example.com"},
+		&dbtype.InsertImpersonation{ActorUsername: "alice@example.com", PrincipalKind: dbtype.PrincipalKindRole, PrincipalRole: &role, ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("InsertImpersonatedSession() error = %v", err)
+	}
+	if !exists(ctx, t, in.Raw, `"Sessions"`, id) {
+		t.Error("the impersonated session is not there")
+	}
+	if exists(ctx, t, in.Raw, `"Sessions"`, idle) {
+		t.Error("a session made and last active 31 days ago is there after an impersonated session's insert, want it removed")
+	}
+}
+
+// TestAuth_InsertedSessionRemovesIdleSessions proves that a session an Auth store inserts
+// without a sign-in (one the application starts) removes the sessions idle more than 30
+// days, with their auth events.
+func TestAuth_InsertedSessionRemovesIdleSessions(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true, AuthEvents: true})
+	idle := signInAs(ctx, t, in, "pat@lakeside.edu")
+	if got := countAuthEvents(ctx, t, in.Raw, idle); got != 1 {
+		t.Fatalf("auth events of the session to be removed = %d, want its sign-in's 1", got)
+	}
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, idle)
+
+	user := createTestUser(ctx, t, in.Driver, "sam@lakeside.edu")
+	id, err := in.Driver.InsertSession(ctx, &dbtype.InsertSession{Username: "sam@lakeside.edu"}, &sessioninfo.NewSessionRequest{
+		Reason: sessioninfo.ReasonLogin, Username: "sam@lakeside.edu", UserID: user.ID,
+		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()},
+	})
+	if err != nil {
+		t.Fatalf("InsertSession() error = %v", err)
+	}
+	if !exists(ctx, t, in.Raw, `"Sessions"`, id) {
+		t.Error("the inserted session is not there")
+	}
+	if exists(ctx, t, in.Raw, `"Sessions"`, idle) {
+		t.Error("a session made and last active 31 days ago is there after a session's insert with no sign-in, want it removed")
+	}
+	if got := countAuthEvents(ctx, t, in.Raw, idle); got != 0 {
+		t.Errorf("auth events of the removed session = %d, want 0: they go with it", got)
+	}
+}
+
+// TestSessions_InsertStandsWhenItsRemovalFails holds a due session by a foreign key with
+// no cascade, which the removal cannot delete through: the insert that carries the
+// removal still inserts its session, and the due session stays until the holding row
+// goes.
+func TestSessions_InsertStandsWhenItsRemovalFails(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newImpersonationInstance(ctx, t, drivertest.Sessions, drivertest.Config{})
+	due := insertSessionAs(ctx, t, in.Driver, "pat")
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, due)
+	age(ctx, t, in.Raw, `CREATE TABLE "SessionNotes" ("SessionId" uuid NOT NULL REFERENCES "Sessions" ("Id"))`)
+	age(ctx, t, in.Raw, `INSERT INTO "SessionNotes" ("SessionId") VALUES ($1)`, due)
+
+	held := insertSessionAs(ctx, t, in.Driver, "sam")
+	if !exists(ctx, t, in.Raw, `"Sessions"`, held) {
+		t.Error("the session whose insert's removal failed is not there, want it inserted")
+	}
+	if !exists(ctx, t, in.Raw, `"Sessions"`, due) {
+		t.Error("the due session a foreign key with no cascade holds is gone, want it kept")
+	}
+
+	age(ctx, t, in.Raw, `DELETE FROM "SessionNotes"`)
+	insertSessionAs(ctx, t, in.Driver, "kim")
+	if exists(ctx, t, in.Raw, `"Sessions"`, due) {
+		t.Error("the due session is there after the insert that follows the holding row's delete, want it removed")
+	}
+}
 
 // hundredYears is the window and the lock the library keeps its counts under that no
 // time resets.
@@ -295,6 +416,229 @@ func TestAuth_LinkInsertStandsWhenItsRemovalFails(t *testing.T) {
 	}
 }
 
+// TestAuth_AWriteRemovesTheExpiredRowsOfItsTable stages one row of each of the four
+// tables at each of five ages and proves that the next write of a row of a table removes
+// the rows of that table past its period and no other: a token and a trusted device 30
+// days after it expired, a device code and a pending sign-in a day after, and a pending
+// sign-in's code with it.
+func TestAuth_AWriteRemovesTheExpiredRowsOfItsTable(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true})
+	user := createTestUser(ctx, t, in.Driver, "pat@lakeside.edu")
+	staged := []struct {
+		name string
+		// hours is how long ago the row expired; 0 leaves it expiring in an hour.
+		hours int
+	}{
+		{name: "that expired 744 hours ago (31 days)", hours: 744},
+		{name: "that expired 696 hours ago (29 days)", hours: 696},
+		{name: "that expired 25 hours ago", hours: 25},
+		{name: "that expired 23 hours ago", hours: 23},
+		{name: "that expires in an hour"},
+	}
+	// Every row goes in live, then the ages are staged: an insert removes the rows of its
+	// table that are past their period, so an aged row would not outlast the next call.
+	rows := make([]drivertest.Expiring, len(staged))
+	for i := range staged {
+		rows[i] = drivertest.InsertExpiring(ctx, t, in.Driver, user.ID, byte(i+1), time.Now().Add(time.Hour))
+	}
+	for i, row := range staged {
+		if row.hours == 0 {
+			continue
+		}
+		for table, id := range expiringIDs(&rows[i]) {
+			age(ctx, t, in.Raw, fmt.Sprintf(`UPDATE %s SET "ExpiresAt" = now() - interval '%d hours' WHERE "Id" = $1`, table, row.hours), id)
+		}
+	}
+
+	// n 0xff keeps the write's rows apart from the staged ones.
+	written := drivertest.InsertExpiring(ctx, t, in.Driver, user.ID, 0xff, time.Now().Add(time.Hour))
+
+	for _, tt := range []struct {
+		name  string
+		table string
+		// due says, of each staged row, whether the write removes it.
+		due []bool
+	}{
+		{name: "tokens", table: `"SessionTokens"`, due: []bool{true, false, false, false, false}},
+		{name: "trusted devices", table: `"SessionTrustedDevices"`, due: []bool{true, false, false, false, false}},
+		{name: "device codes", table: `"SessionDeviceCodes"`, due: []bool{true, true, true, false, false}},
+		{name: "pending sign-ins", table: `"SessionPendingSignIns"`, due: []bool{true, true, true, false, false}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			for i, row := range staged {
+				if got := exists(ctx, t, in.Raw, tt.table, expiringIDs(&rows[i])[tt.table]); got == tt.due[i] {
+					t.Errorf("a row %s is there after the next insert = %v, want %v", row.name, got, !tt.due[i])
+				}
+			}
+			if !exists(ctx, t, in.Raw, tt.table, expiringIDs(&written)[tt.table]) {
+				t.Error("the row the write under test inserted is not there")
+			}
+			if tt.table != `"SessionPendingSignIns"` {
+				return
+			}
+			for i, row := range staged {
+				if got := exists(ctx, t, in.Raw, `"SessionFactorCodes"`, rows[i].FactorCode); got == tt.due[i] {
+					t.Errorf("the code under a pending sign-in %s is there after the next insert = %v, want %v: it goes with its pending sign-in", row.name, got, !tt.due[i])
+				}
+			}
+		})
+	}
+}
+
+// TestAuth_RefreshRemovesExpiredTokens proves that a refresh that rotated its pair
+// removes the tokens that expired more than 30 days ago, and that one that inserted
+// nothing, a reuse, removes nothing.
+func TestAuth_RefreshRemovesExpiredTokens(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true})
+	user := createTestUser(ctx, t, in.Driver, "pat@lakeside.edu")
+	access, refresh := testFamily(user.ID, 1, 2)
+	aged := testToken(dbtype.TokenApplication, user.ID, 3)
+	insertTestTokens(ctx, t, in.Driver, access, refresh, aged)
+	ageToken(ctx, t, in.Raw, aged.ID)
+
+	if err := in.Driver.ExchangeRefreshToken(ctx, refresh.TokenHash, time.Now(), testToken(dbtype.TokenAccess, impulse.NilUUID, 4), testToken(dbtype.TokenRefresh, impulse.NilUUID, 5)); err != nil {
+		t.Fatalf("ExchangeRefreshToken() error = %v", err)
+	}
+	if exists(ctx, t, in.Raw, `"SessionTokens"`, aged.ID) {
+		t.Error("a token that expired 31 days ago is there after a refresh that rotated, want it removed")
+	}
+
+	second := testToken(dbtype.TokenApplication, user.ID, 6)
+	insertTestTokens(ctx, t, in.Driver, second)
+	ageToken(ctx, t, in.Raw, second.ID)
+	if err := in.Driver.ExchangeRefreshToken(ctx, refresh.TokenHash, time.Now(), testToken(dbtype.TokenAccess, impulse.NilUUID, 7), testToken(dbtype.TokenRefresh, impulse.NilUUID, 8)); !errors.Is(err, dbtype.ErrTokenReuse) {
+		t.Fatalf("ExchangeRefreshToken() of the rotated token error = %v, want ErrTokenReuse", err)
+	}
+	if !exists(ctx, t, in.Raw, `"SessionTokens"`, second.ID) {
+		t.Error("a token that expired 31 days ago is gone after a reuse, want it kept: an exchange that inserted nothing removes nothing")
+	}
+}
+
+// TestAuth_RedemptionRemovesExpiredTokens proves that the poll that redeems an approved
+// device code removes the tokens that expired more than 30 days ago, and that a poll
+// that issued nothing removes nothing.
+func TestAuth_RedemptionRemovesExpiredTokens(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true})
+	user := createTestUser(ctx, t, in.Driver, "pat@lakeside.edu")
+	aged := testToken(dbtype.TokenApplication, user.ID, 1)
+	insertTestTokens(ctx, t, in.Driver, aged)
+	ageToken(ctx, t, in.Raw, aged.ID)
+	code := &dbtype.DeviceCode{
+		ID: impulse.Must(impulse.NewUUID()), DeviceCodeHash: testTokenHash(2), UserCode: "BCDFGHJK", ClientID: "corral", Outlet: "droids",
+		ExpiresAt: time.Now().Add(10 * time.Minute),
+	}
+	if err := in.Driver.InsertDeviceCode(ctx, code); err != nil {
+		t.Fatalf("InsertDeviceCode() error = %v", err)
+	}
+
+	_, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), 5*time.Second, testToken(dbtype.TokenAccess, impulse.NilUUID, 3), testToken(dbtype.TokenRefresh, impulse.NilUUID, 4))
+	if err != nil || status != dbtype.DevicePending {
+		t.Fatalf("RedeemDeviceCode() of a pending code = %q, %v; want pending", status, err)
+	}
+	if !exists(ctx, t, in.Raw, `"SessionTokens"`, aged.ID) {
+		t.Error("a token that expired 31 days ago is gone after a poll that issued nothing, want it kept")
+	}
+
+	if err := in.Driver.ApproveDeviceCode(ctx, code.ID, user.ID, time.Now()); err != nil {
+		t.Fatalf("ApproveDeviceCode() error = %v", err)
+	}
+	_, status, err = in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), 5*time.Second, testToken(dbtype.TokenAccess, impulse.NilUUID, 5), testToken(dbtype.TokenRefresh, impulse.NilUUID, 6))
+	if err != nil || status != dbtype.DeviceApproved {
+		t.Fatalf("RedeemDeviceCode() of an approved code = %q, %v; want approved", status, err)
+	}
+	if exists(ctx, t, in.Raw, `"SessionTokens"`, aged.ID) {
+		t.Error("a token that expired 31 days ago is there after the poll that issued the tokens, want it removed")
+	}
+}
+
+// TestAuth_ARotatedRefreshTokenOutlastsTheRemovalWhileItCouldBeReused proves that the
+// removal reads a token's expiry and not its revocation: a refresh token rotated and
+// not yet expired is still there after a write that removed the expired tokens, and
+// presenting it again is caught as a reuse that revokes its family's current pair.
+func TestAuth_ARotatedRefreshTokenOutlastsTheRemovalWhileItCouldBeReused(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true})
+	user := createTestUser(ctx, t, in.Driver, "pat@lakeside.edu")
+	access1, refresh1 := testFamily(user.ID, 1, 2)
+	insertTestTokens(ctx, t, in.Driver, access1, refresh1)
+	access2, refresh2 := testToken(dbtype.TokenAccess, impulse.NilUUID, 3), testToken(dbtype.TokenRefresh, impulse.NilUUID, 4)
+	if err := in.Driver.ExchangeRefreshToken(ctx, refresh1.TokenHash, time.Now(), access2, refresh2); err != nil {
+		t.Fatalf("ExchangeRefreshToken() error = %v", err)
+	}
+	aged := testToken(dbtype.TokenApplication, user.ID, 5)
+	insertTestTokens(ctx, t, in.Driver, aged)
+	ageToken(ctx, t, in.Raw, aged.ID)
+
+	insertTestTokens(ctx, t, in.Driver, testToken(dbtype.TokenApplication, user.ID, 6))
+	if exists(ctx, t, in.Raw, `"SessionTokens"`, aged.ID) {
+		t.Fatal("a token that expired 31 days ago is there after a token's insert, want it removed")
+	}
+	rotated, err := in.Driver.TokenState(ctx, refresh1.TokenHash)
+	if err != nil {
+		t.Fatalf("TokenState() of the rotated refresh token after the removal error = %v, want it there until it expires", err)
+	}
+	if rotated.RevokedAt == nil || rotated.RevokedReason != dbtype.TokenRevokedRotated {
+		t.Errorf("the rotated refresh token is revoked at %v (%q), want revoked as rotated", rotated.RevokedAt, rotated.RevokedReason)
+	}
+
+	if err := in.Driver.ExchangeRefreshToken(ctx, refresh1.TokenHash, time.Now(), testToken(dbtype.TokenAccess, impulse.NilUUID, 7), testToken(dbtype.TokenRefresh, impulse.NilUUID, 8)); !errors.Is(err, dbtype.ErrTokenReuse) {
+		t.Fatalf("ExchangeRefreshToken() of the rotated token presented again error = %v, want ErrTokenReuse", err)
+	}
+	for _, tok := range []*dbtype.Token{access2, refresh2} {
+		got, err := in.Driver.TokenState(ctx, tok.TokenHash)
+		if err != nil {
+			t.Fatalf("TokenState(%s) of the family's current pair error = %v", tok.Kind, err)
+		}
+		if got.RevokedAt == nil || got.RevokedReason != dbtype.TokenRevokedReuse {
+			t.Errorf("the family's current %s token is revoked at %v (%q), want revoked as reuse", tok.Kind, got.RevokedAt, got.RevokedReason)
+		}
+	}
+}
+
+// TestAuth_RefreshStandsWhenItsRemovalFails holds a due token by a foreign key with no
+// cascade, which the removal cannot delete through: the refresh that carries the removal
+// still rotates the pair, and the due token stays.
+func TestAuth_RefreshStandsWhenItsRemovalFails(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true})
+	user := createTestUser(ctx, t, in.Driver, "pat@lakeside.edu")
+	access, refresh := testFamily(user.ID, 1, 2)
+	due := testToken(dbtype.TokenApplication, user.ID, 3)
+	insertTestTokens(ctx, t, in.Driver, access, refresh, due)
+	ageToken(ctx, t, in.Raw, due.ID)
+	age(ctx, t, in.Raw, `CREATE TABLE "TokenNotes" ("TokenId" uuid NOT NULL REFERENCES "SessionTokens" ("Id"))`)
+	age(ctx, t, in.Raw, `INSERT INTO "TokenNotes" ("TokenId") VALUES ($1)`, due.ID)
+
+	next, nextRefresh := testToken(dbtype.TokenAccess, impulse.NilUUID, 4), testToken(dbtype.TokenRefresh, impulse.NilUUID, 5)
+	if err := in.Driver.ExchangeRefreshToken(ctx, refresh.TokenHash, time.Now(), next, nextRefresh); err != nil {
+		t.Fatalf("ExchangeRefreshToken() whose removal fails error = %v, want the pair rotated", err)
+	}
+	for _, tok := range []*dbtype.Token{next, nextRefresh} {
+		if !exists(ctx, t, in.Raw, `"SessionTokens"`, tok.ID) {
+			t.Errorf("the new %s token of the refresh whose removal failed is not there, want it inserted", tok.Kind)
+		}
+	}
+	if !exists(ctx, t, in.Raw, `"SessionTokens"`, due.ID) {
+		t.Error("the due token a foreign key with no cascade holds is gone, want it kept")
+	}
+}
+
 // txQueryer is a transaction the test hands a driver as its connection: what the driver
 // sends runs in the transaction, and a transaction the driver begins is a savepoint of it,
 // at the transaction's own level.
@@ -376,19 +720,55 @@ func TestAuth_RemovalsReadTheirIndexes(t *testing.T) {
 		{table: `"Sessions"`, removal: sessionsRemoval, index: "Sessions_UpdatedOn_idx"},
 		{table: `"SessionSignInAttempts"`, removal: attemptsRemoval, args: []any{time.Now()}, index: "SessionSignInAttempts_EndsAt_idx"},
 		{table: `"SessionMailLinks"`, removal: mailLinksRemoval, index: "SessionMailLinks_ExpiresAt_idx"},
+		{table: `"SessionTokens"`, removal: tokensRemoval, index: "SessionTokens_ExpiresAt_idx"},
+		{table: `"SessionTrustedDevices"`, removal: trustedDevicesRemoval, index: "SessionTrustedDevices_ExpiresAt_idx"},
+		{table: `"SessionDeviceCodes"`, removal: deviceCodesRemoval, index: "SessionDeviceCodes_ExpiresAt_idx"},
+		{table: `"SessionPendingSignIns"`, removal: pendingSignInsRemoval, index: "SessionPendingSignIns_ExpiresAt_idx"},
 	} {
-		rows, err := tx.Query(ctx, "EXPLAIN (COSTS OFF) "+tt.removal.statement(tt.table), tt.args...)
-		if err != nil {
-			t.Fatalf("EXPLAIN of the removal from %s error = %v", tt.table, err)
-		}
-		lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
-		if err != nil {
-			t.Fatalf("pgx.CollectRows() error = %v", err)
-		}
-		if plan := strings.Join(lines, "\n"); !strings.Contains(plan, tt.index) {
+		if plan := removalPlan(ctx, t, tx, tt.removal, tt.table, tt.args...); !strings.Contains(plan, tt.index) {
 			t.Errorf("the removal from %s does not read the index %s; the plan:\n%s", tt.table, tt.index, plan)
 		}
 	}
+
+	// The sessions' day and its index are the base set's: a store on the base set alone,
+	// a Preauth store's, reads the due sessions by the index too.
+	t.Run("the sessions over the base set alone", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		base, err := prepareDatabase(ctx, t, "file://../../../schema/postgresql/migrations")
+		if err != nil {
+			t.Fatalf("prepareDatabase() of the base set alone error = %v", err)
+		}
+		baseTx, err := base.Begin(ctx)
+		if err != nil {
+			t.Fatalf("Begin() error = %v", err)
+		}
+		// Rolled back on every path: the transaction only reads plans.
+		defer func() { _ = baseTx.Rollback(ctx) }()
+		if _, err := baseTx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
+			t.Fatalf("SET LOCAL enable_seqscan error = %v", err)
+		}
+		if plan := removalPlan(ctx, t, baseTx, sessionsRemoval, `"Sessions"`); !strings.Contains(plan, "Sessions_UpdatedOn_idx") {
+			t.Errorf("the removal from \"Sessions\" over the base set alone does not read the index Sessions_UpdatedOn_idx; the plan:\n%s", plan)
+		}
+	})
+}
+
+// removalPlan is the plan the removal's statement over table has in tx.
+func removalPlan(ctx context.Context, t *testing.T, tx pgx.Tx, r removal, table string, args ...any) string {
+	t.Helper()
+
+	rows, err := tx.Query(ctx, "EXPLAIN (COSTS OFF) "+r.statement(table), args...)
+	if err != nil {
+		t.Fatalf("EXPLAIN of the removal from %s error = %v", table, err)
+	}
+	lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("pgx.CollectRows() error = %v", err)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // signInAs makes an account for username and signs it in, as a person signs in by
@@ -406,6 +786,19 @@ func signInAs(ctx context.Context, t *testing.T, in *drivertest.AuthInstance, us
 	})
 	if err != nil {
 		t.Fatalf("SignIn(%q) error = %v", username, err)
+	}
+
+	return id
+}
+
+// insertSessionAs inserts a session of username through d, as a Preauth store's Login
+// does, and returns its id.
+func insertSessionAs(ctx context.Context, t *testing.T, d drivertest.Driver, username string) impulse.UUID {
+	t.Helper()
+
+	id, err := d.InsertSession(ctx, &dbtype.InsertSession{Username: username}, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: username})
+	if err != nil {
+		t.Fatalf("InsertSession(%q) error = %v", username, err)
 	}
 
 	return id
@@ -462,4 +855,72 @@ func insertDueLink(ctx context.Context, t *testing.T, raw any, token string) *db
 		link.ID, link.TokenHash, string(link.Kind), link.Email, link.ExpiresAt)
 
 	return link
+}
+
+// createTestUser makes an account for username through the driver.
+func createTestUser(ctx context.Context, t *testing.T, d drivertest.AuthDriver, username string) *dbtype.SessionUser {
+	t.Helper()
+
+	user, err := d.CreateUser(ctx, &dbtype.InsertSessionUser{Username: username}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser(%q) error = %v", username, err)
+	}
+
+	return user
+}
+
+// testTokenHash is a distinct 32-byte hash for the test's token n.
+func testTokenHash(n byte) []byte {
+	hash := make([]byte, 32)
+	hash[0] = n
+
+	return hash
+}
+
+// testToken is a token of kind for userID on the droids outlet, holding the hash of n,
+// that expires in an hour.
+func testToken(kind dbtype.TokenKind, userID impulse.UUID, n byte) *dbtype.Token {
+	return &dbtype.Token{
+		ID: impulse.Must(impulse.NewUUID()), TokenHash: testTokenHash(n), Kind: kind, UserID: userID, Outlet: "droids",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+}
+
+// testFamily is a device grant's access and refresh tokens for userID, in one family,
+// issued to the corral client.
+func testFamily(userID impulse.UUID, accessN, refreshN byte) (access, refresh *dbtype.Token) {
+	family := impulse.NullUUIDFromUUID(impulse.Must(impulse.NewUUID()))
+	access = testToken(dbtype.TokenAccess, userID, accessN)
+	refresh = testToken(dbtype.TokenRefresh, userID, refreshN)
+	for _, tok := range []*dbtype.Token{access, refresh} {
+		tok.FamilyID, tok.ClientID = family, "corral"
+	}
+
+	return access, refresh
+}
+
+// insertTestTokens inserts each token through the driver.
+func insertTestTokens(ctx context.Context, t *testing.T, d drivertest.AuthDriver, tokens ...*dbtype.Token) {
+	t.Helper()
+
+	for _, tok := range tokens {
+		if err := d.InsertToken(ctx, tok); err != nil {
+			t.Fatalf("InsertToken(%s) error = %v", tok.Kind, err)
+		}
+	}
+}
+
+// ageToken stages the token id as expired 744 hours (31 days) ago, directly.
+func ageToken(ctx context.Context, t *testing.T, raw any, id impulse.UUID) {
+	t.Helper()
+
+	age(ctx, t, raw, `UPDATE "SessionTokens" SET "ExpiresAt" = now() - interval '744 hours' WHERE "Id" = $1`, id)
+}
+
+// expiringIDs is each row of e, by its table's name.
+func expiringIDs(e *drivertest.Expiring) map[string]impulse.UUID {
+	return map[string]impulse.UUID{
+		`"SessionTokens"`: e.Token, `"SessionTrustedDevices"`: e.TrustedDevice,
+		`"SessionDeviceCodes"`: e.DeviceCode, `"SessionPendingSignIns"`: e.PendingSignIn,
+	}
 }
