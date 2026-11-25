@@ -1548,14 +1548,14 @@ func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransact
 	return memberships, places, nil
 }
 
-// RemoveEnded buffers each removal under the source that says the assignment ended by
-// itself (identity.EndedByItself): it is what a change record of the row holds in place
-// of a person's act.
+// RemoveEnded buffers each removal under the process that says the assignment ended by
+// itself (resource.ProcessEvent(identity.EndedByItself)): it is what a change record of
+// the row holds in place of a person's act.
 func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
 	for i := range memberships {
 		key := &memberships[i]
 		patch := crewresources.NewCrewUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-		if err := patch.Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := patch.Buffer(ctx, txn, resource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewUserRoleDeletePatch.Buffer()")
 		}
 	}
@@ -1564,7 +1564,7 @@ func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction,
 		if err != nil {
 			return err
 		}
-		if err := crewresources.NewCrewGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := crewresources.NewCrewGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, resource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewGroupMemberDeletePatch.Buffer()")
 		}
 	}

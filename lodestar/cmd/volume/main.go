@@ -563,12 +563,9 @@ func (w *world) droidReports(ctx context.Context) error {
 func (w *world) history(ctx context.Context) error {
 	now := time.Now().UTC()
 	add := func(events []resource.DataChangeEvent) error {
-		for _, event := range events {
-			m, err := spanner.InsertStruct(string(event.Resource()), event)
-			if err != nil {
-				return errors.Wrap(err, "spanner.InsertStruct()")
-			}
-			if err := w.loader.add(ctx, m); err != nil {
+		for i := range events {
+			event := &events[i]
+			if err := w.loader.add(ctx, spanner.InsertMap(string(event.Resource()), event.Columns())); err != nil {
 				return err
 			}
 		}
@@ -667,13 +664,19 @@ func historyEvent(now time.Time, table accesstypes.Resource, rowID, sectorID str
 		time.Duration(n%1440)*time.Minute -
 		time.Duration(historyPerRow-1-k)*historyStep)
 
+	operation := resource.ChangeUpdate
+	if k == 0 {
+		operation = resource.ChangeCreate
+	}
+
 	return resource.DataChangeEvent{
-		TableName:   table,
-		RowID:       rowID,
-		Sequence:    1,
-		EventTime:   at,
-		EventSource: historySource,
-		ChangeSet:   spanner.NullJSON{Valid: true, Value: changeSet},
-		TenantID:    sectorID,
+		TableName: table,
+		RowID:     rowID,
+		Sequence:  1,
+		EventTime: at,
+		Operation: operation,
+		ChangeSet: spanner.NullJSON{Valid: true, Value: changeSet},
+		TenantID:  sectorID,
+		Source:    resource.ProcessEvent(historySource),
 	}
 }

@@ -363,11 +363,11 @@ func (p *SortieExpenseCreatePatch) ToStruct() *SortieExpense {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SortieExpenseCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieExpenseCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieExpenseCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieExpenseCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -499,11 +499,11 @@ func (p *SortieExpenseUpdatePatch) ToStruct() *SortieExpense {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SortieExpenseUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieExpenseUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieExpenseUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieExpenseUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -662,11 +662,11 @@ func (p *SortieExpenseDeletePatch) registerValidateFunc() {
 	})
 }
 
-func (p *SortieExpenseDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SortieExpenseDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SortieExpenseDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SortieExpenseDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

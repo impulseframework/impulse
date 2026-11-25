@@ -91,6 +91,25 @@ func AuthFrom(ctx context.Context) (auth string, ok bool) {
 	return record.name, ok
 }
 
+type rpcKey struct{}
+
+// WithRPC hands the request the name of the RPC method it runs, as grants name the
+// method. UserEvent and UserProcessEvent read it there, so every change record the
+// method's code writes names the method in a column of its own, and that code passes
+// nothing for it. A method's generated handler calls it before Execute runs; a handler
+// written by hand that runs a method's code calls it too.
+func WithRPC(ctx context.Context, method accesstypes.Resource) context.Context {
+	return context.WithValue(ctx, rpcKey{}, string(method))
+}
+
+// rpcFrom returns the name of the RPC method the request runs (WithRPC), the empty text
+// where none was handed or the name handed was empty.
+func rpcFrom(ctx context.Context) string {
+	method, _ := ctx.Value(rpcKey{}).(string)
+
+	return method
+}
+
 // IsZero reports whether no frame stamped the caller.
 func (c *Caller) IsZero() bool {
 	return c == nil || c.Permissions == nil

@@ -441,11 +441,11 @@ func (p *StaffGroupRoleCreatePatch) ToStruct() *StaffGroupRole {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffGroupRoleCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffGroupRoleCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffGroupRoleCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffGroupRoleCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -617,11 +617,11 @@ func (p *StaffGroupRoleUpdatePatch) ToStruct() *StaffGroupRole {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffGroupRoleUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffGroupRoleUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffGroupRoleUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffGroupRoleUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -783,11 +783,11 @@ func NewStaffGroupRoleDeletePatch(groupID impulse.UUID, kind string, axis string
 	return &StaffGroupRoleDeletePatch{patchSet: patchSet}
 }
 
-func (p *StaffGroupRoleDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffGroupRoleDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffGroupRoleDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffGroupRoleDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

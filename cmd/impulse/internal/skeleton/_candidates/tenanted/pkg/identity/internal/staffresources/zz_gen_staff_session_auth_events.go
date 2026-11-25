@@ -369,11 +369,11 @@ func (p *StaffSessionAuthEventCreatePatch) ToStruct() *StaffSessionAuthEvent {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionAuthEventCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffSessionAuthEventCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionAuthEventCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffSessionAuthEventCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -533,11 +533,11 @@ func (p *StaffSessionAuthEventUpdatePatch) ToStruct() *StaffSessionAuthEvent {
 	return p.patchSet.ToStruct()
 }
 
-func (p *StaffSessionAuthEventUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffSessionAuthEventUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionAuthEventUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffSessionAuthEventUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -687,11 +687,11 @@ func NewStaffSessionAuthEventDeletePatch(sessionID impulse.UUID, seq int64) *Sta
 	return &StaffSessionAuthEventDeletePatch{patchSet: patchSet}
 }
 
-func (p *StaffSessionAuthEventDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *StaffSessionAuthEventDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *StaffSessionAuthEventDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *StaffSessionAuthEventDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

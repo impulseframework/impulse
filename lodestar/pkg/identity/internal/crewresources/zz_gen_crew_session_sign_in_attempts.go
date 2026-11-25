@@ -341,11 +341,11 @@ func (p *CrewSessionSignInAttemptCreatePatch) ToStruct() *CrewSessionSignInAttem
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewSessionSignInAttemptCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionSignInAttemptCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionSignInAttemptCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionSignInAttemptCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -497,11 +497,11 @@ func (p *CrewSessionSignInAttemptUpdatePatch) ToStruct() *CrewSessionSignInAttem
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewSessionSignInAttemptUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionSignInAttemptUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionSignInAttemptUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionSignInAttemptUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -643,11 +643,11 @@ func NewCrewSessionSignInAttemptDeletePatch(name string) *CrewSessionSignInAttem
 	return &CrewSessionSignInAttemptDeletePatch{patchSet: patchSet}
 }
 
-func (p *CrewSessionSignInAttemptDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionSignInAttemptDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionSignInAttemptDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionSignInAttemptDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

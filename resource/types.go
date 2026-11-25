@@ -26,15 +26,47 @@ const (
 
 var _ PatchSetMetadata = (*DataChangeEvent)(nil)
 
-// DataChangeEvent represents a record of a change made to a database table.
+// ChangeOperation is what kind of write a change record records.
+type ChangeOperation string
+
+// The kinds of write a change record records. An insert-or-update is the one it did: a
+// create where it found no row, and an update otherwise.
+const (
+	ChangeCreate ChangeOperation = "create"
+	ChangeUpdate ChangeOperation = "update"
+	ChangeDelete ChangeOperation = "delete"
+)
+
+// DataChangeEvent represents a record of a change made to a database table. Nothing scans
+// a row into it: Columns is its only way to the table.
 type DataChangeEvent struct {
-	TableName   accesstypes.Resource `spanner:"TableName"`
-	RowID       string               `spanner:"RowId"`
-	EventTime   time.Time            `spanner:"EventTime"`
-	Sequence    int                  `spanner:"Sequence"`
-	EventSource string               `spanner:"EventSource"`
-	ChangeSet   spanner.NullJSON     `spanner:"ChangeSet"`
-	TenantID    string               `spanner:"TenantId"`
+	TableName accesstypes.Resource
+	RowID     string
+	EventTime time.Time
+	Sequence  int
+	Operation ChangeOperation
+	ChangeSet spanner.NullJSON
+	TenantID  string      // empty for a row that has no tenant
+	Source    EventSource // who made the change
+}
+
+// Columns answers the record as the columns its insert sets: those that hold something.
+// The six every record sets are always there, the tenant where the row has one, and each
+// column of who made the change that the value fills; no column is set to NULL or to an
+// empty text.
+func (e *DataChangeEvent) Columns() map[string]any {
+	columns := e.Source.columns()
+	columns["TableName"] = string(e.TableName)
+	columns["RowId"] = e.RowID
+	columns["EventTime"] = e.EventTime
+	columns["Sequence"] = int64(e.Sequence)
+	columns["Operation"] = string(e.Operation)
+	columns["ChangeSet"] = e.ChangeSet
+	if e.TenantID != "" {
+		columns["TenantId"] = e.TenantID
+	}
+
+	return columns
 }
 
 // PatchType returns the PatchType for DataChangeEvent

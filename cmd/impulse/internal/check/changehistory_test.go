@@ -21,9 +21,18 @@ CREATE TABLE DataChangeEvents (
   RowId STRING(MAX) NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
   Sequence INT64 NOT NULL,
-  EventSource STRING(MAX) NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-  TenantId STRING(MAX) NOT NULL,
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
 ) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);
 
 ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));
@@ -32,7 +41,7 @@ ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTE
 // The change history statements the cases vary: the table's tenant column, the library's
 // key, the key the table had before the library's, and the index by tenant that table had.
 const (
-	changeHistoryTenantLine = "  TenantId STRING(MAX) NOT NULL,\n"
+	changeHistoryTenantLine = "  TenantId STRING(MAX),\n"
 	changeHistoryKey        = ") PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);\n"
 	changeHistoryOldKey     = ") PRIMARY KEY (TableName, RowId, Sequence, EventTime);\n"
 	changeHistoryOldIndex   = "CREATE INDEX ChangeRecordsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);\n"
@@ -109,8 +118,9 @@ func TestChangeHistory(t *testing.T) {
 		{
 			name: "the column created by a table statement laid out another way",
 			files: application("CREATE TABLE `DataChangeEvents` (TableName STRING(MAX) NOT NULL, RowId STRING(MAX) NOT NULL, "+
-				"EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true), Sequence INT64 NOT NULL, EventSource STRING(MAX) NOT NULL, ChangeSet JSON, "+
-				"tenantid STRING(MAX) NOT NULL, Origin STRING(MAX)) primary key (`TableName`,RowId,\n  EventTime desc,  Sequence DESC);\n", nil),
+				"EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true), Sequence INT64 NOT NULL, `Operation` STRING(MAX) NOT NULL, ChangeSet JSON, "+
+				"tenantid STRING(MAX), Auth STRING(MAX), ActorUserId STRING(MAX), actorusername STRING(MAX), PrincipalUserId STRING(MAX), PrincipalUsername STRING(MAX), "+
+				"PrincipalRole STRING(MAX), SessionId STRING(MAX), Process STRING(MAX), Rpc STRING(MAX), Origin STRING(MAX)) primary key (`TableName`,RowId,\n  EventTime desc,  Sequence DESC);\n", nil),
 			answers:    library,
 			wantStatus: Pass, wantSummary: passed,
 			wantCalls: []string{goListResource},
@@ -118,7 +128,7 @@ func TestChangeHistory(t *testing.T) {
 		{
 			name: "the column added by a later migration",
 			files: application(withoutTenant, map[string]string{
-				"schema/migrations/000007_ChangeTenant.up.sql": "-- The tenant of each record.\nalter table DataChangeEvents\n  add column if not exists `TenantId` STRING(MAX) NOT NULL DEFAULT (\"\");\n",
+				"schema/migrations/000007_ChangeTenant.up.sql": "-- The tenant of each record.\nalter table DataChangeEvents\n  add column if not exists `TenantId` STRING(MAX);\n",
 			}),
 			answers:    library,
 			wantStatus: Pass, wantSummary: passed,

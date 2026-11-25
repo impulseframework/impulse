@@ -580,13 +580,14 @@ nothing. The generated method's own handle (`api.methods.SetFeature.execute(body
 that runs methods by name uses) is followed by the same reload, so a flip made from a list's row
 leaves the set and the digest current too. `changes(name)` reads one flag's history from the
 flag's own route (`<feature flags route>/<name>/changes`): `{ changes, more }`, each change with
-`changedAt`, `enabled` (what the flag was turned to) and `changedBy` (the name the person signs in
-under, or what the server recorded of a flip no person made), newest first, with `more` true where
-the flag was flipped more often than one answer lists. A fact the caller's grant leaves out of
-the flag (who last flipped it, under `updatedBy`) is absent from every flip, so the three are
-optional. Whoever may list the flags and see any of the three of a flag may read it; the
-server refuses anyone else (403) and a flag the application does not declare (404) with its
-`ApiError`. In what `flags()` answers, `updatedAt` and `updatedBy` are when the flag was last
+`changedAt`, `enabled` (what the flag was turned to) and `changedBy` (who made the change, as one
+sentence: the name the person signs in under, "alice, acting as bob" for a session acting as
+someone else, or "the process bootstrap" for a flip a process made), newest first, with `more` true
+where the flag was flipped more often than one answer lists. A fact the caller's grant leaves out
+of the flag (who last flipped it, under `updatedBy`) is absent from every flip, so the three are
+optional. Whoever may list the flags and see any of the three of a flag may read it; the server
+refuses anyone else (403) and a flag the application does not declare (404) with its `ApiError`. In
+what `flags()` answers, `updatedAt` and `updatedBy` are when the flag was last
 flipped and by whom: `updatedAt` is `null` and `updatedBy` empty for a flag nobody has flipped. `canSet()` is the digest's Execute entry for the method. `clear()` forgets the set at
 logout, and `subscribe` notifies a UI framework. `descriptor.features` is optional: a descriptor
 from a generator that predates feature flags carries none, and the API then serves no flags.
@@ -610,9 +611,10 @@ const history = await api.features.changes('debriefs'); // each flip, newest fir
 ```
 
 **A record's history.** `handle.changes(key, { after, field })` reads a page of the
-record's change records, newest first: `{ changes: [{ at, sequence, source, fields:
-[{ field, old, new }] }], next }`. Pass `next` back as `after` for the page before, and
-`field` for the changes to one field. The server leaves out every field the caller cannot
+record's change records, newest first: `{ changes: [{ at, sequence, operation, source,
+fields: [{ field, old, new }] }], next }`. `operation` is `create`, `update` or `delete`,
+and `source` is who made the change, as one sentence. Pass `next` back as `after` for the
+page before, and `field` for the changes to one field. The server leaves out every field the caller cannot
 see on the record, and answers 404 for a resource that does not track its changes.
 
 ## Sign-in

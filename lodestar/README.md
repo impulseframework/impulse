@@ -873,11 +873,12 @@ record that anchors a person carries its own name (`Pilots.DisplayName`,
 `ClientContacts.DisplayName`), and the purser's expense sheet names a sortie's pilot from
 the pilot's record. A method that gives or takes a role names the person by `userId`
 (`assign-crew-role`, `remove-crew-role`, and the sector's pair), and a role is given to
-an account: an id no account holds is refused. A record's history signs each change
-with the username, the account id and the session
-(`booking (f0000000-…), session …`), the actor first when a session operates as someone
-else or as a role (`marshal (…) impersonating cadet (…), session …`,
-`governor (…) as role Dispatcher, session …`). The demo cast has fixed account ids so
+an account: an id no account holds is refused. A record's history says who made each
+change as one sentence: the username (`booking`), the method where an RPC method made the
+change (`lead, through the RPC CompleteMission`), and for a session acting as someone
+else the real person first (`marshal, acting as cadet`, `governor, acting as the role
+Dispatcher`). The account's id, the session and the auth are kept in the change record's
+own columns, and the route serves none of them. The demo cast has fixed account ids so
 that the seed can say whose a row is: `cmd/bootstrap/users.json` gives every account an
 `id`, one prefix for each users table (`f0000000-0000-4000-8000-0000000000NN` for the
 crew's accounts, numbered in the file's order with the droid service account last;

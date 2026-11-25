@@ -15,16 +15,18 @@ export interface ChangedField {
 }
 
 /**
- * One change record of a record's history: when the change was committed, who made it,
- * and each field it changed that the caller may see. A record that changed only fields
- * the caller may not see is listed with no field.
+ * One change record of a record's history: when the change was committed, what kind of
+ * change it was, who made it, and each field it changed that the caller may see. A record
+ * that changed only fields the caller may not see is listed with no field.
  */
 export interface ChangeRecord {
   /** When the change was committed, as the server wrote it. */
   at: string;
   /** The record's place among the change records one commit wrote for the record. */
   sequence: number;
-  /** Who made the change, as the server recorded it. */
+  /** What kind of change it was: the record was created, updated or deleted. */
+  operation: 'create' | 'update' | 'delete';
+  /** Who made the change, as one sentence. */
   source: string;
   /** The changed fields the caller may see; empty where the caller may see none of them. */
   fields: ChangedField[];

@@ -21,8 +21,9 @@ import { ChangeHistoryDialogComponent, ChangeHistoryDialogData } from './change-
 import { openChangeHistory } from './open-change-history';
 
 // The pop-up of one record's history: each change record the server answers, newest
-// first, drawn a row for each field it changed, with when and by whom on every row, the
-// field by the label its page gives it, and from what to what as a person reads a value.
+// first, drawn a row for each field it changed, with when, by whom and what kind of change
+// on every row (Created, Changed or Deleted), the field by the label its page gives it,
+// and from what to what as a person reads a value.
 // It only reads: "Show older" reads the page before while there is one, a choice of field
 // reads again from the newest page, and a refusal is shown in the server's words in
 // place of the table.
@@ -59,6 +60,7 @@ const missionRoute = '/api/sectors/anvil/missions/m1/changes';
 const newest: ChangeRecord = {
   at: '2026-11-23T15:42:10Z',
   sequence: 1,
+  operation: 'update',
   source: 'morgan',
   fields: [
     { field: 'statusId', old: 'planned', new: 'underway' },
@@ -68,6 +70,7 @@ const newest: ChangeRecord = {
 const created: ChangeRecord = {
   at: '2026-11-20T09:05:00Z',
   sequence: 1,
+  operation: 'create',
   source: 'gale',
   fields: [
     { field: 'title', old: null, new: 'Survey the Kessel run' },
@@ -77,7 +80,8 @@ const created: ChangeRecord = {
 const older: ChangeRecord = {
   at: '2026-11-19T08:00:00Z',
   sequence: 2,
-  source: 'Process bootstrap',
+  operation: 'update',
+  source: 'the process bootstrap',
   fields: [{ field: 'notes', old: 'first', new: 'second' }],
 };
 
@@ -161,7 +165,7 @@ async function pick(fixture: ComponentFixture<ChangeHistoryDialogComponent>, lab
 }
 
 describe('ChangeHistoryDialogComponent', () => {
-  it('draws a row for each field each record changed, newest first: when, by, field, from, to', async () => {
+  it('draws a row for each field each record changed, newest first: when, by, change, field, from, to', async () => {
     const transport = server(() => pageOf(newest, created));
     const fixture = await historyOver(transport, { fields });
 
@@ -171,40 +175,63 @@ describe('ChangeHistoryDialogComponent', () => {
     );
     expect(
       Array.from(element(fixture).querySelectorAll('th .col-header')).map((header) => header.textContent?.trim()),
-    ).toEqual(['When', 'By', 'Field', 'From', 'To']);
+    ).toEqual(['When', 'By', 'Change', 'Field', 'From', 'To']);
     expect(cellsOf(fixture)).toEqual([
-      [writtenAt(newest.at), 'morgan', 'Status', 'planned', 'underway'],
-      [writtenAt(newest.at), 'morgan', 'Fee', '1200', '1500'],
-      [writtenAt(created.at), 'gale', 'Title', '', 'Survey the Kessel run'],
+      [writtenAt(newest.at), 'morgan', 'Changed', 'Status', 'planned', 'underway'],
+      [writtenAt(newest.at), 'morgan', 'Changed', 'Fee', '1200', '1500'],
+      [writtenAt(created.at), 'gale', 'Created', 'Title', '', 'Survey the Kessel run'],
       // A field the page does not name is written by its JSON name.
-      [writtenAt(created.at), 'gale', 'hazard', '', 'false'],
+      [writtenAt(created.at), 'gale', 'Created', 'hazard', '', 'false'],
     ]);
     expect(element(fixture).querySelectorAll('th button')).toHaveLength(0);
   });
 
-  it('draws a record that lists no field as one row of when and by alone', async () => {
-    const hidden: ChangeRecord = { at: '2026-11-21T10:00:00Z', sequence: 1, source: 'gale', fields: [] };
+  it('draws a record that lists no field as one row of when, by and change alone', async () => {
+    const hidden: ChangeRecord = {
+      at: '2026-11-21T10:00:00Z',
+      sequence: 1,
+      operation: 'update',
+      source: 'gale',
+      fields: [],
+    };
     const fixture = await historyOver(server(() => pageOf(newest, hidden)));
 
-    expect(cellsOf(fixture).slice(2)).toEqual([[writtenAt(hidden.at), 'gale', '', '', '']]);
+    expect(cellsOf(fixture).slice(2)).toEqual([[writtenAt(hidden.at), 'gale', 'Changed', '', '', '']]);
+  });
+
+  it('writes a delete as Deleted, with the values it took', async () => {
+    const deleted: ChangeRecord = {
+      at: '2026-11-24T11:00:00Z',
+      sequence: 1,
+      operation: 'delete',
+      source: 'alice, acting as the role Support',
+      fields: [{ field: 'title', old: 'Survey the Kessel run', new: null }],
+    };
+    const fixture = await historyOver(server(() => pageOf(deleted)));
+
+    expect(cellsOf(fixture)).toEqual([
+      [writtenAt(deleted.at), 'alice, acting as the role Support', 'Deleted', 'title', 'Survey the Kessel run', ''],
+    ]);
   });
 
   it('writes "Not kept" for both values of a secret', async () => {
     const secret: ChangeRecord = {
       at: '2026-11-21T10:00:00Z',
       sequence: 1,
+      operation: 'update',
       source: 'gale',
       fields: [{ field: 'accessCode', old: null, new: null, secret: true }],
     };
     const fixture = await historyOver(server(() => pageOf(secret)));
 
-    expect(cellsOf(fixture)).toEqual([[writtenAt(secret.at), 'gale', 'accessCode', 'Not kept', 'Not kept']]);
+    expect(cellsOf(fixture)).toEqual([[writtenAt(secret.at), 'gale', 'Changed', 'accessCode', 'Not kept', 'Not kept']]);
   });
 
   it('writes each kind of value as a person reads it, an object or a list as its JSON on one line', async () => {
     const kinds: ChangeRecord = {
       at: '2026-11-21T10:00:00Z',
       sequence: 1,
+      operation: 'update',
       source: 'gale',
       fields: [
         { field: 'text', old: 'a b', new: '' },
@@ -217,7 +244,7 @@ describe('ChangeHistoryDialogComponent', () => {
     };
     const fixture = await historyOver(server(() => pageOf(kinds)));
 
-    expect(cellsOf(fixture).map((row) => row.slice(2))).toEqual([
+    expect(cellsOf(fixture).map((row) => row.slice(3))).toEqual([
       ['text', 'a b', ''],
       ['number', '0', '12.5'],
       ['flag', 'true', 'false'],
@@ -245,9 +272,9 @@ describe('ChangeHistoryDialogComponent', () => {
 
     expect(queries(transport)).toEqual(['', '?after=token-1']);
     expect(cellsOf(fixture)).toEqual([
-      [writtenAt(newest.at), 'morgan', 'statusId', 'planned', 'underway'],
-      [writtenAt(newest.at), 'morgan', 'fee', '1200', '1500'],
-      [writtenAt(older.at), 'Process bootstrap', 'notes', 'first', 'second'],
+      [writtenAt(newest.at), 'morgan', 'Changed', 'statusId', 'planned', 'underway'],
+      [writtenAt(newest.at), 'morgan', 'Changed', 'fee', '1200', '1500'],
+      [writtenAt(older.at), 'the process bootstrap', 'Changed', 'notes', 'first', 'second'],
     ]);
     expect(buttonsOf(fixture)).toEqual(['Close']);
   });
@@ -264,7 +291,7 @@ describe('ChangeHistoryDialogComponent', () => {
     await pick(fixture, 'Status');
 
     expect(queries(transport)).toEqual(['', '?field=statusId']);
-    expect(cellsOf(fixture)).toEqual([[writtenAt(newest.at), 'morgan', 'Status', 'planned', 'underway']]);
+    expect(cellsOf(fixture)).toEqual([[writtenAt(newest.at), 'morgan', 'Changed', 'Status', 'planned', 'underway']]);
     expect(buttonsOf(fixture)).toEqual(['Close']);
 
     await pick(fixture, 'All fields');

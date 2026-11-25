@@ -93,7 +93,7 @@ func TestMigrateFeatures(t *testing.T) {
 
 	db, client := featureDatabase(t, "migrate-features")
 	ctx := t.Context()
-	process := ProcessEvent("MigrateFeatures")
+	process := ProcessEvent("MigrateFeatures").String()
 
 	steps := []struct {
 		name     string
@@ -117,13 +117,13 @@ func TestMigrateFeatures(t *testing.T) {
 			declared: []FeatureDeclaration{{Name: "debriefs", Description: "Mission debriefs, reworded.", Constant: "Debriefs"}, {Name: "cargo", Description: "Cargo.", Constant: "Cargo"}},
 			before: func(t *testing.T) {
 				t.Helper()
-				if err := SetFeatureEnabled(ctx, client, "debriefs", true, "harbormaster (test)"); err != nil {
+				if err := SetFeatureEnabled(ctx, client, "debriefs", true, ProcessEvent("harbormaster (test)")); err != nil {
 					t.Fatalf("SetFeatureEnabled() error = %v", err)
 				}
 			},
 			wantRows: []FeatureFlag{
 				{Name: "cargo", Description: "Cargo.", UpdatedBy: process},
-				{Name: "debriefs", Description: "Mission debriefs, reworded.", Enabled: true, UpdatedBy: "harbormaster (test)"},
+				{Name: "debriefs", Description: "Mission debriefs, reworded.", Enabled: true, UpdatedBy: "the process harbormaster (test)"},
 			},
 			wantChanges: 1,
 		},
@@ -278,7 +278,7 @@ func TestFeatureSet_Follow(t *testing.T) {
 				t.Errorf("subscribed kinds mismatch (-want +got):\n%s", diff)
 			}
 
-			if err := SetFeatureEnabled(ctx, client, "debriefs", true, "harbormaster (test)"); err != nil {
+			if err := SetFeatureEnabled(ctx, client, "debriefs", true, ProcessEvent("harbormaster (test)")); err != nil {
 				t.Fatalf("SetFeatureEnabled() error = %v", err)
 			}
 			if tt.signal {
@@ -290,7 +290,7 @@ func TestFeatureSet_Follow(t *testing.T) {
 				t.Fatalf("the copy did not show the flip within %s", tt.within)
 			}
 			flag, ok := features.Flag("debriefs")
-			if !ok || flag.UpdatedBy != "harbormaster (test)" || flag.UpdatedAt.IsZero() {
+			if !ok || flag.UpdatedBy != "the process harbormaster (test)" || flag.UpdatedAt.IsZero() {
 				t.Errorf("Flag() = %+v, %v; want the flipped row with its commit timestamp and principal", flag, ok)
 			}
 		})
@@ -596,15 +596,15 @@ func TestSetFeatureHandler(t *testing.T) {
 			if len(rows) != 1 || rows[0].Enabled != tt.wantEnabled {
 				t.Errorf("FeatureFlags = %+v, want the one flag with Enabled %v", rows, tt.wantEnabled)
 			}
-			if tt.wantEnabled && rows[0].UpdatedBy != UserEvent(ctx) {
-				t.Errorf("UpdatedBy = %q, want the principal %q", rows[0].UpdatedBy, UserEvent(ctx))
+			if tt.wantEnabled && rows[0].UpdatedBy != UserEvent(ctx).String() {
+				t.Errorf("UpdatedBy = %q, want the principal %q", rows[0].UpdatedBy, UserEvent(ctx).String())
 			}
 			changes := featureChanges(t, db)
 			if len(changes) != tt.wantChanges {
 				t.Errorf("FeatureFlagChanges = %+v, want %d rows", changes, tt.wantChanges)
 			}
 			for _, change := range changes {
-				if change.Name != "debriefs" || !change.Enabled || change.ChangedBy != UserEvent(ctx) || change.ChangedAt.IsZero() {
+				if change.Name != "debriefs" || !change.Enabled || change.ChangedBy != UserEvent(ctx).String() || change.ChangedAt.IsZero() {
 					t.Errorf("audit row = %+v, want the flip with its commit timestamp and principal", change)
 				}
 			}
@@ -629,7 +629,7 @@ func TestFeatureFlagHandlers(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("MigrateFeatures() error = %v", err)
 	}
-	if err := SetFeatureEnabled(ctx, client, "beacons", true, "harbormaster (test)"); err != nil {
+	if err := SetFeatureEnabled(ctx, client, "beacons", true, ProcessEvent("harbormaster (test)")); err != nil {
 		t.Fatalf("SetFeatureEnabled() error = %v", err)
 	}
 	features, err := LoadFeatures(ctx, client)
@@ -741,7 +741,7 @@ func TestSetFeatureEnabled_aFlagThatIsNotThere(t *testing.T) {
 		t.Run(string(name), func(t *testing.T) {
 			t.Parallel()
 
-			err := SetFeatureEnabled(ctx, client, name, true, "harbormaster (test)")
+			err := SetFeatureEnabled(ctx, client, name, true, ProcessEvent("harbormaster (test)"))
 			if err == nil || !httpio.HasNotFound(err) {
 				t.Fatalf("SetFeatureEnabled(%q) error = %v, want a not-found answer", name, err)
 			}

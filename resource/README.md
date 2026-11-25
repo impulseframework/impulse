@@ -899,14 +899,16 @@ about it:
   `DomainGuard` refuses a direct request for the tenant exactly as it refuses a domain
   that is not a tenant, and the two can never disagree. One composed value reads a
   tenant's declaration once, whatever is asked about the tenant after.
-- **`UserEvent(ctx)`** — the event source every generated write handler stamps onto
-  `DataChangeEvents` — writes a person as their username with the id of their account,
-  and the session last: `bob (account id), session id`. It names the actor first for an
-  impersonated session: `alice (account id) impersonating bob (account id), session id`
-  and `alice (account id) as role PartnerViewer, session id`. A person with no account
-  here (an actor another application authenticated) is written by name alone. Every
-  tracked data change carries evidence of the real person with no regeneration, and a
-  rename changes nothing about who a change was made by.
+- **`UserEvent(ctx)`** is who made a change in a person's request, the value every
+  generated write handler hands a tracked write: the person, by the id of their account
+  and their username on the day; who or what their session acted as, where it acts as
+  someone else; the session; the auth the request came through; and, in an RPC method,
+  the method's name, which the method's generated handler hands the request (section
+  7). In a session acting as someone else the actor is the real person, so every
+  tracked change carries who really made it, and a rename changes nothing about who a
+  change was made by. A job passes `ProcessEvent(name)`, and a job run for the person
+  of a request `UserProcessEvent(ctx, name)`. Section 24 lists the columns the value is
+  kept in.
 
 ## 7. RPC methods: what a method is for
 
@@ -1116,6 +1118,19 @@ sign-in) or one of the acts a generated route does in the application's name, su
 seating the person who creates a tenant; the user management reads it that way and
 judges nothing there (section 21). A handler written by hand that runs code which asks
 who the caller is stamps one itself (`resource.WithCaller`).
+
+A change a method makes says which method made it. The generated frame hands the
+method's name to the request (`resource.WithRPC`) before `Execute` runs, and
+`resource.UserEvent(ctx)` reads it there, so every change record the body writes, and
+the record of the frame's own stamp of a `@transition`'s state, holds the name in its
+`Rpc` column (section 24) and reads "dana, through the RPC CloseOrder". The body passes
+nothing for it and cannot leave it out. A write the body arms through another role's
+checker (`Caller.As`) is recorded the same way: the person and the method, and no
+role, because the session acts as nobody else; `PrincipalRole` holds a role only for a
+session that acts as one. A handler written by hand that runs a method's code hands
+the name itself, as it stamps the caller. The methods the library serves for a
+tenant's directory hand their names the same way; SetFeature hands none, since every
+flip a person makes is that one method's.
 
 ## 8. The generated router
 
@@ -3089,11 +3104,12 @@ from the flag's newest change record and not from the row's columns of those nam
 since the deploy step that declares a flag writes the row too, under a process's name
 and at the time of the deploy: so the list says what the flag's history says.
 `updatedAt` is the moment of the last flip, and `null` for a flag nobody has flipped.
-`updatedBy` is the name the person signs in under, read out of the event source the flip
-recorded (`resource.EventActor`; the session and the account's id stay in the table as
-evidence), a process's source as it was recorded where a process flipped it, and the
-empty string for a flag nobody has flipped. `EventActor` reads the words of a sentence
-in which nothing is escaped, so the name is for showing to a reader and for no decision.
+`updatedBy` is who last flipped the flag, as one sentence (`EventSource.String()`,
+section 24): the name the person signs in under, "alice, acting as bob" for a session
+acting as someone else, "alice, through the RPC StartPilot" where an RPC method of
+the application flipped it for her, "the process bootstrap" where a process flipped
+it, and the empty string for a flag nobody has flipped. The sentence is for showing to
+a reader and for no decision.
 A list request that asks for a sort on `updatedAt` or `updatedBy` is refused with 400,
 in a sentence that says the two are worked out from the flag's history and what the list
 can be sorted on (`name`, `description`, `enabled`): the statement that orders the list
@@ -4164,11 +4180,12 @@ scheduler's token is its gate, so no role names it, the permission collection an
 digest leave it out, and no TypeScript client carries it. `Execute` runs as the
 application, with no caller stamped on its context, so `Enforce` and `Check` refuse inside
 it and its queries and patches run trusted; it records its writes under a process
-(`resource.ProcessEvent`) rather than a person. The frame is a method's otherwise: the
-transaction form runs inside the handler's transaction, the rows it writes are published to
-the live pages after the commit, and it answers with its result or its chosen status
-(`@answers`), which the scheduler records as the call's success or failure. There is no
-dry run.
+(`resource.ProcessEvent`) rather than a person. Its change records name that process and
+no RPC method: `ProcessEvent` takes no request to read a method's name from. The frame is
+a method's otherwise: the transaction form runs inside the handler's transaction, the rows
+it writes are published to the live pages after the commit, and it answers with its result
+or its chosen status (`@answers`), which the scheduler records as the call's success or
+failure. There is no dry run.
 
 **The route.** The generated router mounts every scheduled method under one prefix it
 reserves, `/_scheduled` (`scheduled.Prefix`), one `POST` each at the method's name in kebab
@@ -6486,17 +6503,43 @@ over the emulator (`lodestar/cmd/deployment/migrate/main_test.go`).
 
 A resource that tracks its changes (`TrackChanges`) writes one record to the
 `DataChangeEvents` table for each create, update and delete, in the write's own
-transaction: `TableName` and `RowId` say which row, `Sequence` numbers the records one
-transaction writes for the row, `EventTime` is the commit timestamp, `EventSource` says
-who made the change (section 6, `UserEvent`), and `ChangeSet` holds each changed field
-with its old and its new value. `RowId` is the row's key as text: the value of a key of one
-part, and for a key of several parts each part's value joined by `|`, with a `\` before a
-`|` or a `\` that a part holds. `TenantId` holds the key of the tenant the row belongs
-to, empty for a row of a table that belongs to no tenant. A secret field is named as
-changed with neither value (section 23). A field set to the commit's own time
+transaction. A change record holds the row (`TableName`, `RowId`), when (`EventTime`,
+the commit's own time, and `Sequence`, the record's place among the records one
+transaction writes for the row), what kind of write it was (`Operation`: `create`,
+`update` or `delete`), what changed (`ChangeSet`, each changed field with its old and
+its new value), the row's tenant (`TenantId`), and who made the change, in the columns
+below. `RowId` is the row's key as text: the value of a key of one part, and for a key
+of several parts each part's value joined by `|`, with a `\` before a `|` or a `\` that
+a part holds. `TenantId` holds the key of the tenant the row belongs to, and is not set
+for a row of a table that belongs to no tenant. A secret field is named as changed with
+neither value (section 23). A field set to the commit's own time
 (`resource.CommitTimestamp`) is recorded with its old value and a mark in place of the new
 one (`CommitTime`), because the moment is not known when the record is written: it is the
 record's `EventTime`, and a record's history answers that time as the field's new value.
+
+| Column | Holds | Empty when |
+|---|---|---|
+| `Auth` | the name of the auth the request came through | a process acted alone, or the request's routes bind no auth's name (`resource.BindAuth`), as outside a session outlet's generated routes in an application with one auth |
+| `ActorUserId` | the account that really made the change; in a session acting as someone else, the person doing it | a process acted alone, or the person has no account here |
+| `ActorUsername` | that person's username on the day, so it outlives the account | a process acted alone |
+| `PrincipalUserId`, `PrincipalUsername` | the account the session acted as, and its username on the day | the person acted as themselves, or as a role |
+| `PrincipalRole` | the role the session acted as | it acted as no role |
+| `SessionId` | the session, or the token's id for a request made with a token | a process with no session |
+| `Process` | the name of the process that made the change, alone or for a person | a person made it directly |
+| `Rpc` | the name of the RPC method the change was made in, as grants name the method | the change was not made in an RPC method, or a process acted alone |
+
+A record sets only the columns that hold something, and it is never updated. In code,
+who made a change is one value, `resource.EventSource`: a handler passes
+`resource.UserEvent(ctx)`, a job `resource.ProcessEvent("PruneReports")`, a job run for
+the person of a request `resource.UserProcessEvent(ctx, "Import")`. No text can be
+passed, and a tracked write refuses a value that names nobody. A change made in an RPC
+method names the method too, and the method's code passes nothing for it: the method's
+generated handler hands its name to the request (`resource.WithRPC`), and `UserEvent`
+and `UserProcessEvent` read it there (section 7). Where a person reads who made a
+change, the library writes it from the columns (`EventSource.String()`): "bob", "bob,
+through the RPC CloseOrder", "alice, acting as bob", "alice, acting as the role
+Support", "the process PruneReports". A record's history serves that sentence and no
+id.
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
 statements. For Spanner the first creates the table:
@@ -6507,9 +6550,18 @@ CREATE TABLE DataChangeEvents (
   RowId STRING(MAX) NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
   Sequence INT64 NOT NULL,
-  EventSource STRING(MAX) NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-  TenantId STRING(MAX) NOT NULL,
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
 ) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC)
 ```
 
@@ -6552,32 +6604,37 @@ row the transaction created, a field no patch set reads as empty: a default the 
 gives the column is not known before the commit.
 
 **One record's history.** `GET <the record's read route>/changes` answers a page of the
-record's change records, newest first: `{"changes": [{"at", "sequence", "source",
-"fields": [{"field", "old", "new"}]}], "next"}`. A page holds 50 records; `next` is there
-when older ones exist, and `?after=<next>` reads the page after it. `?field=<name>` keeps
-only the records that changed that field, so "when was this account's email last
-changed" is the first record of `?field=email`. The generator writes the route for every
-table-backed resource that has a read route, and it answers 404 for a resource that does
-not track its changes.
+record's change records, newest first: `{"changes": [{"at", "sequence", "operation",
+"source", "fields": [{"field", "old", "new"}]}], "next"}`. `operation` is what kind of
+write it was (`create`, `update` or `delete`), and `source` who made it, as the sentence
+above. A page holds 50 records; `next` is there when older ones exist, and
+`?after=<next>` reads the page after it. `?field=<name>` keeps only the records that
+changed that field, so "when was this account's email last changed" is the first record
+of `?field=email`. The generator writes the route for every table-backed resource that
+has a read route, and it answers 404 for a resource that does not track its changes.
 
-The route asks no grant of its own: whoever may read the record may read its history, and
-sees in it the fields they can see on the record as it stands now. A field the caller's
-grant leaves out, or whose cell is masked on this row, is left out of every change
-record; a record none of whose fields the caller may see is still listed, with when and
-by whom. A field the record's own read never returns is in no change record this route
-answers: a field declared `input_only`, a file's key, and a secret. `?field=` naming one
-is refused as a name the record does not have. The table records that a secret changed,
-with neither value, and this route does not say so: a write that changed only the secret
-is listed with when and by whom, and no field. A record's history outlives the record: once
-the record is deleted, its history is read by a caller from whom the record's read can
-hide no row, with the fields granted to them without a condition: their `Read` grant on
-the resource carries no condition, and their grants on its fields are not all under one.
-A condition is judged on the row, and the row is gone; anyone else is answered 404, as
-the record's own read answers, so a caller a condition hides a row from cannot tell it
-from a row that was deleted or never was. In a tenant's request only the change records written while the record was
-that tenant's are read. A record's history holds that record's own changes, not those of
-the records under it. Questions across records (everything one person changed) are not
-asked here: they belong to a copy of the table in a warehouse.
+The route asks no grant of its own: whoever may read the record may read its history,
+and sees in it the fields they can see on the record as it stands now. A field the
+caller's grant leaves out, or whose cell is masked on this row, is left out of every
+change record; a record none of whose fields the caller may see is still listed, with
+when and by whom. A field the record's own read never returns is in no change record
+this route answers: a field declared `input_only`, a file's key, and a secret. `?field=`
+naming one is refused as a name the record does not have. The table records that a
+secret changed, with neither value, and this route does not say so: a write that changed
+only the secret is listed with when and by whom, and no field. A record's history
+outlives the record: once the record is deleted, its history is read by a caller from
+whom the record's read can hide no row, with the fields granted to them without a
+condition: their `Read` grant on the resource carries no condition, and their grants on
+its fields are not all under one. A condition is judged on the row, and the row is gone;
+anyone else is answered 404, as the record's own read answers, so a caller a condition
+hides a row from cannot tell it from a row that was deleted or never was. A key that is
+deleted and made again keeps the earlier row's records. A caller whose grant carries no
+condition reads them with the later row's; a caller under a condition reads the records
+of the row that is there now, which end above the earlier row's delete. In a tenant's
+request only the change records written while the record was that tenant's are read. A
+record's history holds that record's own changes, not those of the records under it.
+Questions across records (everything one person changed) are not asked here: they belong
+to a copy of the table in a warehouse.
 
 **How long records are kept.** A change record is kept until something removes it, and
 the library removes none. An application made by `impulse new` declares

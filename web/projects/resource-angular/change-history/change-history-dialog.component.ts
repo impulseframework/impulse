@@ -33,10 +33,11 @@ export interface ChangeHistoryDialogData {
   fields?: ChangeHistoryField[];
 }
 
-/** The columns of a record's history: when, by whom, which field, from what, to what. */
+/** The columns of a record's history: when, by whom, what kind of change, which field, from what, to what. */
 const changeHistoryColumns: ColumnConfig[] = [
   { id: 'at' as FieldName, header: 'When' },
   { id: 'by' as FieldName, header: 'By' },
+  { id: 'change' as FieldName, header: 'Change' },
   { id: 'field' as FieldName, header: 'Field' },
   { id: 'from' as FieldName, header: 'From' },
   { id: 'to' as FieldName, header: 'To' },
@@ -50,6 +51,13 @@ const noChangesToField = 'No recorded change to this field.';
 
 /** What a secret field's From and To read: it was changed, and neither value is kept. */
 const notKept = 'Not kept';
+
+/** What the Change column reads for each kind of change. */
+const changeWords: Record<ChangeRecord['operation'], string> = {
+  create: 'Created',
+  update: 'Changed',
+  delete: 'Deleted',
+};
 
 /**
  * A value as a person reads it: a text as it is, a number or a boolean as its text,
@@ -75,18 +83,20 @@ function writtenAt(at: string): string {
 }
 
 /**
- * The rows of one change record: one for each field it lists, each with when and by
- * whom, so a row reads alone; and one row with only those two for a record that lists
- * no field the caller may see.
+ * The rows of one change record: one for each field it lists, each with when, by whom and
+ * what kind of change, so a row reads alone; and one row with only those three for a
+ * record that lists no field the caller may see.
  */
 function recordRows(record: ChangeRecord, labels: ReadonlyMap<string, string>): RecordData[] {
   const at = writtenAt(record.at);
+  const change = changeWords[record.operation];
   if (record.fields.length === 0) {
-    return [{ at, by: record.source, field: '', from: '', to: '' }];
+    return [{ at, by: record.source, change, field: '', from: '', to: '' }];
   }
   return record.fields.map((changed: ChangedField) => ({
     at,
     by: record.source,
+    change,
     field: labels.get(changed.field) ?? changed.field,
     from: changed.secret ? notKept : written(changed.old),
     to: changed.secret ? notKept : written(changed.new),
@@ -95,7 +105,8 @@ function recordRows(record: ChangeRecord, labels: ReadonlyMap<string, string>): 
 
 /**
  * One record's history, read only: each change, newest first, with when it was made, by
- * whom, and each field it changed from what to what, in the library's table. It reads the
+ * whom, what kind of change it was, and each field it changed from what to what, in the
+ * library's table. It reads the
  * record's history through the caller's `read`, the record's own `changes` route, which
  * the server serves to whoever may read the record, each change with only the fields the
  * person may see on it. The table is drawn once the answer is known; a refusal, by the

@@ -125,13 +125,13 @@ func TestSpannerClient_secret_storedSealed(t *testing.T) {
 		}
 	}
 
-	if err := sealed(CreatePatchType, "row-1", "sealed", first).Apply(ctx, client, "test"); err != nil {
+	if err := sealed(CreatePatchType, "row-1", "sealed", first).Apply(ctx, client, ProcessEvent("test")); err != nil {
 		t.Fatalf("the create: Apply() error = %v", err)
 	}
 	kept("after the create", 1)
 	holds("after the create", first)
 
-	if err := sealed(UpdatePatchType, "row-1", "", second).Apply(ctx, client, "test"); err != nil {
+	if err := sealed(UpdatePatchType, "row-1", "", second).Apply(ctx, client, ProcessEvent("test")); err != nil {
 		t.Fatalf("the update: Apply() error = %v", err)
 	}
 	kept("after the update", 2)
@@ -140,7 +140,7 @@ func TestSpannerClient_secret_storedSealed(t *testing.T) {
 	// The same secret again changes nothing: no error, and no record. The column is
 	// written again all the same, as other bytes that open to the same value.
 	before := column("row-1")
-	if err := sealed(UpdatePatchType, "row-1", "", second).Apply(ctx, client, "test"); err != nil {
+	if err := sealed(UpdatePatchType, "row-1", "", second).Apply(ctx, client, ProcessEvent("test")); err != nil {
 		t.Fatalf("the update that changes nothing: Apply() error = %v", err)
 	}
 	kept("after the update that changes nothing", 2)
@@ -150,7 +150,7 @@ func TestSpannerClient_secret_storedSealed(t *testing.T) {
 	}
 
 	// Bytes moved onto another row, past the resource layer, do not open there.
-	if err := sealed(CreatePatchType, "row-2", "another", first).Apply(ctx, client, "test"); err != nil {
+	if err := sealed(CreatePatchType, "row-2", "another", first).Apply(ctx, client, ProcessEvent("test")); err != nil {
 		t.Fatalf("the second row: Apply() error = %v", err)
 	}
 	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.Update("SealedRows", []string{"Id", "AccessCode"}, []any{"row-2", column("row-1")})}); err != nil {
@@ -163,7 +163,7 @@ func TestSpannerClient_secret_storedSealed(t *testing.T) {
 
 	// A client built with no keys refuses the write, and stores nothing.
 	unkeyed := NewSpannerClient(db)
-	err := sealed(CreatePatchType, "row-3", "refused", first).Apply(ctx, unkeyed, "test")
+	err := sealed(CreatePatchType, "row-3", "refused", first).Apply(ctx, unkeyed, ProcessEvent("test"))
 	if err == nil || !strings.Contains(err.Error(), "SealedRows.AccessCode is a secret and the transaction holds no secret keys") {
 		t.Errorf("a create through a client with no keys: error = %v", err)
 	}
@@ -171,7 +171,7 @@ func TestSpannerClient_secret_storedSealed(t *testing.T) {
 		t.Errorf("a client with no keys stored %d bytes", len(got))
 	}
 
-	if err := sealed(DeletePatchType, "row-1", "", "").Apply(ctx, client, "test"); err != nil {
+	if err := sealed(DeletePatchType, "row-1", "", "").Apply(ctx, client, ProcessEvent("test")); err != nil {
 		t.Fatalf("the delete: Apply() error = %v", err)
 	}
 	kept("after the delete", 3)
@@ -195,7 +195,7 @@ func TestSpannerClient_secret_rotation(t *testing.T) {
 		p.SetKey("ID", id)
 		p.Set("Title", "sealed")
 		p.Set("AccessCode", ptr(plain))
-		if err := p.Apply(ctx, client, "test"); err != nil {
+		if err := p.Apply(ctx, client, ProcessEvent("test")); err != nil {
 			t.Fatalf("creating %s: Apply() error = %v", id, err)
 		}
 	}
@@ -319,7 +319,7 @@ func TestSpannerClient_secret_retire(t *testing.T) {
 		p.SetKey("ID", id)
 		p.Set("Title", "sealed")
 		p.Set("AccessCode", code)
-		if err := p.Apply(ctx, client, "test"); err != nil {
+		if err := p.Apply(ctx, client, ProcessEvent("test")); err != nil {
 			t.Fatalf("writing %s: Apply() error = %v", id, err)
 		}
 	}

@@ -283,7 +283,7 @@ func MigrateFeatures(ctx context.Context, db Client, declared []FeatureDeclarati
 					flagDescriptionColumn: description,
 					flagEnabledColumn:     false,
 					flagUpdatedAtColumn:   spanner.CommitTimestamp,
-					flagUpdatedByColumn:   eventSource,
+					flagUpdatedByColumn:   eventSource.String(),
 				}); err != nil {
 					return err
 				}
@@ -329,10 +329,11 @@ func bufferFeatureFlag(txn ReadWriteTransaction, patchType PatchType, name Featu
 }
 
 // SetFeatureEnabled flips one flag in its own transaction: the row takes the value,
-// the commit timestamp and eventSource, and the audit table gains the flip's row. A
-// name the table does not hold is a not-found error. SetFeatureHandler flips through
-// the same write; a bootstrap or a test flips a flag directly through this.
-func SetFeatureEnabled(ctx context.Context, db Client, name Feature, enabled bool, eventSource string) error {
+// the commit timestamp and who flipped it (eventSource), and the audit table gains the
+// flip's row. A name the table does not hold is a not-found error, and a value that
+// names nobody is refused. SetFeatureHandler flips through the same write; a bootstrap or
+// a test flips a flag directly through this.
+func SetFeatureEnabled(ctx context.Context, db Client, name Feature, enabled bool, eventSource EventSource) error {
 	if db.DBType() != SpannerDBType {
 		return errFeaturesUnsupportedDatabase
 	}
@@ -346,11 +347,15 @@ func SetFeatureEnabled(ctx context.Context, db Client, name Feature, enabled boo
 }
 
 // bufferFeatureWrite buffers a flip into the transaction: the flag's row updated and the
-// audit row inserted, both stamped with the commit timestamp. The row is read first,
-// so an unknown name is refused as not found before anything is written.
-func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feature, enabled bool, eventSource string) error {
+// audit row inserted, both stamped with the commit timestamp. A value that names nobody
+// is refused first, as a tracked write refuses it; then the row is read, so an unknown
+// name is refused as not found before anything is written.
+func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feature, enabled bool, eventSource EventSource) error {
 	if txn.DBType() != SpannerDBType {
 		return errFeaturesUnsupportedDatabase
+	}
+	if eventSource.IsZero() {
+		return errors.New("resource: a feature flag's change needs who made it; pass resource.UserEvent(ctx) or resource.ProcessEvent(name)")
 	}
 	if !ValidFeatureName(string(name)) {
 		return flagNotFound(name)
@@ -373,7 +378,7 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 		flagNameColumn:      string(name),
 		flagEnabledColumn:   enabled,
 		flagUpdatedAtColumn: spanner.CommitTimestamp,
-		flagUpdatedByColumn: eventSource,
+		flagUpdatedByColumn: eventSource.String(),
 	}); err != nil {
 		return err
 	}
@@ -386,7 +391,7 @@ func bufferFeatureWrite(ctx context.Context, txn ReadWriteTransaction, name Feat
 		flagNameColumn:      string(name),
 		flagChangedAtColumn: spanner.CommitTimestamp,
 		flagEnabledColumn:   enabled,
-		flagChangedByColumn: eventSource,
+		flagChangedByColumn: eventSource.String(),
 	}); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.BufferMap()")
 	}
@@ -938,18 +943,14 @@ func flippedAt(flip lastFlip, flipped bool) *time.Time {
 	return &flip.ChangedAt
 }
 
-// flippedBy is who last flipped a flag, as the routes serve updatedBy: the name the
-// person signs in under (EventActor), read out of the event source the flip recorded, or
-// the source as it was recorded where a process flipped it; and nothing for a flag nobody
-// has flipped. The session and the account's id the audit table keeps as evidence stay
-// there.
+// flippedBy is who last flipped a flag, as the routes serve updatedBy: the sentence the
+// flip recorded (EventSource.String), and nothing for a flag nobody has flipped.
 func flippedBy(flip lastFlip, flipped bool) string {
 	if !flipped {
 		return ""
 	}
-	name, _ := EventActor(flip.ChangedBy)
 
-	return name
+	return flip.ChangedBy
 }
 
 // featureFlagMap renders a flag's row the way the generated handlers render theirs: the

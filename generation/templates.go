@@ -562,11 +562,11 @@ func (p *{{ .Resource.Name }}CreatePatch) ToStruct() *{{ .Resource.Name }} {
 	return p.patchSet.ToStruct()
 }
 
-func (p *{{ .Resource.Name }}CreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *{{ .Resource.Name }}CreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *{{ .Resource.Name }}CreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *{{ .Resource.Name }}CreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -686,11 +686,11 @@ func (p *{{ .Resource.Name }}UpdatePatch) ToStruct() *{{ .Resource.Name }} {
 	return p.patchSet.ToStruct()
 }
 
-func (p *{{ .Resource.Name }}UpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *{{ .Resource.Name }}UpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *{{ .Resource.Name }}UpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *{{ .Resource.Name }}UpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -786,11 +786,11 @@ func New{{ .Resource.Name }}Touch(
 	return &{{ .Resource.Name }}Touch{patchSet: patchSet}
 }
 
-func (p *{{ .Resource.Name }}Touch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *{{ .Resource.Name }}Touch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *{{ .Resource.Name }}Touch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *{{ .Resource.Name }}Touch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 {{ end }}
@@ -901,11 +901,11 @@ func (p *{{ .Resource.Name }}DeletePatch) DeleteAlso(kinds ...resource.TakenKind
 	return p
 }
 {{ end }}
-func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *{{ .Resource.Name }}DeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *{{ .Resource.Name }}DeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -1482,7 +1482,7 @@ func TestGeneratedFeatureGates(t *testing.T) {
 
 	call := func(t *testing.T, feature resource.Feature, enabled bool, g grants, method, target, body string) *httptest.ResponseRecorder {
 		t.Helper()
-		if err := resource.SetFeatureEnabled(ctx, client, feature, enabled, "TestGeneratedFeatureGates"); err != nil {
+		if err := resource.SetFeatureEnabled(ctx, client, feature, enabled, resource.ProcessEvent("TestGeneratedFeatureGates")); err != nil {
 			t.Fatalf("resource.SetFeatureEnabled() error = %v", err)
 		}
 		h := newTestHandler(t, db, g)
@@ -1975,7 +1975,7 @@ func New{{ .Name }}DirectoryRules() *resource.TenantDirectoryRules {
 // has. Then the {{ .Directories }} row is buffered through the record's create patch, so its
 // change event is written with it. The caller reloads the roster and signals the
 // tenants kind once the transaction has committed, as the record's write paths do.
-func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, directory signin.Directory, eventSource ...string) error {
+func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, directory signin.Directory, eventSource ...resource.EventSource) error {
 	if err := New{{ .Name }}DirectoryRules().Set(ctx, txn, {{ .Directory.TenantDomain }}, directory); err != nil {
 		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
 	}
@@ -2078,7 +2078,7 @@ func (m *{{ GoCamel $.Name }}Maker) Make(ctx context.Context, txn resource.ReadW
 	if tenant.Caller != nil {
 		patch.Enforce(tenant.Caller)
 	}
-	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
+	if err := patch.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source)); err != nil {
 		return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Name }}CreatePatch.Buffer()")
 	}
 	{{- range $field := .Fields }}
@@ -2120,7 +2120,7 @@ func (m *{{ GoCamel $.Name }}Maker) Make(ctx context.Context, txn resource.ReadW
 			directory.Set{{ $.DefaultSeat }}(&role)
 		}
 		{{- end }}
-		if err := directory.Buffer(ctx, txn, tenant.Source); err != nil {
+		if err := directory.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source)); err != nil {
 			return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Directories }}CreatePatch.Buffer()")
 		}
 	}
@@ -2592,6 +2592,7 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, method)
 
 		// A request that asks for the method's warning ({{ WarningHeader }}: true) is decoded
 		// and checked as the call is. Turning the switch on answers its warning in
@@ -2746,6 +2747,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .Open.Name }})
 		role := accesstypes.Role(strings.TrimSpace(req.Role))
 
 		// A request that asks for the method's warning ({{ WarningHeader }}: true) is decoded
@@ -2853,6 +2855,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .InviteOnly.Name }}() http
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .InviteOnly.Name }})
 		// The header takes the value true or is left off the request: any other value
 		// is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
@@ -3325,7 +3328,7 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 		t.Fatalf("resource.MigrateFeatures() error = %v", err)
 	}
 	for _, declared := range {{ .ResourcePackage }}.Features() {
-		if err := resource.SetFeatureEnabled(t.Context(), client, declared.Name, true, "TestGeneratedAuthorizationMatrix"); err != nil {
+		if err := resource.SetFeatureEnabled(t.Context(), client, declared.Name, true, resource.ProcessEvent("TestGeneratedAuthorizationMatrix")); err != nil {
 			t.Fatalf("resource.SetFeatureEnabled(%s) error = %v", declared.Name, err)
 		}
 	}
@@ -6141,6 +6144,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, caller)
 		{{- end }}
+		// The method's name rides the context too: who made a change (resource.UserEvent)
+		// reads it there, so every change record the body writes names the method.
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .RPCMethod.Name }})
 
 		{{- if .RPCMethod.Request.Flat }}
 
@@ -6285,6 +6291,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 		// scope, and decision instant.
 		ctx = resource.WithCaller(ctx, caller)
 		{{- end }}
+		// The method's name rides the context too: who made a change (resource.UserEvent)
+		// reads it there, so every change record the body writes names the method.
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .RPCMethod.Name }})
 
 		{{- if .RPCMethod.Request.Flat }}
 

@@ -451,11 +451,11 @@ func (p *SquadronCreatePatch) ToStruct() *Squadron {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SquadronCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -567,11 +567,11 @@ func (p *SquadronUpdatePatch) ToStruct() *Squadron {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SquadronUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -693,11 +693,11 @@ func NewSquadronDeletePatch(id impulse.UUID) *SquadronDeletePatch {
 	return &SquadronDeletePatch{patchSet: patchSet}
 }
 
-func (p *SquadronDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SquadronDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SquadronDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SquadronDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

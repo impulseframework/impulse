@@ -31,10 +31,11 @@ type changeHistoryPage struct {
 
 // changeHistoryRecord is one change record of a page.
 type changeHistoryRecord struct {
-	At       time.Time            `json:"at"`
-	Sequence int64                `json:"sequence"`
-	Source   string               `json:"source"`
-	Fields   []changeHistoryField `json:"fields"`
+	At        time.Time            `json:"at"`
+	Sequence  int64                `json:"sequence"`
+	Operation string               `json:"operation"`
+	Source    string               `json:"source"`
+	Fields    []changeHistoryField `json:"fields"`
 }
 
 // changeHistoryField is one changed field of a change record.
@@ -46,7 +47,7 @@ type changeHistoryField struct {
 }
 
 // names answers the record's fields by name.
-func (r changeHistoryRecord) names() []string {
+func (r *changeHistoryRecord) names() []string {
 	names := make([]string, 0, len(r.Fields))
 	for _, field := range r.Fields {
 		names = append(names, field.Field)
@@ -56,7 +57,7 @@ func (r changeHistoryRecord) names() []string {
 }
 
 // field answers the record's change of one field, and whether it has one.
-func (r changeHistoryRecord) field(name string) (changeHistoryField, bool) {
+func (r *changeHistoryRecord) field(name string) (changeHistoryField, bool) {
 	for _, field := range r.Fields {
 		if field.Field == name {
 			return field, true
@@ -151,8 +152,8 @@ func setMissionStatus(t *testing.T, db *initiator.SpannerDB, missionID, status s
 
 // TestChangeHistory_newestFirst pins a mission's history to the marshal, who may read
 // every field: a create and two changes are three records, newest first, each change
-// under the field's name on the wire with its old and its new value, and each made by
-// the marshal's session.
+// under the field's name on the wire with its old and its new value, each saying what
+// kind of write it was, and each made by the marshal, on the mission's own route.
 func TestChangeHistory_newestFirst(t *testing.T) {
 	t.Parallel()
 
@@ -170,10 +171,12 @@ func TestChangeHistory_newestFirst(t *testing.T) {
 			t.Errorf("record %d is newer than the one before it: the history is newest first", i)
 		}
 	}
-	who := fmt.Sprintf("marshal (%s), session ", account(t, "marshal"))
 	for i, record := range page.Changes {
-		if !strings.HasPrefix(record.Source, who) {
-			t.Errorf("record %d was made by %q, want the marshal's session %q", i, record.Source, who)
+		if record.Source != "marshal" {
+			t.Errorf("record %d was made by %q, want the marshal", i, record.Source)
+		}
+		if want := []string{"update", "update", "create"}[i]; record.Operation != want {
+			t.Errorf("record %d is a %q, want a %q", i, record.Operation, want)
 		}
 	}
 
@@ -352,8 +355,9 @@ func TestChangeHistory_maskedCell(t *testing.T) {
 }
 
 // TestChangeHistory_deleted pins a deleted mission's history: the marshal, whose Read on
-// missions carries no condition, reads it with the delete's record first; the cadet and
-// the archivist, whose Read carries one, are answered as for a mission that is not there.
+// missions carries no condition, reads it with the delete's record first, a delete, then
+// the update and the create; the cadet and the archivist, whose Read carries one, are
+// answered as for a mission that is not there.
 func TestChangeHistory_deleted(t *testing.T) {
 	t.Parallel()
 
@@ -365,6 +369,11 @@ func TestChangeHistory_deleted(t *testing.T) {
 	page := readHistory(t, h, "marshal", missionHistory(id, ""))
 	if len(page.Changes) != 3 {
 		t.Fatalf("the marshal reads %d records of the deleted mission, want 3", len(page.Changes))
+	}
+	for i, want := range []string{"delete", "update", "create"} {
+		if page.Changes[i].Operation != want {
+			t.Errorf("record %d of the deleted mission is a %q, want a %q", i, page.Changes[i].Operation, want)
+		}
 	}
 	title, ok := page.Changes[0].field("title")
 	if !ok || jsonText(t, title.Old) != "History of a delete" || jsonText(t, title.New) != "null" {
@@ -378,6 +387,39 @@ func TestChangeHistory_deleted(t *testing.T) {
 		if !bytes.Equal(body, never) {
 			t.Errorf("%s is told %s of the deleted mission, want what a mission that never was says: %s", user, body, never)
 		}
+	}
+}
+
+// TestChangeHistory_impersonated pins the sentence of a change a session acting as
+// someone else made: the governor, acting as the role Dispatcher, extends a mission's
+// deadline on the mission's own route, and the mission's history names the real person
+// first, then the role, and no method.
+//
+// Demonstrates: change-history, event-source.
+func TestChangeHistory_impersonated(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	greer := newBrowser(t, s, consoleAPI)
+	greer.signIn(ctx, "governor")
+	status, body := greer.impersonate(ctx, `{"kind":"role","principal":"Dispatcher","reason":"history"}`)
+	assertStatus(t, status, http.StatusOK, body)
+	status, body = greer.do(ctx, http.MethodPatch, "/console/api/resources",
+		fmt.Appendf(nil, `[{"op":"patch","path":%q,"value":{"deadline":%q}}]`, opPath(anvil, "missions/"+missionConvoyID), deadline(27)))
+	assertStatus(t, status, http.StatusOK, body)
+
+	status, body = greer.do(ctx, http.MethodGet, missionHistory(missionConvoyID, ""), nil)
+	assertStatus(t, status, http.StatusOK, body)
+	var page changeHistoryPage
+	if err := json.Unmarshal(body, &page); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v: %s", err, body)
+	}
+	if len(page.Changes) == 0 {
+		t.Fatalf("the convoy's history holds no record: %s", body)
+	}
+	if newest := page.Changes[0]; newest.Source != "governor, acting as the role Dispatcher" || newest.Operation != "update" {
+		t.Errorf("the newest record is a %q by %q, want an update by %q", newest.Operation, newest.Source, "governor, acting as the role Dispatcher")
 	}
 }
 

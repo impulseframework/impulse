@@ -463,7 +463,7 @@ func TestPatchSet_fork_changeRecords(t *testing.T) {
 			p := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(UpdatePatchType)
 			p.SetKey("ID", "row-1")
 			p.Set("Title", "after")
-			if err := p.OrCreate(nil).Buffer(t.Context(), txn, "test"); err != nil {
+			if err := p.OrCreate(nil).Buffer(t.Context(), txn, ProcessEvent("test")); err != nil {
 				t.Fatalf("Buffer() error = %v", err)
 			}
 			if reads != tt.wantReads {

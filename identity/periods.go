@@ -47,9 +47,10 @@ import (
 // ended reads it from the database's clock, the one the lists and the sign-in rule read:
 // a row is removed only once the database says its period is over (EndedAssignments).
 
-// EndedByItself is the source a removal carries when nobody made it: the assignment's
-// period ended, and the row is removed at the person's next sign-in. A change record of
-// the row, where the application keeps one, says so in place of a person's act.
+// EndedByItself is the name of the process a removal is recorded under when nobody made
+// it (resource.ProcessEvent): the assignment's period ended, and the row is removed at the
+// person's next sign-in. A change record of the row, where the application keeps one, says
+// so in place of a person's act.
 const EndedByItself = "the assignment ended by itself"
 
 // PeriodStore is what the rules of an assignment's period need of one auth's tables,

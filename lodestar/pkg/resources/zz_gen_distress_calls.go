@@ -496,11 +496,11 @@ func (p *DistressCallCreatePatch) ToStruct() *DistressCall {
 	return p.patchSet.ToStruct()
 }
 
-func (p *DistressCallCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *DistressCallCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DistressCallCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *DistressCallCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -723,11 +723,11 @@ func (p *DistressCallUpdatePatch) ToStruct() *DistressCall {
 	return p.patchSet.ToStruct()
 }
 
-func (p *DistressCallUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *DistressCallUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DistressCallUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *DistressCallUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -987,11 +987,11 @@ func (p *DistressCallDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *Distr
 	return p
 }
 
-func (p *DistressCallDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *DistressCallDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DistressCallDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *DistressCallDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

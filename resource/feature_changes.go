@@ -70,8 +70,8 @@ type FeatureFlagChange struct {
 	ChangedAt time.Time `json:"changedAt"`
 	// Enabled is the value written: true for a flag turned on, false for one turned off.
 	Enabled bool `json:"enabled"`
-	// ChangedBy is who flipped it, by the name they sign in under (EventActor); for a
-	// flip no person made, a process's, the event source as it was recorded.
+	// ChangedBy is who flipped it, as one sentence (EventSource.String): the name the
+	// person signs in under, or the process's where no person made the flip.
 	ChangedBy string `json:"changedBy"`
 }
 
@@ -137,8 +137,7 @@ func readFeatureFlagChanges(ctx context.Context, txn ReadOnlyTransaction, dbType
 	}
 	changes = make([]FeatureFlagChange, 0, len(rows))
 	for _, row := range rows {
-		by, _ := EventActor(row.ChangedBy)
-		changes = append(changes, FeatureFlagChange{ChangedAt: row.ChangedAt, Enabled: row.Enabled, ChangedBy: by})
+		changes = append(changes, FeatureFlagChange(row))
 	}
 
 	return changes, more, nil

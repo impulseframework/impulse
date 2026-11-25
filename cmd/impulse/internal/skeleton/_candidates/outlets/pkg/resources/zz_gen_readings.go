@@ -376,11 +376,11 @@ func (p *ReadingCreatePatch) ToStruct() *Reading {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ReadingCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ReadingCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ReadingCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ReadingCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -508,11 +508,11 @@ func (p *ReadingUpdatePatch) ToStruct() *Reading {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ReadingUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ReadingUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ReadingUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ReadingUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -650,11 +650,11 @@ func NewReadingDeletePatch(id impulse.UUID) *ReadingDeletePatch {
 	return &ReadingDeletePatch{patchSet: patchSet}
 }
 
-func (p *ReadingDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ReadingDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ReadingDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ReadingDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

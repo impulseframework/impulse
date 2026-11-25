@@ -2,104 +2,226 @@ package resource
 
 import (
 	"context"
-	"fmt"
-	"regexp"
-	"strings"
 
+	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// UserEvent generates a standard event source string for an action performed by a user.
-// It extracts user information from the context. A person is written as their username
-// with the id of their account, since the name is what people read and can change, and
-// the id is who they are; the session comes last, as the evidence of how they were
-// signed in: "username (account id), session id" for an ordinary session. For an
-// impersonated session the actor comes first, so every data change carries evidence of
-// the real person: "actor (account id) impersonating username (account id), session id"
-// for an impersonated user, "actor (account id) as role name, session id" for a role.
-// A person with no account here (a session type that keeps none, an actor another
-// application authenticated) is written by name alone.
-func UserEvent(ctx context.Context) string {
+// The columns a change record keeps who made the change in, by their names in the table.
+const (
+	authColumn              = "Auth"
+	actorUserIDColumn       = "ActorUserId"
+	actorUsernameColumn     = "ActorUsername"
+	principalUserIDColumn   = "PrincipalUserId"
+	principalUsernameColumn = "PrincipalUsername"
+	principalRoleColumn     = "PrincipalRole"
+	sessionIDColumn         = "SessionId"
+	processColumn           = "Process"
+	rpcColumn               = "Rpc"
+)
+
+// eventSourceColumnList is the who columns of a change record as a statement selects them.
+const eventSourceColumnList = authColumn + ", " + actorUserIDColumn + ", " + actorUsernameColumn + ", " +
+	principalUserIDColumn + ", " + principalUsernameColumn + ", " + principalRoleColumn + ", " +
+	sessionIDColumn + ", " + processColumn + ", " + rpcColumn
+
+// EventSource is who made a change: the person, what their session acted as, the session,
+// the process, and the RPC method the change was made in, each where there is one. The
+// zero value names nobody, and a tracked write refuses it.
+type EventSource struct {
+	auth              string
+	actorUserID       impulse.NullUUID
+	actorUsername     string
+	principalUserID   impulse.NullUUID
+	principalUsername string
+	principalRole     string
+	sessionID         string
+	process           string
+	rpc               string
+}
+
+// UserEvent answers who made a change in a person's request: the person, by the id of
+// their account and their username on the day; who or what their session acted as, when
+// it acted as someone else; the session; and the auth the request came through. In a
+// session acting as someone else the actor is the real person, so every change carries
+// who really made it. In an RPC method it carries the method's name too, as the method's
+// handler handed it to the request (WithRPC): the code that makes the write passes
+// nothing for it.
+func UserEvent(ctx context.Context) EventSource {
 	sess := sessioninfo.DataFromCtx(ctx)
+
+	source := EventSource{sessionID: sess.ID.String(), rpc: rpcFrom(ctx)}
+	if auth, ok := AuthFrom(ctx); ok {
+		source.auth = auth
+	}
 
 	imp := sess.Impersonation
 	if imp == nil {
-		return fmt.Sprintf("%s, session %s", person(sess.Username, sess.UserID), sess.ID)
+		source.actorUserID, source.actorUsername = validUserID(sess.UserID), sess.Username
+
+		return source
 	}
-	actor := person(imp.Actor, imp.ActorID)
+	source.actorUserID, source.actorUsername = validUserID(imp.ActorID), imp.Actor
 	if role, isRole := imp.Principal.Role(); isRole {
-		return fmt.Sprintf("%s as role %s, session %s", actor, role, sess.ID)
-	}
+		source.principalRole = string(role)
 
-	return fmt.Sprintf("%s impersonating %s, session %s", actor, person(sess.Username, sess.UserID), sess.ID)
+		return source
+	}
+	source.principalUserID, source.principalUsername = validUserID(sess.UserID), sess.Username
+
+	return source
 }
 
-// person writes a person for an event source: the username with the id of their
-// account, or the username alone for one who has no account here.
-func person(username string, userID impulse.NullUUID) string {
-	if !userID.Valid {
-		return username
-	}
-
-	return fmt.Sprintf("%s (%s)", username, userID.UUID)
+// ProcessEvent answers a process that acted alone, by its name.
+func ProcessEvent(processName string) EventSource {
+	return EventSource{process: processName}
 }
 
-// The words UserEvent writes between the parts of an event source, which EventActor
-// reads back. TestEventActor holds the two together: it reads every shape UserEvent
-// writes.
-const (
-	eventSessionWords       = ", session "
-	eventImpersonatingWords = " impersonating "
-	eventAsRoleWords        = " as role "
-)
+// UserProcessEvent answers a process that acted for the person of the request: what
+// UserEvent answers, the RPC method's name among it, with the process's name.
+func UserProcessEvent(ctx context.Context, processName string) EventSource {
+	source := UserEvent(ctx)
+	source.process = processName
 
-// eventAccountRE matches a person as an event source writes one who has an account: the
-// username, a space, and the account's id in parentheses.
-var eventAccountRE = regexp.MustCompile(`^(.*) \([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\)$`)
-
-// EventActor reads who acted out of an event source, for a page that shows a person who
-// changed something. For a source UserEvent wrote, in any of its shapes, name is the
-// username the person signed in under and person is true; an impersonated session
-// answers its actor, the real person who made the change. Any other source names no
-// person, a process's (ProcessEvent) and a caller's own words among them: person is
-// false and name is the source as written.
-//
-// An event source is a sentence, not a record, and EventActor reads its words: the
-// username in it is written as the person signed in, with nothing escaped. A username
-// that itself holds the words UserEvent writes between the parts (" impersonating ",
-// " as role ", ", session ") is read as the name that stands before those words, so the
-// answer is for showing to a reader and never for deciding who may do what. An
-// application whose sign-in names are not addresses or plain words keeps who acted in a
-// column of its own.
-func EventActor(source string) (name string, person bool) {
-	end := strings.LastIndex(source, eventSessionWords)
-	if end < 0 {
-		return source, false
-	}
-	actor := source[:end]
-	if cut := strings.Index(actor, eventImpersonatingWords); cut >= 0 {
-		actor = actor[:cut]
-	} else if cut := strings.LastIndex(actor, eventAsRoleWords); cut >= 0 {
-		actor = actor[:cut]
-	}
-	if account := eventAccountRE.FindStringSubmatch(actor); account != nil {
-		actor = account[1]
-	}
-	if actor == "" {
-		return source, false
-	}
-
-	return actor, true
+	return source
 }
 
-// ProcessEvent generates a standard event source string for a system process.
-func ProcessEvent(processName string) string {
-	return fmt.Sprintf("Process %s", processName)
+// validUserID answers id where it is valid and the null id otherwise, so that an id that
+// is not valid is never kept.
+func validUserID(id impulse.NullUUID) impulse.NullUUID {
+	if !id.Valid {
+		return impulse.NullUUID{}
+	}
+
+	return id
 }
 
-// UserProcessEvent generates a standard event source string for an action performed
-// by a user within a specific system process.
-func UserProcessEvent(ctx context.Context, processName string) string {
-	return fmt.Sprintf("%s: %s", UserEvent(ctx), ProcessEvent(processName))
+// IsZero reports whether the value names nobody: no person, no session, no process and
+// no RPC method.
+func (e EventSource) IsZero() bool {
+	return e == EventSource{}
+}
+
+// String writes who made the change for a person to read. It names people by username
+// and holds no id; nothing stores it.
+func (e EventSource) String() string {
+	person := e.person()
+	through := e.through()
+	switch {
+	case person != "" && through != "":
+		return person + ", through " + through
+	case person != "":
+		return person
+	case e.process != "" && e.rpc != "":
+		return "the process " + e.process + ", through the RPC " + e.rpc
+	case e.process != "":
+		return "the process " + e.process
+	case e.rpc != "":
+		return "the RPC " + e.rpc
+	default:
+		return ""
+	}
+}
+
+// person writes the person of the value, in one of its three forms: the username, the
+// username acting as another person, or the username acting as a role. A value with no
+// person answers the empty text.
+func (e EventSource) person() string {
+	switch {
+	case e.actorUsername == "":
+		return ""
+	case e.principalUsername != "":
+		return e.actorUsername + ", acting as " + e.principalUsername
+	case e.principalRole != "":
+		return e.actorUsername + ", acting as the role " + e.principalRole
+	default:
+		return e.actorUsername
+	}
+}
+
+// through writes what a person's change went through: the RPC method, the process, or
+// both, the RPC first. A value with neither answers the empty text.
+func (e EventSource) through() string {
+	switch {
+	case e.rpc != "" && e.process != "":
+		return "the RPC " + e.rpc + " and the process " + e.process
+	case e.rpc != "":
+		return "the RPC " + e.rpc
+	case e.process != "":
+		return "the process " + e.process
+	default:
+		return ""
+	}
+}
+
+// columns answers the who columns of a change record that the value fills, each as a
+// text: a column it leaves empty is not among them.
+func (e EventSource) columns() map[string]any {
+	columns := make(map[string]any, 9)
+	set := func(column, value string) {
+		if value != "" {
+			columns[column] = value
+		}
+	}
+	set(authColumn, e.auth)
+	if e.actorUserID.Valid {
+		set(actorUserIDColumn, e.actorUserID.String())
+	}
+	set(actorUsernameColumn, e.actorUsername)
+	if e.principalUserID.Valid {
+		set(principalUserIDColumn, e.principalUserID.String())
+	}
+	set(principalUsernameColumn, e.principalUsername)
+	set(principalRoleColumn, e.principalRole)
+	set(sessionIDColumn, e.sessionID)
+	set(processColumn, e.process)
+	set(rpcColumn, e.rpc)
+
+	return columns
+}
+
+// eventSourceColumns are the who columns of a row of a table that keeps who made a change
+// (DataChangeEvents, FeatureFlagChanges), as a read scans them.
+type eventSourceColumns struct {
+	Auth              spanner.NullString `spanner:"Auth"`
+	ActorUserID       spanner.NullString `spanner:"ActorUserId"`
+	ActorUsername     spanner.NullString `spanner:"ActorUsername"`
+	PrincipalUserID   spanner.NullString `spanner:"PrincipalUserId"`
+	PrincipalUsername spanner.NullString `spanner:"PrincipalUsername"`
+	PrincipalRole     spanner.NullString `spanner:"PrincipalRole"`
+	SessionID         spanner.NullString `spanner:"SessionId"`
+	Process           spanner.NullString `spanner:"Process"`
+	RPC               spanner.NullString `spanner:"Rpc"`
+}
+
+// eventSourceFromColumns rebuilds who made a change from the nine columns a row keeps it
+// in. A column that is NULL is empty in the value, and an id that does not parse is left
+// empty.
+func eventSourceFromColumns(columns *eventSourceColumns) EventSource {
+	return EventSource{
+		auth:              columns.Auth.StringVal,
+		actorUserID:       parsedUserID(columns.ActorUserID),
+		actorUsername:     columns.ActorUsername.StringVal,
+		principalUserID:   parsedUserID(columns.PrincipalUserID),
+		principalUsername: columns.PrincipalUsername.StringVal,
+		principalRole:     columns.PrincipalRole.StringVal,
+		sessionID:         columns.SessionID.StringVal,
+		process:           columns.Process.StringVal,
+		rpc:               columns.RPC.StringVal,
+	}
+}
+
+// parsedUserID reads an account's id from a column, the null id where the column is NULL
+// or does not hold one.
+func parsedUserID(column spanner.NullString) impulse.NullUUID {
+	if !column.Valid {
+		return impulse.NullUUID{}
+	}
+	id, err := impulse.NullUUIDFromString(column.StringVal)
+	if err != nil {
+		return impulse.NullUUID{}
+	}
+
+	return id
 }

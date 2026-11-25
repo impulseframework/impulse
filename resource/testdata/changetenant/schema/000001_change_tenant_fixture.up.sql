@@ -16,9 +16,18 @@ CREATE TABLE DataChangeEvents (
   RowId STRING(MAX) NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
   Sequence INT64 NOT NULL,
-  EventSource STRING(MAX) NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-  TenantId STRING(MAX) NOT NULL,
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
 ) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);
 
 -- The table's two statements are resource.DataChangeEventsDDL's, which a test pins.

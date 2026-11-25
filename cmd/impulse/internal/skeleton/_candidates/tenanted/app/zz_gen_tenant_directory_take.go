@@ -67,6 +67,7 @@ func (a *App) TakeTenantDirectory() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, "TakeTenantDirectory")
 
 		// A request that asks for the method's warning (X-Warning: true) is checked
 		// as the call is, and answers the statement in place of running the call: the

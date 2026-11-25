@@ -445,11 +445,11 @@ func (p *ConsignmentCreatePatch) ToStruct() *Consignment {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ConsignmentCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ConsignmentCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ConsignmentCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ConsignmentCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -629,11 +629,11 @@ func (p *ConsignmentUpdatePatch) ToStruct() *Consignment {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ConsignmentUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ConsignmentUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ConsignmentUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ConsignmentUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -823,11 +823,11 @@ func NewConsignmentDeletePatch(id impulse.UUID) *ConsignmentDeletePatch {
 	return &ConsignmentDeletePatch{patchSet: patchSet}
 }
 
-func (p *ConsignmentDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ConsignmentDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ConsignmentDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ConsignmentDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

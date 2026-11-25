@@ -420,7 +420,7 @@ func setDirectory(ctx context.Context, t *testing.T, s *served, tenant string, d
 		t.Fatalf("impulse.UUIDFromString(%s) error = %v", tenant, err)
 	}
 	err = resource.NewSpannerClient(s.db.Client).ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return consoleapp.SetTenantDirectory(ctx, txn, id, directory, "test")
+		return consoleapp.SetTenantDirectory(ctx, txn, id, directory, resource.ProcessEvent("test"))
 	})
 	if err != nil {
 		return errors.Wrap(err, "resource.SpannerClient.ExecuteFunc()")

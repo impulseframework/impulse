@@ -105,6 +105,7 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, method)
 
 		// A request that asks for the method's warning (X-Warning: true) is decoded
 		// and checked as the call is. Turning the switch on answers its warning in

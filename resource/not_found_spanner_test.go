@@ -52,17 +52,17 @@ func TestSpannerClient_notFound_saysNoQuery(t *testing.T) {
 	t.Run("an update of a row that is not there", func(t *testing.T) {
 		t.Parallel()
 
-		err := tracked(UpdatePatchType, "row-8", "asked").Apply(ctx, client, "test")
+		err := tracked(UpdatePatchType, "row-8", "asked").Apply(ctx, client, ProcessEvent("test"))
 		plainAnswer(t, err, httpio.HasNotFound, "This tracked fork row does not exist.", "TrackedForkRows", "row-8")
 	})
 
 	t.Run("a low-level insert-or-update that changes nothing", func(t *testing.T) {
 		t.Parallel()
 
-		if err := tracked(CreatePatchType, "row-1", "kept").Apply(ctx, client, "test"); err != nil {
+		if err := tracked(CreatePatchType, "row-1", "kept").Apply(ctx, client, ProcessEvent("test")); err != nil {
 			t.Fatalf("Apply() of the row error = %v", err)
 		}
-		err := tracked(CreateOrUpdatePatchType, "row-1", "kept").Apply(ctx, client, "test")
+		err := tracked(CreateOrUpdatePatchType, "row-1", "kept").Apply(ctx, client, ProcessEvent("test"))
 		plainAnswer(t, err, httpio.HasBadRequest, "There is nothing to change: the record already holds these values.", "TrackedForkRows", "row-1")
 	})
 }

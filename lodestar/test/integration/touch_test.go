@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,12 +21,78 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-// latestChangeEvent reads the newest DataChangeEvents row for one tracked row.
-func latestChangeEvent(t *testing.T, db *initiator.SpannerDB, tableName, rowID string) (eventSource string, changeSetKeys []string) {
+// changeRecordWho is what a change record says of a change beside what changed: what kind
+// of write it was, and who made it, in the nine columns the table keeps it in, each as the
+// table holds it.
+type changeRecordWho struct {
+	Operation         string             `spanner:"Operation"`
+	Auth              spanner.NullString `spanner:"Auth"`
+	ActorUserID       spanner.NullString `spanner:"ActorUserId"`
+	ActorUsername     spanner.NullString `spanner:"ActorUsername"`
+	PrincipalUserID   spanner.NullString `spanner:"PrincipalUserId"`
+	PrincipalUsername spanner.NullString `spanner:"PrincipalUsername"`
+	PrincipalRole     spanner.NullString `spanner:"PrincipalRole"`
+	SessionID         spanner.NullString `spanner:"SessionId"`
+	Process           spanner.NullString `spanner:"Process"`
+	RPC               spanner.NullString `spanner:"Rpc"`
+}
+
+// changeRecordWhoColumns are changeRecordWho's columns as a statement selects them.
+const changeRecordWhoColumns = "Operation, Auth, ActorUserId, ActorUsername, PrincipalUserId, PrincipalUsername, PrincipalRole, SessionId, Process, Rpc"
+
+// columnSet is what a want of changeRecordWho.differs gives a column that holds something,
+// whatever it holds.
+const columnSet = "(set)"
+
+// differs answers how the record's columns of who made the change differ from want, one
+// clause for each column: a column want names holds that value (any value, for
+// columnSet), and every other column but Auth holds nothing. It answers the empty text
+// where none differs.
+func (w *changeRecordWho) differs(want map[string]string) string {
+	got := map[string]spanner.NullString{
+		"ActorUserId": w.ActorUserID, "ActorUsername": w.ActorUsername,
+		"PrincipalUserId": w.PrincipalUserID, "PrincipalUsername": w.PrincipalUsername, "PrincipalRole": w.PrincipalRole,
+		"SessionId": w.SessionID, "Process": w.Process, "Rpc": w.RPC,
+	}
+	var differs []string
+	for _, column := range slices.Sorted(maps.Keys(got)) {
+		value := got[column]
+		wanted, named := want[column]
+		switch {
+		case named && !value.Valid:
+			differs = append(differs, column+" holds nothing, want "+wanted)
+		case named && wanted != columnSet && value.StringVal != wanted:
+			differs = append(differs, fmt.Sprintf("%s = %q, want %q", column, value.StringVal, wanted))
+		case !named && value.Valid:
+			differs = append(differs, fmt.Sprintf("%s = %q, want nothing", column, value.StringVal))
+		}
+	}
+
+	return strings.Join(differs, "; ")
+}
+
+// scanChangeRecordWho reads a record's changeRecordWho from the first ten columns of a row
+// that selects changeRecordWhoColumns first, and the rest of the row into rest.
+func scanChangeRecordWho(row *spanner.Row, rest ...any) (changeRecordWho, error) {
+	var w changeRecordWho
+	columns := append([]any{
+		&w.Operation, &w.Auth, &w.ActorUserID, &w.ActorUsername, &w.PrincipalUserID,
+		&w.PrincipalUsername, &w.PrincipalRole, &w.SessionID, &w.Process, &w.RPC,
+	}, rest...)
+	if err := row.Columns(columns...); err != nil {
+		return changeRecordWho{}, fmt.Errorf("spanner.Row.Columns(): %w", err)
+	}
+
+	return w, nil
+}
+
+// latestChangeEvent reads the newest DataChangeEvents row for one tracked row: who made
+// the change, and the fields it changed.
+func latestChangeEvent(t *testing.T, db *initiator.SpannerDB, tableName, rowID string) (who changeRecordWho, changeSetKeys []string) {
 	t.Helper()
 
 	iter := db.Single().Query(t.Context(), spanner.Statement{
-		SQL: `SELECT EventSource, TO_JSON_STRING(ChangeSet)
+		SQL: `SELECT ` + changeRecordWhoColumns + `, TO_JSON_STRING(ChangeSet)
 		        FROM DataChangeEvents
 		       WHERE TableName = @tableName AND RowId = @rowID
 		    ORDER BY EventTime DESC, Sequence DESC
@@ -42,8 +110,9 @@ func latestChangeEvent(t *testing.T, db *initiator.SpannerDB, tableName, rowID s
 	}
 
 	var changeSetJSON string
-	if err := row.Columns(&eventSource, &changeSetJSON); err != nil {
-		t.Fatalf("row.Columns: %v", err)
+	who, err = scanChangeRecordWho(row, &changeSetJSON)
+	if err != nil {
+		t.Fatalf("reading the change record of %s %s: %v", tableName, rowID, err)
 	}
 
 	changeSet := map[string]any{}
@@ -54,7 +123,7 @@ func latestChangeEvent(t *testing.T, db *initiator.SpannerDB, tableName, rowID s
 		changeSetKeys = append(changeSetKeys, key)
 	}
 
-	return eventSource, changeSetKeys
+	return who, changeSetKeys
 }
 
 func TestHailShipTouch(t *testing.T) {
@@ -83,9 +152,12 @@ func TestHailShipTouch(t *testing.T) {
 		t.Fatal("UpdatedAt not stamped by the touch")
 	}
 
-	eventSource, changeSetKeys := latestChangeEvent(t, db, "Ships", shipKingfisherID)
-	if want := fmt.Sprintf("dock (%s), session ", account(t, "dock")); !strings.HasPrefix(eventSource, want) {
-		t.Errorf("eventSource = %q, want the session-derived %q prefix", eventSource, want)
+	who, changeSetKeys := latestChangeEvent(t, db, "Ships", shipKingfisherID)
+	if differs := who.differs(map[string]string{"ActorUsername": "dock", "ActorUserId": string(account(t, "dock")), "SessionId": columnSet, "Rpc": "HailShip"}); differs != "" {
+		t.Errorf("who hailed, as the change record says: %s; want the dock master by username and account id, her session, and the method", differs)
+	}
+	if who.Operation != "update" {
+		t.Errorf("the hail's change record is a %s, want an update", who.Operation)
 	}
 	if len(changeSetKeys) != 1 || changeSetKeys[0] != "UpdatedAt" {
 		t.Errorf("changeSet keys = %v, want exactly [UpdatedAt]", changeSetKeys)

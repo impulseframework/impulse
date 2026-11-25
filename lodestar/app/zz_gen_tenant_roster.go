@@ -110,7 +110,7 @@ func NewSectorDirectoryRules() *resource.TenantDirectoryRules {
 // has. Then the SectorDirectory row is buffered through the record's create patch, so its
 // change event is written with it. The caller reloads the roster and signals the
 // tenants kind once the transaction has committed, as the record's write paths do.
-func SetSectorDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...string) error {
+func SetSectorDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...resource.EventSource) error {
 	if err := NewSectorDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant.String()), directory); err != nil {
 		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
 	}
@@ -214,7 +214,7 @@ func (m *sectorMaker) Make(ctx context.Context, txn resource.ReadWriteTransactio
 	if tenant.Caller != nil {
 		patch.Enforce(tenant.Caller)
 	}
-	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
+	if err := patch.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source)); err != nil {
 		return "", errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
 	}
 	if patch.NameIsSet() {
@@ -249,7 +249,7 @@ func (m *sectorMaker) Make(ctx context.Context, txn resource.ReadWriteTransactio
 			role := string(tenant.DefaultRole)
 			directory.SetDefaultSeat(&role)
 		}
-		if err := directory.Buffer(ctx, txn, tenant.Source); err != nil {
+		if err := directory.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source)); err != nil {
 			return "", errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
 		}
 	}

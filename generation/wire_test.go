@@ -622,6 +622,117 @@ func Test_rpcHandlerTemplate_dryRun(t *testing.T) {
 	}
 }
 
+// Test_rpcHandlerTemplate_rpcName pins the line that hands the method's name to the
+// request: a method that runs inside the transaction, one that runs outside it, and a
+// targeted method with a transition each hold resource.WithRPC with the struct's name
+// once, after the line that stamps the caller and before the body runs, and for the
+// transition before the frame's own stamp of the state; the upload's frame holds the
+// line once, after its two lines that stamp the caller and before the body runs.
+func Test_rpcHandlerTemplate_rpcName(t *testing.T) {
+	t.Parallel()
+
+	wire := fixtureStructs(loadFixture(t, "wirefixture"))
+	binding := fixtureStructs(loadFixture(t, "bindingfixture"))
+	bindingClient := transitionFixtureClient(t, binding)
+	closeTask := func(t *testing.T) *rpcMethodInfo {
+		t.Helper()
+
+		rpcMethod, err := resolveFixtureTransition(t, bindingClient, binding, "CloseTask")
+		if err != nil {
+			t.Fatalf("resolveFixtureTransition(CloseTask) error = %v", err)
+		}
+		for _, field := range rpcMethod.Struct.Fields() {
+			rpcMethod.Fields = append(rpcMethod.Fields, &rpcField{Field: field})
+		}
+
+		return rpcMethod
+	}
+
+	tests := []struct {
+		name      string
+		client    *client
+		method    func(t *testing.T) *rpcMethodInfo
+		wantLine  string
+		wantAfter []string
+	}{
+		{
+			name:   "a method inside the transaction",
+			client: &client{},
+			method: func(t *testing.T) *rpcMethodInfo {
+				t.Helper()
+
+				return fixtureAnsweringMethod(t, wire, "Inspect")
+			},
+			wantLine:  `ctx = resource.WithRPC(ctx, "Inspect")`,
+			wantAfter: []string{"ExecuteFunc("},
+		},
+		{
+			name:   "a method outside the transaction",
+			client: &client{},
+			method: func(t *testing.T) *rpcMethodInfo {
+				t.Helper()
+
+				return fixtureClientMethod(t, wire, "Notify")
+			},
+			wantLine:  `ctx = resource.WithRPC(ctx, "Notify")`,
+			wantAfter: []string{"p.Execute("},
+		},
+		{
+			name:      "a targeted method with a transition",
+			client:    bindingClient,
+			method:    closeTask,
+			wantLine:  `ctx = resource.WithRPC(ctx, "CloseTask")`,
+			wantAfter: []string{"ExecuteFunc(", `SetState("closed").Buffer(ctx, txn, resource.UserEvent(ctx))`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := tt.client.generateTemplateOutput("rpcHandlerTemplate", rpcHandlerTemplate, &rpcHandlerData{
+				Source:           "pkg/rpc",
+				RPCMethod:        tt.method(t),
+				Package:          "app",
+				ApplicationName:  "App",
+				ReceiverName:     "a",
+				ResourcesPackage: "resources",
+			})
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			handler := string(out)
+			if got := strings.Count(handler, tt.wantLine); got != 1 {
+				t.Fatalf("the handler holds %q %d times, want once:\n%s", tt.wantLine, got, handler)
+			}
+			at := strings.Index(handler, tt.wantLine)
+			if stamp := strings.LastIndex(handler, "ctx = resource.WithCaller("); stamp < 0 || stamp > at {
+				t.Errorf("the name's line is not after the line that stamps the caller:\n%s", handler)
+			}
+			for _, later := range tt.wantAfter {
+				if i := strings.Index(handler, later); i < 0 || i < at {
+					t.Errorf("the name's line is not before %q:\n%s", later, handler)
+				}
+			}
+		})
+	}
+
+	t.Run("the upload's frame", func(t *testing.T) {
+		t.Parallel()
+
+		line := `ctx = resource.WithRPC(ctx, {{ printf "%q" .RPCMethod.Name }})`
+		if got := strings.Count(rpcUploadHandlerTemplate, line); got != 1 {
+			t.Fatalf("rpcUploadHandlerTemplate holds %q %d times, want once", line, got)
+		}
+		at := strings.Index(rpcUploadHandlerTemplate, line)
+		if stamps := strings.Count(rpcUploadHandlerTemplate[:at], "ctx = resource.WithCaller("); stamps != 2 {
+			t.Errorf("rpcUploadHandlerTemplate stamps the caller %d times before the name's line, want both of its two", stamps)
+		}
+		if body := strings.Index(rpcUploadHandlerTemplate, "ExecuteFunc("); body < at {
+			t.Errorf("rpcUploadHandlerTemplate runs the body before the name's line")
+		}
+	})
+}
+
 // fixtureClientMethod builds an rpcMethodInfo over a client-form wirefixture struct.
 func fixtureClientMethod(t *testing.T, structs map[string]*parser.Struct, name string) *rpcMethodInfo {
 	t.Helper()

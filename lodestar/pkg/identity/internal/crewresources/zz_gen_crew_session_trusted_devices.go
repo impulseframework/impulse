@@ -370,11 +370,11 @@ func (p *CrewSessionTrustedDeviceCreatePatch) ToStruct() *CrewSessionTrustedDevi
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewSessionTrustedDeviceCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionTrustedDeviceCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -526,11 +526,11 @@ func (p *CrewSessionTrustedDeviceUpdatePatch) ToStruct() *CrewSessionTrustedDevi
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewSessionTrustedDeviceUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionTrustedDeviceUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -692,11 +692,11 @@ func NewCrewSessionTrustedDeviceDeletePatch(id impulse.UUID) *CrewSessionTrusted
 	return &CrewSessionTrustedDeviceDeletePatch{patchSet: patchSet}
 }
 
-func (p *CrewSessionTrustedDeviceDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionTrustedDeviceDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionTrustedDeviceDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

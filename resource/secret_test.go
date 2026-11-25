@@ -1043,7 +1043,7 @@ func TestPatchSet_Apply_sealsThroughTheClient(t *testing.T) {
 	}
 
 	txn := &capturingTxn{}
-	if err := create().Apply(context.Background(), NewMockClient(txn, nil, nil, WithSecretKeys(keys)), "test"); err != nil {
+	if err := create().Apply(context.Background(), NewMockClient(txn, nil, nil, WithSecretKeys(keys)), ProcessEvent("test")); err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
 	if len(txn.columns) != 2 {
@@ -1071,7 +1071,7 @@ func TestPatchSet_Apply_sealsThroughTheClient(t *testing.T) {
 
 	// With no keys on the client nothing is buffered.
 	unkeyed := &capturingTxn{}
-	err = create().Apply(context.Background(), NewMockClient(unkeyed, nil, nil), "test")
+	err = create().Apply(context.Background(), NewMockClient(unkeyed, nil, nil), ProcessEvent("test"))
 	if err == nil || !strings.Contains(err.Error(), "the transaction holds no secret keys") {
 		t.Errorf("Apply() on a client with no keys: error = %v", err)
 	}
@@ -1087,7 +1087,7 @@ func TestPatchSet_Apply_sealsThroughTheClient(t *testing.T) {
 		t.Fatalf("SecretKeysFromEnv() error = %v", err)
 	}
 	unversioned := &capturingTxn{}
-	err = create().Apply(context.Background(), NewMockClient(unversioned, nil, nil, WithSecretKeys(unset)), "test")
+	err = create().Apply(context.Background(), NewMockClient(unversioned, nil, nil, WithSecretKeys(unset)), ProcessEvent("test"))
 	if err == nil || !strings.Contains(err.Error(), "SealedRows.AccessCode is a secret and the transaction holds no secret keys to seal it with: no version of the application secret was handed over: APP_SECRET_KEY_1 is not set") || strings.Contains(err.Error(), "resource.WithSecretKeys") {
 		t.Errorf("Apply() on a client handed no version: error = %v, want the variable named and no word of the wiring", err)
 	}
@@ -1097,7 +1097,7 @@ func TestPatchSet_Apply_sealsThroughTheClient(t *testing.T) {
 
 	// A transaction built by hand is given the keys itself.
 	own := &capturingTxn{}
-	if err := create().Buffer(context.Background(), NewMockReadWriteTransaction(own).WithSecretKeys(keys), "test"); err != nil {
+	if err := create().Buffer(context.Background(), NewMockReadWriteTransaction(own).WithSecretKeys(keys), ProcessEvent("test")); err != nil {
 		t.Errorf("Buffer() into a transaction given the keys: error = %v", err)
 	}
 }

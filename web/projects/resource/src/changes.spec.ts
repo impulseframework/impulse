@@ -45,6 +45,7 @@ const page: ChangeHistoryPage = {
     {
       at: '2026-11-23T10:15:00Z',
       sequence: 1,
+      operation: 'update',
       source: 'gale',
       fields: [{ field: 'status', old: 'planned', new: 'underway' }],
     },

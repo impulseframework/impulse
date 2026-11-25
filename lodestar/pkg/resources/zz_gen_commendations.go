@@ -379,11 +379,11 @@ func (p *CommendationCreatePatch) ToStruct() *Commendation {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CommendationCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CommendationCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CommendationCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CommendationCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -530,11 +530,11 @@ func (p *CommendationUpdatePatch) ToStruct() *Commendation {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CommendationUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CommendationUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CommendationUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CommendationUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -688,11 +688,11 @@ func NewCommendationDeletePatch(id impulse.UUID) *CommendationDeletePatch {
 	return &CommendationDeletePatch{patchSet: patchSet}
 }
 
-func (p *CommendationDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CommendationDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CommendationDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CommendationDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

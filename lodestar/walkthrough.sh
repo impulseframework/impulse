@@ -270,7 +270,6 @@ GOVERNOR_ID=$(account governor)
 MARSHAL_ID=$(account marshal)
 CADET_ID=$(account cadet)
 PILOT_ID=$(account pilot)
-LEAD_ID=$(account lead)
 BOOKING_ID=$(account booking)
 ENGINEER_ID=$(account engineer)
 ADJUTANT_ID=$(account adjutant)
@@ -485,8 +484,8 @@ r=$(dryrun lead POST "$ANVIL/complete-mission" "{\"missionId\":\"$CONVOY\"}"); c
 r=$(req lead POST "$ANVIL/complete-mission" "{\"missionId\":\"$CONVOY\"}"); check "lead completes Hammer's convoy (the method answers with the settlement)" 200 "$r"
 assert_py "the settlement is the fee less the booked expenses" "$r" "rows['fee']=='15000' and rows['expenses']=='1600' and rows['net']=='13400'"
 r=$(req marshal GET "$ANVIL/missions?limit=200"); assert_py "the convoy completed with its settlement posted through the Paymaster role" "$r" "next(m for m in rows if m['id']=='$CONVOY')['statusId']=='completed' and next(m for m in rows if m['id']=='$CONVOY')['settlement']=='13400'"
-r=$(req archivist GET "$ANVIL/missions/$CONVOY/changes"); assert_py "the convoy's history names 'lead (the id of her account) as role Paymaster' on the settlement, with the session it was posted from" "$r" "any(e['source'].startswith('lead ($LEAD_ID) as role Paymaster, session ') and $UUID(e['source'].rsplit(' ',1)[1]) for e in rows['changes'])"
-assert_py "an ordinary change is signed the same way, the person by username and account id and then the session: the marshal's hold of the convoy" "$r" "any(e['source'].startswith('marshal ($MARSHAL_ID), session ') and $UUID(e['source'].rsplit(' ',1)[1]) for e in rows['changes'])"
+r=$(req archivist GET "$ANVIL/missions/$CONVOY/changes"); assert_py "the convoy's history names lead and the RPC that posted the settlement, and no role" "$r" "any(e['source']=='lead, through the RPC CompleteMission' for e in rows['changes']) and all('Paymaster' not in e['source'] for e in rows['changes'])"
+assert_py "a change another method made names its own: the marshal's hold of the convoy" "$r" "any(e['source']=='marshal, through the RPC HoldMission' for e in rows['changes'])"
 
 # ---- dispatcher: the two-grant PATCH ----
 r=$(req dispatcher PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$QUARANTINE\",\"value\":{\"notes\":\"client called\",\"deadline\":\"$(days +87)\"}}]"); check "dispatcher extends a deadline and notes it" 200 "$r"
@@ -1434,7 +1433,7 @@ r=$(req marshal POST "$API/impersonate/end" '{}'); assert_py "the marshal return
 r=$(req governor POST "$API/impersonate" '{"kind":"role","principal":"Dispatcher","reason":"walkthrough"}'); check "governor assumes the Dispatcher role" 200 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$COURIER\",\"value\":{\"deadline\":\"$(days +88)\"}}]"); check "deadline extended under the role (grant B, on hold is not terminal)" 200 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$CORVID\",\"value\":{\"assignedSquadronId\":\"$HAMMER\"}}]"); check "assignment refused on a claimed mission: subject is Greer, not a dispatcher" 403 "$r"
-r=$(req marshal GET "$ANVIL/missions/$COURIER/changes"); assert_py "the courier's history names 'governor (the id of his account) as role Dispatcher', with the session" "$r" "any(e['source'].startswith('governor ($GOVERNOR_ID) as role Dispatcher, session ') and $UUID(e['source'].rsplit(' ',1)[1]) for e in rows['changes'])"
+r=$(req marshal GET "$ANVIL/missions/$COURIER/changes"); assert_py "the courier's history names 'governor, acting as the role Dispatcher'" "$r" "any(e['source']=='governor, acting as the role Dispatcher' for e in rows['changes'])"
 
 # ---- the overdue flip ----
 if [ "${LODESTAR_SKIP_FLIP:-}" != 1 ]; then

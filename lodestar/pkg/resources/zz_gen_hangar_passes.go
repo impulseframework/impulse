@@ -447,11 +447,11 @@ func (p *HangarPassCreatePatch) ToStruct() *HangarPass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *HangarPassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarPassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarPassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarPassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -638,11 +638,11 @@ func (p *HangarPassUpdatePatch) ToStruct() *HangarPass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *HangarPassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarPassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarPassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarPassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -836,11 +836,11 @@ func NewHangarPassDeletePatch(id impulse.UUID) *HangarPassDeletePatch {
 	return &HangarPassDeletePatch{patchSet: patchSet}
 }
 
-func (p *HangarPassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *HangarPassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *HangarPassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *HangarPassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

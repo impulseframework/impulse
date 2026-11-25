@@ -421,11 +421,11 @@ func (p *ShipClassCreatePatch) ToStruct() *ShipClass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ShipClassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipClassCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipClassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipClassCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -569,11 +569,11 @@ func (p *ShipClassUpdatePatch) ToStruct() *ShipClass {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ShipClassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipClassUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipClassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipClassUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -727,11 +727,11 @@ func NewShipClassDeletePatch(id impulse.UUID) *ShipClassDeletePatch {
 	return &ShipClassDeletePatch{patchSet: patchSet}
 }
 
-func (p *ShipClassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ShipClassDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ShipClassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ShipClassDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

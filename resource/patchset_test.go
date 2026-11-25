@@ -2,7 +2,10 @@ package resource
 
 import (
 	"bytes"
+	"context"
 	"maps"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,7 +13,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
+	"go.uber.org/mock/gomock"
 )
 
 type resourcer struct{}
@@ -1358,42 +1363,53 @@ func TestPatchSet_validateEventSource(t *testing.T) {
 
 	metaWithoutTracking := NewMetadata[nilResource]()
 
+	source := ProcessEvent("test-source")
 	tests := []struct {
 		name        string
 		patchSet    *PatchSet[nilResource]
-		eventSource []string
-		want        string
-		wantErr     bool
+		eventSource []EventSource
+		want        EventSource
+		wantErr     string
 	}{
 		{
 			name:        "tracking enabled, source provided",
 			patchSet:    NewPatchSet(metaWithTracking),
-			eventSource: []string{"test-source"},
-			want:        "test-source",
+			eventSource: []EventSource{source},
+			want:        source,
 		},
 		{
 			name:        "tracking enabled, no source",
 			patchSet:    NewPatchSet(metaWithTracking),
-			eventSource: []string{},
-			wantErr:     true,
+			eventSource: []EventSource{},
+			wantErr:     "eventSource must be supplied when trackChanges is enabled",
 		},
 		{
 			name:        "tracking enabled, multiple sources",
 			patchSet:    NewPatchSet(metaWithTracking),
-			eventSource: []string{"source1", "source2"},
-			wantErr:     true,
+			eventSource: []EventSource{ProcessEvent("source1"), ProcessEvent("source2")},
+			wantErr:     "eventSource can only be supplied once",
+		},
+		{
+			name:        "tracking enabled, a source that names nobody",
+			patchSet:    NewPatchSet(metaWithTracking),
+			eventSource: []EventSource{{}},
+			wantErr:     "resource: a tracked write needs who made the change; pass resource.UserEvent(ctx), resource.ProcessEvent(name) or resource.UserProcessEvent(ctx, name)",
 		},
 		{
 			name:        "tracking disabled, source provided",
 			patchSet:    NewPatchSet(metaWithoutTracking),
-			eventSource: []string{"test-source"},
-			want:        "test-source",
+			eventSource: []EventSource{source},
+			want:        source,
 		},
 		{
 			name:        "tracking disabled, no source",
 			patchSet:    NewPatchSet(metaWithoutTracking),
-			eventSource: []string{},
-			want:        "",
+			eventSource: []EventSource{},
+		},
+		{
+			name:        "tracking disabled, a source that names nobody",
+			patchSet:    NewPatchSet(metaWithoutTracking),
+			eventSource: []EventSource{{}},
 		},
 	}
 	for _, tt := range tests {
@@ -1401,15 +1417,158 @@ func TestPatchSet_validateEventSource(t *testing.T) {
 			t.Parallel()
 
 			got, err := tt.patchSet.validateEventSource(tt.eventSource)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("PatchSet.validateEventSource() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("PatchSet.validateEventSource() error = %v, want %q", err, tt.wantErr)
+				}
+
 				return
 			}
+			if err != nil {
+				t.Fatalf("PatchSet.validateEventSource() error = %v", err)
+			}
 			if got != tt.want {
-				t.Errorf("PatchSet.validateEventSource() = %v, want %v", got, tt.want)
+				t.Errorf("PatchSet.validateEventSource() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
+}
+
+// TestPatchSet_changeRecordColumns pins the change record a tracked write buffers, by the
+// columns its insert sets: the six every record sets, the tenant where the row has one,
+// and the columns of who made the change that the value fills, none of them NULL or an
+// empty text; what kind of write it was, an insert-or-update by what it did; and the
+// refusal of a value that names nobody.
+func TestPatchSet_changeRecordColumns(t *testing.T) {
+	t.Parallel()
+
+	every := []string{"TableName", "RowId", "EventTime", "Sequence", "Operation", "ChangeSet"}
+	person := WithAuth(accountCtx("gale", aliceID, nil), "crew")
+	ordinary := append(slices.Clone(every), "TenantId", "Auth", "ActorUserId", "ActorUsername", "SessionId")
+	stored := &Row[changeDock]{Data: changeDock{ID: "dock-1", YardID: changeYardNorth, Name: "before"}}
+	notThere := httpio.NewNotFoundMessage("This dock does not exist.")
+
+	tests := []struct {
+		name        string
+		buffer      func(ctx context.Context, txn ReadWriteTransaction) error
+		read        func() (*Row[changeDock], error)
+		wantColumns []string
+		wantOp      ChangeOperation
+	}{
+		{
+			name: "an ordinary person's create of a tenant's row sets eleven",
+			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
+				return changePatch[changeDock](CreatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "new"}).Buffer(ctx, txn, UserEvent(person))
+			},
+			wantColumns: ordinary,
+			wantOp:      ChangeCreate,
+		},
+		{
+			name: "the same create made in an RPC method sets twelve, the eleven and Rpc",
+			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
+				return changePatch[changeDock](CreatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "new"}).Buffer(ctx, txn, UserEvent(WithRPC(person, "OpenDock")))
+			},
+			wantColumns: append(slices.Clone(ordinary), "Rpc"),
+			wantOp:      ChangeCreate,
+		},
+		{
+			name: "an ordinary person's update",
+			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
+				// The patch names the yard: a mocked transaction has no table to read it from.
+				return changePatch[changeDock](UpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "after"}).Buffer(ctx, txn, UserEvent(person))
+			},
+			read:        func() (*Row[changeDock], error) { return stored, nil },
+			wantColumns: ordinary,
+			wantOp:      ChangeUpdate,
+		},
+		{
+			name: "an ordinary person's delete",
+			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
+				return changePatch[changeDock](DeletePatchType, "dock-1", nil).Buffer(ctx, txn, UserEvent(person))
+			},
+			read:        func() (*Row[changeDock], error) { return stored, nil },
+			wantColumns: ordinary,
+			wantOp:      ChangeDelete,
+		},
+		{
+			name: "an insert-or-update that finds the row is an update",
+			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
+				return changePatch[changeDock](CreateOrUpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "after"}).Buffer(ctx, txn, UserEvent(person))
+			},
+			read:        func() (*Row[changeDock], error) { return stored, nil },
+			wantColumns: ordinary,
+			wantOp:      ChangeUpdate,
+		},
+		{
+			name: "an insert-or-update that finds no row is a create",
+			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
+				return changePatch[changeDock](CreateOrUpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth, "Name": "new"}).Buffer(ctx, txn, UserEvent(person))
+			},
+			read:        func() (*Row[changeDock], error) { return nil, notThere },
+			wantColumns: ordinary,
+			wantOp:      ChangeCreate,
+		},
+		{
+			name: "a process's update of a row with no tenant sets seven",
+			buffer: func(ctx context.Context, txn ReadWriteTransaction) error {
+				return changePatch[changeDock](UpdatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": "", "Name": "after"}).Buffer(ctx, txn, ProcessEvent("sync"))
+			},
+			read: func() (*Row[changeDock], error) {
+				return &Row[changeDock]{Data: changeDock{ID: "dock-1", Name: "before"}}, nil
+			},
+			wantColumns: append(slices.Clone(every), "Process"),
+			wantOp:      ChangeUpdate,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var readers []any
+			if tt.read != nil {
+				reader := NewMockReader[changeDock](gomock.NewController(t))
+				reader.EXPECT().Read(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, *Statement) (*Row[changeDock], error) {
+					return tt.read()
+				}).AnyTimes()
+				readers = append(readers, reader)
+			}
+			captured := &capturingTxn{}
+			if err := tt.buffer(t.Context(), NewMockReadWriteTransaction(captured, readers...)); err != nil {
+				t.Fatalf("Buffer() error = %v", err)
+			}
+			var record map[string]any
+			for i, patch := range captured.patches {
+				if _, ok := patch.(*DataChangeEvent); ok {
+					record = captured.columns[i]
+				}
+			}
+			if record == nil {
+				t.Fatalf("no change record was buffered: %+v", captured.patches)
+			}
+			got := slices.Sorted(maps.Keys(record))
+			if diff := cmp.Diff(slices.Sorted(slices.Values(tt.wantColumns)), got); diff != "" {
+				t.Errorf("the record's columns mismatch (-want +got):\n%s", diff)
+			}
+			for column, value := range record {
+				if value == nil || value == "" {
+					t.Errorf("the record sets %s to %#v, want no NULL and no empty text", column, value)
+				}
+			}
+			if op := record["Operation"]; op != string(tt.wantOp) {
+				t.Errorf("Operation = %v, want %s", op, tt.wantOp)
+			}
+		})
+	}
+
+	t.Run("a tracked write handed a value that names nobody is refused", func(t *testing.T) {
+		t.Parallel()
+
+		err := changePatch[changeDock](CreatePatchType, "dock-1", map[accesstypes.Field]any{"YardID": changeYardNorth}).Buffer(t.Context(), NewMockReadWriteTransaction(&capturingTxn{}), EventSource{})
+		want := "resource: a tracked write needs who made the change; pass resource.UserEvent(ctx), resource.ProcessEvent(name) or resource.UserProcessEvent(ctx, name)"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Buffer() error = %v, want %q", err, want)
+		}
+	})
 }
 
 type insertChangeSetTestResourcer struct {

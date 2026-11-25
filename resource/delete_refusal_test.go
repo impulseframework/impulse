@@ -828,7 +828,7 @@ func (refusalSquadron) DeleteTree() *DeleteTree {
 
 // bufferer is a patch as a test buffers it.
 type bufferer interface {
-	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error
+	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...EventSource) error
 }
 
 // countingTxn is a transaction that keeps the record of the deletes to count over, as

@@ -33,8 +33,8 @@ import (
 )
 
 // PaymasterRole is the service role a body borrows to post a settlement: nobody signs in
-// as it, the crew auth's role file (pkg/auth/crew/roles.json) declares it, and a record's history
-// names it beside the actor.
+// as it, the crew auth's role file (pkg/auth/crew/roles.json) declares it, and a record's
+// history names the person and the method that posted, and not the role.
 //
 // Demonstrates: rpc.as-role.
 const PaymasterRole accesstypes.Role = "Paymaster"

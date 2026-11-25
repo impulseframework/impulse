@@ -123,7 +123,7 @@ func (p *PatchSet[Resource]) Outcome() Outcome {
 }
 
 // applyFork runs an OrCreate or OrSkip patch in a new read-write transaction.
-func (p *PatchSet[Resource]) applyFork(ctx context.Context, c Client, eventSource ...string) error {
+func (p *PatchSet[Resource]) applyFork(ctx context.Context, c Client, eventSource ...EventSource) error {
 	if err := c.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 		return p.bufferFork(ctx, txn, eventSource...)
 	}); err != nil {
@@ -137,7 +137,7 @@ func (p *PatchSet[Resource]) applyFork(ctx context.Context, c Client, eventSourc
 // that aborts runs its function again, and the row may be there on the second attempt
 // where it was not on the first, so what the last attempt's path put on the patch is
 // taken back first: a default the create filled must not ride an update.
-func (p *PatchSet[Resource]) bufferFork(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+func (p *PatchSet[Resource]) bufferFork(ctx context.Context, txn ReadWriteTransaction, eventSource ...EventSource) error {
 	p.undoFork()
 	if err := p.validateTouch(); err != nil {
 		return err

@@ -400,11 +400,11 @@ func (p *TenantDirectoryCreatePatch) ToStruct() *TenantDirectory {
 	return p.patchSet.ToStruct()
 }
 
-func (p *TenantDirectoryCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantDirectoryCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDirectoryCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDirectoryCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -552,11 +552,11 @@ func (p *TenantDirectoryUpdatePatch) ToStruct() *TenantDirectory {
 	return p.patchSet.ToStruct()
 }
 
-func (p *TenantDirectoryUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantDirectoryUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDirectoryUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDirectoryUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -714,11 +714,11 @@ func NewTenantDirectoryDeletePatch(id impulse.UUID) *TenantDirectoryDeletePatch 
 	return &TenantDirectoryDeletePatch{patchSet: patchSet}
 }
 
-func (p *TenantDirectoryDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *TenantDirectoryDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...resource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *TenantDirectoryDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *TenantDirectoryDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...resource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

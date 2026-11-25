@@ -89,6 +89,7 @@ func {{ GoCamel .Name }}DirectoryFactor({{ .ReceiverName }} *{{ .ApplicationName
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, method)
 
 		// A request that asks for the method's warning ({{ WarningHeader }}: true) is decoded
 		// and checked as the call is. Saying the word answers its warning in place of

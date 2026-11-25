@@ -1,13 +1,18 @@
 package resource
 
 import (
+	"context"
+	"maps"
 	"os"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // wantDataChangeEventsTable is the change history table's CREATE TABLE statement as every
@@ -17,9 +22,18 @@ const wantDataChangeEventsTable = `CREATE TABLE DataChangeEvents (
   RowId STRING(MAX) NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
   Sequence INT64 NOT NULL,
-  EventSource STRING(MAX) NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-  TenantId STRING(MAX) NOT NULL,
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
 ) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC)`
 
 // TestDataChangeEventsDDL pins the change history table's statements for each database
@@ -135,10 +149,12 @@ func TestDataChangeEventsDDL(t *testing.T) {
 	}
 }
 
-// TestDataChangeEventColumns holds the change history table's statement to the record a
-// tracked write commits: the columns the CREATE TABLE names are DataChangeEvent's spanner
-// tags, in order, so a change to one that the other does not follow fails here and not at
-// an application's first tracked write.
+// TestDataChangeEventColumns holds the change history table's statement to the records a
+// tracked write commits: every column the CREATE TABLE names is one a record can set, and
+// every column a record sets is one the statement names, so a change to one that the
+// other does not follow fails here and not at an application's first tracked write. The
+// two fullest records together set them all: a session acting as a person and one acting
+// as a role, each through a process, in an RPC method, on a tenant's row.
 func TestDataChangeEventColumns(t *testing.T) {
 	t.Parallel()
 
@@ -146,25 +162,47 @@ func TestDataChangeEventColumns(t *testing.T) {
 	if len(stmts) == 0 {
 		t.Fatalf("DataChangeEventsDDL(%s, %s) = 0 statements, want 1", SpannerDBType, "KeepChangeHistoryForever()")
 	}
-	lines := strings.Split(stmts[0], "\n")
+	statementColumns := tableColumns(t, stmts[0])
+
+	asPerson := accountCtx("bob", bobID, &sessioninfo.Impersonation{
+		Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
+	})
+	asRole := sessionCtx("alice", &sessioninfo.Impersonation{
+		Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("Support"),
+	})
+	recordColumns := map[string]bool{}
+	for _, ctx := range []context.Context{asPerson, asRole} {
+		record := &DataChangeEvent{
+			TableName: "Orders", RowID: "order-1", EventTime: spanner.CommitTimestamp, Operation: ChangeUpdate,
+			ChangeSet: spanner.NullJSON{Valid: true, Value: map[string]any{}}, TenantID: "tenant-1",
+			Source: UserProcessEvent(WithRPC(WithAuth(ctx, "crew"), "CloseOrder"), "Import"),
+		}
+		for column := range record.Columns() {
+			recordColumns[column] = true
+		}
+	}
+
+	if diff := cmp.Diff(statementColumns, slices.Sorted(maps.Keys(recordColumns))); diff != "" {
+		t.Errorf("the statement's columns (-) and those a record sets (+) differ:\n%s", diff)
+	}
+}
+
+// tableColumns answers the columns a CREATE TABLE statement names, sorted.
+func tableColumns(t *testing.T, statement string) []string {
+	t.Helper()
+
+	lines := strings.Split(statement, "\n")
 	end := slices.IndexFunc(lines, func(line string) bool {
 		return strings.HasPrefix(line, ") PRIMARY KEY")
 	})
 	if end < 1 {
-		t.Fatalf("the statement has no ') PRIMARY KEY' line:\n%s", stmts[0])
+		t.Fatalf("the statement has no ') PRIMARY KEY' line:\n%s", statement)
 	}
-	var statementColumns []string
+	var columns []string
 	for _, line := range lines[1:end] {
-		statementColumns = append(statementColumns, strings.Fields(line)[0])
+		columns = append(columns, strings.Fields(line)[0])
 	}
+	slices.Sort(columns)
 
-	var recordColumns []string
-	record := reflect.TypeFor[DataChangeEvent]()
-	for i := range record.NumField() {
-		recordColumns = append(recordColumns, record.Field(i).Tag.Get("spanner"))
-	}
-
-	if !slices.Equal(recordColumns, statementColumns) {
-		t.Errorf("DataChangeEvent's columns are %v, and the statement's are %v", recordColumns, statementColumns)
-	}
+	return columns
 }

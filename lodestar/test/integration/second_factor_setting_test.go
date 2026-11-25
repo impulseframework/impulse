@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -122,10 +121,10 @@ func TestSecondFactorSetting(t *testing.T) {
 		hq := settingCase(ctx, t, s)
 		governorID := crewAccountID(ctx, t, hq, "governor")
 		before := len(changeSources(ctx, t, s, crewSignInSettingsTable))
-		calls := []struct{ route, body string }{
-			{stopRequiringCrewFactorRoute, `{}`},
-			{requireCrewFactorRoute, `{}`},
-			{crewRememberedBrowsersRoute, `{"length":"7 days"}`},
+		calls := []struct{ route, body, method string }{
+			{stopRequiringCrewFactorRoute, `{}`, "StopRequiringCrewSecondFactor"},
+			{requireCrewFactorRoute, `{}`, "RequireCrewSecondFactor"},
+			{crewRememberedBrowsersRoute, `{"length":"7 days"}`, "SetCrewRememberedBrowsers"},
 		}
 		for _, call := range calls {
 			runSettingMethod(ctx, t, hq, call.route, call.body)
@@ -133,11 +132,11 @@ func TestSecondFactorSetting(t *testing.T) {
 
 		sources := changeSources(ctx, t, s, crewSignInSettingsTable)[before:]
 		if len(sources) != len(calls) {
-			t.Fatalf("the changes of the crew's sign-in settings = %q, want %d, one for each method run", sources, len(calls))
+			t.Fatalf("the changes of the crew's sign-in settings = %+v, want %d, one for each method run", sources, len(calls))
 		}
 		for i, source := range sources {
-			if !strings.HasPrefix(source, "governor ("+governorID+"), session ") {
-				t.Errorf("who made the change of %s = %q, want the governor", calls[i].route, source)
+			if differs := source.differs(map[string]string{"ActorUsername": "governor", "ActorUserId": governorID, "SessionId": columnSet, "Rpc": calls[i].method}); differs != "" {
+				t.Errorf("who made the change of %s: %s; want the governor, his session and the method", calls[i].route, differs)
 			}
 		}
 	})

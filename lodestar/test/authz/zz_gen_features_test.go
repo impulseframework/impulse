@@ -86,7 +86,7 @@ func TestGeneratedFeatureGates(t *testing.T) {
 
 	call := func(t *testing.T, feature resource.Feature, enabled bool, g grants, method, target, body string) *httptest.ResponseRecorder {
 		t.Helper()
-		if err := resource.SetFeatureEnabled(ctx, client, feature, enabled, "TestGeneratedFeatureGates"); err != nil {
+		if err := resource.SetFeatureEnabled(ctx, client, feature, enabled, resource.ProcessEvent("TestGeneratedFeatureGates")); err != nil {
 			t.Fatalf("resource.SetFeatureEnabled() error = %v", err)
 		}
 		h := newTestHandler(t, db, g)

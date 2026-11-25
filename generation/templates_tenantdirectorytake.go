@@ -72,6 +72,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Take.Name }}() http.Handl
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, {{ printf "%q" .Take.Name }})
 
 		// A request that asks for the method's warning ({{ WarningHeader }}: true) is checked
 		// as the call is, and answers the statement in place of running the call: the

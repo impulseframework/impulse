@@ -48,7 +48,9 @@ import (
 // Ember's wing with a member, a ship in Ember's hangar with a refit and its task, a
 // sortie of Ember's mission with an expense, and a document of that mission. The
 // sector's delete takes each of them in code, through its kind's own delete, so a kind
-// that keeps a change record keeps one of the row that went. The ship flew Ember's own
+// that keeps a change record keeps one of the row that went. Each such record carries
+// Ember's key and the governor who sent the delete, and the sector's own earlier records
+// stand as they were. The ship flew Ember's own
 // sortie and the droid's report is of it: those two references say nothing of a delete,
 // and hold nothing here, since what names the ship goes in the same transaction.
 //
@@ -425,6 +427,38 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 			t.Errorf("change events of %s: %d before the delete and %d after, want one more: the removal of Ember's row is in the audit", table, eventsBefore[table], eventsAfter[table])
 		}
 	}
+	// The record of each row's removal carries Ember's key, the ship's and the refit's,
+	// which reach it through a parent the same delete took, among them, and the governor
+	// who sent the delete.
+	for _, row := range []struct{ table, id string }{{"Missions", emberMission}, {"Ships", emberShip}, {"Refits", emberRefit}} {
+		records := rowChangeRecords(ctx, t, s, row.table, row.id)
+		if len(records) != 1 {
+			t.Errorf("%s %s has %d change record(s) after the sector's delete, want %d", row.table, row.id, len(records), 1)
+
+			continue
+		}
+		record := records[0]
+		if record.tenant.StringVal != ember {
+			t.Errorf("the change record of the delete of %s %s carries the tenant %q, want Ember's key: a row that goes with its sector is still recorded as the sector's", row.table, row.id, record.tenant.StringVal)
+		}
+		if record.who.Operation != "delete" || record.who.ActorUsername.StringVal != "governor" || !record.who.SessionID.Valid {
+			t.Errorf("the change record of %s %s is a %q by %q (session set %t), want a delete by the governor in his session", row.table, row.id, record.who.Operation, record.who.ActorUsername.StringVal, record.who.SessionID.Valid)
+		}
+	}
+	// The sector's own history stands: the founding and the disabling, and the delete,
+	// each with Ember's key.
+	sectorRecords := rowChangeRecords(ctx, t, s, "Sectors", ember)
+	if len(sectorRecords) < 3 {
+		t.Errorf("%s %s has %d change record(s) after the sector's delete, want %d", "Sectors", ember, len(sectorRecords), 3)
+	}
+	for i, record := range sectorRecords {
+		if record.tenant.StringVal != ember {
+			t.Errorf("the sector's own history after its delete: record %d carries the tenant %q, want Ember's key on every record, the earlier ones among them", i, record.tenant.StringVal)
+		}
+	}
+	if n := len(sectorRecords); n > 0 && (sectorRecords[n-1].who.Operation != "delete" || sectorRecords[n-1].who.ActorUsername.StringVal != "governor") {
+		t.Errorf("the sector's newest record is a %q by %q, want a delete by the governor", sectorRecords[n-1].who.Operation, sectorRecords[n-1].who.ActorUsername.StringVal)
+	}
 	// Ember's rows went with it, in every table that carries a sector's key, and the rows
 	// of the sectors beside it stand.
 	for _, table := range sectorKeyedTables {
@@ -661,4 +695,37 @@ func newID(t *testing.T) string {
 	}
 
 	return id.String()
+}
+
+// rowChangeRecord is one change record of a row as the table holds it: what kind of write
+// it was and who made it, and the tenant it carries.
+type rowChangeRecord struct {
+	who    changeRecordWho
+	tenant spanner.NullString
+}
+
+// rowChangeRecords reads the change records of one row past the library, oldest first.
+func rowChangeRecords(ctx context.Context, t *testing.T, s *served, table, rowID string) []rowChangeRecord {
+	t.Helper()
+
+	iter := s.db.Single().Query(ctx, spanner.Statement{
+		SQL:    "SELECT " + changeRecordWhoColumns + ", TenantId FROM DataChangeEvents WHERE TableName = @table AND RowId = @row ORDER BY EventTime, Sequence",
+		Params: map[string]any{"table": table, "row": rowID},
+	})
+	var records []rowChangeRecord
+	if err := iter.Do(func(row *spanner.Row) error {
+		var record rowChangeRecord
+		who, err := scanChangeRecordWho(row, &record.tenant)
+		if err != nil {
+			return err
+		}
+		record.who = who
+		records = append(records, record)
+
+		return nil
+	}); err != nil {
+		t.Fatalf("reading the change records of %s %s: %v", table, rowID, err)
+	}
+
+	return records
 }

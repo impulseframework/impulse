@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/spxscan"
+	"google.golang.org/api/iterator"
 )
 
 // The history of one record, as its route reads it.
@@ -131,7 +132,11 @@ func (h *ChangeHistoryQuery[Resource]) QuerySet() *QuerySet[Resource] {
 // ties its records to the tenant. Then it reads at most one more record than a page
 // holds, older than where the page continues from and naming the field kept where one is;
 // a record that is not there and has no record on the newest page is answered as not
-// found. Last it shapes the page (ChangeHistoryPage).
+// found. A key that was deleted and made again keeps the earlier row's records: a caller
+// whose grant carries no condition reads them with the later row's, and a caller under a
+// condition reads only the records of the row that is there now, which end above the
+// newest delete's record, so that their condition is never judged on a row that is gone.
+// Last it shapes the page (ChangeHistoryPage).
 func (h *ChangeHistoryQuery[Resource]) Read(ctx context.Context, client Client) (*ChangeHistoryPage, error) {
 	if client.DBType() != SpannerDBType {
 		return nil, errChangeHistoryUnsupportedDatabase
@@ -217,6 +222,9 @@ func (h *ChangeHistoryQuery[Resource]) readPage(ctx context.Context, txn ReadOnl
 		rowID: q.KeySet().RowID(),
 		after: h.after,
 		field: h.field,
+		// A reader under a condition reads the records of the row that is there now
+		// alone: its condition cannot be judged on an earlier row of the same key.
+		presentRowOnly: notFound == nil && h.underCondition(),
 	}
 	if domain, ok := q.scope.Domain(); ok && !q.scope.IsZero() {
 		if q.rMeta.tenantBinding != nil {
@@ -226,15 +234,58 @@ func (h *ChangeHistoryQuery[Resource]) readPage(ctx context.Context, txn ReadOnl
 		}
 	}
 
-	rows, err := readChangeRecords(ctx, txn, records)
+	if records.presentRowOnly && records.after != nil {
+		deleted, err := deleteAtOrAbove(ctx, txn, &records)
+		if err != nil {
+			return nil, err
+		}
+		if deleted {
+			return &ChangeHistoryPage{Changes: []ChangeRecord{}}, nil
+		}
+	}
+
+	rows, err := readChangeRecords(ctx, txn, &records)
 	if err != nil {
 		return nil, err
 	}
 	if notFound != nil && h.after == nil && len(rows) == 0 {
 		return nil, notFound
 	}
+	if records.presentRowOnly {
+		rows = cutAtDelete(rows)
+	}
 
 	return changeHistoryPage(rows, visible, q.jsonName, q.rMeta.secret)
+}
+
+// underCondition reports whether the reader's grant on the record carries a condition:
+// the query set's conditional decisions hold the resource's own, or that of a field the
+// read selects.
+func (h *ChangeHistoryQuery[Resource]) underCondition() bool {
+	q := h.querySet
+	if _, conditional := q.conditionalDecisions[q.resourceSet.BaseResource()]; conditional {
+		return true
+	}
+	for _, field := range q.Fields() {
+		if _, conditional := q.conditionalDecisions[q.resourceSet.Resource(field)]; conditional {
+			return true
+		}
+	}
+
+	return false
+}
+
+// cutAtDelete answers the rows, newest first, above the first record of a delete: that
+// record and every one after it are the records of an earlier row of the same key. Where
+// it drops one, at most a page's rows are left, so the page it makes has no next.
+func cutAtDelete(rows []changeRecordRow) []changeRecordRow {
+	for i := range rows {
+		if ChangeOperation(rows[i].Operation) == ChangeDelete {
+			return rows[:i]
+		}
+	}
+
+	return rows
 }
 
 // ChangeHistoryPage is a page of one record's history, as its route answers it: the
@@ -249,14 +300,17 @@ type ChangeHistoryPage struct {
 	Next string `json:"next,omitempty"`
 }
 
-// ChangeRecord is one change record of a record's history: when the change was made,
-// who made it, and each field it changed that the reader may see.
+// ChangeRecord is one change record of a record's history: when the change was made, what
+// kind of write it was, who made it, and each field it changed that the reader may see.
 type ChangeRecord struct {
 	// At is the time the change was committed.
 	At time.Time `json:"at"`
 	// Sequence numbers the change records one commit wrote for the record.
 	Sequence int64 `json:"sequence"`
-	// Source says who made the change.
+	// Operation is what kind of write it was: create, update or delete.
+	Operation ChangeOperation `json:"operation"`
+	// Source says who made the change, as one sentence (EventSource.String): it names
+	// people by username and holds no id, no session and no auth.
 	Source string `json:"source"`
 	// Fields are the changed fields the reader may see; never nil, and empty for a change
 	// of fields the reader may not see, which is listed all the same.
@@ -318,21 +372,26 @@ func (t changeHistoryToken) String() string {
 // changeRecordsQuery says which change records a page of a record's history reads: the
 // record's table and RowId, the tenant they are held to (empty for none), where the page
 // continues from (nil for the newest) and the one field they must name (empty for any).
+// presentRowOnly is set for a reader under a condition, who reads the records of the row
+// that is there now alone: the records of a delete are read whatever their tenant and
+// field, so that the page is cut at the newest of them (cutAtDelete).
 type changeRecordsQuery struct {
-	table  string
-	rowID  string
-	tenant string
-	after  *changeHistoryToken
-	field  accesstypes.Field
+	table          string
+	rowID          string
+	tenant         string
+	after          *changeHistoryToken
+	field          accesstypes.Field
+	presentRowOnly bool
 }
 
 // changeRecordRow is a row of the DataChangeEvents table as a record's history reads it,
-// the change set as JSON text.
+// the change set as JSON text and who made the change in its nine columns.
 type changeRecordRow struct {
-	EventTime   time.Time          `spanner:"EventTime"`
-	Sequence    int64              `spanner:"Sequence"`
-	EventSource string             `spanner:"EventSource"`
-	ChangeSet   spanner.NullString `spanner:"ChangeSet"`
+	EventTime time.Time          `spanner:"EventTime"`
+	Sequence  int64              `spanner:"Sequence"`
+	Operation string             `spanner:"Operation"`
+	ChangeSet spanner.NullString `spanner:"ChangeSet"`
+	eventSourceColumns
 }
 
 // readChangeRecords reads the change records of one record, newest first, one more than
@@ -342,13 +401,17 @@ type changeRecordRow struct {
 // continues from and stops once it has what it needs. The field kept is named in the
 // statement by its Go field name, which is how the change set keys its entries; nothing
 // from the request is written into the statement's text.
-func readChangeRecords(ctx context.Context, txn ReadOnlyTransaction, records changeRecordsQuery) ([]changeRecordRow, error) {
+func readChangeRecords(ctx context.Context, txn ReadOnlyTransaction, records *changeRecordsQuery) ([]changeRecordRow, error) {
 	var sql strings.Builder
-	sql.WriteString("SELECT EventTime, Sequence, EventSource, TO_JSON_STRING(ChangeSet) AS ChangeSet\n")
+	sql.WriteString("SELECT EventTime, Sequence, Operation, TO_JSON_STRING(ChangeSet) AS ChangeSet, " + eventSourceColumnList + "\n")
 	sql.WriteString("  FROM DataChangeEvents\n")
 	sql.WriteString(" WHERE TableName = @table AND RowId = @rowId\n")
 	params := map[string]any{"table": records.table, "rowId": records.rowID}
-	if records.tenant != "" {
+	switch {
+	case records.tenant != "" && records.presentRowOnly:
+		sql.WriteString("   AND (TenantId = @tenant OR Operation = 'delete')\n")
+		params["tenant"] = records.tenant
+	case records.tenant != "":
 		sql.WriteString("   AND TenantId = @tenant\n")
 		params["tenant"] = records.tenant
 	}
@@ -357,7 +420,10 @@ func readChangeRecords(ctx context.Context, txn ReadOnlyTransaction, records cha
 		params["afterTime"] = records.after.at
 		params["afterSequence"] = records.after.sequence
 	}
-	if records.field != "" {
+	switch {
+	case records.field != "" && records.presentRowOnly:
+		sql.WriteString("   AND (JSON_QUERY(ChangeSet, '$." + string(records.field) + "') IS NOT NULL OR Operation = 'delete')\n")
+	case records.field != "":
 		sql.WriteString("   AND JSON_QUERY(ChangeSet, '$." + string(records.field) + "') IS NOT NULL\n")
 	}
 	sql.WriteString(" ORDER BY EventTime DESC, Sequence DESC\n")
@@ -369,6 +435,37 @@ func readChangeRecords(ctx context.Context, txn ReadOnlyTransaction, records cha
 	}
 
 	return rows, nil
+}
+
+// deleteAtOrAbove reports whether a delete's record of the row lies at or above the place
+// a page continues from (records.after), whatever its tenant: for a reader under a
+// condition, a page that continues from below the newest delete would read an earlier
+// row's records, so it is answered empty. The place to continue from is not sealed; this
+// is what keeps a value made by hand from reaching below a delete.
+func deleteAtOrAbove(ctx context.Context, txn ReadOnlyTransaction, records *changeRecordsQuery) (bool, error) {
+	stmt := spanner.Statement{
+		SQL: `SELECT 1 FROM DataChangeEvents
+ WHERE TableName = @table AND RowId = @rowId AND Operation = 'delete'
+   AND EventTime >= @afterTime AND (EventTime > @afterTime OR Sequence >= @afterSequence)
+ LIMIT 1`,
+		Params: map[string]any{
+			"table":         records.table,
+			"rowId":         records.rowID,
+			"afterTime":     records.after.at,
+			"afterSequence": records.after.sequence,
+		},
+	}
+	rows := txn.SpannerReadOnlyTransaction().Query(ctx, stmt)
+	defer rows.Stop()
+	if _, err := rows.Next(); err != nil {
+		if errors.Is(err, iterator.Done) {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "spanner.RowIterator.Next()")
+	}
+
+	return true, nil
 }
 
 // changeSetEntry is one field's entry in a change set as the history reads it: each
@@ -394,12 +491,19 @@ func changeHistoryPage(rows []changeRecordRow, visible []accesstypes.Field, json
 		page.Next = changeHistoryToken{at: last.EventTime, sequence: last.Sequence}.String()
 	}
 
-	for _, row := range rows {
+	for i := range rows {
+		row := &rows[i]
 		fields, err := changedFields(row.ChangeSet, row.EventTime, visible, jsonName, secret)
 		if err != nil {
 			return nil, errors.Wrapf(err, "the change record of %s at sequence %d", row.EventTime.UTC().Format(time.RFC3339Nano), row.Sequence)
 		}
-		page.Changes = append(page.Changes, ChangeRecord{At: row.EventTime, Sequence: row.Sequence, Source: row.EventSource, Fields: fields})
+		page.Changes = append(page.Changes, ChangeRecord{
+			At:        row.EventTime,
+			Sequence:  row.Sequence,
+			Operation: ChangeOperation(row.Operation),
+			Source:    eventSourceFromColumns(&row.eventSourceColumns).String(),
+			Fields:    fields,
+		})
 	}
 
 	return page, nil

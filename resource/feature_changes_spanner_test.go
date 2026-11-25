@@ -93,11 +93,11 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("MigrateFeatures() error = %v", err)
 	}
-	// Three flips of one flag, in order: a process's, a person's, and one made through an
-	// impersonated session, which is its actor's.
+	// Three flips of one flag, in order: a process's, a person's, and one made in a
+	// session acting as someone else, which names the person acting first.
 	flips := []struct {
 		enabled bool
-		source  string
+		source  EventSource
 	}{
 		{enabled: true, source: ProcessEvent("bootstrap")},
 		{enabled: false, source: UserEvent(gale)},
@@ -131,9 +131,9 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 			target:     history,
 			wantStatus: http.StatusOK,
 			want: FeatureFlagChangesResponse{Changes: []FeatureFlagChange{
-				{Enabled: true, ChangedBy: "morgan"},
+				{Enabled: true, ChangedBy: "morgan, acting as rey"},
 				{Enabled: false, ChangedBy: "gale"},
-				{Enabled: true, ChangedBy: "Process bootstrap"},
+				{Enabled: true, ChangedBy: "the process bootstrap"},
 			}},
 		},
 		{
@@ -277,7 +277,7 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 		if err != nil {
 			t.Fatalf("readFeatureFlagChanges() error = %v", err)
 		}
-		want := []FeatureFlagChange{{Enabled: true, ChangedBy: "morgan"}, {Enabled: false, ChangedBy: "gale"}}
+		want := []FeatureFlagChange{{Enabled: true, ChangedBy: "morgan, acting as rey"}, {Enabled: false, ChangedBy: "gale"}}
 		if diff := cmp.Diff(want, got, ignoreChangedAt); diff != "" || !more {
 			t.Errorf("readFeatureFlagChanges() more = %v, mismatch (-want +got):\n%s", more, diff)
 		}
@@ -340,11 +340,11 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 			Enabled     bool   `json:"enabled"`
 			UpdatedBy   string `json:"updatedBy"`
 		}{
-			{Name: "cargo_manifest", Description: "Cargo manifest shows a ship's cargo bays.", Enabled: true, UpdatedBy: "morgan"},
+			{Name: "cargo_manifest", Description: "Cargo manifest shows a ship's cargo bays.", Enabled: true, UpdatedBy: "morgan, acting as rey"},
 			// Nobody has flipped it: the deploy step that declared it is no one's flip.
 			{Name: "debriefs", Description: "Debriefs lets a crew write debriefs.", UpdatedBy: ""},
 			// A process flipped it, which the row says as the history does.
-			{Name: "telemetry", Description: "Telemetry reports a ship's position.", Enabled: true, UpdatedBy: "Process bootstrap"},
+			{Name: "telemetry", Description: "Telemetry reports a ship's position.", Enabled: true, UpdatedBy: "the process bootstrap"},
 		}
 		if diff := cmp.Diff(want, rows); diff != "" {
 			t.Errorf("list mismatch (-want +got):\n%s", diff)
@@ -355,7 +355,7 @@ func TestFeatureFlagChangesHandler(t *testing.T) {
 		t.Parallel()
 
 		handler := featureHistoryRouter(&featureTestApp{client: client, perms: featureGrants(accesstypes.Read), features: features})
-		for name, want := range map[string]string{"cargo_manifest": "morgan", "debriefs": "", "telemetry": "Process bootstrap"} {
+		for name, want := range map[string]string{"cargo_manifest": "morgan, acting as rey", "debriefs": "", "telemetry": "the process bootstrap"} {
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, httptest.NewRequestWithContext(gale, http.MethodGet, "/api/"+FeatureFlagsRoute+"/"+name, http.NoBody))
 			if rr.Code != http.StatusOK {

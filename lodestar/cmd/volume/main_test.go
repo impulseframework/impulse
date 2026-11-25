@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
@@ -104,19 +103,22 @@ func TestHistory(t *testing.T) {
 			fields := fieldNames(tt.fields)
 			var before map[accesstypes.Field]resource.DiffElem
 			for k, event := range tt.events {
-				if event.TableName != tt.table || event.RowID != tt.rowID || event.Sequence != 1 || event.TenantID != tt.sectorID || event.EventSource != historySource {
+				if event.TableName != tt.table || event.RowID != tt.rowID || event.Sequence != 1 || event.TenantID != tt.sectorID || event.Source != resource.ProcessEvent(historySource) {
 					t.Errorf("record %d is of %s %s, sequence %d, tenant %q, source %q; want %s %s, 1, %q, %q",
-						k, event.TableName, event.RowID, event.Sequence, event.TenantID, event.EventSource, tt.table, tt.rowID, tt.sectorID, historySource)
+						k, event.TableName, event.RowID, event.Sequence, event.TenantID, event.Source, tt.table, tt.rowID, tt.sectorID, resource.ProcessEvent(historySource))
+				}
+				wantOperation := resource.ChangeUpdate
+				if k == 0 {
+					wantOperation = resource.ChangeCreate
+				}
+				if event.Operation != wantOperation {
+					t.Errorf("record %d is a %s, want a %s", k, event.Operation, wantOperation)
 				}
 				if k > 0 {
 					if gap := event.EventTime.Sub(tt.events[k-1].EventTime); gap != historyStep {
 						t.Errorf("record %d is %v after record %d, want %v", k, gap, k-1, historyStep)
 					}
 				}
-				if _, err := spanner.InsertStruct(string(event.Resource()), event); err != nil {
-					t.Errorf("record %d: spanner.InsertStruct() error = %v", k, err)
-				}
-
 				changeSet, ok := event.ChangeSet.Value.(map[accesstypes.Field]resource.DiffElem)
 				if !event.ChangeSet.Valid || !ok || len(changeSet) == 0 {
 					t.Fatalf("record %d holds no change set: %#v", k, event.ChangeSet)

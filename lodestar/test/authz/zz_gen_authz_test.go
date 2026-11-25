@@ -6726,7 +6726,7 @@ Content-Type: application/json
 		t.Fatalf("resource.MigrateFeatures() error = %v", err)
 	}
 	for _, declared := range resources.Features() {
-		if err := resource.SetFeatureEnabled(t.Context(), client, declared.Name, true, "TestGeneratedAuthorizationMatrix"); err != nil {
+		if err := resource.SetFeatureEnabled(t.Context(), client, declared.Name, true, resource.ProcessEvent("TestGeneratedAuthorizationMatrix")); err != nil {
 			t.Fatalf("resource.SetFeatureEnabled(%s) error = %v", declared.Name, err)
 		}
 	}

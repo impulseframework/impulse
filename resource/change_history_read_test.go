@@ -203,8 +203,9 @@ func TestChangeHistoryVisibleFields(t *testing.T) {
 	}
 }
 
-// TestChangeHistoryPage pins how the rows a read gives become a page: their order, each
-// field under its JSON name in the order of the fields the reader may see, every other
+// TestChangeHistoryPage pins how the rows a read gives become a page: their order, what
+// kind of write each was, who made it as one sentence with no id, each field under its
+// JSON name in the order of the fields the reader may see, every other
 // field left out, a record left empty still listed, a secret's change with no value, a
 // value kept byte for byte, a field set to the commit's time answered with the record's
 // own time, and next where a further row came back.
@@ -224,11 +225,18 @@ func TestChangeHistoryPage(t *testing.T) {
 	changeSet := func(text string) spanner.NullString {
 		return spanner.NullString{StringVal: text, Valid: true}
 	}
+	text := func(value string) spanner.NullString {
+		return spanner.NullString{StringVal: value, Valid: true}
+	}
+	// Who made each change, in the columns the table keeps: a person, with the ids the
+	// route never serves, and a process.
+	userB := eventSourceColumns{Auth: text("crew"), ActorUserID: text(bobID.String()), ActorUsername: text("b"), SessionID: text(sessionColumn)}
+	sync := eventSourceColumns{Process: text("sync")}
 	rows := []changeRecordRow{
-		{EventTime: newest, Sequence: 1, EventSource: "user b", ChangeSet: changeSet(`{"Count":{"Old":12345678901234567890,"New":98765432109876543210},"Title":{"Old":"a","New":"b"},"Gone":{"Old":1,"New":2}}`)},
-		{EventTime: newest, Sequence: 0, EventSource: "user b", ChangeSet: changeSet(`{"Hidden":{"Old":"x","New":"y"}}`)},
-		{EventTime: newest.Add(-time.Minute), Sequence: 0, EventSource: "process sync", ChangeSet: changeSet(`{"Code":{"Old":null,"New":null,"Secret":true},"Title":{"New":"a"}}`)},
-		{EventTime: newest.Add(-2 * time.Minute), Sequence: 0, EventSource: "process sync"},
+		{EventTime: newest, Sequence: 1, Operation: "update", eventSourceColumns: userB, ChangeSet: changeSet(`{"Count":{"Old":12345678901234567890,"New":98765432109876543210},"Title":{"Old":"a","New":"b"},"Gone":{"Old":1,"New":2}}`)},
+		{EventTime: newest, Sequence: 0, Operation: "update", eventSourceColumns: userB, ChangeSet: changeSet(`{"Hidden":{"Old":"x","New":"y"}}`)},
+		{EventTime: newest.Add(-time.Minute), Sequence: 0, Operation: "create", eventSourceColumns: sync, ChangeSet: changeSet(`{"Code":{"Old":null,"New":null,"Secret":true},"Title":{"New":"a"}}`)},
+		{EventTime: newest.Add(-2 * time.Minute), Sequence: 0, Operation: "delete", eventSourceColumns: sync},
 	}
 	page, err := changeHistoryPage(rows, visible, jsonName, secret)
 	if err != nil {
@@ -236,16 +244,16 @@ func TestChangeHistoryPage(t *testing.T) {
 	}
 	null := json.RawMessage("null")
 	want := &ChangeHistoryPage{Changes: []ChangeRecord{
-		{At: newest, Sequence: 1, Source: "user b", Fields: []ChangedField{
+		{At: newest, Sequence: 1, Operation: ChangeUpdate, Source: "b", Fields: []ChangedField{
 			{Field: "title", Old: json.RawMessage(`"a"`), New: json.RawMessage(`"b"`)},
 			{Field: "count", Old: json.RawMessage("12345678901234567890"), New: json.RawMessage("98765432109876543210")},
 		}},
-		{At: newest, Sequence: 0, Source: "user b", Fields: []ChangedField{}},
-		{At: newest.Add(-time.Minute), Sequence: 0, Source: "process sync", Fields: []ChangedField{
+		{At: newest, Sequence: 0, Operation: ChangeUpdate, Source: "b", Fields: []ChangedField{}},
+		{At: newest.Add(-time.Minute), Sequence: 0, Operation: ChangeCreate, Source: "the process sync", Fields: []ChangedField{
 			{Field: "code", Old: null, New: null, Secret: true},
 			{Field: "title", Old: null, New: json.RawMessage(`"a"`)},
 		}},
-		{At: newest.Add(-2 * time.Minute), Sequence: 0, Source: "process sync", Fields: []ChangedField{}},
+		{At: newest.Add(-2 * time.Minute), Sequence: 0, Operation: ChangeDelete, Source: "the process sync", Fields: []ChangedField{}},
 	}}
 	if diff := cmp.Diff(want, page); diff != "" {
 		t.Errorf("changeHistoryPage() mismatch (-want +got):\n%s", diff)
@@ -256,10 +264,10 @@ func TestChangeHistoryPage(t *testing.T) {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 	wantEncoded := `{"changes":[` +
-		`{"at":"2026-11-23T18:00:00Z","sequence":1,"source":"user b","fields":[{"field":"title","old":"a","new":"b"},{"field":"count","old":12345678901234567890,"new":98765432109876543210}]},` +
-		`{"at":"2026-11-23T18:00:00Z","sequence":0,"source":"user b","fields":[]},` +
-		`{"at":"2026-11-23T17:59:00Z","sequence":0,"source":"process sync","fields":[{"field":"code","old":null,"new":null,"secret":true},{"field":"title","old":null,"new":"a"}]},` +
-		`{"at":"2026-11-23T17:58:00Z","sequence":0,"source":"process sync","fields":[]}]}`
+		`{"at":"2026-11-23T18:00:00Z","sequence":1,"operation":"update","source":"b","fields":[{"field":"title","old":"a","new":"b"},{"field":"count","old":12345678901234567890,"new":98765432109876543210}]},` +
+		`{"at":"2026-11-23T18:00:00Z","sequence":0,"operation":"update","source":"b","fields":[]},` +
+		`{"at":"2026-11-23T17:59:00Z","sequence":0,"operation":"create","source":"the process sync","fields":[{"field":"code","old":null,"new":null,"secret":true},{"field":"title","old":null,"new":"a"}]},` +
+		`{"at":"2026-11-23T17:58:00Z","sequence":0,"operation":"delete","source":"the process sync","fields":[]}]}`
 	if string(encoded) != wantEncoded {
 		t.Errorf("the page encodes as\n%s\nwant\n%s", encoded, wantEncoded)
 	}
@@ -295,7 +303,7 @@ func TestChangeHistoryPage(t *testing.T) {
 		t.Parallel()
 
 		// A record written before the field was declared a secret: both values, no mark.
-		before := []changeRecordRow{{EventTime: newest, Sequence: 0, EventSource: "user b", ChangeSet: changeSet(`{"Key":{"Old":"old key","New":"new key"},"Title":{"Old":"a","New":"b"}}`)}}
+		before := []changeRecordRow{{EventTime: newest, Sequence: 0, Operation: "update", eventSourceColumns: userB, ChangeSet: changeSet(`{"Key":{"Old":"old key","New":"new key"},"Title":{"Old":"a","New":"b"}}`)}}
 		page, err := changeHistoryPage(before, []accesstypes.Field{"Key", "Title"}, jsonName, secret)
 		if err != nil {
 			t.Fatalf("changeHistoryPage() error = %v", err)
@@ -313,7 +321,7 @@ func TestChangeHistoryPage(t *testing.T) {
 
 		// The record's time in another zone, to nanoseconds: the value is answered in UTC.
 		at := time.Date(2026, 11, 23, 11, 0, 0, 123456789, time.FixedZone("MST", -7*60*60))
-		stamped := []changeRecordRow{{EventTime: at, Sequence: 0, EventSource: "user b", ChangeSet: changeSet(`{"Code":{"Old":"2026-11-20T10:00:00Z","New":null,"CommitTime":true},"Key":{"Old":null,"New":null,"CommitTime":true},"Title":{"Old":"a","New":"b"}}`)}}
+		stamped := []changeRecordRow{{EventTime: at, Sequence: 0, Operation: "update", eventSourceColumns: userB, ChangeSet: changeSet(`{"Code":{"Old":"2026-11-20T10:00:00Z","New":null,"CommitTime":true},"Key":{"Old":null,"New":null,"CommitTime":true},"Title":{"Old":"a","New":"b"}}`)}}
 		page, err := changeHistoryPage(stamped, []accesstypes.Field{"Code", "Key", "Title"}, jsonName, secret)
 		if err != nil {
 			t.Fatalf("changeHistoryPage() error = %v", err)

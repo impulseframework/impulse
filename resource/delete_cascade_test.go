@@ -110,7 +110,7 @@ func (r *cascadeRow) checkTaken(_ context.Context, _ ReadWriteTransaction, _ *ta
 	return false, nil
 }
 
-func (r *cascadeRow) bufferTaken(context.Context, ReadWriteTransaction, ...string) error {
+func (r *cascadeRow) bufferTaken(context.Context, ReadWriteTransaction, ...EventSource) error {
 	*r.made = append(*r.made, r.name)
 
 	return nil

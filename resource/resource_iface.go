@@ -265,5 +265,5 @@ type PatchSetMetadata interface {
 // Buffer is an interface for types that can buffer their mutations
 // into a transaction. This is used for batching operations.
 type Buffer interface {
-	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error
+	Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...EventSource) error
 }

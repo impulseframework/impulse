@@ -34,14 +34,16 @@ func KeepChangeHistoryForever() ChangeHistoryPeriod {
 // that tracks its changes writes one record for each create, update and delete, for the
 // application database's type. An application copies them into its first migration;
 // tests pin Lodestar's and each skeleton's to them. The first statement creates the
-// table, whose TenantId column holds the key of the tenant a changed row belongs to,
-// empty for a row of no tenant. Its key puts a row's records together, newest first, so
-// a page of one record's history is one range of the table, and the table has no other
-// index. For a period of days a second statement gives the table a row deletion policy
-// on EventTime, by which Spanner removes each record older than the period in the
-// background; for a period of forever there is no second statement. There are
-// statements for Spanner alone: the table gets its PostgreSQL statements when the
-// package writes to PostgreSQL. A period that declares nothing has none.
+// table: the row, the time, what kind of write it was, what changed, the key of the
+// tenant the row belongs to (not set for a row of no tenant), and who made the change, in
+// nine columns of which a record sets those that hold something. Its key puts a row's
+// records together, newest first, so a page of one record's history is one range of the
+// table, and the table has no other index. For a period of days a second statement gives
+// the table a row deletion policy on EventTime, by which Spanner removes each record older
+// than the period in the background; for a period of forever there is no second
+// statement. There are statements for Spanner alone: the table gets its PostgreSQL
+// statements when the package writes to PostgreSQL. A period that declares nothing has
+// none.
 func DataChangeEventsDDL(dbType DBType, period ChangeHistoryPeriod) []string {
 	switch dbType {
 	case SpannerDBType:
@@ -50,9 +52,18 @@ func DataChangeEventsDDL(dbType DBType, period ChangeHistoryPeriod) []string {
   RowId STRING(MAX) NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
   Sequence INT64 NOT NULL,
-  EventSource STRING(MAX) NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-  TenantId STRING(MAX) NOT NULL,
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
 ) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC)`
 		switch {
 		case period.forever:
