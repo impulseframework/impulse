@@ -295,16 +295,30 @@ func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransacti
 	return email, found, nil
 }
 
+// deletedBy is who a delete of an account or of a group is recorded as made by, in the
+// change records of the rows it takes that keep a change history: the request's person
+// (eventsource.UserEvent), and nobody for a call made outside any request, which carries
+// no session to read a person from. A row that keeps a change history refuses a delete
+// that names nobody: a job deletes such rows first, in a transaction before, under its
+// own process's name (eventsource.ProcessEvent).
+func deletedBy(ctx context.Context) []eventsource.EventSource {
+	if _, inRequest := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); !inRequest {
+		return nil
+	}
+
+	return []eventsource.EventSource{eventsource.UserEvent(ctx)}
+}
+
 func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	// The row's delete takes the application's rows that go with the account
-	// (@deletedWith), where it is told to. The delete is the request's person's
-	// (eventsource.UserEvent): a row it takes that keeps a change history records its
+	// (@deletedWith), where it is told to. In a person's request the delete is that
+	// person's (deletedBy): a row it takes that keeps a change history records its
 	// delete as theirs.
 	patch := membersresources.NewMembersSessionUserDeletePatch(id)
 	if everythingUnder {
 		patch = patch.WithEverythingUnder()
 	}
-	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
 		return nil, errors.Wrap(err, "membersresources.MembersSessionUserDeletePatch.Buffer()")
 	}
 
@@ -1099,13 +1113,13 @@ func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction,
 	// application's rows that go with it (@deletedWith). The patch is not armed against
 	// a caller: the method that deletes the group has asked the caller's grants, the
 	// members and the roles are taken trusted, and the application's rows are checked as
-	// the request's caller. The delete is the request's person's (eventsource.UserEvent):
+	// the request's caller. In a person's request the delete is that person's (deletedBy):
 	// a row it takes that keeps a change history records its delete as theirs.
 	patch := membersresources.NewMembersGroupDeletePatch(id)
 	if everythingUnder {
 		patch = patch.WithEverythingUnder()
 	}
-	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
 		return nil, errors.Wrap(err, "membersresources.MembersGroupDeletePatch.Buffer()")
 	}
 

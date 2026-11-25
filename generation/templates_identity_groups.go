@@ -241,13 +241,13 @@ func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction,
 	// application's rows that go with it (@deletedWith). The patch is not armed against
 	// a caller: the method that deletes the group has asked the caller's grants, the
 	// members and the roles are taken trusted, and the application's rows are checked as
-	// the request's caller. The delete is the request's person's (eventsource.UserEvent):
+	// the request's caller. In a person's request the delete is that person's (deletedBy):
 	// a row it takes that keeps a change history records its delete as theirs.
 	patch := {{ .ResourcesPackage }}.New{{ .Group }}DeletePatch(id)
 	if everythingUnder {
 		patch = patch.WithEverythingUnder()
 	}
-	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
 		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Group }}DeletePatch.Buffer()")
 	}
 
