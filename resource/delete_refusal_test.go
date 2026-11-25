@@ -447,11 +447,16 @@ func TestRecordedDelete_seen(t *testing.T) {
 	byKey := &DomainBindingData{Column: "Id"}
 	bySector := &DomainBindingData{Column: "SectorId"}
 	byWing := &DomainBindingData{Column: "WingId", Path: []BindingHop{{Table: "RefusalWings", JoinColumn: "Id", Column: "SectorId"}}}
-	found := &takenFound{rows: map[accesstypes.Resource][]map[string]any{
-		"RefusalSquadrons": {{"Id": "q1"}, {"Id": "q2"}},
-		"RefusalNotices":   {{"Id": "n1"}},
-	}}
 	counts := map[string]int64{"RefusalSquadrons": 2, "RefusalNotices": 1}
+	// counted is what a delete that takes the kinds of the tree counts of each.
+	counted := func(tree *DeleteTree) *takenLevels {
+		levels := &takenLevels{rows: make(map[*DeleteKind][]int64)}
+		for i := range tree.Taken {
+			levels.rows[&tree.Taken[i]] = []int64{counts[string(tree.Taken[i].Resource)]}
+		}
+
+		return levels
+	}
 
 	tests := []struct {
 		name   string
@@ -583,7 +588,7 @@ func TestRecordedDelete_seen(t *testing.T) {
 
 			asker, checker := caller()
 			asked := &recordedDelete{tree: scopeTree(tt.record, tt.one, tt.tenant, true), key: tt.key, caller: asker}
-			got, err := asked.question(t.Context(), found)
+			got, err := asked.question(t.Context(), counted(asked.tree))
 			if err != nil {
 				t.Fatalf("question() error = %v", err)
 			}
@@ -615,7 +620,7 @@ func TestRecordedDelete_seen(t *testing.T) {
 			key:    map[string]any{"Id": 7},
 			caller: &Caller{Permissions: &scopedLists{asked: map[accesstypes.Scope]int{}}, Scope: global},
 		}
-		_, err := asked.question(t.Context(), found)
+		_, err := asked.question(t.Context(), counted(asked.tree))
 		if want := "type int is neither string-kinded nor an encoding.TextMarshaler"; err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("question() error = %v, want one saying %q", err, want)
 		}
@@ -662,7 +667,7 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			dbType:    SpannerDBType,
 			kind:      under("Missions", "mission", "missions", "AssignedSquadronId", "Squadrons"),
 			recordKey: map[string]any{"Id": "s1"},
-			wantSQL:   "SELECT COUNT(*) FROM `Missions` AS t0 WHERE ((t0.`AssignedSquadronId` = @d1))",
+			wantSQL:   "SELECT COUNT(*) FROM `Missions` WHERE ((`Missions`.`AssignedSquadronId` = @d1))",
 			wantArgs:  []any{"s1"},
 		},
 		{
@@ -674,8 +679,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			}},
 			recordKey: map[string]any{"Id": "h1"},
 			written:   map[accesstypes.Resource][]map[string]any{"Transfers": {{"Id": "t1"}, {"Id": "t2"}}, "Hangars": {{"Id": "h1"}}},
-			wantSQL: "SELECT COUNT(*) FROM `Transfers` AS t0 WHERE ((t0.`FromHangarId` = @d1) OR (t0.`ToHangarId` = @d2))" +
-				" AND NOT (t0.`Id` = @d3) AND NOT (t0.`Id` = @d4)",
+			wantSQL: "SELECT COUNT(*) FROM `Transfers` WHERE ((`Transfers`.`FromHangarId` = @d1) OR (`Transfers`.`ToHangarId` = @d2))" +
+				" AND NOT (`Transfers`.`Id` = @d3) AND NOT (`Transfers`.`Id` = @d4)",
 			wantArgs: []any{"h1", "h1", "t1", "t2"},
 		},
 		{
@@ -686,8 +691,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			}},
 			recordKey: map[string]any{"TenantId": "anvil", "Id": "h1"},
 			written:   map[accesstypes.Resource][]map[string]any{"Ships": {{"TenantId": "anvil", "Id": "x1"}}},
-			wantSQL: `SELECT COUNT(*) FROM "Ships" AS t0 WHERE ((t0."TenantId" = $1 AND t0."HomeHangarId" = $2))` +
-				` AND NOT (t0."Id" = $3 AND t0."TenantId" = $4)`,
+			wantSQL: `SELECT COUNT(*) FROM "Ships" WHERE (("Ships"."TenantId" = $1 AND "Ships"."HomeHangarId" = $2))` +
+				` AND NOT ("Ships"."Id" = $3 AND "Ships"."TenantId" = $4)`,
 			wantArgs: []any{"anvil", "h1", "x1", "anvil"},
 		},
 		{
@@ -701,9 +706,9 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			}},
 			recordKey: map[string]any{"Id": "c1"},
 			written:   map[accesstypes.Resource][]map[string]any{"Missions": {{"Id": "m9"}}, "Sorties": {{"Id": "x1"}}},
-			wantSQL: "SELECT COUNT(*) FROM `Sorties` AS t0 WHERE (EXISTS (SELECT 1 FROM `Missions` AS w0_1" +
-				" WHERE w0_1.`Id` = t0.`MissionId` AND w0_1.`ClientId` = @d1 AND NOT (w0_1.`Id` = @d2)))" +
-				" AND NOT (t0.`Id` = @d3)",
+			wantSQL: "SELECT COUNT(*) FROM `Sorties` WHERE (EXISTS (SELECT 1 FROM `Missions` AS w0_1" +
+				" WHERE w0_1.`Id` = `Sorties`.`MissionId` AND w0_1.`ClientId` = @d1 AND NOT (w0_1.`Id` = @d2)))" +
+				" AND NOT (`Sorties`.`Id` = @d3)",
 			wantArgs: []any{"c1", "m9", "x1"},
 		},
 		{
@@ -721,8 +726,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			dbType:    SpannerDBType,
 			kind:      DeleteKind{Resource: "Missions", Paths: []DeletePath{{{Columns: []string{"SquadronCode"}, Table: "Squadrons", References: []string{"Code"}}}}},
 			recordKey: map[string]any{"Id": "s1"},
-			wantSQL: "SELECT COUNT(*) FROM `Missions` AS t0 WHERE (EXISTS (SELECT 1 FROM `Squadrons` AS w0_r" +
-				" WHERE t0.`SquadronCode` = w0_r.`Code` AND w0_r.`Id` = @d1))",
+			wantSQL: "SELECT COUNT(*) FROM `Missions` WHERE (EXISTS (SELECT 1 FROM `Squadrons` AS w0_r" +
+				" WHERE `Missions`.`SquadronCode` = w0_r.`Code` AND w0_r.`Id` = @d1))",
 			wantArgs: []any{"s1"},
 		},
 		{
@@ -735,8 +740,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 				},
 			}},
 			recordKey: map[string]any{"TenantId": "anvil", "Id": "s1"},
-			wantSQL: "SELECT COUNT(*) FROM `Sorties` AS t0 WHERE (EXISTS (SELECT 1 FROM `Missions` AS w0_1, `Squadrons` AS w0_r" +
-				" WHERE w0_1.`Id` = t0.`MissionId` AND w0_1.`TenantId` = w0_r.`TenantId` AND w0_1.`SquadronCode` = w0_r.`Code`" +
+			wantSQL: "SELECT COUNT(*) FROM `Sorties` WHERE (EXISTS (SELECT 1 FROM `Missions` AS w0_1, `Squadrons` AS w0_r" +
+				" WHERE w0_1.`Id` = `Sorties`.`MissionId` AND w0_1.`TenantId` = w0_r.`TenantId` AND w0_1.`SquadronCode` = w0_r.`Code`" +
 				" AND w0_r.`Id` = @d1 AND w0_r.`TenantId` = @d2))",
 			wantArgs: []any{"s1", "anvil"},
 		},
@@ -746,8 +751,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			tree:      sectors,
 			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber, {Columns: []string{"SectorId"}, Table: "Sectors", References: []string{"Id"}}}}},
 			recordKey: map[string]any{"Id": "anvil"},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_1" +
-				" WHERE w0_1.`CaseNumber` = t0.`CaseNumber` AND w0_1.`SectorId` = @d1)) AND t0.`SectorId` = @d2",
+			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_1" +
+				" WHERE w0_1.`CaseNumber` = `Relays`.`CaseNumber` AND w0_1.`SectorId` = @d1)) AND `Relays`.`SectorId` = @d2",
 			wantArgs: []any{"anvil", "anvil"},
 		},
 		{
@@ -756,9 +761,9 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			tree:      calls,
 			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
 			recordKey: map[string]any{"Id": "c1"},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
-				" WHERE t0.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))" +
-				" AND t0.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2)",
+			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
+				" WHERE `Relays`.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))" +
+				" AND `Relays`.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2)",
 			wantArgs: []any{"c1", "c1"},
 		},
 		{
@@ -767,8 +772,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			tree:      wings,
 			kind:      DeleteKind{Resource: "Squadrons", Tenant: byWing, Paths: []DeletePath{{{Columns: []string{"PatrolWingId"}, Table: "Wings", References: []string{"Id"}}}}},
 			recordKey: map[string]any{"Id": "w1"},
-			wantSQL: "SELECT COUNT(*) FROM `Squadrons` AS t0 WHERE ((t0.`PatrolWingId` = @d1))" +
-				" AND (SELECT n1.`SectorId` FROM `Wings` AS n1 WHERE n1.`Id` = t0.`WingId`) = (SELECT tr.`SectorId` FROM `Wings` AS tr WHERE tr.`Id` = @d2)",
+			wantSQL: "SELECT COUNT(*) FROM `Squadrons` WHERE ((`Squadrons`.`PatrolWingId` = @d1))" +
+				" AND (SELECT n1.`SectorId` FROM `Wings` AS n1 WHERE n1.`Id` = `Squadrons`.`WingId`) = (SELECT tr.`SectorId` FROM `Wings` AS tr WHERE tr.`Id` = @d2)",
 			wantArgs: []any{"w1", "w1"},
 		},
 		{
@@ -779,8 +784,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			tree:      &DeleteTree{Record: "Squadrons", Key: []string{"WingId", "Id"}, Tenant: byWing},
 			kind:      DeleteKind{Resource: "Missions", Tenant: bySector, Paths: []DeletePath{{{Columns: []string{"WingId", "SquadronId"}, Table: "Squadrons", References: []string{"WingId", "Id"}}}}},
 			recordKey: map[string]any{"WingId": "w1", "Id": "q1"},
-			wantSQL: "SELECT COUNT(*) FROM `Missions` AS t0 WHERE ((t0.`WingId` = @d1 AND t0.`SquadronId` = @d2))" +
-				" AND t0.`SectorId` = (SELECT (SELECT n1.`SectorId` FROM `Wings` AS n1 WHERE n1.`Id` = tr.`WingId`)" +
+			wantSQL: "SELECT COUNT(*) FROM `Missions` WHERE ((`Missions`.`WingId` = @d1 AND `Missions`.`SquadronId` = @d2))" +
+				" AND `Missions`.`SectorId` = (SELECT (SELECT n1.`SectorId` FROM `Wings` AS n1 WHERE n1.`Id` = tr.`WingId`)" +
 				" FROM `Squadrons` AS tr WHERE tr.`Id` = @d3 AND tr.`WingId` = @d4)",
 			wantArgs: []any{"w1", "q1", "q1", "w1"},
 		},
@@ -791,9 +796,9 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
 			recordKey: map[string]any{"Id": "c1"},
 			written:   map[accesstypes.Resource][]map[string]any{"Relays": {{"Id": "r9"}}},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
-				" WHERE t0.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))" +
-				" AND t0.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2) AND NOT (t0.`Id` = @d3)",
+			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
+				" WHERE `Relays`.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))" +
+				" AND `Relays`.`SectorId` = (SELECT tr.`SectorId` FROM `Calls` AS tr WHERE tr.`Id` = @d2) AND NOT (`Relays`.`Id` = @d3)",
 			wantArgs: []any{"c1", "c1", "r9"},
 		},
 		{
@@ -802,7 +807,7 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			tree:      sectors,
 			kind:      DeleteKind{Resource: "Missions", Tenant: bySector, Paths: []DeletePath{{{Columns: []string{"HostSectorId"}, Table: "Sectors", References: []string{"Id"}}}}},
 			recordKey: map[string]any{"Id": "anvil"},
-			wantSQL:   `SELECT COUNT(*) FROM "Missions" AS t0 WHERE ((t0."HostSectorId" = $1)) AND t0."SectorId" = $2`,
+			wantSQL:   `SELECT COUNT(*) FROM "Missions" WHERE (("Missions"."HostSectorId" = $1)) AND "Missions"."SectorId" = $2`,
 			wantArgs:  []any{"anvil", "anvil"},
 		},
 		{
@@ -811,8 +816,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			tree:      &DeleteTree{Record: "Calls", Key: []string{"Id"}},
 			kind:      DeleteKind{Resource: "Relays", Tenant: bySector, Paths: []DeletePath{{byCaseNumber}}},
 			recordKey: map[string]any{"Id": "c1"},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
-				" WHERE t0.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))",
+			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
+				" WHERE `Relays`.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))",
 			wantArgs: []any{"c1"},
 		},
 		{
@@ -821,8 +826,8 @@ func Test_newRowsUnderStatement(t *testing.T) {
 			tree:      calls,
 			kind:      DeleteKind{Resource: "Relays", Paths: []DeletePath{{byCaseNumber}}},
 			recordKey: map[string]any{"Id": "c1"},
-			wantSQL: "SELECT COUNT(*) FROM `Relays` AS t0 WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
-				" WHERE t0.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))",
+			wantSQL: "SELECT COUNT(*) FROM `Relays` WHERE (EXISTS (SELECT 1 FROM `Calls` AS w0_r" +
+				" WHERE `Relays`.`CaseNumber` = w0_r.`CaseNumber` AND w0_r.`Id` = @d1))",
 			wantArgs: []any{"c1"},
 		},
 	}

@@ -2,79 +2,262 @@ package resource
 
 import (
 	"context"
-	"fmt"
+	"net/http"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 )
 
-// TestTakenReader_refusing reads, over the emulator, the rows that refuse a record's
-// delete from under the rows a walk found: the kind's rows whose columns hold what the
-// link references of one of the rows above, each named by its key, a key of two columns
-// in one name, a row the transaction itself deleted left out, and a row it changed read
-// as it is stored.
-func TestTakenReader_refusing(t *testing.T) {
+// cascadeDatabase makes a database with the taken delete's fixture on the shared
+// emulator.
+func cascadeDatabase(t *testing.T, name string) *spanner.Client {
+	t.Helper()
+
+	container := spannerEmulator(t)
+	db, err := container.CreateDatabase(context.Background(), name)
+	if err != nil {
+		t.Fatalf("initiator.SpannerContainer.CreateDatabase() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.DropDatabase(context.Background()); err != nil {
+			t.Error(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := db.MigrateUp("file://testdata/deletecascade/schema"); err != nil {
+		t.Fatalf("initiator.SpannerDB.MigrateUp() error = %v", err)
+	}
+
+	return db.Client
+}
+
+// cascadeRun is what one delete that takes rows did: what it answered, the rows it asked
+// about and deleted, in order, and how many count and page statements it sent.
+type cascadeRun struct {
+	err    error
+	asked  []string
+	made   []string
+	counts int
+	pages  int
+}
+
+// runTaking runs the delete of the record with the key as deleteTaken runs it, over
+// the emulator, each kind's rows reached through rows, with whatever the transaction
+// buffered first (before). It asks only, where everythingUnder is false.
+func runTaking(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, before func(txn *SpannerReadWriteTransaction)) *cascadeRun {
+	t.Helper()
+
+	run := &cascadeRun{}
+	rows.asked, rows.made = &run.asked, &run.made
+	for _, kinds := range [][]DeleteKind{tree.Taken, tree.RefusedBy} {
+		for i := range kinds {
+			kinds[i].Rows = rows
+		}
+	}
+	err := NewSpannerClient(db).ExecuteFunc(t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
+		spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
+		if !ok {
+			return errors.Newf("the transaction is a %T, want Spanner's", txn)
+		}
+		run.asked, run.made, run.counts, run.pages = nil, nil, 0, 0
+		if before != nil {
+			before(spannerTxn)
+		}
+		taking := &takingDelete{
+			asked: &recordedDelete{tree: tree, key: key},
+			query: &takenQuery{tree: tree, key: key},
+			txn:   spannerTxn,
+			page: func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error) {
+				run.pages++
+
+				return spannerTxn.readPage(ctx, statement, types, answers)
+			},
+		}
+		tracked, _ := takenTracked(tree, false)
+		_, err := taking.run(ctx, func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
+			run.counts++
+
+			return spannerTxn.countRows(ctx, statement)
+		}, tracked, everythingUnder)
+		run.err = err
+
+		// The test's delete buffers nothing: the transaction commits nothing either way.
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v", err)
+	}
+
+	return run
+}
+
+// TestTakingDelete reads, over the emulator, the rows a delete takes with its record,
+// a kind at a time by the kind's ways up to the record: a row under the record by two
+// ways is counted once; a task under a task, three levels deep, is counted once, asked
+// about once and deleted the deepest first, with a comment under a nested task found
+// under it, whether or not the nested tasks hold the project's key; a folder in a
+// folder is taken; a refusing row under a nested task refuses the delete in the counted
+// sentence, and one the transaction itself deleted does not; a kind that asks nothing of
+// its rows is counted and never read; a row a condition of the grant refuses refuses the
+// whole delete, its page read by one statement; and a row a rule refuses refuses the
+// whole delete in the rule's sentence, asked or taken alike. Nothing is deleted where
+// the delete is refused.
+func TestTakingDelete(t *testing.T) {
 	t.Parallel()
 
-	db := forkDatabase(t, "refusing-rows")
-	ctx := context.Background()
-	if _, err := db.Apply(ctx, []*spanner.Mutation{
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "row-1", "Title": "alpha"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "row-2", "Title": "beta"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "row-3", "Title": "gamma"}),
-		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "row-4", "Title": "alpha"}),
-		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "alpha", "Shelf": "s1"}),
-		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "alpha", "Shelf": "s2"}),
-		spanner.InsertMap("SealedPairRows", map[string]any{"Vault": "gamma", "Shelf": "s1"}),
-	}); err != nil {
+	db := cascadeDatabase(t, "taking-delete")
+	insert := func(table string, rows ...map[string]any) []*spanner.Mutation {
+		mutations := make([]*spanner.Mutation, 0, len(rows))
+		for _, row := range rows {
+			mutations = append(mutations, spanner.InsertMap(table, row))
+		}
+
+		return mutations
+	}
+	var mutations []*spanner.Mutation
+	for _, group := range [][]*spanner.Mutation{
+		insert("CascadeProjects", map[string]any{"Id": "two"}, map[string]any{"Id": "deep"}, map[string]any{"Id": "keyed"}, map[string]any{"Id": "plain"}),
+		insert("CascadeTasks",
+			// Under two by its project, with a comment under it by both ways.
+			map[string]any{"Id": "two-t1", "ProjectId": "two"},
+			// Three levels deep, the nested ones holding no project.
+			map[string]any{"Id": "deep-t1", "ProjectId": "deep"},
+			map[string]any{"Id": "deep-t2", "ParentTaskId": "deep-t1"},
+			map[string]any{"Id": "deep-t3", "ParentTaskId": "deep-t2"},
+			// Three levels deep, every one holding the project.
+			map[string]any{"Id": "keyed-t1", "ProjectId": "keyed"},
+			map[string]any{"Id": "keyed-t2", "ProjectId": "keyed", "ParentTaskId": "keyed-t1"},
+			map[string]any{"Id": "keyed-t3", "ProjectId": "keyed", "ParentTaskId": "keyed-t2"},
+			// Plain tasks, one of them titled for the condition to refuse.
+			map[string]any{"Id": "plain-t1", "ProjectId": "plain", "Title": "open"},
+			map[string]any{"Id": "plain-t2", "ProjectId": "plain", "Title": "secret"},
+		),
+		insert("CascadeComments",
+			map[string]any{"Id": "two-c1", "TaskId": "two-t1", "ProjectId": "two"},
+			map[string]any{"Id": "two-c2", "TaskId": "two-t1"},
+			map[string]any{"Id": "deep-c3", "TaskId": "deep-t3"},
+		),
+		insert("CascadeInvoices", map[string]any{"Id": "deep-i1", "TaskId": "deep-t2"}),
+		insert("CascadeFolders",
+			map[string]any{"Id": "f1"},
+			map[string]any{"Id": "f2", "ParentId": "f1"},
+			map[string]any{"Id": "f3", "ParentId": "f2"},
+		),
+	} {
+		mutations = append(mutations, group...)
+	}
+	if _, err := db.Apply(t.Context(), mutations); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
 
-	tree := &DeleteTree{Record: "Shelves", Words: DeleteWords{One: "shelf", Many: "shelves"}, Key: []string{"Name"}}
-	above := []map[string]any{{"Name": "alpha"}, {"Name": "beta"}}
+	asksEveryRow := &takenAsks{question: true}
+	project := func(id string) map[string]any {
+		return map[string]any{"Id": id}
+	}
+	twoWays := func() *DeleteTree {
+		tree := projectTree(nil)
+		tree.Taken[0].Paths = append(tree.Taken[0].Paths, DeletePath{{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}}})
+
+		return tree
+	}
+	folderTree := func() *DeleteTree {
+		return &DeleteTree{
+			Record: "CascadeFolders", Words: DeleteWords{One: "folder", Many: "folders"}, Key: []string{"Id"},
+			Taken: []DeleteKind{{
+				Resource: "CascadeFolders", Words: DeleteWords{One: "folder", Many: "folders"}, Key: []string{"Id"},
+				Paths: []DeletePath{{{Columns: []string{"ParentId"}, Table: "CascadeFolders", References: []string{"Id"}}}},
+			}},
+		}
+	}
 
 	tests := []struct {
-		name string
-		kind *DeleteKind
-		link DeleteLink
-		// deleted is the key of a row of the kind the transaction deleted before the read.
-		deleted map[string]any
-		// changed is the key of a row of the kind the transaction updated before the read.
-		changed map[string]any
-		want    []string
+		name            string
+		tree            *DeleteTree
+		key             map[string]any
+		rows            cascadeRows
+		everythingUnder bool
+		// before is what the transaction buffered before the delete.
+		before      func(txn *SpannerReadWriteTransaction)
+		wantStatus  int
+		wantMessage string
+		wantAsked   []string
+		wantMade    []string
+		// wantPages is the page statements the delete sent; -1 is not checked.
+		wantPages int
 	}{
 		{
-			name: "the rows that name one of the rows above",
-			kind: &DeleteKind{Resource: "TrackedForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"}},
-			link: DeleteLink{Columns: []string{"Title"}, Table: "Shelves", References: []string{"Name"}},
-			want: []string{"row-1", "row-2", "row-4"},
+			name: "a comment under the project by two ways is counted once", tree: twoWays(), key: project("two"),
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 1 task, 2 comments. This can't be undone.",
+			wantPages: 0,
 		},
 		{
-			name:    "a row the transaction deleted is left out",
-			kind:    &DeleteKind{Resource: "TrackedForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"}},
-			link:    DeleteLink{Columns: []string{"Title"}, Table: "Shelves", References: []string{"Name"}},
-			deleted: map[string]any{"Id": "row-4"},
-			want:    []string{"row-1", "row-2"},
+			name: "nested tasks that hold no project are counted once and asked about once", tree: projectTree(nil), key: project("deep"), rows: cascadeRows{asks: asksEveryRow},
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 3 tasks, 1 comment. This can't be undone.",
+			wantAsked: []string{"ID=deep-c3 trusted", "ID=deep-t3 trusted", "ID=deep-t2 trusted", "ID=deep-t1 trusted"},
+			wantPages: -1,
 		},
 		{
-			name:    "a row the transaction changed is read as it is stored",
-			kind:    &DeleteKind{Resource: "TrackedForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"}},
-			link:    DeleteLink{Columns: []string{"Title"}, Table: "Shelves", References: []string{"Name"}},
-			changed: map[string]any{"Id": "row-4"},
-			want:    []string{"row-1", "row-2", "row-4"},
+			name: "nested tasks that hold no project are deleted the deepest first, a comment under the deepest before it", tree: projectTree(nil), key: project("deep"), everythingUnder: true,
+			wantMade:  []string{"ID=deep-c3 trusted", "ID=deep-t3 trusted", "ID=deep-t2 trusted", "ID=deep-t1 trusted"},
+			wantPages: -1,
 		},
 		{
-			name:    "a key of two columns names its row in one text",
-			kind:    &DeleteKind{Resource: "SealedPairRows", Words: DeleteWords{One: "pair", Many: "pairs"}, Key: []string{"Vault", "Shelf"}},
-			link:    DeleteLink{Columns: []string{"Vault"}, Table: "Shelves", References: []string{"Name"}},
-			deleted: map[string]any{"Vault": "alpha", "Shelf": "s2"},
-			want:    []string{"alpha\x00s1"},
+			name: "nested tasks that hold the project are counted, asked about and deleted once each", tree: projectTree(nil), key: project("keyed"), rows: cascadeRows{asks: asksEveryRow}, everythingUnder: true,
+			wantAsked: []string{"ID=keyed-t1 trusted", "ID=keyed-t2 trusted", "ID=keyed-t3 trusted"},
+			wantMade:  []string{"ID=keyed-t1 trusted", "ID=keyed-t2 trusted", "ID=keyed-t3 trusted"},
+			wantPages: -1,
+		},
+		{
+			name: "a folder in a folder is taken, the deepest first", tree: folderTree(), key: map[string]any{"Id": "f1"}, everythingUnder: true,
+			wantMade:  []string{"ID=f3 trusted", "ID=f2 trusted"},
+			wantPages: -1,
+		},
+		{
+			name: "an invoice under a nested task refuses in the counted sentence", tree: invoicedTree(), key: project("deep"), everythingUnder: true,
+			wantStatus: http.StatusConflict, wantMessage: "This project has 1 invoice, so it can't be deleted.",
+			wantPages: 0,
+		},
+		{
+			name: "an invoice the transaction deleted refuses nothing", tree: invoicedTree(), key: project("deep"), everythingUnder: true,
+			before: func(txn *SpannerReadWriteTransaction) {
+				txn.recordWritten("CascadeInvoices", map[string]any{"Id": "deep-i1"}, true)
+			},
+			wantMade:  []string{"ID=deep-c3 trusted", "ID=deep-t3 trusted", "ID=deep-t2 trusted", "ID=deep-t1 trusted"},
+			wantPages: -1,
+		},
+		{
+			name: "a kind that asks nothing of its rows is counted and never read", tree: projectTree(nil), key: project("plain"),
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 2 tasks. This can't be undone.",
+			wantPages: 0,
+		},
+		{
+			name: "a row the grant's condition refuses refuses the whole delete, its page read once", tree: projectTree(nil), key: project("plain"), everythingUnder: true,
+			rows:       cascadeRows{asks: &takenAsks{groups: [][]accesstypes.Resource{{"CascadeTasks"}}, terms: []string{"(CascadeTasks.Title != 'secret')"}}},
+			wantStatus: http.StatusForbidden, wantMessage: "This project has tasks that you can't delete, so it can't be deleted.",
+			wantAsked: []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted"},
+			wantPages: 1,
+		},
+		{
+			name: "a row a rule refuses refuses a delete that asks in the rule's sentence", tree: projectTree(nil), key: project("plain"),
+			rows:       cascadeRows{asks: &takenAsks{rule: true}, refused: map[string]cascadeRefusal{"plain-t1": {byRule: true, err: httpio.NewBadRequestMessage("A task that is being worked on can't be deleted.")}}},
+			wantStatus: http.StatusBadRequest, wantMessage: "A task that is being worked on can't be deleted.",
+			wantAsked: []string{"ID=plain-t1 trusted"},
+			wantPages: 1,
+		},
+		{
+			name: "a row a rule refuses refuses a delete that takes in the rule's sentence", tree: projectTree(nil), key: project("plain"), everythingUnder: true,
+			rows:       cascadeRows{asks: &takenAsks{rule: true}, refused: map[string]cascadeRefusal{"plain-t2": {byRule: true, err: httpio.NewBadRequestMessage("A task that is being worked on can't be deleted.")}}},
+			wantStatus: http.StatusBadRequest, wantMessage: "A task that is being worked on can't be deleted.",
+			wantAsked: []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted"},
+			wantPages: 1,
 		},
 	}
 
@@ -82,43 +265,42 @@ func TestTakenReader_refusing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var got []string
-			err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
-				spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
-				if !ok {
-					return errors.Newf("the transaction is a %T, want Spanner's", txn)
+			run := runTaking(t, db, tt.tree, tt.key, tt.rows, tt.everythingUnder, tt.before)
+			switch {
+			case tt.wantStatus == 0 && run.err != nil:
+				t.Fatalf("the delete error = %v, want none", run.err)
+			case tt.wantStatus != 0:
+				if got := statusOf(run.err); got != tt.wantStatus {
+					t.Errorf("the delete's status = %d, want %d (%v)", got, tt.wantStatus, run.err)
 				}
-				if tt.deleted != nil {
-					spannerTxn.recordWritten(tt.kind.Resource, tt.deleted, true)
+				if got := httpio.Message(run.err); got != tt.wantMessage {
+					t.Errorf("the delete's message = %q, want %q", got, tt.wantMessage)
 				}
-				if tt.changed != nil {
-					spannerTxn.recordWritten(tt.kind.Resource, tt.changed, false)
-				}
-				reader := &takenReader{tree: tree, txn: spannerTxn}
-				var err error
-				got, err = reader.refusing(ctx, tt.kind, tt.link, above)
-
-				return err
-			})
-			if err != nil {
-				t.Fatalf("refusing() error = %v", err)
 			}
-			slices.Sort(got)
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("refusing() mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.wantAsked, run.asked); diff != "" {
+				t.Errorf("the rows asked about (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantMade, run.made); diff != "" {
+				t.Errorf("the rows deleted (-want +got):\n%s", diff)
+			}
+			if tt.wantPages >= 0 && run.pages != tt.wantPages {
+				t.Errorf("the delete read %d page(s), want %d", run.pages, tt.wantPages)
+			}
+			if run.counts == 0 {
+				t.Error("the delete counted nothing")
 			}
 		})
 	}
 }
 
-// TestTakenReader_anotherTenantsRow reads, over the emulator, the rows under a record of a
-// tenant where a row of the record's tenant and a row of another tenant both name it: the
-// walk's read, the read of the rows that refuse the delete, the count before the commit
-// and the walk itself each find the first row alone. It holds for a kind that holds its
-// tenant in a column and for one whose rows reach their tenant through another table,
-// under the tenant record, whose key holds its tenant, and under a record whose row is
-// read for it. With no tenant on the record, or on the kind, both rows are under it.
-func TestTakenReader_anotherTenantsRow(t *testing.T) {
+// TestTakingDelete_anotherTenantsRow reads, over the emulator, the rows under a record of
+// a tenant where a row of the record's tenant and a row of another tenant both name it:
+// the count and the page of the kind's rows each find the first row alone. It holds for
+// a kind that holds its tenant in a column and for one whose rows reach their tenant
+// through another table, under the tenant record, whose key holds its tenant, and under
+// a record whose row is read for it. With no tenant on the record, or on the kind, both
+// rows are under it.
+func TestTakingDelete_anotherTenantsRow(t *testing.T) {
 	t.Parallel()
 
 	db := forkDatabase(t, "another-tenants-row")
@@ -147,16 +329,11 @@ func TestTakenReader_anotherTenantsRow(t *testing.T) {
 	byCreator := &DomainBindingData{Column: "CreatedBy"}
 	throughForkRows := &DomainBindingData{Column: "Id", Path: []BindingHop{{Table: "ForkRows", JoinColumn: "Id", Column: "CreatedBy"}}}
 	text := reflect.TypeFor[string]()
-	columns := map[accesstypes.Resource]map[string]takenColumn{
-		"ForkRows":        {"Id": {typ: text}},
-		"SealedPairRows":  {"Vault": {typ: text}, "Shelf": {typ: text}},
-		"TrackedForkRows": {"Id": {typ: text}},
-	}
 
 	type under struct {
 		kind *DeleteKind
 		// mine and theirs name the row of the record's tenant and the row of the other.
-		mine, theirs string
+		mine, theirs []string
 	}
 	tests := []struct {
 		name string
@@ -173,7 +350,7 @@ func TestTakenReader_anotherTenantsRow(t *testing.T) {
 					Resource: "SealedPairRows", Words: DeleteWords{One: "pair", Many: "pairs"}, Key: []string{"Vault", "Shelf"}, Tenant: &DomainBindingData{Column: "Vault"},
 					Paths: []DeletePath{{{Columns: []string{"Shelf"}, Table: "ForkRows", References: []string{"Id"}}}},
 				},
-				mine: "anvil\x00f1", theirs: "bastion\x00f1",
+				mine: []string{"anvil", "f1"}, theirs: []string{"bastion", "f1"},
 			},
 		},
 		{
@@ -185,7 +362,7 @@ func TestTakenReader_anotherTenantsRow(t *testing.T) {
 					Resource: "TrackedForkRows", Words: DeleteWords{One: "tracked row", Many: "tracked rows"}, Key: []string{"Id"}, Tenant: throughForkRows,
 					Paths: []DeletePath{{{Columns: []string{"Title"}, Table: "ForkRows", References: []string{"Id"}}}},
 				},
-				mine: "ta", theirs: "tb",
+				mine: []string{"ta"}, theirs: []string{"tb"},
 			},
 		},
 		{
@@ -197,7 +374,7 @@ func TestTakenReader_anotherTenantsRow(t *testing.T) {
 					Resource: "ForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"}, Tenant: byCreator,
 					Paths: []DeletePath{{{Columns: []string{"Title"}, Table: "Vaults", References: []string{"Id"}}}},
 				},
-				mine: "k1", theirs: "k2",
+				mine: []string{"k1"}, theirs: []string{"k2"},
 			},
 		},
 		{
@@ -209,7 +386,7 @@ func TestTakenReader_anotherTenantsRow(t *testing.T) {
 					Resource: "TrackedForkRows", Words: DeleteWords{One: "tracked row", Many: "tracked rows"}, Key: []string{"Id"}, Tenant: throughForkRows,
 					Paths: []DeletePath{{{Columns: []string{"Title"}, Table: "Vaults", References: []string{"Id"}}}},
 				},
-				mine: "va", theirs: "vb",
+				mine: []string{"va"}, theirs: []string{"vb"},
 			},
 		},
 	}
@@ -236,171 +413,148 @@ func TestTakenReader_anotherTenantsRow(t *testing.T) {
 					kind.Tenant = nil
 				}
 				tree.Taken = []DeleteKind{kind}
-				link := kind.Paths[0][0]
-				want := []string{tt.kind.mine}
+				want := [][]any{toAny(tt.kind.mine)}
 				if variant.wantTheirsUnder {
-					want = append(want, tt.kind.theirs)
+					want = append(want, toAny(tt.kind.theirs))
 				}
-				slices.Sort(want)
+				types := slices.Repeat([]reflect.Type{text}, len(kind.Key))
 
-				var underRows, refusing, walked []string
 				var counted int64
+				var paged []takenPageRow
 				err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 					spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
 					if !ok {
 						return errors.Newf("the transaction is a %T, want Spanner's", txn)
 					}
-					reader := &takenReader{tree: &tree, key: tt.key, txn: spannerTxn, columns: columns}
-					recordRow, _, err := reader.recordRow(ctx, tt.key)
+					query := &takenQuery{tree: &tree, key: tt.key}
+					levels, err := countLevels(ctx, spannerTxn.countRows, []countedKind{{kind: &tree.Taken[0], query: query}})
 					if err != nil {
 						return err
 					}
-
-					rows, err := reader.under(ctx, &kind, link, []map[string]any{recordRow}, 10)
-					if err != nil {
-						return err
-					}
-					underRows = rowNamesOf(kind.Key, rows)
-
-					if refusing, err = reader.refusing(ctx, &kind, link, []map[string]any{recordRow}); err != nil {
-						return err
-					}
-
-					statement, ok := newRowsUnderStatement(SpannerDBType, &tree, &kind, tt.key, nil)
+					counted = levels.total(&tree.Taken[0])
+					statement, ok := query.page(&tree.Taken[0], 0, nil, 0)
 					if !ok {
-						return errors.New("newRowsUnderStatement() wrote no count")
+						return errors.New("page() wrote no read")
 					}
-					if counted, err = spannerTxn.countRows(ctx, statement); err != nil {
-						return err
-					}
+					paged, err = spannerTxn.readPage(ctx, statement, types, 0)
 
-					walk := &takenWalk{
-						tree:  &tree,
-						limit: DeleteMutationLimit,
-						tracked: func(accesstypes.Resource) bool {
-							return false
-						},
-						under:   reader.under,
-						deleted: spannerTxn.deleted.deletedRow,
-						changed: spannerTxn.deleted.changedRow,
-					}
-					found, err := walk.find(ctx, recordRow)
-					if err != nil {
-						return err
-					}
-					walked = rowNamesOf(kind.Key, found.rows[kind.Resource])
-
-					return nil
+					return err
 				})
 				if err != nil {
 					t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v", err)
 				}
-				slices.Sort(refusing)
-				if diff := cmp.Diff(want, underRows); diff != "" {
-					t.Errorf("takenReader.under() mismatch (-want +got):\n%s", diff)
-				}
-				if diff := cmp.Diff(want, refusing); diff != "" {
-					t.Errorf("takenReader.refusing() mismatch (-want +got):\n%s", diff)
-				}
 				if counted != int64(len(want)) {
 					t.Errorf("the count of the rows under the record = %d, want %d", counted, len(want))
 				}
-				if diff := cmp.Diff(want, walked); diff != "" {
-					t.Errorf("takenWalk.find() mismatch (-want +got):\n%s", diff)
+				got := make([][]any, 0, len(paged))
+				for _, row := range paged {
+					got = append(got, row.key)
+				}
+				if diff := cmp.Diff(want, got); diff != "" {
+					t.Errorf("the page of the rows under the record (-want +got):\n%s", diff)
 				}
 			})
 		}
 	}
 }
 
-// TestTakenReader_recordRow reads, over the emulator, the record's row a walk starts
-// from, for a record whose taken kind's rows are found by a column outside its key: a
-// stored row is read with that column, and a key no row has is answered as not there,
-// with no row.
-func TestTakenReader_recordRow(t *testing.T) {
+// toAny is the strings as the values a page reads them as.
+func toAny(values []string) []any {
+	held := make([]any, 0, len(values))
+	for _, value := range values {
+		held = append(held, value)
+	}
+
+	return held
+}
+
+// takingForkRow is a ForkRows record whose delete takes the tracked rows that name it.
+type takingForkRow struct {
+	ID        string `spanner:"Id"`
+	Title     string `spanner:"Title"`
+	CreatedBy string `spanner:"CreatedBy"`
+	UpdatedBy string `spanner:"UpdatedBy"`
+}
+
+func (takingForkRow) Resource() accesstypes.Resource {
+	return "ForkRows"
+}
+
+func (takingForkRow) DeleteTree() *DeleteTree {
+	return &DeleteTree{
+		Record: "ForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"},
+		Taken: []DeleteKind{{
+			Resource: "TrackedForkRows", Words: DeleteWords{One: "tracked row", Many: "tracked rows"}, Key: []string{"Id"},
+			Paths: []DeletePath{{{Columns: []string{"Title"}, Table: "ForkRows", References: []string{"Id"}}}},
+			Rows:  NewTakenRows(func(*PatchSet[trackedForkRow], *Caller) {}),
+		}},
+	}
+}
+
+// TestPatchSet_deleteTaken_rowsTheSaveWrote holds, over the emulator, a delete that
+// takes the rows under its record in a save that wrote two of them first: the one the
+// save deleted is deleted again without an error, with the one change record its first
+// delete wrote, and the one the save changed is found where it stood before the save and
+// deleted, with a record of the change and one of the delete. The delete is not refused
+// for the change.
+func TestPatchSet_deleteTaken_rowsTheSaveWrote(t *testing.T) {
 	t.Parallel()
 
-	db := forkDatabase(t, "record-row")
+	db := forkDatabase(t, "taken-rows-the-save-wrote")
 	ctx := context.Background()
 	if _, err := db.Apply(ctx, []*spanner.Mutation{
-		spanner.InsertMap("ForkRows", map[string]any{"Id": "f1", "Title": "named", "CreatedBy": "someone"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "r1", "Title": "record"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "ta", "Title": "r1"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "tb", "Title": "r1"}),
+		spanner.InsertMap("TrackedForkRows", map[string]any{"Id": "tc", "Title": "r1"}),
 	}); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
 
-	text := reflect.TypeFor[string]()
-	tree := &DeleteTree{
-		Record: "ForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"},
-		Taken: []DeleteKind{{
-			Resource: "TrackedForkRows", Words: DeleteWords{One: "tracked row", Many: "tracked rows"}, Key: []string{"Id"},
-			Paths: []DeletePath{{{Columns: []string{"Title"}, Table: "ForkRows", References: []string{"Title"}}}},
-		}},
-	}
-	columns := map[accesstypes.Resource]map[string]takenColumn{
-		"ForkRows":        {"Id": {typ: text}, "Title": {typ: text}},
-		"TrackedForkRows": {"Id": {typ: text}, "Title": {typ: text}},
-	}
-
-	tests := []struct {
-		name      string
-		key       map[string]any
-		wantRow   map[string]any
-		wantThere bool
-	}{
-		{
-			name:      "a stored row is read with the column its taken kind is found by",
-			key:       map[string]any{"Id": "f1"},
-			wantRow:   map[string]any{"Id": "f1", "Title": "named"},
-			wantThere: true,
-		},
-		{
-			name: "a key no row has is not there",
-			key:  map[string]any{"Id": "f2"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var row map[string]any
-			var there bool
-			err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
-				spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
-				if !ok {
-					return errors.Newf("the transaction is a %T, want Spanner's", txn)
-				}
-				reader := &takenReader{tree: tree, key: tt.key, txn: spannerTxn, columns: columns}
-
-				var err error
-				row, there, err = reader.recordRow(ctx, tt.key)
-
-				return err
-			})
-			if err != nil {
-				t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v", err)
-			}
-			if there != tt.wantThere {
-				t.Errorf("takenReader.recordRow() there = %v, want %v", there, tt.wantThere)
-			}
-			if diff := cmp.Diff(tt.wantRow, row); diff != "" {
-				t.Errorf("takenReader.recordRow() row mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// rowNamesOf names each row read by the values of its key in one text, as rowNames does,
-// in sorted order.
-func rowNamesOf(key []string, rows []map[string]any) []string {
-	names := make([]string, 0, len(rows))
-	for _, row := range rows {
-		values := make([]string, 0, len(key))
-		for _, column := range key {
-			values = append(values, fmt.Sprint(row[column]))
+	err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+		deleted := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(DeletePatchType)
+		deleted.SetKey("ID", "ta")
+		if err := deleted.Buffer(ctx, txn, "test"); err != nil {
+			return errors.Wrap(err, "the tracked row's own delete")
 		}
-		names = append(names, strings.Join(values, "\x00"))
-	}
-	slices.Sort(names)
+		moved := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(UpdatePatchType)
+		moved.SetKey("ID", "tb")
+		moved.Set("Title", "elsewhere")
+		if err := moved.Buffer(ctx, txn, "test"); err != nil {
+			return errors.Wrap(err, "the tracked row's change")
+		}
+		record := NewPatchSet(NewMetadata[takingForkRow]()).SetPatchType(DeletePatchType).DeleteEverythingUnder()
+		record.SetKey("ID", "r1")
 
-	return names
+		return record.Buffer(ctx, txn, "test")
+	})
+	if err != nil {
+		t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v, want the save committed", err)
+	}
+
+	count := func(sql, id string) int64 {
+		t.Helper()
+
+		var n int64
+		stmt := spanner.NewStatement(sql)
+		stmt.Params["id"] = id
+		if err := db.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+			return row.Column(0, &n)
+		}); err != nil {
+			t.Fatalf("counting for %s: %v", id, err)
+		}
+
+		return n
+	}
+	for id, want := range map[string]int64{"ta": 1, "tb": 2, "tc": 1} {
+		if got := count("SELECT COUNT(*) FROM DataChangeEvents WHERE TableName = 'TrackedForkRows' AND RowId = @id", id); got != want {
+			t.Errorf("the row %s has %d change record(s), want %d", id, got, want)
+		}
+		if got := count("SELECT COUNT(*) FROM TrackedForkRows WHERE Id = @id", id); got != 0 {
+			t.Errorf("the row %s is still there", id)
+		}
+	}
+	if row := readForkRow(t, db, "r1"); row != nil {
+		t.Errorf("the record is still there: %+v", row)
+	}
 }

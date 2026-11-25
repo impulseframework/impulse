@@ -223,17 +223,23 @@ func (p *PatchSet[Resource]) deleteCaller(ctx context.Context) *Caller {
 	return caller
 }
 
-// rowsUnderStatement is the count of one kind's rows under a record: its text, and its
-// values in the order the text names them (@d1, @d2 on Spanner; $1, $2 on PostgreSQL).
+// rowsUnderStatement is a statement about one kind's rows under a record: its text, and
+// its values in the order the text names them (@d1, @d2 on Spanner; $1, $2 on
+// PostgreSQL). Named holds the values of a check's conditions the text names by name
+// (a page of a kind's rows read with their answers; Spanner alone).
 type rowsUnderStatement struct {
-	SQL  string
-	Args []any
+	SQL   string
+	Args  []any
+	Named map[string]any
 }
 
 // spannerStatement is the statement as the Spanner client takes it, each value under
 // the name the text gives it.
 func (s rowsUnderStatement) spannerStatement() spanner.Statement {
-	params := make(map[string]any, len(s.Args))
+	params := make(map[string]any, len(s.Args)+len(s.Named))
+	for name, value := range s.Named {
+		params[name] = value
+	}
 	for i, arg := range s.Args {
 		params["d"+strconv.Itoa(i+1)] = arg
 	}
@@ -249,6 +255,9 @@ type rowsUnderWriter struct {
 	// steps counts the steps written of rows' ways to their tenants, so each reads its
 	// table under a name of its own.
 	steps int
+	// ways counts the ways up to the record written, so the rows between on each are
+	// read under names of their own.
+	ways int
 }
 
 // quote spells an identifier as the database type quotes it.
@@ -355,21 +364,23 @@ func tenantValues(kind *DeleteKind, tree *DeleteTree, recordKey map[string]any) 
 	return max(1, len(recordKey))
 }
 
-// way is the condition that a row of the kind, read as t0, is under the record by one
-// path. A path of one step compares the row's own columns with the record's key. A
-// longer one asks for the rows between, each joined to the one before it, the last
-// holding the record's key, and none of them a row the transaction deleted. A last step
-// that references a column outside the record's key (a foreign key to other columns of
-// the record's table) asks for the record's own row too, found by its key, and compares
-// with the column there.
-func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]any) string {
+// way is the condition that a row of the kind, read under the name outer (its table's),
+// is under the record by one path. A path of one step compares the row's own columns
+// with the record's key. A longer one asks for the rows between, each joined to the one
+// before it, the last holding the record's key, and none of them a row the transaction
+// deleted. A last step that references a column outside the record's key (a foreign key
+// to other columns of the record's table) asks for the record's own row too, found by
+// its key, and compares with the column there.
+func (w *rowsUnderWriter) way(path DeletePath, recordKey map[string]any, outer string) string {
+	index := w.ways
+	w.ways++
 	last := path[len(path)-1]
 	tables := make([]string, 0, len(path))
 	var (
 		conditions []string
 		excluded   string
 	)
-	alias := "t0"
+	alias := outer
 	for step, link := range path[:len(path)-1] {
 		next := fmt.Sprintf("w%d_%d", index, step+1)
 		tables = append(tables, fmt.Sprintf("%s AS %s", w.quote(link.Table), next))
@@ -406,12 +417,24 @@ func (w *rowsUnderWriter) way(index int, path DeletePath, recordKey map[string]a
 	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s%s)", strings.Join(tables, ", "), strings.Join(conditions, " AND "), excluded)
 }
 
+// anyWay is the condition that a row of the kind, read under the name outer, is under
+// the record by one of the ways.
+func (w *rowsUnderWriter) anyWay(ways []DeletePath, recordKey map[string]any, outer string) string {
+	conditions := make([]string, 0, len(ways))
+	for _, path := range ways {
+		conditions = append(conditions, w.way(path, recordKey, outer))
+	}
+
+	return "(" + strings.Join(conditions, " OR ") + ")"
+}
+
 // newRowsUnderStatement renders the count of a kind's rows under the record with the
-// given key, by any of the kind's ways up to it, leaving out the rows the transaction
-// itself deleted (written) and, where the kind's rows and the record are a tenant's,
-// the rows of another tenant (ofRecordsTenant). ok is false when the transaction
-// deleted more rows of one of the tables read than a statement leaves out by key
-// (deleteExclusionLimit): the kind is then not counted.
+// given key, by any of the kind's ways up to it (the path statement at level 0,
+// delete_cascade.go), the kind's rows read under their table's name, leaving out the
+// rows the transaction itself deleted (written) and, where the kind's rows and the
+// record are a tenant's, the rows of another tenant (ofRecordsTenant). ok is false when
+// the transaction deleted more rows of one of the tables read than a statement leaves
+// out by key (deleteExclusionLimit): the kind is then not counted.
 func newRowsUnderStatement(dbType DBType, tree *DeleteTree, kind *DeleteKind, recordKey map[string]any, written map[accesstypes.Resource][]map[string]any) (statement rowsUnderStatement, ok bool) {
 	if len(written[kind.Resource]) > deleteExclusionLimit {
 		return rowsUnderStatement{}, false
@@ -424,19 +447,14 @@ func newRowsUnderStatement(dbType DBType, tree *DeleteTree, kind *DeleteKind, re
 		}
 	}
 
-	w := &rowsUnderWriter{dbType: dbType, written: written}
-	ways := make([]string, 0, len(kind.Paths))
-	for i, path := range kind.Paths {
-		if len(path) == 0 {
-			continue
-		}
-		ways = append(ways, w.way(i, path, recordKey))
-	}
+	ways := slices.DeleteFunc(slices.Clone(kind.Paths), func(path DeletePath) bool { return len(path) == 0 })
 	if len(ways) == 0 {
 		return rowsUnderStatement{}, false
 	}
-	sql := fmt.Sprintf("SELECT COUNT(*) FROM %s AS t0 WHERE (%s)%s%s",
-		w.quote(string(kind.Resource)), strings.Join(ways, " OR "), w.ofRecordsTenant("t0.", kind, tree, recordKey), w.notWritten("t0", kind.Resource))
+	w := &rowsUnderWriter{dbType: dbType, written: written}
+	outer := w.quote(string(kind.Resource))
+	sql := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s%s%s",
+		outer, w.anyWay(ways, recordKey, outer), w.ofRecordsTenant(outer+".", kind, tree, recordKey), w.notWritten(outer, kind.Resource))
 
 	return rowsUnderStatement{SQL: sql, Args: w.args}, true
 }

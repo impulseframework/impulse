@@ -57,8 +57,8 @@ type PatchSet[Resource Resourcer] struct {
 	everythingUnder bool
 	// underAnswered marks a delete whose rows under the record were answered for when it
 	// was buffered, so nothing is counted under it before the commit: a record whose rows
-	// to take were walked (deleteTaken), and a row a record's delete takes with it
-	// (bufferTaken).
+	// to take were counted and checked (deleteTaken), and a row a record's delete takes
+	// with it (bufferTaken).
 	underAnswered bool
 	// fork is set on an update-or-create (OrCreate) and on a create-unless-there
 	// (OrSkip) patch, and nil on every other (patch_fork.go).
@@ -670,11 +670,12 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 // the tenancy check, and then the resource's delete rule (RegisterValidateDeleteFunc).
 // The rule is asked last, so a caller the grants refuse gets their Forbidden whatever
 // the rule would have said, and learns nothing from its sentence. It writes nothing. A
-// delete of one row runs it (bufferDelete), and so does whatever must know that a row
-// may go before it removes any, so the two never disagree about a row: a delete that
-// takes the row with a record it is under (deleteTaken). byRule says a refusal is the
-// row's own reason, the registered question's or the rule's, whose sentence is passed
-// on, and not the grants'. What the generated code asks comes ahead of the conditions,
+// delete of one row runs it (bufferDelete), and whatever must know that a row may go
+// before it removes any asks the same in the same order, so the two never disagree
+// about a row: a delete that takes the row with a record it is under (deleteTaken)
+// asks the grants once for the row's kind and the rest of each row (checkTaken). byRule
+// says a refusal is the row's own reason, the registered question's or the rule's,
+// whose sentence is passed on, and not the grants'. What the generated code asks comes ahead of the conditions,
 // as on the resource's own route, which asks it once the operation is decoded: a caller
 // who holds the grant, and whose condition would refuse the row, reads that question's
 // sentence where it refuses, by either way to the row.

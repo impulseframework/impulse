@@ -109,9 +109,9 @@ type DeleteKind struct {
 	RemovedWith []string
 	// Within are the links from a row of the kind to another row of its own kind (a
 	// task under a task), which no path holds, since a path never passes a table twice.
-	// A row under a taken row by one of them is under the record too, and a delete that
-	// takes the kind's rows follows them level by level (delete_cascade.go). The
-	// generator writes them for the kinds under Taken.
+	// The generator writes them for the kinds under Taken. A row under a taken row by
+	// one of them is under the record too, and a delete that takes the kind's rows finds
+	// them level by level, the deepest first (delete_cascade.go).
 	Within []DeleteLink
 	// Rows is how a delete of the record deletes a row of the kind with it. The
 	// generator writes one for each kind under Taken of a record that declares its
@@ -126,34 +126,6 @@ type DeleteKind struct {
 	// row under it, is not under it, and a delete of the record neither counts it, names
 	// it nor takes it, whoever asks.
 	Tenant *DomainBindingData
-}
-
-// sameAs reports whether the two links are the one step: the same columns to the same
-// columns of the same table.
-func (l DeleteLink) sameAs(other DeleteLink) bool {
-	return l.Table == other.Table && slices.Equal(l.Columns, other.Columns) && slices.Equal(l.References, other.References)
-}
-
-// stepsUp are the links a row of the kind is found by from the row above it: the first
-// step of each of its ways up to the record, and its links to a row of its own kind,
-// each once.
-func (k *DeleteKind) stepsUp() []DeleteLink {
-	var steps []DeleteLink
-	add := func(link DeleteLink) {
-		if !slices.ContainsFunc(steps, link.sameAs) {
-			steps = append(steps, link)
-		}
-	}
-	for _, path := range k.Paths {
-		if len(path) > 0 {
-			add(path[0])
-		}
-	}
-	for _, link := range k.Within {
-		add(link)
-	}
-
-	return steps
 }
 
 // movable reports whether a row of the kind can be taken from under the record without
@@ -224,44 +196,6 @@ func (t *DeleteTree) rowNameInside() string {
 	return "this " + t.Words.One
 }
 
-// referenced are the columns of a table that rows under one of its rows are found by:
-// the columns the taken kinds' steps up to a row of the table reference, and the
-// refusing kinds', whose rows are looked for under the rows a walk found
-// (refusingCount), each once. They are the table's key, or part of it, except where a
-// foreign key references other columns.
-func (t *DeleteTree) referenced(table string) []string {
-	var columns []string
-	for _, kinds := range [][]DeleteKind{t.Taken, t.RefusedBy} {
-		for i := range kinds {
-			for _, link := range kinds[i].stepsUp() {
-				if link.Table != table {
-					continue
-				}
-				for _, column := range link.References {
-					if !slices.Contains(columns, column) {
-						columns = append(columns, column)
-					}
-				}
-			}
-		}
-	}
-
-	return columns
-}
-
-// reads are the columns a delete that takes rows reads of a row of the table: its key,
-// and any other column the rows under it are found by (referenced).
-func (t *DeleteTree) reads(table accesstypes.Resource, key []string) []string {
-	columns := slices.Clone(key)
-	for _, column := range t.referenced(string(table)) {
-		if !slices.Contains(columns, column) {
-			columns = append(columns, column)
-		}
-	}
-
-	return columns
-}
-
 // Mutations is the one count of what a delete of the record and everything it takes
 // costs in a commit: the record's own row, and for each taken kind the number of its
 // rows under the record (rows, by the kind's resource) times what one of them costs. A
@@ -275,4 +209,138 @@ func (t *DeleteTree) Mutations(rows map[accesstypes.Resource]int, tracked func(a
 	}
 
 	return mutations
+}
+
+// sameAs reports whether the two links are the one step: the same columns to the same
+// columns of the same table.
+func (l DeleteLink) sameAs(other DeleteLink) bool {
+	return l.Table == other.Table && slices.Equal(l.Columns, other.Columns) && slices.Equal(l.References, other.References)
+}
+
+// nestingLinks are the links a row of the table is under another row of the same table
+// by, among what the record's delete takes: the links of a taken kind of the table to
+// its own kind (Within), and for the record's own table, where the record's own kind is
+// taken (a folder in a folder), the first step of each of that kind's ways up to the
+// record. Each is there once. A table with any nests: a row of it can be under another
+// row of it among what the delete takes.
+func (t *DeleteTree) nestingLinks(table string) []DeleteLink {
+	var links []DeleteLink
+	add := func(link DeleteLink) {
+		if !slices.ContainsFunc(links, link.sameAs) {
+			links = append(links, link)
+		}
+	}
+	for i := range t.Taken {
+		kind := &t.Taken[i]
+		if string(kind.Resource) != table {
+			continue
+		}
+		for _, link := range kind.Within {
+			add(link)
+		}
+		if kind.Resource == t.Record {
+			for _, path := range kind.Paths {
+				if len(path) > 0 {
+					add(path[0])
+				}
+			}
+		}
+	}
+
+	return links
+}
+
+// nestingPlace is a place on one of a kind's ways where links to a row of the same table
+// may stand: before the way's step at index at (after the last step where at is the
+// way's length), the links of the table the way stands on there (nestingLinks).
+type nestingPlace struct {
+	at    int
+	links []DeleteLink
+}
+
+// placesOn are the places on the path where the way stands on a table that nests: before
+// the first step, where the kind's own table nests and the kind is not the record's own,
+// and after each step whose table nests.
+func (t *DeleteTree) placesOn(kind *DeleteKind, path DeletePath) []nestingPlace {
+	var places []nestingPlace
+	if kind.Resource != t.Record {
+		if links := t.nestingLinks(string(kind.Resource)); len(links) > 0 {
+			places = append(places, nestingPlace{at: 0, links: links})
+		}
+	}
+	for i, step := range path {
+		if links := t.nestingLinks(step.Table); len(links) > 0 {
+			places = append(places, nestingPlace{at: i + 1, links: links})
+		}
+	}
+
+	return places
+}
+
+// waysAt are the kind's ways up to the record at the level: each of its paths with that
+// many links to a row of the same table added at the places on it (placesOn), every way
+// the links can be spread over the places and chosen at each. Level 0 is the paths
+// themselves. A kind with no place on any path has no way above level 0.
+func (t *DeleteTree) waysAt(kind *DeleteKind, level int) []DeletePath {
+	var ways []DeletePath
+	for _, path := range kind.Paths {
+		if len(path) == 0 {
+			continue
+		}
+		places := t.placesOn(kind, path)
+		for _, counts := range spread(level, len(places)) {
+			ways = append(ways, nestedWays(path, places, counts)...)
+		}
+	}
+
+	return ways
+}
+
+// spread is every way of spreading n over the given number of places, each place taking
+// none or more: the counts, place by place. With no place, n is spread only where it is
+// none.
+func spread(n, places int) [][]int {
+	if places == 0 {
+		if n == 0 {
+			return [][]int{{}}
+		}
+
+		return nil
+	}
+	var spreads [][]int
+	for here := 0; here <= n; here++ {
+		for _, rest := range spread(n-here, places-1) {
+			spreads = append(spreads, append([]int{here}, rest...))
+		}
+	}
+
+	return spreads
+}
+
+// nestedWays are the path with counts[i] links added at places[i], each link any of the
+// place's, in every combination.
+func nestedWays(path DeletePath, places []nestingPlace, counts []int) []DeletePath {
+	ways := []DeletePath{{}}
+	next := 0
+	for at := 0; at <= len(path); at++ {
+		if next < len(places) && places[next].at == at {
+			for range counts[next] {
+				grown := make([]DeletePath, 0, len(ways)*len(places[next].links))
+				for _, way := range ways {
+					for _, link := range places[next].links {
+						grown = append(grown, append(slices.Clone(way), link))
+					}
+				}
+				ways = grown
+			}
+			next++
+		}
+		if at < len(path) {
+			for i := range ways {
+				ways[i] = append(ways[i], path[at])
+			}
+		}
+	}
+
+	return ways
 }

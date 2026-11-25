@@ -1868,20 +1868,20 @@ with nothing gone where it cannot be made whole:
 | What stops it | Status | Message |
 | --- | --- | --- |
 | A row of a kind the record lists under `refusedBy` | 409 | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
-| A row under the record that the same request changes | 409 | `This request also changes a record under this mission. Send the change and the delete separately.` |
 | More rows than one commit takes | 409 | `This mission has too many records under it to delete at once. Delete some of them first.` |
 | A row the person may not delete, of a kind they may list | 403 | `This mission has sortie expenses that you can't delete, so it can't be deleted.` |
 | A row the person may not delete, of a kind they may not list | 403 | `This mission has records under it that you can't delete, so it can't be deleted.` |
 | A row its delete rule refuses (`@validateDeleteType`) | the rule's | the rule's own sentence |
 
-- The rows are found level by level from the record, by each kind's ways up to it
-  (`DeleteKind.Paths`), on the columns each foreign key references (`DeleteLink.References`),
-  the other table's key or not: a relay names its call by the call's case number. A kind's
-  link to itself (`DeleteKind.Within`: an answer names the relay it answers) is followed
-  until a level finds nothing new, so a row under a row of its own kind goes however deep
-  it is, and so does one that is under the record through such a row alone.
+- The rows are found a kind at a time, by one statement that follows the kind's ways up to
+  the record (`DeleteKind.Paths`), on the columns each foreign key references
+  (`DeleteLink.References`), the other table's key or not: a relay names its call by the
+  call's case number. A kind that sits under itself (`DeleteKind.Within`: an answer names
+  the relay it answers) is found level by level, the same statement with the kind's link
+  to itself repeated until a level finds nothing; a row nested deeper than the database
+  joins in one statement is deleted first, by its own delete.
 - A row is under a record of a tenant only where it is that tenant's. For a kind whose
-  rows are a tenant's (`@domain`), each level reads the rows of the record's own tenant
+  rows are a tenant's (`@domain`), each statement reads the rows of the record's own tenant
   alone: the tenant the record's key holds (the tenant record, or a record keyed by its
   tenant), or the one the record's row resolves to (`DeleteTree.Tenant`), compared with
   the tenant each row of the kind resolves to (`DeleteKind.Tenant`), through other rows
@@ -1905,18 +1905,18 @@ with nothing gone where it cannot be made whole:
   the one the database holds them in, which the refusal prints.
 - A row of a kind the record lists under `refusedBy` refuses the delete wherever it is
   under the record. One under a row that is under the record through a row of its own
-  kind alone (an invoice for a task under a task) is on none of the kind's ways up, so it
-  is looked for under the rows found, each row counted once, and the delete answers in
-  the same counted sentence before any row is checked, asked about or deleted.
+  kind alone (an invoice for a task under a task) is found level by level as the rows the
+  delete takes are, and the delete answers in the same counted sentence before any row
+  is checked, asked about or deleted.
 - Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
   generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind,
   what a session that acts as someone else is asked about a row that decides what a
   person may do (`identity.RefuseImpersonatorAsRowSubject` and the two beside it), the
   grant's condition against the row, the kind's delete rule, its change record where
   the kind is tracked, and the release of its stored
-  files. One row that may not go stops the whole delete. One thing a kind's own route
-  asks is not asked here yet: a kind behind a feature flag (`@feature`) goes with the
-  record while its flag is off.
+  files. One row that may not go stops the whole delete. A kind behind a feature flag
+  (`@feature`) goes with the record whether its flag is on or off: a flag turns a
+  feature's routes and pages off, and does not change what belongs to a record.
 - The tenant record declares nothing, and `@deleteCascade` on it is refused: the library
   declares what a tenant's delete takes, which is every kind of the application's whose
   rows carry the tenant's key or lead to a row that does. Its rows are found, asked about

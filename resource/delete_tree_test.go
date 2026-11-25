@@ -102,50 +102,70 @@ func TestDeleteWords_Count(t *testing.T) {
 	}
 }
 
-// TestDeleteTree_walk pins what a delete that takes rows reads to find them: a kind's
-// rows are found from the row above by the first step of each of its ways up and by its
-// links to a row of its own kind, each step once; and a row is read with its key and
-// any other column the rows under it are found by, which is a column outside its key
-// where a foreign key references one, a refusing kind's among them.
-func TestDeleteTree_walk(t *testing.T) {
+// TestDeleteTree_waysAt pins the ways a kind's rows are found under the record at each
+// level: level 0 is the declared paths; above it, a link to a row of the same table is
+// added at each place the way stands on a table that nests, before the first step where
+// the kind's own table does and after each step whose table does, every way the links
+// can be spread over the places; a kind with no such place has no way above level 0;
+// and the record's own kind nests by the first step of its ways (a folder in a folder).
+func TestDeleteTree_waysAt(t *testing.T) {
 	t.Parallel()
 
 	byProject := DeleteLink{Columns: []string{"ProjectId"}, Table: "Projects", References: []string{"Id"}}
+	bySection := DeleteLink{Columns: []string{"SectionId"}, Table: "Sections", References: []string{"Id"}}
+	byParentSection := DeleteLink{Columns: []string{"ParentSectionId"}, Table: "Sections", References: []string{"Id"}}
 	byParent := DeleteLink{Columns: []string{"ParentTaskId"}, Table: "Tasks", References: []string{"Id"}}
 	byTask := DeleteLink{Columns: []string{"TaskId"}, Table: "Tasks", References: []string{"Id"}}
-	byTaskCode := DeleteLink{Columns: []string{"TaskCode"}, Table: "Tasks", References: []string{"Code"}}
 	byProjectCode := DeleteLink{Columns: []string{"ProjectCode"}, Table: "Projects", References: []string{"Code"}}
-	byTaskNumber := DeleteLink{Columns: []string{"TaskNumber"}, Table: "Tasks", References: []string{"Number"}}
 	tree := &DeleteTree{
 		Record: "Projects",
 		Key:    []string{"Id"},
 		Taken: []DeleteKind{
-			// A comment is under a task by its id, and a second way by the task's code.
-			{Resource: "Comments", Key: []string{"Id"}, Paths: []DeletePath{{byTask, byProject}, {byTaskCode, byProject}, {byTask, byProject}}},
+			{Resource: "Notes", Key: []string{"Id"}, Paths: []DeletePath{{byTask, bySection, byProject}}},
 			{Resource: "Labels", Key: []string{"Id"}, Paths: []DeletePath{{byProjectCode}}},
-			// A task's link to its parent is written with its ways up too: one step.
-			{Resource: "Tasks", Key: []string{"Id"}, Paths: []DeletePath{{byProject}}, Within: []DeleteLink{byParent, byProject}},
+			{Resource: "Tasks", Key: []string{"Id"}, Paths: []DeletePath{{bySection, byProject}}, Within: []DeleteLink{byParent}},
+			{Resource: "Sections", Key: []string{"Id"}, Paths: []DeletePath{{byProject}}, Within: []DeleteLink{byParentSection}},
 		},
-		// An invoice refuses the delete, and is looked for under a task by the task's
-		// number.
-		RefusedBy: []DeleteKind{
-			{Resource: "Invoices", Key: []string{"Id"}, Paths: []DeletePath{{byTaskNumber, byProject}}},
-		},
+	}
+	byFolder := DeleteLink{Columns: []string{"ParentId"}, Table: "Folders", References: []string{"Id"}}
+	folders := &DeleteTree{
+		Record: "Folders",
+		Key:    []string{"Id"},
+		Taken:  []DeleteKind{{Resource: "Folders", Key: []string{"Id"}, Paths: []DeletePath{{byFolder}}}},
 	}
 
-	if diff := cmp.Diff([]DeleteLink{byTask, byTaskCode}, tree.Taken[0].stepsUp()); diff != "" {
-		t.Errorf("a comment's steps up mismatch (-want +got):\n%s", diff)
+	tests := []struct {
+		name  string
+		tree  *DeleteTree
+		kind  int
+		level int
+		want  []DeletePath
+	}{
+		{name: "level 0 is the declared paths", tree: tree, kind: 0, level: 0, want: []DeletePath{{byTask, bySection, byProject}}},
+		{name: "a kind under itself, one level up", tree: tree, kind: 3, level: 1, want: []DeletePath{{byParentSection, byProject}}},
+		{name: "a kind under itself, two levels up", tree: tree, kind: 3, level: 2, want: []DeletePath{{byParentSection, byParentSection, byProject}}},
+		{
+			name: "a kind under itself on a way through another that sits under itself", tree: tree, kind: 2, level: 1,
+			want: []DeletePath{{bySection, byParentSection, byProject}, {byParent, bySection, byProject}},
+		},
+		{
+			name: "a kind under two that sit under themselves, the links spread every way", tree: tree, kind: 0, level: 2,
+			want: []DeletePath{
+				{byTask, bySection, byParentSection, byParentSection, byProject},
+				{byTask, byParent, bySection, byParentSection, byProject},
+				{byTask, byParent, byParent, bySection, byProject},
+			},
+		},
+		{name: "a kind with no place has no way above level 0", tree: tree, kind: 1, level: 1, want: nil},
+		{name: "the record's own kind, a folder in a folder", tree: folders, kind: 0, level: 1, want: []DeletePath{{byFolder, byFolder}}},
 	}
-	if diff := cmp.Diff([]DeleteLink{byProject, byParent}, tree.Taken[2].stepsUp()); diff != "" {
-		t.Errorf("a task's steps up mismatch (-want +got):\n%s", diff)
-	}
-	for table, want := range map[accesstypes.Resource][]string{
-		"Projects": {"Id", "Code"},
-		"Tasks":    {"Id", "Code", "Number"},
-		"Comments": {"Id"},
-	} {
-		if diff := cmp.Diff(want, tree.reads(table, []string{"Id"})); diff != "" {
-			t.Errorf("the columns read of %s mismatch (-want +got):\n%s", table, diff)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, tt.tree.waysAt(&tt.tree.Taken[tt.kind], tt.level)); diff != "" {
+				t.Errorf("waysAt() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
