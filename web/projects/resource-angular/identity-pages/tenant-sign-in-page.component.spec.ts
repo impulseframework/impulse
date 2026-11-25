@@ -43,11 +43,12 @@ import { TenantSignIn, tenantSignInKey, tenantSignInRoute } from './tenant-sign-
 // the request names none; signed in by password they are offered no such action and told
 // how a directory is set. They remove the directory once
 // they confirm. Everything else is one of the tenant's own methods, run through the
-// library's method dialog: the role a person gets the first time they sign in through the
-// directory is picked in the dialog behind the server's warning and the word it has them
-// type, and the directory's people are made to need an invitation again on a plain
-// confirmation; the tenant is made directory only behind the server's warning and the
-// typed word, and the switch is turned off on a plain confirmation. A refusal of a warning
+// library's method dialog: the role a person gets when they sign in through the
+// directory and hold nothing in the tenant is picked in the dialog behind the server's
+// warning and the word it has them type, and the directory's people are made to need an
+// invitation again on a plain confirmation; the tenant is made directory only behind the
+// server's warning and the typed word, and the switch is turned off on a plain
+// confirmation. A refusal of a warning
 // is shown on the page in the server's words and no dialog opens. A reader with the list
 // alone is told whether there is a directory; a reader without the grants is told their
 // role does not cover the page, and nothing is requested.
@@ -520,7 +521,7 @@ describe('TenantSignInPageComponent', () => {
     expect(texts('h1')).toEqual(['Sign-in settings']);
     expect(texts('h2')).toEqual([
       'Directory',
-      'The role a person gets the first time they sign in through it',
+      'The role a person gets when they sign in through it and hold nothing here',
       'Second factor',
       'Directory only',
     ]);
@@ -766,9 +767,7 @@ describe('TenantSignInPageComponent', () => {
     expect(texts('.impulse-tenant-sign-in-default-role')).toEqual(['Nobody: by invitation only']);
     expect(texts('.impulse-tenant-sign-in-change-role')).toEqual(['Choose a role']);
     expect(button('invite-only')).toBeNull();
-    expect(texts('.impulse-tenant-sign-in-change-role ~ .impulse-tenant-sign-in-note')).toEqual([
-      'Someone whose role you remove afterwards is not given it back by signing in.',
-    ]);
+    expect(element().querySelector('.impulse-tenant-sign-in-change-role ~ .impulse-tenant-sign-in-note')).toBeNull();
 
     button('change-role')?.click();
     await turn();
@@ -777,13 +776,13 @@ describe('TenantSignInPageComponent', () => {
     expect(sent('open-team-to-directory')[0]).toEqual({ kind: 'warning', body: { role: '' } });
     expect(calls('open-team-to-directory')).toEqual([]);
     expect(dialogText('[mat-dialog-title]')).toBe('Choose the role');
+    // The dialog says what the role is for on a line of its own, whole at every width.
+    expect(dialogText('.says')).toBe('The role a person gets when they sign in through it and hold nothing here');
     expect(dialogText('.typed-word mat-label')).toBe('Type open to confirm');
     expect(runButton().disabled).toBe(true);
     const dialog = TestBed.inject(MatDialog).openDialogs[0]?.componentInstance as MethodDialogComponent;
-    // The role's input says what it sets, and lists each role by its name and description.
-    expect(dialog.elements.map((e) => e.label)).toEqual([
-      'The role a person gets the first time they sign in through it',
-    ]);
+    // The role's input is labeled Role, and lists each role by its name and description.
+    expect(dialog.elements.map((e) => e.label)).toEqual(['Role']);
     expect(dialog.elements[0]?.enumeratedConfig.listDisplay).toEqual(['name', 'description']);
 
     // The role is picked: the dialog asks the server what that choice will do and shows its words.
@@ -813,6 +812,9 @@ describe('TenantSignInPageComponent', () => {
 
     expect(texts('.impulse-tenant-sign-in-default-role')).toEqual(['Editor']);
     expect(texts('.impulse-tenant-sign-in-change-role')).toEqual(['Change the role']);
+    expect(texts('.impulse-tenant-sign-in-change-role ~ .impulse-tenant-sign-in-note')).toEqual([
+      'Removing someone does not keep them out: they are given this role again the next time they sign in through the directory. To keep someone out, disable their account.',
+    ]);
 
     button('invite-only')?.click();
     await turn();
@@ -1544,7 +1546,10 @@ describe('TenantSignInPageComponent', () => {
 
     expect(readsOfTheSettings()).toBe(1);
     expect(texts('.impulse-tenant-sign-in-directory')).toEqual([directory]);
-    expect(texts('h2')).toEqual(['Directory', 'The role a person gets the first time they sign in through it']);
+    expect(texts('h2')).toEqual([
+      'Directory',
+      'The role a person gets when they sign in through it and hold nothing here',
+    ]);
     expect(element().querySelector('.impulse-tenant-sign-in-directory-only')).toBeNull();
   });
 

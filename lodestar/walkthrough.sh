@@ -929,7 +929,7 @@ r=$(req pioneer GET "$EMBER/missions"); check "Ember's flight deck answers her, 
 assert_py "an empty flight deck: Ember is charted, not yet flown" "$r" "rows == []"
 r=$(req pioneer GET "$EMBER/sector-directories"); assert_py "Ember has no directory: a sector charted by sign-up takes none, whichever way its maker signed in, and Ember admits her as it admits a password (tenancy.creator-directory)" "$r" "rows==[]"
 r=$(req pioneer GET "$API/user/session"); assert_py "her session names no directory for the Sign-in page to offer" "$r" "'directory' not in rows"
-r=$(req pioneer PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$EMBER_ID"'/sector-directories","value":{}}]'); check "her call to make the account she signed in with Ember's directory is refused" 409 "$r"
+r=$(req pioneer POST "$EMBER/take-sector-directory" '{}'); check "her call to make the account she signed in with Ember's directory, with the sector's own method, is refused" 409 "$r"
 assert_py "saying a personal Google account is not an organization's directory, and what to sign in with" "$r" "'A personal Google account is not an organization' in rows['message'] and 'Google Workspace or Microsoft Entra' in rows['message']"
 r=$(req pioneer POST "$API/create-sector" '{"name":"Ember Two","region":"Near frontier","established":"2226-10-21"}'); check "a second sector is refused her: one sector per person" 403 "$r"
 r=$(req surveyor GET "$API/sectors"); assert_py "the sector list carries Ember, in name order" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder','Dawn','Ember']"
@@ -961,8 +961,9 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # that names a method and a connection is refused. The navigator, made a marshal and a
 # super administrator, is signed in through the Workspace: he is refused a second sector
 # for it and a second directory for Bastion, removes it from Cinder, makes it Anvil's with
-# a create that names no directory, and is refused removing Bastion's while Bastion is
-# directory only. The switch is the sector's own, a method in the sector's scope that its
+# the sector's own method, which names no directory, and is refused removing Bastion's
+# while Bastion is directory only. The switch is the sector's own, a method in the
+# sector's scope that its
 # marshal runs; the Sectors record, which headquarters writes, shows the flag and takes
 # no write of it. Turning it off is plain: the governor, a marshal in every sector, does
 # it by password, the rigger's chart lights Bastion and the bosun signs in. Turning it on
@@ -1008,27 +1009,27 @@ r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "C
 CINDER_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
 r=$(req governor GET "$API/sectors/$BASTION_ID/sector-directories"); assert_py "Bastion's directory is the persona provider of the test environments, with no default seat: a sector that is directory only has the directory it is only of" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('oidc','persona',None)]"
 BASTION_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
-MAKE_ANVILS='[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/sector-directories","value":{}}]'
-r=$(req rigger PATCH "$API/resources" "$MAKE_ANVILS"); check "the rigger holds no Create on SectorDirectories" 403 "$r"
+TAKE_ANVILS="$ANVIL/take-sector-directory"
+r=$(req rigger POST "$TAKE_ANVILS" '{}'); check "the rigger holds no grant on the sector's method that takes its directory" 403 "$r"
 r=$(req governor GET "$API/user/session"); assert_py "the governor's session names no directory: he signed in with a password" "$r" "'directory' not in rows"
-r=$(req governor PATCH "$API/resources" "$MAKE_ANVILS"); check "the governor, marshal in every sector, is refused making a directory Anvil's: nobody types a directory in, and he is signed in through none" 409 "$r"
+r=$(req governor POST "$TAKE_ANVILS" '{}'); check "the governor, marshal in every sector, is refused making a directory Anvil's: nobody types a directory in, and he is signed in through none" 409 "$r"
 assert_py "and the refusal says how a directory is set" "$r" "'You are signed in with a password. A directory is set by signing in through it' in rows['message']"
-r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/sector-directories","value":{"method":"google","connection":"example"}}]'); check "a request that names a method and a connection is refused: the record takes neither" 400 "$r"
+r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/sector-directories","value":{"method":"google","connection":"example"}}]'); check "the record's own create, which names a method and a connection, is refused: the record takes neither, and a directory is taken by the sector's own method" 400 "$r"
 r=$(req navigator GET "$API/user/session"); assert_py "the navigator's session names the organization's directory he came through, which is what the Sign-in page offers to make the sector's" "$r" "rows['directory']=={'method':'google','connection':'example'}"
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"SectorMarshal\",\"everyDomain\":true}"); check "the governor makes the navigator a marshal in every sector" 204 "$r"
-r=$(req navigator PATCH "$API/resources" "$MAKE_ANVILS"); check "the navigator, a marshal at Anvil, is refused making the fleet's Workspace Anvil's: it is Cinder's, and a directory belongs to one sector" 409 "$r"
+r=$(req navigator POST "$TAKE_ANVILS" '{}'); check "the navigator, a marshal at Anvil, is refused making the fleet's Workspace Anvil's: it is Cinder's, and a directory belongs to one sector" 409 "$r"
 assert_py "and the refusal says what to do" "$r" "'Google Workspace example already has a sector here, and a directory belongs to one sector' in rows['message'] and 'administrator to invite you' in rows['message']"
 r=$(req governor GET "$ANVIL/sector-directories"); assert_py "Anvil still has no directory" "$r" "rows==[]"
-r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$CINDER_ID"'/sector-directories","value":{}}]'); check "and refused making it Cinder's a second time: a sector has one directory" 409 "$r"
+r=$(req navigator POST "$API/sectors/$CINDER_ID/take-sector-directory" '{}'); check "and refused making it Cinder's a second time: a sector has one directory" 409 "$r"
 assert_py "since it is the sector's directory already" "$r" "'Google Workspace example is already this sector' in rows['message']"
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"SuperAdministrator\"}"); check "the governor makes the navigator a super administrator, which only a super administrator gives: the one person who enters a sector whatever its sign-in settings say" 204 "$r"
 r=$(req navigator GET "$API/user-domains"); check "giving the role ends nothing: the session he holds, through the fleet's directory, answers as before" 200 "$r"
 assert_py "and that session is a super administrator's from then on: his chart lights every sector, Bastion among them, with none closed" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
-r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$BASTION_ID"'/sector-directories","value":{}}]'); check "the navigator is refused making the Workspace Bastion's: Bastion has its directory, and a sector has one" 409 "$r"
+r=$(req navigator POST "$API/sectors/$BASTION_ID/take-sector-directory" '{}'); check "the navigator is refused making the Workspace Bastion's: Bastion has its directory, and a sector has one" 409 "$r"
 assert_py "and the refusal names the directory it has and what to do" "$r" "'This sector already has a directory, OpenID Connect provider Persona. A sector has one directory: remove it first to set another.' in rows['message']"
 r=$(req navigator PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$CINDER_ID/sector-directories/$CINDER_DIRECTORY\"}]"); check "the navigator removes Cinder's directory: the Workspace is free for another sector" 200 "$r"
 r=$(req governor GET "$API/sectors/$CINDER_ID/crew-sector-user-roles"); assert_py "the role the directory gave him at Cinder stands once the directory is removed" "$r" "'SectorCrew' in [h['role'] for h in rows if h['username']=='navigator']"
-r=$(req navigator PATCH "$API/resources" "$MAKE_ANVILS"); check "the navigator makes the directory he is signed in through Anvil's, with a create that names no directory" 200 "$r"
+r=$(req navigator POST "$TAKE_ANVILS" '{}'); check "the navigator makes the directory he is signed in through Anvil's, with the sector's own method, which names no directory" 200 "$r"
 r=$(req governor GET "$ANVIL/sector-directories"); assert_py "Anvil's directory is the fleet's Workspace, taken from his session, and its row names no default seat" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example',None)]"
 ANVIL_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
 r=$(req rigger GET "$API/user-domains"); assert_py "a directory closes its sector to nobody: the rigger, by password, still charts Anvil" "$r" "$OPEN == ['$ANVIL_ID']"
@@ -1047,7 +1048,7 @@ r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); as
 assert_py "the bosun's and the pilot's rows say so too, and the governor's, a super administrator, says nothing" "$r" "[u.get('cannotEnter') for u in rows if u['username'] in ('bosun','pilot')]==[\"$KEPT_OUT\",\"$KEPT_OUT\"] and [u.get('cannotEnter') for u in rows if u['username']=='governor']==[None]"
 MAKE_ONLY="$API/sectors/$BASTION_ID/make-sector-directory-only"
 END_ONLY="$API/sectors/$BASTION_ID/end-sector-directory-only"
-r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "the governor, a marshal in every sector, reads Bastion's switch in the sector: it is on" "$r" "rows=={'directoryOnly': True}"
+r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "the governor, a marshal in every sector, reads Bastion's switch in the sector: it is on" "$r" "rows['directoryOnly'] is True"
 r=$(warning governor "$MAKE_ONLY" '{}'); check "asked what turning it on would do while it is on, the warning is refused: there is nothing to turn on" 409 "$r"
 assert_py "and says so, naming neither Bastion's directory nor its people" "$r" "rows['message']=='This sector is directory only already: only people who sign in through its directory enter it. There is nothing to turn on.'"
 r=$(warning governor "$END_ONLY" '{}'); check "turning it off declares no warning: a request for one is refused, and runs nothing" 400 "$r"
@@ -1129,7 +1130,7 @@ r=$(req rigger GET "$API/user-domains"); assert_py "the rigger is kept out again
 RIGGER_ID=$(account rigger)
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$RIGGER_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor makes the rigger a marshal of Bastion itself" 204 "$r"
 r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at her next request, with nothing closed: Bastion admits its own marshal by her password and the code" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $CLOSED == {}"
-r=$(req rigger GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and she reads Bastion's switch, which she could turn off from the inside: it is on" "$r" "rows=={'directoryOnly': True}"
+r=$(req rigger GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and she reads Bastion's switch, which she could turn off from the inside: it is on" "$r" "rows['directoryOnly'] is True"
 r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "the governor reads Bastion's sign-in settings, which say whether the sector vouches for its directory's second factor" "$r" "'secondFactor' in rows"
 r=$(warning governor "$API/sectors/$BASTION_ID/vouch-for-sector-directory-second-factor" '{}'); check "signed in with a password, the governor is refused the warning of vouching for Bastion's directory: only a person signed in through it may say so" 409 "$r"
 r=$(warning governor "$API/sectors/$DAWN_ID/vouch-for-sector-directory-second-factor" '{}'); check "and in Dawn, which has no directory, there is no directory to vouch for" 409 "$r"
@@ -1141,7 +1142,7 @@ r=$(req rookie GET "$API/user-domains"); assert_py "the rookie, through Bastion'
 r=$(req rookie GET "$API/sectors/$BASTION_ID/missions"); check "Bastion's missions answer him" 200 "$r"
 r=$(req governor POST "$API/remove-crew-role" "{\"userId\":\"$ROOKIE_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor takes the marshal's role back from the rookie" 204 "$r"
 r=$(req navigator PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the navigator removes Anvil's directory: Anvil is not directory only, and the Workspace is free again" 200 "$r"
-r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$CINDER_ID"'/sector-directories","value":{}}]'); check "the navigator makes the fleet's Workspace Cinder's directory again" 200 "$r"
+r=$(req navigator POST "$API/sectors/$CINDER_ID/take-sector-directory" '{}'); check "the navigator makes the fleet's Workspace Cinder's directory again, with the sector's own method" 200 "$r"
 r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "a row set from a sign-in names no default seat: a stranger from the fleet's directory is admitted by invitation only until one is named" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example',None)]"
 CINDER_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
 # How a sector admits its directory's people is the sector's own to say, with two more

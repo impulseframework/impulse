@@ -353,7 +353,7 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 // new, stood before, or was tied to the directory before the sector took it, and
 // whatever the person holds in other sectors. A person a marshal removes from the
 // sector is given the starting role again the next time they sign in through the
-// directory. A role with no privileges keeps one person out while the sector is open;
+// directory. Disabling their account keeps one person out while the sector is open;
 // making the sector invite only keeps everyone out who is not invited.
 //
 // The cadet is a password persona, seated in Anvil and nowhere else. The fleet's

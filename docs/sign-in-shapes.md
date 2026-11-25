@@ -1188,6 +1188,41 @@ Deleting a tenant takes its directory with it, whether the tenant is directory o
 not, along with the roles held in the tenant, the invitations into it that still stand
 and its rows. The directory can then be made another tenant's.
 
+### Keeping a person out of an open tenant
+
+A tenant that is open to its directory gives its default role to every person who signs in
+through the directory and holds nothing in the tenant, at every sign-in. So removing a
+person from the tenant, or taking their roles away, does not keep them out: they are given
+the default role again the next time they sign in through the directory. Deleting their
+account does not keep them out either: their next sign-in through the directory makes a
+new account with the default role.
+
+What keeps a person out depends on how far out they should be.
+
+- **Out of the application, for good or for a while.** Disable their account. A disabled
+  account is refused at every sign-in and given nothing, its sessions end at once, and
+  enabling it brings the person back with every role they held. The tenant whose directory
+  a person signs in through manages their account, so with the skeletons' role file its
+  administrator can disable it, also when the person is in other tenants. Disabling is for
+  the whole application: a person who is also in another tenant cannot sign in to any
+  tenant until the account is enabled again. Delete the account once the person is out of
+  the organization's directory.
+- **Out of this tenant only, while they go on working in another** (where a person may be
+  in several tenants). Make a group with no roles in the tenant, which the skeletons' role
+  file lets a tenant's administrator do, put the person in it, and then take away the roles
+  they hold in the tenant, one at a time. A place in a group counts as holding something in
+  the tenant, so the directory gives them nothing, and a group with no roles lets them do
+  nothing there. Do not use Remove from the tenant: it takes the place in the group with
+  the roles, and the person is given the default role again.
+- **A whole class of people, or someone who has not signed in yet.** Make the tenant invite
+  only, or have the organization block the application for those people in its own
+  directory. Nobody has an account before their first sign-in, so until then there is
+  nothing to disable.
+
+A tenant that is made invite only and later opened again gives the default role to
+everyone who signs in through the directory and holds nothing in it by then, the people
+removed in the meantime among them.
+
 ### Who manages an account
 
 A person has one account in the auth, whatever the number of tenants they are in: a
@@ -1342,6 +1377,10 @@ does `--shape` with shape 5 or 6. With the option:
   also carries an invitation into the directory's tenant is refused for such a person, as an
   invitation into a second tenant is: they sign in once without the invitation, are moved, and
   can accept it then;
+- putting such a person back into the other tenant holds only until their next sign-in
+  through the directory, which moves them again: the directory's tenant owns its
+  directory's people. To release one of them to another tenant, the directory's tenant is
+  made invite only, and an invite-only tenant moves nobody;
 - the move is made as soon as the directory has vouched for the person, also where the
   application then holds the sign-in for a code of its own that is never entered. A
   tenant made from a staff invitation that named a role is open from its first day and
@@ -1621,10 +1660,12 @@ the directory's default role, at every sign-in: whether their account is created
 existed before, or was tied to the directory before the tenant took it. A person who
 holds anything in the tenant is given nothing more. So a person whose role the tenant's
 administrator took away is given the default role again at their next sign-in through
-the directory. To keep one person out while the tenant is open, give them a role with no
-privileges. To keep out everyone who is not invited, make the tenant invite only. A
-person who leaves the tenant themselves, or whose last role in it is taken away, is
-given the default role again the same way.
+the directory. To keep one person out while the tenant is open, disable their account. To
+keep out everyone who is not invited, make the tenant invite only.
+[Keeping a person out of an open tenant](#keeping-a-person-out-of-an-open-tenant) says
+what each does, and how to keep a person out of one tenant alone. A person who leaves the
+tenant themselves, or whose last role in it is taken away, is given the default role
+again the same way.
 
 The default role must stay one of the tenant's roles. If the role no longer exists (a
 custom role that was deleted, a role a release removed from the role file), a person of

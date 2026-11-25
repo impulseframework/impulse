@@ -1250,6 +1250,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
+			name:         "DeleteStaffTenantUser warning denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/delete-staff-tenant-user",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
 			name:         "DeleteStaffUser denied",
 			method:       http.MethodPost,
 			target:       "/api/delete-staff-user",

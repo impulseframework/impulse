@@ -42,7 +42,7 @@ type (
 	// admits the directory's people by invitation only (a stranger is refused with
 	// no account, and an invitation is the way in). A person an administrator
 	// removes from the tenant is given the role again the next time they sign in
-	// through the directory: a role with no privileges keeps one person out while
+	// through the directory: disabling their account keeps one person out while
 	// the tenant is open, and making the tenant invite only keeps everyone out who
 	// is not invited. The record shows it and its own update never writes it: the
 	// tenant's own methods name it and clear it.

@@ -791,6 +791,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],
