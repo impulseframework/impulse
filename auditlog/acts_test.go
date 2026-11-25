@@ -5,6 +5,8 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -108,6 +110,41 @@ func TestActsHoldsEveryConstant(t *testing.T) {
 		if Act(value).Words() == "" || Act(value).Words() == value {
 			t.Errorf("%s (%q) has no words", name, value)
 		}
+	}
+}
+
+// TestActsAreThePagesChoices holds the Audit log page's filter of what was done to Acts:
+// the browser library's list (auditActWords in
+// web/projects/resource-angular/identity-pages/identity-pages.ts) offers one choice for
+// each act, by its stored name and in its words, in Acts' order, so an act or a word
+// changed here is changed there in the same change.
+func TestActsAreThePagesChoices(t *testing.T) {
+	t.Parallel()
+
+	file := filepath.Join("..", "web", "projects", "resource-angular", "identity-pages", "identity-pages.ts")
+	source, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%s) error = %v", file, err)
+	}
+	_, list, found := strings.Cut(string(source), "const auditActWords")
+	if !found {
+		t.Fatalf("%s declares no auditActWords", file)
+	}
+	list, _, found = strings.Cut(list, "\n];")
+	if !found {
+		t.Fatalf("%s: auditActWords has no end", file)
+	}
+	choices := regexp.MustCompile(`\{ value: '([^']*)', label: (?:'([^']*)'|"([^"]*)") \}`).FindAllStringSubmatch(list, -1)
+	got := make([]string, 0, len(choices))
+	for _, choice := range choices {
+		got = append(got, choice[1]+": "+choice[2]+choice[3])
+	}
+	want := make([]string, 0, len(Acts()))
+	for _, act := range Acts() {
+		want = append(want, string(act)+": "+act.Words())
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("%s offers the acts\n%q\nand Acts with Words gives\n%q", file, got, want)
 	}
 }
 

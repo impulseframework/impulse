@@ -993,7 +993,8 @@ class SideBuilder {
    * sentence of the log: its own words are the labels and the act filter's choices
    * (auditActWords). A row done to an account opens the account where the person's id
    * names the list of the accounts. The list is built as it is read, so the page asks for
-   * no total and sorts by the time alone.
+   * no total and sorts by the time alone. It draws no search box: a box would search the
+   * names a row stores, not the words its cells draw.
    */
   auditLog(): RootConfig | undefined {
     const { lists } = this.side;
@@ -1046,6 +1047,7 @@ class SideBuilder {
         ...(opensAccount ? { rowRoute: 'userId' as FieldName } : {}),
         emptyMessage: 'Nothing has been recorded yet.',
         showRowCount: false,
+        showSearchBox: false,
         listColumns,
         rowMethods: false,
         elements: [],

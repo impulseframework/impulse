@@ -2546,7 +2546,8 @@ describe('identityPages, the Audit log page', () => {
   it('asks for no total, has no row menu, says when nothing is recorded, and opens the account a row was done to', () => {
     for (const page of [global(), domain()]) {
       const config = list(page);
-      expect([config.showRowCount, config.rowMethods, config.emptyMessage]).toEqual([
+      expect([config.showRowCount, config.showSearchBox, config.rowMethods, config.emptyMessage]).toEqual([
+        false,
         false,
         false,
         'Nothing has been recorded yet.',

@@ -98,14 +98,14 @@ const descriptor: ApiDescriptor = {
 };
 
 const ada = 'a1111111-1111-4111-8111-111111111111';
-/** A role given to an account, and a setting changed: a row done to no account. */
+/** A role given to an account, and a setting changed: a row done to no account, which stores no name. */
 const rows = [
   {
     id: 'e1111111-1111-4111-8111-111111111111',
     at: '2026-11-25T09:30:00Z',
     act: 'roleGiven',
     who: 'grace',
-    what: 'Gave the role Editor in the sector',
+    what: 'Gave the role Editor',
     doneTo: 'Ada Lovelace',
     actorUsername: 'grace',
     subjectKind: 'account',
@@ -121,11 +121,11 @@ const rows = [
     at: '2026-11-25T09:00:00Z',
     act: 'secondFactorRequired',
     who: 'grace',
-    what: 'Required a second factor at every sign-in',
+    what: 'Required a second factor of everyone',
     doneTo: 'Second factor',
     actorUsername: 'grace',
     subjectKind: 'setting',
-    subjectName: 'secondFactor',
+    subjectName: null,
     userId: null,
     role: null,
     tenantId: null,
@@ -213,8 +213,8 @@ describe('the Audit log page, drawn by the list', () => {
 
   it('draws who acted, what was done and to whom in the words the server wrote, then the role, the tenant and why', () => {
     expect(cells()).toEqual([
-      ['grace', 'Gave the role Editor in the sector', 'Ada Lovelace', 'Editor', 'Anvil', 'Covers the night shift'],
-      ['grace', 'Required a second factor at every sign-in', 'Second factor', '', '', ''],
+      ['grace', 'Gave the role Editor', 'Ada Lovelace', 'Editor', 'Anvil', 'Covers the night shift'],
+      ['grace', 'Required a second factor of everyone', 'Second factor', '', '', ''],
     ]);
   });
 
