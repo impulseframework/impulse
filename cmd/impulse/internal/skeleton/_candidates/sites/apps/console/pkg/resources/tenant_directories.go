@@ -35,13 +35,17 @@ type (
 	// directory is a row under the tenant, and the tenant's delete takes every row under
 	// it in the same transaction, each through its kind's own delete (Tenant.DeleteTree).
 	//
-	// DefaultSeat is the role a person is given in the tenant at their first sign-in
-	// through the directory, whether their account is created then or stood before; or
-	// NULL, and the tenant admits the directory's people by invitation only (a stranger
-	// is refused with no account, and an invitation is the way in). It is given once
-	// for the link between the account and the directory: a person whose role an
-	// administrator removed is not given it back by signing in. The record shows it and
-	// its own update never writes it: the tenant's own methods name it and clear it.
+	// DefaultSeat is the role the tenant gives a person who signs in through the
+	// directory and holds nothing in the tenant, at every sign-in: whether their
+	// account is new, stood before, or was tied to the directory before the tenant
+	// took it, and whatever they hold in other tenants; or NULL, and the tenant
+	// admits the directory's people by invitation only (a stranger is refused with
+	// no account, and an invitation is the way in). A person an administrator
+	// removes from the tenant is given the role again the next time they sign in
+	// through the directory: a role with no privileges keeps one person out while
+	// the tenant is open, and making the tenant invite only keeps everyone out who
+	// is not invited. The record shows it and its own update never writes it: the
+	// tenant's own methods name it and clear it.
 	//
 	// AsksSecondFactor says the tenant's administrator has said the directory asks its
 	// people for a second factor of its own. A person who signs in through the directory

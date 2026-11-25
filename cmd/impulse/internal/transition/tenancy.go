@@ -416,8 +416,12 @@ func (tn Tenancy) directoryTable() string {
 -- makes it the tenant's.
 -- A tenant has one directory and a directory belongs to one tenant, which the two
 -- unique indexes below hold.
--- DefaultSeat names the role a person is given in the tenant at their first sign-in
--- through the directory; NULL says the tenant admits them by invitation only.
+-- DefaultSeat names the role the tenant gives a person who signs in through the
+-- directory and holds nothing in the tenant, at every sign-in, whether their account is
+-- new, stood before, or was tied to the directory before the tenant took it, and
+-- whatever they hold in other tenants; a person an administrator removes from the
+-- tenant is given it again the next time they sign in through the directory. NULL says
+-- the tenant admits them by invitation only.
 -- AsksSecondFactor says the tenant's administrator has said the directory asks its
 -- people for a second factor of its own, so a sign-in through it is not asked for the
 -- mailed code.
