@@ -960,7 +960,7 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 		// whose handlers are rendered.
 		structs  []string
 		resource string
-		// tenant marks the tenant record, whose delete clears what the auths hold.
+		// tenant marks the tenant record, whose delete is handed what the auths hold.
 		tenant bool
 	}{
 		{name: "a directories record keyed to its tenant by an id", structs: []string{"Harbor", "HarborDirectory"}, resource: "Harbor", tenant: true},

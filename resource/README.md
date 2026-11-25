@@ -3978,48 +3978,56 @@ application's staff manage the people of a disabled tenant as they did before. C
 runs without a session, a scheduled task or a consumer, is not asked
 the door and reads and writes a disabled tenant's records as any other's.
 
-**Deleting a tenant.** The record's generated delete clears what each auth holds for the
-tenant in the transaction that deletes its row, through the generated identity client of
-every auth whose management the program generates (`<Auth>Identity().ClearTenant`,
-`identity.Manager.ClearTenant`): every membership held in the tenant, the custom roles
-made in it with their grants, and the invitations into it that still stand, which are
-withdrawn. The delete is of a disabled tenant: the generated delete refuses a tenant that
-is not disabled, after the caller's grant and before the question below (409, "Disable
-this tenant before deleting it.", with the application's word for one;
-`resource.RequireTenantDisabled`), so nobody of the tenant is at work in it while its
-records go. A person who held roles in the tenant alone then holds none anywhere and is
-deleted with their identity links and sessions, by the rule on an account nothing admits
-(section 21, "The rules"); a person who holds a role anywhere else stays, and so does a
-role held in every tenant, which is no one tenant's. The permission engine is told once
-the delete has committed.
+**Deleting a tenant.** A tenant is disabled before it is deleted; a delete of a tenant that
+is not is refused. The delete asks first, with a count of every kind of the application's
+rows under the tenant and of what each auth holds for it: the accounts that belong to it
+alone, the roles held in it, its groups, its custom roles and its invitations. It asks one
+permission, to delete a tenant: no grant is asked row by row, and each row's delete rule
+still runs. It then runs in rounds like any delete, the application's rows first, deepest
+first, then the auths' rows, and the tenant's own row last. An account is the tenant's
+alone where everything it holds is in the tenant, or the tenant's directory manages it and
+it holds nothing elsewhere; a person who holds anything elsewhere, or whom another tenant's
+directory manages, keeps their account.
 
-The rows under the tenant go with it in the same transaction, and the library deletes
-them in code (section 10, "A delete that takes what is under the record"): every row of a
-resource of the application's that carries the tenant's key or leads to a row that does,
-each through its kind's own delete, so its delete rule (`@validateDeleteType`) is asked,
-its change event is written and its stored files are released. The tenant's directory is
-one of those rows and goes with the rest, whether the tenant is directory only or not,
-and is free for another tenant afterwards; the rule that keeps the directory of a
-directory-only tenant is for a tenant that stays and is not asked. No grant is asked on a
-row: the grant to delete a tenant answers for everything under it, and a person who may
-delete a tenant need hold no role in it. A row of another tenant that names one of the
-tenant's rows is not under the tenant and is not taken (section 10, the same part).
+The refusal of a tenant that is not disabled comes after the caller's grant and before the
+question (409, "Disable this tenant before deleting it.", with the application's word for
+one; `resource.RequireTenantDisabled`), so nobody of the tenant is at work in it while its
+records go. What each auth holds for the tenant is handed to the record's generated delete
+as kinds of it (`DeleteAlso`), through the generated identity client of every auth whose
+management the program generates (`<Auth>Identity().TenantKinds`,
+`identity.Manager.TenantKinds`): an account taken goes with its identity links, its
+sessions ended; a group goes with its members and its roles; the custom roles go with
+their grants; an invitation is withdrawn. A role held in every tenant is no one tenant's
+and stays. The permission engine is told once a save that took any of them has committed.
 
-A tenant that has such rows is not deleted by a request that does not say so. The remove
-is answered 428 with the question a person is asked first (`Delete this tenant and
-everything under it? This can't be undone.`), and nothing is gone; the request that goes
-ahead carries `"value": {"everythingUnder": true}` on the remove operation, and the
-library's delete dialog sends it when the person presses Delete at the question. The
-question counts every kind of the application's rows under the tenant, whatever the
-person may list, since the one permission to delete a tenant answers for all of them
-(each kind under the tenant record is trusted, `DeleteKind.Trusted`): `Delete this tenant
-and everything under it: 3 projects, 12 tasks. This can't be undone.` A tenant with
-nothing under it is deleted by the plain remove. A table of the application's that no resource
-describes is not a row the library can delete: its foreign key refuses the tenant's
-delete while its rows remain, so the application deletes them first, in code. An
+The rows under the tenant go with it, and the library deletes them in code (section 10,
+"A delete that takes what is under the record"): every row of a resource of the
+application's that carries the tenant's key or leads to a row that does, each through its
+kind's own delete, so its delete rule (`@validateDeleteType`) is asked, its change event is
+written and its stored files are released. The tenant's directory is one of those rows and
+goes with the rest, whether the tenant is directory only or not, and is free for another
+tenant afterwards; the rule that keeps the directory of a directory-only tenant is for a
+tenant that stays and is not asked. A person who may delete a tenant need hold no role in
+it. A row of another tenant that names one of the tenant's rows is not under the tenant and
+is not taken (section 10, the same part).
+
+A tenant that has such rows, or that an auth holds anything for, is not deleted by a
+request that does not say so. The remove is answered 428 with the question a person is
+asked first (`Delete this tenant and everything under it? This can't be undone.`), and
+nothing is gone; the request that goes ahead carries `"value": {"everythingUnder": true}`
+on the remove operation, and the library's delete dialog sends it when the person presses
+Delete at the question, and again after each round until the tenant is gone. The question
+counts every kind, whatever the person may list, since the one permission to delete a
+tenant answers for all of them (each kind under the tenant record is trusted,
+`DeleteKind.Trusted`), the application's kinds first: `Delete this tenant and everything
+under it: 3 projects, 12 tasks, 2 accounts, 5 roles held. This can't be undone.` A tenant with nothing under it and
+nothing held for it is deleted by the plain remove. A table of the application's that no
+resource describes is not a row the library can delete: its foreign key refuses the
+tenant's delete while its rows remain, so the application deletes them first, in code. An
 application that deletes a tenant in a transaction of its own buffers the record's
-generated delete patch with `WithEverythingUnder()` and calls `ClearTenant` there, and a
-program that generates no auth's management removes the memberships itself.
+generated delete patch with `WithEverythingUnder()`, handed each auth's
+`TenantKinds(domain)` (`DeleteAlso`), there, and a program that generates no auth's
+management removes the memberships itself.
 
 Each thing the delete takes is an action of the class `access` when it is done alone (a
 role removed, a group deleted, an invitation withdrawn), so the generator gives the
@@ -5036,10 +5044,12 @@ holding some of them is refused at generation.
   same of roles), and the rules of the removal, so a group whose going would leave a
   tenant without an administrator is refused. A group with more under it than one save
   holds answers 202 with what is left, and the same delete, sent again, goes on. The
-  lists of groups say what each holds (`people`, `roles`). Deleting a tenant removes the
-  tenant's groups with their members and roles, and every role a group of the whole
-  application holds in it (`ClearTenant`); deleting a person takes them out of their
-  groups.
+  lists of groups say what each holds (`people`, `roles`). The roles people hold in the
+  tenant, its groups, its custom roles, its invitations and the accounts that belonged to
+  it alone are kinds of the tenant's delete: counted in its question and taken in its
+  rounds. A tenant's group goes with its members and its roles, and a role a group of the
+  whole application holds in the tenant goes with the roles held (section 16, "Deleting a
+  tenant"); deleting a person takes them out of their groups.
 - A person taken out of their last group who holds no role keeps their account: the
   account stays, holding nothing. Where a person belongs to one tenant
   (`identity.WithOneTenantPerPerson()`), a place in a tenant's group counts as a role in
@@ -5960,8 +5970,8 @@ own, outside any request, has no caller and is the application's act):
   request. The judgment covers the acts that give the way in or take over an
   administrator's sign-in, and no others: ending a person's sessions, forgetting their
   remembered browsers, unlocking their sign-in, revoking a token, withdrawing an
-  invitation, changing the name a person is shown by and clearing a deleted tenant are
-  not judged. Nor does it look back or ahead: a person put in a tenant's group before
+  invitation, changing the name a person is shown by and deleting a tenant with what each
+  auth holds for it are not judged. Nor does it look back or ahead: a person put in a tenant's group before
   the group holds an administrator's role, an invitation that carried the role, sent
   before the tenant became directory only and accepted after, and a password or an
   address set on an account before its person was given the role all stand. The caller's
@@ -5977,12 +5987,12 @@ own, outside any request, has no caller and is the application's act):
   for a set time, leaves out the removal of a tenant's administrator's role held in that
   tenant itself, and a row of the roles the groups hold the removal of such a role from a
   group kept in that tenant, for a caller the method would refuse.
-- The removal of a person's last role anywhere deletes the account, with its identity
-  links and sessions, in the same transaction and whoever removed the role: an account
-  nothing admits is not kept. An account that signs in through a tenant's directory is
-  that tenant's to delete: it goes this way only with the last thing it holds in that
-  tenant itself, and otherwise stays, holding nothing, in that tenant's list of its
-  people.
+- A removal of a person's role, of their place in a group or of the person from a tenant
+  leaves their account: the account stays, holding nothing. An account is deleted by its
+  own delete, or with the tenant it belonged to alone. An account that signs in through a
+  tenant's directory belongs to that tenant alone where it holds nothing elsewhere, and
+  goes with that tenant's delete; while the tenant stands it stays, holding nothing, in
+  the tenant's list of its people.
 
 A caller is named by the id of their account, as the permission store names anyone, and
 the first three rules take the caller for the person acted on only where the request came

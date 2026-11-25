@@ -91,8 +91,10 @@ templates, this README, and the tool's source.
   it is the domain of every role held in the tenant and the tenant segment's value in
   every address, so it never changes and is never used twice, while the tenant's name is
   a field its administrators change, kept from a second tenant by a unique index. A
-  deleted tenant takes the roles held in it, its standing invitations and its directory
-  with it, and every row of the tenant in code, each through its kind's own delete. No
+  deleted tenant takes its directory and every row of the tenant with it in code, each
+  through its kind's own delete. The roles people hold in the tenant, its groups, its
+  custom roles, its invitations and the accounts that belonged to it alone are kinds of
+  the tenant's delete: counted in its question and taken in its rounds. No
   row of an application's table goes by the database's rule: `impulse check` fails on a
   foreign key or an interleave of one of the application's tables that says
   `ON DELETE CASCADE`, wherever it points (`no-delete-cascade`). A

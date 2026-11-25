@@ -1182,8 +1182,9 @@ A tenant's choices restrict who enters that tenant and no other. A tenant that i
 directory only admits everyone it has given a role, however they signed in.
 
 Deleting a tenant takes its directory with it, whether the tenant is directory only or
-not, along with the roles held in the tenant, the invitations into it that still stand
-and its rows. The directory can then be made another tenant's.
+not, along with its rows, the roles held in the tenant, its groups, its custom roles, the
+invitations into it that still stand and the accounts that belonged to it alone. The
+directory can then be made another tenant's.
 
 ### Keeping a person out of an open tenant
 
