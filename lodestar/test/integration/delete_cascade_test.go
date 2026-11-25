@@ -53,8 +53,9 @@ import (
 )
 
 // TestDeleteCascade_description reads the descriptions the generator wrote for two of the
-// records that declare one: the kinds taken in delete order, deepest first, with each
-// kind's way up to the record, and the kinds that refuse the delete.
+// records that declare one: the kinds taken in delete order, deepest first and kinds of
+// one depth in reverse order of their names, with each kind's way up to the record, and
+// the kinds that refuse the delete.
 func TestDeleteCascade_description(t *testing.T) {
 	t.Parallel()
 
@@ -68,8 +69,10 @@ func TestDeleteCascade_description(t *testing.T) {
 	}
 
 	mission := resources.Mission{}.DeleteTree()
-	// An expense is on a sortie, so it is deleted before the sortie it is on.
-	if got, want := kinds(mission.Taken), []accesstypes.Resource{"SortieExpenses", "MissionDocuments", "Sorties"}; !slices.Equal(got, want) {
+	// An expense is on a sortie, so it is deleted before the sortie it is on. Sorties and
+	// documents are both straight under the mission, so the question, which reads the order
+	// backward, names the documents first.
+	if got, want := kinds(mission.Taken), []accesstypes.Resource{"SortieExpenses", "Sorties", "MissionDocuments"}; !slices.Equal(got, want) {
 		t.Errorf("a mission's delete takes %v, want %v", got, want)
 	}
 	if len(mission.RefusedBy) != 0 {
@@ -83,7 +86,7 @@ func TestDeleteCascade_description(t *testing.T) {
 		t.Errorf("an expense's way up to its mission is %v, want %v", got, wantWay)
 	}
 	// A document stores a file, and its release is in what a row's delete costs.
-	if got := mission.Taken[1].Cost.Files; got != 1 {
+	if got := mission.Taken[2].Cost.Files; got != 1 {
 		t.Errorf("a mission document's cost counts %d stored files, want 1", got)
 	}
 
