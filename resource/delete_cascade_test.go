@@ -415,7 +415,8 @@ func Test_takenQuery(t *testing.T) {
 	}
 	query := &takenQuery{tree: tree, key: map[string]any{"Id": "p1"}}
 
-	statement, ok := query.count(&replies, 0)
+	// With the deepest level 0, a level leaves nothing out.
+	statement, ok := query.count(&replies, 0, 0)
 	if !ok {
 		t.Fatal("count() of the replies wrote no statement")
 	}
@@ -427,20 +428,43 @@ func Test_takenQuery(t *testing.T) {
 		t.Errorf("count() of the replies names values other than the record's key (-want +got):\n%s", diff)
 	}
 
+	// With the deepest level 2, a level below it leaves out what the next level finds, and
+	// level 1 compares nothing of the task's own project.
+	tasks, labels := &tree.Taken[2], &tree.Taken[1]
 	asks := &takenAsks{groups: [][]accesstypes.Resource{{"CascadeTasks"}}, terms: []string{"(CascadeTasks.Title != @_c1)"}, params: map[string]any{"_c1": "secret"}}
-	page, ok := query.page(&tree.Taken[2], 1, asks, takenPageRows)
+	page, ok := query.page(tasks, 1, 2, asks, takenPageRows)
 	if !ok {
 		t.Fatal("page() of the tasks at level 1 wrote no read")
 	}
 	if want := "SELECT `CascadeTasks`.`Id`, (CascadeTasks.Title != @_c1) AS a1 FROM `CascadeTasks` " +
 		"WHERE (EXISTS (SELECT 1 FROM `CascadeTasks` AS w0_1 WHERE w0_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w0_1.`ProjectId` = @d1)) " +
-		"AND NOT COALESCE(((`CascadeTasks`.`ProjectId` = @d2)), FALSE) ORDER BY `CascadeTasks`.`Id` LIMIT 1000 OFFSET 1000"; page.SQL != want {
+		"AND NOT COALESCE((EXISTS (SELECT 1 FROM `CascadeTasks` AS w1_1, `CascadeTasks` AS w1_2 WHERE w1_1.`Id` = `CascadeTasks`.`ParentTaskId` " +
+		"AND w1_2.`Id` = w1_1.`ParentTaskId` AND w1_2.`ProjectId` = @d2)), FALSE) ORDER BY `CascadeTasks`.`Id` LIMIT 1000 OFFSET 1000"; page.SQL != want {
 		t.Errorf("page() of the tasks at level 1 =\n%s\nwant\n%s", page.SQL, want)
 	}
 	if diff := cmp.Diff(map[string]any{"_c1": "secret", "d1": "p1", "d2": "p1"}, page.spannerStatement().Params); diff != "" {
 		t.Errorf("page() of the tasks at level 1 values (-want +got):\n%s", diff)
 	}
-	if _, ok := query.count(&tree.Taken[1], 1); ok {
+	if page, ok := query.page(tasks, 2, 2, nil, 0); !ok || strings.Contains(page.SQL, "NOT") {
+		t.Errorf("page() of the tasks at the deepest level = %q (written %t), want a read that leaves nothing out", page.SQL, ok)
+	}
+	statement, ok = query.count(tasks, 0, 2)
+	if !ok {
+		t.Fatal("count() of the tasks at level 0 wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM `CascadeTasks` WHERE ((`CascadeTasks`.`ProjectId` = @d1)) " +
+		"AND NOT COALESCE((EXISTS (SELECT 1 FROM `CascadeTasks` AS w1_1 WHERE w1_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w1_1.`ProjectId` = @d2)), FALSE)"; statement.SQL != want {
+		t.Errorf("count() of the tasks at level 0 =\n%s\nwant\n%s", statement.SQL, want)
+	}
+	if statement, ok := query.count(tasks, 0, 0); !ok || strings.Contains(statement.SQL, "NOT") {
+		t.Errorf("count() of the tasks at level 0 with the deepest level 0 = %q (written %t), want a count that leaves nothing out", statement.SQL, ok)
+	}
+	for _, deepest := range []int{0, 2} {
+		if statement, ok := query.count(labels, 0, deepest); !ok || strings.Contains(statement.SQL, "NOT") {
+			t.Errorf("count() of the labels at level 0 with the deepest level %d = %q (written %t), want a count that leaves nothing out", deepest, statement.SQL, ok)
+		}
+	}
+	if _, ok := query.count(labels, 1, 2); ok {
 		t.Error("count() of the labels at level 1 wrote a statement, want none: no way of theirs has a place for a link to a row of the same table")
 	}
 }

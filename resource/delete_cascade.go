@@ -19,7 +19,8 @@ import (
 // (PatchSet.DeleteEverythingUnder). The rows are found a kind at a time, by one statement
 // that follows the kind's declared ways up to the record (DeleteKind.Paths). A kind that
 // sits under itself (DeleteKind.Within) is found level by level, by the same statement
-// with the kind's link to itself repeated, until a level finds nothing.
+// with the kind's link to itself repeated, until a level finds nothing. A row belongs
+// to the deepest level that finds it, so a row is deleted before the row it is under.
 //
 // Before anything is deleted, the kinds are checked as their own deletes would check
 // them: the caller's grants on each kind once, then, for a kind whose rows have anything
@@ -266,31 +267,35 @@ type takenQuery struct {
 }
 
 // condition is the condition that a row of the kind, read under its table's name, is
-// under the record at the level: by one of its ways at the level (DeleteTree.waysAt),
-// and, above level 0, by none of its ways at level 0, so a row the record's key reaches
-// by a declared way is counted at level 0 alone. ok is false where the kind has no way
-// at the level.
-func (q *takenQuery) condition(w *rowsUnderWriter, kind *DeleteKind, level int) (string, bool) {
+// at the level under the record, below the deepest level that finds a row (countLevels):
+// the level finds it, by one of the kind's ways at the level (DeleteTree.waysAt), in the
+// record's tenant. A row that more than one level finds belongs to the deepest: below
+// the deepest level, a level's condition leaves out the rows the next level finds. A row
+// that two levels find, with a level between them that does not, is at both: it is
+// counted twice, and deleted at the deeper level first. ok is false where the kind has
+// no way at the level.
+func (q *takenQuery) condition(w *rowsUnderWriter, kind *DeleteKind, level, deepest int) (string, bool) {
 	ways := q.tree.waysAt(kind, level)
 	if len(ways) == 0 {
 		return "", false
 	}
 	outer := w.quote(string(kind.Resource))
 	condition := w.anyWay(ways, q.key, outer)
-	if level > 0 {
+	if next := q.tree.waysAt(kind, level+1); level < deepest && len(next) > 0 {
 		// A way that compares an empty column is NULL, not false: COALESCE makes it false,
-		// so a row no way at level 0 reaches is kept.
-		condition += " AND NOT COALESCE(" + w.anyWay(q.tree.waysAt(kind, 0), q.key, outer) + ", FALSE)"
+		// so a row the next level does not find is kept.
+		condition += " AND NOT COALESCE(" + w.anyWay(next, q.key, outer) + ", FALSE)"
 	}
 
 	return condition + w.ofRecordsTenant(outer+".", kind, q.tree, q.key), true
 }
 
-// count is the count of the kind's rows at the level; ok is false where the kind is not
-// counted there (condition).
-func (q *takenQuery) count(kind *DeleteKind, level int) (rowsUnderStatement, bool) {
+// count is the count of the kind's rows at the level, below the deepest level; ok is
+// false where the kind is not counted there (condition). With the deepest level the
+// level itself, it is the count of the rows the level finds.
+func (q *takenQuery) count(kind *DeleteKind, level, deepest int) (rowsUnderStatement, bool) {
 	w := &rowsUnderWriter{dbType: SpannerDBType}
-	condition, ok := q.condition(w, kind, level)
+	condition, ok := q.condition(w, kind, level, deepest)
 	if !ok {
 		return rowsUnderStatement{}, false
 	}
@@ -298,12 +303,12 @@ func (q *takenQuery) count(kind *DeleteKind, level int) (rowsUnderStatement, boo
 	return rowsUnderStatement{SQL: fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", w.quote(string(kind.Resource)), condition), Args: w.args}, true
 }
 
-// page is the read of one page of the kind's rows at the level, in key order, after the
-// first offset rows: each row's key, then each of the terms asks reads of it (none
-// where asks is nil: a page read to delete its rows).
-func (q *takenQuery) page(kind *DeleteKind, level int, asks *takenAsks, offset int) (rowsUnderStatement, bool) {
+// page is the read of one page of the kind's rows at the level, below the deepest
+// level, in key order, after the first offset rows: each row's key, then each of the
+// terms asks reads of it (none where asks is nil: a page read to delete its rows).
+func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks, offset int) (rowsUnderStatement, bool) {
 	w := &rowsUnderWriter{dbType: SpannerDBType}
-	condition, ok := q.condition(w, kind, level)
+	condition, ok := q.condition(w, kind, level, deepest)
 	if !ok {
 		return rowsUnderStatement{}, false
 	}
@@ -335,46 +340,83 @@ type countedKind struct {
 }
 
 // takenLevels are the rows under the record of each kind a delete counts, level by
-// level (rows, by kind, at each level from 0), and the deepest level that has a row of
+// level (rows, by kind, at each level from 0), and the deepest level that finds a row of
 // one of them.
 type takenLevels struct {
 	deepest int
 	rows    map[*DeleteKind][]int64
 }
 
-// countLevels counts each kind's rows at level 0, then, level by level from level 1,
-// the rows of each kind with a place on a way for a link to a row of the same table
-// (DeleteTree.waysAt), stopping at the first level where none of them has a row. A
-// kind's count is the sum of its levels (total).
+// countLevels finds the deepest level, counting what each level from level 1 finds of
+// each kind with a place on a way for a link to a row of the same table
+// (DeleteTree.waysAt), until a level finds no row of any of them: the deepest is the
+// level before it. Then it counts each kind's rows at each level from 0 to the deepest
+// (takenQuery.condition): the deepest level's count is the one that found it, and a
+// level that found no row of the kind holds none without a second count. A kind with no
+// place has rows at level 0 alone. A kind's count is the sum of its levels (total).
 func countLevels(ctx context.Context, count rowCounter, kinds []countedKind) (*takenLevels, error) {
 	levels := &takenLevels{rows: make(map[*DeleteKind][]int64, len(kinds))}
+	counted := func(k countedKind, level, deepest int) (int64, error) {
+		statement, ok := k.query.count(k.kind, level, deepest)
+		if !ok {
+			return 0, nil
+		}
+		rows, err := count(ctx, statement)
+		if err != nil {
+			return 0, errors.Wrapf(err, "counting the %s under a %s", k.kind.Words.Many, k.query.tree.Words.One)
+		}
+
+		return rows, nil
+	}
+
 	nested := slices.DeleteFunc(slices.Clone(kinds), func(k countedKind) bool {
 		return len(k.query.tree.waysAt(k.kind, 1)) == 0
 	})
-	for level := 0; ; level++ {
-		asked := kinds
-		if level > 0 {
-			asked = nested
-		}
-		found := false
-		for _, k := range asked {
-			var rows int64
-			if statement, ok := k.query.count(k.kind, level); ok {
-				var err error
-				if rows, err = count(ctx, statement); err != nil {
-					return nil, errors.Wrapf(err, "counting the %s under a %s", k.kind.Words.Many, k.query.tree.Words.One)
-				}
+	found := make(map[*DeleteKind][]int64, len(nested))
+	for level := 1; len(nested) > 0; level++ {
+		foundAny := false
+		for _, k := range nested {
+			rows, err := counted(k, level, level)
+			if err != nil {
+				return nil, err
 			}
-			levels.rows[k.kind] = append(levels.rows[k.kind], rows)
-			found = found || rows > 0
+			found[k.kind] = append(found[k.kind], rows)
+			foundAny = foundAny || rows > 0
 		}
-		if level > 0 && !found {
-			return levels, nil
+		if !foundAny {
+			break
 		}
-		if found {
-			levels.deepest = level
-		}
+		levels.deepest = level
 	}
+
+	for _, k := range kinds {
+		at := []int64{0}
+		if finds, ok := found[k.kind]; ok {
+			// finds[i] is what level i+1 finds; the level after the deepest found nothing.
+			at = make([]int64, levels.deepest+1)
+			for level := 1; level < levels.deepest; level++ {
+				if finds[level-1] == 0 {
+					continue
+				}
+				rows, err := counted(k, level, levels.deepest)
+				if err != nil {
+					return nil, err
+				}
+				at[level] = rows
+			}
+			if levels.deepest > 0 {
+				at[levels.deepest] = finds[levels.deepest-1]
+			}
+		}
+		rows, err := counted(k, 0, levels.deepest)
+		if err != nil {
+			return nil, err
+		}
+		at[0] = rows
+		levels.rows[k.kind] = at
+	}
+
+	return levels, nil
 }
 
 // total is the kind's rows under the record, every level summed.
@@ -474,10 +516,10 @@ func (d *takingDelete) keyFields(kind *DeleteKind) ([]accesstypes.Field, []refle
 	return fields, types, nil
 }
 
-// rowsAt calls each with the delete of each of the kind's rows at the level, page by
-// page in key order, with what the page's terms answered of the row (asks; none where
-// it is nil). It stops at the first error each answers.
-func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level int, asks *takenAsks, each func(taken takenDelete, answers []spanner.NullBool) error) error {
+// rowsAt calls each with the delete of each of the kind's rows at the level, below the
+// deepest level, page by page in key order, with what the page's terms answered of the
+// row (asks; none where it is nil). It stops at the first error each answers.
+func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level, deepest int, asks *takenAsks, each func(taken takenDelete, answers []spanner.NullBool) error) error {
 	fields, types, err := d.keyFields(kind)
 	if err != nil {
 		return err
@@ -487,7 +529,7 @@ func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level int, 
 		answers = len(asks.terms)
 	}
 	for offset := 0; ; offset += takenPageRows {
-		statement, ok := d.query.page(kind, level, asks, offset)
+		statement, ok := d.query.page(kind, level, deepest, asks, offset)
 		if !ok {
 			return nil
 		}
@@ -618,7 +660,7 @@ func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked ma
 			return nil
 		}
 
-		return d.rowsAt(ctx, kind, level, asks[kind], func(taken takenDelete, answers []spanner.NullBool) error {
+		return d.rowsAt(ctx, kind, level, levels.deepest, asks[kind], func(taken takenDelete, answers []spanner.NullBool) error {
 			byRule, err := taken.row.checkTaken(ctx, d.txn, asks[kind], answers)
 			if err != nil {
 				return d.asked.refuseRow(ctx, kind, byRule, err)
@@ -640,7 +682,7 @@ func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked ma
 	}
 
 	if err := d.eachLevel(levels, func(kind *DeleteKind, level int) error {
-		return d.rowsAt(ctx, kind, level, nil, func(taken takenDelete, _ []spanner.NullBool) error {
+		return d.rowsAt(ctx, kind, level, levels.deepest, nil, func(taken takenDelete, _ []spanner.NullBool) error {
 			if err := taken.row.bufferTaken(ctx, d.txn, eventSource...); err != nil {
 				return errors.Wrapf(err, "deleting a %s under a %s", kind.Words.One, tree.Words.One)
 			}

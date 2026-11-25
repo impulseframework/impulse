@@ -121,7 +121,7 @@ func TestTakingDelete(t *testing.T) {
 	}
 	var mutations []*spanner.Mutation
 	for _, group := range [][]*spanner.Mutation{
-		insert("CascadeProjects", map[string]any{"Id": "two"}, map[string]any{"Id": "deep"}, map[string]any{"Id": "keyed"}, map[string]any{"Id": "plain"}),
+		insert("CascadeProjects", map[string]any{"Id": "two"}, map[string]any{"Id": "deep"}, map[string]any{"Id": "keyed"}, map[string]any{"Id": "mixed"}, map[string]any{"Id": "gap"}, map[string]any{"Id": "plain"}),
 		insert("CascadeTasks",
 			// Under two by its project, with a comment under it by both ways.
 			map[string]any{"Id": "two-t1", "ProjectId": "two"},
@@ -133,6 +133,15 @@ func TestTakingDelete(t *testing.T) {
 			map[string]any{"Id": "keyed-t1", "ProjectId": "keyed"},
 			map[string]any{"Id": "keyed-t2", "ProjectId": "keyed", "ParentTaskId": "keyed-t1"},
 			map[string]any{"Id": "keyed-t3", "ProjectId": "keyed", "ParentTaskId": "keyed-t2"},
+			// Three levels deep, the top two holding the project and the third not.
+			map[string]any{"Id": "mixed-t1", "ProjectId": "mixed"},
+			map[string]any{"Id": "mixed-t2", "ProjectId": "mixed", "ParentTaskId": "mixed-t1"},
+			map[string]any{"Id": "mixed-t3", "ParentTaskId": "mixed-t2"},
+			// Three levels deep, the top and the third holding the project and the second
+			// not: levels 0 and 2 find the third.
+			map[string]any{"Id": "gap-t1", "ProjectId": "gap"},
+			map[string]any{"Id": "gap-t2", "ParentTaskId": "gap-t1"},
+			map[string]any{"Id": "gap-t3", "ProjectId": "gap", "ParentTaskId": "gap-t2"},
 			// Plain tasks, one of them titled for the condition to refuse.
 			map[string]any{"Id": "plain-t1", "ProjectId": "plain", "Title": "open"},
 			map[string]any{"Id": "plain-t2", "ProjectId": "plain", "Title": "secret"},
@@ -185,6 +194,9 @@ func TestTakingDelete(t *testing.T) {
 		wantMessage     string
 		wantAsked       []string
 		wantMade        []string
+		// wantFirstMade is the rows deleted, each the first time it is deleted, where a row
+		// two levels find is deleted at both.
+		wantFirstMade []string
 		// wantPages is the page statements the delete sent; -1 is not checked.
 		wantPages int
 	}{
@@ -205,10 +217,33 @@ func TestTakingDelete(t *testing.T) {
 			wantPages: -1,
 		},
 		{
-			name: "nested tasks that hold the project are counted, asked about and deleted once each", tree: projectTree(nil), key: project("keyed"), rows: cascadeRows{asks: asksEveryRow}, everythingUnder: true,
-			wantAsked: []string{"ID=keyed-t1 trusted", "ID=keyed-t2 trusted", "ID=keyed-t3 trusted"},
-			wantMade:  []string{"ID=keyed-t1 trusted", "ID=keyed-t2 trusted", "ID=keyed-t3 trusted"},
+			name: "nested tasks that hold the project are counted once each", tree: projectTree(nil), key: project("keyed"),
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 3 tasks. This can't be undone.",
+			wantPages: 0,
+		},
+		{
+			name: "nested tasks that hold the project are counted and asked about once each and deleted the deepest first", tree: projectTree(nil), key: project("keyed"), rows: cascadeRows{asks: asksEveryRow}, everythingUnder: true,
+			wantAsked: []string{"ID=keyed-t3 trusted", "ID=keyed-t2 trusted", "ID=keyed-t1 trusted"},
+			wantMade:  []string{"ID=keyed-t3 trusted", "ID=keyed-t2 trusted", "ID=keyed-t1 trusted"},
 			wantPages: -1,
+		},
+		{
+			name: "nested tasks the top two of which hold the project are counted and asked about once each", tree: projectTree(nil), key: project("mixed"), rows: cascadeRows{asks: asksEveryRow},
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 3 tasks. This can't be undone.",
+			wantAsked: []string{"ID=mixed-t3 trusted", "ID=mixed-t2 trusted", "ID=mixed-t1 trusted"},
+			wantPages: -1,
+		},
+		{
+			name: "nested tasks the top two of which hold the project are deleted once each, the deepest first", tree: projectTree(nil), key: project("mixed"), everythingUnder: true,
+			wantMade:  []string{"ID=mixed-t3 trusted", "ID=mixed-t2 trusted", "ID=mixed-t1 trusted"},
+			wantPages: -1,
+		},
+		{
+			// The third task is found at levels 0 and 2, so it is taken at level 2, before the
+			// second, and again at level 0; the count is not asserted.
+			name: "a nested task that holds the project under one that does not is deleted before the task it is under", tree: projectTree(nil), key: project("gap"), everythingUnder: true,
+			wantFirstMade: []string{"ID=gap-t3 trusted", "ID=gap-t2 trusted", "ID=gap-t1 trusted"},
+			wantPages:     -1,
 		},
 		{
 			name: "a folder in a folder is taken, the deepest first", tree: folderTree(), key: map[string]any{"Id": "f1"}, everythingUnder: true,
@@ -267,7 +302,17 @@ func TestTakingDelete(t *testing.T) {
 			if diff := cmp.Diff(tt.wantAsked, run.asked); diff != "" {
 				t.Errorf("the rows asked about (-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tt.wantMade, run.made); diff != "" {
+			if tt.wantFirstMade != nil {
+				var first []string
+				for _, made := range run.made {
+					if !slices.Contains(first, made) {
+						first = append(first, made)
+					}
+				}
+				if diff := cmp.Diff(tt.wantFirstMade, first); diff != "" {
+					t.Errorf("the rows deleted, each the first time (-want +got):\n%s", diff)
+				}
+			} else if diff := cmp.Diff(tt.wantMade, run.made); diff != "" {
 				t.Errorf("the rows deleted (-want +got):\n%s", diff)
 			}
 			if tt.wantPages >= 0 && run.pages != tt.wantPages {
@@ -419,7 +464,7 @@ func TestTakingDelete_anotherTenantsRow(t *testing.T) {
 						return err
 					}
 					counted = levels.total(&tree.Taken[0])
-					statement, ok := query.page(&tree.Taken[0], 0, nil, 0)
+					statement, ok := query.page(&tree.Taken[0], 0, levels.deepest, nil, 0)
 					if !ok {
 						return errors.New("page() wrote no read")
 					}

@@ -1867,7 +1867,10 @@ with nothing gone where it cannot be made whole:
   call's case number. A kind that sits under itself (`DeleteKind.Within`: an answer names
   the relay it answers) is found level by level, the same statement with the kind's link
   to itself repeated until a level finds nothing; a row nested deeper than the database
-  joins in one statement is deleted first, by its own delete.
+  joins in one statement is deleted first, by its own delete. A row belongs to the deepest
+  level that finds it, so a row is deleted before the row it is under. A row that two
+  levels find, with a level between them that does not find it, is counted at both, and
+  the question's count comes out high by it.
 - A row is under a record of a tenant only where it is that tenant's. For a kind whose
   rows are a tenant's (`@domain`), each statement reads the rows of the record's own tenant
   alone: the tenant the record's key holds (the tenant record, or a record keyed by its
