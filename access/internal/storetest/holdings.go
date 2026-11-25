@@ -31,8 +31,7 @@ const (
 // giving the role again replaces the reason with the period; the listing of a
 // person's own assignments returns the ones that have not ended, each with its
 // period and its reason; and the two listings of what the groups of a place
-// hold count what has not ended, which is what a group's deletion is refused
-// for.
+// hold count what has not ended.
 func runHoldings(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()

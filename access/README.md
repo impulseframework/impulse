@@ -699,8 +699,7 @@ losers, err := mgr.GroupRoleLosers(ctx, watch, tenant1, "Editor") // who loses E
   not ended, one whose period has not begun among them; the ones through a group are the
   ones `UserRoles` counts now
 - `GroupContents` counts what has not ended, an assignment whose period has not begun
-  among it, which is what `DeleteGroup` refuses a group for: a group listed with no
-  people and no roles is one `DeleteGroup` removes
+  among it
 - `GroupRoleLosers` lists the people in the group now who hold the role there through
   this group and in no other way. A person who also holds it themselves, through another
   group, or in every tenant when the scope is one tenant, keeps it and is not listed.

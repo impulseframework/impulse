@@ -326,8 +326,6 @@ func TestManager_RemoveFromTenant_refused(t *testing.T) {
 			t.Parallel()
 
 			store := removalStore()
-			// A role of the whole application keeps the account, so each case is judged on
-			// its rule alone.
 			store.memberships[danaAlphaReader], store.memberships[danaGlobal] = true, true
 			if tt.held != nil {
 				tt.held(store)

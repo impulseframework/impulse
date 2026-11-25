@@ -26,8 +26,8 @@ import (
 // The rules of what a group may hold are the permission engine's
 // (access.UserManager.GroupRole); the rules held here are the user management's: a
 // group's delete takes its members and the roles it holds with it, after a question that
-// counts them, a place in a group keeps an account as a role of its own does, and one
-// tenant per person counts a place in a tenant's group as a role in that tenant.
+// counts them, and one tenant per person counts a place in a tenant's group as a role in
+// that tenant.
 //
 // A group gives nobody a power that giving the role directly would not. A change to who
 // is in a group, or to what a group holds, is judged as the role changes it makes
@@ -182,8 +182,8 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 // Asked without everythingUnder of a group that has either, it deletes nothing and
 // answers the question a person is asked first, with their counts; asked with it, it
 // takes them. Each member and each role is asked what its own removal asks
-// (RemoveGroupMember, TakeGroupRole), so a group whose going would leave a tenant
-// without an administrator is refused. A member or a role whose period has ended gives
+// (RemoveGroupMember, TakeGroupRole), so nobody deletes a group that gives them the last
+// administrator's role of a tenant. A member or a role whose period has ended gives
 // nobody anything and is asked nothing: the delete takes it with the rest, and counts it
 // in the question. It answers what one save left where the group had more under it than
 // one save holds (nil once the group is gone).

@@ -60,7 +60,7 @@ export function openMethodDialog(
  * `everythingUnder` at the press after the server's question, and again for as long as
  * it answers what is left (a 202, `DeleteLeft`). It answers as openMethodDialog does:
  * the method's answer, nothing, once the row is gone, and nothing at all when the person
- * cancelled.
+ * canceled.
  */
 export function openDeleteMethodDialog(
   dialog: MatDialog,

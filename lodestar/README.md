@@ -610,8 +610,8 @@ rows under it deletes nothing at first. It is answered 428 with the question a p
 asked ("Delete this mission and everything under it: 2 sorties, 1 mission document, 1
 sortie expense. This can't be undone."), which counts each kind the person may list and
 says "and records you can't see" of the rest. The same delete saying so (the remove
-operation's value `{"everythingUnder": true}`) deletes the rows and the record in one
-transaction; the delete dialog asks the server's question in place of its own and sends
+operation's value `{"everythingUnder": true}`) deletes the rows and then the record, in
+one request where they fit one save and in rounds where they do not; the delete dialog asks the server's question in place of its own and sends
 that at the next press. Each row goes by its own resource's delete, so the person needs
 Delete on every kind taken ("This mission has sortie expenses that you can't delete, so
 it can't be deleted."), each kind's own delete rule is asked, a row whose kind tracks
@@ -937,8 +937,7 @@ ending one session, revoking a token and clearing a lockout name no account's ro
 stay Headquarters' whoever manages the account. Two things follow: a role Headquarters
 gives for the whole fleet, or in a second sector, makes the account of a person who
 signs in through no sector's directory the fleet's to manage; and the last thing
-it takes from a person takes the account with it, unless another sector's directory
-signs the person in. The members' accounts are Headquarters' to change, all of them,
+it takes from a person leaves the account standing, holding nothing. The members' accounts are Headquarters' to change, all of them,
 whoever the list says manages each: a client's roles are their company directory's,
 held for the whole fleet or in every sector, and no sector's role holds a method on
 a member's account, so under the condition a member who signs in through a sector's

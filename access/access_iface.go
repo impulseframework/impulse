@@ -239,8 +239,7 @@ type UserManager interface {
 	// GroupContents returns the groups kept in scope, sorted by name, each
 	// with how many people are in it and the roles it holds (see
 	// GroupContent). Both count what has not ended, an assignment whose
-	// period has not begun among it: a group listed with no people and no
-	// roles is one DeleteGroup removes.
+	// period has not begun among it.
 	GroupContents(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupContent, error)
 
 	// GroupRoleLosers returns the people who lose role in scope when group

@@ -618,9 +618,8 @@ func TestManager_SignedIn(t *testing.T) {
 // TestManager_endedAssignmentsInTheRules pins what an ended assignment is to the rules
 // that read what a person holds: it places nobody in a tenant, so a person whose role in
 // one tenant has ended is given a role in another where a person belongs to one; it
-// makes nobody a tenant's administrator, so the last one whose role counts keeps it; and
-// it still keeps its account, which goes only when nothing at all is left of what was
-// given to it.
+// makes nobody a tenant's administrator, so the last one whose role counts keeps it. The
+// removal of the last role that counts takes the membership alone: the account stays.
 func TestManager_endedAssignmentsInTheRules(t *testing.T) {
 	t.Parallel()
 
@@ -678,7 +677,7 @@ func TestManager_endedAssignmentsInTheRules(t *testing.T) {
 		})
 	}
 
-	t.Run("an ended row keeps its account when the last role that counts is removed", func(t *testing.T) {
+	t.Run("the last role that counts is removed, and the account stays", func(t *testing.T) {
 		t.Parallel()
 		store := groupStore()
 		store.memberships[inAlpha], store.memberships[inBeta] = true, true

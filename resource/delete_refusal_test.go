@@ -132,8 +132,7 @@ func whoLists(decisions accesstypes.Decisions) *Caller {
 // each kind in the way with its count; a kind the record lists under refusedBy answers
 // before any other and keeps the record from being deleted at all; a kind the person
 // may not list, or may list only by a grant with a condition, is never named or
-// counted for them; a kind whose rows the database may remove with another row the
-// transaction deleted is not counted; and one count runs per kind. Where every kind
+// counted for them; and one count runs per kind. Where every kind
 // named reaches the record only through columns that may be empty, the sentence says
 // the rows may be moved or deleted; beside one kind that does not, it says only to
 // delete them.

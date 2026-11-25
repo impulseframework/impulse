@@ -1336,8 +1336,9 @@ import (
 // Delete{{ .Subject }}Group deletes a group of the {{ .Auth }} auth with its members and the
 // roles it holds. Asked without EverythingUnder of a group that has either, it deletes
 // nothing and answers the question a person is asked first, with their counts; asked with
-// it, it takes them. Each member and each role is asked what its own removal asks, so a
-// group whose going would leave a tenant without an administrator is refused.` + identityTenantGroupNote + `
+// it, it takes them. Each member and each role whose period has not ended is asked what
+// its own removal asks, so nobody deletes a group that gives them the last administrator's
+// role of a tenant.` + identityTenantGroupNote + `
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})

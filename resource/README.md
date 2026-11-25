@@ -1866,11 +1866,13 @@ with nothing gone where it cannot be made whole:
   (`DeleteLink.References`), the other table's key or not: a relay names its call by the
   call's case number. A kind that sits under itself (`DeleteKind.Within`: an answer names
   the relay it answers) is found level by level, the same statement with the kind's link
-  to itself repeated until a level finds nothing; a row nested deeper than the database
-  joins in one statement is deleted first, by its own delete. A row belongs to the deepest
-  level that finds it, so a row is deleted before the row it is under. A row that two
-  levels find, with a level between them that does not find it, is counted at both, and
-  the question's count comes out high by it.
+  to itself repeated until a level finds nothing; the delete fails where rows are nested
+  deeper than the database joins in one statement: delete the deepest of them first, each
+  by its own delete. Rows of a kind that sit under each other in a ring are never found to
+  end: the delete fails until the ring is broken. A row belongs to the deepest level that
+  finds it, so a row is deleted before the row it is under. A row that two levels find,
+  with a level between them that does not find it, is counted at both, and the question's
+  count comes out high by it.
 - A row is under a record of a tenant only where it is that tenant's. For a kind whose
   rows are a tenant's (`@domain`), each statement reads the rows of the record's own tenant
   alone: the tenant the record's key holds (the tenant record, or a record keyed by its
@@ -5038,11 +5040,13 @@ holding some of them is refused at generation.
   that counts them. Asked without `everythingUnder`, a group that has either deletes
   nothing and is answered 428 with the question ("Delete this group and everything under
   it: 12 members, 3 roles. This can't be undone."); asked with it, they go with the group.
-  Each member and each role, whatever its period, is asked what its own removal asks: the
-  caller's grant of `RemoveCrewGroupMember` and of `TakeCrewGroupRole` (403, "This group
-  has members, and you can't remove people from a group, so it can't be deleted." and the
-  same of roles), and the rules of the removal, so a group whose going would leave a
-  tenant without an administrator is refused. A group with more under it than one save
+  Each member and each role whose period has not ended is asked what its own removal
+  asks: the caller's grant of `RemoveCrewGroupMember` and of `TakeCrewGroupRole` (403,
+  "This group has members, and you can't remove people from a group, so it can't be
+  deleted." and the same of roles), and the rules of the removal, so nobody deletes a
+  group that gives them the last administrator's role of a tenant. A member or a role
+  whose period has ended is asked nothing: the question counts it and it goes with the
+  rest. A group with more under it than one save
   holds answers 202 with what is left, and the same delete, sent again, goes on. The
   lists of groups say what each holds (`people`, `roles`). The roles people hold in the
   tenant, its groups, its custom roles, its invitations and the accounts that belonged to

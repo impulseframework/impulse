@@ -381,9 +381,9 @@ func TestGeneratedIdentityFleetGroups(t *testing.T) {
 
 // TestGeneratedIdentityGroupDeleteRefusals holds what refuses a group's delete, asked with
 // everything under it: what taking each role from the group asks, and what the caller may
-// do to a member and to a role. A group whose going would leave a sector without an
-// administrator of its own is refused in the sentence that taking the role from the group
-// gives. A caller who may delete a group and may not take a person out of one is refused
+// do to a member and to a role. Nobody deletes a group that gives them the last
+// administrator's role of a sector: the delete is refused in the sentence that taking the
+// role from the group gives. A caller who may delete a group and may not take a person out of one is refused
 // a group that has a member, and deletes one that has none; a caller who may not take a
 // role from a group is refused one that holds a role, and deletes one that holds none.
 // Nothing goes with a refusal. No role the release ships holds the grant to delete a

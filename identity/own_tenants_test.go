@@ -420,8 +420,6 @@ func TestManager_LeaveTenant_lastAdministrator(t *testing.T) {
 			t.Parallel()
 
 			store := leavingStore()
-			// A role of the whole application keeps the account, so the act is judged
-			// on the rule alone.
 			store.memberships[danaGlobal] = true
 			tt.held(store)
 			tt.other(store)

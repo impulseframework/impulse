@@ -359,8 +359,7 @@ func TestGeneratedIdentityGroupsSayWhatTheyHold(t *testing.T) {
 	holds("a new group", sector()["Night watch"], groupRow{Roles: []string{}})
 
 	// Ada is in it from now and fay from later; it holds the Engineer's role from now
-	// and the Harbormaster's from later. What has not begun is held: it stands in a
-	// deletion's way like the rest.
+	// and the Harbormaster's from later. What has not begun is held.
 	later := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
 	place := func(person string) map[string]any { return map[string]any{"groupId": watch, "userId": w.ids[person]} }
 	role := func(name string) map[string]any { return map[string]any{"groupId": watch, "role": name} }
