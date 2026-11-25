@@ -15,6 +15,13 @@ import (
 // every session they hold is ended, and their identity links and every role they hold
 // go with the account. Nobody deletes themselves: the caller's own account is refused.
 //
+// The rows that go with the account go on this method's grant: no grant is asked on
+// their own tables. For a request made for the whole application every such row goes.
+// For one made under a tenant's address the rows of that tenant go, and those of each
+// other tenant in which the person holds the same permission; a row of any other
+// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says
+// where it is.
+//
 // It is a tenant's method: served under the address of one Sector, it names a
 // row of MembersSectorUser, the tenant's own list of the auth's people. A person who is no
 // row of that list is not found there, and whether the tenant may do this to a person is
@@ -38,13 +45,15 @@ type DeleteMembersSectorUser struct {
 	UserID impulse.UUID
 }
 
-// Execute buffers the removal into the caller's transaction.
+// Execute buffers the removal into the caller's transaction. It does not say the delete
+// takes the application's rows that go with the account (@deletedWith): an account that
+// has one is answered with the question.
 func (m *DeleteMembersSectorUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
 	// A tenant's method acts for a request made under the tenant's address.
 	if _, err := client.manager.Tenant(ctx); err != nil {
 		return errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := client.manager.DeleteUser(ctx, txn, m.UserID); err != nil {
+	if _, err := client.manager.DeleteUser(ctx, txn, m.UserID, false); err != nil {
 		return errors.Wrap(err, "identity.Manager.DeleteUser()")
 	}
 

@@ -24,10 +24,11 @@ func (MembersGroup) DefaultConfig() resource.Config {
 }
 
 // DeleteTree describes what a delete of a MembersGroup takes with it and what refuses
-// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// it: the library's own kinds, and the application's records that name the
+// MembersGroup, taken where their column says so (@deletedWith) and refusing its delete
+// where it does not. The kinds taken are in the order their rows are deleted, deepest
 // first, each with its ways up to the MembersGroup and what the delete of one of its
-// rows costs. The kinds under Under are the ones with a row directly under a MembersGroup
-// that the database does not remove with it.
+// rows costs.
 func (MembersGroup) DeleteTree() *resource.DeleteTree {
 	return &resource.DeleteTree{
 		Record: "MembersGroups",
@@ -800,13 +801,13 @@ func NewMembersGroupDeletePatch(id impulse.UUID) *MembersGroupDeletePatch {
 }
 
 // WithEverythingUnder says the delete takes the rows under the MembersGroup with it:
-// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
-// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
-// Without it, a delete of a MembersGroup that has such rows
-// deletes nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
-// delete takes what fits, deepest first, and Left says what is left: buffer the delete
-// again, in a transaction of its own, until Left answers nil.
+// the kinds its description lists as taken, the application's rows that name it in a
+// column that says so (@deletedWith) among them, each through its own delete. It takes
+// the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
+// MembersGroup that has such rows deletes nothing and is answered with the question a
+// person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
+// one save takes, the delete takes what fits, deepest first, and Left says what is left:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
 func (p *MembersGroupDeletePatch) WithEverythingUnder() *MembersGroupDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
 
@@ -825,6 +826,17 @@ func (p *MembersGroupDeletePatch) Left() *resource.DeleteLeft {
 // the description lists and before the MembersGroup.
 func (p *MembersGroupDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *MembersGroupDeletePatch {
 	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+// WithLibraryRowsAlone says the delete leaves the application's rows that name the
+// MembersGroup out: none is counted, asked about or taken, and none refuses the delete
+// (resource.PatchSet.DeleteLibraryRowsAlone). A MembersGroup deleted with its tenant is
+// deleted so, the tenant's delete having taken the application's rows under the tenant
+// already.
+func (p *MembersGroupDeletePatch) WithLibraryRowsAlone() *MembersGroupDeletePatch {
+	p.patchSet.DeleteLibraryRowsAlone()
 
 	return p
 }

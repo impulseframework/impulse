@@ -93,6 +93,58 @@ func (w *groupShareWorld) armorerAt(t *testing.T, username accesstypes.User, sec
 	return person
 }
 
+// groupKeeperAt makes a person up who keeps a sector's groups and nothing of its passes:
+// the Armorer's role in the sector, and a role made for the test there that may delete a
+// group of the sector, take its members out and its roles from it, and list the passes,
+// with no grant to delete a pass. It waits until the engine answers the made role's
+// grant to delete a group.
+func (w *groupShareWorld) groupKeeperAt(t *testing.T, username accesstypes.User, sector string) accesstypes.User {
+	t.Helper()
+
+	const keeps accesstypes.Role = "GroupKeeper"
+	person := w.armorerAt(t, username, sector)
+	held := accesstypes.DomainPolicyScope(accesstypes.Domain(sector))
+	manager := w.engine.UserManager()
+	if err := manager.AddRole(w.ctx, held, keeps, "Keeps a sector's groups."); err != nil {
+		t.Fatalf("access.UserManager.AddRole(%s) error = %v", keeps, err)
+	}
+	if err := manager.AddRoleGrants(w.ctx, held, keeps,
+		access.GrantRow{Permission: accesstypes.Execute, Resource: "DeleteCrewSectorGroup"},
+		access.GrantRow{Permission: accesstypes.Execute, Resource: "RemoveCrewSectorGroupMember"},
+		access.GrantRow{Permission: accesstypes.Execute, Resource: "TakeCrewSectorGroupRole"},
+		access.GrantRow{Permission: accesstypes.List, Resource: "HangarPasses"},
+	); err != nil {
+		t.Fatalf("access.UserManager.AddRoleGrants(%s) error = %v", keeps, err)
+	}
+	if err := manager.AddUserRoles(w.ctx, held, person, keeps); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(%s, %s) error = %v", username, keeps, err)
+	}
+	scope := accesstypes.DomainScope(accesstypes.Domain(sector))
+	if d := decisionFor(w.ctx, t, w.engine.ForUser(person), scope, accesstypes.Execute, "DeleteCrewSectorGroup", time.Now().Add(15*time.Second)); !d.IsGranted() {
+		t.Fatalf("Execute on DeleteCrewSectorGroup for %s = %s, want granted", username, d)
+	}
+
+	return person
+}
+
+// groupMembers counts the places in the group, read straight from the table.
+func (w *groupShareWorld) groupMembers(t *testing.T, group string) int64 {
+	t.Helper()
+
+	iter := w.db.Client.Single().Query(w.ctx, spanner.Statement{SQL: "SELECT COUNT(*) FROM CrewGroupMembers WHERE GroupId = @group", Params: map[string]any{"group": group}})
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("counting the places in group %s: %v", group, err)
+	}
+	var n int64
+	if err := row.Columns(&n); err != nil {
+		t.Fatalf("reading the count of the places in group %s: %v", group, err)
+	}
+
+	return n
+}
+
 // post runs one of Anvil's methods as the Marshal, who keeps its groups, and answers the
 // status and the body.
 func (w *groupShareWorld) post(t *testing.T, method, value string) (status int, body []byte) {
@@ -409,9 +461,12 @@ func TestGroupShare_levels(t *testing.T) {
 
 // TestGroupShare_places holds the pass to the person's place in the group: a place that
 // has not begun, or that has ended, gives nothing; a person taken out of the group loses
-// the hangar at their next request; and a group that a pass names is not deleted while
-// the pass stands: the foreign key to CrewGroups refuses it. It runs on the cast's own
-// share, the Bay keepers' pass to run the Quarantine Bay.
+// the hangar at their next request; and a group that a pass names takes the pass with
+// it, once the person has been asked: the pass says so (@deletedWith), and a person who
+// may not delete the pass may not delete the group. It runs on the cast's own share, the
+// Bay keepers' pass to run the Quarantine Bay.
+//
+// Demonstrates: @deletedWith.
 func TestGroupShare_places(t *testing.T) {
 	t.Parallel()
 
@@ -479,33 +534,50 @@ func TestGroupShare_places(t *testing.T) {
 	open("the sentry is out of the group", sentry)
 	runs("the sentry is out of the group", sentry, "isolation", http.StatusForbidden)
 
-	// The pass names the group, so the group's delete, confirmed, is refused at the
-	// commit, and nothing goes: the group, the novice's ended place and the pass stand.
+	// The pass names the group and goes with it. Asked without saying it takes what is
+	// under the group, the delete answers the question, the pass counted after the
+	// group's own rows, and nothing goes.
 	if got := w.passes(t, "GroupId = @group", map[string]any{"group": group}); got != 1 {
 		t.Fatalf("the passes that name the Bay keepers = %d before the group is deleted, want 1", got)
 	}
-	deleteGroup := fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, group)
-	status, body = w.post(t, "delete-crew-sector-group", deleteGroup)
-	assertStatus(t, status, http.StatusConflict, body)
-	if got, want := refusalMessage(t, body), "One of the crew group members or crew groups this request deletes cannot be deleted while other records still refer to it."; got != want {
-		t.Errorf("the refused delete answered %q, want the commit refusal's sentence %q", got, want)
+	standing := func(when string) {
+		t.Helper()
+		if got := w.passes(t, "Id = @pass AND GroupId = @group AND EXISTS (SELECT 1 FROM CrewGroups g WHERE g.Id = @group)", map[string]any{"group": group, "pass": passBayKeepersQuarantineID}); got != 1 {
+			t.Errorf("%s: the Bay keepers' pass with its group kept = %d, want the group standing with its pass", when, got)
+		}
+		if got := w.groupMembers(t, group); got != 1 {
+			t.Errorf("%s: the Bay keepers' places = %d, want the novice's ended place standing", when, got)
+		}
 	}
-	if got := w.passes(t, "Id = @pass", map[string]any{"pass": passBayKeepersQuarantineID}); got != 1 {
-		t.Errorf("the Bay keepers' pass after the refused delete = %d, want it standing", got)
+	status, body = w.post(t, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, group))
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 1 member, 1 hangar pass. This can't be undone."; got != want {
+		t.Errorf("the asking delete answered %q, want the question %q", got, want)
 	}
-	if got := w.passes(t, "GroupId = @group AND EXISTS (SELECT 1 FROM CrewGroups g WHERE g.Id = @group)", map[string]any{"group": group}); got != 1 {
-		t.Errorf("the Bay keepers after the refused delete: %d passes name the group kept, want the group standing with its pass", got)
-	}
+	standing("after the question")
 
-	// With the pass deleted first, the group is deleted, and the novice's ended place
-	// goes with it: no pass is left that names a group nobody keeps.
-	status, body = doRequestAs(t, w.h, "marshal", http.MethodPatch, consoleAPI+"/resources",
-		fmt.Sprintf(`[{"op":"remove","path":%q}]`, opPath(anvil, "hangar-passes/"+passBayKeepersQuarantineID)))
-	assertStatus(t, status, http.StatusOK, body)
+	// Told to take them, by a person who may delete the sector's groups and take their
+	// members and roles and holds no grant to delete a hangar pass, the delete is refused
+	// whole, and nothing goes.
+	deleteGroup := fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, group)
+	keeper := w.groupKeeperAt(t, "keeper-"+accesstypes.User(identitySuffix()), anvil)
+	status, body = doRequestAs(t, w.h, keeper, http.MethodPost, sectorPath(anvil, "delete-crew-sector-group"), deleteGroup)
+	assertStatus(t, status, http.StatusForbidden, body)
+	if got, want := refusalMessage(t, body), "This group has hangar passes that you can't delete, so it can't be deleted."; got != want {
+		t.Errorf("the delete by a person who may not delete a pass answered %q, want %q", got, want)
+	}
+	standing("after the refused delete")
+
+	// Told to take them by the Marshal, who may delete the pass too, the group goes with
+	// the novice's ended place and the pass: no pass is left that names a group nobody
+	// keeps.
 	status, body = w.post(t, "delete-crew-sector-group", deleteGroup)
 	assertStatus(t, status, http.StatusNoContent, body)
 	if got := w.passes(t, "GroupId = @group OR Id = @pass", map[string]any{"group": group, "pass": passBayKeepersQuarantineID}); got != 0 {
 		t.Errorf("the passes that name the Bay keepers = %d after the group is deleted, want none", got)
+	}
+	if got := w.groupMembers(t, group); got != 0 {
+		t.Errorf("the Bay keepers' places = %d after the group is deleted, want none", got)
 	}
 	if got := w.passes(t, "GroupId IS NOT NULL AND GroupId NOT IN (SELECT Id FROM CrewGroups)", nil); got != 0 {
 		t.Errorf("%d passes name a group that is not kept, want none", got)
