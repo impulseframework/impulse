@@ -12,7 +12,9 @@ import { MethodDialogComponent, MethodDialogData, MethodDialogResult } from './m
  * that names a row and is offered above a list runs against `parent`, whose key fills
  * the request as a row's does. The page's question for the method, where it gives one,
  * is asked of the same row, and for a method above a list it is told `listed`, the rows
- * the list shows. The answer is the dialog's: the method's result once it has run,
+ * the list shows. It is also told the method's metadata, so it can ask less where the
+ * method warns and the server's words follow. The answer is the dialog's: the method's
+ * result once it has run,
  * nothing when the dialog was dismissed.
  */
 export function openMethodDialog(
@@ -29,7 +31,7 @@ export function openMethodDialog(
     method: method.method,
     label: method.label,
     preset: { ...(target ? targetBody(method.method, method.meta, target) : {}), ...filledBody(method, from) },
-    confirm: typeof confirm === 'function' ? confirm(from ?? {}, row ? undefined : listed) : confirm,
+    confirm: typeof confirm === 'function' ? confirm(from ?? {}, row ? undefined : listed, method.meta) : confirm,
     ...(method.presentation?.labels ? { labels: method.presentation.labels } : {}),
     ...(method.presentation?.says ? { says: method.presentation.says } : {}),
     ...(method.presentation?.shows ? { shows: method.presentation.shows } : {}),

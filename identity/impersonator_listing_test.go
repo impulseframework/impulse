@@ -176,6 +176,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.SkippedStoredGrants":             {none: reads},
 	"Tenant.Domain":                           {none: reads},
 	"Tenant.SeatedAgainNote":                  {none: reads},
+	"Tenant.DeletionWarning":                  {none: reads},
 }
 
 // subjectGuards are the two forms of the rule a method asks about a person named by the

@@ -457,7 +457,7 @@ DML what a later rule must read.
   the application's hook gives the seat only where the person holds nothing in the
   tenant (the generated identity client's does). So a person an administrator removes
   from the tenant is given the default seat again the next time they sign in through
-  the directory. A role with no privileges keeps one person out while the tenant is
+  the directory. Disabling their account keeps one person out while the tenant is
   open; making the tenant invite only keeps everyone out who is not invited. A seat the invitation the sign-in consumes names too (the
   same role in the same tenant) is given once, by the invitation, and is left out of
   what the hook is handed. A declaration naming none admits strangers by invitation only, the
@@ -776,7 +776,7 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   to decide over what it is handed: the generated identity client's gives the seat
   where the person holds nothing in the tenant. So a person an administrator removes
   from the tenant is given the default seat again the next time they sign in through
-  the directory; a role with no privileges keeps one person out while the tenant is
+  the directory; disabling their account keeps one person out while the tenant is
   open, and making the tenant invite only keeps everyone out who is not invited. A
   personal account, one of the
   two connections that stand for everyone who is in no organization

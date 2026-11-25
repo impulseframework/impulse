@@ -1574,7 +1574,10 @@ func Test_identityStoreTemplate_managingTenants(t *testing.T) {
 // with or without the tenant record's directory-only switch, by one statement over the
 // directories table and the identities table, where the auth's roles are given by hand;
 // and the warning of the method that removes a person from a tenant asks it and adds the
-// note on yes. Where the read is not written, the warning is the removal's own.
+// note on yes. Where the read is not written, the warning is the removal's own. The
+// tenant's method that deletes a person declares a warning where the read is written,
+// which asks it and answers the tenant's deletion warning; on the whole application's
+// side, and without the read, the method declares none.
 func Test_identitySeatedAgainBySignIn(t *testing.T) {
 	t.Parallel()
 
@@ -1612,6 +1615,10 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 		asks      = "\treturn nil, errors.Wrap(err, \"identity.Tenant.RemovalWarning()\")\n\t}\n\tagain, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"Client.SeatedAgainBySignIn()\")\n\t}\n\tif again {\n\t\twarning.Also = append(warning.Also, tenant.SeatedAgainNote())\n\t}\n\n\treturn warning, nil"
 		own       = "\treturn nil, errors.Wrap(err, \"identity.Tenant.RemovalWarning()\")\n\t}\n\n\treturn warning, nil"
 		said      = "// Where the tenant is open to its directory and the person signs in through it, the\n// warning says they are seated again at their next sign-in."
+		deletes   = "// @answers(204)\n// @warning\ntype DeleteCrewSectorUser struct {"
+		deleteAsk = "func (m *DeleteCrewSectorUser) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {\n\t// A tenant's method acts for a request made under the tenant's address.\n\ttenant, err := client.manager.Tenant(ctx)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"identity.Manager.Tenant()\")\n\t}\n\tagain, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"Client.SeatedAgainBySignIn()\")\n\t}\n\n\treturn tenant.DeletionWarning(again), nil\n}"
+		deleteSay = "// Before it runs on a tenant's side, the method says what it does (Warning): where the\n// tenant is open to its directory and the person signs in through it, that they can sign\n// in again and will get a new account."
+		noWarning = "// @answers(204)\ntype Delete"
 	)
 	for _, tt := range []struct {
 		name  string
@@ -1653,6 +1660,23 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 			} else {
 				assertContains(t, "the removal", string(removal), []string{own}, []string{"SeatedAgain", said})
 			}
+			tenantData := *tt.data
+			deletion, err := c.generateTemplateOutput("identityDeleteUserTemplate", identityDeleteUserTemplate, &tenantData)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityDeleteUserTemplate) error = %v", err)
+			}
+			if tt.reads {
+				assertContains(t, "the tenant's deletion", string(deletion), []string{deletes, deleteAsk, deleteSay}, nil)
+			} else {
+				assertContains(t, "the tenant's deletion", string(deletion), []string{noWarning}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
+			}
+			wholeData := tenantData
+			wholeData.ForTenant = false
+			whole, err := c.generateTemplateOutput("identityDeleteUserTemplate", identityDeleteUserTemplate, &wholeData)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityDeleteUserTemplate) error = %v", err)
+			}
+			assertContains(t, "the whole application's deletion", string(whole), []string{noWarning}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
 		})
 	}
 }

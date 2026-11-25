@@ -2,7 +2,7 @@ import { Directive, Injector, input, Type } from '@angular/core';
 import { TooltipPosition } from '@angular/material/tooltip';
 import { IconName } from './icon-names';
 import { FieldName, Method, PermissionScope, Resource } from './permissions';
-import { NullBoolean } from './resource-meta';
+import { MethodMeta, NullBoolean } from './resource-meta';
 import { ConcatFn, defaultEmptyFieldValue } from './resource-types';
 import { SessionInfo } from './session-info';
 import { ResourceValidatorFn } from './validators';
@@ -144,9 +144,12 @@ export interface MethodPresentation {
   /**
    * The question the dialog asks before a method that takes nothing but the row. For a
    * method above a list it is asked of the row the list sits under, with `listed`, the
-   * rows the list shows.
+   * rows the list shows. A function is also told `meta`, the generated metadata of the
+   * method, so a question can stop at its first sentence where the method warns before it
+   * runs (`meta.warning`): the dialog then draws the server's words under the page's
+   * question.
    */
-  confirm?: string | ((row: RecordData, listed?: readonly RecordData[]) => string);
+  confirm?: string | ((row: RecordData, listed?: readonly RecordData[], meta?: MethodMeta) => string);
   /** What the notice says once the method has run. */
   successMessage?: string;
   /**
