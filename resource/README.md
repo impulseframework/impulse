@@ -1960,7 +1960,10 @@ says what to write.
   everything under it: 12 members, 3 roles, 5 task assignments. This can't be undone.";
   "Delete this account and everything under it: 7 task assignments. This can't be
   undone." Each row goes through its own kind's delete, as the part before says of every
-  taken row.
+  taken row. The generated methods that delete a group and a person ask the same way:
+  sent without `everythingUnder` for one that rows go with, each answers 428 with the
+  question, and the Groups page and the People page show it and send the delete again
+  with it.
 - **A group's rows are checked as the person who asked,** though the library's own delete
   of the group is not armed (`DeleteKind.AsCaller`): whoever deletes the group needs what
   deleting each row needs. Without it the delete is refused whole: "This group has task

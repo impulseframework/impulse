@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogRef, MatDialogState } from '@angular/material/dialog';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
-import { ApiError, DeleteLeft, RemoveOptions } from '@impulseframework/resource';
+import { ApiError, DeleteLeft, MethodWarning, RemoveOptions } from '@impulseframework/resource';
 
 import {
   DeleteConfirmation,
@@ -649,6 +649,129 @@ describe('DeleteResourceConfirmationModal', () => {
       expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(sentence);
       expect(overlay()?.querySelector('.typed-asks')).toBeNull();
       expect(field()).toBeNull();
+      expect(held()).toBe(false);
+    });
+  });
+
+  // A method that warns before it runs hands the dialog its warning: the dialog asks it
+  // once as it opens, holds Delete until it is answered, and draws the server's words
+  // under the page's question, as the method's own dialog draws them. Once the server's
+  // question about what goes with the row is on the screen, the warning is not drawn.
+  describe("told the method's warning", () => {
+    const warning: MethodWarning = {
+      consequence: 'Ada can sign in again through the directory, and will get a new account.',
+      names: ['Ada Lovelace'],
+      confirm: 'Delete',
+      also: [{ says: 'Her sessions end at once.', names: ['the console'] }],
+    };
+    const held = (): boolean | undefined => buttons().find((button) => textOf(button) === 'Delete')?.disabled;
+    // A warning the test answers when it says, counting how often it is asked.
+    function warned(): {
+      ask: () => Promise<MethodWarning>;
+      asked: () => number;
+      answer: (value: MethodWarning | Error) => Promise<void>;
+    } {
+      let asked = 0;
+      let settle: (value: MethodWarning | Error) => void = () => undefined;
+      const ask = (): Promise<MethodWarning> => {
+        asked++;
+
+        return new Promise<MethodWarning>((resolve, reject) => {
+          settle = (value) => (value instanceof Error ? reject(value) : resolve(value));
+        });
+      };
+
+      return {
+        ask,
+        asked: () => asked,
+        answer: async (value) => {
+          settle(value);
+          await rest();
+        },
+      };
+    }
+
+    it("holds Delete until the warning is answered, then draws its words under the page's question", async () => {
+      const server = warned();
+      opened({ question: 'Delete ada?', warning: server.ask, delete: () => Promise.resolve() });
+      await rest();
+
+      expect(server.asked()).toBe(1);
+      expect(held()).toBe(true);
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+
+      await server.answer(warning);
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe('Delete ada?');
+      expect(textOf(overlay()?.querySelector('.warning-consequence') ?? null)).toBe(warning.consequence);
+      expect([...(overlay()?.querySelectorAll('.warning-names li') ?? [])].map(textOf)).toEqual([
+        'Ada Lovelace',
+        'the console',
+      ]);
+      expect(textOf(overlay()?.querySelector('.warning-note') ?? null)).toBe('Her sessions end at once.');
+      expect(held()).toBe(false);
+    });
+
+    it('shows a refused warning as a refused delete, with Close alone, so nothing is deleted unseen', async () => {
+      const server = warned();
+      let runs = 0;
+      const { answers } = opened({
+        question: 'Delete ada?',
+        warning: server.ask,
+        delete: () => {
+          runs++;
+          return Promise.resolve();
+        },
+      });
+      await rest();
+      await server.answer(
+        new ApiError('POST', '/api/delete-crew-sector-user/warning', 403, { message: 'You may not.' }),
+      );
+
+      expect(textOf(overlay()?.querySelector('.refusal') ?? null)).toBe('You may not.');
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+      expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([['Close', false]]);
+      expect(runs).toBe(0);
+
+      await press('Close');
+
+      expect(answers).toEqual([false]);
+    });
+
+    it("draws the warning no more once the server's question is on the screen, and asks it once", async () => {
+      const server = warned();
+      const said: unknown[] = [];
+      const counted = "Delete this account and everything under it: 7 task assignments. This can't be undone.";
+      const { answers } = opened({
+        question: 'Delete ada?',
+        warning: server.ask,
+        delete: (options) => {
+          said.push(options);
+
+          return options?.everythingUnder ? Promise.resolve() : Promise.reject(asksFirst(counted));
+        },
+      });
+      await rest();
+      await server.answer(warning);
+
+      await press('Delete');
+
+      expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(counted);
+      expect(overlay()?.querySelector('.warning')).toBeNull();
+      expect(held()).toBe(false);
+
+      await press('Delete');
+
+      expect(said).toEqual([undefined, { everythingUnder: true }]);
+      expect(server.asked()).toBe(1);
+      expect(answers).toEqual([true]);
+    });
+
+    it('draws no warning and holds nothing where it is told none', async () => {
+      opened({ question: 'Delete ada?', delete: () => Promise.resolve() });
+      await rest();
+
+      expect(overlay()?.querySelector('.warning')).toBeNull();
       expect(held()).toBe(false);
     });
   });

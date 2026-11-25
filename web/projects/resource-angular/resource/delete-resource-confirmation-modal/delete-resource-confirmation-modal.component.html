@@ -1,6 +1,28 @@
 <div mat-dialog-title>Delete</div>
 <mat-dialog-content>
   <p class="question" aria-live="polite" aria-atomic="true">{{ question() }}</p>
+  @if (warned(); as warning) {
+    <div class="warning">
+      <p class="warning-consequence">{{ warning.consequence }}</p>
+      @if (warning.names?.length) {
+        <ul class="warning-names">
+          @for (name of warning.names; track $index) {
+            <li>{{ name }}</li>
+          }
+        </ul>
+      }
+      @for (note of warning.also ?? []; track $index) {
+        <p class="warning-note">{{ note.says }}</p>
+        @if (note.names?.length) {
+          <ul class="warning-names">
+            @for (name of note.names; track $index) {
+              <li>{{ name }}</li>
+            }
+          </ul>
+        }
+      }
+    </div>
+  }
   @if (typedText && !refusal()) {
     <p class="typed-asks" [id]="typedAsksId">
       Type <strong>{{ typedText }}</strong> to confirm.

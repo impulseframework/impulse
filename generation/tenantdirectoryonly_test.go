@@ -1624,12 +1624,12 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 		asks      = "\treturn nil, errors.Wrap(err, \"identity.Tenant.RemovalWarning()\")\n\t}\n\tagain, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"Client.SeatedAgainBySignIn()\")\n\t}\n\tif again {\n\t\twarning.Also = append(warning.Also, tenant.SeatedAgainNote())\n\t}\n\n\treturn warning, nil"
 		own       = "\treturn nil, errors.Wrap(err, \"identity.Tenant.RemovalWarning()\")\n\t}\n\n\treturn warning, nil"
 		said      = "// Where the tenant is open to its directory and the person signs in through it, the\n// warning says they are seated again at their next sign-in."
-		deletes   = "// @answers(204)\n// @warning\ntype DeleteCrewSectorUser struct {"
+		deletes   = "// @answers(202, 204)\n// @warning\ntype DeleteCrewSectorUser struct {"
 		deleteAsk = "func (m *DeleteCrewSectorUser) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {\n\t// A tenant's method acts for a request made under the tenant's address.\n\ttenant, err := client.manager.Tenant(ctx)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"identity.Manager.Tenant()\")\n\t}\n\tagain, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"Client.SeatedAgainBySignIn()\")\n\t}\n\n\treturn tenant.DeletionWarning(again), nil\n}"
 		deleteSay = "// Before it runs on a tenant's side, the method says what it does (Warning): where the\n// tenant is open to its directory and the person signs in through it, that they can sign\n// in again and will get a new account."
-		noWarning = "// @answers(204)\ntype Delete"
+		noWarning = "// @answers(202, 204)\ntype Delete"
 		// Both sides say whose grant the rows that go with the account go on.
-		rowsGo = "// go with the account. Nobody deletes themselves: the caller's own account is refused.\n//\n// The rows that go with the account go on this method's grant: no grant is asked on\n// their own tables. For a request made for the whole application every such row goes.\n// For one made under a tenant's address the rows of that tenant go, and those of each\n// other tenant in which the person holds the same permission; a row of any other\n// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says\n// where it is.\n"
+		rowsGo = "// has such a row, it deletes nothing and answers the question a person is asked first,\n// with their counts; asked with it, it takes them. Nobody deletes themselves: the\n// caller's own account is refused.\n//\n// The rows that go with the account go on this method's grant: no grant is asked on\n// their own tables. For a request made for the whole application every such row goes.\n// For one made under a tenant's address the rows of that tenant go, and those of each\n// other tenant in which the person holds the same permission; a row of any other\n// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says\n// where it is.\n"
 	)
 	for _, tt := range []struct {
 		name  string

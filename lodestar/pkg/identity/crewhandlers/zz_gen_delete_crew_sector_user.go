@@ -21,7 +21,15 @@ import (
 
 func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 	type request struct {
-		UserID impulse.UUID `json:"userId"`
+		UserID          impulse.UUID `json:"userId"`
+		EverythingUnder bool         `json:"everythingUnder"`
+	}
+
+	// The answer as the wire carries it: Execute's result mirrored with generated
+	// wire names, encoded after the transaction commits.
+	type response struct {
+		Deleted int64 `json:"deleted"`
+		Left    int64 `json:"left"`
 	}
 
 	decoder := NewTargetedRPCDecoder[crewidentity.DeleteCrewSectorUser, request](h, accesstypes.Execute)
@@ -61,6 +69,11 @@ func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 		// the commit lands and before the answer; a transaction that rolls back wrote
 		// nothing to publish.
 		ctx, touched := resource.CollectTouchedRows(ctx)
+		// Captured inside the transaction, encoded after it commits: under
+		// abort-and-retry the value is the committing attempt's.
+		var result *crewidentity.DeleteCrewSectorUserResult
+		// The status the result chose, among the declared 202, 204.
+		var status int
 		// A dry run (X-Dry-Run: true) runs the whole frame and the body, then
 		// rolls the transaction back: every refusal answers as the real call
 		// would, and a call that would have succeeded answers 200 with no body.
@@ -94,8 +107,23 @@ func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 
 				return resource.ErrWarningAsked
 			}
-			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
+			answer, err := p.Execute(ctx, txn, h.RPCClient())
+			if err != nil {
 				return errors.Wrap(err, "Transaction.Execute()")
+			}
+			result = answer
+			if result == nil {
+				status = http.StatusNoContent
+			} else {
+				status, err = resource.ResponseStatus("DeleteCrewSectorUser", result, 202, 204)
+				if err != nil {
+					return err
+				}
+			}
+			if status >= http.StatusBadRequest {
+				// The method refused: the transaction rolls back, and the
+				// frame writes the status with the typed answer.
+				return &resource.Answer{Status: status}
 			}
 			if dryRun {
 				return resource.ErrDryRun
@@ -103,6 +131,9 @@ func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 
 			return nil
 		}); err != nil {
+			if refused, ok := resource.Refused(err); ok {
+				return httpio.NewEncoder(w).StatusCodeWithBody(refused, (*response)(result))
+			}
 			if asksWarning && resource.WarningAsked(err) {
 				return httpio.NewEncoder(w).Ok(warning)
 			}
@@ -114,9 +145,15 @@ func (h *Handlers) DeleteCrewSectorUser() http.HandlerFunc {
 		}
 
 		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, domain, touched)
+		if status == http.StatusNoContent {
+			w.WriteHeader(http.StatusNoContent)
 
-		w.WriteHeader(http.StatusNoContent)
+			return nil
+		}
+		if result == nil {
+			return httpio.NewEncoder(w).Ok(nil)
+		}
 
-		return nil
+		return httpio.NewEncoder(w).StatusCodeWithBody(status, (*response)(result))
 	})
 }

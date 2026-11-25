@@ -2992,24 +2992,28 @@ export namespace DeleteCrewSectorGroup {
 export namespace DeleteCrewSectorUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 
 export namespace DeleteCrewUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 
 export namespace DeleteMembersSectorUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 
 export namespace DeleteMembersUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 

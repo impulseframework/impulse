@@ -4,7 +4,7 @@ import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
 import { ClientContacts, ClientRosters, DistressCalls, MembersHeldRoles, MembersListedIdentities, MembersListedMailLinks, MembersListedSessions, MembersListedSignInAttempts, MembersListedUsers, MembersRoles, MembersSectorHeldRoles, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, MembersListedRoleGrants, MembersRememberLengths, MembersSignInMethods, MembersSignInSettings, FeatureFlags } from './zz_gen_resources';
-import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RequireMembersSecondFactor, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersRememberedBrowsers, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, StandDownMission, StopRequiringMembersSecondFactor, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { DeleteMembersSectorUser, DeleteMembersSectorUserAnswer, DeleteMembersUser, DeleteMembersUserAnswer, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RequireMembersSecondFactor, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersRememberedBrowsers, SetMembersSectorUserEmail, SetMembersSectorUserEmailResult, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserEmailResult, SetMembersUserName, StandDownMission, StopRequiringMembersSecondFactor, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
 export type Feature = 'commendations';
@@ -551,8 +551,8 @@ export const apiDescriptor = defineApiDescriptor({
     },
   },
   methods: {
-    [Methods.DeleteMembersSectorUser]: { method: Methods.DeleteMembersSectorUser, property: 'deleteMembersSectorUser', route: 'delete-members-sector-user', scope: 'domain', statuses: [204] },
-    [Methods.DeleteMembersUser]: { method: Methods.DeleteMembersUser, property: 'deleteMembersUser', route: 'delete-members-user', scope: 'global', statuses: [204] },
+    [Methods.DeleteMembersSectorUser]: { method: Methods.DeleteMembersSectorUser, property: 'deleteMembersSectorUser', route: 'delete-members-sector-user', scope: 'domain', answers: true, statuses: [202, 204] },
+    [Methods.DeleteMembersUser]: { method: Methods.DeleteMembersUser, property: 'deleteMembersUser', route: 'delete-members-user', scope: 'global', answers: true, statuses: [202, 204] },
     [Methods.DisableMembersSectorUser]: { method: Methods.DisableMembersSectorUser, property: 'disableMembersSectorUser', route: 'disable-members-sector-user', scope: 'domain', statuses: [204] },
     [Methods.DisableMembersUser]: { method: Methods.DisableMembersUser, property: 'disableMembersUser', route: 'disable-members-user', scope: 'global', statuses: [204] },
     [Methods.EnableMembersSectorUser]: { method: Methods.EnableMembersSectorUser, property: 'enableMembersSectorUser', route: 'enable-members-sector-user', scope: 'domain', statuses: [204] },
@@ -623,7 +623,7 @@ export interface GlobalApi {
   membersSignInMethods: ResourceHandle<MembersSignInMethods, MembersSignInMethodsKey, 'list'>;
   membersSignInSettings: ResourceHandle<MembersSignInSettings, MembersSignInSettingsKey, 'list'>;
   featureFlags: ResourceHandle<FeatureFlags, FeatureFlagsKey, 'list' | 'read'>;
-  deleteMembersUser: MethodHandle<DeleteMembersUser>;
+  deleteMembersUser: MethodHandle<DeleteMembersUser, DeleteMembersUserAnswer>;
   disableMembersUser: MethodHandle<DisableMembersUser>;
   enableMembersUser: MethodHandle<EnableMembersUser>;
   endMembersSession: MethodHandle<EndMembersSession>;
@@ -651,7 +651,7 @@ export interface DomainApi {
   membersSectorUserRoles: ResourceHandle<MembersSectorUserRoles, MembersSectorUserRolesKey, 'list' | 'read'>;
   missions: ResourceHandle<Missions, MissionsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', MissionsCreate, MissionsPatch>;
   missionDocuments: ResourceHandle<MissionDocuments, MissionDocumentsKey, 'list' | 'read' | 'patch' | 'remove' | 'batch', never, MissionDocumentsPatch>;
-  deleteMembersSectorUser: MethodHandle<DeleteMembersSectorUser>;
+  deleteMembersSectorUser: MethodHandle<DeleteMembersSectorUser, DeleteMembersSectorUserAnswer>;
   disableMembersSectorUser: MethodHandle<DisableMembersSectorUser>;
   enableMembersSectorUser: MethodHandle<EnableMembersSectorUser>;
   endMembersSectorUserSessions: MethodHandle<EndMembersSectorUserSessions>;

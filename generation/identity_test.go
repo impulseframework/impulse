@@ -474,9 +474,17 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/membersresources/members_session_users.go": {"// @resource", "// @suppress(patchHandler)", "// @outlet(portal, default)", "MembersSessionUser struct {"},
 		"internal/crewresources/crew_user_roles.go":          {"// @suppress(readHandler)", "// @suppress(patchHandler)", "// @outlet(default)", "CrewUserRole struct {", "UserID is the person: the id of their account"},
 		"internal/crewresources/crew_roles.go":               {"// @suppress(readHandler)", "// @suppress(patchHandler)", "// @outlet(default)", "CrewRole struct {"},
-		// The method that deletes a person does not say the delete takes the application's
-		// rows that go with the account: an account that has one is asked about.
-		"crewidentity/delete_crew_user.go": {"if _, err := client.manager.DeleteUser(ctx, txn, m.UserID, false); err != nil {"},
+		// The method that deletes a person asks first where the application's rows go with
+		// the account, as a group's delete asks: it says whether the person confirmed, and
+		// answers what one save left.
+		"crewidentity/delete_crew_user.go": {
+			"// @answers(202, 204)\ntype DeleteCrewUser struct {",
+			"\t// EverythingUnder says the person was asked what the account's delete takes and\n\t// confirmed it, so the delete takes the application's rows that go with the account.\n\tEverythingUnder bool\n}",
+			"type DeleteCrewUserResult struct {\n\tDeleted int64 `json:\"deleted\"`\n\tLeft    int64 `json:\"left\"`\n}",
+			"// HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.\nfunc (*DeleteCrewUserResult) HTTPStatus() int {\n\treturn http.StatusAccepted\n}",
+			"// Execute buffers the removal into the caller's transaction. It answers nothing (204)\n// once the account is gone, and what one save left (202) while it stands.\nfunc (m *DeleteCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*DeleteCrewUserResult, error) {",
+			"left, err := client.manager.DeleteUser(ctx, txn, m.UserID, m.EverythingUnder)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"identity.Manager.DeleteUser()\")\n\t}\n\tif left == nil {\n\t\treturn nil, nil\n\t}\n\n\treturn &DeleteCrewUserResult{Deleted: left.Deleted, Left: left.Left}, nil",
+		},
 		"crewidentity/client.go": {
 			`const TablePrefix = "Crew"`, "func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {",
 			// The manager is built for the auth by its name, the one its outlets bind to a request.

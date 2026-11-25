@@ -8,8 +8,9 @@ import {
 } from '@impulseframework/resource-angular/types';
 import { of } from 'rxjs';
 import { OfferedMethod } from '../row-methods/row-methods';
+import { DeleteConfirmation } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { MethodDialogData } from './method-dialog.component';
-import { methodDoneMessage, openMethodDialog } from './open-method-dialog';
+import { methodDoneMessage, openDeleteMethodDialog, openMethodDialog } from './open-method-dialog';
 
 const method = 'SendUserPasswordResetLink' as Method;
 
@@ -118,5 +119,51 @@ describe('openMethodDialog', () => {
     expect(told).toEqual([[row, undefined, meta]]);
     expect(told[0]?.[2]).toBe(meta);
     expect(opened[0].confirm).toBe('Send it?');
+  });
+});
+
+describe('openDeleteMethodDialog', () => {
+  // The delete dialog a page opens for a method that deletes its row, with what it is told.
+  function told(meta: MethodMeta): { data: DeleteConfirmation; warned: Record<string, unknown>[] } {
+    const opened: DeleteConfirmation[] = [];
+    const dialog = {
+      open: (_component: unknown, config: { data: DeleteConfirmation }) => {
+        opened.push(config.data);
+        return { afterClosed: () => of(undefined) };
+      },
+    } as unknown as MatDialog;
+    const warned: Record<string, unknown>[] = [];
+    const handle = {
+      execute: (): Promise<unknown> => Promise.resolve(undefined),
+      warning: (body: Record<string, unknown>) => {
+        warned.push(body);
+        return Promise.resolve({ consequence: 'Ada can come back.', confirm: 'Delete' });
+      },
+    };
+    const deletes: OfferedMethod = {
+      method: 'DeleteCrewSectorUser' as Method,
+      meta,
+      label: 'Delete',
+      presentation: { method: 'DeleteCrewSectorUser' as Method, deletes: true, confirm: 'Delete ada?' },
+    };
+    openDeleteMethodDialog(dialog, handle, deletes, { id: 'u-1', username: 'ada' });
+
+    return { data: opened[0], warned };
+  }
+  const target = { resource: 'CrewSectorUsers', key: { userId: 'id' } };
+
+  it("hands the dialog the method's warning where its metadata declares one, asked with the row's body", async () => {
+    const { data, warned } = told({ target, warning: {} } as unknown as MethodMeta);
+
+    expect(data.question).toBe('Delete ada?');
+    expect(warned).toEqual([]);
+    await expect(data.warning?.()).resolves.toEqual({ consequence: 'Ada can come back.', confirm: 'Delete' });
+    expect(warned).toEqual([{ userId: 'u-1' }]);
+  });
+
+  it('hands the dialog no warning for a method whose metadata declares none', () => {
+    const { data } = told({ target } as unknown as MethodMeta);
+
+    expect('warning' in data).toBe(false);
   });
 });

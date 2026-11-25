@@ -58,13 +58,15 @@ export function openMethodDialog(
  * the page's question for the method, then the server's where the delete takes records
  * with it, and runs the method through `handle` with the row's key: with
  * `everythingUnder` at the press after the server's question, and again for as long as
- * it answers what is left (a 202, `DeleteLeft`). It answers as openMethodDialog does:
- * the method's answer, nothing, once the row is gone, and nothing at all when the person
- * canceled.
+ * it answers what is left (a 202, `DeleteLeft`). A method whose metadata declares a
+ * warning has it asked through `handle`, with the body the delete sends, and the dialog
+ * shows the server's words under the page's question. It answers as openMethodDialog
+ * does: the method's answer, nothing, once the row is gone, and nothing at all when the
+ * person canceled.
  */
 export function openDeleteMethodDialog(
   dialog: MatDialog,
-  handle: Pick<MethodHandle<Record<string, unknown>, unknown>, 'execute'>,
+  handle: Pick<MethodHandle<Record<string, unknown>, unknown>, 'execute' | 'warning'>,
   method: OfferedMethod,
   row: RecordData,
 ): Observable<MethodDialogResult | undefined> {
@@ -73,6 +75,7 @@ export function openDeleteMethodDialog(
   const data: DeleteConfirmation = {
     question: typeof confirm === 'function' ? confirm(row, undefined, method.meta) : confirm,
     inList: true,
+    ...(method.meta.warning ? { warning: () => handle.warning(body) } : {}),
     delete: async (options?: RemoveOptions): Promise<DeleteLeft | undefined> => {
       const answer = await handle.execute(options?.everythingUnder ? { ...body, everythingUnder: true } : body);
       // A method that declares its statuses answers { status, result }: what is left

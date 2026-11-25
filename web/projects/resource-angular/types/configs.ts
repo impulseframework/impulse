@@ -145,7 +145,9 @@ export interface MethodPresentation {
    * the row it is offered on and takes nothing but the row. The dialog asks `confirm`,
    * then the server's question where the delete takes records with it, and sends the
    * method again with `everythingUnder` at the next press, and for as long as the server
-   * answers what is left (a 202).
+   * answers what is left (a 202). Where the method declares a warning, the delete dialog
+   * shows the server's words under the page's question. A method whose warning asks for
+   * a typed word keeps its own dialog.
    */
   deletes?: boolean;
   /**
