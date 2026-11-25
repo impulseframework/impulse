@@ -12,8 +12,9 @@ import (
 )
 
 // markDeletedWith marks each field of a table-backed struct that says a row of the record
-// goes with the group of an auth's its column names (@deletedWith). The mark is held to
-// the schema once the run's resources are all known (resolveLibraryDeleteTrees).
+// goes with the group or the account of an auth's its column names (@deletedWith). The
+// mark is held to the schema once the run's resources are all known
+// (resolveLibraryDeleteTrees).
 func markDeletedWith(pStruct *parser.Struct, fields []*resourceField, annotations genlang.StructAnnotations) {
 	for i, structField := range pStruct.Fields() {
 		if !annotations.Fields[i].Has(deletedWithKeyword) {
@@ -323,8 +324,9 @@ func (c *client) applicationKinds(records []*resourceInfo, marked, self map[stri
 	return taken, refusing
 }
 
-// extendedKind is a kind of a record's description as a kind of the group's: a copy whose
-// ways up to the record are each followed by each of the record's steps up to the group.
+// extendedKind is a kind of a record's description as a kind of a group's or an
+// account's: a copy whose ways up to the record are each followed by each of the record's
+// steps up to the group or the account.
 func extendedKind(kind *deleteKind, steps []deleteLink) *deleteKind {
 	extended := *kind
 	extended.Paths = nil
@@ -339,8 +341,9 @@ func extendedKind(kind *deleteKind, steps []deleteLink) *deleteKind {
 	return &extended
 }
 
-// addLibraryKind adds a kind to a list of the group's description, joining it to the kind
-// of the same table where the list holds one: each way and each link to itself once.
+// addLibraryKind adds a kind to a list of a group's or an account's description, joining
+// it to the kind of the same table where the list holds one: each way and each link to
+// itself once.
 func addLibraryKind(kinds []*deleteKind, kind *deleteKind) []*deleteKind {
 	i := slices.IndexFunc(kinds, func(k *deleteKind) bool { return k.Table == kind.Table })
 	if i < 0 {

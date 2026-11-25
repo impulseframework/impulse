@@ -1946,9 +1946,9 @@ type resourceField struct {
 	// declaredResource is the name that declaration wrote, once resolved; empty for
 	// an inferred enumeration, whose resource is the foreign key's target.
 	declaredResource string
-	// deletedWith marks a column that says a row of the record goes with the group of an
-	// auth's it names (@deletedWith), held to the schema once the run's resources are all
-	// known (resolveLibraryDeleteTrees).
+	// deletedWith marks a column that says a row of the record goes with the group or the
+	// account of an auth's it names (@deletedWith), held to the schema once the run's
+	// resources are all known (resolveLibraryDeleteTrees).
 	deletedWith bool
 
 	// The @state marker (design plan §09): IsState derives output-only decode

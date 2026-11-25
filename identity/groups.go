@@ -56,8 +56,8 @@ type GroupStore interface {
 	// the request's caller, and is refused while a row names the group in a column that
 	// does not. Told everythingUnder, it takes them; not told, a group with either deletes
 	// nothing and answers the question a person is asked first (428). It answers what one
-	// save left (nil where the group went), and is not armed against a caller: the rows
-	// are taken trusted.
+	// save left (nil where the group went), and is not armed against a caller: the members
+	// and the roles are taken trusted.
 	DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error)
 	// DeleteGroupWithTenant buffers the delete of a group that goes with its tenant: its
 	// members and the roles it holds with it, and nothing of the application's. The

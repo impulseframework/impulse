@@ -1973,7 +1973,8 @@ says what to write.
   counts them for whoever may delete the account, and each row's delete rule is asked all
   the same. The permission answers as far as it reaches. A request made for the whole
   application takes every row. A request made under a tenant's address takes the rows of
-  that tenant, and of each other tenant in which the person holds the same permission; a
+  that tenant, and of each other tenant in which the person holds the same permission,
+  with or without a condition (a condition is judged where the request is made); a
   row of any other tenant refuses the delete, with nothing gone, in a sentence that names
   the tenant: "This account still has 2 task assignments in Borealis. They have to be
   removed there before the account can be deleted." It says "in another company" where

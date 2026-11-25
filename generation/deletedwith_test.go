@@ -583,8 +583,8 @@ func takenWithinReach(name string, paths ...[]deleteLink) libraryKind {
 // permission to delete it; what refuses its own delete refuses the account's, marked
 // AsCaller; a record that names the account and says nothing is under Under alone,
 // marked AsCaller. A record whose two columns say it goes with the group and with the
-// account is a taken kind of each, marked for each. The group's lists are what 8b's
-// rules give them.
+// account is a taken kind of each, marked for each. The group's lists are what a
+// group's own rules give them.
 func Test_deletedWith_accountDescription(t *testing.T) {
 	t.Parallel()
 
