@@ -41,8 +41,8 @@ func cascadeDatabase(t *testing.T, name string) *spanner.Client {
 }
 
 // cascadeRun is what one delete that takes rows did: what it answered, the round it
-// took, the rows it asked about and deleted, in order, how many count and page
-// statements it sent, and the text of each, in order.
+// took, the rows it asked about and deleted, in order, how many count, page and
+// by-tenant statements it sent, and the text of each, in order.
 type cascadeRun struct {
 	err        error
 	round      *takenRound
@@ -50,6 +50,7 @@ type cascadeRun struct {
 	made       []string
 	counts     int
 	pages      int
+	byTenant   int
 	statements []string
 }
 
@@ -147,7 +148,7 @@ func runTakingFor(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[st
 		if !ok {
 			return errors.Newf("the transaction is a %T, want Spanner's", txn)
 		}
-		run.asked, run.made, run.counts, run.pages, run.statements = nil, nil, 0, 0, nil
+		run.asked, run.made, run.counts, run.pages, run.byTenant, run.statements = nil, nil, 0, 0, 0, nil
 		taking := &takingDelete{
 			asked: &recordedDelete{tree: tree, key: key, caller: asked},
 			query: &takenQuery{tree: tree, key: key},
@@ -157,6 +158,12 @@ func runTakingFor(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[st
 				run.statements = append(run.statements, statement.SQL)
 
 				return spannerTxn.readPage(ctx, statement, types, answers)
+			},
+			byTenant: func(ctx context.Context, statement rowsUnderStatement) ([]tenantRows, error) {
+				run.byTenant++
+				run.statements = append(run.statements, statement.SQL)
+
+				return spannerTxn.countByTenant(ctx, statement)
 			},
 			size: size,
 			also: also,

@@ -150,8 +150,20 @@ type DeleteKind struct {
 	// since the library's method asked that person's grant on the record and none on
 	// these rows. Outside a request nobody is asked, and the rows go trusted. A delete
 	// told to take the library's rows alone leaves the kind out
-	// (PatchSet.DeleteLibraryRowsAlone). The generator writes it.
+	// (PatchSet.DeleteLibraryRowsAlone). The kinds an account's delete takes are marked
+	// WithinReach instead. The generator writes it.
 	AsCaller bool
+	// WithinReach marks a kind of the application's that an account of the library's
+	// takes with it: its rows go on the permission the delete's request was let in by,
+	// with no grant asked on them and nothing asked for the caller, as far as that
+	// permission reaches. A request checked for the whole application reaches every row.
+	// One checked in a tenant reaches the rows of that tenant, and a row of another
+	// tenant, or of none, refuses the delete before anything goes, in a sentence that
+	// says where it is. Outside a request every row goes. The kind's delete rule is asked
+	// all the same, every caller is told its count, and a delete told to take the
+	// library's rows alone leaves the kind out (PatchSet.DeleteLibraryRowsAlone). The
+	// generator writes it.
+	WithinReach bool
 }
 
 // movable reports whether a row of the kind can be taken from under the record without
@@ -208,6 +220,21 @@ type DeleteTree struct {
 	// its tenant. It is nil for a record that is no tenant's, and the rows under such a
 	// record are under it whatever tenant they are of.
 	Tenant *DomainBindingData
+	// Tenants is how a sentence about the record's delete names a tenant. The generator
+	// writes it for a record with a kind marked WithinReach, in an application that has a
+	// tenant record; it is nil anywhere else.
+	Tenants *DeleteTenants
+}
+
+// DeleteTenants is where a delete reads a tenant's name for a sentence, and what the
+// sentence calls a tenant. Table is the tenant record's table and Key its key column,
+// read as text. Name is the column that holds a tenant's name, empty where the record
+// marks none. Word is one tenant in the middle of a sentence ("company").
+type DeleteTenants struct {
+	Table string
+	Key   string
+	Name  string
+	Word  string
 }
 
 // RowName is what a sentence calls the row a delete is asked of, opening the sentence:

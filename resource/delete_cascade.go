@@ -40,6 +40,12 @@ import (
 // sentence and before any row is asked about: "This group has 5 tasks. Move or delete
 // them first."
 //
+// A kind marked WithinReach goes on the permission the delete's request was let in by:
+// no grant is asked on its rows, and a row in a tenant that permission does not reach
+// refuses the delete before any row is asked about: "This account still has 2 task
+// assignments in Borealis. They have to be removed there before the account can be
+// deleted."
+//
 // A delete that does not say it takes the rows, of a record that has some, deletes
 // nothing and is answered with the question a person is asked first: "Delete this
 // client and everything under it: 2 client contacts. This can't be undone." It is a 428,
@@ -534,6 +540,9 @@ type takingDelete struct {
 	caller *Caller
 	// page reads one page of a kind's rows (SpannerReadWriteTransaction.readPage).
 	page func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error)
+	// byTenant counts a kind's rows by their tenant
+	// (SpannerReadWriteTransaction.countByTenant).
+	byTenant func(ctx context.Context, statement rowsUnderStatement) ([]tenantRows, error)
 	// size is the most mutations the save holds, DeleteMutationLimit where it is zero.
 	size int
 	// also are the kinds code handed the delete (PatchSet.DeleteAlso), in the order
@@ -542,13 +551,15 @@ type takingDelete struct {
 }
 
 // callerOf is the person a row of the kind is checked as: none for a trusted kind
-// (DeleteKind.Trusted), whose rows go with the record whoever deletes it; whoever the
-// delete is for, the patch's caller or else the request's, for a kind marked AsCaller
-// (DeleteKind.AsCaller), nobody outside a request; and for every other kind the person
-// the record's own delete is armed against, nobody where it runs trusted.
+// (DeleteKind.Trusted), whose rows go with the record whoever deletes it; none for a kind
+// marked WithinReach (DeleteKind.WithinReach), whose rows go on the permission the
+// request was let in by; whoever the delete is for, the patch's caller or else the
+// request's, for a kind marked AsCaller (DeleteKind.AsCaller), nobody outside a request;
+// and for every other kind the person the record's own delete is armed against, nobody
+// where it runs trusted.
 func (d *takingDelete) callerOf(kind *DeleteKind) *Caller {
 	switch {
-	case kind.Trusted:
+	case kind.Trusted, kind.WithinReach:
 		return nil
 	case kind.AsCaller:
 		return d.asked.caller
@@ -622,7 +633,9 @@ func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level, deep
 // (refusedBy), counted level by level as the taken kinds are, is refused in the
 // sentence that names them; then a record with a row straight under it that the
 // description neither takes nor lists under refusedBy, in the counted sentence of a
-// plain delete (refusedUnder); then a kind with rows under the record that the caller's
+// plain delete (refusedUnder); then a row of a kind marked WithinReach that the
+// permission the request was let in by does not reach, in the sentence that says where
+// it is (refusedBeyondReach); then a kind with rows under the record that the caller's
 // grants refuse; then the first row of a kind that asks anything of its rows that is
 // refused, each row asked as its own delete would ask it: every row by a delete that
 // asks, the rows the save takes by one that takes them; then a kind code handed the
@@ -650,29 +663,30 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 	}
 
 	taking := &takingDelete{
-		asked:  &recordedDelete{tree: tree, key: key, caller: p.deleteCaller(ctx)},
-		query:  &takenQuery{tree: tree, key: key},
-		txn:    spannerTxn,
-		caller: p.querySet.Caller(),
-		page:   spannerTxn.readPage,
-		size:   p.deleteSaveSize,
-		also:   p.alsoTaken,
+		asked:    &recordedDelete{tree: tree, key: key, caller: p.deleteCaller(ctx)},
+		query:    &takenQuery{tree: tree, key: key},
+		txn:      spannerTxn,
+		caller:   p.querySet.Caller(),
+		page:     spannerTxn.readPage,
+		byTenant: spannerTxn.countByTenant,
+		size:     p.deleteSaveSize,
+		also:     p.alsoTaken,
 	}
 
 	return taking.run(ctx, spannerTxn.countRows, tracked, p.everythingUnder, eventSource...)
 }
 
 // deleteDescription is the description the patch's delete reads: its record's, with
-// every kind marked AsCaller left out of each of its lists where the delete takes the
-// library's rows alone (DeleteLibraryRowsAlone). The record's own description is not
-// changed.
+// every kind marked AsCaller or WithinReach left out of each of its lists where the
+// delete takes the library's rows alone (DeleteLibraryRowsAlone). The record's own
+// description is not changed.
 func (p *PatchSet[Resource]) deleteDescription() *DeleteTree {
 	tree := p.querySet.rMeta.deleteTree
 	if tree == nil || !p.libraryRowsAlone {
 		return tree
 	}
 	library := func(kinds []DeleteKind) []DeleteKind {
-		return slices.DeleteFunc(slices.Clone(kinds), func(kind DeleteKind) bool { return kind.AsCaller })
+		return slices.DeleteFunc(slices.Clone(kinds), func(kind DeleteKind) bool { return kind.AsCaller || kind.WithinReach })
 	}
 	narrowed := *tree
 	narrowed.Taken, narrowed.RefusedBy, narrowed.Under = library(tree.Taken), library(tree.RefusedBy), library(tree.Under)
@@ -701,7 +715,9 @@ func (r *takenRound) left() *DeleteLeft {
 
 // run is the delete, each count statement run by count: the counts, the refusing kinds'
 // refusal, the refusal over a row straight under the record that the delete does not
-// take, then the taken kinds' checks and the rows taken (take).
+// take, the refusal over a row beyond the reach of whoever the delete is for, then the
+// taken kinds' checks and the rows taken (take). Each request asks them all again, so
+// every round of a delete larger than one save does.
 func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...string) (*takenRound, error) {
 	levels, err := d.count(ctx, count)
 	if err != nil {
@@ -711,6 +727,9 @@ func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[ac
 		return nil, err
 	}
 	if err := d.asked.refusedUnder(ctx, d.txn.DBType(), count); err != nil {
+		return nil, err
+	}
+	if err := d.refusedBeyondReach(ctx, levels); err != nil {
 		return nil, err
 	}
 

@@ -352,8 +352,9 @@ func (aloneTimesheet) Resource() accesstypes.Resource {
 }
 
 // aloneTask is a CascadeTasks record of the library's: its delete takes the invoices
-// that name it, marked AsCaller, and its comments, trusted; its timesheets, marked,
-// refuse it; and the tasks under it, marked, are under it and in no other list.
+// that name it, marked AsCaller, its assignments, marked WithinReach, and its comments,
+// trusted; its timesheets, marked, refuse it; and the tasks under it, marked, are under
+// it and in no other list.
 type aloneTask struct {
 	ID           string             `spanner:"Id"`
 	ProjectID    spanner.NullString `spanner:"ProjectId"`
@@ -380,6 +381,10 @@ func (aloneTask) DeleteTree() *DeleteTree {
 			{
 				Resource: "CascadeComments", Words: DeleteWords{One: "comment", Many: "comments"}, Key: []string{"Id"},
 				Paths: byTask("TaskId"), Rows: NewTakenRows(func(*PatchSet[roundComment], *Caller) {}), Trusted: true,
+			},
+			{
+				Resource: "CascadeAssignments", Words: DeleteWords{One: "assignment", Many: "assignments"}, Key: []string{"Id"},
+				Paths: byTask("TaskId"), Rows: NewTakenRows(func(*PatchSet[reachAssignment], *Caller) {}), Tenant: &DomainBindingData{Column: "TenantId"}, WithinReach: true,
 			},
 		},
 		RefusedBy: []DeleteKind{{
@@ -418,10 +423,11 @@ func (aloneAccount) DeleteTree() *DeleteTree {
 // TestPatchSet_DeleteLibraryRowsAlone holds, over the emulator, a record of the
 // library's deleted with what its tenant's delete took before it: a save that deletes the
 // rows of its marked kinds by patches that are not armed and then the record, told to
-// take the library's rows alone, commits, in a context whose caller holds no grant, with
-// the trusted kind's rows and the record gone and the taken marked kind's row deleted
-// once; the delete it reads names none of the marked kinds. The same save without it is
-// refused. A plain delete of a record with marked kinds under it alone, told to take the
+// take the library's rows alone, commits, in a context whose caller, checked in Acme,
+// holds no grant, with the trusted kind's rows and the record gone, the taken marked
+// kind's row deleted once, and the row of the kind marked WithinReach, of another
+// tenant, standing and refusing nothing; the delete it reads names none of the marked
+// kinds. The same save without it is refused. A plain delete of a record with marked kinds under it alone, told to take the
 // library's rows alone, records nothing to count before the commit.
 func TestPatchSet_DeleteLibraryRowsAlone(t *testing.T) {
 	t.Parallel()
@@ -433,10 +439,11 @@ func TestPatchSet_DeleteLibraryRowsAlone(t *testing.T) {
 		spanner.InsertMap("CascadeInvoices", map[string]any{"Id": "x1", "TaskId": "r"}),
 		spanner.InsertMap("CascadeComments", map[string]any{"Id": "m1", "TaskId": "r"}),
 		spanner.InsertMap("CascadeTimesheets", map[string]any{"Id": "y1", "TaskId": "r"}),
+		spanner.InsertMap("CascadeAssignments", map[string]any{"Id": "w1", "TaskId": "r", "TenantId": "borealis"}),
 	}); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
-	nobodysGrants := callerOf(t, nil)
+	nobodysGrants := acmeCaller(t)
 	save := func(alone bool) error {
 		return NewSpannerClient(db).ExecuteFunc(t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
 			ctx = WithCaller(ctx, nobodysGrants)
@@ -475,6 +482,9 @@ func TestPatchSet_DeleteLibraryRowsAlone(t *testing.T) {
 			t.Errorf("the row %s of %s stands, want it gone", id, table)
 		}
 	}
+	if rowsStanding(t, db, "CascadeAssignments", "w1") != 1 {
+		t.Error("the assignment of another tenant is gone, want it left out of the delete")
+	}
 	var events int64
 	if err := db.Single().Query(t.Context(), spanner.Statement{SQL: "SELECT COUNT(*) FROM DataChangeEvents WHERE TableName = 'CascadeInvoices' AND RowId = 'x1'"}).Do(func(row *spanner.Row) error {
 		return row.Column(0, &events)
@@ -487,12 +497,12 @@ func TestPatchSet_DeleteLibraryRowsAlone(t *testing.T) {
 
 	// The delete the record reads, run as deleteTaken runs it.
 	alone := NewPatchSet(NewMetadata[aloneTask]()).SetPatchType(DeletePatchType).DeleteLibraryRowsAlone()
-	run := runTaking(t, db, alone.deleteDescription(), map[string]any{"Id": "r"}, cascadeRows{}, true)
+	run := runTakingFor(t, db, alone.deleteDescription(), map[string]any{"Id": "r"}, cascadeRows{}, true, 0, nobodysGrants)
 	if run.err != nil {
 		t.Fatalf("the delete the record reads = %v", run.err)
 	}
 	if named := slices.IndexFunc(run.statements, func(sql string) bool {
-		return strings.Contains(sql, "CascadeInvoices") || strings.Contains(sql, "CascadeTimesheets") || strings.Contains(sql, "ParentTaskId")
+		return strings.Contains(sql, "CascadeInvoices") || strings.Contains(sql, "CascadeTimesheets") || strings.Contains(sql, "ParentTaskId") || strings.Contains(sql, "CascadeAssignments")
 	}); named >= 0 {
 		t.Errorf("the delete told to take the library's rows alone sent %q, want no statement naming a marked kind", run.statements[named])
 	}

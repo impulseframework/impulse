@@ -408,7 +408,8 @@ func (d *recordedDelete) rowsOf(ctx context.Context, dbType DBType, kinds []Dele
 // that tenant's; every other kind is asked about in the delete's own scope. One check
 // is asked for the kinds of each scope. A grant that carries a condition shows some of
 // a kind's rows and not others, and the count is of every row, so it is not enough. A
-// trusted call is told every kind, and every caller a trusted kind (DeleteKind.Trusted).
+// trusted call is told every kind, and every caller a trusted kind (DeleteKind.Trusted)
+// and a kind that goes on the permission to delete the record (DeleteKind.WithinReach).
 func (d *recordedDelete) seen(ctx context.Context, kinds []kindRows) ([]kindRows, error) {
 	if d.caller.IsZero() {
 		return kinds, nil
@@ -427,7 +428,7 @@ func (d *recordedDelete) seen(ctx context.Context, kinds []kindRows) ([]kindRows
 	var scopes []accesstypes.Scope
 	resources := make(map[accesstypes.Scope][]accesstypes.Resource, 2)
 	for _, k := range kinds {
-		if k.kind.Trusted {
+		if k.kind.Trusted || k.kind.WithinReach {
 			continue
 		}
 		scope := scopeOf(k.kind)
@@ -446,7 +447,7 @@ func (d *recordedDelete) seen(ctx context.Context, kinds []kindRows) ([]kindRows
 	}
 	var seen []kindRows
 	for _, k := range kinds {
-		if k.kind.Trusted || decisions[scopeOf(k.kind)][k.kind.Resource].IsGranted() {
+		if k.kind.Trusted || k.kind.WithinReach || decisions[scopeOf(k.kind)][k.kind.Resource].IsGranted() {
 			seen = append(seen, k)
 		}
 	}
