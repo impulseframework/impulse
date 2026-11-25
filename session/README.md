@@ -4434,11 +4434,15 @@ A row taken with the record it is under (a pass that goes with the place it open
 the place's record declares it with `@deleteCascade`) is held to the rule too: it is
 deleted through its own delete, so the rule and the mask are asked about it, and the
 delete of the place is refused whole when a pass under it is the real person's own or
-their set's. A row that goes with its tenant is a limit of its own: a tenant's delete
-asks no grant and no rule of a row. The generator gives that delete the class `access`,
-and an application closes it for a kind that keeps the class by refusing the delete in
-the kind's mask (`accesstypes.RefusePermission(accesstypes.Delete, tenant)`), with any
-action that deletes a tenant in its own body, by name (`accesstypes.RefuseAction`).
+their set's. A row that goes with a group it names (`@deletedWith`) is held to it the
+same way. A row that goes with its tenant is a limit of its own: a tenant's delete asks
+no grant and no rule of a row. The generator gives that delete the class `access`, and
+an application closes it for a kind that keeps the class by refusing the delete in the
+kind's mask (`accesstypes.RefusePermission(accesstypes.Delete, tenant)`), with any
+action that deletes a tenant in its own body, by name (`accesstypes.RefuseAction`). A
+row that goes with an account it names (`@deletedWith`) is the same limit: the account's
+delete asks no grant and no rule of it, and an application closes it by refusing the
+methods that delete a person in the kind's mask, by name (`accesstypes.RefuseAction`).
 Where a foreign key changes a row where it stands (`ON DELETE SET NULL` or
 `SET DEFAULT`, and `ON UPDATE CASCADE`, which follows a change of the parent's key;
 PostgreSQL has them), no write of the row is made: refusing the parent's delete, and for
