@@ -88,7 +88,7 @@ email address" for the two shapes the address columns take, "A person's name" an
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
 
-**Rows that are over are removed.** Three tables would otherwise keep every row ever
+**Rows that are over are removed.** Seven tables would otherwise keep every row ever
 written, and each removes its own:
 
 - The sessions table removes a session 30 days after its last activity (`UpdatedAt`). A
@@ -102,6 +102,15 @@ written, and each removes its own:
   sign-in code.
 - The mail links table removes a link 30 days after it expired (`ExpiresAt`), used or
   not.
+- The tokens table removes a token 30 days after it expired (`ExpiresAt`), revoked or
+  not. A refresh token that was rotated stays until then, so one presented again before
+  it expires is still caught as a reuse.
+- The trusted devices table removes a remembered browser 30 days after it expired
+  (`ExpiresAt`), revoked or not.
+- The device codes table removes a device authorization one day after it expired
+  (`ExpiresAt`), whether it was approved, denied or never decided.
+- The pending sign-ins table removes a pending sign-in one day after it expired
+  (`ExpiresAt`), consumed or not, and the sign-in codes mailed for it go with it.
 
 On Spanner the tables carry row deletion policies, and Spanner removes the rows in the
 background (its documentation says typically within 72 hours of the moment a row is
@@ -112,18 +121,24 @@ ALTER TABLE Sessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 
 ALTER TABLE SessionSignInAttempts ADD COLUMN EndsAt TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED;
 ALTER TABLE SessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
 ALTER TABLE SessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+ALTER TABLE SessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+ALTER TABLE SessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+ALTER TABLE SessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+ALTER TABLE SessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 ```
 
 PostgreSQL has no such policy, so the `Auth` store removes the rows as it writes: a
 sign-in removes the sessions that are due, a failed attempt removes the sign-in attempts
-rows that are due, and a link's insert removes the mail links that are due. Each write
-removes at most 100 rows, oldest first, and passes over a session, a sign-in attempts
-row or a link another transaction holds; nothing sweeps the tables. The removal is never
-the write's failure: one that fails is logged as an error, and the sign-in, the recorded
-failure or the link stands. A request that ends while its sign-in's removal runs is
-another matter: the sign-in fails with the request, as in any statement of its
-transaction, and a removal a deadline cut short is logged. Sessions are counted by the
-UTC day of their last activity (`UpdatedOn`, a column the database works out from
+rows that are due, a link's insert removes the mail links that are due, and a write that
+inserts a token, a trusted device, a device code or a pending sign-in removes the rows
+of its own table that are due. Three writes insert tokens: a token's own insert, a
+refresh, and the poll that redeems an approved device code. Each write removes at most
+100 rows, oldest first, and passes over a row another transaction holds; nothing sweeps
+the tables. The removal is never the write's failure: one that fails is logged as an
+error, and the write that carried it stands. A request that ends while its sign-in's
+removal runs is another matter: the sign-in fails with the request, as in any statement
+of its transaction, and a removal a deadline cut short is logged. Sessions are counted
+by the UTC day of their last activity (`UpdatedOn`, a column the database works out from
 `UpdatedAt`): a session goes once that day is more than 30 days back, so 30 to 31 days
 after its last activity and never sooner. The store reads the sessions that are due by
 an index on `UpdatedOn`, which changes once a day for a session in use, so the activity
@@ -132,16 +147,21 @@ removes sessions. A session a `Preauth` store makes, one the application starts 
 impersonated session remove nothing, so on PostgreSQL an application that only ever
 makes such sessions keeps every session row.
 
-The shipped sets carry all of this (`SessionRowRemoval`: on Spanner in the base set and
-in the auth set, on PostgreSQL in the auth set). A table named per group, or kept in the
-application's own migrations, needs the same statements under its name. On PostgreSQL
-the store reads `EndsAt` and `UpdatedOn`: without the column it removes no row of that
-table and logs an error at each write. A table of the application's that references the
-sessions table or the mail links table needs `ON DELETE CASCADE` on that foreign key, as
-the custom session data table has: on PostgreSQL a foreign key without it stops the
-removal from that table while a row it holds is due, logged at each write. On
-PostgreSQL the referencing column also needs an index, which the database does not make
-for a foreign key: without one, each row the removal deletes reads that table whole.
+The shipped sets carry all of this: `SessionRowRemoval` for the first three tables (on
+Spanner in the base set and in the auth set, on PostgreSQL in the auth set), and
+`SessionExpiredRowRemoval` for the other four, in the auth set of each store (on Spanner
+their policies, on PostgreSQL the indexes on `ExpiresAt` the store reads the due rows
+by). A table named per group, or kept in the application's own migrations, needs the
+same statements under its name. On PostgreSQL the store reads `EndsAt` and `UpdatedOn`:
+without the column it removes no row of that table and logs an error at each write. The
+other four removals read `ExpiresAt`, which each of those tables has; without its index
+on `ExpiresAt`, each write that carries the removal reads the table whole. A table of
+the application's that references one of these tables needs `ON DELETE CASCADE` on that
+foreign key, as the custom session data table has: on PostgreSQL a foreign key without
+it stops the removal from that table while a row it holds is due, logged at each write.
+On PostgreSQL the referencing column also needs an index, which the database does not
+make for a foreign key: without one, each row the removal deletes reads that table
+whole.
 
 ## Auth sessions (multiple sign-in methods)
 
@@ -1337,8 +1357,9 @@ only while its row is live: not expired and not consumed. Completing, canceling 
 replacing it consumes the row by a conditional update, before the completion signs in,
 so the token is single-use: of two completions racing on a copied cookie, one proceeds
 and the other answers `pending_expired`. No session row exists until the sign-in
-completes, so nothing of a pending identity ever validates as a session. Expired and
-consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
+completes, so nothing of a pending identity ever validates as a session. An expired row,
+consumed or not, is removed a day after it expired (see "Rows that are over are removed"
+under "Schema").
 
 ### The second factor
 
@@ -1574,8 +1595,9 @@ pending sign-in at a time, however many are recorded at once (the PostgreSQL dri
 takes the pending sign-in's row for the insert, and Spanner's transaction is
 serializable), and the codes go with the pending sign-in. A trusted device
 is a row of `SessionTrustedDevices`: the user, the token's hash, and when it was
-created, expires, was last used and revoked; the devices go with the user. Expired and
-consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
+created, expires, was last used and revoked; the devices go with the user. A code is
+removed with its pending sign-in, a day after that expired, and a trusted device 30 days
+after it expired, revoked or not (see "Rows that are over are removed" under "Schema").
 
 ### Every session
 
@@ -2920,7 +2942,10 @@ in `SessionTokens` and `SessionDeviceCodes` (the shipped migrations `000007` on 
 and `000006` on PostgreSQL; `WithTokensTableName`, `WithDeviceCodesTableName`), keyed
 by the hash of the secret, with the person, the outlet, the kind, the family, the
 name or client, the issue, expiry, last use and revocation (`revoked`, `rotated`,
-`reuse`, `user`); a person's rows go with the person.
+`reuse`, `user`); a person's rows go with the person. A token's row is removed 30 days
+after the token expired and a device authorization's a day after it expired (see "Rows
+that are over are removed" under "Schema"); a device code polled after its row is gone
+answers `invalid_grant`, as an unknown code does.
 
 #### From a command line
 

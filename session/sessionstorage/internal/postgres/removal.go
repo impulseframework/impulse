@@ -12,7 +12,7 @@ import (
 // rows that came due together, which the writes after it take in turn.
 const dueRemovalLimit = 100
 
-// idKey is the key column of the sessions and mail links tables.
+// idKey is the key column of every table with a removal but the sign-in attempts table.
 const idKey = `"Id"`
 
 // removal is the housekeeping a write carries for the rows of its table that are over.
@@ -32,10 +32,10 @@ type removal struct {
 	order string
 }
 
-// The three removals. The sign-in attempts and mail links periods are counted in hours,
-// as Spanner's are: PostgreSQL counts a day by the session's time zone, and one day a
-// year is 23 hours long. The sessions are counted by the UTC day, which is always 24
-// hours; their condition in hours is a guard that takes no row out of what the day finds.
+// The removals. Every period but the sessions' is counted in hours, as Spanner's are:
+// PostgreSQL counts a day by the session's time zone, and one day a year is 23 hours
+// long. The sessions are counted by the UTC day, which is always 24 hours; their
+// condition in hours is a guard that takes no row out of what the day finds.
 var (
 	// sessionsRemoval finds the sessions that are due by the UTC day of their last
 	// activity (UpdatedOn, which the database works out from UpdatedAt) and holds each to
@@ -62,6 +62,39 @@ var (
 		what:  "mail links that expired more than 30 days ago",
 		key:   idKey,
 		due:   `"ExpiresAt" < now() - interval '720 hours'`,
+		order: `"ExpiresAt"`,
+	}
+	// tokensRemoval takes the tokens that expired more than 30 days ago, revoked or not.
+	// A refresh token that was rotated is among them only then, so one presented again
+	// before it expires is still there to be caught as a reuse.
+	tokensRemoval = removal{
+		what:  "tokens that expired more than 30 days ago",
+		key:   idKey,
+		due:   `"ExpiresAt" < now() - interval '720 hours'`,
+		order: `"ExpiresAt"`,
+	}
+	// trustedDevicesRemoval takes the trusted devices that expired more than 30 days ago,
+	// revoked or not.
+	trustedDevicesRemoval = removal{
+		what:  "trusted devices that expired more than 30 days ago",
+		key:   idKey,
+		due:   `"ExpiresAt" < now() - interval '720 hours'`,
+		order: `"ExpiresAt"`,
+	}
+	// deviceCodesRemoval takes the device codes that expired more than a day ago, whether
+	// they were approved, denied or never decided.
+	deviceCodesRemoval = removal{
+		what:  "device codes that expired more than a day ago",
+		key:   idKey,
+		due:   `"ExpiresAt" < now() - interval '24 hours'`,
+		order: `"ExpiresAt"`,
+	}
+	// pendingSignInsRemoval takes the pending sign-ins that expired more than a day ago,
+	// consumed or not. Their sign-in codes go with them by the foreign key's cascade.
+	pendingSignInsRemoval = removal{
+		what:  "pending sign-ins that expired more than a day ago",
+		key:   idKey,
+		due:   `"ExpiresAt" < now() - interval '24 hours'`,
 		order: `"ExpiresAt"`,
 	}
 )
