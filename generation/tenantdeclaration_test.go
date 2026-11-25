@@ -191,15 +191,11 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 		name    string
 		structs []string
 		wantErr string
-		// wantDisabled is the field the record marks as saying a tenant is disabled, ""
-		// for none.
-		wantDisabled string
 	}{
 		{name: "the record's flag and the directories record are captured", structs: []string{"Harbor", "HarborDirectory"}},
 		{
-			name:         "the column that says a tenant is disabled is captured, an ordinary field the record's update writes",
-			structs:      []string{"Haven", "HarborDirectory"},
-			wantDisabled: "Disabled",
+			name:    "the column that says a tenant is disabled is captured, an ordinary field the record's update writes",
+			structs: []string{"Haven", "HarborDirectory"},
 		},
 		{
 			name:    "@tenantDisabled on a resource that is not the tenant record is refused",
@@ -342,14 +338,13 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 			if directories.DirectoryConnectionField == nil || directories.DirectoryConnectionField.Name() != "Connection" {
 				t.Errorf("%s.DirectoryConnectionField = %v, want Connection", directories.Name(), directories.DirectoryConnectionField)
 			}
-			// Whether a tenant is disabled is an ordinary change of its field, under the
+			// Every tenant record marks the column that says a tenant is disabled, and
+			// whether one is disabled is an ordinary change of its field, under the
 			// caller's grant on it: the wire writes it.
 			switch field := record.TenantDisabledField; {
-			case tt.wantDisabled == "" && field != nil:
-				t.Errorf("%s.TenantDisabledField = %v, want none", record.Name(), field)
-			case tt.wantDisabled != "" && (field == nil || field.Name() != tt.wantDisabled):
-				t.Errorf("%s.TenantDisabledField = %v, want %s", record.Name(), field, tt.wantDisabled)
-			case field != nil && field.IsOutputOnly():
+			case field == nil || field.Name() != "Disabled":
+				t.Errorf("%s.TenantDisabledField = %v, want Disabled", record.Name(), field)
+			case field.IsOutputOnly():
 				t.Errorf("%s.%s is output-only, want the record's update to write it", record.Name(), field.Name())
 			}
 			// A directory is never typed in: the wire writes neither of its two columns.
@@ -459,27 +454,27 @@ func Test_declarationColumns(t *testing.T) {
 		{
 			name:    "the record's flag and the directories record's columns, the seat and the tenant's word among them",
 			structs: []string{"Harbor", "HarborDirectory"},
-			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat", SecondFactorColumn: "AsksSecondFactor"},
+			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", Disabled: "Disabled", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat", SecondFactorColumn: "AsksSecondFactor"},
 		},
 		{
 			name:    "a record without the flag names no directory-only column",
 			structs: []string{"Sector", "HarborDirectory"},
-			want:    &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat", SecondFactorColumn: "AsksSecondFactor"},
+			want:    &tenantDeclarationColumns{Disabled: "Disabled", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat", SecondFactorColumn: "AsksSecondFactor"},
 		},
 		{
 			name:    "a directories record with the tenant's word and no seat column names the key and the word's column",
 			structs: []string{"Harbor", "Landing"},
-			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Landings", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", SecondFactorColumn: "AsksSecondFactor"},
+			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", Disabled: "Disabled", DirectoriesTable: "Landings", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", SecondFactorColumn: "AsksSecondFactor"},
 		},
 		{
 			name:    "a directories record with neither the seat column nor the tenant's word names neither, nor the key",
 			structs: []string{"Harbor", "Breakwater"},
-			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Breakwaters", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", Disabled: "Disabled", DirectoriesTable: "Breakwaters", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 		},
 		{
 			name:    "a directories record whose tenant column is a string, the id's text, names it the same way",
 			structs: []string{"Harbor", "Marina"},
-			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Marinas", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", Disabled: "Disabled", DirectoriesTable: "Marinas", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 		},
 		{
 			name:    "a record that marks the column saying a tenant is disabled names it beside the directories record's columns",
@@ -508,8 +503,8 @@ func Test_declarationColumns(t *testing.T) {
 // Test_tenantsTemplate_declaration pins the roster constructor of a record that
 // declares who may enter a tenant: the declaration's columns as a package variable,
 // handed to resource.WithTenantDeclarations ahead of the caller's options, and the
-// sign-in policy's reader constructor beside it; a record declaring none carries no
-// columns, and its reader answers nothing.
+// sign-in policy's reader constructor beside it; a record declaring no directories
+// carries the column that says a tenant is disabled alone, which its reader reads.
 func Test_tenantsTemplate_declaration(t *testing.T) {
 	t.Parallel()
 
@@ -527,9 +522,9 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 	}{
 		{
 			name: "the declaration's columns, the option and the reader constructor",
-			data: &tenantsData{
+			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
-				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 				Directory:           harborDirectoryWrite(),
 				Word:                "harbor",
 				ResourcePackage:     "resources",
@@ -566,9 +561,9 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "the tenant's word for its directory's second factor, with no seat column",
-			data: &tenantsData{
+			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "Landing", SecondFactor: "AsksSecondFactor",
-				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Landings", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", SecondFactorColumn: "AsksSecondFactor"},
+				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoryOnly: "DirectoryOnly", DirectoriesTable: "Landings", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", SecondFactorColumn: "AsksSecondFactor"},
 				Directory:           harborDirectoryWrite(),
 				Word:                "harbor",
 				ResourcePackage:     "resources",
@@ -583,39 +578,10 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			wantNotContains: []string{"DefaultSeatColumn"},
 		},
 		{
-			// An application whose tenants have no directories hands its auths the same
-			// constructor: the reader answers nothing, with no columns to read.
-			name: "a record that declares no directories gets a reader that answers nothing, and nothing of a directory",
-			data: &tenantsData{Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", NoDirectories: true},
-			wantContains: []string{
-				`"cloud.google.com/go/spanner"`,
-				`"github.com/impulseframework/impulse/session/signin"`,
-				"The\n// Harbor record declares no directories (no record is annotated @tenantDirectory), so no\n// harbor declares anything",
-				"func NewHarborDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTransaction] {",
-				`return resource.NewTenantDeclarationReader("Harbors", "Id", nil)`,
-				`return resource.NewTenantRoster(client, "Harbors", "Id", opts...)`,
-			},
-			wantNotContains: []string{"harborDeclaration", "WithTenantDeclarations", "DirectoryReader", "DirectoryRules", "SetHarborDirectory", "ClearHarborDirectory"},
-		},
-		{
-			// A site that declares the record another site serves reads one package and
-			// cannot know whether the tenants have directories: the other site's reader
-			// is the one the auths are handed, and this package gets none.
-			name: "a record another site serves, in a package with no directories record, gets no reader and imports nothing for one",
-			data: &tenantsData{Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor"},
-			wantContains: []string{
-				"import (\n\t\"github.com/impulseframework/impulse/resource\"\n)",
-				`return resource.NewTenantRoster(client, "Harbors", "Id", opts...)`,
-			},
-			wantNotContains: []string{"DeclarationReader", "signin", "cloud.google.com/go/spanner", "declares no directories"},
-		},
-		{
 			name: "a record with directories that marks the column saying a tenant is disabled carries it in the declaration",
-			data: &tenantsData{
+			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
 				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", Disabled: "Disabled", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
-				Disabled:            "Disabled",
-				DisabledField:       "Disabled",
 				Directory:           harborDirectoryWrite(),
 				Word:                "harbor",
 				ResourcePackage:     "resources",
@@ -658,9 +624,9 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "a directories record whose tenant column is a string takes the tenant's key as text",
-			data: &tenantsData{
+			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "Marina",
-				Declaration:         &tenantDeclarationColumns{DirectoriesTable: "Marinas", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoriesTable: "Marinas", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 				Directory:           &tenantDirectoryWrite{TenantField: "HarborID", TenantType: "string", TenantParam: "tenant", TenantDomain: "accesstypes.Domain(tenant)", MethodField: "Method", ConnectionField: "Connection"},
 				Word:                "harbor",
 				ResourcePackage:     "resources",
@@ -677,9 +643,9 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			// through the record's description (Test_tenantDeleteTree): the roster file
 			// holds no removal of its own, which would be a second one.
 			name: "the roster of a record that declares directories holds no removal of a harbor's directory",
-			data: &tenantsData{
+			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
-				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 				Directory:           harborDirectoryWrite(),
 				Word:                "harbor",
 				ResourcePackage:     "resources",
@@ -693,9 +659,9 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "the seat column, and the maker of a tenant from an accepted invitation",
-			data: &tenantsData{
+			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory", DefaultSeat: "DefaultSeat",
-				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
+				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
 				Directory:           harborDirectoryWrite(),
 				Word:                "harbor",
 				ResourcePackage:     "resources",
@@ -775,7 +741,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 		},
 		{
 			name: "a maker for a record that declares no directory makes the row alone, and refuses a directory-only tenant",
-			data: &tenantsData{
+			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Sector", Table: "Sectors", KeyColumn: "Id", RecordLower: "sector",
 				NoDirectories:       true,
 				ResourcePackage:     "resources",
@@ -788,17 +754,17 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				`return "", errors.New("the Sector record declares no directory-only switch, so no sector is made directory only")`,
 				"func (m *sectorMaker) SeatsDefaultRole() bool {\n\treturn false\n}",
 				"func (m *sectorMaker) DeclaresDirectoryOnly() bool {\n\treturn false\n}",
-				// The reader that answers nothing stands beside the maker, its imports
-				// after the standard library's.
+				// The reader of whether a sector is disabled stands beside the maker, its
+				// imports after the standard library's.
 				"\t\"encoding/json\"\n\n\t\"cloud.google.com/go/spanner\"\n\t\"github.com/go-playground/errors/v5\"\n",
-				`return resource.NewTenantDeclarationReader("Sectors", "Id", nil)`,
+				`return resource.NewTenantDeclarationReader("Sectors", "Id", &sectorDeclaration)`,
 			},
 			// A field under no unique index is not read for.
 			wantNotContains: []string{"hasDirectory", "DirectoryRules", "sessioninfo", "signin.Directory", "SetDirectoryOnly", "NewSectorQuery()", "already exists"},
 		},
 		{
 			name: "a maker reads a field of an imported type, whose package the file imports by the record's own fields",
-			data: &tenantsData{
+			data: &tenantsData{Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Citadel", Table: "Citadels", KeyColumn: "Id", RecordLower: "citadel",
 				ResourcePackage:     "resources",
 				LocalPackageImports: `"example.com/app/pkg/resources"`,
@@ -812,12 +778,6 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"patch.SetFounded(given)",
 			},
 			wantImports: []string{"\t\"cloud.google.com/go/civil\"\n", "\t\"github.com/impulseframework/impulse/identity\"\n", "\t\"github.com/impulseframework/impulse/resource/live\"\n"},
-		},
-		{
-			name:            "a record declaring none, and made by no invitation, carries the roster and the reader that answers nothing, and no more",
-			data:            &tenantsData{Source: "resources", Package: "app", Name: "Sector", Table: "Sectors", KeyColumn: "Id", RecordLower: "sector", NoDirectories: true},
-			wantContains:    []string{"import (\n\t\"cloud.google.com/go/spanner\"\n", `return resource.NewTenantRoster(client, "Sectors", "Id", opts...)`, `return resource.NewTenantDeclarationReader("Sectors", "Id", nil)`},
-			wantNotContains: []string{"WithTenantDeclarations", "sectorDeclaration", "DirectoryReader", "signin.Directory", "AdministratorRoles", "Maker", "identity"},
 		},
 	}
 
@@ -1074,12 +1034,10 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 	}
 }
 
-// Test_tenantRecord_deleteRequiresDisabled pins the delete of a tenant record that marks
-// the column saying a tenant is disabled, in its own handler and in the consolidated one:
-// the caller's grants answer first, then the rule that a tenant is disabled before it is
-// deleted, both before the row's removal is buffered and before what the auths hold for
-// the tenant goes. A tenant record that marks no such column asks neither, and no other
-// resource asks the rule.
+// Test_tenantRecord_deleteRequiresDisabled pins the delete of a tenant record, in its own
+// handler and in the consolidated one: the caller's grants answer first, then the rule that
+// a tenant is disabled before it is deleted, both before the row's removal is buffered and
+// before what the auths hold for the tenant goes. No other resource asks the rule.
 func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -1095,7 +1053,6 @@ func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
 	}{
 		{name: "a tenant record with no directories that marks the column", structs: []string{"Haven"}, resource: "Haven", requires: true},
 		{name: "a tenant record with directories that marks the column", structs: []string{"Haven", "HarborDirectory"}, resource: "Haven", requires: true},
-		{name: "a tenant record that marks no such column", structs: []string{"Sector"}, resource: "Sector"},
 		{name: "the directories record", structs: []string{"Haven", "HarborDirectory"}, resource: "HarborDirectory"},
 	}
 	for _, tt := range tests {
@@ -1398,10 +1355,11 @@ func Test_apiClientData_tenantCreation_declaration(t *testing.T) {
 }
 
 // Test_declaresNoDirectories pins which tenant record's package gets the reader that
-// answers nothing: one that declares no directories and makes the record's rows. A
-// record that declares directories has its own reader, and a package that declares the
-// record another site serves (the patch handler suppressed) gets none, since whether the
-// application's tenants have directories is that site's to say.
+// reads whether each tenant is disabled and nothing else: one that declares no
+// directories and makes the record's rows. A record that declares directories has its
+// own reader, and a package that declares the record another site serves (the patch
+// handler suppressed) gets none, since whether the application's tenants have
+// directories is that site's to say.
 func Test_declaresNoDirectories(t *testing.T) {
 	t.Parallel()
 

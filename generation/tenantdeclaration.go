@@ -500,10 +500,10 @@ type tenantDisabledRequirement struct {
 }
 
 // tenantDisabledRequirement resolves what the record's delete asks of a tenant before
-// its removal is buffered: nil on every resource but a tenant record that marks the
-// column saying a tenant is disabled.
+// its removal is buffered: nil on every resource but the tenant record, which marks the
+// column saying a tenant is disabled (resolveTenantRecord refuses one that does not).
 func (r *resourceGenerator) tenantDisabledRequirement(record *resourceInfo) *tenantDisabledRequirement {
-	if !record.IsTenant || record.TenantDisabledField == nil {
+	if !record.IsTenant {
 		return nil
 	}
 
@@ -698,9 +698,7 @@ func (r *resourceGenerator) declarationColumns(record *resourceInfo) *tenantDecl
 	if record.DirectoryOnlyField != nil {
 		columns.DirectoryOnly = spannerColumn(record.DirectoryOnlyField)
 	}
-	if record.TenantDisabledField != nil {
-		columns.Disabled = spannerColumn(record.TenantDisabledField)
-	}
+	columns.Disabled = spannerColumn(record.TenantDisabledField)
 	if directories.DirectoryDefaultSeatField != nil || directories.DirectorySecondFactorField != nil {
 		columns.DirectoriesKeyColumn = spannerColumn(directories.PrimaryKey())
 	}

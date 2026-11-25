@@ -963,13 +963,13 @@ func Test_holdIdentityTenantInvitation(t *testing.T) {
 			name:    "and so are sources written for a field the create requires where the load finds it optional",
 			structs: []string{"Citadel"},
 			written: func(inst *identityInstance) { inst.tenant.invitation.fields[1].Required = true },
-			wantErr: "the invitation's sources were written for the fields [Name name required=true; Motto motto required=true; Founded founded required=true; Walled walled required=true] and the loaded record carries [Name name required=true; Motto motto required=false; Founded founded required=true; Walled walled required=true]",
+			wantErr: "the invitation's sources were written for the fields [Name name required=true; Motto motto required=true; Founded founded required=true; Walled walled required=true; whether it is disabled Disabled disabled] and the loaded record carries [Name name required=true; Motto motto required=false; Founded founded required=true; Walled walled required=true; whether it is disabled Disabled disabled]",
 		},
 		{
 			name:    "and sources written for no switch where the load finds one",
 			structs: []string{"Harbor", "HarborDirectory"},
 			written: func(inst *identityInstance) { inst.tenant.invitation.directoryOnly = nil },
-			wantErr: "and the loaded record carries [Name name required=true; the directory-only switch DirectoryOnly directoryOnly]",
+			wantErr: "and the loaded record carries [Name name required=true; the directory-only switch DirectoryOnly directoryOnly; whether it is disabled Disabled disabled]",
 		},
 		{
 			name:    "and on the field that says when a tenant was made",
@@ -991,13 +991,13 @@ func Test_holdIdentityTenantInvitation(t *testing.T) {
 			written: func(inst *identityInstance) {
 				inst.tenant.invitation.since = &identityTenantField{Name: "Opened", Wire: "opened", Column: "Opened"}
 			},
-			wantErr: "the invitation's sources were written for the fields [when it was made Opened] and the loaded record carries [when it was made MadeAt]",
+			wantErr: "the invitation's sources were written for the fields [when it was made Opened; whether it is disabled Disabled disabled] and the loaded record carries [when it was made MadeAt; whether it is disabled Disabled disabled]",
 		},
 		{
 			name:    "and sources written for none where the load finds one",
 			structs: []string{"Cove"},
 			written: func(inst *identityInstance) { inst.tenant.invitation.since = nil },
-			wantErr: "the invitation's sources were written for the fields [] and the loaded record carries [when it was made MadeAt]",
+			wantErr: "the invitation's sources were written for the fields [whether it is disabled Disabled disabled] and the loaded record carries [when it was made MadeAt; whether it is disabled Disabled disabled]",
 		},
 		{
 			name:    "and sources written for one where the load finds none",
@@ -1005,7 +1005,7 @@ func Test_holdIdentityTenantInvitation(t *testing.T) {
 			written: func(inst *identityInstance) {
 				inst.tenant.invitation.since = &identityTenantField{Name: "Founded", Wire: "founded", Column: "Founded"}
 			},
-			wantErr: "Walled walled required=true; when it was made Founded] and the loaded record carries [Name name required=true; Motto motto required=false; Founded founded required=true; Walled walled required=true]",
+			wantErr: "Walled walled required=true; when it was made Founded; whether it is disabled Disabled disabled] and the loaded record carries [Name name required=true; Motto motto required=false; Founded founded required=true; Walled walled required=true; whether it is disabled Disabled disabled]",
 		},
 		{
 			name:    "where no auth invites, a create that requires a secret is the application's own to supply",

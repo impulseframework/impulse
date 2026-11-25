@@ -90,8 +90,9 @@ type identityTenantInvitation struct {
 	directoryOnly *identityTenantField
 	seats         bool
 	// disabled is the record's column that says a tenant is disabled (@tenantDisabled),
-	// nil where it marks none (Type is unused: it is a yes or a no): no invitation
-	// carries it, since a new tenant is made enabled, and the list of tenants shows it.
+	// nil where the files read before the load mark none, which the load then refuses
+	// (Type is unused: it is a yes or a no): no invitation carries it, since a new tenant
+	// is made enabled, and the list of tenants shows it.
 	disabled *identityTenantField
 	// since is the field the record marks as when a tenant was made (@tenantSince), nil
 	// where it marks none (Type and the two marks unused): the list of tenants says it as
@@ -207,7 +208,8 @@ func (d *identitySourceData) TenantDirectoryOnlyField() *identityTenantField {
 }
 
 // TenantDisabledField names the record's column that says a tenant is disabled
-// (@tenantDisabled), nil where the record marks none: the list of tenants carries it.
+// (@tenantDisabled): the list of tenants carries it. It is nil only where the files read
+// before the load mark none, and the load then refuses the record.
 func (d *identitySourceData) TenantDisabledField() *identityTenantField {
 	return d.tenant.invitation.disabled
 }

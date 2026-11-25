@@ -1799,14 +1799,12 @@ import (
 {{- if .Declaration }}
 
 // {{ GoCamel .Name }}Declaration names where the {{ .Name }} record keeps its declaration of who
-// may enter a {{ .RecordLower }} ({{ if .Disabled }}@directoryOnly and @tenantDisabled{{ else }}@directoryOnly{{ end }} on the record, the {{ .Directories }} record's columns): what
+// may enter a {{ .RecordLower }} (@directoryOnly and @tenantDisabled on the record, the {{ .Directories }} record's columns): what
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 	DirectoryOnly:    {{ printf "%q" .Declaration.DirectoryOnly }},
-	{{- if .Declaration.Disabled }}
 	Disabled:         {{ printf "%q" .Declaration.Disabled }},
-	{{- end }}
 	DirectoriesTable: {{ printf "%q" .Declaration.DirectoriesTable }},
 	TenantColumn:     {{ printf "%q" .Declaration.TenantColumn }},
 	MethodColumn:     {{ printf "%q" .Declaration.MethodColumn }},
@@ -1821,7 +1819,7 @@ var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 	SecondFactorColumn: {{ printf "%q" .Declaration.SecondFactorColumn }},
 	{{- end }}
 }
-{{- else if .Disabled }}
+{{- else }}
 
 // {{ GoCamel .Name }}Declaration names the {{ .Name }} record's column that says a {{ .RecordLower }} is disabled
 // (@tenantDisabled): what the roster reads beside the keys and the sign-in's reader
@@ -1843,7 +1841,7 @@ var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 // ({{ .Name }}.DirectoryOnly and the {{ .Directories }} rows), so its Declarations is what the
 // application hands resource.SessionPermissions as the tenant declarations, and the
 // generated {{ .Directories }} write paths reload it too.
-{{- else if .Disabled }}
+{{- else }}
 // The roster reads whether each {{ .RecordLower }} is disabled beside its key ({{ .Name }}.{{ .DisabledField }}), so
 // its Declarations is what the application hands resource.SessionPermissions as the
 // tenant declarations: a disabled {{ .RecordLower }} is entered by nobody but a super
@@ -1854,16 +1852,14 @@ var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 // tenant list names each tenant from the copy (resource.WithDomainNames).
 {{- end }}
 func New{{ .Name }}Roster(client resource.Client, opts ...resource.TenantRosterOption) *resource.TenantRoster {
-	{{- if or .Declaration .Disabled }}
 	opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&{{ GoCamel .Name }}Declaration)}, opts...)
-	{{- end }}
 	{{- if .NameColumn }}
 	opts = append([]resource.TenantRosterOption{resource.WithTenantNames({{ printf "%q" .NameColumn }})}, opts...)
 	{{- end }}
 
 	return resource.NewTenantRoster(client, {{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, opts...)
 }
-{{- if and .NoDirectories .Disabled }}
+{{- if .NoDirectories }}
 
 // New{{ .Name }}DeclarationReader builds the sign-in policy's reader of what a {{ .RecordLower }}
 // declares (signin.TenantPolicy, through signin.DeclarationReader). The {{ .Name }} record
@@ -1875,19 +1871,6 @@ func New{{ .Name }}Roster(client resource.Client, opts ...resource.TenantRosterO
 // whose {{ .RecordLower }}s have directories does.
 func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTransaction] {
 	return resource.NewTenantDeclarationReader({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, &{{ GoCamel .Name }}Declaration)
-}
-{{- else if .NoDirectories }}
-
-// New{{ .Name }}DeclarationReader builds the sign-in policy's reader of what a {{ .RecordLower }} declares
-// about who may enter it (signin.TenantPolicy, through signin.DeclarationReader). The
-// {{ .Name }} record declares no directories (no record is annotated @tenantDirectory), so no
-// {{ .RecordLower }} declares anything: the reader answers nothing for every one and makes no
-// read, and the policy admits everyone a {{ .RecordLower }} seats, however they signed in. The
-// application hands it to each auth through the auth's settings, as an application
-// whose {{ .RecordLower }}s have directories does, so the sign-in rule is set the same way
-// in both.
-func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTransaction] {
-	return resource.NewTenantDeclarationReader({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, nil)
 }
 {{- end }}
 {{- if .Declaration }}
