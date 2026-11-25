@@ -1304,6 +1304,29 @@ describe("identityPages, a tenant's side", () => {
     expect(hiddenColumns(list(unsharedPeople))).toEqual(['heldElsewhere']);
   });
 
+  it('asks before disabling a person whose State says another sector also holds them that they cannot sign in to any sector', () => {
+    const disable = presentation(list(people).rowMethods, 'DisableCrewSectorUser');
+    const asks = disable.confirm as (row: RecordData) => string;
+    const ada: RecordData = { username: 'ada', disabled: false, heldElsewhere: true };
+    expect(asks(ada)).toBe('Disable ada? They cannot sign in to any sector until the account is enabled again.');
+    // A row that says the person holds a role in every sector, and one another sector does not hold, are asked as before.
+    expect(asks({ ...ada, heldInEveryTenant: true })).toBe(
+      'Disable ada? They cannot sign in until the account is enabled again.',
+    );
+    expect(asks({ username: 'ada', disabled: false })).toBe(
+      'Disable ada? They cannot sign in until the account is enabled again.',
+    );
+    // The tenant's word is the description's.
+    const costCenters = { ...descriptor, identity: [{ ...crew, tenant: 'CostCenter' }] } as ApiDescriptor;
+    const [costCenterPeople] = identityPages(costCenters, resourceMeta, { auth: 'Crew', scope: 'domain' });
+    const asksThere = presentation(list(costCenterPeople).rowMethods, 'DisableCrewSectorUser').confirm as (
+      row: RecordData,
+    ) => string;
+    expect(asksThere(ada)).toBe(
+      'Disable ada? They cannot sign in to any cost center until the account is enabled again.',
+    );
+  });
+
   it("heads a person's page by the person, and says there that another sector also holds them", () => {
     expect(personSection(people).label).toBe('Person');
     expect((list(people).rowTitle as (row: RecordData) => string)({})).toBe('Person');

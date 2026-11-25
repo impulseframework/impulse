@@ -1947,7 +1947,12 @@ class SideBuilder {
           icon: 'block',
           group: 'account',
           when: (row) => row['disabled'] === false,
-          confirm: (row) => `Disable ${named(row)}? They cannot sign in until the account is enabled again.`,
+          // A row whose State says another tenant also holds the person (statesOf's own
+          // test) is told the account is the whole application's.
+          confirm: (row) =>
+            this.tenant && row['heldElsewhere'] === true && row['heldInEveryTenant'] !== true
+              ? `Disable ${named(row)}? They cannot sign in to any ${this.tenantWord} until the account is enabled again.`
+              : `Disable ${named(row)}? They cannot sign in until the account is enabled again.`,
         },
       ],
       [
