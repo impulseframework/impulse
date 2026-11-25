@@ -2320,6 +2320,254 @@ describe('identityPages, the Failed sign-ins page where the server says what eac
   });
 });
 
+// Where a side's description names the audit log, the side has an Audit log page: when,
+// who acted, what was done, to whom or to what, the role it names, on the whole
+// application's side the tenant it was done in, and why. The server writes the words of a
+// row; the page holds the labels and the act filter's choices alone.
+describe('identityPages, the Audit log page', () => {
+  const auditMeta = (userTarget: string | undefined, ...more: string[]): ResourceMeta => {
+    const meta = fields(
+      'id',
+      'at',
+      'act',
+      'who',
+      'what',
+      'doneTo',
+      'actorUsername',
+      'subjectKind',
+      'subjectName',
+      'userId',
+      'role',
+      ...more,
+      'reason',
+    );
+    return {
+      ...meta,
+      fields: meta.fields.map((field) =>
+        field.fieldName === 'userId' && userTarget !== undefined
+          ? ({ ...field, enumeratedResource: userTarget } as FieldMeta)
+          : field,
+      ),
+    };
+  };
+  const [wholeApplication, tenant] = crew.sides;
+  const audited: IdentityDescriptor = {
+    ...crew,
+    sides: [
+      { ...wholeApplication, lists: { ...wholeApplication.lists, auditLog: 'CrewListedAuditRecords' } },
+      { ...tenant, lists: { ...tenant.lists, auditLog: 'CrewSectorAuditRecords' } },
+    ],
+  };
+  const auditMetas = (userTargets: boolean): ((resource: Resource) => ResourceMeta) => {
+    const lists: Record<string, ResourceMeta> = {
+      CrewListedAuditRecords: auditMeta(userTargets ? 'CrewSessionUsers' : undefined, 'tenantId', 'tenantName'),
+      CrewSectorAuditRecords: auditMeta(userTargets ? 'CrewSectorUsers' : undefined),
+    };
+    return (resource: Resource): ResourceMeta => lists[resource] ?? metas[resource];
+  };
+  const pagesOf = (identity: IdentityDescriptor[], scope: 'global' | 'domain', userTargets = true): RootConfig[] =>
+    identityPages({ ...descriptor, identity } as ApiDescriptor, auditMetas(userTargets), { auth: 'Crew', scope });
+  const auditPage = (pages: RootConfig[]): RootConfig => {
+    const found = pages.find((page) => page.page?.label === 'Audit log');
+    if (!found) {
+      throw new Error('no Audit log page');
+    }
+    return found;
+  };
+  /** Each side's page, found when a case reads it, so a side without one fails that case alone. */
+  const global = (): RootConfig => auditPage(pagesOf([audited, members, staff], 'global'));
+  const domain = (): RootConfig => auditPage(pagesOf([audited, members, staff], 'domain'));
+
+  it('is built after Failed sign-ins on the whole application side and after the invitations on a tenant side, where the side names the list', () => {
+    expect(
+      pagesOf([audited, members, staff], 'global').map((page) => [
+        page.routeData.route,
+        page.page?.label,
+        page.page?.icon,
+      ]),
+    ).toEqual([
+      ['crew-accounts', 'Accounts', 'manage_accounts'],
+      ['crew-mailed-links', 'Mailed links', 'forward_to_inbox'],
+      ['crew-sessions', 'Sessions', 'devices'],
+      ['crew-failed-sign-ins', 'Failed sign-ins', 'gpp_bad'],
+      ['crew-audit-log', 'Audit log', 'fact_check'],
+      ['crew-sign-in', 'Sign-in', 'login'],
+    ]);
+    expect(
+      pagesOf([audited, members, staff], 'domain').map((page) => [
+        page.routeData.route,
+        page.page?.label,
+        page.page?.icon,
+      ]),
+    ).toEqual([
+      ['sectors/:sectorID/crew-people', 'People', 'group'],
+      ['sectors/:sectorID/crew-invitations', 'Invitations', 'mail'],
+      ['sectors/:sectorID/crew-audit-log', 'Audit log', 'fact_check'],
+    ]);
+    expect([global().routeData.hasViewRoute, domain().routeData.hasViewRoute]).toEqual([false, false]);
+    expect([list(global()).primaryResource, list(domain()).primaryResource]).toEqual([
+      'CrewListedAuditRecords',
+      'CrewSectorAuditRecords',
+    ]);
+    for (const scope of ['global', 'domain'] as const) {
+      expect(pagesOf([crew, members, staff], scope).map((page) => page.page?.label)).not.toContain('Audit log');
+    }
+    expect(
+      identityPages({ ...descriptor, identity: [audited] } as ApiDescriptor, auditMetas(true), {
+        auth: 'Crew',
+        scope: 'global',
+        routes: { auditLog: 'audit-log' },
+      }).find((page) => page.page?.label === 'Audit log')?.routeData.route,
+    ).toBe('audit-log');
+  });
+
+  it("draws When, Who, What, Done to, Role, the tenant under the tenant record's label and Reason, and reads the rest", () => {
+    expect(visibleColumns(list(global()))).toEqual([
+      ['at', 'When'],
+      ['actorUsername', 'Who'],
+      ['act', 'What'],
+      ['subjectName', 'Done to'],
+      ['role', 'Role'],
+      ['tenantName', 'Sector'],
+      ['reason', 'Reason'],
+    ]);
+    expect(visibleColumns(list(domain()))).toEqual([
+      ['at', 'When'],
+      ['actorUsername', 'Who'],
+      ['act', 'What'],
+      ['subjectName', 'Done to'],
+      ['role', 'Role'],
+      ['reason', 'Reason'],
+    ]);
+    for (const page of [global(), domain()]) {
+      expect(hiddenColumns(list(page))).toEqual(['who', 'what', 'doneTo', 'userId', 'subjectKind']);
+    }
+    // A description that names no tenant record's label calls it Tenant.
+    const unnamed: IdentityDescriptor = { ...audited, tenant: undefined };
+    expect(columnOf(list(auditPage(pagesOf([unnamed, members, staff], 'global'))), 'tenantName').header).toBe('Tenant');
+  });
+
+  it('draws in Who, What and Done to the words the server wrote of the row', () => {
+    const row = {
+      actorUsername: 'grace',
+      act: 'roleGiven',
+      subjectName: 'ada',
+      who: 'Grace Hopper',
+      what: 'Gave the role Editor',
+      doneTo: 'Ada Lovelace',
+    };
+    const cell = (id: string): unknown => columnOf(list(global()), id).valueGetter?.(row, noReader);
+    expect([cell('actorUsername'), cell('act'), cell('subjectName')]).toEqual([
+      'Grace Hopper',
+      'Gave the role Editor',
+      'Ada Lovelace',
+    ]);
+    // A row the server wrote no words for draws nothing.
+    expect(columnOf(list(global()), 'actorUsername').valueGetter?.({ actorUsername: null, who: null }, noReader)).toBe(
+      '',
+    );
+  });
+
+  it('sorts by When alone, and filters by neither the tenant nor the reason', () => {
+    for (const page of [global(), domain()]) {
+      const config = list(page);
+      expect(
+        config.listColumns.filter((column) => !column.hidden && column.sortable !== false).map((c) => c.id),
+      ).toEqual(['at']);
+      expect(columnOf(config, 'reason').filterable).toBe(false);
+    }
+    expect(columnOf(list(global()), 'tenantName').filterable).toBe(false);
+    expect(
+      list(global())
+        .listColumns.filter((column) => column.filterable === false)
+        .map((column) => column.id),
+    ).toEqual(['tenantName', 'reason']);
+  });
+
+  it("filters What by each act, in the words the server's acts are written with", () => {
+    for (const page of [global(), domain()]) {
+      expect(columnOf(list(page), 'act').filterChoices?.map((choice) => choice.label)).toEqual([
+        'Invited',
+        'Invitation withdrawn',
+        'Invitation sent again',
+        'Invitation accepted',
+        'Password reset link sent',
+        'Password chosen',
+        'Password changed',
+        'Password removed',
+        'New password required',
+        'Sign-in identity unlinked',
+        'Address change asked',
+        'Address changed',
+        'Username changed',
+        'Account disabled',
+        'Account enabled',
+        'Account deleted',
+        'Token made',
+        'Token revoked',
+        'Remembered browsers forgotten',
+        'Role given',
+        'Role taken',
+        'Role ended',
+        'Group made',
+        'Group changed',
+        'Group removed',
+        'Put in a group',
+        'Taken out of a group',
+        'Place in a group ended',
+        'Group given a role',
+        'Role taken from a group',
+        'Directory taken',
+        'Directory removed',
+        'Directory only on',
+        'Directory only off',
+        'Opened to its directory',
+        'Made invite only for its directory',
+        "Directory's second factor vouched for",
+        "Directory's second factor no longer vouched for",
+        'Sign-up opened',
+        'Made invite only',
+        'Second factor required',
+        'Second factor no longer required',
+        'Remembered browsers set',
+        'Own password reset turned on',
+        'Own password reset turned off',
+      ]);
+    }
+    const choices = columnOf(list(global()), 'act').filterChoices ?? [];
+    expect(choices).toHaveLength(45);
+    expect(choices.slice(0, 2)).toEqual([
+      { value: 'invited', label: 'Invited' },
+      { value: 'invitationWithdrawn', label: 'Invitation withdrawn' },
+    ]);
+    expect(choices.at(-1)).toEqual({ value: 'selfServiceResetOff', label: 'Own password reset turned off' });
+  });
+
+  it('asks for no total, has no row menu, says when nothing is recorded, and opens the account a row was done to', () => {
+    for (const page of [global(), domain()]) {
+      const config = list(page);
+      expect([config.showRowCount, config.rowMethods, config.emptyMessage]).toEqual([
+        false,
+        false,
+        'Nothing has been recorded yet.',
+      ]);
+      expect([config.showViewButton, config.rowRoute, columnOf(config, 'subjectName').opensRow]).toEqual([
+        true,
+        'userId',
+        true,
+      ]);
+    }
+    // Where the person's id names no list of the accounts, no row opens.
+    const unlinked = list(auditPage(pagesOf([audited, members, staff], 'global', false)));
+    expect([unlinked.showViewButton, unlinked.rowRoute]).toEqual([false, undefined]);
+  });
+
+  it("is headed by the auth's label beside other auths on the whole application side alone", () => {
+    expect([list(global()).title, list(domain()).title]).toEqual(['Crew audit log', 'Audit log']);
+    expect(list(auditPage(pagesOf([audited], 'global'))).title).toBe('Audit log');
+  });
+});
+
 describe("identityPages, the Mailed links and a tenant's Invitations pages where the server says each link's state", () => {
   // The whole application's mailed links and a tenant's invitations as the generator
   // writes them where the server says each link's state and who sent it.

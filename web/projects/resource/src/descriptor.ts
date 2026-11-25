@@ -320,6 +320,13 @@ export interface IdentityLists {
   readonly invitations?: string;
   readonly sessions?: string;
   readonly signInAttempts?: string;
+  /**
+   * The audit log: what was done to the Auth's accounts, roles, groups and sign-in
+   * settings, a row for each act, newest first, with the words the server writes of it:
+   * who acted (`who`), what was done (`what`) and to whom or to what (`doneTo`). On a
+   * tenant's side, the rows done in that tenant.
+   */
+  readonly auditLog?: string;
   readonly signInMethods?: string;
   /**
    * What every sign-in asks for, as two lines above the methods: whether everyone is

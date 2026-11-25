@@ -47,13 +47,15 @@ import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-
 // writes no page for it: the people with what the caller may do to each, a person's row
 // page with the roles, the ways they sign in and the identities under it, the groups of
 // people with a group's people and roles under it, the invitations, and, for the whole
-// application, the sessions, the failed sign-ins, the Auth's sign-in methods, each invite
-// only or open to sign-up, and Break glass, where a person takes a role for a set time and
-// says why. Where a directory decides the Auth's roles the Groups entry stays, and its
-// page says whose groups do that job. What differs from one application to the next is
-// read from the description: the Auth's name and label, the tenant record's name, which
-// side the pages are for, and what the Auth's sign-in methods give (a list or a method
-// the description does not name draws nothing).
+// application, the sessions and the failed sign-ins; on either side the audit log, of what
+// was done to the Auth's accounts, roles, groups and sign-in settings; and, for the whole
+// application, the Auth's sign-in methods, each invite only or open to sign-up, and Break
+// glass, where a person takes a role for a set time and says why. Where a directory
+// decides the Auth's roles the Groups entry stays, and its page says whose groups do that
+// job. What differs from one application to the next is read from the description: the
+// Auth's name and label, the tenant record's name, which side the pages are for, and what
+// the Auth's sign-in methods give (a list or a method the description does not name draws
+// nothing).
 //
 // The invitations that make a tenant are no page of these: the tenants page shows them
 // above the tenants (tenant-pages.ts), from the configuration built here
@@ -65,7 +67,8 @@ import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-
 // disabled account and Disable on an enabled one.
 
 /** The pages of one side of an Auth's management, by what each lists. */
-export type IdentityPage = 'users' | 'groups' | 'invitations' | 'sessions' | 'signInAttempts' | 'signIn' | 'breakGlass';
+export type IdentityPage =
+  'users' | 'groups' | 'invitations' | 'sessions' | 'signInAttempts' | 'auditLog' | 'signIn' | 'breakGlass';
 
 /** Which pages to build, and where they go. */
 export interface IdentityPagesOptions {
@@ -117,10 +120,11 @@ const made = new WeakMap<ApiDescriptor, Map<string, BuiltPages>>();
 
 /**
  * The page configurations of one side of an Auth's management, in menu order: the
- * people, the groups, the invitations, and for the whole application the sessions, the
- * failed sign-ins, the sign-in methods and Break glass, each with its label and icon. A
- * page whose list the description does not name is left out. The same request answers the
- * same configurations. Refused, naming what is missing: an Auth the description does not
+ * people, the groups, the invitations, for the whole application the sessions and the
+ * failed sign-ins, the audit log on either side, and for the whole application the
+ * sign-in methods and Break glass, each with its label and icon. A page whose list the
+ * description does not name is left out. The same request answers the same
+ * configurations. Refused, naming what is missing: an Auth the description does not
  * carry, a side it does not carry, and a tenant's side on an API with no tenant segment.
  *
  * A page that lists nothing has no configuration and is not among them: the Groups page
@@ -170,6 +174,7 @@ function buildPages(
     ...listed(build.invitations()),
     ...listed(build.sessions()),
     ...listed(build.signInAttempts()),
+    ...listed(build.auditLog()),
     ...listed(build.signIn()),
     ...listed(build.breakGlass()),
   ];
@@ -974,6 +979,75 @@ class SideBuilder {
             },
           ],
         ]),
+        elements: [],
+      }),
+    });
+  }
+
+  /**
+   * The audit log: what was done to the Auth's accounts, roles, groups and sign-in
+   * settings, newest first, a row for each act: when, who acted, what was done, to whom or
+   * to what, the role it names, on the whole application's side the tenant it was done
+   * in, and why. A tenant's side lists the rows done in that tenant. The server writes the
+   * words of a row (`who`, `what`, `doneTo`) as it reads the row, so the page holds no
+   * sentence of the log: its own words are the labels and the act filter's choices
+   * (auditActWords). A row done to an account opens the account where the person's id
+   * names the list of the accounts. The list is built as it is read, so the page asks for
+   * no total and sorts by the time alone.
+   */
+  auditLog(): RootConfig | undefined {
+    const { lists } = this.side;
+    if (!lists.auditLog) {
+      return undefined;
+    }
+    const resource = lists.auditLog as Resource;
+    const opensAccount = this.namesAccount(resource);
+    // A column of the row's field that draws the words the server wrote beside it.
+    const drawn = (field: string, header: string, words: string): ColumnConfig[] =>
+      this.columns(resource, [[field, header]]).map((column) => ({
+        ...column,
+        sortable: false,
+        valueGetter: (row: RecordData) => rowText(row, words),
+      }));
+    const listColumns: ColumnConfig[] = [
+      ...this.columns(resource, [['at', 'When']]),
+      ...drawn('actorUsername', 'Who', 'who'),
+      ...drawn('act', 'What', 'what').map((column) => ({ ...column, filterChoices: auditActWords })),
+      ...drawn('subjectName', 'Done to', 'doneTo').map((column) => ({ ...column, opensRow: true })),
+      ...this.columns(resource, [['role', 'Role']]).map((column) => ({ ...column, sortable: false })),
+      ...(this.tenant
+        ? []
+        : this.columns(resource, [['tenantName', nameInWords(this.identity.tenant ?? 'Tenant')]]).map((column) => ({
+            ...column,
+            sortable: false,
+            filterable: false,
+          }))),
+      ...this.columns(resource, [['reason', 'Reason']]).map((column) => ({
+        ...column,
+        sortable: false,
+        filterable: false,
+      })),
+      // Read with each row and not drawn: the cells above say them, and a row opens by its person's id.
+      ...this.known(resource, [
+        ['who', ''],
+        ['what', ''],
+        ['doneTo', ''],
+        ['userId', ''],
+        ['subjectKind', ''],
+      ]).map(([name]) => ({ id: name as FieldName, hidden: true })),
+    ];
+    return rootConfig({
+      page: { label: 'Audit log', icon: 'fact_check' },
+      routeData: { route: this.route('auditLog', 'audit-log'), hasViewRoute: false },
+      parentConfig: listViewConfig({
+        title: this.tenant ? 'Audit log' : this.heading('Audit log'),
+        primaryResource: resource,
+        showViewButton: opensAccount,
+        ...(opensAccount ? { rowRoute: 'userId' as FieldName } : {}),
+        emptyMessage: 'Nothing has been recorded yet.',
+        showRowCount: false,
+        listColumns,
+        rowMethods: false,
         elements: [],
       }),
     });
@@ -2841,6 +2915,65 @@ const attemptStateWords: readonly { value: string; label: string }[] = [
   { value: 'locked', label: 'Locked' },
   { value: 'counting', label: 'Counting' },
 ];
+
+/**
+ * The acts of the audit log, each by its stored name, in the words the server's
+ * `auditlog.Act.Words` gives it, in its order: the Audit log page's filter of what was done
+ * offers one choice for each.
+ */
+const auditActWords: readonly { value: string; label: string }[] = [
+  { value: 'invited', label: 'Invited' },
+  { value: 'invitationWithdrawn', label: 'Invitation withdrawn' },
+  { value: 'invitationSentAgain', label: 'Invitation sent again' },
+  { value: 'invitationAccepted', label: 'Invitation accepted' },
+  { value: 'passwordResetLinkSent', label: 'Password reset link sent' },
+  { value: 'passwordChosen', label: 'Password chosen' },
+  { value: 'passwordChanged', label: 'Password changed' },
+  { value: 'passwordRemoved', label: 'Password removed' },
+  { value: 'passwordChangeRequired', label: 'New password required' },
+  { value: 'identityUnlinked', label: 'Sign-in identity unlinked' },
+  { value: 'addressChangeAsked', label: 'Address change asked' },
+  { value: 'addressChanged', label: 'Address changed' },
+  { value: 'usernameChanged', label: 'Username changed' },
+  { value: 'accountDisabled', label: 'Account disabled' },
+  { value: 'accountEnabled', label: 'Account enabled' },
+  { value: 'accountDeleted', label: 'Account deleted' },
+  { value: 'tokenMade', label: 'Token made' },
+  { value: 'tokenRevoked', label: 'Token revoked' },
+  { value: 'browsersForgotten', label: 'Remembered browsers forgotten' },
+  { value: 'roleGiven', label: 'Role given' },
+  { value: 'roleTaken', label: 'Role taken' },
+  { value: 'roleEnded', label: 'Role ended' },
+  { value: 'groupMade', label: 'Group made' },
+  { value: 'groupChanged', label: 'Group changed' },
+  { value: 'groupRemoved', label: 'Group removed' },
+  { value: 'groupMemberAdded', label: 'Put in a group' },
+  { value: 'groupMemberRemoved', label: 'Taken out of a group' },
+  { value: 'groupPlaceEnded', label: 'Place in a group ended' },
+  { value: 'groupRoleGiven', label: 'Group given a role' },
+  { value: 'groupRoleTaken', label: 'Role taken from a group' },
+  { value: 'directoryTaken', label: 'Directory taken' },
+  { value: 'directoryRemoved', label: 'Directory removed' },
+  { value: 'directoryOnlyOn', label: 'Directory only on' },
+  { value: 'directoryOnlyOff', label: 'Directory only off' },
+  { value: 'directoryOpened', label: 'Opened to its directory' },
+  { value: 'directoryInviteOnly', label: 'Made invite only for its directory' },
+  { value: 'directorySecondFactorVouched', label: "Directory's second factor vouched for" },
+  { value: 'directorySecondFactorUnvouched', label: "Directory's second factor no longer vouched for" },
+  { value: 'signUpOpened', label: 'Sign-up opened' },
+  { value: 'signUpClosed', label: 'Made invite only' },
+  { value: 'secondFactorRequired', label: 'Second factor required' },
+  { value: 'secondFactorNotRequired', label: 'Second factor no longer required' },
+  { value: 'rememberedBrowsersSet', label: 'Remembered browsers set' },
+  { value: 'selfServiceResetOn', label: 'Own password reset turned on' },
+  { value: 'selfServiceResetOff', label: 'Own password reset turned off' },
+];
+
+/** A field of a row as text: the empty text where the row holds none, or holds no text. */
+function rowText(row: RecordData, field: string): string {
+  const value = row[field];
+  return typeof value === 'string' ? value : '';
+}
 
 /** A row of the failed sign-ins: its kind and what it is for as the server says them, as text. */
 function attemptOf(row: RecordData): { kind: string; subject: string } {
