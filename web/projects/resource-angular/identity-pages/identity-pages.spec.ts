@@ -1535,6 +1535,80 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(ask(list(accounts).rowMethods, 'DeleteCrewUser')({ username: 'ada' }, undefined, warnsNot)).toBe(question);
   });
 
+  it("runs a person's Delete through the delete dialog on both sides: the page's question, the server's at a 428, then everythingUnder, sent again after a 202", async () => {
+    const [accounts] = identityPages({ ...removing }, removingMetas, { auth: 'Crew', scope: 'global' });
+    const counted = "Delete this account and everything under it: 7 task assignments. This can't be undone.";
+    const rest = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+    const said = (): string =>
+      (document.querySelector('.cdk-overlay-container')?.textContent ?? '').replace(/\s+/g, ' ');
+    const press = async (): Promise<void> => {
+      await rest();
+      [...document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button')]
+        .find((button) => button.textContent?.trim() === 'Delete')
+        ?.click();
+      await rest();
+    };
+    // One person's delete through the dialog the page opens: the first press is answered
+    // with the server's question, the second with what one save left, the third with the
+    // account gone.
+    const deletes = async (
+      rowMethods: ListViewConfig['rowMethods'],
+      method: string,
+      meta: MethodMeta,
+      first: string,
+    ): Promise<Record<string, unknown>[]> => {
+      const remove = presentation(rowMethods, method);
+      expect(remove.deletes).toBe(true);
+      const sent: Record<string, unknown>[] = [];
+      const handle = {
+        execute: (body: Record<string, unknown>): Promise<unknown> => {
+          sent.push(body);
+          if (!body['everythingUnder']) {
+            return Promise.reject(new ApiError('POST', '/api/delete', 428, { message: counted }));
+          }
+          return Promise.resolve(
+            sent.length === 2 ? { status: 202, result: { deleted: 5, left: 2 } } : { status: 204, result: undefined },
+          );
+        },
+        warning: (): Promise<{ consequence: string; confirm: string }> =>
+          Promise.resolve({ consequence: 'Ada can sign in again through the directory.', confirm: 'Delete' }),
+      };
+      const offered: OfferedMethod = { method: method as Method, meta, label: 'Delete', presentation: remove };
+      TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
+      const answers: unknown[] = [];
+      openDeleteMethodDialog(TestBed.inject(MatDialog), handle, offered, { id: 'u-1', username: 'ada' }).subscribe(
+        (answer) => answers.push(answer),
+      );
+      await rest();
+      expect(said()).toContain(first);
+      expect(said().includes('Ada can sign in again through the directory.')).toBe(meta.warning !== undefined);
+      await press();
+      expect(said()).toContain(counted);
+      expect(answers).toEqual([]);
+      await press();
+      await rest();
+      expect(answers).toEqual([{ answer: undefined }]);
+      TestBed.resetTestingModule();
+      document.querySelectorAll('.cdk-overlay-container').forEach((overlay) => (overlay.innerHTML = ''));
+
+      return sent;
+    };
+    const target = { resource: 'CrewSectorUsers', key: { userId: 'id' } };
+    const question =
+      'Delete ada? The account is removed from every sector, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.';
+
+    const warns = { target, warning: {} } as unknown as MethodMeta;
+    const tenantSent = await deletes(list(people).rowMethods, 'DeleteCrewSectorUser', warns, 'Delete ada?');
+    expect(tenantSent).toEqual([
+      { userId: 'u-1' },
+      { userId: 'u-1', everythingUnder: true },
+      { userId: 'u-1', everythingUnder: true },
+    ]);
+    const warnsNot = { target } as unknown as MethodMeta;
+    const wholeSent = await deletes(list(accounts).rowMethods, 'DeleteCrewUser', warnsNot, question);
+    expect(wholeSent.map((body) => body['everythingUnder'])).toEqual([undefined, true, true]);
+  });
+
   it('offers the removal on every row but one that says the person holds nothing in the sector itself', () => {
     const when = presentation(list(people).rowMethods, 'RemoveCrewSectorUser').when;
     expect([when?.({ heldHere: false }), when?.({ heldHere: true }), when?.({})]).toEqual([false, true, true]);
@@ -3139,6 +3213,8 @@ describe('identityPages, an Auth that keeps groups', () => {
           ? Promise.resolve({ status: 204, result: undefined })
           : Promise.reject(new ApiError('POST', '/api/delete-crew-group', 428, { message: counted }));
       },
+      // The group's delete declares no warning, so the dialog never asks one.
+      warning: (): Promise<never> => Promise.reject(new Error('DeleteCrewGroup declares no warning')),
     };
     TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
     const answers: unknown[] = [];

@@ -81,8 +81,9 @@ func (s *RPCDecoder[Request]) Decode(request *http.Request, scope accesstypes.Sc
 }
 
 // DecodeCaller decodes and checks like Decode and also returns the Caller the
-// check ran as — checker, scope, and sampled environment — for the handler to stamp
-// into the context the method's body runs under.
+// check ran as — checker, scope, and sampled environment, with the method and the
+// permission the check asked — for the handler to stamp into the context the method's
+// body runs under.
 func (s *RPCDecoder[Request]) DecodeCaller(request *http.Request, scope accesstypes.Scope) (*Request, *Caller, error) {
 	req, err := s.d.Decode(request)
 	if err != nil {
@@ -125,5 +126,5 @@ func (s *RPCDecoder[Request]) DecodeCaller(request *http.Request, scope accessty
 		}
 	}
 
-	return req, &Caller{Permissions: userPermissions, Scope: scope, Env: env, collection: s.collection}, nil
+	return req, &Caller{Permissions: userPermissions, Scope: scope, Env: env, collection: s.collection, method: s.res, permission: s.requiredPermission}, nil
 }

@@ -68,6 +68,9 @@ type PatchSet[Resource Resourcer] struct {
 	// alsoTaken are the kinds code hands the delete to take beside the description's
 	// (DeleteAlso).
 	alsoTaken []TakenKind
+	// libraryRowsAlone says the delete leaves out every kind its record's description
+	// marks AsCaller or WithinReach (DeleteLibraryRowsAlone).
+	libraryRowsAlone bool
 	// fork is set on an update-or-create (OrCreate) and on a create-unless-there
 	// (OrSkip) patch, and nil on every other (patch_fork.go).
 	fork *patchFork[Resource]
@@ -729,6 +732,19 @@ func (p *PatchSet[Resource]) DeleteEverythingUnder() *PatchSet[Resource] {
 // handed kinds takes rows though its description lists none.
 func (p *PatchSet[Resource]) DeleteAlso(kinds ...TakenKind) *PatchSet[Resource] {
 	p.alsoTaken = append(p.alsoTaken, kinds...)
+
+	return p
+}
+
+// DeleteLibraryRowsAlone says the delete the patch carries leaves out every kind its
+// record's description marks AsCaller or WithinReach: none of them is counted, asked
+// about or taken, and none refuses the delete. It is for a record of the library's that
+// is deleted with its tenant: the tenant's delete has taken the application's rows under
+// the tenant already, on the one permission it asks, and a row outside the tenant that
+// still names the record is left to the database's refusal. It changes nothing for a
+// record with no such kind.
+func (p *PatchSet[Resource]) DeleteLibraryRowsAlone() *PatchSet[Resource] {
+	p.libraryRowsAlone = true
 
 	return p
 }

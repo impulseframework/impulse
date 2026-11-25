@@ -32,7 +32,9 @@ type (
 	// the groups its holder is in (group IN subject.{{ .GroupSet }}).
 	//
 	// A group's delete takes its members and the roles it holds with it, after a
-	// question that counts them.
+	// question that counts them. It takes with them the application's rows that name the
+	// group in a column that says so (@deletedWith), and is refused while a row names it
+	// in a column that does not.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -235,13 +237,27 @@ func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransactio
 }
 
 func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
-	// The group's delete takes its members and its roles (its @deleteCascade). The
-	// patch is not armed against a caller: the method that deletes the group has asked
-	// the caller's grants, and the rows are taken trusted.
+	// The group's delete takes its members and its roles (its @deleteCascade), and the
+	// application's rows that go with it (@deletedWith). The patch is not armed against
+	// a caller: the method that deletes the group has asked the caller's grants, the
+	// members and the roles are taken trusted, and the application's rows are checked as
+	// the request's caller.
 	patch := {{ .ResourcesPackage }}.New{{ .Group }}DeletePatch(id)
 	if everythingUnder {
 		patch = patch.WithEverythingUnder()
 	}
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Group }}DeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the groups: the group's delete takes its members and its roles, and leaves the
+	// application's rows out.
+	patch := {{ .ResourcesPackage }}.New{{ .Group }}DeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Group }}DeletePatch.Buffer()")
 	}
@@ -518,6 +534,10 @@ func (store) DescribeGroup(context.Context, resource.ReadWriteTransaction, impul
 }
 
 func (store) DeleteGroup(context.Context, resource.ReadWriteTransaction, impulse.UUID, bool) (*resource.DeleteLeft, error) {
+	return nil, errNoGroups
+}
+
+func (store) DeleteGroupWithTenant(context.Context, resource.ReadWriteTransaction, impulse.UUID) (*resource.DeleteLeft, error) {
 	return nil, errNoGroups
 }
 

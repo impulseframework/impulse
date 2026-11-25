@@ -1442,6 +1442,10 @@ type resourceInfo struct {
 	// and so has any record with a kind of row under it that refuses its plain delete.
 	deleteCascade *deleteCascadeDecl
 	DeleteTree    *deleteTree
+	// takenFromAnotherPackage marks a record of the application's that a record of an
+	// auth's takes with it (resolveLibraryDeleteTrees): its file declares the function
+	// that delete deletes a row through (<Name>TakenRows).
+	takenFromAnotherPackage bool
 	// EnumerationType names the @enumerate type whose table this struct backs. Such a
 	// resource is read-only by derivation: the table's rows are the program's
 	// constants, so no mutation handler is generated and its permissions stop at
@@ -1942,6 +1946,10 @@ type resourceField struct {
 	// declaredResource is the name that declaration wrote, once resolved; empty for
 	// an inferred enumeration, whose resource is the foreign key's target.
 	declaredResource string
+	// deletedWith marks a column that says a row of the record goes with the group or the
+	// account of an auth's it names (@deletedWith), held to the schema once the run's
+	// resources are all known (resolveLibraryDeleteTrees).
+	deletedWith bool
 
 	// The @state marker (design plan §09): IsState derives output-only decode
 	// and the ungrantable Create/Update; StateDefault is the declared initial
@@ -2646,6 +2654,7 @@ const (
 	tenantNameKeyword            string = "tenantName"            // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
 	tenantSinceKeyword           string = "tenantSince"           // Marks the tenant record's timestamp column holding when the tenant was made, which the list of tenants an auth's generated management serves says as Since
 	nameKeyword                  string = "name"                  // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
+	deletedWithKeyword           string = "deletedWith"           // Says a row of the record goes with the group or the account of the library's that the column names, when that group or account is deleted: no argument, on the column the schema holds to it by a foreign key
 	tenantDirectoryKeyword       string = "tenantDirectory"       // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
 	directoryMethodKeyword       string = "directoryMethod"       // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
 	directoryConnectionKeyword   string = "directoryConnection"   // Marks the directories record's string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)
@@ -2706,6 +2715,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		tenantNameKeyword:            {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantSinceKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		nameKeyword:                  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		deletedWithKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantDirectoryKeyword:       {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 		directoryMethodKeyword:       {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		directoryConnectionKeyword:   {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},

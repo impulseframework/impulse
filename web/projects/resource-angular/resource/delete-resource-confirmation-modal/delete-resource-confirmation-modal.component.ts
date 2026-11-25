@@ -5,7 +5,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef, MatDialogState } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { ApiError, DeleteLeft, RemoveOptions } from '@impulseframework/resource';
+import { ApiError, DeleteLeft, MethodWarning, RemoveOptions } from '@impulseframework/resource';
 import { deleteLeftOf } from '../delete-left';
 
 /**
@@ -47,6 +47,12 @@ export interface DeleteConfirmation {
    * Left out or empty, nothing is typed.
    */
   typed?: string;
+  /**
+   * What the method says before it runs, for a method that declares a warning
+   * (`@warning`): the dialog asks it once as it opens, shows its words under the
+   * question, and holds Delete until it has them.
+   */
+  warning?: () => Promise<MethodWarning>;
 }
 
 /** The status of the server's question about the records a delete takes with it. */
@@ -120,6 +126,15 @@ export function deleteQuestion(asked: DeleteConfirmation = {}): string {
  * type, with the text in full, and Delete is held at every press until the input holds
  * it, in any case and however its spaces are typed. What was typed stays when the
  * server's question takes the first one's place. What is typed is never sent.
+ *
+ * A method that warns before it runs (`DeleteConfirmation.warning`, the method's
+ * `@warning`) has its warning asked once, as the dialog opens, and Delete is held until
+ * the server has answered. The server's words are drawn under the first question as the
+ * method's own dialog draws them: the consequence, the names it speaks of and each
+ * further note. A warning the server refuses is shown as a refused delete is, with Close
+ * alone: nobody confirms a warning they were not shown. Once the server's question about
+ * what goes with the row is on the screen, the warning is not drawn: the question has
+ * taken its place.
  */
 @Component({
   selector: 'impulse-delete-resource-confirmation-modal',
@@ -156,14 +171,45 @@ export class DeleteResourceConfirmationModalComponent {
   readonly typedAsksId = `impulse-delete-typed-asks-${nextDialog++}`;
   /** The input as typed. It is no part of the request. */
   readonly typed = signal('');
-  /** Whether Delete waits for the text: while the input does not hold it. Never where the page asks for none. */
-  readonly held = computed(() => this.typedText !== '' && typedForm(this.typed()) !== typedForm(this.typedText));
+  /** What the method says before it runs, where it warns; undefined until the server has answered, and once its question is on the screen. */
+  readonly warned = signal<MethodWarning | undefined>(undefined);
+  /** Whether Delete waits for the method's warning: from the opening until the server has answered it. */
+  private readonly warningAsked = signal(this.asked?.warning !== undefined);
+  /**
+   * Whether Delete waits: for the method's warning until the server has answered it, and
+   * for the text while the input does not hold it. Never where the page asks for neither.
+   */
+  readonly held = computed(
+    () => this.warningAsked() || (this.typedText !== '' && typedForm(this.typed()) !== typedForm(this.typedText)),
+  );
 
   constructor() {
     if (this.typedText !== '') {
       // The input is drawn with the dialog and takes the keyboard focus once the dialog has
       // placed its own, so the text is typed at once.
       this.dialogRef.afterOpened().subscribe(() => setTimeout(() => this.typedInput()?.nativeElement.focus()));
+    }
+    const warning = this.asked?.warning;
+    if (warning !== undefined) {
+      void this.askWarning(warning);
+    }
+  }
+
+  /**
+   * Asks the method's warning, once, and draws its words; Delete waits until it is
+   * answered. A refusal is shown as a refused delete is, and Delete stays held. Any other
+   * failure closes the dialog with false and is left to the page's error handler.
+   */
+  private async askWarning(warning: () => Promise<MethodWarning>): Promise<void> {
+    try {
+      this.warned.set(await warning());
+      this.warningAsked.set(false);
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        this.close(false);
+        throw error;
+      }
+      this.refusal.set(error.message);
     }
   }
 
@@ -207,6 +253,7 @@ export class DeleteResourceConfirmationModalComponent {
       if (error.status === asksFirst && !this.everythingUnder) {
         this.everythingUnder = true;
         this.question.set(error.message);
+        this.warned.set(undefined);
         return;
       }
       this.refusal.set(error.message);

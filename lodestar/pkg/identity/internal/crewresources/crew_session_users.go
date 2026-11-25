@@ -19,6 +19,10 @@ type (
 	// holds one; it identifies nobody. The password hash is not a field, so it is never
 	// read or written here, and the normalized columns are the table's own.
 	//
+	// An account's delete takes with it the application's rows that name the account in
+	// a column that says so (@deletedWith), after a question that counts them, and is
+	// refused while a row names it in a column that does not.
+	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet(default)

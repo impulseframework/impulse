@@ -1451,12 +1451,14 @@ export namespace DeleteStaffTenantGroup {
 export namespace DeleteStaffTenantUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 
 export namespace DeleteStaffUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 

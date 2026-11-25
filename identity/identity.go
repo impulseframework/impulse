@@ -113,8 +113,20 @@ type Store interface {
 	// user who has confirmed none (an address nobody confirmed is not answered) and
 	// for no such user.
 	ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error)
-	// DeleteUser buffers the removal of a user row.
-	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// DeleteUser buffers the delete of a user row, which takes with it the application's
+	// rows that name the account in a column that says so (@deletedWith). They go on the
+	// permission the request was let in by: no grant is asked on a row, and a row that
+	// permission does not reach refuses the delete (resource.DeleteKind.WithinReach). Told
+	// everythingUnder, it takes them; not told, an account with such a row deletes
+	// nothing and answers the question a person is asked first (428). It is refused while
+	// a row names the account in a column that does not say so. It answers what one save
+	// left, nil where the row went.
+	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error)
+	// DeleteUserWithTenant buffers the delete of the user row of an account that goes with
+	// its tenant, and nothing of the application's: the tenant's delete takes the
+	// application's rows under the tenant itself, on its one permission, so the rows that
+	// name the account are neither counted, asked about nor taken here.
+	DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 	// RowsWithUser counts what the database's own rules add to the delete of the user's
 	// row, in mutations: each row of each table that hangs on the user by a foreign key
 	// declared ON DELETE CASCADE, and that table's index entries for it, read in the

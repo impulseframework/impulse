@@ -71,6 +71,7 @@ type Ship struct { ... }
 | `@validateUpdateType` | `@resource` struct | type name | As above, for updates. |
 | `@validateDeleteType` | `@resource` struct | type name | A delete rule no grant gets around. Before a row of the resource is deleted, the generated delete calls `Validate()` on the named type with the delete patch, inside the delete's transaction, once the caller's grants and their conditions have passed and before anything is buffered. An error it returns refuses the delete and nothing is deleted: `httpio.NewBadRequestMessage` answers 400 with the rule's own sentence, which is what the person reads. Who may delete which rows stays in grant conditions; the rule is for what no role may do, such as a retention period, which a condition cannot hold because conditions add up across a person's grants. A caller the grants refuse hears their Forbidden and never the rule's sentence. A read-only enumeration table refuses the annotation. Example: [SortieExpenseDeleteRule](../lodestar/pkg/resources/sortie_expenses.go). |
 | `@deleteCascade` | `@resource` struct | kinds, then `refusedBy:` kinds | Declares what a delete of the record takes with it and what refuses it. `@deleteCascade(Project, Task, TaskComment, refusedBy: Invoice)` on `Client` lists the kinds of row that go with a client, in any order, and after `refusedBy:` the kinds that keep a client from being deleted while it has one. The generator reads what is under the record from the schema, the foreign keys and interleaves that lead up to it, and holds the list to it: every kind under the record is named in one list or the other, or generation fails naming the kind, the record and the way between them. A kind that is under the record only through a refusing kind needs no place, since it has no row there without a row of the kind that refuses. A name that is no resource, a kind that is not under the record, a kind named twice, and a read-only table among the kinds taken fail generation the same way, each in a sentence that says what to change. For the record the generator writes `DeleteTree()` on the resource (`resource.DeleteTree`): the kinds taken in the order their rows are deleted, deepest first, each kind's ways up to the record, and what the delete of one row costs in mutations (`resource.DeleteCost`: the delete, an entry in each index of its table, the change record where changes are tracked, and the release of each stored file). `DeleteTree.Mutations` is the one count of a whole delete, held against the 80,000 mutations Spanner takes in a commit (`resource.DeleteMutationLimit`). A delete of a record with a row of a kind listed under `refusedBy` is refused before the commit in a sentence that counts what refuses it. A delete of a record with rows of the kinds it takes asks first: it deletes nothing and is answered 428 with a question that names what will be deleted, and the same delete saying it takes them (`"everythingUnder": true` as the remove operation's value) deletes those rows in code, each as its own delete would delete it, and the record last. A record that declares nothing is refused while it has rows under it that the database does not remove with it (section 10). The tenant record takes no `@deleteCascade`: the library declares its description, every kind of the application's rows that carry the tenant's key or lead to a row that does, with nothing listed to refuse it. A record lists its own kind where its table has a foreign key to itself (an answer names the message it answers): `@deleteCascade(DistressRelay)` on `DistressRelay` takes the answers under a relay, however deep, and a table with such a key is a kind under its own record like any other, to be named in one list or the other. A kind taken with another record carries its link to itself in the description (`DeleteKind.Within`), so that record's delete takes the rows under its rows too. A foreign key to columns that are not the other table's key (a case number) is a way up like any other: the description holds the columns each step references (`DeleteLink.References`), and the rows are found by them. Example: [Mission](../lodestar/pkg/resources/missions.go), [Client](../lodestar/pkg/resources/clients.go), and [DistressCall](../lodestar/pkg/resources/distress_calls.go) with [DistressRelay](../lodestar/pkg/resources/distress_relays.go). |
+| `@deletedWith` | field of a `@resource` struct | none | Says a row of the record goes with the group or the account of the library's that the column names, when that group or account is deleted: the delete's question counts the rows, and each goes through its own delete. Whoever deletes a group needs what deleting each row needs. An account's rows go on the permission to delete the account, in the tenants that permission reaches, and a row anywhere else refuses the delete. The column is one the schema holds, alone, by a foreign key to the key of an auth's groups table or users table; on a column the schema holds to a record of the application's, on any other column, on a read-only enumeration table and on the tenant record, generation fails and says what to write. A record that names a group or an account and says nothing keeps it from being deleted while the row is there. See "A record that names a group or an account of the library's". Example: [HangarPass](../lodestar/pkg/resources/hangar_passes.go). |
 | `@primarykey` | field of a `@computed` or `@virtual` struct | none | Marks the field as (part of) the resource's primary key; multiple annotated fields form a compound key in declaration order. Primary-key fields are exempt from field-level permission enforcement (their readability follows the resource-level grant). The key is what gives a row identity: the read route (`/{key}`), the cursor's tie-break (the key fields end every order, so a keyset cursor walks a total order), and the browser's row identity (`keyOf`). Without a key the resource is a whole read-only list, with no read route and no paging: served in one response, sorted when asked or declared, refusing a numeric `limit` or a `cursor` with a 400 that names `@primarykey` as the way to page, and refusing `@page` at generation. Rejected on table-backed `@resource` structs, whose keys come from the schema. Compound example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go); key-less example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). |
 | `@rowsOf` | `@virtual` or `@computed` struct | table resource name | The view declares its backing table, a create goes into the table, and the new row shows up in the view on the next list because the view's SQL reads that table. The declaration states row identity, not columns: every row of the view is one row of the named table under the same key, and the view's other columns are its own — joined from other tables, aggregated, or computed in the projection; the generator compares none of them to the table. It checks, each refusal naming the fix: the named resource exists and is a table-backed `@resource` (a `@virtual` or `@computed` target is refused, since a view cannot back a view, and an `@enumerate` table — with or without a struct over it — is refused as a contradiction, since its rows are the program's constants and a create button for them would be policy about nothing); the view declares `@primarykey` fields matching the table's key in count, order, Go field name, and Go type, nullability included, and on a `@virtual` the `spanner` columns as well, the message naming the first mismatch and the table's key; the two share a `@permissionScope`; the table is served on every outlet the view is served on (fail loud, never a silent degrade); and the view does not name itself. Refused on `@resource` and `@rpc` structs. Several views may name one table. The view's TypeScript metadata carries `rowsOf: Resources.X`, so a page listing the view sends its create, edit, and delete to the table and opens a row on the table's page; a view without the declaration is what it is today, a read-only list. One backing table only: two tables sharing one key (a table and its one-to-one extension) is the door left open and not built, and a parent joined to its children is never one to one with anything and stays a read-only list or an RPC. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), a same-row view over Missions; [SquadronRoster](../lodestar/pkg/virtualresources/squadron_rosters.go) and [PilotAssignment](../lodestar/pkg/virtualresources/pilot_assignments.go), two association views over SquadronMemberships whose compound key is edited and deleted from the list. [OpenMissionsBySquadron](../lodestar/pkg/virtualresources/open_missions_by_squadrons.go) and [FeeByKind](../lodestar/pkg/virtualresources/fee_by_kinds.go) declare nothing and stay read-only lists. |
 | `@changedBy` | `@virtual` or `@computed` struct | table names | The tables whose changes change the resource, so a commit on them reaches the resource's live pages. On a virtual resource the declaration replaces what the generator reads off the query (the text behind its `Subquery` method, an embedded file, a string literal or a concatenation of constants, walked with memefish's lexer for the names in table positions, section 14), so it can drop a table the walk misread as well as add one the query does not show; the generator still reads the query, and a declaration that differs from the reading is a warning naming both sides, never a refusal. It is the way out when the reading refuses (a name in a table position that is neither a table nor a CTE in scope, a recursive `WITH`, a text the lexer refuses) and required for a query built at run time. A computed resource is Go, so the declaration is its only source: without one its changes are not published, its pages stay plain, and nothing refuses. The `@rowsOf` root must be in the set, read or declared, and a name the schema lacks is refused; refused on `@resource` and `@rpc` structs. The sets are recorded next to the resources, as each package's generated `LiveDerivations`, and assembled in the handler package's `zz_gen_live_derivations.go` (section 14), so what the generator concluded shows in the diff, and the resource's TypeScript metadata says `live: true`. A table of an Auth's generated management (section 22) is read or declared like any other and recorded by its name, since the type over it is internal to the management's tree. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), read off its query; [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go), declared. |
@@ -1901,6 +1902,11 @@ with nothing gone where it cannot be made whole:
   kind alone (an invoice for a task under a task) is found level by level as the rows the
   delete takes are, and the delete answers in the same counted sentence before any row
   is checked, asked about or deleted.
+- A kind with a row straight under the record that the record's description neither takes
+  nor lists under `refusedBy` refuses the delete as it refuses a plain one, in the
+  sentence of the part before ("… Delete them first."), before any row is asked about.
+  The generator writes such a description for a group or an account of the library's that
+  a record of the application's names and says nothing (the next part).
 - Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
   generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind,
   what a session that acts as someone else is asked about a row that decides what a
@@ -1937,6 +1943,106 @@ and PostgreSQL has no write path.
 Example: [the served suite](../lodestar/test/integration/delete_cascade_test.go), over
 [Mission](../lodestar/pkg/resources/missions.go), [Client](../lodestar/pkg/resources/clients.go)
 and [DistressCall](../lodestar/pkg/resources/distress_calls.go).
+
+### A record that names a group or an account of the library's
+
+A group and an account are records of the library's, so an application cannot list its
+own rows on them with `@deleteCascade`. The application's record says it instead, on the
+column that names the group or the account: `// @deletedWith`, with no argument.
+`@deleteCascade` sits on the record that is deleted and lists what goes with it;
+`@deletedWith` sits on a column of the row that goes, and names the group or the account
+whose delete takes it. The column is one the schema holds, alone, by a foreign key to the
+key of an auth's groups table or users table; on any other column generation fails and
+says what to write.
+
+- **With `@deletedWith`,** a delete of the group or the account takes the rows that name
+  it. The question counts them after the library's own rows: "Delete this group and
+  everything under it: 12 members, 3 roles, 5 task assignments. This can't be undone.";
+  "Delete this account and everything under it: 7 task assignments. This can't be
+  undone." Each row goes through its own kind's delete, as the part before says of every
+  taken row. The generated methods that delete a group and a person ask the same way:
+  sent without `everythingUnder` for one that rows go with, each answers 428 with the
+  question, and the Groups page and the People page show it and send the delete again
+  with it.
+- **A group's rows are checked as the person who asked,** though the library's own delete
+  of the group is not armed (`DeleteKind.AsCaller`): whoever deletes the group needs what
+  deleting each row needs. Without it the delete is refused whole: "This group has task
+  assignments that you can't delete, so it can't be deleted."
+- **An account's rows go on the permission to delete the account**
+  (`DeleteKind.WithinReach`). No grant is asked on the rows' own table, the question
+  counts them for whoever may delete the account, and each row's delete rule is asked all
+  the same. The permission answers as far as it reaches. A request made for the whole
+  application takes every row. A request made under a tenant's address takes the rows of
+  that tenant, and of each other tenant in which the person holds the same permission,
+  with or without a condition (a condition is judged where the request is made); a
+  row of any other tenant refuses the delete, with nothing gone, in a sentence that names
+  the tenant: "This account still has 2 task assignments in Borealis. They have to be
+  removed there before the account can be deleted." It says "in another company" where
+  the tenant record marks no name. A row of a table that belongs to no tenant is the
+  whole application's, and so is a row whose way to its tenant ends empty: "This account
+  still has 3 saved filters that are not part of any company. Only someone who manages
+  accounts for the whole application can delete it." Removing a person from a tenant
+  takes none of these rows.
+- **Without it,** the delete is refused while a row names the group or the account, in
+  the counted sentence: "This group has 5 tasks. Move or delete them first.", or "Delete
+  them first." where the column may not be empty. For an account the count is of every
+  tenant's rows, so a person who deletes it under one tenant's address can be refused
+  over rows they cannot see there.
+- **What is under such a row** goes with it where the row's own `@deleteCascade` takes
+  it, and is counted in the question. A row that would refuse the row's own delete (a
+  kind its `@deleteCascade` lists under `refusedBy`, or, where it declares none, a kind
+  straight under it) refuses the group's or the account's: "This group has 2 assignment
+  notes, so it can't be deleted."
+- **Which table carries the column is the schema's choice.** A link table
+  (`TaskAssignments`: a task, and the group or the person it is assigned to) with
+  `@deletedWith` on its columns loses its link rows with the group or the account, and
+  the tasks stay, assigned to whoever else holds them or to nobody. A column on the
+  record itself (`Tasks.GroupId`) with `@deletedWith` deletes the tasks with the group;
+  without it, the group stands until the tasks are moved or deleted.
+- **The count reads what the database held before the save,** as every delete's does. A
+  save that deletes the rows that name a group or an account and then the group or the
+  account itself is refused over those rows where their column says nothing: the rows are
+  deleted in an earlier save, or the column says `@deletedWith`.
+- **The save that takes the account's row** also ends the person's sessions and removes
+  their sign-ins, their roles and their places in groups, and the size of a save does not
+  count those writes. An account whose last rows fill that save to within them is refused
+  by the database at the commit, at every try, for holding too many changes; it is deleted
+  once a few of its rows are deleted first.
+- **The application's resources package must not import the auth's generated packages.**
+  The generated description of the group or the account names the delete of the
+  application's record (`<Record>TakenRows`, which the generator writes in the
+  application's resources package), so the import would be a cycle, and the application
+  does not compile.
+- **A tenant's delete** takes the application's rows under the tenant itself, on its one
+  permission, and then deletes the tenant's groups and the accounts that were its alone
+  with the library's rows alone (section 16, "Deleting a tenant").
+- **Left to the database.** Three kinds of row are neither counted nor taken, and the
+  foreign key refuses the save, in the commit's own sentence, while one is there: a row
+  of a table no resource declares; a row that names another row of the auth's (a place in
+  a group, a role a group holds) and not the group or the account itself; and, in a
+  tenant's delete, a row outside the tenant that names a group or an account the delete
+  takes.
+- **Spanner, through the generated management.** The delete in code is Spanner's write
+  path. The session library's own delete of a user (`DeleteSessionUser`), which an
+  application without the generated management calls, takes no row of the application's
+  on Spanner or on PostgreSQL: a row that names the user by a foreign key refuses it in
+  the database's own sentence.
+
+**How a table should name a person.** A record that names an account by a foreign key
+leaves the account's delete two outcomes: it is refused while the row is there, or, with
+`@deletedWith`, the row goes with the account. For a record that should outlive the
+person (a task, an order) neither is wanted, so keep the foreign key off it. Use a link
+table for assignments (`TaskAssignments`: its rows go with the account, and the tasks
+stay). Rely on the change history for who did what: each change record says who made the
+change (section 24) and stays when the account is gone. Where a record must name a person
+itself, keep a copy of the person's information on it (their name, their address), with
+no foreign key. A copy keeps personal data after the account is gone, so an application
+that must erase a person cleans up its own copies. Disable is the usual way to remove a
+person who has history; delete is for when the account itself must go, and a design that
+names people these three ways keeps it possible.
+
+Example: [HangarPass](../lodestar/pkg/resources/hangar_passes.go), and
+[the served suite](../lodestar/test/integration/group_share_test.go).
 
 ### A link between two records of a tenant
 
@@ -4010,8 +4116,12 @@ written and its stored files are released. The tenant's directory is one of thos
 goes with the rest, whether the tenant is directory only or not, and is free for another
 tenant afterwards; the rule that keeps the directory of a directory-only tenant is for a
 tenant that stays and is not asked. A person who may delete a tenant need hold no role in
-it. A row of another tenant that names one of the tenant's rows is not under the tenant and
-is not taken (section 10, the same part).
+it. A row of another tenant that names one of the tenant's rows is not under the tenant
+and is not taken (section 10, the same part). The tenant's groups and the accounts that
+were its alone are then deleted with the library's rows alone: the application's rows that
+name them were under the tenant and went before them, on the one permission, and a row
+outside the tenant that names one of them is not taken, so its foreign key refuses the
+save (section 10, "A record that names a group or an account of the library's").
 
 A tenant that has such rows, or that an auth holds anything for, is not deleted by a
 request that does not say so. The remove is answered 428 with the question a person is
@@ -4445,8 +4555,7 @@ as is a resource field named for a method of the generated set (`Resource`,
 
 **The credential methods carry a class.** The methods that change how a person signs in
 are written with `@class(credential)` (`accesstypes.ClassCredential`), in the whole
-application's form and in a tenant's alike: the temporary password
-(`set-crew-temporary-password`), the required new password
+application's form and in a tenant's alike: the required new password
 (`require-crew-password-change`), the removal of a password (`remove-crew-password`), the
 reset link an administrator sends (`send-crew-user-password-reset-link`), the unlinking
 of a sign-in identity (`unlink-crew-session-identity`), the rename (`rename-crew-user`)
@@ -5822,10 +5931,13 @@ own, outside any request, has no caller and is the application's act):
   whole, in the sentence the row's own removal is refused with ("You are acting as
   someone else, so you cannot remove your own client contact record."), before any
   question is asked, and nothing is deleted. A mask that refuses the row's own delete
-  refuses the record's delete too. A delete an application runs trusted, with no caller,
-  asks neither: an action that deletes such a record in its own body takes the rows
-  under it unasked, and an application closes that by refusing the action by name in
-  the kind's mask (`accesstypes.RefuseAction(action)`).
+  refuses the record's delete too. A row that goes with a group of the library's that it
+  names (`@deletedWith`) is held to the same three questions: the library deletes the
+  group without arming the delete, and the row is checked as the request's caller all
+  the same (`DeleteKind.AsCaller`). A delete an application runs trusted, with no
+  caller, asks neither: an action that deletes such a record in its own body takes the
+  rows under it unasked, and an application closes that by refusing the action by name
+  in the kind's mask (`accesstypes.RefuseAction(action)`).
 
   A row that goes with its tenant is a limit of its own. A tenant's delete takes every
   row under the tenant on the grant to delete the tenant: no grant is asked on a row,
@@ -5839,11 +5951,18 @@ own, outside any request, has no caller and is the application's act):
     (`accesstypes.RefuseAction(action)`): an action is asked for Execute on its name,
     not for Delete on the record.
 
+  A row that goes with an account it names (`@deletedWith`) is the same limit. The
+  account's delete takes it on the permission to delete the account: no grant is asked
+  on the row, and the questions are not asked about the person or the set it names. An
+  application closes it for a kind by refusing, in the kind's mask, the methods that
+  delete a person, by name (`accesstypes.RefuseAction(method)`).
+
   A row a foreign key's referential action removes or rewrites is another: no write of
   the row is made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` on an
   application's tables, wherever the link points (`no-delete-cascade`). An application's
-  record that names a group of the library's is not removed by the database when the group
-  is deleted. PostgreSQL has referential actions that change the row where it stands.
+  record that names a group or an account of the library's says in code whether it goes
+  with it (`// @deletedWith` on the column). PostgreSQL has referential actions that change
+  the row where it stands.
   `ON DELETE SET NULL` and
   `ON DELETE SET DEFAULT` rewrite the column that named the parent when the parent is
   deleted, and refusing the parent's delete under the mask closes them

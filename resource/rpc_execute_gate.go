@@ -92,6 +92,7 @@ func (s *TargetedRPCDecoder[Request]) Decode(request *http.Request, scope access
 	if err != nil {
 		return nil, nil, err
 	}
+	gate.entryPermission = s.perm
 
 	return req, gate, nil
 }
@@ -200,13 +201,24 @@ type ExecuteGate struct {
 	env             accesstypes.Environment
 	collection      *GeneratedCollection
 	cond            condition.Expr
+	// entryPermission is the permission a method's decode asked on the method, for the
+	// gate its decode answers (TargetedRPCDecoder.Decode); empty for a gate a body asks
+	// through Caller.ExecuteGate.
+	entryPermission accesstypes.Permission
 }
 
 // Caller returns the caller the decode-time check ran as — checker, scope, sampled
 // environment, and the collection — for the handler to stamp into the context the
-// method's body runs under.
+// method's body runs under. The caller of the gate a method's decode answers carries the
+// method and the permission the decode asked; the caller of a gate a body asks through
+// Caller.ExecuteGate carries neither.
 func (g *ExecuteGate) Caller() *Caller {
-	return &Caller{Permissions: g.userPermissions, Scope: g.scope, Env: g.env, collection: g.collection}
+	caller := &Caller{Permissions: g.userPermissions, Scope: g.scope, Env: g.env, collection: g.collection}
+	if g.entryPermission != "" {
+		caller.method, caller.permission = g.method, g.entryPermission
+	}
+
+	return caller
 }
 
 // Settled reports what the gate decides before any row is read. settled is true where
