@@ -750,7 +750,7 @@ func (r *TenantDirectoryRules) hasPassword(ctx context.Context, txn ReadWriteTra
 // tenant the record does not hold. A record that carries no directory-only column has
 // no switch, and every tenant's is off.
 func (r *TenantDirectoryRules) switchState(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (on, found bool, err error) {
-	if !r.columns.declared() {
+	if !r.columns.hasDirectories() {
 		return false, false, errors.New("resource: a tenant's directory rules need the directories record's columns: build them with the generated New<Record>DirectoryRules")
 	}
 	if r.columns.DirectoryOnly == "" {
@@ -837,7 +837,7 @@ func turnsOn(value any) bool {
 // with no directory, and the generated router's guard of the tenant's route has answered
 // it NotFound before.
 func (r *TenantDirectoryRules) SignInSettings(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (*TenantSignInSettings, error) {
-	if !r.columns.declared() {
+	if !r.columns.hasDirectories() {
 		return nil, errors.New("resource: a tenant's directory rules need the directories record's columns: build them with the generated New<Record>DirectoryRules")
 	}
 	switched := r.columns.DirectoryOnly != ""

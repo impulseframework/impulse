@@ -138,6 +138,15 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 		return []accesstypes.Domain{anvil, bastion}, nil
 	}
 
+	disabled := map[accesstypes.Domain]*signin.TenantDeclaration{
+		anvil:   {Disabled: true},
+		bastion: {Directories: []signin.Directory{workspace}},
+	}
+	disabledDirectoryOnly := map[accesstypes.Domain]*signin.TenantDeclaration{
+		anvil:   {Directories: []signin.Directory{workspace}, DirectoryOnly: true, Disabled: true},
+		bastion: {Directories: []signin.Directory{workspace}},
+	}
+
 	tests := []struct {
 		name   string
 		ctx    context.Context
@@ -146,7 +155,9 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 		// administers are the tenants the person administers.
 		administers []accesstypes.Domain
 		// namers say what the application's registrations call a directory.
-		namers   []DirectoryNamer
+		namers []DirectoryNamer
+		// declared are the tenants' declarations, the ones above when nil.
+		declared map[accesstypes.Domain]*signin.TenantDeclaration
 		wantBody string
 	}{
 		{
@@ -229,6 +240,33 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			wantBody: `[{"domain":"anvil","name":"Anvil Works"},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
+			name:     "a member of a disabled tenant is told it is disabled",
+			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
+			declared: disabled,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works is disabled."},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
+			name:        "the administrator of a disabled directory-only tenant, in a password session without the code, is told it is disabled and no word of the code",
+			ctx:         sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
+			administers: []accesstypes.Domain{anvil},
+			declared:    disabledDirectoryOnly,
+			wantBody:    `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works is disabled."},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
+			name:     "a person who came through a disabled directory-only tenant's directory is told it is disabled",
+			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "acme"}),
+			declared: disabledDirectoryOnly,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works is disabled."},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
+			name:     "a super administrator lists a disabled tenant they hold a grant in plainly",
+			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
+			global:   true,
+			super:    true,
+			declared: disabled,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works"},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
 			name:     "a person holding another global role is held to the tenant's switch like anyone",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
 			global:   true,
@@ -242,7 +280,11 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			forUser := func(user accesstypes.User) *stubPermissions {
 				return &stubPermissions{user: user, domains: []accesstypes.Domain{anvil, bastion}, global: tt.global, super: tt.super, administers: tt.administers}
 			}
-			reader := &declarationReader{declarations: declarations}
+			declared := tt.declared
+			if declared == nil {
+				declared = declarations
+			}
+			reader := &declarationReader{declarations: declared}
 			handler := UserDomainsHandler(func(r *http.Request) UserPermissions {
 				return SessionPermissions(r.Context(), forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 			}, WithDomainNames(stubNames{anvil: "Anvil Works"}), WithDirectoryNames(tt.namers...))

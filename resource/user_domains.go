@@ -24,11 +24,12 @@ import (
 // with a password and whose session carries no second factor, is told the way in they
 // hold as well ("As one of its administrators you can still enter it: sign out, then
 // sign in again with your password and the code we email you."): the code is all that
-// is missing, and the reason says what to do. It is empty, and absent from the JSON,
-// for a tenant the session reaches. A picker shows a closed tenant marked, with the
+// is missing, and the reason says what to do. A tenant that is disabled reads "Acme is
+// disabled.", whatever way the person signed in. It is empty, and absent from the JSON,
+// for a tenant the session reaches. A picker shows such a tenant marked, with the
 // reason, and never as a place to open. Only a person's own sign-in is told of one: a
 // session that views the application as someone else, and one that acts as a role,
-// list none closed.
+// list none.
 type UserDomain struct {
 	Domain accesstypes.Domain `json:"domain"`
 	Name   string             `json:"name"`
@@ -72,7 +73,7 @@ func WithDirectoryNames(namers ...DirectoryNamer) UserDomainsOption {
 
 // UserDomainsHandler serves the session's tenant list: the domains where the user
 // holds at least one grant, sorted, each with its name (UserDomain), and each that
-// the session does not reach marked closed, with the reason. It is the tenant
+// the session does not reach marked with the reason (UserDomain.Closed). It is the tenant
 // picker's question, answered by the library so
 // applications wire nothing — the generated router registers it on the default
 // outlet beside the digest. The picker shows a tenant's name: the people of a tenant
@@ -119,6 +120,16 @@ func UserDomainsHandler(userPermissions func(r *http.Request) UserPermissions, o
 			// to say how it was established.
 			session := sessioninfo.DataFromCtx(ctx)
 			for _, tenant := range userDomains(closed, settings.names) {
+				disabled, err := tenantDisabled(ctx, perms, tenant.Domain)
+				if err != nil {
+					return httpio.NewEncoder(w).ClientMessage(ctx, err)
+				}
+				if disabled {
+					tenant.Closed = disabledReason(tenant.Name)
+					out = append(out, tenant)
+
+					continue
+				}
 				administrator, err := opensWithSecondFactor(ctx, perms, tenant.Domain)
 				if err != nil {
 					return httpio.NewEncoder(w).ClientMessage(ctx, err)

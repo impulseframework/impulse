@@ -108,6 +108,16 @@ func TestSessionPermissions_tenantDoor(t *testing.T) {
 			wantClosed:  []accesstypes.Domain{"lakeside"},
 		},
 		{
+			name: "a disabled tenant is reached by no session of a person it seats, through its directory or not, and is listed with the tenants the session cannot enter",
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"lakeside": {Directories: []signin.Directory{lakeside}, Disabled: true},
+			},
+			seated:      []accesstypes.Domain{"lakeside", "riverside"},
+			established: through(lakeside),
+			wantReached: []accesstypes.Domain{"riverside"},
+			wantClosed:  []accesstypes.Domain{"lakeside"},
+		},
+		{
 			name: "two directory-only tenants seat one person: the session reaches the one whose directory it came through, and the other is closed",
 			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
 				"lakeside": {Directories: []signin.Directory{lakeside}, DirectoryOnly: true},

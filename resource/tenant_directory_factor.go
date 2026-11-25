@@ -133,7 +133,7 @@ func (r *TenantDirectoryRules) vouchingRow(ctx context.Context, txn ReadWriteTra
 // for its directory's second factor: the record carries the column, and the tenant has
 // a directory, or is refused with noDirectory.
 func (r *TenantDirectoryRules) secondFactorRow(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, noDirectory string) (*TenantDirectory, error) {
-	if !r.columns.declared() {
+	if !r.columns.hasDirectories() {
 		return nil, errors.New("resource: a tenant's directory rules need the directories record's columns: build them with the generated New<Record>DirectoryRules")
 	}
 	if r.columns.SecondFactorColumn == "" {

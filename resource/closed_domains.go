@@ -25,6 +25,12 @@ type secondFactorOpener interface {
 	OpensWithSecondFactor(ctx context.Context, domain accesstypes.Domain) (bool, error)
 }
 
+// disabledTenantTeller is what the permissions SessionPermissions composes answer about
+// a tenant the session cannot enter: whether it is disabled. tenantDisabled asks it.
+type disabledTenantTeller interface {
+	TenantDisabled(ctx context.Context, domain accesstypes.Domain) (bool, error)
+}
+
 // unenteredDomainLister is what the permissions SessionPermissions composes answer
 // beside UserPermissions: the tenants of the application's roster that this session does
 // not enter. unenteredDomains asks it.
@@ -38,21 +44,24 @@ var (
 )
 
 var (
-	_ closedDomainLister = rosterPermissions{}
-	_ closedDomainLister = (*maskedPermissions)(nil)
-	_ secondFactorOpener = rosterPermissions{}
-	_ secondFactorOpener = (*maskedPermissions)(nil)
+	_ closedDomainLister   = rosterPermissions{}
+	_ closedDomainLister   = (*maskedPermissions)(nil)
+	_ secondFactorOpener   = rosterPermissions{}
+	_ secondFactorOpener   = (*maskedPermissions)(nil)
+	_ disabledTenantTeller = rosterPermissions{}
+	_ disabledTenantTeller = (*maskedPermissions)(nil)
 )
 
-// ClosedDomains lists the tenants that are closed to this session: the domains of the
-// application's roster where the person holds at least one grant and that the session
-// does not reach (UserPermissions.Reaches), sorted; never nil. A tenant is closed to a
-// session when it admits its people through its own directory only and the session
-// was not established through that directory. The session's tenant list carries each
-// with the reason (UserDomainsHandler), so a person sees the tenant they hold a seat in
-// and why this sign-in does not open it; nothing else changes for the tenant, whose
-// routes answer the session as a tenant that does not exist. It tells the person
-// nothing new: they hold a seat there.
+// ClosedDomains lists the tenants this session cannot enter though the person holds a
+// seat in them: the domains of the application's roster where the person holds at
+// least one grant and that the session does not reach (UserPermissions.Reaches),
+// sorted; never nil. A tenant is one of them when it admits its people through its own
+// directory only and the session was not established through that directory, or when
+// it is disabled. The session's tenant list carries each with the reason
+// (UserDomainsHandler), so a person sees the tenant they hold a seat in and why this
+// sign-in does not open it; nothing else changes for such a tenant, whose routes answer
+// the session as a tenant that does not exist. It tells the person nothing new: they
+// hold a seat there.
 //
 // The permissions SessionPermissions composes answer it, for a person's own sign-in.
 // A session that views the application as someone else, and one that acts as a role,
@@ -107,7 +116,7 @@ func (p rosterPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Dom
 }
 
 // ClosedDomains passes through. A mask belongs to an impersonated session, which is
-// told of no closed tenant, so the permissions under it answer none.
+// told of no such tenant, so the permissions under it answer none.
 func (m *maskedPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Domain, error) {
 	return ClosedDomains(ctx, m.UserPermissions)
 }
@@ -200,6 +209,45 @@ func (p rosterPermissions) OpensWithSecondFactor(ctx context.Context, domain acc
 // OpensWithSecondFactor passes through, as ClosedDomains does.
 func (m *maskedPermissions) OpensWithSecondFactor(ctx context.Context, domain accesstypes.Domain) (bool, error) {
 	return opensWithSecondFactor(ctx, m.UserPermissions, domain)
+}
+
+// tenantDisabled reports whether domain, a tenant the session cannot enter, is
+// disabled. The permissions SessionPermissions composes answer it, for a person's own
+// sign-in; any other UserPermissions answer no.
+func tenantDisabled(ctx context.Context, perms UserPermissions, domain accesstypes.Domain) (bool, error) {
+	teller, ok := perms.(disabledTenantTeller)
+	if !ok {
+		return false, nil
+	}
+	disabled, err := teller.TenantDisabled(ctx, domain)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.tenantDisabled()")
+	}
+
+	return disabled, nil
+}
+
+// TenantDisabled reports whether domain is disabled (admittedPermissions): no for a
+// session that is not a person's own sign-in, which is told of no tenant it cannot
+// enter, and in an application that keeps no declarations.
+func (p rosterPermissions) TenantDisabled(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	if p.admission == nil || !p.ownSignIn {
+		return false, nil
+	}
+
+	return p.admission.tenantDisabled(ctx, domain)
+}
+
+// TenantDisabled passes through, as ClosedDomains does.
+func (m *maskedPermissions) TenantDisabled(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	return tenantDisabled(ctx, m.UserPermissions, domain)
+}
+
+// disabledReason is the sentence the session's tenant list gives for a tenant that is
+// disabled, whatever way the person signed in and whether or not they administer it.
+// name is the tenant's name as the list shows it.
+func disabledReason(name string) string {
+	return fmt.Sprintf("%s is disabled.", name)
 }
 
 // administratorsWaySentence is the last sentence of a tenant's closed reason for the

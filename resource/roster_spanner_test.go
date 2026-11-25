@@ -510,10 +510,11 @@ func TestTenantRoster_stopsWithContext(t *testing.T) {
 }
 
 // stationColumns names the declaration the roster tests' fixture carries: the
-// directory-only flag on Stations and the StationDirectories rows with their default
-// seat and the station's word for its directory's second factor.
+// directory-only and disabled flags on Stations and the StationDirectories rows with
+// their default seat and the station's word for its directory's second factor.
 var stationColumns = &TenantDeclarationColumns{
 	DirectoryOnly:        "DirectoryOnly",
+	Disabled:             "Disabled",
 	DirectoriesTable:     "StationDirectories",
 	TenantColumn:         "StationId",
 	MethodColumn:         "Method",
@@ -545,6 +546,17 @@ func seatStationDirectory(t *testing.T, db *initiator.SpannerDB, id accesstypes.
 	}
 }
 
+// disableStation sets whether a station is disabled, as the tenant record's edit commits
+// it.
+func disableStation(t *testing.T, db *initiator.SpannerDB, id accesstypes.Domain, disabled bool) {
+	t.Helper()
+
+	mutation := spanner.Update(stationsTable, []string{stationsKey, "Disabled"}, []any{string(id), disabled})
+	if _, err := db.Apply(t.Context(), []*spanner.Mutation{mutation}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+}
+
 // declareStation writes a station's declaration the way the records' write paths commit
 // it: the flag on the row and the station's StationDirectories row. A station has one
 // directory, which the schema holds: a second is given only to prove the refusal.
@@ -562,12 +574,13 @@ func declareStation(t *testing.T, db *initiator.SpannerDB, id accesstypes.Domain
 }
 
 // TestTenantRoster_declarations pins the declaration half of the copy over the
-// emulator: a roster built with WithTenantDeclarations reads each station's flag and
+// emulator: a roster built with WithTenantDeclarations reads each station's flags and
 // directories in the snapshot of its keys, answers Declarations from the copy (a
 // station declaring nothing answers an empty declaration, one the set does not hold
-// nil), and a roster built without the option answers nil for every station; after a
-// write, Reload brings the copy current at once, as the records' generated write paths
-// call it.
+// nil), and a roster built without the option answers nil for every station; columns
+// that name the disabled column and no directories record answer, for every station,
+// whether it is disabled; after a write, Reload brings the copy current at once, as the
+// records' generated write paths call it.
 func TestTenantRoster_declarations(t *testing.T) {
 	t.Parallel()
 
@@ -577,6 +590,9 @@ func TestTenantRoster_declarations(t *testing.T) {
 	tests := []struct {
 		name     string
 		declared bool
+		// columns are the columns the roster is built with when declared, stationColumns
+		// when nil.
+		columns *TenantDeclarationColumns
 		// declare writes the declarations before Start; redeclare after it, before Reload.
 		declare   func(t *testing.T, db *initiator.SpannerDB)
 		redeclare func(t *testing.T, db *initiator.SpannerDB)
@@ -603,6 +619,53 @@ func TestTenantRoster_declarations(t *testing.T) {
 				declareStation(t, db, "alpha", true, workspace)
 			},
 			want: map[accesstypes.Domain]*signin.TenantDeclaration{"alpha": nil, "beta": nil, "gamma": nil, "delta": nil},
+		},
+		{
+			name:     "each station is disabled as its row holds it",
+			declared: true,
+			declare: func(t *testing.T, db *initiator.SpannerDB) {
+				declareStation(t, db, "alpha", true, workspace)
+				disableStation(t, db, "alpha", true)
+				disableStation(t, db, "gamma", true)
+			},
+			want: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"alpha": {DirectoryOnly: true, Directories: []signin.Directory{workspace}, Disabled: true},
+				"beta":  {},
+				"gamma": {Disabled: true},
+				"delta": nil,
+			},
+		},
+		{
+			name:     "a station disabled or enabled after Start is so in the copy once Reload runs",
+			declared: true,
+			declare: func(t *testing.T, db *initiator.SpannerDB) {
+				disableStation(t, db, "alpha", true)
+			},
+			redeclare: func(t *testing.T, db *initiator.SpannerDB) {
+				disableStation(t, db, "alpha", false)
+				disableStation(t, db, "beta", true)
+			},
+			want: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"alpha": {},
+				"beta":  {Disabled: true},
+				"gamma": {},
+				"delta": nil,
+			},
+		},
+		{
+			name:     "columns that name the disabled column and no directories record answer, for every station, whether it is disabled",
+			declared: true,
+			columns:  &TenantDeclarationColumns{Disabled: "Disabled"},
+			declare: func(t *testing.T, db *initiator.SpannerDB) {
+				declareStation(t, db, "alpha", true, workspace)
+				disableStation(t, db, "beta", true)
+			},
+			want: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"alpha": {},
+				"beta":  {Disabled: true},
+				"gamma": {},
+				"delta": nil,
+			},
 		},
 		{
 			name:     "Reload after a write brings the copy current",
@@ -634,7 +697,11 @@ func TestTenantRoster_declarations(t *testing.T) {
 
 			var opts []TenantRosterOption
 			if tt.declared {
-				opts = append(opts, WithTenantDeclarations(stationColumns))
+				columns := tt.columns
+				if columns == nil {
+					columns = stationColumns
+				}
+				opts = append(opts, WithTenantDeclarations(columns))
 			}
 			r := NewTenantRoster(client, stationsTable, stationsKey, opts...)
 			if err := r.Start(ctx); err != nil {
@@ -736,25 +803,37 @@ func TestNewTenantDeclarationReader(t *testing.T) {
 	t.Parallel()
 
 	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "frontier.example"}
-	db, _ := tenantDatabase(t, "declaration-reader", "alpha", "beta")
+	db, _ := tenantDatabase(t, "declaration-reader", "alpha", "beta", "gamma")
 	declareStation(t, db, "alpha", true, workspace)
-	reader := NewTenantDeclarationReader(stationsTable, stationsKey, stationColumns)
+	disableStation(t, db, "gamma", true)
+	disabledAlone := &TenantDeclarationColumns{Disabled: "Disabled"}
 
 	tests := []struct {
-		name   string
-		tenant accesstypes.Domain
-		want   *signin.TenantDeclaration
+		name string
+		// columns are the columns the reader is built with, stationColumns when nil.
+		columns *TenantDeclarationColumns
+		tenant  accesstypes.Domain
+		want    *signin.TenantDeclaration
 	}{
 		{name: "a declared station: its flag and its directory", tenant: "alpha", want: &signin.TenantDeclaration{DirectoryOnly: true, Directories: []signin.Directory{workspace}}},
 		{name: "a station declaring nothing: an empty declaration", tenant: "beta", want: &signin.TenantDeclaration{}},
+		{name: "a disabled station: disabled", tenant: "gamma", want: &signin.TenantDeclaration{Disabled: true}},
 		{name: "a station the table does not hold: nil", tenant: "nowhere", want: nil},
 		{name: "an empty tenant: nil, with no read", tenant: "", want: nil},
+		{name: "columns that name the disabled column and no directories record: a disabled station is disabled", columns: disabledAlone, tenant: "gamma", want: &signin.TenantDeclaration{Disabled: true}},
+		{name: "columns that name the disabled column and no directories record: a station that is not disabled says only that", columns: disabledAlone, tenant: "alpha", want: &signin.TenantDeclaration{}},
+		{name: "columns that name the disabled column and no directories record: a station the table does not hold is nil", columns: disabledAlone, tenant: "nowhere", want: nil},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			columns := tt.columns
+			if columns == nil {
+				columns = stationColumns
+			}
+			reader := NewTenantDeclarationReader(stationsTable, stationsKey, columns)
 			var got *signin.TenantDeclaration
 			if _, err := db.ReadWriteTransaction(t.Context(), func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 				declaration, err := reader(ctx, txn, tt.tenant)

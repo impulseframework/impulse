@@ -30,9 +30,11 @@ type UserPermissions interface {
 	// tenants lists none.
 	Domains(ctx context.Context) ([]accesstypes.Domain, error)
 
-	// Reaches reports whether the session may enter domain: the tenant's
-	// declaration (TenantDeclarations) admits the way the session was
-	// established, its sign-in's method and connection; or the session's
+	// Reaches reports whether the session may enter domain. A tenant that is
+	// disabled (signin.TenantDeclaration.Disabled) is entered by a session whose
+	// actor is a super administrator and by no other. Any other tenant is entered
+	// when the tenant's declaration (TenantDeclarations) admits the way the session
+	// was established, its sign-in's method and connection; or the session's
 	// actor is a super administrator, who holds the Super Administrator role
 	// and enters every tenant; or the tenant is directory only and the
 	// session is its own administrator's, established with a password and
@@ -50,8 +52,9 @@ type UserPermissions interface {
 	// the application's roster where the person holds at least one grant,
 	// sorted; never nil. It answers a question about the person, where Domains
 	// answers one about the session: Domains leaves out a tenant the session's
-	// permission mask leaves nothing of and a tenant that is closed to the way
-	// the session signed in (ClosedDomains), and the person holds both. A rule
+	// permission mask leaves nothing of, a tenant that is closed to the way the
+	// session signed in and a tenant that is disabled (ClosedDomains), and the
+	// person holds all three. A rule
 	// that counts a person's tenants asks here, so that no mask a session runs
 	// under makes a tenant not theirs: the generated create-your-tenant route
 	// does, for its rule that a person creates one tenant. In a session that
