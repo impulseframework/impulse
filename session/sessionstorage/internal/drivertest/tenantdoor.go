@@ -230,7 +230,9 @@ func (w *doorWorld) remove(tenant accesstypes.Domain, seated ...impulse.UUID) {
 
 // reached lists the tenants that seat the account and that a session established as
 // identity says reaches: each tenant's declaration asked with the one function the
-// application's reach is decided by (signin.TenantDeclaration.Admits).
+// application's reach is decided by (signin.TenantDeclaration.Admits), after whether
+// the tenant is disabled, which no session of these cases reaches: none is a super
+// administrator's.
 func (w *doorWorld) reached(userID impulse.UUID, identity *sessioninfo.Identity) []accesstypes.Domain {
 	var reached []accesstypes.Domain
 	for _, tenant := range w.seats.tenants(userID) {
@@ -238,7 +240,7 @@ func (w *doorWorld) reached(userID impulse.UUID, identity *sessioninfo.Identity)
 		if !w.gone(tenant) {
 			declaration = w.declared[tenant]
 		}
-		if declaration.Admits(identity.Method, identity.Connection) {
+		if !declaration.IsDisabled() && declaration.Admits(identity.Method, identity.Connection) {
 			reached = append(reached, tenant)
 		}
 	}
@@ -351,6 +353,49 @@ func testTenantDoor(_ context.Context, t *testing.T, h *AuthHarness) {
 		}
 	})
 
+	t.Run("a stranger invited into a disabled tenant is refused with no_tenant and holds the invitation's role, and once the tenant is enabled signs in and reaches it", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		w := newDoorWorld(map[accesstypes.Domain]*signin.TenantDeclaration{"riverside": {Disabled: true}}, nil)
+		in := w.start(ctx, t, h)
+
+		const name = "pat@lakeside.edu"
+		invitation := insertInvitation(ctx, t, in.Driver, name, "riverside", []string{"Teacher"}, tokenHash(1))
+		identity := entra("oid-pat", name)
+		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity, Invitation: invitationOf(invitation)}
+		err := signInRequest(ctx, in, req)
+		assertRefused(t, err, sessioninfo.RefusedNoTenant, signin.ErrNoTenant)
+
+		// The invitation is left alone: it is accepted, and the person holds its role in
+		// the tenant they cannot enter while it is disabled.
+		if !req.Invitation.Accepted {
+			t.Error("Invitation.Accepted = false after the sign-in, want accepted")
+		}
+		pat, err := in.Driver.UserByUserName(ctx, name)
+		if err != nil {
+			t.Fatalf("UserByUserName(%q) error = %v, want the account the sign-in made", name, err)
+		}
+		want := accesstypes.RoleCollection{accesstypes.DomainPolicyScope("riverside"): {"Teacher"}}
+		held, err := w.seats.UserRoles(ctx, accesstypes.User(pat.ID.String()))
+		if err != nil {
+			t.Fatalf("UserRoles() error = %v", err)
+		}
+		if diff := cmp.Diff(want, held); diff != "" {
+			t.Errorf("seats after the refused sign-in (-want +got):\n%s", diff)
+		}
+		assertReached(t, w, pat.ID, identity)
+
+		// The tenant is enabled: the same person's next sign-in is admitted, and the
+		// session reaches it with the role the invitation gave.
+		w.declare(ctx, t, h, in, "riverside", &signin.TenantDeclaration{})
+		again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
+		if err := signInRequest(ctx, in, again); err != nil {
+			t.Errorf("sign-in once the tenant is enabled error = %v (code %q), want allowed", err, sessioninfo.LoginRefusalCodeOf(err))
+		}
+		assertReached(t, w, pat.ID, identity, "riverside")
+	})
+
 	t.Run("an account that signs in through a directory-only tenant's directory is refused a password, though an open tenant seats the person too", func(t *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
@@ -458,6 +503,26 @@ func testTenantDoor(_ context.Context, t *testing.T, h *AuthHarness) {
 		w.seats.give(hal.ID, "lakeside", "Member")
 		mustLink(ctx, t, in.Driver, hal.ID, entra("oid-hal", halName))
 		_, err = passwordSignIn(ctx, in, hal, sessioninfo.ReasonLogin)
+		assertRefused(t, err, sessioninfo.RefusedDirectoryOnly, signin.ErrDirectoryOnly)
+	})
+
+	t.Run("the administrator of a disabled directory-only tenant, whose directory signs their account in, is refused a password and not held for the code", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		w := newDoorWorld(map[accesstypes.Domain]*signin.TenantDeclaration{
+			"lakeside": {Directories: []signin.Directory{lakesideDirectory}, DirectoryOnly: true, Disabled: true},
+		}, nil)
+		in := w.start(ctx, t, h)
+
+		// Ann administers Lakeside, whose directory signs her account in, as in the case
+		// above where she is held for the code; Lakeside is disabled, and gives her no
+		// way in.
+		const annName = "ann@lakeside.edu"
+		ann := passwordUser(ctx, t, in.Driver, annName)
+		w.seats.administer(ann.ID, "lakeside")
+		mustLink(ctx, t, in.Driver, ann.ID, entra("oid-ann", annName))
+		_, err := passwordSignIn(ctx, in, ann, sessioninfo.ReasonLogin)
 		assertRefused(t, err, sessioninfo.RefusedDirectoryOnly, signin.ErrDirectoryOnly)
 	})
 

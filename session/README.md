@@ -715,7 +715,9 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   (`signin.Directory`: a method and the connection its identities carry, which is the
   Entra tenant id, the name the registration gives a Google Workspace, or a WorkOS
   connection id) and whether its people come through those **only**
-  (`DirectoryOnly`). A tenant's declaration restricts that tenant's door, and a
+  (`DirectoryOnly`). It also says whether the tenant is **disabled** (`Disabled`): a
+  disabled tenant seats nobody at a sign-in, and no session enters it but a super
+  administrator's. A tenant's declaration restricts that tenant's door, and a
   directory-only tenant also keeps the accounts that sign in through its directory to
   that directory (rule 2 below); beyond those accounts, a tenant that is not directory
   only, and a tenant that declares nothing (a nil declaration), admits everyone it
@@ -795,10 +797,10 @@ The rules, in order, once the user is known:
    organization's directory, each with the code rule 7 gives it. The tenant's own
    administrators are the exception: a person who administers that tenant and signs in
    with a password is held for the mailed code, as in rule 3; an administrator of
-   another tenant is not. Nothing is taken from the account: with the tenant's directory
-   only turned off, the password signs the person in again. An `Auth` that sets no
-   directory admission hands the policy no directories, and this rule then refuses
-   nobody.
+   another tenant is not. Neither is an administrator of a tenant that is disabled.
+   Nothing is taken from the account: with the tenant's directory only turned off, the
+   password signs the person in again. An `Auth` that sets no directory admission hands
+   the policy no directories, and this rule then refuses nobody.
 3. A tenant's own administrators keep a way into their tenant. A person who signs in
    with a password and administers a tenant that is directory only is not refused, and
    the sign-in is held for the library's second factor, the code it mails
@@ -808,15 +810,17 @@ The rules, in order, once the user is known:
    broken, or was set wrong, would otherwise be a tenant nobody in it could mend. See
    "A tenant's administrators and a directory-only tenant" below for who that is.
    Nobody but a super administrator and a tenant's own administrators, in their own
-   tenant, enters a directory-only tenant another way than through its directory.
+   tenant, enters a directory-only tenant another way than through its directory. A
+   tenant that is disabled gives no such way in.
 4. A person holding a role outside any one tenant is admitted: in the global partition,
    which is no tenant's and which no declaration governs, or in every tenant domain,
    whose tenants the policy has no list of. It is no exemption: the session then
    reaches a tenant only where the tenant's declaration admits it, as anyone's does.
-5. A person who is a member of no tenant is refused (`no_tenant`), unless the policy
-   was built with `signin.AdmitWithoutTenant()`, which the self-service shape of an
-   application needs: a stranger signs in, then creates their organization and its
-   first membership, and until then the session reaches no tenant.
+5. A person who is a member of no tenant, or whose every tenant is disabled, is refused
+   (`no_tenant`), unless the policy was built with `signin.AdmitWithoutTenant()`, which
+   the self-service shape of an application needs: a stranger signs in, then creates
+   their organization and its first membership, and until then the session reaches no
+   tenant.
 6. The sign-in is admitted when one of the person's tenants admits it
    (`signin.TenantDeclaration.Admits`). A tenant that is not directory only admits
    every sign-in: a password, a personal account, a session the application starts for
@@ -892,8 +896,10 @@ through a directory from the application's own). A session reaches every tenant 
 seats the person, except a tenant that is directory only and whose directory is not the
 one the person signed in through; such a tenant is still reached by its own
 administrator's password session that carries a second factor
-(`TenantDeclaration.AdmitsAdministrator`, above). So a person seated in a directory-only tenant and in
-a tenant that is not signs in by password and reaches the second; signed in through the
+(`TenantDeclaration.AdmitsAdministrator`, above). A tenant that is disabled
+(`TenantDeclaration.IsDisabled`) is reached by no session but a super administrator's,
+whatever its sign-in settings admit; the application asks that first. So a person
+seated in a directory-only tenant and in a tenant that is not signs in by password and reaches the second; signed in through the
 first one's directory they reach both. A person invited into one tenant who signs in
 through another tenant's directory reaches both, unless the tenant that invited them is
 directory only. A member of two directory-only tenants reaches the one whose directory
@@ -3499,7 +3505,7 @@ table is the wire contract:
 | `pending_expired` | `RefusedPendingExpired` | Auth: a confirmation or MFA step arrived after its pending identity expired or was used. |
 | `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or the standard account rule found no sign-in name to use as the username. |
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: an administrator required a new password of the signed-in user; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
-| `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
+| `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, or every tenant of theirs is disabled, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), and either a directory-only tenant's directory signs the account in and this is not that directory, or every tenant that seats the person is directory only and none of them has that directory as its own. |
 | `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. A password sign-in by a person who administers the tenant is not refused: it is held for the second factor (see "The tenant policy", rules 2 and 3). |
 | `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |

@@ -515,7 +515,8 @@ var (
 	// of the tenant policy carries its own cause beside it.
 	ErrSignInDenied = errors.New("signin: the sign-in policy denied the sign-in")
 	// ErrNoTenant is the cause when the tenant policy refused a person who is a member
-	// of no tenant. The code is sessioninfo.RefusedNoTenant.
+	// of no tenant, or whose every tenant is disabled. The code is
+	// sessioninfo.RefusedNoTenant.
 	ErrNoTenant = errors.New("signin: the person is a member of no tenant")
 	// ErrConnectionNotInTenant is the cause when the tenant policy refused a sign-in
 	// through a directory because every tenant of the person admits its people through
