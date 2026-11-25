@@ -215,8 +215,8 @@ func (m *Manager) refuseImpersonatorAsSubject(ctx context.Context, userID impuls
 // library's share of those and the application's with it: the generator gives the
 // class to the writes of every record that carries a subject value or a subject set,
 // to the change of a record such a value is read through, and to the delete of the
-// tenant record, which clears the tenant (ClearTenant). A record the generator
-// does not class is refused by name (accesstypes.RefuseWrites).
+// tenant record, whose delete takes what the auth holds for the tenant (TenantKinds). A
+// record the generator does not class is refused by name (accesstypes.RefuseWrites).
 func RefuseImpersonatorAsSubject(ctx context.Context, subject impulse.UUID, act string) error {
 	if !ImpersonatorIs(ctx, subject) {
 		return nil

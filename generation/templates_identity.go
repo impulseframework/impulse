@@ -855,20 +855,15 @@ func (c *Client) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransact
 	return holds, nil
 }
 
-// ClearTenant buffers the removal of everything the {{ .Auth }} auth holds for a tenant, in
-// the transaction that deletes the tenant's row (identity.Manager.ClearTenant): every
-// membership held in it, the custom roles made in it with their grants, and the
-// withdrawal of every invitation into it that still stands. A person the tenant's
-// memberships were the only ones of is deleted with their identity links and sessions,
-// by the rule on an account nothing admits. The generated delete of the tenant record
-// calls it; an application that deletes a tenant in a transaction of its own calls it
-// there.
-func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) error {
-	if err := c.manager.ClearTenant(ctx, txn, domain); err != nil {
-		return errors.Wrap(err, "identity.Manager.ClearTenant()")
-	}
-
-	return nil
+// TenantKinds answers what the {{ .Auth }} auth holds for a tenant as kinds of the
+// tenant's delete (identity.Manager.TenantKinds): the accounts that are the tenant's
+// alone, the roles held in it, its groups, its custom roles and its invitations that
+// still stand. The generated delete of the tenant record hands them to the delete
+// (resource.PatchSet.DeleteAlso), which counts them in its question and takes them in
+// its rounds; an application that deletes a tenant in code of its own hands them to its
+// delete there.
+func (c *Client) TenantKinds(domain accesstypes.Domain) []resource.TakenKind {
+	return c.manager.TenantKinds(domain)
 }
 
 // DirectoryName answers what the {{ .Auth }} auth's sign-in registrations call a
@@ -1571,24 +1566,32 @@ func (store) TenantMemberships(ctx context.Context, txn resource.ReadWriteTransa
 	return keys, nil
 }
 
-// DeleteTenantRoles removes the custom roles made in one tenant with their grants: the
-// one write here to the roles and grants tables, whose rows are otherwise the
-// permission engine's to write, made because the tenant itself goes.
+// TenantRoles counts the custom roles made in one tenant: the rows of the roles table
+// under the tenant's own scope, read in the caller's transaction
+// (identity.Store.TenantRoles).
+func (store) TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	query := {{ .ResourcesPackage }}.New{{ .Role }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .Role }}Columns().Kind().Axis().DomainID().Role()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	roles := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Role }}Query.List()")
+		}
+		roles++
+	}
+
+	return roles, nil
+}
+
+// DeleteTenantRoles removes the custom roles made in one tenant: the one write here to
+// the roles table, whose rows are otherwise the permission engine's to write, made
+// because the tenant itself goes. Each role's grants go with it by the database's rule,
+// the grants table being interleaved in the roles table ON DELETE CASCADE, as the
+// permission engine's own delete of a role takes them.
 func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
 	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
-	{{- if .Has "roleGrants" }}
-	grants := {{ .ResourcesPackage }}.New{{ .RoleGrant }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .RoleGrant }}Columns().Kind().Axis().DomainID().Role().Permission().ResourceName().Field().Condition()).
-		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
-	var grantPatches []*{{ .ResourcesPackage }}.{{ .RoleGrant }}DeletePatch
-	for row, err := range grants.List(ctx, txn) {
-		if err != nil {
-			return 0, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .RoleGrant }}Query.List()")
-		}
-		grant := row.Data
-		grantPatches = append(grantPatches, {{ .ResourcesPackage }}.New{{ .RoleGrant }}DeletePatch(grant.Kind, grant.Axis, grant.DomainID, grant.Role, grant.Permission, grant.ResourceName, grant.Field, grant.Condition))
-	}
-	{{- end }}
 	roles := {{ .ResourcesPackage }}.New{{ .Role }}Query().
 		AddColumns({{ .ResourcesPackage }}.New{{ .Role }}Columns().Kind().Axis().DomainID().Role()).
 		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
@@ -1600,13 +1603,6 @@ func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransa
 		role := row.Data
 		rolePatches = append(rolePatches, {{ .ResourcesPackage }}.New{{ .Role }}DeletePatch(role.Kind, role.Axis, role.DomainID, role.Role))
 	}
-	{{- if .Has "roleGrants" }}
-	for _, patch := range grantPatches {
-		if err := patch.Buffer(ctx, txn); err != nil {
-			return 0, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .RoleGrant }}DeletePatch.Buffer()")
-		}
-	}
-	{{- end }}
 	for _, patch := range rolePatches {
 		if err := patch.Buffer(ctx, txn); err != nil {
 			return 0, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Role }}DeletePatch.Buffer()")
@@ -1651,6 +1647,10 @@ func (store) DeleteMembership(context.Context, resource.ReadWriteTransaction, *a
 
 func (store) TenantMemberships(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.MembershipKey, error) {
 	return nil, nil
+}
+
+func (store) TenantRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) (int, error) {
+	return 0, nil
 }
 
 func (store) DeleteTenantRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) (int, error) {
@@ -1912,12 +1912,91 @@ func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransact
 
 	return tenants, nil
 }
+
+// DirectoryUsers lists the accounts the {{ .TenantWord }}'s directory manages: the rows of its own
+// list of its people ({{ .TenantUser }}) whose ManagedHere is true, the view ManagingTenants
+// reads, in the caller's transaction. A {{ .TenantWord }}'s delete takes the ones that hold
+// nothing elsewhere (identity.Store.DirectoryUsers).
+func (store) DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
+	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
+		Where({{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause().DomainID().Equal(string(domain)).And().ManagedHere().Equal(true))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
+		}
+		ids = append(ids, row.Data.ID)
+	}
+
+	return ids, nil
+}
 {{ else }}
 // ManagingTenants answers no tenant: no tenant's directory signs a person of the
 // {{ .Auth }} auth in here, so no tenant manages an account that holds nothing in it
 // (identity.Store.ManagingTenants).
 func (store) ManagingTenants(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]accesstypes.Domain, error) {
 	return nil, nil
+}
+
+// DirectoryUsers answers no account, as ManagingTenants answers no tenant
+// (identity.Store.DirectoryUsers).
+func (store) DirectoryUsers(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
+	return nil, nil
+}
+{{ end }}
+// DeleteCosts answers what the delete of one row of each of the {{ .Auth }} auth's tables
+// a tenant's delete takes costs in a commit, as the schema read at generation tells it:
+// the delete and an entry out of each of the table's indexes besides its key, with no
+// change record, since the declarations write none. The withdrawal of an invitation costs
+// the columns ConsumeMailLink writes and an entry of each index that holds one of them. A
+// table the schema does not hold costs nothing (identity.Store.DeleteCosts).
+func (store) DeleteCosts() identity.TenantDeleteCosts {
+	return identity.TenantDeleteCosts{
+		{{- range .DeleteCosts }}
+		{{ .Field }}: {{ .Cost }},
+		{{- end }}
+	}
+}
+{{ if .UserCascades }}
+// RowsWithUser counts what the database's own rules add to the delete of the user's row,
+// in mutations: each row of each table that hangs on the user by a foreign key declared
+// ON DELETE CASCADE, as the schema read at generation holds them, with an entry out of
+// each of that table's indexes, counted in the caller's transaction
+// (identity.Store.RowsWithUser). The tables: {{ range $i, $c := .UserCascades }}{{ if $i }}, {{ end }}{{ $c.Table }}{{ end }}.
+func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
+	stmt := spanner.Statement{
+		SQL:    {{ .RowsWithUserSQL }},
+		Params: map[string]any{"userId": userID.String()},
+	}
+	costs := []int{
+		{{- range .UserCascades }}
+		resource.DeleteCost{IndexEntries: {{ .IndexEntries }}}.Mutations(false),
+		{{- end }}
+	}
+	rows := 0
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		for i, cost := range costs {
+			var count int64
+			if err := row.Column(i, &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.Column()")
+			}
+			rows += int(count) * cost
+		}
+
+		return nil
+	}); err != nil {
+		return 0, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return rows, nil
+}
+{{ else }}
+// RowsWithUser answers nothing: no table of the schema hangs on the {{ .Auth }} auth's
+// users by a foreign key declared ON DELETE CASCADE, so the database removes nothing with
+// a user's row (identity.Store.RowsWithUser).
+func (store) RowsWithUser(context.Context, resource.ReadWriteTransaction, impulse.UUID) (int, error) {
+	return 0, nil
 }
 {{ end }}
 {{- if .ListsDirectoryOutsiders }}

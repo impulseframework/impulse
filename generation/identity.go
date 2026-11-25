@@ -113,6 +113,10 @@ type identityInstance struct {
 	// groupSet is the name of the subject set of a person's groups, "" where the
 	// instance keeps no groups (identity_groups.go).
 	groupSet string
+	// deleteCosts and userCascades are what a tenant's delete costs the auth's rows by,
+	// read off the schema (identity_tenantkinds.go).
+	deleteCosts  []identityDeleteCost
+	userCascades []identityUserCascade
 }
 
 // identityTable names one of an auth's tables by what it holds.
@@ -345,6 +349,8 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 			return nil, errors.Newf("Auth(%q): the schema holds no table %s, so there is nothing of the auth to manage; its tables are named by its package's name in PascalCase (TablePrefix = %q), each the session library's own name under it", auth.importPath, inst.tableName(kind), name)
 		}
 	}
+	inst.deleteCosts = r.identityDeleteCosts(inst)
+	inst.userCascades = r.identityUserCascades(inst.session.Users)
 
 	return inst, nil
 }

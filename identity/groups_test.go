@@ -847,50 +847,6 @@ func TestManager_DeleteUser_removesGroupPlaces(t *testing.T) {
 	}
 }
 
-// TestManager_ClearTenant_groups pins what a tenant that goes takes of groups: its own
-// groups with their members and roles, and the roles a group of the whole application
-// holds in it. A person who held nothing but a place in the tenant's group goes with it,
-// and one who holds anything else stays.
-func TestManager_ClearTenant_groups(t *testing.T) {
-	t.Parallel()
-
-	night, staff := GroupID(nightID), GroupID(staffID)
-	nightReader := access.NewGroupRoleKey(night, alphaScope, "Reader")
-	staffInAlpha := access.NewGroupRoleKey(staff, alphaScope, "Reader")
-	staffInBeta := access.NewGroupRoleKey(staff, betaScope, "Reader")
-
-	store := groupStore()
-	// dana is in alpha's group alone; gale is in alpha's group and in the staff.
-	store.groupMembers[memberKey(nightID, userID)] = true
-	store.groupMembers[memberKey(nightID, otherUser)] = true
-	store.groupMembers[memberKey(staffID, otherUser)] = true
-	for _, key := range []access.GroupRoleKey{nightReader, staffInAlpha, staffInBeta} {
-		store.groupRoles[key] = true
-	}
-	m, engine := newManager(t, store, engineRoles)
-
-	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return m.ClearTenant(ctx, txn, "alpha")
-	})
-	if err != nil {
-		t.Fatalf("ClearTenant() error = %v", err)
-	}
-	want := []string{
-		"delete group role " + groupRoleText(&nightReader),
-		"delete group role " + groupRoleText(&staffInAlpha),
-		"delete group member " + nightID.String() + " " + userID.String(),
-		"delete group member " + nightID.String() + " " + otherUser.String(),
-		"delete group " + nightID.String() + " with everything under it",
-		"delete user " + userID.String(),
-	}
-	if diff := cmp.Diff(want, store.writes); diff != "" {
-		t.Errorf("buffered writes (-want +got):\n%s", diff)
-	}
-	if engine.changed != 1 {
-		t.Errorf("the engine was told %d time(s), want once", engine.changed)
-	}
-}
-
 // TestTenant_groups pins what makes a group method a tenant's: it reaches the groups
 // kept in the tenant and no other, a group kept elsewhere being not found whoever asks,
 // and it gives a role in the tenant alone.
