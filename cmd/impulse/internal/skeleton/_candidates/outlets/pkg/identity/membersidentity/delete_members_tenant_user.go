@@ -27,15 +27,37 @@ import (
 // A row offers it only to a caller whose session enters every tenant the person
 // administers (@callerEnters); the method refuses anyone else.
 //
+// Before it runs on a tenant's side, the method says what it does (Warning): where the
+// tenant is open to its directory and the person signs in through it, that they can sign
+// in again and will get a new account.
+//
 // @rpc
 // @permissionScope(domain)
 // @callerEnters
 // @notOnOwnAccount(ID)
 // @outlet(portal)
 // @answers(204)
+// @warning
 type DeleteMembersTenantUser struct {
 	// @target(MembersTenantUser)
 	UserID impulse.UUID
+}
+
+// Warning says what deleting the person does before it runs, and, where the tenant is open
+// to its directory and the person signs in through it, that they can sign in again and will
+// get a new account. It writes nothing.
+func (m *DeleteMembersTenantUser) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	// A tenant's method acts for a request made under the tenant's address.
+	tenant, err := client.manager.Tenant(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
+	}
+	again, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Client.SeatedAgainBySignIn()")
+	}
+
+	return tenant.DeletionWarning(again), nil
 }
 
 // Execute buffers the removal into the caller's transaction.

@@ -3936,6 +3936,14 @@ Content-Type: application/json
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
+			name:         "DeleteCrewSectorUser warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/delete-crew-sector-user",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
 			name:         "DeleteCrewUser denied",
 			method:       http.MethodPost,
 			target:       "/console/api/delete-crew-user",

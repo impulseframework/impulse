@@ -3,6 +3,7 @@ import {
   ColumnConfig,
   FieldMeta,
   ListViewConfig,
+  MethodMeta,
   MethodPresentation,
   RecordData,
   ResourceMeta,
@@ -1540,6 +1541,25 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       ask(list(people).rowMethods, 'DeleteCrewSectorUser'),
       ask(list(accounts).rowMethods, 'DeleteCrewUser'),
     ]).toEqual([question, question]);
+  });
+
+  it("asks only whom a delete takes where the method's metadata says it warns, since the server's words follow", () => {
+    type Question = (row: RecordData, listed?: readonly RecordData[], meta?: MethodMeta) => string;
+    const ask = (rowMethods: ListViewConfig['rowMethods'], method: string): Question =>
+      presentation(rowMethods, method).confirm as Question;
+    const [accounts] = identityPages({ ...removing }, removingMetas, { auth: 'Crew', scope: 'global' });
+    const question =
+      'Delete ada? The account is removed from every sector, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.';
+    const warns = { warning: {} } as MethodMeta;
+    const warnsNot = {} as MethodMeta;
+    expect(ask(list(people).rowMethods, 'DeleteCrewSectorUser')({ username: 'ada' }, undefined, warns)).toBe(
+      'Delete ada?',
+    );
+    expect(ask(list(people).rowMethods, 'DeleteCrewSectorUser')({ username: 'ada' }, undefined, warnsNot)).toBe(
+      question,
+    );
+    expect(ask(list(people).rowMethods, 'DeleteCrewSectorUser')({ username: 'ada' })).toBe(question);
+    expect(ask(list(accounts).rowMethods, 'DeleteCrewUser')({ username: 'ada' }, undefined, warnsNot)).toBe(question);
   });
 
   it('offers the removal on every row but one that says the person holds nothing in the sector itself', () => {

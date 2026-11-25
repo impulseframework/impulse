@@ -2665,14 +2665,42 @@ import (
 // Delete{{ .Subject }}User deletes a person of the {{ .Auth }} auth, in one transaction:
 // every session they hold is ended, and their identity links and every role they hold
 // go with the account. Nobody deletes themselves: the caller's own account is refused.` + identityTenantUserNote + identityNotOnOwnAccountNote + identityCallerEntersNote + `
+{{- if and .ForTenant .ReadsSeatedAgain }}
+//
+// Before it runs on a tenant's side, the method says what it does (Warning): where the
+// tenant is open to its directory and the person signs in through it, that they can sign
+// in again and will get a new account.
+{{- end }}
 //
 // @rpc` + identityTenantScope + identityCallerEnters + identityNotOnOwnAccount + `
 // @outlet({{ .Outlets }})
 // @answers(204)
+{{- if and .ForTenant .ReadsSeatedAgain }}
+// @warning
+{{- end }}
 type Delete{{ .Subject }}User struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID
 }
+{{- if and .ForTenant .ReadsSeatedAgain }}
+
+// Warning says what deleting the person does before it runs, and, where the tenant is open
+// to its directory and the person signs in through it, that they can sign in again and will
+// get a new account. It writes nothing.
+func (m *Delete{{ .Subject }}User) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	// A tenant's method acts for a request made under the tenant's address.
+	tenant, err := client.manager.Tenant(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
+	}
+	again, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Client.SeatedAgainBySignIn()")
+	}
+
+	return tenant.DeletionWarning(again), nil
+}
+{{- end }}
 
 // Execute buffers the removal into the caller's transaction.
 func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {` + identityTenantGuard + `

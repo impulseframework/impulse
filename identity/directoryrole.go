@@ -228,3 +228,26 @@ func (t *Tenant) SeatedAgainNote() resource.WarningNote {
 		Names: nil,
 	}
 }
+
+// DeletionWarning is the warning the tenant's method that deletes a person gives before it
+// runs: the account goes from every tenant with its sign-ins and its sessions, and Disable
+// is the way to keep it. Where seatedAgain, the tenant is open to its directory and the
+// person signs in through it (SeatedAgainBySignIn), and a note says they can sign in again
+// and will get a new account with the starting role. It speaks of tenants in the
+// application's word for one, and reads nothing.
+func (t *Tenant) DeletionWarning(seatedAgain bool) *resource.Warning {
+	warning := &resource.Warning{
+		Consequence: fmt.Sprintf(
+			"The account is removed from every %s, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.",
+			t.manager.tenantWord,
+		),
+		Confirm: "Delete",
+	}
+	if seatedAgain {
+		warning.Also = []resource.WarningNote{
+			{Says: "They can sign in through the directory again and will get a new account with the starting role."},
+		}
+	}
+
+	return warning
+}

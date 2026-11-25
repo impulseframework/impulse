@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -43,6 +44,13 @@ const (
 	removalTakesMarshal  = "Removing this person from the sector takes away the role Sector marshal, which you may not take from them."
 	removalConfirmSector = "Remove from this sector"
 	removalSeatedAgain   = "This sector is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. To keep them out, disable their account instead."
+)
+
+// The deletion's route under a sector, and the sentences its warning answers with.
+const (
+	sectorDeletionPath  = "delete-crew-sector-user"
+	deletionConsequence = "The account is removed from every sector, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead."
+	deletionNewAccount  = "They can sign in through the directory again and will get a new account with the starting role."
 )
 
 // giveCrewRole gives the person the role in the scope, in a transaction of its own.
@@ -337,5 +345,76 @@ func TestTenantRemoval_seatedAgainBySignIn(t *testing.T) {
 	}
 	if seatedAgain(t, "ida") {
 		t.Errorf("the warning of removing ida from Cinder once it is invite only holds %q, want none", removalSeatedAgain)
+	}
+}
+
+// TestTenantDeletion_newAccountBySignIn holds what the warning of deleting a person from a
+// sector's People page says of a sector open to its directory: Cinder is open to the
+// fleet's Workspace with a starting role, so deleting a person who signs in through the
+// Workspace says what the delete takes and that they can sign in again and will get a new
+// account with the starting role. A person with no sign-in through it is told what the
+// delete takes and nothing more, and so is the first once Cinder is invite only. A caller
+// the call would refuse reads no warning, and the warning writes nothing.
+func TestTenantDeletion_newAccountBySignIn(t *testing.T) {
+	t.Parallel()
+	w := newTenantListsWorld(t)
+	ctx := t.Context()
+
+	// ida signs in through the fleet's Workspace, Cinder's directory: her identity is
+	// written as the Google sign-in writes one. jo, seated at Cinder by hand, has none.
+	w.seat(ctx, t, "ida", "Pilot", cinder)
+	w.seat(ctx, t, "jo", "Pilot", cinder)
+	id, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionIdentities", map[string]any{
+		"Id": id.String(), "UserId": w.ids["ida"], "Method": "google", "Connection": "example", "Subject": "workspace-subject-of-ida",
+		"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+	})}); err != nil {
+		t.Fatalf("writing ida's identity through the Workspace: %v", err)
+	}
+	// warned is the warning of deleting the person under Cinder's address, asked by the
+	// user.
+	warned := func(t *testing.T, user accesstypes.User, name string) (status int, body []byte) {
+		t.Helper()
+
+		rr := doRequestRecordedWithHeaders(t, w.h, user, http.MethodPost, sectorPath(cinder, sectorDeletionPath), w.removalBody(name), map[string]string{resource.WarningHeader: "true"})
+
+		return rr.Code, rr.Body.Bytes()
+	}
+	held := []string{"domain/" + cinder + " Pilot"}
+	plain := resource.Warning{Consequence: deletionConsequence, Confirm: "Delete"}
+	again := resource.Warning{Consequence: deletionConsequence, Confirm: "Delete", Also: []resource.WarningNote{{Says: deletionNewAccount}}}
+
+	status, body := warned(t, tenantGovernor, "ida")
+	assertStatus(t, status, http.StatusOK, body)
+	if got := decodeWarning(t, body); !reflect.DeepEqual(got, again) {
+		t.Errorf("the warning of deleting ida from Cinder = %+v, want %+v: Cinder is open and she signs in through its directory", got, again)
+	}
+	if got := crewHeldBy(t, w.db, w.ids["ida"]); !slices.Equal(got, held) {
+		t.Errorf("ida holds %v after the warning, want %v: the warning writes nothing", got, held)
+	}
+	status, body = warned(t, tenantGovernor, "jo")
+	assertStatus(t, status, http.StatusOK, body)
+	if got := decodeWarning(t, body); !reflect.DeepEqual(got, plain) {
+		t.Errorf("the warning of deleting jo from Cinder = %+v, want %+v: jo has no sign-in through its directory", got, plain)
+	}
+	// jo holds no grant on the method: the warning is refused him as the call would be.
+	status, body = warned(t, "jo", "ida")
+	assertStatus(t, status, http.StatusForbidden, body)
+	if strings.Contains(string(body), deletionNewAccount) || strings.Contains(string(body), deletionConsequence) {
+		t.Errorf("the refusal of the warning to jo says what the delete does: %s", body)
+	}
+	if got := crewHeldBy(t, w.db, w.ids["ida"]); !slices.Equal(got, held) {
+		t.Errorf("ida holds %v after the refused warning, want %v", got, held)
+	}
+	if status, body := doRequestAs(t, w.h, tenantGovernor, http.MethodPost, sectorPath(cinder, "make-sector-invite-only"), `{}`); status != http.StatusOK {
+		t.Fatalf("making Cinder invite only: status %d: %s", status, body)
+	}
+	status, body = warned(t, tenantGovernor, "ida")
+	assertStatus(t, status, http.StatusOK, body)
+	if got := decodeWarning(t, body); !reflect.DeepEqual(got, plain) {
+		t.Errorf("the warning of deleting ida from Cinder once it is invite only = %+v, want %+v", got, plain)
 	}
 }

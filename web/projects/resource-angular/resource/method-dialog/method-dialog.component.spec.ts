@@ -1440,6 +1440,33 @@ describe('MethodDialogComponent running a method that warns', () => {
     expect(o.closed).toEqual([{ answer: undefined }]);
   });
 
+  it("draws the page's question of a method that warns with no word to type, and the server's words after it", async () => {
+    warning = () => ({
+      status: 200,
+      body: { consequence: 'ada loses the role Auditor.', confirm: 'Take the role away' },
+    });
+    const o = await open(
+      {
+        method: 'TakeRoleAway',
+        label: 'Take the role away',
+        preset: { userId: 'u-1', role: 'Auditor' },
+        confirm: 'Take Auditor away from ada?',
+      },
+      server(),
+    );
+    await settle(o);
+    const root = o.fixture.nativeElement as HTMLElement;
+
+    expect(text(o, '.question')).toBe('Take Auditor away from ada?');
+    expect(text(o, '.warning.asks .warning-consequence')).toBe('ada loses the role Auditor.');
+    const question = root.querySelector('.question');
+    const consequence = root.querySelector('.warning.asks .warning-consequence');
+    expect(question && consequence && question.compareDocumentPosition(consequence)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(runButton(o).textContent?.trim()).toBe('Take the role away');
+  });
+
   it('shows a refusal of a question with no word to type, and holds the button', async () => {
     warning = () => ({
       status: 404,
