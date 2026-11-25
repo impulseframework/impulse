@@ -62,9 +62,8 @@ type (
 	// A ship declares no delete of what is under it, so nothing goes with it: its refits,
 	// the sorties flown on it and the droid reports filed on it refuse its delete before
 	// the commit, in a sentence that counts what is in the way ("This ship has 2 sorties.
-	// Delete them first."). The rows and the ship deleted in one request go through, in
-	// either order. A hangar's delete takes its ships with their refits and tasks (Hangar
-	// declares it).
+	// Delete them first."). A hangar's delete takes its ships with their refits and tasks
+	// (Hangar declares it).
 	//
 	// Demonstrates: @domain.join-path, @attribute.join-path, @attribute.join-path-global, immutable, output_only_update_fn, transition-owned-timestamp, change-tracking, commit.constraint-refusal, warning.join-path-list, decode.value-limit, typescript.array-column, secret, delete.rows-under-refusal.
 	//

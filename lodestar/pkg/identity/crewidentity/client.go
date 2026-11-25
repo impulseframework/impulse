@@ -174,20 +174,15 @@ func (c *Client) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransact
 	return holds, nil
 }
 
-// ClearTenant buffers the removal of everything the Crew auth holds for a tenant, in
-// the transaction that deletes the tenant's row (identity.Manager.ClearTenant): every
-// membership held in it, the custom roles made in it with their grants, and the
-// withdrawal of every invitation into it that still stands. A person the tenant's
-// memberships were the only ones of is deleted with their identity links and sessions,
-// by the rule on an account nothing admits. The generated delete of the tenant record
-// calls it; an application that deletes a tenant in a transaction of its own calls it
-// there.
-func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) error {
-	if err := c.manager.ClearTenant(ctx, txn, domain); err != nil {
-		return errors.Wrap(err, "identity.Manager.ClearTenant()")
-	}
-
-	return nil
+// TenantKinds answers what the Crew auth holds for a tenant as kinds of the
+// tenant's delete (identity.Manager.TenantKinds): the accounts that are the tenant's
+// alone, the roles held in it, its groups, its custom roles and its invitations that
+// still stand. The generated delete of the tenant record hands them to the delete
+// (resource.PatchSet.DeleteAlso), which counts them in its question and takes them in
+// its rounds; an application that deletes a tenant in code of its own hands them to its
+// delete there.
+func (c *Client) TenantKinds(domain accesstypes.Domain) []resource.TakenKind {
+	return c.manager.TenantKinds(domain)
 }
 
 // DirectoryName answers what the Crew auth's sign-in registrations call a
@@ -313,8 +308,8 @@ func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransa
 // tenants they hold something in, with the roles held in each, and takes them out of one
 // at their own word (identity.Manager.OwnTenants), each in a transaction of the hook's
 // own on db, the application's database. A tenant's last administrator does not leave
-// it, and an account left holding nothing is deleted with its sessions. The auth's
-// package sets it where it sets the after-sign-in hook.
+// it, and an account left holding nothing stays. The auth's package sets it where it sets
+// the after-sign-in hook.
 func (c *Client) OwnTenants(db resource.Client) session.OwnTenantsHook {
 	return c.manager.OwnTenants("Crew", db)
 }

@@ -23,12 +23,16 @@ type (
 	// The id is read by a grant's condition (group), so a role file can hold a grant to
 	// the groups its holder is in (group IN subject.membersGroups).
 	//
+	// A group's delete takes its members and the roles it holds with it, after a
+	// question that counts them.
+	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet(portal)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	// @rowWord(group)
+	// @deleteCascade(MembersGroupMember, MembersGroupRole)
 	MembersGroup struct {
 		// @attribute(group)
 		ID          impulse.UUID `spanner:"Id"`

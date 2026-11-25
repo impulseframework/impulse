@@ -501,22 +501,32 @@ func (store) TenantMemberships(ctx context.Context, txn resource.ReadWriteTransa
 	return keys, nil
 }
 
-// DeleteTenantRoles removes the custom roles made in one tenant with their grants: the
-// one write here to the roles and grants tables, whose rows are otherwise the
-// permission engine's to write, made because the tenant itself goes.
+// TenantRoles counts the custom roles made in one tenant: the rows of the roles table
+// under the tenant's own scope, read in the caller's transaction
+// (identity.Store.TenantRoles).
+func (store) TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	query := crewresources.NewCrewRoleQuery().
+		AddColumns(crewresources.NewCrewRoleColumns().Kind().Axis().DomainID().Role()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	roles := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "crewresources.CrewRoleQuery.List()")
+		}
+		roles++
+	}
+
+	return roles, nil
+}
+
+// DeleteTenantRoles removes the custom roles made in one tenant: the one write here to
+// the roles table, whose rows are otherwise the permission engine's to write, made
+// because the tenant itself goes. Each role's grants go with it by the database's rule,
+// the grants table being interleaved in the roles table ON DELETE CASCADE, as the
+// permission engine's own delete of a role takes them.
 func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
 	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
-	grants := crewresources.NewCrewRoleGrantQuery().
-		AddColumns(crewresources.NewCrewRoleGrantColumns().Kind().Axis().DomainID().Role().Permission().ResourceName().Field().Condition()).
-		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
-	var grantPatches []*crewresources.CrewRoleGrantDeletePatch
-	for row, err := range grants.List(ctx, txn) {
-		if err != nil {
-			return 0, errors.Wrap(err, "crewresources.CrewRoleGrantQuery.List()")
-		}
-		grant := row.Data
-		grantPatches = append(grantPatches, crewresources.NewCrewRoleGrantDeletePatch(grant.Kind, grant.Axis, grant.DomainID, grant.Role, grant.Permission, grant.ResourceName, grant.Field, grant.Condition))
-	}
 	roles := crewresources.NewCrewRoleQuery().
 		AddColumns(crewresources.NewCrewRoleColumns().Kind().Axis().DomainID().Role()).
 		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
@@ -527,11 +537,6 @@ func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransa
 		}
 		role := row.Data
 		rolePatches = append(rolePatches, crewresources.NewCrewRoleDeletePatch(role.Kind, role.Axis, role.DomainID, role.Role))
-	}
-	for _, patch := range grantPatches {
-		if err := patch.Buffer(ctx, txn); err != nil {
-			return 0, errors.Wrap(err, "crewresources.CrewRoleGrantDeletePatch.Buffer()")
-		}
 	}
 	for _, patch := range rolePatches {
 		if err := patch.Buffer(ctx, txn); err != nil {
@@ -900,7 +905,7 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 // ManagingTenants lists the sectors whose own list of their people
 // (CrewSectorUser) says they manage the user's account, the rows of the user whose
 // ManagedHere is true, read in the caller's transaction through the list's query type.
-// A removal that would leave the person holding nothing asks it
+// A tenant's delete asks it of each account it considers
 // (identity.Store.ManagingTenants).
 func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {
 	query := crewresources.NewCrewSectorUserQuery().
@@ -915,6 +920,79 @@ func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransact
 	}
 
 	return tenants, nil
+}
+
+// DirectoryUsers lists the accounts the sector's directory manages: the rows of its own
+// list of its people (CrewSectorUser) whose ManagedHere is true, the view ManagingTenants
+// reads, in the caller's transaction. A sector's delete takes the ones that hold
+// nothing elsewhere (identity.Store.DirectoryUsers).
+func (store) DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
+	query := crewresources.NewCrewSectorUserQuery().
+		AddColumns(crewresources.NewCrewSectorUserColumns().ID()).
+		Where(crewresources.NewCrewSectorUserQueryClause().DomainID().Equal(string(domain)).And().ManagedHere().Equal(true))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewSectorUserQuery.List()")
+		}
+		ids = append(ids, row.Data.ID)
+	}
+
+	return ids, nil
+}
+
+// DeleteCosts answers what the delete of one row of each of the Crew auth's tables
+// a tenant's delete takes costs in a commit, as the schema read at generation tells it:
+// the delete and an entry out of each of the table's indexes besides its key, with no
+// change record, since the declarations write none. The withdrawal of an invitation costs
+// the columns ConsumeMailLink writes and an entry of each index that holds one of them. A
+// table the schema does not hold costs nothing (identity.Store.DeleteCosts).
+func (store) DeleteCosts() identity.TenantDeleteCosts {
+	return identity.TenantDeleteCosts{
+		Membership:  resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		Group:       resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		GroupMember: resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		GroupRole:   resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		Role:        resource.DeleteCost{IndexEntries: 0}.Mutations(false),
+		Identity:    resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		User:        resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		Invitation:  4,
+	}
+}
+
+// RowsWithUser counts what the database's own rules add to the delete of the user's row,
+// in mutations: each row of each table that hangs on the user by a foreign key declared
+// ON DELETE CASCADE, as the schema read at generation holds them, with an entry out of
+// each of that table's indexes, counted in the caller's transaction
+// (identity.Store.RowsWithUser). The tables: CrewSessionDeviceCodes, CrewSessionIdentities, CrewSessionMailLinks, CrewSessionTokens, CrewSessionTrustedDevices.
+func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT (SELECT COUNT(*) FROM CrewSessionDeviceCodes c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM CrewSessionMailLinks c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM CrewSessionTokens c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM CrewSessionTrustedDevices c0 WHERE c0.UserId = @userId)",
+		Params: map[string]any{"userId": userID.String()},
+	}
+	costs := []int{
+		resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(false),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(false),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+	}
+	rows := 0
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		for i, cost := range costs {
+			var count int64
+			if err := row.Column(i, &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.Column()")
+			}
+			rows += int(count) * cost
+		}
+
+		return nil
+	}); err != nil {
+		return 0, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return rows, nil
 }
 
 // DirectoryOutsiders lists the people of the Crew auth who hold a role in the
@@ -1111,12 +1189,19 @@ func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransactio
 	return nil
 }
 
-func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := crewresources.NewCrewGroupDeletePatch(id).Buffer(ctx, txn); err != nil {
-		return errors.Wrap(err, "crewresources.CrewGroupDeletePatch.Buffer()")
+func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The group's delete takes its members and its roles (its @deleteCascade). The
+	// patch is not armed against a caller: the method that deletes the group has asked
+	// the caller's grants, and the rows are taken trusted.
+	patch := crewresources.NewCrewGroupDeletePatch(id)
+	if everythingUnder {
+		patch = patch.WithEverythingUnder()
+	}
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return nil, errors.Wrap(err, "crewresources.CrewGroupDeletePatch.Buffer()")
 	}
 
-	return nil
+	return patch.Left(), nil
 }
 
 func (store) TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {

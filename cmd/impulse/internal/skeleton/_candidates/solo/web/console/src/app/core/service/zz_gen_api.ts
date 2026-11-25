@@ -2,7 +2,7 @@
 import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, ResourceHandle } from '@impulseframework/resource';
 import { Methods, Resources } from './zz_gen_constants';
 import { StaffGroups, StaffGroupMembers, StaffGroupRoles, StaffGroupUsers, StaffHeldRoles, StaffListedGroups, StaffListedGroupRoles, StaffListedMailLinks, StaffListedSessions, StaffListedSignInAttempts, StaffListedUsers, StaffRoles, StaffSessions, StaffSessionAuthEvents, StaffSessionIdentities, StaffSessionMailLinks, StaffSessionSignInAttempts, StaffSessionTokens, StaffSessionTrustedDevices, StaffSessionUsers, StaffTakenRoles, StaffUserGroupRoles, StaffUserRoles, StaffGivableRoles, StaffListedRoleGrants, StaffRememberLengths, StaffSignInMethods, StaffSignInSettings, StaffSignInWays, StaffSignUpRoles, StaffTakeLengths, StaffTakeableRoles, FeatureFlags } from './zz_gen_resources';
-import { AddStaffGroupMember, AssignStaffRole, CreateStaffGroup, CreateStaffGroupResult, DeleteStaffGroup, DeleteStaffUser, DescribeStaffGroup, DisableStaffUser, EnableStaffUser, EndStaffSession, EndStaffUserSessions, GiveStaffGroupRole, InviteStaffUser, InviteStaffUserResult, MakeStaffInviteOnly, OpenStaffSignUp, RemoveStaffGroupMember, RemoveStaffPassword, RemoveStaffRole, RenameStaffUser, RequireStaffPasswordChange, RequireStaffSecondFactor, ResendStaffInvitation, ResendStaffInvitationResult, RevokeStaffSessionToken, RevokeStaffUserTrustedDevices, SendStaffUserPasswordResetLink, SendStaffUserPasswordResetLinkResult, SetStaffRememberedBrowsers, SetStaffSelfServiceReset, SetStaffUserEmail, SetStaffUserEmailResult, SetStaffUserName, StopRequiringStaffSecondFactor, TakeStaffGroupRole, TakeStaffRole, UnlinkStaffSessionIdentity, UnlockStaffSignIn, WithdrawStaffInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { AddStaffGroupMember, AssignStaffRole, CreateStaffGroup, CreateStaffGroupResult, DeleteStaffGroup, DeleteStaffGroupAnswer, DeleteStaffUser, DescribeStaffGroup, DisableStaffUser, EnableStaffUser, EndStaffSession, EndStaffUserSessions, GiveStaffGroupRole, InviteStaffUser, InviteStaffUserResult, MakeStaffInviteOnly, OpenStaffSignUp, RemoveStaffGroupMember, RemoveStaffPassword, RemoveStaffRole, RenameStaffUser, RequireStaffPasswordChange, RequireStaffSecondFactor, ResendStaffInvitation, ResendStaffInvitationResult, RevokeStaffSessionToken, RevokeStaffUserTrustedDevices, SendStaffUserPasswordResetLink, SendStaffUserPasswordResetLinkResult, SetStaffRememberedBrowsers, SetStaffSelfServiceReset, SetStaffUserEmail, SetStaffUserEmailResult, SetStaffUserName, StopRequiringStaffSecondFactor, TakeStaffGroupRole, TakeStaffRole, UnlinkStaffSessionIdentity, UnlockStaffSignIn, WithdrawStaffInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The primary key of StaffGroups, in route order. */
 export type StaffGroupsKey = [id: string];
@@ -488,7 +488,7 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.AddStaffGroupMember]: { method: Methods.AddStaffGroupMember, property: 'addStaffGroupMember', route: 'add-staff-group-member', scope: 'global', statuses: [204] },
     [Methods.AssignStaffRole]: { method: Methods.AssignStaffRole, property: 'assignStaffRole', route: 'assign-staff-role', scope: 'global', statuses: [204] },
     [Methods.CreateStaffGroup]: { method: Methods.CreateStaffGroup, property: 'createStaffGroup', route: 'create-staff-group', scope: 'global', answers: true },
-    [Methods.DeleteStaffGroup]: { method: Methods.DeleteStaffGroup, property: 'deleteStaffGroup', route: 'delete-staff-group', scope: 'global', statuses: [204] },
+    [Methods.DeleteStaffGroup]: { method: Methods.DeleteStaffGroup, property: 'deleteStaffGroup', route: 'delete-staff-group', scope: 'global', answers: true, statuses: [202, 204] },
     [Methods.DeleteStaffUser]: { method: Methods.DeleteStaffUser, property: 'deleteStaffUser', route: 'delete-staff-user', scope: 'global', statuses: [204] },
     [Methods.DescribeStaffGroup]: { method: Methods.DescribeStaffGroup, property: 'describeStaffGroup', route: 'describe-staff-group', scope: 'global', statuses: [204] },
     [Methods.DisableStaffUser]: { method: Methods.DisableStaffUser, property: 'disableStaffUser', route: 'disable-staff-user', scope: 'global', statuses: [204] },
@@ -574,7 +574,7 @@ export interface GlobalApi {
   addStaffGroupMember: MethodHandle<AddStaffGroupMember>;
   assignStaffRole: MethodHandle<AssignStaffRole>;
   createStaffGroup: MethodHandle<CreateStaffGroup, CreateStaffGroupResult>;
-  deleteStaffGroup: MethodHandle<DeleteStaffGroup>;
+  deleteStaffGroup: MethodHandle<DeleteStaffGroup, DeleteStaffGroupAnswer>;
   deleteStaffUser: MethodHandle<DeleteStaffUser>;
   describeStaffGroup: MethodHandle<DescribeStaffGroup>;
   disableStaffUser: MethodHandle<DisableStaffUser>;

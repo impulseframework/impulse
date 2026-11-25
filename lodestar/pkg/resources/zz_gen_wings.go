@@ -672,11 +672,30 @@ func NewWingDeletePatch(id impulse.UUID) *WingDeletePatch {
 
 // WithEverythingUnder says the delete takes the rows under the Wing with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
-// delete would delete it. Without it, a delete of a Wing that has such rows
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a Wing that has such rows
 // deletes nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired).
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left says what is left: buffer the delete
+// again, in a transaction of its own, until Left answers nil.
 func (p *WingDeletePatch) WithEverythingUnder() *WingDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// Left is what the delete left under the Wing once it is buffered
+// (resource.DeleteLeft): nil where the delete finished, the Wing with it.
+func (p *WingDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Wing that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Wing.
+func (p *WingDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *WingDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
 
 	return p
 }

@@ -508,7 +508,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// identity client which tenants the person holds something in, with the roles held
 	// in each, and has it take the person out of one at their own word (OwnTenants).
 	// The rules are the identity package's: a tenant's last administrator does not
-	// leave it, and an account left holding nothing is deleted with its sessions.
+	// leave it, and an account left holding nothing stays.
 	authSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))
 
 	// The directory admission: what a person gets when they sign in through a tenant's

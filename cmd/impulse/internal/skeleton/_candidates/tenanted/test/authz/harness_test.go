@@ -199,10 +199,6 @@ func (noSessionAPI) NoticeFactorReset(context.Context, impulse.UUID) error {
 	return nil
 }
 
-func (noSessionAPI) NoticeRemovedFromTenant(context.Context, string, string, bool) error {
-	return nil
-}
-
 // StaffIdentity is the staff auth's identity client over the scripted engine: the matrix
 // drives the generated methods' routes as it drives every other, and a denied case is
 // answered before any of them runs. The client makes the tenants, so it takes the

@@ -262,10 +262,6 @@ func (noSessionAPI) NoticeFactorReset(context.Context, impulse.UUID) error {
 	return nil
 }
 
-func (noSessionAPI) NoticeRemovedFromTenant(context.Context, string, string, bool) error {
-	return nil
-}
-
 // CrewIdentity and MembersIdentity are the two auths' identity clients over the scripted
 // engine: the matrix drives the generated methods' routes as it drives every other, and
 // a denied case is answered before any of them runs. The crew's client is built as

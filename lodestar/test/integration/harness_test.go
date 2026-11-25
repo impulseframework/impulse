@@ -441,10 +441,6 @@ func (noSessionAPI) NoticeFactorReset(context.Context, impulse.UUID) error {
 	return nil
 }
 
-func (noSessionAPI) NoticeRemovedFromTenant(context.Context, string, string, bool) error {
-	return nil
-}
-
 // CrewIdentity is the crew auth's identity client: on the served stack the one the crew
 // auth built when it opened, as production's is, or the one the stack built where it
 // holds a person to one sector (servedOptions.oneTenantPerPerson); in a suite that
