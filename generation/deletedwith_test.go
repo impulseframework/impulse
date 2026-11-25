@@ -412,6 +412,24 @@ func Test_deletedWith_refusals(t *testing.T) {
 	}
 }
 
+// Test_rejectDeletedWith pins that a field of a kind with no rows of a table to delete
+// refuses @deletedWith, in the sentence that says where it goes, and that a struct with
+// no such field passes.
+func Test_rejectDeletedWith(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "deletedwithfixture"))
+	pStruct, annotations := scanFixtureStruct(t, structs, "TaskAssignment")
+	want := "@deletedWith on TaskAssignment.GroupID: TaskAssignment is a view (@virtual), and only a row of a table goes with a group or an account. Put @deletedWith on the column of the table's own @resource struct, or remove it."
+	if err := rejectDeletedWith(pStruct, annotations, "a view (@virtual)"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("rejectDeletedWith(TaskAssignment) error = %v, want %q", err, want)
+	}
+	pStruct, annotations = scanFixtureStruct(t, structs, "Task")
+	if err := rejectDeletedWith(pStruct, annotations, "a view (@virtual)"); err != nil {
+		t.Errorf("rejectDeletedWith(Task) error = %v, want none: a struct with no such field passes", err)
+	}
+}
+
 // renderResourceFile renders a record's generated resource file in the package named,
 // formatted.
 func renderResourceFile(t *testing.T, res *resourceInfo, pkg string) string {

@@ -28,6 +28,20 @@ func markDeletedWith(pStruct *parser.Struct, fields []*resourceField, annotation
 	}
 }
 
+// rejectDeletedWith refuses @deletedWith on a field of a kind that has no rows of a table
+// to delete: a view, a computed resource and a method. what is the kind as the sentence
+// says it, with its article and its annotation ("a view (@virtual)").
+func rejectDeletedWith(pStruct *parser.Struct, annotations genlang.StructAnnotations, what string) error {
+	for i, field := range pStruct.Fields() {
+		if annotations.Fields[i].Has(deletedWithKeyword) {
+			return errors.Newf("@%s on %s.%s: %s is %s, and only a row of a table goes with a group or an account. Put @%s on the column of the table's own @%s struct, or remove it.",
+				deletedWithKeyword, pStruct.Name(), field.Name(), pStruct.Name(), what, deletedWithKeyword, resourceKeyword)
+		}
+	}
+
+	return nil
+}
+
 // ApplicationCanName reports whether the record is one of an auth's that a column of the
 // application's can name and say its row goes with it (@deletedWith): an auth's group or
 // its account record. Its description is written a second time over the application's
