@@ -178,3 +178,38 @@ func (a *App) Squadron() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// SquadronChangeHistory answers a page of one squadron's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) SquadronChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID        impulse.UUID `json:"id"        index:"true"                                                                              perm:"-"`
+		WingID    impulse.UUID `json:"wingId"`
+		Name      string       `json:"name"      search:"token=Name_Search;index=SquadronsSearch;role=text;anchors=prefix,suffix;contains"`
+		Callsigns []string     `json:"callsigns"`
+		WingName  *string      `json:"wingName"  nameof:"WingID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Squadron, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.SquadronID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewSquadronQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

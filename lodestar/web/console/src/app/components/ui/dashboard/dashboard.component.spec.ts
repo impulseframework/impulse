@@ -283,9 +283,6 @@ describe('DashboardComponent, for a person who may list the service ledger', () 
 });
 
 describe('DashboardComponent, opened by its address under a sector', () => {
-  /** Anvil's digest for a marshal who also reads the ship's log, a record the generated metadata does not place. */
-  const anvilWithLog: PermissionDigest = { ...anvil, ShipsLogEntries: { List: 'granted', Read: 'granted' } };
-
   /** The names on the service card's rows, each with where it is held. */
   const cardRows = (page: HTMLElement | null | undefined): string[] =>
     Array.from(page?.querySelectorAll('impulse-permissions-card table.permissions tbody tr') ?? []).map((row) =>
@@ -304,7 +301,7 @@ describe('DashboardComponent, opened by its address under a sector', () => {
       const url = new URL(request.url, 'http://lodestar.test');
       if (url.pathname === `${environment.apiUrl}/permission-digest` && url.searchParams.get('domain') === anvilID) {
         await held;
-        return { status: 200, body: anvilWithLog };
+        return { status: 200, body: anvil };
       }
       return played(request);
     });
@@ -346,10 +343,8 @@ describe('DashboardComponent, opened by its address under a sector', () => {
     release();
     await landing;
     harness.detectChanges();
-    // The first card drawn holds every row: the ship's log, which only Anvil's digest
-    // gives a state, is among them, and nothing is added once everything has settled.
+    // The first card drawn holds every row, and nothing is added once everything has settled.
     const first = cardRows(harness.routeNativeElement);
-    expect(first).toContain('ShipsLogEntries global');
     expect(first).toContain('Missions domain');
     await settle();
     expect(cardRows(harness.routeNativeElement)).toEqual(first);

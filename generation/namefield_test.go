@@ -1,14 +1,17 @@
 package generation
 
 import (
+	"go/format"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session"
 )
 
 // nameFixtureTables is the synthetic schema behind the namefixture structs: every table
@@ -53,6 +56,14 @@ func nameFixtureTables() map[string]*tableMetadata {
 		"Detours":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "CrateId": to("Crates")}},
 		"Astrays":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "WingId": to("Wings")}},
 		"Badges":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Title": indexed}},
+		"Waybills": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "KitId": to("Kits")}},
+		"Passes":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "HolderId": plain, "GroupId": to("CrewGroups"), "LooseGroupId": plain, "IssuerId": plain}},
+		"Rolls":    {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HolderId": plain, "GroupId": plain}},
+		"Routes": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "BaseId": to("Bases"), "KitId": to("Kits"), "PickedKitId": to("Kits"), "PatrolKitId": to("Kits"),
+			"WingId": to("Wings"), "PickedWingId": to("Wings"), "CrateId": to("Crates"), "PickedCrateId": to("Crates"),
+		}},
+		"CrewGroups": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "DomainId": plain, "Name": plain}},
 		"Manifests": {PkCount: 1, Columns: map[string]columnMeta{
 			"Id": pk, "BaseId": to("Bases"), "HangarId": indexed, "BeaconId": indexed, "PatrolId": indexed,
 		}},
@@ -210,6 +221,313 @@ func Test_resolveNameFields(t *testing.T) {
 				t.Errorf("name fields of %s mismatch (-want +got):\n%s", tt.resource, diff)
 			}
 		})
+	}
+}
+
+// Test_recordedNames pins the names a resource's change records keep: one beside every
+// field that points at a row with a name, found as a name field is, but for a resource
+// listed across tenants, which is described where it has no name field, a field no name
+// field could stand beside, which is described, and a field that picks from a view or a
+// computed list, which is read from the table the row is really in: one of the library's
+// lists of a tenant's people by the account's username, one of its groups by the group's
+// name, any other by the column's foreign key, and none with no foreign key; and the
+// RecordedNames method the generated set renders from them.
+func Test_recordedNames(t *testing.T) {
+	t.Parallel()
+
+	// crew is an auth over the tenant record Base whose tables hold accounts and groups;
+	// lone is one that keeps no groups.
+	crew := &identityInstance{
+		auth: "Crew", tenant: &identityTenant{name: "Base"},
+		session: session.Tables{Users: "CrewSessionUsers"}, policy: access.Tables{Groups: "CrewGroups"},
+		tables: map[identityTable]bool{identityUsers: true, identityGroups: true},
+	}
+	lone := &identityInstance{
+		auth: "Crew", tenant: &identityTenant{name: "Base"},
+		session: session.Tables{Users: "CrewSessionUsers"},
+		tables:  map[identityTable]bool{identityUsers: true},
+	}
+	holder := `{Field: "", Key: "HolderID", Resource: "CrewBaseUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: "", GrantInTenant: true}`
+	base := `{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`
+
+	tests := []struct {
+		name     string
+		structs  []string
+		resource string
+		// lists is the instance the views CrewBaseUser and CrewBaseGroup are marked with,
+		// as the generator marks the library's own lists; nil leaves them an
+		// application's views.
+		lists *identityInstance
+		want  []string
+	}{
+		{
+			name:     "one of a tenant's people by the account's username, a group by its name whether or not its column has a foreign key, and none for an input-only field",
+			structs:  []string{"Base", "CrewBaseUser", "CrewBaseGroup", "Pass"},
+			resource: "Pass",
+			lists:    crew,
+			want: []string{
+				base,
+				holder,
+				`{Field: "", Key: "GroupID", Resource: "CrewBaseGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "DomainId"}`,
+				`{Field: "", Key: "LooseGroupID", Resource: "CrewBaseGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "DomainId"}`,
+			},
+		},
+		{
+			name:     "the same lists as an application's views, on columns with no foreign key or one into a table no resource declares: none",
+			structs:  []string{"Base", "CrewBaseUser", "CrewBaseGroup", "Pass"},
+			resource: "Pass",
+			want:     []string{base},
+		},
+		{
+			name:     "an instance that keeps no groups: none for a group",
+			structs:  []string{"Base", "CrewBaseUser", "CrewBaseGroup", "Pass"},
+			resource: "Pass",
+			lists:    lone,
+			want:     []string{base, holder},
+		},
+		{
+			name:     "a resource of no tenant: none for either list",
+			structs:  []string{"Base", "CrewBaseUser", "CrewBaseGroup", "Roll"},
+			resource: "Roll",
+			lists:    crew,
+		},
+		{
+			name:     "each kind of row a tenant's resource points at, but a view, and none for a resource with no name",
+			structs:  []string{"Base", "Wing", "Kit", "Crate", "Member", "Permit"},
+			resource: "Permit",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "", Key: "WingID", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "", Key: "LeadWing", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`,
+				`{Field: "", Key: "Grade", Resource: "", Tag: "", Table: "Grades", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "a resource listed across tenants is described where it has no name field",
+			structs:  []string{"Base", "Wing", "Kit", "Ledger"},
+			resource: "Ledger",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "", Key: "WingID", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`,
+				`{Field: "", Key: "Grade", Resource: "", Tag: "", Table: "Grades", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "two fields no name field could stand beside are each described",
+			structs:  []string{"Base", "Wing", "Pair"},
+			resource: "Pair",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "", Key: "WingID", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+				`{Field: "", Key: "Wing", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`,
+			},
+		},
+		{
+			name:     "a row reached through another table is held to the tenant by that way",
+			structs:  []string{"Base", "Wing", "Bay", "Berth"},
+			resource: "Berth",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "", Key: "BayID", Resource: "Bays", Tag: "code", Table: "Bays", KeyColumn: "Id", NameColumn: "Code", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "BaseId"}}}`,
+			},
+		},
+		{
+			name:     "an application's view on a column with no foreign key: none",
+			structs:  []string{"Base", "Hangar", "Beacon", "Patrol", "Manifest"},
+			resource: "Manifest",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "an input-only field: none",
+			structs:  []string{"Base", "Kit", "Waybill"},
+			resource: "Waybill",
+			want: []string{
+				`{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+			},
+		},
+		{
+			name:     "a tenant's row pointed at from a resource of no tenant: none",
+			structs:  []string{"Base", "Wing", "Kit", "Stock"},
+			resource: "Stock",
+			want:     []string{`{Field: "", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`},
+		},
+		{
+			name:     "a view keeps no change records",
+			structs:  []string{"Kit", "Roster"},
+			resource: "Roster",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// A name field the struct cannot take is refused (Pair), which leaves the
+			// names its change records keep to be described all the same.
+			c, _ := nameFixtureResources(t, tt.structs...)
+			markLists(c, tt.lists)
+			c.resolveRecordedNames(c.resources)
+			var got []string
+			for _, res := range c.resources {
+				if res.Name() != tt.resource {
+					continue
+				}
+				for _, name := range res.RecordedNames {
+					got = append(got, name.GoLiteral())
+				}
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("recorded names of %s mismatch (-want +got):\n%s", tt.resource, diff)
+			}
+		})
+	}
+
+	t.Run("a field that picks from a view or a computed list on a column with a foreign key is described as the same field with no picker", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := nameFixtureResources(t, "Base", "Wing", "Kit", "Crate", "Hangar", "Beacon", "Patrol", "Route")
+		if err != nil {
+			t.Fatalf("nameFixtureResources() error = %v", err)
+		}
+		byName := make(map[string]*resourceInfo, len(c.resources))
+		for _, res := range c.resources {
+			byName[c.pluralize(res.Name())] = res
+		}
+		route := byName["Routes"]
+		described := func(field *resourceField) string {
+			t.Helper()
+
+			name := c.recordedNameOf(route, field, byName)
+			if name == nil {
+				return "none"
+			}
+			name.Key = "<the field>"
+
+			return name.GoLiteral()
+		}
+		// A computed list is no resource of the run: the field's declared picker is
+		// named so, as the generator holds a computed resource's name.
+		computed := func(field string) *resourceField {
+			picked := *route.fieldNamed(field)
+			picked.declaredResource = "Tallies"
+
+			return &picked
+		}
+		for _, tt := range []struct {
+			picked *resourceField
+			plain  string
+			want   string
+		}{
+			{picked: route.fieldNamed("PickedKitID"), plain: "KitID", want: `{Field: "", Key: "<the field>", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`},
+			{picked: route.fieldNamed("PatrolKitID"), plain: "KitID", want: `{Field: "", Key: "<the field>", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`},
+			{picked: route.fieldNamed("PickedWingID"), plain: "WingID", want: `{Field: "", Key: "<the field>", Resource: "Wings", Tag: "callSign", Table: "Wings", KeyColumn: "Id", NameColumn: "CallSign", TenantColumn: "BaseId"}`},
+			{picked: route.fieldNamed("PickedCrateID"), plain: "CrateID", want: "none"},
+			{picked: computed("PickedKitID"), plain: "KitID", want: `{Field: "", Key: "<the field>", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`},
+		} {
+			if got, plain := described(tt.picked), described(route.fieldNamed(tt.plain)); got != tt.want || plain != tt.want {
+				t.Errorf("%s (picking from %s) is described %s, and %s with no picker %s; want both %s", tt.picked.Name(), tt.picked.EnumeratedResource(), got, tt.plain, plain, tt.want)
+			}
+		}
+
+		c, err = nameFixtureResources(t, "Base", "CrewBaseUser", "CrewBaseGroup", "Pass")
+		if err != nil {
+			t.Fatalf("nameFixtureResources() error = %v", err)
+		}
+		for _, res := range c.resources {
+			byName[c.pluralize(res.Name())] = res
+		}
+		loose := *byName["Passes"].fieldNamed("LooseGroupID")
+		loose.declaredResource = "Tallies"
+		if name := c.recordedNameOf(byName["Passes"], &loose, byName); name != nil {
+			t.Errorf("a computed list on a column with no foreign key is described %s, want none", name.GoLiteral())
+		}
+	})
+
+	t.Run("the generated set says the grant on a person's username is asked in the tenant, and on no other entry", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := nameFixtureResources(t, "Base", "CrewBaseUser", "CrewBaseGroup", "Pass")
+		if err != nil {
+			t.Fatalf("nameFixtureResources() error = %v", err)
+		}
+		markLists(c, crew)
+		c.resolveRecordedNames(c.resources)
+		for _, res := range c.resources {
+			if res.Name() != "Pass" {
+				continue
+			}
+			out, err := c.generateTemplateOutput("resourceFile", resourceFileTemplate, &resourceFileData{Source: "fixture", Package: "resources", Resource: res})
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			formatted, err := format.Source(out)
+			if err != nil {
+				t.Fatalf("format.Source() error = %v on:\n%s", err, out)
+			}
+			_, method, found := strings.Cut(string(formatted), "func (Pass) RecordedNames()")
+			method, _, closed := strings.Cut(method, "\n}\n")
+			if !found || !closed {
+				t.Fatalf("Pass's resource file declares no whole RecordedNames():\n%s", formatted)
+			}
+			var inTenant []string
+			for line := range strings.SplitSeq(method, "\n") {
+				if strings.Contains(line, "GrantInTenant") {
+					inTenant = append(inTenant, strings.TrimSpace(line))
+				}
+			}
+			if diff := cmp.Diff([]string{holder + ","}, inTenant); diff != "" {
+				t.Errorf("the entries of RecordedNames() that say GrantInTenant mismatch (-want +got):\n%s\nin\n%s", diff, method)
+			}
+		}
+	})
+
+	t.Run("the generated set names them, and a resource with none declares no method", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := nameFixtureResources(t, "Base", "Kit", "Waybill", "Stock")
+		if err != nil {
+			t.Fatalf("nameFixtureResources() error = %v", err)
+		}
+		c.resolveRecordedNames(c.resources)
+		for _, res := range c.resources {
+			out, err := c.generateTemplateOutput("resourceFile", resourceFileTemplate, &resourceFileData{Source: "fixture", Package: "resources", Resource: res})
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(%s) error = %v", res.Name(), err)
+			}
+			formatted, err := format.Source(out)
+			if err != nil {
+				t.Fatalf("format.Source() error = %v on:\n%s", err, out)
+			}
+			switch res.Name() {
+			case "Stock":
+				want := "func (Stock) RecordedNames() []resource.NameField {\n\treturn []resource.NameField{\n\t\t" +
+					`{Field: "", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}` + ",\n\t}\n}"
+				if !strings.Contains(string(formatted), want) {
+					t.Errorf("Stock's resource file: want\n%s\nin\n%s", want, formatted)
+				}
+			case "Kit":
+				if strings.Contains(string(formatted), "RecordedNames") {
+					t.Errorf("Kit points at no row and declares RecordedNames:\n%s", formatted)
+				}
+			}
+		}
+	})
+}
+
+// markLists marks the fixture's views shaped as the library's lists of a tenant's people
+// and groups with inst, as the generator marks the lists of an auth's management; nil
+// marks nothing.
+func markLists(c *client, inst *identityInstance) {
+	if inst == nil {
+		return
+	}
+	for _, res := range c.resources {
+		if res.Name() == "CrewBaseUser" || res.Name() == "CrewBaseGroup" {
+			res.identity = inst
+		}
 	}
 }
 

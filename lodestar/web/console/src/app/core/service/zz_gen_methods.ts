@@ -241,39 +241,87 @@ export interface DeleteCrewSectorGroupAnswer {
 
 export interface DeleteCrewSectorUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteCrewSectorUser {
   userId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteCrewSectorUser answers with. */
+export interface DeleteCrewSectorUserResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteCrewSectorUser declares; the method chooses one per response. */
-export type DeleteCrewSectorUserStatus = 204;
+export type DeleteCrewSectorUserStatus = 202 | 204;
+/** The answer DeleteCrewSectorUser resolves with: the status the method chose and its typed result. */
+export interface DeleteCrewSectorUserAnswer {
+  status: DeleteCrewSectorUserStatus;
+  result: DeleteCrewSectorUserResult;
+}
 
 export interface DeleteCrewUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteCrewUser {
   userId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteCrewUser answers with. */
+export interface DeleteCrewUserResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteCrewUser declares; the method chooses one per response. */
-export type DeleteCrewUserStatus = 204;
+export type DeleteCrewUserStatus = 202 | 204;
+/** The answer DeleteCrewUser resolves with: the status the method chose and its typed result. */
+export interface DeleteCrewUserAnswer {
+  status: DeleteCrewUserStatus;
+  result: DeleteCrewUserResult;
+}
 
 export interface DeleteMembersSectorUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteMembersSectorUser {
   userId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteMembersSectorUser answers with. */
+export interface DeleteMembersSectorUserResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteMembersSectorUser declares; the method chooses one per response. */
-export type DeleteMembersSectorUserStatus = 204;
+export type DeleteMembersSectorUserStatus = 202 | 204;
+/** The answer DeleteMembersSectorUser resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersSectorUserAnswer {
+  status: DeleteMembersSectorUserStatus;
+  result: DeleteMembersSectorUserResult;
+}
 
 export interface DeleteMembersUserConfig {
   userId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteMembersUser {
   userId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteMembersUser answers with. */
+export interface DeleteMembersUserResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteMembersUser declares; the method chooses one per response. */
-export type DeleteMembersUserStatus = 204;
+export type DeleteMembersUserStatus = 202 | 204;
+/** The answer DeleteMembersUser resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersUserAnswer {
+  status: DeleteMembersUserStatus;
+  result: DeleteMembersUserResult;
+}
 
 export interface DescribeCrewGroupConfig {
   groupId: string | FieldPointer;
@@ -1492,38 +1540,46 @@ const methodMap: MethodMap = {
   [Methods.DeleteCrewSectorUser]: {
     route: 'delete-crew-sector-user',
     target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteCrewUser]: {
     route: 'delete-crew-user',
     target: { resource: Resources.CrewListedUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteMembersSectorUser]: {
     route: 'delete-members-sector-user',
     target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteMembersUser]: {
     route: 'delete-members-user',
     target: { resource: Resources.MembersListedUsers, key: { userId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DescribeCrewGroup]: {

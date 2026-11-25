@@ -106,72 +106,104 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 	return nil
 }
 
-// DeleteUser buffers the removal of a user, in the caller's transaction: every session
-// they hold is ended, their identity links, every membership they hold and their place
-// in every group go, then the row, and the permission engine is told once the
-// transaction has committed. Nobody
-// deletes themselves: the person acting, the real person behind the session, is refused
-// their own account, and a session that views as someone else the account it views as
-// (refuseOwnAccount). In a session that acts as someone else the refusal of the real
-// person's own account is the one DisableUser and EnableUser give there, in the same
-// sentence form and with the same log line. A super
-// administrator's account is deleted by a super administrator alone, and the last one
-// who can sign in by nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
+// DeleteUser buffers the removal of a user, in the caller's transaction. The row's
+// delete is asked first: it takes with it the application's rows that name the account
+// in a column that says so (@deletedWith). They go on the permission the request was let
+// in by, with no grant asked on them: every row for a request made for the whole
+// application, and for one made under a tenant's address the rows of that tenant and of
+// each other tenant in which the person holds the same permission, a row of any other
+// tenant or of none refusing the delete. Asked without everythingUnder of an account that
+// has such a row, it deletes nothing and answers the question a person is asked first,
+// with their counts; where they are more than one save holds, it answers what the
+// save left, and the account stands whole, with its sessions and its ways to sign in,
+// until a save takes the last of them. Once the row goes, every session the person holds
+// is ended, and their identity links, every membership they hold and their place in
+// every group go with it, and the permission engine is told once the transaction has
+// committed. Nobody deletes themselves: the person acting, the real person behind the
+// session, is refused their own account, and a session that views as someone else the
+// account it views as (refuseOwnAccount). In a session that acts as someone else the
+// refusal of the real person's own account is the one DisableUser and EnableUser give
+// there, in the same sentence form and with the same log line. A super administrator's
+// account is deleted by a super administrator alone, and the last one who can sign in by
+// nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
 //
 // Shared rule: the session library's DeleteSessionUser; the memberships are the user
 // management's, which removes every one the person holds with the account.
-func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
+func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	_, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
+		return nil, errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
-		return accountNotFound(userID)
+		return nil, accountNotFound(userID)
 	}
 	if err := m.refuseOwnAccount(ctx, userID, "delete"); err != nil {
-		return err
+		return nil, err
 	}
 	// The account's roles go with it, the Super Administrator role among them: only a
 	// super administrator removes another, and never the last one who can sign in.
 	super, err := m.holdsSuperAdministrator(ctx, txn, userID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if super {
 		if err := m.requireSuperAdministrator(ctx, txn, "deletes a super administrator's account, since the role goes with it"); err != nil {
-			return err
+			return nil, err
 		}
 		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "delete their account"); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
-		return err
+		return nil, err
 	}
+	// Everything is read before anything is buffered: a buffered write is not read back.
 	held, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
+		return nil, errors.Wrap(err, "identity.Store.Memberships()")
 	}
-	if err := m.deleteAccount(ctx, txn, userID); err != nil {
-		return err
+	links, err := m.store.Identities(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.Identities()")
+	}
+	endings, err := m.sessionEndings(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	left, err := m.store.DeleteUser(ctx, txn, userID, everythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.DeleteUser()")
+	}
+	if left != nil {
+		// The row stands until a save takes the last row that goes with it, and the
+		// account with it, whole.
+		return left, nil
+	}
+	if err := m.endSessions(ctx, txn, endings); err != nil {
+		return nil, err
+	}
+	for _, link := range links {
+		if err := m.store.DeleteIdentity(ctx, txn, link.ID); err != nil {
+			return nil, errors.Wrap(err, "identity.Store.DeleteIdentity()")
+		}
 	}
 	for _, key := range held {
 		if err := m.store.DeleteMembership(ctx, txn, &key); err != nil {
-			return errors.Wrap(err, "identity.Store.DeleteMembership()")
+			return nil, errors.Wrap(err, "identity.Store.DeleteMembership()")
 		}
 	}
 	inGroups, err := m.removeGroupPlaces(ctx, txn, userID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(held) > 0 || inGroups {
-		return m.policyChangesAtCommit(txn)
+		return nil, m.policyChangesAtCommit(txn)
 	}
 
-	return nil
+	return nil, nil
 }
 
 // resetLinksEndAtCommit registers the withdrawal of the user's standing password reset

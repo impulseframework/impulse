@@ -39,11 +39,21 @@ type (
 	// it counts: a place outside its period (StartsAt, EndsAt) gives nothing, and a person
 	// taken out of the group loses the hangar at their next request. Whoever writes a pass
 	// picks the group from the sector's own (@enumerate of CrewSectorGroups), beside the
-	// picker of the sector's people. A group that a pass names is not deleted while the
-	// pass stands: the foreign key to CrewGroups refuses it. A pass that names two holders,
-	// or none, is refused: by the create validator in words the person filling the form can
-	// act on, and by the table's holder check for every other writer. An empty userId
-	// names nobody and is not a holder, in the validator and in the table's check alike.
+	// picker of the sector's people. A group that is deleted takes the passes that name
+	// it with it: the pass says so (@deletedWith), the group's question counts them, and
+	// whoever deletes the group needs what deleting each pass needs. A pass that names
+	// two holders, or none, is refused: by the create validator in words the person
+	// filling the form can act on, and by the table's holder check for every other
+	// writer. An empty userId names nobody and is not a holder, in the validator and in
+	// the table's check alike.
+	//
+	// A pass keeps a change history (Config): who was given a hangar, and when the pass
+	// was written and deleted, is what an audit of the hangar reads. A pass's record keeps
+	// its holder's name beside the id, as it was when the change was made: the account's
+	// username for a person and the group's name for a group, each read from the crew
+	// auth's own table when the pass is written or deleted, and never from the two lists
+	// the pickers read. The history so still names a holder whose account or group has
+	// since been renamed or deleted (test/integration/change_history_test.go).
 	//
 	// A pass's holder never changes. UserID, SquadronID and GroupID are immutable: an
 	// update that names any of the three is refused for every role with the framework's
@@ -77,7 +87,7 @@ type (
 	// hangar); without one the generator warns, naming the CREATE INDEX it wants.
 	// HangarPassesBySectorIdHangarId serves the list's own order.
 	//
-	// Demonstrates: @subjectSet.who, @subjectSet.where, @subjectSet.on-set, @subjectSet.on-groups.
+	// Demonstrates: @subjectSet.who, @subjectSet.where, @subjectSet.on-set, @subjectSet.on-groups, @deletedWith.
 	//
 	// @resource
 	// @permissionScope(domain)
@@ -99,11 +109,19 @@ type (
 		UserID     *string          `spanner:"UserId"     conditions:"immutable"`
 		SquadronID impulse.NullUUID `spanner:"SquadronId" conditions:"immutable"`
 		// @enumerate(CrewSectorGroups)
+		// @deletedWith
 		GroupID   impulse.NullUUID `spanner:"GroupId"   conditions:"immutable"`
 		LevelID   string           `spanner:"LevelId"`
 		ExpiresAt *time.Time       `spanner:"ExpiresAt"`
 	}
 )
+
+// Config enables change tracking: HangarPass mutations write DataChangeEvents rows in the
+// same transaction, and a pass's create and its delete each keep the name of the holder the
+// pass names.
+func (HangarPass) Config() resource.Config {
+	return defaultConfig().SetTrackChanges(true)
+}
 
 // HangarPassCreateValidator is wired in by the @validateCreateType annotation; the
 // generated create patch calls Validate inside the mutation transaction.

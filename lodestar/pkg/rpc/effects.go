@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/telemetry"
 	"github.com/impulseframework/impulse/resource"
@@ -34,7 +35,7 @@ func appendMissionNote(ctx context.Context, txn resource.ReadWriteTransaction, m
 	if row.Data.Notes != nil && *row.Data.Notes != "" {
 		notes = *row.Data.Notes + "\n" + line
 	}
-	if err := resources.NewMissionUpdatePatch(missionID).SetNotes(&notes).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewMissionUpdatePatch(missionID).SetNotes(&notes).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.MissionUpdatePatch.Buffer()")
 	}
 
@@ -63,7 +64,7 @@ func appendMissionNoteAs(ctx context.Context, txn resource.ReadWriteTransaction,
 	if row.Data.Notes != nil && *row.Data.Notes != "" {
 		notes = *row.Data.Notes + "\n" + line
 	}
-	if err := resources.NewMissionUpdatePatch(missionID).SetNotes(&notes).Enforce(caller).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewMissionUpdatePatch(missionID).SetNotes(&notes).Enforce(caller).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.MissionUpdatePatch.Buffer()")
 	}
 
@@ -89,7 +90,7 @@ func returnOpenSorties(ctx context.Context, txn resource.ReadWriteTransaction, m
 		if row.Data.ReturnedAt != nil {
 			continue
 		}
-		if err := resources.NewSortieUpdatePatch(row.Data.ID).SetReturnedAt(&now).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := resources.NewSortieUpdatePatch(row.Data.ID).SetReturnedAt(&now).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return nil, errors.Wrap(err, "resources.SortieUpdatePatch.Buffer()")
 		}
 	}
@@ -133,7 +134,7 @@ func settleMission(ctx context.Context, txn resource.ReadWriteTransaction, missi
 // data owned by the InspectShip transition, an explicit update rather than an update
 // function.
 func stampRefitInspected(ctx context.Context, txn resource.ReadWriteTransaction, refitID impulse.UUID) error {
-	if err := resources.NewRefitUpdatePatch(refitID).SetInspectedAt(&cloudspanner.CommitTimestamp).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewRefitUpdatePatch(refitID).SetInspectedAt(&cloudspanner.CommitTimestamp).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.RefitUpdatePatch.Buffer()")
 	}
 
@@ -150,7 +151,7 @@ func stampShipRefitted(ctx context.Context, txn resource.ReadWriteTransaction, r
 	if row == nil {
 		return resource.TargetNotFound("Refit", refitID)
 	}
-	if err := resources.NewShipUpdatePatch(row.Data.ShipID).SetLastRefitAt(&cloudspanner.CommitTimestamp).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewShipUpdatePatch(row.Data.ShipID).SetLastRefitAt(&cloudspanner.CommitTimestamp).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.ShipUpdatePatch.Buffer()")
 	}
 
@@ -193,7 +194,7 @@ func ingestDroidReport(ctx context.Context, txn resource.ReadWriteTransaction, s
 		// The frame is stored as it came; a droid that sent none leaves the column NULL.
 		patch.SetFrame(&frame)
 	}
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.DroidReportCreatePatch.Buffer()")
 	}
 

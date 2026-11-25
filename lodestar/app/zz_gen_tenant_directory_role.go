@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -68,6 +69,7 @@ func (a *App) OpenSectorToDirectory() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, "OpenSectorToDirectory")
 		role := accesstypes.Role(strings.TrimSpace(req.Role))
 
 		// A request that asks for the method's warning (X-Warning: true) is decoded
@@ -84,7 +86,7 @@ func (a *App) OpenSectorToDirectory() http.HandlerFunc {
 		if role == "" && !asksWarning {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("Choose the role each person from the directory gets: a sector is not opened to its directory without one."))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)
@@ -175,6 +177,7 @@ func (a *App) MakeSectorInviteOnly() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, "MakeSectorInviteOnly")
 		// The header takes the value true or is left off the request: any other value
 		// is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
@@ -186,7 +189,7 @@ func (a *App) MakeSectorInviteOnly() http.HandlerFunc {
 			// and never runs the call.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("MakeSectorInviteOnly declares no warning: send the call without the X-Warning header"))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)

@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/shopspring/decimal"
 )
@@ -138,6 +139,21 @@ func (Mission) NameFields() []resource.NameField {
 		{Field: "KindName", Key: "KindID", Resource: "", Tag: "", Table: "MissionKinds", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 		{Field: "RequiredCertName", Key: "RequiredCertID", Resource: "", Tag: "", Table: "Certifications", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 		{Field: "StatusName", Key: "StatusID", Resource: "", Tag: "", Table: "MissionStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Mission) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "ClientID", Resource: "Clients", Tag: "name", Table: "Clients", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+		{Field: "", Key: "KindID", Resource: "", Tag: "", Table: "MissionKinds", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "", Key: "RequiredCertID", Resource: "", Tag: "", Table: "Certifications", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+		{Field: "", Key: "AssignedSquadronID", Resource: "Squadrons", Tag: "name", Table: "Squadrons", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "StatusID", Resource: "", Tag: "", Table: "MissionStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 	}
 }
 
@@ -692,11 +708,11 @@ func (p *MissionCreatePatch) ToStruct() *Mission {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MissionCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MissionCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MissionCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MissionCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -1043,11 +1059,11 @@ func (p *MissionUpdatePatch) ToStruct() *Mission {
 	return p.patchSet.ToStruct()
 }
 
-func (p *MissionUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MissionUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MissionUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MissionUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -1423,11 +1439,11 @@ func (p *MissionDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *MissionDel
 	return p
 }
 
-func (p *MissionDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *MissionDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *MissionDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *MissionDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

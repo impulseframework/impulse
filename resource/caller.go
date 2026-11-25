@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/internal/request"
 )
 
 // Caller is what the generated frame knows about a request's caller once the entry
@@ -29,6 +30,16 @@ type Caller struct {
 	// collection renders a conditional grant into the live check, when the
 	// frame's decoder was wired to one.
 	collection *GeneratedCollection
+	// method and permission are what the frame's entry check asked: the method, and the
+	// permission on it. A method's decode sets them on the caller it answers
+	// (RPCDecoder.DecodeCaller, and ExecuteGate.Caller for the gate a
+	// TargetedRPCDecoder's decode answers). Every other caller carries neither: one a
+	// gate asked through Caller.ExecuteGate answers, one As answers, and one a query
+	// answers. A delete's rows that go on the permission to delete the record
+	// (DeleteKind.WithinReach) are reached in another tenant where the same permission
+	// holds there (reachesTenant).
+	method     accesstypes.Resource
+	permission accesstypes.Permission
 }
 
 type callerKey struct{}
@@ -53,16 +64,6 @@ func CallerFrom(ctx context.Context) *Caller {
 	return &Caller{}
 }
 
-type authKey struct{}
-
-// authRecord is the one record of the auth a request came through, kept under authKey:
-// the auth's name, and whether a group bound it (BindAuth), which holds the request to
-// that auth.
-type authRecord struct {
-	name    string
-	byGroup bool
-}
-
 // WithAuth binds the request to the auth whose sessions its outlet serves, by the auth's
 // name (the auth package's Name). An outlet's generated routes bind it on every request
 // (live.Subscribing), so whatever answers for the request can tell the people of one auth
@@ -73,11 +74,11 @@ type authRecord struct {
 // outlet's generated routes run under (live.Subscribing) does, where the group's auth is
 // not its own.
 func WithAuth(ctx context.Context, auth string) context.Context {
-	if record, ok := ctx.Value(authKey{}).(authRecord); ok && record.byGroup {
+	if record, ok := request.AuthFrom(ctx); ok && record.ByGroup {
 		return ctx
 	}
 
-	return context.WithValue(ctx, authKey{}, authRecord{name: auth})
+	return request.WithAuth(ctx, request.Auth{Name: auth, ByGroup: false})
 }
 
 // AuthFrom returns the name of the auth the request came through, as its outlet's group
@@ -86,9 +87,18 @@ func WithAuth(ctx context.Context, auth string) context.Context {
 // hand under an outlet of an application with one auth, or a call made outside any
 // request.
 func AuthFrom(ctx context.Context) (auth string, ok bool) {
-	record, ok := ctx.Value(authKey{}).(authRecord)
+	record, ok := request.AuthFrom(ctx)
 
-	return record.name, ok
+	return record.Name, ok
+}
+
+// WithRPC hands the request the name of the RPC method it runs, as grants name the
+// method. eventsource.UserEvent and eventsource.UserProcessEvent read it there, so every
+// change record the method's code writes names the method in a column of its own, and
+// that code passes nothing for it. A method's generated handler calls it before Execute
+// runs; a handler written by hand that runs a method's code calls it too.
+func WithRPC(ctx context.Context, method accesstypes.Resource) context.Context {
+	return request.WithRPC(ctx, string(method))
 }
 
 // IsZero reports whether no frame stamped the caller.
@@ -115,12 +125,35 @@ func (c *Caller) Check(ctx context.Context, perm accesstypes.Permission, resourc
 // As returns the caller acting through another checker in the same scope and
 // environment: a body that should act as a named role composes the checker the
 // way act-as-role sessions do (RolePrincipalPermissions over access.ForRole) and
-// arms its operations with the result. The actor stays who it was.
+// arms its operations with the result. The actor stays who it was. The checker given
+// was not asked the method the request was let in by, so the caller answered carries
+// no method.
 func (c *Caller) As(perms UserPermissions) *Caller {
 	as := *c
 	as.Permissions = perms
+	as.method, as.permission = "", ""
 
 	return &as
+}
+
+// reachesTenant reports whether the permission the request was let in by holds in a
+// tenant other than the caller's: the caller carries the method its entry check asked,
+// and its checker answers that method Granted or Conditional for the same permission in
+// the tenant, in the caller's environment. A condition is not judged there: it was
+// judged where the request was made. Denied, and a caller that carries no method, do not
+// reach the tenant. The checker a session composes holds nothing in a tenant the session
+// does not enter (UserPermissions.Reaches), a disabled tenant among them.
+func (c *Caller) reachesTenant(ctx context.Context, tenant accesstypes.Domain) (bool, error) {
+	if c.IsZero() || c.method == "" {
+		return false, nil
+	}
+	decisions, err := c.Permissions.Check(ctx, c.Env, accesstypes.DomainScope(tenant), c.permission, c.method)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.UserPermissions.Check()")
+	}
+	decision, ok := decisions[c.method]
+
+	return ok && (decision.IsGranted() || decision.IsConditional()), nil
 }
 
 // RolePrincipalPermissions is a checker acting as a role on behalf of a real

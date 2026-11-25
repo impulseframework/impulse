@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/crewresources"
@@ -319,8 +320,41 @@ func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransacti
 	return email, found, nil
 }
 
-func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn); err != nil {
+// deletedBy is who a delete of an account or of a group is recorded as made by, in the
+// change records of the rows it takes that keep a change history: the request's person
+// (eventsource.UserEvent), and nobody for a call made outside any request, which carries
+// no session to read a person from. A row that keeps a change history refuses a delete
+// that names nobody: a job deletes such rows first, in a transaction before, under its
+// own process's name (eventsource.ProcessEvent).
+func deletedBy(ctx context.Context) []eventsource.EventSource {
+	if _, inRequest := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); !inRequest {
+		return nil
+	}
+
+	return []eventsource.EventSource{eventsource.UserEvent(ctx)}
+}
+
+func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The row's delete takes the application's rows that go with the account
+	// (@deletedWith), where it is told to. In a person's request the delete is that
+	// person's (deletedBy): a row it takes that keeps a change history records its
+	// delete as theirs.
+	patch := crewresources.NewCrewSessionUserDeletePatch(id)
+	if everythingUnder {
+		patch = patch.WithEverythingUnder()
+	}
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "crewresources.CrewSessionUserDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the accounts: the row's delete leaves the application's rows out.
+	patch := crewresources.NewCrewSessionUserDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionUserDeletePatch.Buffer()")
 	}
 
@@ -748,7 +782,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	case err == nil:
 		patch := crewresources.NewCrewSessionSignInMethodUpdatePatch(row.Name).
 			SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewSessionSignInMethodUpdatePatch.Buffer()")
 		}
 
@@ -758,7 +792,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	patch := crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).
 		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodCreatePatch.Buffer()")
 	}
 
@@ -776,7 +810,7 @@ func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTran
 	switch {
 	case err == nil:
 		patch := crewresources.NewCrewSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewSessionSignInMethodUpdatePatch.Buffer()")
 		}
 
@@ -785,7 +819,7 @@ func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodQuery.Read()")
 	}
 	patch := crewresources.NewCrewSessionSignInMethodCreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodCreatePatch.Buffer()")
 	}
 
@@ -818,7 +852,7 @@ func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteT
 	}
 	if found {
 		patch := crewresources.NewCrewSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRequireSecondFactor(on).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewSessionSignInSettingUpdatePatch.Buffer()")
 		}
 
@@ -826,7 +860,7 @@ func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteT
 	}
 	patch := crewresources.NewCrewSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
 		SetRequireSecondFactor(on).SetRememberBrowserDays(session.DefaultRememberedBrowserDays).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionSignInSettingCreatePatch.Buffer()")
 	}
 
@@ -843,7 +877,7 @@ func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteT
 	}
 	if found {
 		patch := crewresources.NewCrewSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewSessionSignInSettingUpdatePatch.Buffer()")
 		}
 
@@ -851,7 +885,7 @@ func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteT
 	}
 	patch := crewresources.NewCrewSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
 		SetRequireSecondFactor(true).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionSignInSettingCreatePatch.Buffer()")
 	}
 
@@ -1192,13 +1226,28 @@ func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransactio
 }
 
 func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
-	// The group's delete takes its members and its roles (its @deleteCascade). The
-	// patch is not armed against a caller: the method that deletes the group has asked
-	// the caller's grants, and the rows are taken trusted.
+	// The group's delete takes its members and its roles (its @deleteCascade), and the
+	// application's rows that go with it (@deletedWith). The patch is not armed against
+	// a caller: the method that deletes the group has asked the caller's grants, the
+	// members and the roles are taken trusted, and the application's rows are checked as
+	// the request's caller. In a person's request the delete is that person's (deletedBy):
+	// a row it takes that keeps a change history records its delete as theirs.
 	patch := crewresources.NewCrewGroupDeletePatch(id)
 	if everythingUnder {
 		patch = patch.WithEverythingUnder()
 	}
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "crewresources.CrewGroupDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the groups: the group's delete takes its members and its roles, and leaves the
+	// application's rows out.
+	patch := crewresources.NewCrewGroupDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
 	if err := patch.Buffer(ctx, txn); err != nil {
 		return nil, errors.Wrap(err, "crewresources.CrewGroupDeletePatch.Buffer()")
 	}
@@ -1548,14 +1597,13 @@ func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransact
 	return memberships, places, nil
 }
 
-// RemoveEnded buffers each removal under the source that says the assignment ended by
-// itself (identity.EndedByItself): it is what a change record of the row holds in place
-// of a person's act.
+// RemoveEnded buffers each removal under the process that says the assignment ended by
+// itself (identity.EndedByItself): nobody made it.
 func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
 	for i := range memberships {
 		key := &memberships[i]
 		patch := crewresources.NewCrewUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-		if err := patch.Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewUserRoleDeletePatch.Buffer()")
 		}
 	}
@@ -1564,7 +1612,7 @@ func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction,
 		if err != nil {
 			return err
 		}
-		if err := crewresources.NewCrewGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := crewresources.NewCrewGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewGroupMemberDeletePatch.Buffer()")
 		}
 	}

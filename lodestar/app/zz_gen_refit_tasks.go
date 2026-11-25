@@ -180,6 +180,43 @@ func (a *App) RefitTask() http.HandlerFunc {
 	})
 }
 
+// RefitTaskChangeHistory answers a page of one refit task's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) RefitTaskChangeHistory() http.HandlerFunc {
+	type response struct {
+		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
+		TaskNumber   int64        `json:"taskNumber"   index:"true" perm:"-"`
+		Instructions string       `json:"instructions"`
+		Done         bool         `json:"done"`
+		Notes        *string      `json:"notes"`
+		PhotoKey     *string      `json:"-"`
+	}
+
+	decoder := NewQueryDecoder[resources.RefitTask, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		refitID := httpio.Param[impulse.UUID](r, router.RefitTaskRefitID)
+		taskNumber := httpio.Param[int64](r, router.RefitTaskTaskNumber)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain), "PhotoKey")
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewRefitTaskQueryFromQuerySet(history.QuerySet()).SetRefitID(refitID).SetTaskNumber(taskNumber)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}
+
 func (a *App) RefitTaskPhoto() http.HandlerFunc {
 	// The frame's projection: the key, and the columns that deliver the file, read for
 	// the frame itself without field grants. The gate is Read on the resource and on

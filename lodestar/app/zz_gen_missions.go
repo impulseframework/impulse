@@ -483,3 +483,54 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(resp)
 	})
 }
+
+// MissionChangeHistory answers a page of one mission's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (a *App) MissionChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID                 impulse.UUID          `json:"id"                 index:"true"                                                        perm:"-"`
+		SectorID           impulse.UUID          `json:"sectorId"`
+		ClientID           impulse.UUID          `json:"clientId"`
+		KindID             string                `json:"kindId"`
+		Title              string                `json:"title"              search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
+		Brief              *string               `json:"brief"`
+		BriefingTemplateID *string               `json:"briefingTemplateId"`
+		Hazard             resources.HazardLevel `json:"hazard"`
+		Fee                decimal.Decimal       `json:"fee"`
+		Deadline           time.Time             `json:"deadline"           masking:"positional"                                                search:"token=Deadline_Search;index=MissionsSearch;role=date;contains;zone=UTC"`
+		RequiredCertID     *string               `json:"requiredCertId"`
+		BookedByUserID     string                `json:"bookedByUserId"`
+		BookedByName       string                `json:"bookedByName"`
+		AssignedSquadronID impulse.NullUUID      `json:"assignedSquadronId"`
+		StatusID           string                `json:"statusId"`
+		Notes              *string               `json:"notes"`
+		Settlement         decimal.NullDecimal   `json:"settlement"`
+		SectorName         *string               `json:"sectorName"         nameof:"SectorID"`
+		KindName           *string               `json:"kindName"           nameof:"KindID"`
+		RequiredCertName   *string               `json:"requiredCertName"   nameof:"RequiredCertID"`
+		StatusName         *string               `json:"statusName"         nameof:"StatusID"`
+	}
+
+	decoder := NewQueryDecoder[resources.Mission, response](a, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.MissionID)
+
+		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
+		history, err := decoder.DecodeChangeHistory(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		resources.NewMissionQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

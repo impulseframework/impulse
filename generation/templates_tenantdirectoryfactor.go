@@ -15,6 +15,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/tracer"
@@ -89,6 +90,7 @@ func {{ GoCamel .Name }}DirectoryFactor({{ .ReceiverName }} *{{ .ApplicationName
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, method)
 
 		// A request that asks for the method's warning ({{ WarningHeader }}: true) is decoded
 		// and checked as the call is. Saying the word answers its warning in place of
@@ -104,7 +106,7 @@ func {{ GoCamel .Name }}DirectoryFactor({{ .ReceiverName }} *{{ .ApplicationName
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("%s declares no warning: send the call without the {{ WarningHeader }} header", method))
 		}
 		var warning *resource.Warning
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)

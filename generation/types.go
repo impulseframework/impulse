@@ -99,6 +99,11 @@ const (
 	// declaration and follows the list handler, never named by an author (no @suppress
 	// argument), so it stays out of handlerTypes.
 	acrossTenantsHandler HandlerType = "acrossTenantsHandler"
+	// changeHistoryHandler is the handler of a record's change history: GET under the
+	// read route of every table-backed resource that has one. It is derived from the
+	// read route, never named by an author (no @suppress argument), so it stays out of
+	// handlerTypes.
+	changeHistoryHandler HandlerType = "changeHistoryHandler"
 )
 
 // RouteType describes a route or set of routes for a resource-driven API.
@@ -179,6 +184,8 @@ func (h HandlerType) template() string {
 		return listTemplate
 	case PatchHandler:
 		return patchTemplate
+	case changeHistoryHandler:
+		return changeHistoryTemplate
 	default:
 		panic(fmt.Sprintf("template(): unknown handler type: %s", h))
 	}
@@ -187,7 +194,7 @@ func (h HandlerType) template() string {
 // method returns the proper http method type for a HandlerType
 func (h HandlerType) method() string {
 	switch h {
-	case ReadHandler, ListHandler, fileHandler, acrossTenantsHandler:
+	case ReadHandler, ListHandler, fileHandler, acrossTenantsHandler, changeHistoryHandler:
 		return http.MethodGet
 	case PatchHandler:
 		return http.MethodPatch
@@ -509,7 +516,8 @@ type generatedRoute struct {
 	FormerPath    string
 	FormerTestURL string
 	// Source names the declaration a stored-file route comes from, the resource and its
-	// key column (Photo.Key), for the release file; empty on every other route.
+	// key column (Photo.Key), for the release file, and the resource a record's change
+	// history route serves; empty on every other route.
 	Source string
 	// SelfBounded marks a route whose handler bounds its own request body (an RPC
 	// method, at its declared maximum or the router's BodyLimit; an upload at its
@@ -1442,6 +1450,10 @@ type resourceInfo struct {
 	// and so has any record with a kind of row under it that refuses its plain delete.
 	deleteCascade *deleteCascadeDecl
 	DeleteTree    *deleteTree
+	// takenFromAnotherPackage marks a record of the application's that a record of an
+	// auth's takes with it (resolveLibraryDeleteTrees): its file declares the function
+	// that delete deletes a row through (<Name>TakenRows).
+	takenFromAnotherPackage bool
 	// EnumerationType names the @enumerate type whose table this struct backs. Such a
 	// resource is read-only by derivation: the table's rows are the program's
 	// constants, so no mutation handler is generated and its permissions stop at
@@ -1510,6 +1522,9 @@ type resourceInfo struct {
 	// NameFields are the name fields the generator adds beside the resource's id fields
 	// that point to a row with a name (resolveNameFields), in field order.
 	NameFields []*nameField
+	// RecordedNames are the names the resource's change records keep: one for each field
+	// that points at a row with a name (resolveRecordedNames), in field order.
+	RecordedNames []*nameField
 	// DirectoryOnlyField is the tenant record's @directoryOnly column, the BOOL saying
 	// the tenant's people enter through its directories only; nil when the record
 	// declares none, and every tenant admits a password.
@@ -1942,6 +1957,10 @@ type resourceField struct {
 	// declaredResource is the name that declaration wrote, once resolved; empty for
 	// an inferred enumeration, whose resource is the foreign key's target.
 	declaredResource string
+	// deletedWith marks a column that says a row of the record goes with the group or the
+	// account of an auth's it names (@deletedWith), held to the schema once the run's
+	// resources are all known (resolveLibraryDeleteTrees).
+	deletedWith bool
 
 	// The @state marker (design plan §09): IsState derives output-only decode
 	// and the ungrantable Create/Update; StateDefault is the declared initial
@@ -2646,6 +2665,7 @@ const (
 	tenantNameKeyword            string = "tenantName"            // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
 	tenantSinceKeyword           string = "tenantSince"           // Marks the tenant record's timestamp column holding when the tenant was made, which the list of tenants an auth's generated management serves says as Since
 	nameKeyword                  string = "name"                  // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
+	deletedWithKeyword           string = "deletedWith"           // Says a row of the record goes with the group or the account of the library's that the column names, when that group or account is deleted: no argument, on the column the schema holds to it by a foreign key
 	tenantDirectoryKeyword       string = "tenantDirectory"       // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
 	directoryMethodKeyword       string = "directoryMethod"       // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
 	directoryConnectionKeyword   string = "directoryConnection"   // Marks the directories record's string column holding the connection a directory's identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id)
@@ -2706,6 +2726,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		tenantNameKeyword:            {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantSinceKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		nameKeyword:                  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		deletedWithKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantDirectoryKeyword:       {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 		directoryMethodKeyword:       {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		directoryConnectionKeyword:   {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},

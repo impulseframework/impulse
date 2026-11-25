@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -82,7 +83,7 @@ func (m *AttachMissionDocument) Execute(ctx context.Context, txn resource.ReadWr
 			// The origin rides as one JSON column: the struct is stored by its
 			// generated Spanner methods and read back as the derived interface.
 			SetProvenance(&resources.Provenance{System: "console-upload", Reference: file.Name, ReceivedAt: now})
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return nil, errors.Wrap(err, "resources.MissionDocumentCreatePatch.Buffer()")
 		}
 		attached.DocumentIDs = append(attached.DocumentIDs, patch.ID())

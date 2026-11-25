@@ -495,6 +495,7 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 	if err := r.resolveNameFields(r.resources); err != nil {
 		return err
 	}
+	r.resolveRecordedNames(r.resources)
 
 	if err := r.holdIdentityTenantDirectory(); err != nil {
 		return err
@@ -626,6 +627,12 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 	if len(beside) > 0 {
 		r.resources = append(r.resources, beside...)
 		sortResources(r.resources)
+	}
+	// A column of the application's that names a group or an account of an auth's says
+	// whether its row goes with it: the group's and the account's descriptions are
+	// written again over the application's records, once both are known.
+	if err := r.resolveLibraryDeleteTrees(r.resources); err != nil {
+		return err
 	}
 
 	if err := r.resolveRunSubjectSets(r.resources); err != nil {

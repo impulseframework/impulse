@@ -97,6 +97,7 @@ func (c *client) extractResources(structs []*parser.Struct, validators ...struct
 
 			continue
 		}
+		markDeletedWith(pStruct, fields, annotations)
 
 		if err := c.resolveResource(resource, pStruct, annotations, structsByTable, table); err != nil {
 			resourceErrors = append(resourceErrors, err)
@@ -528,7 +529,7 @@ func (c *client) structsToVirtualResources(structs []*parser.Struct, validators 
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "virtual resource"), rejectClassAnnotation(pStruct, annotations, "virtual resource"), rejectTypescriptAnnotation(pStruct, annotations, "virtual resource"), rejectTenantAnnotation(pStruct, annotations, "@"+virtualKeyword+" struct"), c.rejectReservedResourceName(pStruct, "virtual resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "virtual resource"), rejectClassAnnotation(pStruct, annotations, "virtual resource"), rejectTypescriptAnnotation(pStruct, annotations, "virtual resource"), rejectDeletedWith(pStruct, annotations, "a view (@"+virtualKeyword+")"), rejectTenantAnnotation(pStruct, annotations, "@"+virtualKeyword+" struct"), c.rejectReservedResourceName(pStruct, "virtual resource")); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -873,7 +874,7 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		// The annotations other kinds own: a resource's bindings, a view's table, and a
 		// field type's TypeScript type; and the masking tag, which a method's request
 		// never carries.
-		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectRowWord(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectRoleOf(s, annotations), rejectReservedMethodName(s)); err != nil {
+		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectRowWord(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectDeletedWith(s, annotations, "a method (@"+rpcKeyword+")"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectRoleOf(s, annotations), rejectReservedMethodName(s)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -1112,7 +1113,7 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectClassAnnotation(s, annotations, "computed resource"), rejectRowName(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectClassAnnotation(s, annotations, "computed resource"), rejectRowName(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectDeletedWith(s, annotations, "a computed resource (@"+computedKeyword+")"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -1346,7 +1347,7 @@ func checkOpaqueInner(path string, shape *wireShape, seen map[*wireShape]bool) e
 // generatedSetMethods are the methods the generated set may declare on a resource's
 // struct (resourceFileTemplate), which no field of it may be named.
 func generatedSetMethods() []string {
-	return []string{"Resource", "DefaultConfig", "FileKeys", "GroupColumns", "TenantBinding", "DeleteTree", "SearchBranches", "NameFields", "SecretContext"}
+	return []string{"Resource", "DefaultConfig", "FileKeys", "GroupColumns", "TenantBinding", "DeleteTree", "SearchBranches", "NameFields", "RecordedNames", "SecretContext"}
 }
 
 // reservedRowName reports whether a column or field name collides with one of

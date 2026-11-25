@@ -74,10 +74,12 @@ export const rowActionsKey = 'actions:menu';
 
 /**
  * A button every row of a list carries, for what a row offers that is no method of the
- * server's: something a person only reads, opened in a pop-up (a flag's history). It is
- * drawn as an icon button named by its label, ahead of the row's menu of methods, on
- * every row; what the server lets the caller do is never decided here, so a button that
- * reads asks the server and shows its answer, a refusal included.
+ * server's: something a person only reads, opened in a pop-up (a flag's history, a
+ * record's history). The list draws it as an icon button named by its label, ahead of
+ * the row's menu of methods, on every row, and the record's page draws it after Delete,
+ * with its icon and its label. Each runs it with the record and its own injector. What
+ * the server lets the caller do is never decided here, so a button that reads asks the
+ * server and shows its answer, a refusal included.
  */
 export interface RowButton {
   /** The button's name: its tooltip and what a screen reader says. */
@@ -87,7 +89,8 @@ export interface RowButton {
   /**
    * What a click does. The row is the one the server answered, not the one the columns
    * wrote (a column's getter and formatter change what a cell shows, never what the row
-   * holds), and the injector is the list's own, for a dialog or a service.
+   * holds), and the injector is the list's own, or the record page's where the page
+   * draws the button, for a dialog or a service.
    */
   run: (row: RecordData, injector: Injector) => void;
 }
@@ -145,7 +148,9 @@ export interface MethodPresentation {
    * the row it is offered on and takes nothing but the row. The dialog asks `confirm`,
    * then the server's question where the delete takes records with it, and sends the
    * method again with `everythingUnder` at the next press, and for as long as the server
-   * answers what is left (a 202).
+   * answers what is left (a 202). Where the method declares a warning, the delete dialog
+   * shows the server's words under the page's question. A method whose warning asks for
+   * a typed word keeps its own dialog.
    */
   deletes?: boolean;
   /**

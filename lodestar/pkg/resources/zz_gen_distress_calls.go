@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -86,6 +87,16 @@ func (DistressCall) DeleteTree() *resource.DeleteTree {
 func (DistressCall) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "SectorName", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (DistressCall) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "SectorID", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
 	}
 }
 
@@ -496,11 +507,11 @@ func (p *DistressCallCreatePatch) ToStruct() *DistressCall {
 	return p.patchSet.ToStruct()
 }
 
-func (p *DistressCallCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *DistressCallCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DistressCallCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *DistressCallCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -723,11 +734,11 @@ func (p *DistressCallUpdatePatch) ToStruct() *DistressCall {
 	return p.patchSet.ToStruct()
 }
 
-func (p *DistressCallUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *DistressCallUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DistressCallUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *DistressCallUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -987,11 +998,11 @@ func (p *DistressCallDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *Distr
 	return p
 }
 
-func (p *DistressCallDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *DistressCallDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *DistressCallDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *DistressCallDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

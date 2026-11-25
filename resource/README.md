@@ -58,7 +58,7 @@ type Ship struct { ... }
 
 | Annotation | Attaches to | Arguments | Effect |
 | --- | --- | --- | --- |
-| `@resource` | struct in the resources package | none | Marks the struct as a resource backed by a Spanner table. The generator emits query builders, request structs, handlers, routes, and TypeScript for it. Example: [Ship](../lodestar/pkg/resources/ships.go). |
+| `@resource` | struct in the resources package | none | Marks the struct as a resource backed by a Spanner table. The generator emits query builders, request structs, handlers, routes, and TypeScript for it. For every table-backed resource with a read route the generator also writes GET <read route>/changes, the record's change history (section 24 of the resource package's reference). It asks the record's own Read grant and answers 404 for a resource that does not track its changes. Example: [Ship](../lodestar/pkg/resources/ships.go). |
 | `@virtual` | struct in the resources package | none | A resource backed by a view instead of a base table. Because there is no table metadata, indexed fields must be declared with `index`/`uniqueindex` tags (see §2), and the read identity (if any) with `@primarykey`. A view that declares its key serves a keyed read route beside its list, as a table does (`@suppress(readHandler)` removes it). Without a key the view is a whole read-only list, with no read route and no paging: one list route serves every row the filter admits in one response, sorted when a `sort` is asked or an `@order` declared, a numeric `limit` or a `cursor` is refused with a 400 naming `@primarykey` as the way to page (section 4), `@page` is refused at generation, and its metadata says `readDisabled`. A view that carries a table's rows one to one declares the table with `@rowsOf`, so a page listing the view writes to the table; without it the view is a read-only list. A view declares two bindings on fields of its own, each in its bare form, since a view has no schema to resolve a join path against: `@domain` on the tenant column its query selects, and `@attribute` on a column a grant's condition reads by name (a fact about the row, which the view's query computes). A view keyed by one field may be a method's `@target`: the method's Execute grant is then judged against the row, within the tenant (see `@target`). Examples: [OpenMissionsBySquadron](../lodestar/pkg/virtualresources/open_missions_by_squadrons.go); [SectorPilot](../lodestar/pkg/virtualresources/sector_pilots.go), a view with a fact that is a method's target. |
 | `@computed` | struct in the resources package | none | A read-only resource (List/Read only) whose rows are produced by hand-written query logic rather than a table. Primary-key fields are marked with `@primarykey`, and the key is optional: without one the resource is a whole read-only list, with no read route and no paging (one list route, every row the filter admits in one response, sorted when asked or declared; a numeric `limit` or a `cursor` is refused naming `@primarykey` as the way to page, `@page` is refused at generation, and the Collection registers List only, so a Read grant on it is refused at deploy). Example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). A computed view that carries a table's rows one to one declares the table with `@rowsOf`, so a page listing it writes to the table. Its permission checks run when the request is decoded, since the rows come from a Go function and no query of the library's. A grant on it may still carry a condition that reads the row: the struct declares the fields a condition may read with a bare `@attribute(name)` on the field, and the library judges each row the function yields, in Go, by the rules a table's rows follow (a row the condition on the resource refuses is not listed, not counted, and read as a row that is not there; a field granted under a condition the row does not meet is left out of that row; a row that would show none of the fields a grant covers is left out). The condition reads the declared fields, `subject`, `now`, and the facts about the caller that are held in tables (`subject.<name>`, a subject set or a subject value). A table's statement reads such a fact as a subquery beside its rows; for a computed resource the library reads it once for the request, when the request is decoded, through the resource client, by a statement built from the same pieces (the anchor table, the caller's rows on it, the anchor's own tenancy filter, a dotted value hop by hop). So a request costs one read for each fact its conditions name, whatever the number of rows, and none where no condition names one. The read is implemented for Spanner, the database the resource client reads; the PostgreSQL statements are rendered and proven by test, as the rest of the PostgreSQL rendering is. Deploy-time role migration validates a computed resource's condition as a table's, against the fields the resource declares, and the generated Collection marks the resource computed so a refusal names that declaration. Example: Lodestar's Flight Lead reads the [expense manifests](../lodestar/pkg/computedresources/expense_manifests.go) of the missions their own squadrons fly (`assignedSquadron IN subject.squadrons`), through the list, the read and the rendered file. A field a list sorts, filters or searches by needs a grant with no condition left once the request is checked (an unconditional grant, or one whose conditions read the time of the request alone, while one of them holds), and `qSet.TakePage()` answers false while a condition is left to judge the rows by. Example: the roles a tenant picks from (section 22). From the browser a computed resource answers a list query exactly as a table does, with no code in its List function: the generated handler applies the filter, then the sort when the request asks one or the struct declares one (`@order`), then the page (cursor, Link header, count) over the rows the function yields; with neither a `sort` nor an `@order` only the whole list (`limit=all`) is served, the rows in the order the function yielded them, after the filter; a paged request without an order is refused (section 4). A field is filterable when it carries `allow_filter`, as on a table; `index` and `uniqueindex` are refused (there is no database index), and `allow_filter` on a field the in-memory evaluator cannot compare fails generation with the field named. A List function that runs its own queries may take pieces of the work to push down — `qSet.Filter().Take(fields…)` returns the conditions on those fields and leaves the handler the rest (defined on an AND-only filter; an OR takes nothing; a field is taken whole, so a body that takes a text field answers its matches too, `Condition.MatchesText`, and one that takes the box reads its `SearchTerms` and `SearchFields`, section 4), `qSet.TakeSort()` returns the total order (empty when the list is not sorted: the body's own order stands) and marks it the body's, and `qSet.TakePage()` returns the page bounds only when paging in the body is correct (nothing left to filter, the sort taken, no count asked) and otherwise answers false so the handler pages. Taking is the only way to opt out, so a body can never make the result wrong. A computed list sorts and pages `NULL` where the application's database does, the same end as the tables beside it (Spanner first ascending and last descending, PostgreSQL the reverse); a body's plain `ORDER BY` already produces that placement, and the generated decoder carries the database type so the handler's in-memory sort and page boundary agree with the rows a body yields. Example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go). |
 | `@rpc` | struct in the rpc package | none, or `max: 8MB`, `log: onEvent`, `trace: off` | Declares an RPC method: the struct's fields are the request payload, and the struct declares `Execute` in one of two forms, read off its signature — `Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error` runs inside the generated handler's read-write transaction; `Execute(ctx context.Context, client resource.Client, rpcClient *Client) error` runs outside one. The third parameter is the application's own RPC client type. `Execute` returns `error` alone, and the handler answers with an empty 200, or `(Result, error)` with `Result` a struct type or a pointer to one, and the handler answers with the result after the transaction commits, mirrored with generated wire names (a nil pointer answers empty). A method answers with identifiers and outcomes, never rows: a `@resource` or `@computed` struct in the result position is refused, since rows are read through their own routes, where permission masking applies. A struct with no `Execute`, or one of another shape, fails generation naming the struct; no interface declaration takes part. Example of an answering method: [InspectShip](../lodestar/pkg/rpc/inspect_ship.go). The generated frame stamps the caller into the context before `Execute` (`resource.CallerFrom`), so a body may arm a typed patch or query with `.Enforce(caller)` and run the pipeline the resource routes run, or ask `caller.Check` for a decision to branch on; without either the body is trusted, the default. A transaction-form method honors `X-Dry-Run: true`: the whole frame and the body run and the transaction rolls back, refusing exactly as the real call would and answering an empty 200 where it would have succeeded; a client-form method refuses the header with 400. The generated TypeScript method metadata says which a method is (`dryRun: true` on a transaction-form method, nothing on a client-form one), so a page knows a dry run previews the call before it sends one, and names on each request field the name a grant's condition reads it by (`attribute: 'role'` for a bare `@attribute(role)` on the field): the Angular library's method dialog rehearses a method this way where the caller's grant on it carries a condition, waiting for the fields a condition may read and marking them when the dry run is refused as not permitted. Examples: [HoldMission](../lodestar/pkg/rpc/hold_mission.go) (armed), [CompleteMission](../lodestar/pkg/rpc/complete_mission.go) (decision as data). Gated by the `Execute` permission. The struct lives in a file named after it in snake case (`claim_mission.go`), as every generated kind does; a name ending in `Test` carries the `_rpc` marker instead (`start_flight_test_rpc.go`), so neither it nor the `zz_gen_` files generated beside it are Go `_test.go` files. Example: [ClaimMission](../lodestar/pkg/rpc/claim_mission.go). `max:` bounds the method's request body (a byte count or `KB`/`MB`/`GB`, 1024-based), applied by its generated handler in place of the application's limit (section 8, request body limits); a method that declares none takes that limit. Example: [IssueBulletin](../lodestar/pkg/rpc/issue_bulletin.go). `log:` is the method's own request log word, `always`, `onEvent`, `sampled` (with `fraction: 0.01`) or `never`, and `trace:` its own trace setting, `followFrontEnd`, `capped` (with `rate: 0.1`) or `off`: the nearest declaration, over its outlet's and the application's (section 8, request logs and traces). A word is refused on a scheduled method, which declares it on `@schedule`, and with `@suppress`, where no route carries it; a trace setting needs `GenerateRouter`. Example: [IngestDroidReports](../lodestar/pkg/rpc/ingest_droid_reports.go). |
@@ -71,6 +71,7 @@ type Ship struct { ... }
 | `@validateUpdateType` | `@resource` struct | type name | As above, for updates. |
 | `@validateDeleteType` | `@resource` struct | type name | A delete rule no grant gets around. Before a row of the resource is deleted, the generated delete calls `Validate()` on the named type with the delete patch, inside the delete's transaction, once the caller's grants and their conditions have passed and before anything is buffered. An error it returns refuses the delete and nothing is deleted: `httpio.NewBadRequestMessage` answers 400 with the rule's own sentence, which is what the person reads. Who may delete which rows stays in grant conditions; the rule is for what no role may do, such as a retention period, which a condition cannot hold because conditions add up across a person's grants. A caller the grants refuse hears their Forbidden and never the rule's sentence. A read-only enumeration table refuses the annotation. Example: [SortieExpenseDeleteRule](../lodestar/pkg/resources/sortie_expenses.go). |
 | `@deleteCascade` | `@resource` struct | kinds, then `refusedBy:` kinds | Declares what a delete of the record takes with it and what refuses it. `@deleteCascade(Project, Task, TaskComment, refusedBy: Invoice)` on `Client` lists the kinds of row that go with a client, in any order, and after `refusedBy:` the kinds that keep a client from being deleted while it has one. The generator reads what is under the record from the schema, the foreign keys and interleaves that lead up to it, and holds the list to it: every kind under the record is named in one list or the other, or generation fails naming the kind, the record and the way between them. A kind that is under the record only through a refusing kind needs no place, since it has no row there without a row of the kind that refuses. A name that is no resource, a kind that is not under the record, a kind named twice, and a read-only table among the kinds taken fail generation the same way, each in a sentence that says what to change. For the record the generator writes `DeleteTree()` on the resource (`resource.DeleteTree`): the kinds taken in the order their rows are deleted, deepest first, each kind's ways up to the record, and what the delete of one row costs in mutations (`resource.DeleteCost`: the delete, an entry in each index of its table, the change record where changes are tracked, and the release of each stored file). `DeleteTree.Mutations` is the one count of a whole delete, held against the 80,000 mutations Spanner takes in a commit (`resource.DeleteMutationLimit`). A delete of a record with a row of a kind listed under `refusedBy` is refused before the commit in a sentence that counts what refuses it. A delete of a record with rows of the kinds it takes asks first: it deletes nothing and is answered 428 with a question that names what will be deleted, and the same delete saying it takes them (`"everythingUnder": true` as the remove operation's value) deletes those rows in code, each as its own delete would delete it, and the record last. A record that declares nothing is refused while it has rows under it that the database does not remove with it (section 10). The tenant record takes no `@deleteCascade`: the library declares its description, every kind of the application's rows that carry the tenant's key or lead to a row that does, with nothing listed to refuse it. A record lists its own kind where its table has a foreign key to itself (an answer names the message it answers): `@deleteCascade(DistressRelay)` on `DistressRelay` takes the answers under a relay, however deep, and a table with such a key is a kind under its own record like any other, to be named in one list or the other. A kind taken with another record carries its link to itself in the description (`DeleteKind.Within`), so that record's delete takes the rows under its rows too. A foreign key to columns that are not the other table's key (a case number) is a way up like any other: the description holds the columns each step references (`DeleteLink.References`), and the rows are found by them. Example: [Mission](../lodestar/pkg/resources/missions.go), [Client](../lodestar/pkg/resources/clients.go), and [DistressCall](../lodestar/pkg/resources/distress_calls.go) with [DistressRelay](../lodestar/pkg/resources/distress_relays.go). |
+| `@deletedWith` | field of a `@resource` struct | none | Says a row of the record goes with the group or the account of the library's that the column names, when that group or account is deleted: the delete's question counts the rows, and each goes through its own delete. Whoever deletes a group needs what deleting each row needs. An account's rows go on the permission to delete the account, in the tenants that permission reaches, and a row anywhere else refuses the delete. The column is one the schema holds, alone, by a foreign key to the key of an auth's groups table or users table; on a column the schema holds to a record of the application's, on any other column, on a read-only enumeration table and on the tenant record, generation fails and says what to write. A record that names a group or an account and says nothing keeps it from being deleted while the row is there. See "A record that names a group or an account of the library's". Example: [HangarPass](../lodestar/pkg/resources/hangar_passes.go). |
 | `@primarykey` | field of a `@computed` or `@virtual` struct | none | Marks the field as (part of) the resource's primary key; multiple annotated fields form a compound key in declaration order. Primary-key fields are exempt from field-level permission enforcement (their readability follows the resource-level grant). The key is what gives a row identity: the read route (`/{key}`), the cursor's tie-break (the key fields end every order, so a keyset cursor walks a total order), and the browser's row identity (`keyOf`). Without a key the resource is a whole read-only list, with no read route and no paging: served in one response, sorted when asked or declared, refusing a numeric `limit` or a `cursor` with a 400 that names `@primarykey` as the way to page, and refusing `@page` at generation. Rejected on table-backed `@resource` structs, whose keys come from the schema. Compound example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go); key-less example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). |
 | `@rowsOf` | `@virtual` or `@computed` struct | table resource name | The view declares its backing table, a create goes into the table, and the new row shows up in the view on the next list because the view's SQL reads that table. The declaration states row identity, not columns: every row of the view is one row of the named table under the same key, and the view's other columns are its own — joined from other tables, aggregated, or computed in the projection; the generator compares none of them to the table. It checks, each refusal naming the fix: the named resource exists and is a table-backed `@resource` (a `@virtual` or `@computed` target is refused, since a view cannot back a view, and an `@enumerate` table — with or without a struct over it — is refused as a contradiction, since its rows are the program's constants and a create button for them would be policy about nothing); the view declares `@primarykey` fields matching the table's key in count, order, Go field name, and Go type, nullability included, and on a `@virtual` the `spanner` columns as well, the message naming the first mismatch and the table's key; the two share a `@permissionScope`; the table is served on every outlet the view is served on (fail loud, never a silent degrade); and the view does not name itself. Refused on `@resource` and `@rpc` structs. Several views may name one table. The view's TypeScript metadata carries `rowsOf: Resources.X`, so a page listing the view sends its create, edit, and delete to the table and opens a row on the table's page; a view without the declaration is what it is today, a read-only list. One backing table only: two tables sharing one key (a table and its one-to-one extension) is the door left open and not built, and a parent joined to its children is never one to one with anything and stays a read-only list or an RPC. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), a same-row view over Missions; [SquadronRoster](../lodestar/pkg/virtualresources/squadron_rosters.go) and [PilotAssignment](../lodestar/pkg/virtualresources/pilot_assignments.go), two association views over SquadronMemberships whose compound key is edited and deleted from the list. [OpenMissionsBySquadron](../lodestar/pkg/virtualresources/open_missions_by_squadrons.go) and [FeeByKind](../lodestar/pkg/virtualresources/fee_by_kinds.go) declare nothing and stay read-only lists. |
 | `@changedBy` | `@virtual` or `@computed` struct | table names | The tables whose changes change the resource, so a commit on them reaches the resource's live pages. On a virtual resource the declaration replaces what the generator reads off the query (the text behind its `Subquery` method, an embedded file, a string literal or a concatenation of constants, walked with memefish's lexer for the names in table positions, section 14), so it can drop a table the walk misread as well as add one the query does not show; the generator still reads the query, and a declaration that differs from the reading is a warning naming both sides, never a refusal. It is the way out when the reading refuses (a name in a table position that is neither a table nor a CTE in scope, a recursive `WITH`, a text the lexer refuses) and required for a query built at run time. A computed resource is Go, so the declaration is its only source: without one its changes are not published, its pages stay plain, and nothing refuses. The `@rowsOf` root must be in the set, read or declared, and a name the schema lacks is refused; refused on `@resource` and `@rpc` structs. The sets are recorded next to the resources, as each package's generated `LiveDerivations`, and assembled in the handler package's `zz_gen_live_derivations.go` (section 14), so what the generator concluded shows in the diff, and the resource's TypeScript metadata says `live: true`. A table of an Auth's generated management (section 22) is read or declared like any other and recorded by its name, since the type over it is internal to the management's tree. Examples: [MissionBoard](../lodestar/pkg/virtualresources/mission_boards.go), read off its query; [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go), declared. |
@@ -680,13 +681,14 @@ sentence the caller was sent after it.
 
 A handler that checks a permission itself answers its refusal in the same words with
 `resource.NotPermitted`, which takes what the log keeps, the permission and the
-resources refused:
+resources refused. `ViewAsUser` here is a constant that carries
+`@manualAddResource(Execute)`:
 
 ```go
-if !decisions[resources.ShipsLogEntries].IsGranted() {
+if !decisions[resources.ViewAsUser].IsGranted() {
 	return httpio.NewEncoder(w).ClientMessage(ctx, resource.NotPermitted(
-		errors.Newf("user %s does not have List on %s in %s", user, resources.ShipsLogEntries, domain),
-		accesstypes.List, resources.ShipsLogEntries,
+		errors.Newf("user %s does not have Execute on %s", user, resources.ViewAsUser),
+		accesstypes.Execute, resources.ViewAsUser,
 	))
 }
 ```
@@ -898,14 +900,17 @@ about it:
   `DomainGuard` refuses a direct request for the tenant exactly as it refuses a domain
   that is not a tenant, and the two can never disagree. One composed value reads a
   tenant's declaration once, whatever is asked about the tenant after.
-- **`UserEvent(ctx)`** — the event source every generated write handler stamps onto
-  `DataChangeEvents` — writes a person as their username with the id of their account,
-  and the session last: `bob (account id), session id`. It names the actor first for an
-  impersonated session: `alice (account id) impersonating bob (account id), session id`
-  and `alice (account id) as role PartnerViewer, session id`. A person with no account
-  here (an actor another application authenticated) is written by name alone. Every
-  tracked data change carries evidence of the real person with no regeneration, and a
-  rename changes nothing about who a change was made by.
+- **`eventsource.UserEvent(ctx)`** is who made a change in a person's request, the
+  value every generated write handler hands a tracked write: the person, by the id of
+  their account and their username on the day; who or what their session acted as,
+  where it acts as someone else; the session; the auth the request came through; and,
+  in an RPC method, the method's name, which the method's generated handler hands the
+  request (section 7). In a session acting as someone else the actor is the real
+  person, so every tracked change carries who really made it, and a rename changes
+  nothing about who a change was made by. A job passes
+  `eventsource.ProcessEvent(name)`, and a job run for the person of a request
+  `eventsource.UserProcessEvent(ctx, name)`. The value is of the package `eventsource`,
+  not of this one: section 24 says why, and lists the columns it is kept in.
 
 ## 7. RPC methods: what a method is for
 
@@ -1115,6 +1120,19 @@ sign-in) or one of the acts a generated route does in the application's name, su
 seating the person who creates a tenant; the user management reads it that way and
 judges nothing there (section 21). A handler written by hand that runs code which asks
 who the caller is stamps one itself (`resource.WithCaller`).
+
+A change a method makes says which method made it. The generated frame hands the
+method's name to the request (`resource.WithRPC`) before `Execute` runs, and
+`eventsource.UserEvent(ctx)` reads it there, so every change record the body writes, and
+the record of the frame's own stamp of a `@transition`'s state, holds the name in its
+`Rpc` column (section 24) and reads "dana, through the RPC CloseOrder". The body passes
+nothing for it and cannot leave it out. A write the body arms through another role's
+checker (`Caller.As`) is recorded the same way: the person and the method, and no
+role, because the session acts as nobody else; `PrincipalRole` holds a role only for a
+session that acts as one. A handler written by hand that runs a method's code hands
+the name itself, as it stamps the caller. The methods the library serves for a
+tenant's directory hand their names the same way; SetFeature hands none, since every
+flip a person makes is that one method's.
 
 ## 8. The generated router
 
@@ -1901,6 +1919,11 @@ with nothing gone where it cannot be made whole:
   kind alone (an invoice for a task under a task) is found level by level as the rows the
   delete takes are, and the delete answers in the same counted sentence before any row
   is checked, asked about or deleted.
+- A kind with a row straight under the record that the record's description neither takes
+  nor lists under `refusedBy` refuses the delete as it refuses a plain one, in the
+  sentence of the part before ("… Delete them first."), before any row is asked about.
+  The generator writes such a description for a group or an account of the library's that
+  a record of the application's names and says nothing (the next part).
 - Every row goes through its own kind's generated delete (`DeleteKind.Rows`, which the
   generator writes with `resource.NewTakenRows`): the person's Delete grant on the kind,
   what a session that acts as someone else is asked about a row that decides what a
@@ -1937,6 +1960,106 @@ and PostgreSQL has no write path.
 Example: [the served suite](../lodestar/test/integration/delete_cascade_test.go), over
 [Mission](../lodestar/pkg/resources/missions.go), [Client](../lodestar/pkg/resources/clients.go)
 and [DistressCall](../lodestar/pkg/resources/distress_calls.go).
+
+### A record that names a group or an account of the library's
+
+A group and an account are records of the library's, so an application cannot list its
+own rows on them with `@deleteCascade`. The application's record says it instead, on the
+column that names the group or the account: `// @deletedWith`, with no argument.
+`@deleteCascade` sits on the record that is deleted and lists what goes with it;
+`@deletedWith` sits on a column of the row that goes, and names the group or the account
+whose delete takes it. The column is one the schema holds, alone, by a foreign key to the
+key of an auth's groups table or users table; on any other column generation fails and
+says what to write.
+
+- **With `@deletedWith`,** a delete of the group or the account takes the rows that name
+  it. The question counts them after the library's own rows: "Delete this group and
+  everything under it: 12 members, 3 roles, 5 task assignments. This can't be undone.";
+  "Delete this account and everything under it: 7 task assignments. This can't be
+  undone." Each row goes through its own kind's delete, as the part before says of every
+  taken row. The generated methods that delete a group and a person ask the same way:
+  sent without `everythingUnder` for one that rows go with, each answers 428 with the
+  question, and the Groups page and the People page show it and send the delete again
+  with it.
+- **A group's rows are checked as the person who asked,** though the library's own delete
+  of the group is not armed (`DeleteKind.AsCaller`): whoever deletes the group needs what
+  deleting each row needs. Without it the delete is refused whole: "This group has task
+  assignments that you can't delete, so it can't be deleted."
+- **An account's rows go on the permission to delete the account**
+  (`DeleteKind.WithinReach`). No grant is asked on the rows' own table, the question
+  counts them for whoever may delete the account, and each row's delete rule is asked all
+  the same. The permission answers as far as it reaches. A request made for the whole
+  application takes every row. A request made under a tenant's address takes the rows of
+  that tenant, and of each other tenant in which the person holds the same permission,
+  with or without a condition (a condition is judged where the request is made); a
+  row of any other tenant refuses the delete, with nothing gone, in a sentence that names
+  the tenant: "This account still has 2 task assignments in Borealis. They have to be
+  removed there before the account can be deleted." It says "in another company" where
+  the tenant record marks no name. A row of a table that belongs to no tenant is the
+  whole application's, and so is a row whose way to its tenant ends empty: "This account
+  still has 3 saved filters that are not part of any company. Only someone who manages
+  accounts for the whole application can delete it." Removing a person from a tenant
+  takes none of these rows.
+- **Without it,** the delete is refused while a row names the group or the account, in
+  the counted sentence: "This group has 5 tasks. Move or delete them first.", or "Delete
+  them first." where the column may not be empty. For an account the count is of every
+  tenant's rows, so a person who deletes it under one tenant's address can be refused
+  over rows they cannot see there.
+- **What is under such a row** goes with it where the row's own `@deleteCascade` takes
+  it, and is counted in the question. A row that would refuse the row's own delete (a
+  kind its `@deleteCascade` lists under `refusedBy`, or, where it declares none, a kind
+  straight under it) refuses the group's or the account's: "This group has 2 assignment
+  notes, so it can't be deleted."
+- **Which table carries the column is the schema's choice.** A link table
+  (`TaskAssignments`: a task, and the group or the person it is assigned to) with
+  `@deletedWith` on its columns loses its link rows with the group or the account, and
+  the tasks stay, assigned to whoever else holds them or to nobody. A column on the
+  record itself (`Tasks.GroupId`) with `@deletedWith` deletes the tasks with the group;
+  without it, the group stands until the tasks are moved or deleted.
+- **The count reads what the database held before the save,** as every delete's does. A
+  save that deletes the rows that name a group or an account and then the group or the
+  account itself is refused over those rows where their column says nothing: the rows are
+  deleted in an earlier save, or the column says `@deletedWith`.
+- **The save that takes the account's row** also ends the person's sessions and removes
+  their sign-ins, their roles and their places in groups, and the size of a save does not
+  count those writes. An account whose last rows fill that save to within them is refused
+  by the database at the commit, at every try, for holding too many changes; it is deleted
+  once a few of its rows are deleted first.
+- **The application's resources package must not import the auth's generated packages.**
+  The generated description of the group or the account names the delete of the
+  application's record (`<Record>TakenRows`, which the generator writes in the
+  application's resources package), so the import would be a cycle, and the application
+  does not compile.
+- **A tenant's delete** takes the application's rows under the tenant itself, on its one
+  permission, and then deletes the tenant's groups and the accounts that were its alone
+  with the library's rows alone (section 16, "Deleting a tenant").
+- **Left to the database.** Three kinds of row are neither counted nor taken, and the
+  foreign key refuses the save, in the commit's own sentence, while one is there: a row
+  of a table no resource declares; a row that names another row of the auth's (a place in
+  a group, a role a group holds) and not the group or the account itself; and, in a
+  tenant's delete, a row outside the tenant that names a group or an account the delete
+  takes.
+- **Spanner, through the generated management.** The delete in code is Spanner's write
+  path. The session library's own delete of a user (`DeleteSessionUser`), which an
+  application without the generated management calls, takes no row of the application's
+  on Spanner or on PostgreSQL: a row that names the user by a foreign key refuses it in
+  the database's own sentence.
+
+**How a table should name a person.** A record that names an account by a foreign key
+leaves the account's delete two outcomes: it is refused while the row is there, or, with
+`@deletedWith`, the row goes with the account. For a record that should outlive the
+person (a task, an order) neither is wanted, so keep the foreign key off it. Use a link
+table for assignments (`TaskAssignments`: its rows go with the account, and the tasks
+stay). Rely on the change history for who did what: each change record says who made the
+change (section 24) and stays when the account is gone. Where a record must name a person
+itself, keep a copy of the person's information on it (their name, their address), with
+no foreign key. A copy keeps personal data after the account is gone, so an application
+that must erase a person cleans up its own copies. Disable is the usual way to remove a
+person who has history; delete is for when the account itself must go, and a design that
+names people these three ways keeps it possible.
+
+Example: [HangarPass](../lodestar/pkg/resources/hangar_passes.go), and
+[the served suite](../lodestar/test/integration/group_share_test.go).
 
 ### A link between two records of a tenant
 
@@ -3004,11 +3127,11 @@ A `FeatureSet` that is nil (the application wired none) leaves every gated targe
 
 **The table.** Every application has two tables, `FeatureFlags` (`Name` STRING(64) the
 key, `Description`, `Enabled`, `UpdatedAt` a commit timestamp, `UpdatedBy`) and
-`FeatureFlagChanges` (`Name`, `ChangedAt` a commit timestamp, `Enabled`, `ChangedBy`),
-the second a record of every flip written in the flip's own transaction; the rows outlive
-their flag, so there is no foreign key. `resource.FeatureFlagsDDL(dbType)` renders the
-statements for Spanner and for PostgreSQL, and an application copies them into a
-migration as Lodestar does in
+`FeatureFlagChanges` (`Name`, `ChangedAt` a commit timestamp, `Enabled`, and who made the
+change, in the columns a change record uses: section 24), the second a record of every
+flip written in the flip's own transaction; the rows outlive their flag, so there is no
+foreign key. `resource.FeatureFlagsDDL(dbType)` renders the statements for Spanner and
+for PostgreSQL, and an application copies them into a migration as Lodestar does in
 [000001_Baseline.up.sql](../lodestar/schema/migrations/000001_Baseline.up.sql),
 pinned to the function by a test. The generator never derives a resource from the table:
 `FeatureFlags` has a `Description` column but no `Id`, and an enumeration table is
@@ -3088,11 +3211,18 @@ from the flag's newest change record and not from the row's columns of those nam
 since the deploy step that declares a flag writes the row too, under a process's name
 and at the time of the deploy: so the list says what the flag's history says.
 `updatedAt` is the moment of the last flip, and `null` for a flag nobody has flipped.
-`updatedBy` is the name the person signs in under, read out of the event source the flip
-recorded (`resource.EventActor`; the session and the account's id stay in the table as
-evidence), a process's source as it was recorded where a process flipped it, and the
-empty string for a flag nobody has flipped. `EventActor` reads the words of a sentence
-in which nothing is escaped, so the name is for showing to a reader and for no decision.
+`updatedBy` is who last flipped the flag, as one sentence (`EventSource.String()`,
+section 24): the name the person signs in under, "alice, acting as bob" for a session
+acting as someone else, "alice, through the RPC StartPilot" where an RPC method of
+the application flipped it for her, "the process bootstrap" where a process flipped
+it, and the empty string for a flag nobody has flipped. The sentence is for showing to
+a reader and for no decision.
+
+Each change of a flag is one row of `FeatureFlagChanges`, with who made it in the columns a
+change record uses (section 24): the account and the username of the person, who or what
+their session acted as, the session, the process, and the RPC method where one made the
+change. The routes serve it as one sentence, written when it is read.
+
 A list request that asks for a sort on `updatedAt` or `updatedBy` is refused with 400,
 in a sentence that says the two are worked out from the flag's history and what the list
 can be sorted on (`name`, `description`, `enabled`): the statement that orders the list
@@ -4010,8 +4140,12 @@ written and its stored files are released. The tenant's directory is one of thos
 goes with the rest, whether the tenant is directory only or not, and is free for another
 tenant afterwards; the rule that keeps the directory of a directory-only tenant is for a
 tenant that stays and is not asked. A person who may delete a tenant need hold no role in
-it. A row of another tenant that names one of the tenant's rows is not under the tenant and
-is not taken (section 10, the same part).
+it. A row of another tenant that names one of the tenant's rows is not under the tenant
+and is not taken (section 10, the same part). The tenant's groups and the accounts that
+were its alone are then deleted with the library's rows alone: the application's rows that
+name them were under the tenant and went before them, on the one permission, and a row
+outside the tenant that names one of them is not taken, so its foreign key refuses the
+save (section 10, "A record that names a group or an account of the library's").
 
 A tenant that has such rows, or that an auth holds anything for, is not deleted by a
 request that does not say so. The remove is answered 428 with the question a person is
@@ -4161,13 +4295,14 @@ names no row or tenant: the struct declares no field, and nothing that adds a pa
 parameter or a body is admitted. It checks no permission and is in no outlet: the
 scheduler's token is its gate, so no role names it, the permission collection and the
 digest leave it out, and no TypeScript client carries it. `Execute` runs as the
-application, with no caller stamped on its context, so `Enforce` and `Check` refuse inside
-it and its queries and patches run trusted; it records its writes under a process
-(`resource.ProcessEvent`) rather than a person. The frame is a method's otherwise: the
-transaction form runs inside the handler's transaction, the rows it writes are published to
-the live pages after the commit, and it answers with its result or its chosen status
-(`@answers`), which the scheduler records as the call's success or failure. There is no
-dry run.
+application, with no caller stamped on its context, so `Enforce` and `Check` refuse
+inside it and its queries and patches run trusted; it records its writes under a process
+(`eventsource.ProcessEvent`) rather than a person. Its change records name that process
+and no RPC method: `eventsource.ProcessEvent` takes no request to read a method's name
+from. The frame is a method's otherwise: the transaction form runs inside the handler's
+transaction, the rows it writes are published to the live pages after the commit, and it
+answers with its result or its chosen status (`@answers`), which the scheduler records as
+the call's success or failure. There is no dry run.
 
 **The route.** The generated router mounts every scheduled method under one prefix it
 reserves, `/_scheduled` (`scheduled.Prefix`), one `POST` each at the method's name in kebab
@@ -4445,8 +4580,7 @@ as is a resource field named for a method of the generated set (`Resource`,
 
 **The credential methods carry a class.** The methods that change how a person signs in
 are written with `@class(credential)` (`accesstypes.ClassCredential`), in the whole
-application's form and in a tenant's alike: the temporary password
-(`set-crew-temporary-password`), the required new password
+application's form and in a tenant's alike: the required new password
 (`require-crew-password-change`), the removal of a password (`remove-crew-password`), the
 reset link an administrator sends (`send-crew-user-password-reset-link`), the unlinking
 of a sign-in identity (`unlink-crew-session-identity`), the rename (`rename-crew-user`)
@@ -4536,7 +4670,9 @@ names (a record named `Session`, `User` or `Listed`) is refused at generation:
   have none. It is the view's name (`@name`), so a field of another resource that holds a
   person's id gets a name field read from it. It is made of `name` and `username`: a role
   that grants `displayName` shows a person's name, or their username, whatever condition
-  the role keeps on those two.
+  the role keeps on those two. A change record of a field that holds a person's id keeps
+  the person's username and not this name, and it is the grant on `username` that shows
+  it in a record's history (section 24).
 - `CrewSectorUserRoles`, the roles held there: one row per person and role, keyed by the
   account's id and the role (`userId`, `role`), with `username` and `createdAt`. Two facts: `role`, the role itself, and `everyDomain`, true
   where the role is held there through a membership in every tenant alone, so it is not
@@ -5822,10 +5958,13 @@ own, outside any request, has no caller and is the application's act):
   whole, in the sentence the row's own removal is refused with ("You are acting as
   someone else, so you cannot remove your own client contact record."), before any
   question is asked, and nothing is deleted. A mask that refuses the row's own delete
-  refuses the record's delete too. A delete an application runs trusted, with no caller,
-  asks neither: an action that deletes such a record in its own body takes the rows
-  under it unasked, and an application closes that by refusing the action by name in
-  the kind's mask (`accesstypes.RefuseAction(action)`).
+  refuses the record's delete too. A row that goes with a group of the library's that it
+  names (`@deletedWith`) is held to the same three questions: the library deletes the
+  group without arming the delete, and the row is checked as the request's caller all
+  the same (`DeleteKind.AsCaller`). A delete an application runs trusted, with no
+  caller, asks neither: an action that deletes such a record in its own body takes the
+  rows under it unasked, and an application closes that by refusing the action by name
+  in the kind's mask (`accesstypes.RefuseAction(action)`).
 
   A row that goes with its tenant is a limit of its own. A tenant's delete takes every
   row under the tenant on the grant to delete the tenant: no grant is asked on a row,
@@ -5839,11 +5978,18 @@ own, outside any request, has no caller and is the application's act):
     (`accesstypes.RefuseAction(action)`): an action is asked for Execute on its name,
     not for Delete on the record.
 
+  A row that goes with an account it names (`@deletedWith`) is the same limit. The
+  account's delete takes it on the permission to delete the account: no grant is asked
+  on the row, and the questions are not asked about the person or the set it names. An
+  application closes it for a kind by refusing, in the kind's mask, the methods that
+  delete a person, by name (`accesstypes.RefuseAction(method)`).
+
   A row a foreign key's referential action removes or rewrites is another: no write of
   the row is made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` on an
   application's tables, wherever the link points (`no-delete-cascade`). An application's
-  record that names a group of the library's is not removed by the database when the group
-  is deleted. PostgreSQL has referential actions that change the row where it stands.
+  record that names a group or an account of the library's says in code whether it goes
+  with it (`// @deletedWith` on the column). PostgreSQL has referential actions that change
+  the row where it stands.
   `ON DELETE SET NULL` and
   `ON DELETE SET DEFAULT` rewrite the column that named the parent when the parent is
   deleted, and refusing the parent's delete under the mask closes them
@@ -6485,15 +6631,106 @@ over the emulator (`lodestar/cmd/deployment/migrate/main_test.go`).
 
 A resource that tracks its changes (`TrackChanges`) writes one record to the
 `DataChangeEvents` table for each create, update and delete, in the write's own
-transaction: `TableName` and `RowId` say which row, `Sequence` numbers the records one
-transaction writes for the row, `EventTime` is the commit timestamp, `EventSource` says
-who made the change (section 6, `UserEvent`), and `ChangeSet` holds each changed field
-with its old and its new value. `TenantId` holds the key of the tenant the row belongs
-to, empty for a row of a table that belongs to no tenant. A secret field is named as
-changed with neither value (section 23).
+transaction. A change record holds the row (`TableName`, `RowId`), when (`EventTime`,
+the commit's own time, and `Sequence`, the record's place among the records one
+transaction writes for the row), what kind of write it was (`Operation`: `create`,
+`update` or `delete`), what changed (`ChangeSet`, each changed field with its old and
+its new value), the row's tenant (`TenantId`), and who made the change, in the columns
+below. `RowId` is the row's key as text: the value of a key of one part, and for a key
+of several parts each part's value joined by `|`, with a `\` before a `|` or a `\` that
+a part holds. `TenantId` holds the key of the tenant the row belongs to, and is not set
+for a row of a table that belongs to no tenant. A secret field is named as changed with
+neither value (section 23). A field set to the commit's own time
+(`resource.CommitTimestamp`) is recorded with its old value and a mark in place of the new
+one (`CommitTime`), because the moment is not known when the record is written: it is the
+record's `EventTime`, and a record's history answers that time as the field's new value.
+
+| Column | Holds | Empty when |
+|---|---|---|
+| `Auth` | the name of the auth the request came through | a process acted alone, or the request's routes bind no auth's name (`resource.BindAuth`), as outside a session outlet's generated routes in an application with one auth |
+| `ActorUserId` | the account that really made the change; in a session acting as someone else, the person doing it | a process acted alone, or the person has no account here |
+| `ActorUsername` | that person's username on the day, so it outlives the account | a process acted alone |
+| `PrincipalUserId`, `PrincipalUsername` | the account the session acted as, and its username on the day | the person acted as themselves, or as a role |
+| `PrincipalRole` | the role the session acted as | it acted as no role |
+| `SessionId` | the session, or the token's id for a request made with a token | a process with no session |
+| `Process` | the name of the process that made the change, alone or for a person | a person made it directly |
+| `Rpc` | the name of the RPC method the change was made in, as grants name the method | the change was not made in an RPC method, or a process acted alone |
+
+A record sets only the columns that hold something, and it is never updated. In code, who
+made a change is one value, `eventsource.EventSource`, of the package
+`github.com/impulseframework/impulse/eventsource`: a handler passes
+`eventsource.UserEvent(ctx)`, a job `eventsource.ProcessEvent("PruneReports")`, a job run
+for the person of a request `eventsource.UserProcessEvent(ctx, "Import")`. No text can be
+passed, and a tracked write refuses a value that names nobody. A change made in an RPC
+method names the method too, and the method's code passes nothing for it: the method's
+generated handler hands its name to the request (`resource.WithRPC`), and `UserEvent` and
+`UserProcessEvent` read it there (section 7). Where a person reads who made a change, the
+library writes it from the columns (`eventsource.Stored`, in the words of
+`EventSource.String()`): "bob", "bob, through the RPC CloseOrder", "alice, acting as
+bob", "alice, acting as the role Support", "the process PruneReports". A record's history
+serves that sentence and no id. A tenant an invitation makes is recorded as made by the
+person who accepted, through the process AcceptInvitation, and names no session: the
+write is made at the sign-in, before the person has one.
+
+The value has a package of its own, which holds no database code and imports no database
+driver, so a library that records who acted can use the same value without importing this
+package.
+
+**The names of the rows a record points at.** A changed field that points at another row
+holds that row's id, and the name behind an id is lost once the row is renamed or deleted.
+So a change record keeps, beside the old and the new value of such a field, the name of
+the row each pointed at, as it was when the change was made (`OldName` and `NewName` in the
+field's entry of `ChangeSet`). A field points at a row where its column has a foreign key,
+or the field declares what its picker lists (`@enumerate`), into a table whose resource
+says what its rows are known by (`@name`, or `@tenantName` on the tenant record), or into
+an enumeration table, whose rows are known by `Description`. The name is read in the
+write's own transaction: a write that changes such a field makes one more read, and a
+write that changes none makes none. A row that belongs to a tenant is looked up in the
+tenant of the row being written, so a pointer into another tenant keeps no name. Where the
+pointed-to resource declares no name, or no one row is found, the record keeps the id
+alone. A delete's record keeps the name of every row the deleted row pointed at.
+
+**A field that picks from a view.** A view's name is worked out by the view's query, which
+a write does not run. So where a field's picker lists a view (`@enumerate` of a `@virtual`
+resource) or a computed list, the name a change record keeps is read from the table the
+row is really in. One of a tenant's people (the generated list `<Auth><Record>Users`,
+Lodestar's `CrewSectorUsers`) is kept by the account's username, read from the auth's
+users table: the username is what every other column of a change record keeps a person
+by, where a list shows the person's name. It is read by the account's id alone, since an
+account belongs to no tenant, so a row written with the id of an account outside the
+tenant keeps that account's username. One of a tenant's groups (`<Auth><Record>Groups`) is
+kept by the group's name, read from the auth's groups table within the tenant of the row
+being written. For any other view, and for a computed list, the row is the row of the
+table the field's column has a foreign key to, and the name is that table's, as for a
+field with the foreign key and no picker. A field that picks from a view of the
+application's own and has no foreign key keeps the id alone: declare the foreign key, and
+the history keeps the name.
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
-statements. An application copies them into its first migration, as `impulse new` writes
+statements. For Spanner the first creates the table:
+
+```sql
+CREATE TABLE DataChangeEvents (
+  TableName STRING(MAX) NOT NULL,
+  RowId STRING(MAX) NOT NULL,
+  EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  Sequence INT64 NOT NULL,
+  Operation STRING(MAX) NOT NULL,
+  ChangeSet JSON,
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC)
+```
+
+An application copies them into its first migration, as `impulse new` writes
 them and as Lodestar does in
 [000001_Baseline.up.sql](../lodestar/schema/migrations/000001_Baseline.up.sql), pinned
 to the function by a test. The function has statements for Spanner alone: the package
@@ -6507,20 +6744,18 @@ bootstrap, a delete that takes rows with it) resolves it from the row: the value
 patch or the stored row holds, then one point read for each step of the way, which sees
 the rows the same transaction has buffered. An update that moves a row to another tenant
 records the new tenant. A record keeps the tenant its row had when it was written: a
-parent moved later in the same transaction does not change it. The index
-`DataChangeEventsByTenant` on `(TenantId, EventTime DESC, TableName, RowId, Sequence
-DESC)` reads one tenant's records newest first:
+parent moved later in the same transaction does not change it.
 
-```sql
-SELECT TableName, RowId, EventTime, EventSource, ChangeSet
-  FROM DataChangeEvents@{FORCE_INDEX=DataChangeEventsByTenant}
- WHERE TenantId = @tenant
- ORDER BY EventTime DESC, TableName, RowId, Sequence DESC
- LIMIT 200
-```
+The key is `(TableName, RowId, EventTime DESC, Sequence DESC)`: a row's records lie
+together, newest first, so a page of one record's history is one short range of the
+table however long the history is. The table has no other index. A question across
+records (everything one person changed, everything changed in a tenant last week) reads
+the whole table, so it is asked of a copy in a warehouse and not of the application's
+database. `TenantId` stays on every record: it is what holds a tenant's request to that
+tenant's records, and what a copy is divided by.
 
-`impulse check` (`change-history`) says when an application's table lacks a column or
-the index.
+`impulse check` (`change-history`) says when an application's table lacks a column or is
+keyed otherwise.
 
 **More than one write of a row in one transaction.** A record's old values are the row as
 it stood just before that write, counting what the same transaction's earlier patches
@@ -6533,20 +6768,79 @@ update of it, which is answered 404; a second delete of it writes no second reco
 row the transaction created, a field no patch set reads as empty: a default the database
 gives the column is not known before the commit.
 
-**How long records are kept.** The application's schema says it. `period` is
-`resource.KeepChangeHistoryDays(n)` or `resource.KeepChangeHistoryForever()`, and a
-period that was never declared renders no statement. With a number of days the
-statements end with a row deletion policy on `EventTime`:
+**One record's history.** `GET <the record's read route>/changes` answers a page of the
+record's change records, newest first: `{"changes": [{"at", "sequence", "operation",
+"source", "fields": [{"field", "old", "new", "oldName", "newName"}]}], "next"}`.
+`operation` is what kind of write it was (`create`, `update` or `delete`), and `source`
+who made it, as the sentence above. `oldName` and `newName` are the names the record kept
+for a field that points at another row (above), each left out where there is none. They
+are answered to a caller who may list the pointed-to resource's names, as a list would
+show them: the `List` grant on its name field, with no condition. Anyone else is answered
+the ids alone. For a field that picks from a view, the grant is on what was kept. A
+person's username is answered to a caller granted `List` on the `username` of the tenant's
+list of its people, and a group's name to a caller granted `List` on the `name` of the
+tenant's list of its groups, each in the request's tenant and with no condition; a grant
+on the people list's `displayName` shows no username. A name read from a foreign key's
+table is answered to a caller who may list that table's name, whoever may read the view.
+A page holds 50 records; `next` is there when older ones exist, and
+`?after=<next>` reads the page after it. `?field=<name>` keeps only the records that
+changed that field, so "when was this account's email last changed" is the first record
+of `?field=email`. The generator writes the route for every table-backed resource that
+has a read route, and it answers 404 for a resource that does not track its changes.
+
+The route asks no grant of its own: whoever may read the record may read its history,
+and sees in it the fields they can see on the record as it stands now. A field the
+caller's grant leaves out, or whose cell is masked on this row, is left out of every
+change record; a record none of whose fields the caller may see is still listed, with
+when and by whom. A field the record's own read never returns is in no change record
+this route answers: a field declared `input_only`, a file's key, and a secret. `?field=`
+naming one is refused as a name the record does not have. The table records that a
+secret changed, with neither value, and this route does not say so: a write that changed
+only the secret is listed with when and by whom, and no field. A record's history
+outlives the record: once the record is deleted, its history is read by a caller from
+whom the record's read can hide no row, with the fields granted to them without a
+condition: their `Read` grant on the resource carries no condition, and their grants on
+its fields are not all under one. A condition is judged on the row, and the row is gone;
+anyone else is answered 404, as the record's own read answers, so a caller a condition
+hides a row from cannot tell it from a row that was deleted or never was. A key that is
+deleted and made again keeps the earlier row's records. A caller whose grant carries no
+condition reads them with the later row's; a caller under a condition reads the records
+of the row that is there now, which end above the earlier row's delete. In a tenant's
+request only the change records written while the record was that tenant's are read. A
+record's history holds that record's own changes, not those of the records under it.
+Questions across records (everything one person changed) are not asked here: they belong
+to a copy of the table in a warehouse.
+
+**How long records are kept.** A change record is kept until something removes it, and
+the library removes none. An application made by `impulse new` declares
+`resource.KeepChangeHistoryForever()`: it keeps every record it has ever written, and the
+table grows for as long as the application runs. That is where an application starts
+because a record that was removed cannot be brought back, and an application under a
+record-keeping law has to keep them. A period that was never declared renders no
+statement, so the choice is always written down.
+
+An application under no such law may declare a number of days,
+`resource.KeepChangeHistoryDays(n)`. The table's statements then end with a row deletion
+policy on `EventTime`:
 
 ```sql
 ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY))
 ```
 
-Spanner then removes each record once it is older than the period, in the background
-(its documentation says typically within 72 hours of that moment). Nothing else removes
-a change record, so an application that declares forever keeps every record it has ever
-written, and the table grows for as long as the application runs. A record names the
-person who made the change for as long as it is kept: deleting an account rewrites no
-record. An application made by `impulse new` starts at 365 days. To change the period
-later, add a migration that replaces the table's row deletion policy with the new number
-of days.
+Spanner removes each record once it is older than the period, in the background (its
+documentation says typically within 72 hours of that moment). Know what the policy is
+before declaring one:
+
+- It removes the oldest records of rows that are still there. After the period a record
+  that is still in use no longer has the record of its own creation.
+- It cannot wait for anything: not for a row to be deleted, and not for the records under
+  a row to go first.
+- It cannot be stopped for one record. A record that has to be kept longer (a dispute, a
+  legal hold) is kept only by taking the policy off the whole table.
+- Spanner drops the policy when a database is restored from a backup. The restored
+  database keeps every record until a migration adds the policy again.
+
+A record names the person who made the change for as long as it is kept: deleting an
+account rewrites no record. To change the period later, add a migration that replaces the
+table's row deletion policy; to end it, one that takes the policy off. Lodestar declares
+365 days, in its baseline.

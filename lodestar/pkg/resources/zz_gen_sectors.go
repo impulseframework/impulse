@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -839,11 +840,11 @@ func (p *SectorCreatePatch) ToStruct() *Sector {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SectorCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SectorCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SectorCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SectorCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -1004,11 +1005,11 @@ func (p *SectorUpdatePatch) ToStruct() *Sector {
 	return p.patchSet.ToStruct()
 }
 
-func (p *SectorUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SectorUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SectorUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SectorUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -1209,11 +1210,11 @@ func (p *SectorDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *SectorDelet
 	return p
 }
 
-func (p *SectorDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *SectorDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *SectorDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *SectorDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

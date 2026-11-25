@@ -1156,6 +1156,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "announcementID": "testAnnouncementID"},
 		},
 		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/testAnnouncementID/changes", method: http.MethodGet,
+			handlerFunc: "AnnouncementChangeHistory",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "announcementID": "testAnnouncementID"},
+		},
+		{
 			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodGet,
 			handlerFunc: "Announcements",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -1176,6 +1181,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "announcementID": "testAnnouncementID"},
 		},
 		{
+			url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/testAnnouncementID/changes", method: http.MethodGet,
+			handlerFunc: "AnnouncementChangeHistory",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "announcementID": "testAnnouncementID"},
+		},
+		{
 			url: "/portal/api/members-groups", method: http.MethodGet,
 			handlerFunc: "MembersGroups",
 			parameters:  map[string]string{},
@@ -1193,6 +1203,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/members-groups/testMembersGroupID", method: http.MethodPost,
 			handlerFunc: "MembersGroup",
+			parameters:  map[string]string{"membersGroupID": "testMembersGroupID"},
+		},
+		{
+			url: "/portal/api/members-groups/testMembersGroupID/changes", method: http.MethodGet,
+			handlerFunc: "MembersGroupChangeHistory",
 			parameters:  map[string]string{"membersGroupID": "testMembersGroupID"},
 		},
 		{
@@ -1396,6 +1411,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionID": "testMembersSessionID"},
 		},
 		{
+			url: "/portal/api/members-sessions/testMembersSessionID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionChangeHistory",
+			parameters:  map[string]string{"membersSessionID": "testMembersSessionID"},
+		},
+		{
 			url: "/portal/api/members-session-auth-events", method: http.MethodGet,
 			handlerFunc: "MembersSessionAuthEvents",
 			parameters:  map[string]string{},
@@ -1426,6 +1446,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionIdentityID": "testMembersSessionIdentityID"},
 		},
 		{
+			url: "/portal/api/members-session-identities/testMembersSessionIdentityID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionIdentityChangeHistory",
+			parameters:  map[string]string{"membersSessionIdentityID": "testMembersSessionIdentityID"},
+		},
+		{
 			url: "/portal/api/members-session-mail-links", method: http.MethodGet,
 			handlerFunc: "MembersSessionMailLinks",
 			parameters:  map[string]string{},
@@ -1443,6 +1468,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/members-session-mail-links/testMembersSessionMailLinkID", method: http.MethodPost,
 			handlerFunc: "MembersSessionMailLink",
+			parameters:  map[string]string{"membersSessionMailLinkID": "testMembersSessionMailLinkID"},
+		},
+		{
+			url: "/portal/api/members-session-mail-links/testMembersSessionMailLinkID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionMailLinkChangeHistory",
 			parameters:  map[string]string{"membersSessionMailLinkID": "testMembersSessionMailLinkID"},
 		},
 		{
@@ -1476,6 +1506,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionTokenID": "testMembersSessionTokenID"},
 		},
 		{
+			url: "/portal/api/members-session-tokens/testMembersSessionTokenID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionTokenChangeHistory",
+			parameters:  map[string]string{"membersSessionTokenID": "testMembersSessionTokenID"},
+		},
+		{
 			url: "/portal/api/members-session-trusted-devices", method: http.MethodGet,
 			handlerFunc: "MembersSessionTrustedDevices",
 			parameters:  map[string]string{},
@@ -1496,6 +1531,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"membersSessionTrustedDeviceID": "testMembersSessionTrustedDeviceID"},
 		},
 		{
+			url: "/portal/api/members-session-trusted-devices/testMembersSessionTrustedDeviceID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionTrustedDeviceChangeHistory",
+			parameters:  map[string]string{"membersSessionTrustedDeviceID": "testMembersSessionTrustedDeviceID"},
+		},
+		{
 			url: "/portal/api/members-session-users", method: http.MethodGet,
 			handlerFunc: "MembersSessionUsers",
 			parameters:  map[string]string{},
@@ -1513,6 +1553,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/portal/api/members-session-users/testMembersSessionUserID", method: http.MethodPost,
 			handlerFunc: "MembersSessionUser",
+			parameters:  map[string]string{"membersSessionUserID": "testMembersSessionUserID"},
+		},
+		{
+			url: "/portal/api/members-session-users/testMembersSessionUserID/changes", method: http.MethodGet,
+			handlerFunc: "MembersSessionUserChangeHistory",
 			parameters:  map[string]string{"membersSessionUserID": "testMembersSessionUserID"},
 		},
 		{
@@ -1746,6 +1791,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "readingID": "testReadingID"},
 		},
 		{
+			url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/readings/testReadingID/changes", method: http.MethodGet,
+			handlerFunc: "ReadingChangeHistory",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "readingID": "testReadingID"},
+		},
+		{
 			url: "/console/api/staff-groups", method: http.MethodGet,
 			handlerFunc: "StaffGroups",
 			parameters:  map[string]string{},
@@ -1763,6 +1813,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/staff-groups/testStaffGroupID", method: http.MethodPost,
 			handlerFunc: "StaffGroup",
+			parameters:  map[string]string{"staffGroupID": "testStaffGroupID"},
+		},
+		{
+			url: "/console/api/staff-groups/testStaffGroupID/changes", method: http.MethodGet,
+			handlerFunc: "StaffGroupChangeHistory",
 			parameters:  map[string]string{"staffGroupID": "testStaffGroupID"},
 		},
 		{
@@ -1986,6 +2041,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffSessionID": "testStaffSessionID"},
 		},
 		{
+			url: "/console/api/staff-sessions/testStaffSessionID/changes", method: http.MethodGet,
+			handlerFunc: "StaffSessionChangeHistory",
+			parameters:  map[string]string{"staffSessionID": "testStaffSessionID"},
+		},
+		{
 			url: "/console/api/staff-session-auth-events", method: http.MethodGet,
 			handlerFunc: "StaffSessionAuthEvents",
 			parameters:  map[string]string{},
@@ -2016,6 +2076,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffSessionIdentityID": "testStaffSessionIdentityID"},
 		},
 		{
+			url: "/console/api/staff-session-identities/testStaffSessionIdentityID/changes", method: http.MethodGet,
+			handlerFunc: "StaffSessionIdentityChangeHistory",
+			parameters:  map[string]string{"staffSessionIdentityID": "testStaffSessionIdentityID"},
+		},
+		{
 			url: "/console/api/staff-session-mail-links", method: http.MethodGet,
 			handlerFunc: "StaffSessionMailLinks",
 			parameters:  map[string]string{},
@@ -2033,6 +2098,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/staff-session-mail-links/testStaffSessionMailLinkID", method: http.MethodPost,
 			handlerFunc: "StaffSessionMailLink",
+			parameters:  map[string]string{"staffSessionMailLinkID": "testStaffSessionMailLinkID"},
+		},
+		{
+			url: "/console/api/staff-session-mail-links/testStaffSessionMailLinkID/changes", method: http.MethodGet,
+			handlerFunc: "StaffSessionMailLinkChangeHistory",
 			parameters:  map[string]string{"staffSessionMailLinkID": "testStaffSessionMailLinkID"},
 		},
 		{
@@ -2066,6 +2136,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffSessionTokenID": "testStaffSessionTokenID"},
 		},
 		{
+			url: "/console/api/staff-session-tokens/testStaffSessionTokenID/changes", method: http.MethodGet,
+			handlerFunc: "StaffSessionTokenChangeHistory",
+			parameters:  map[string]string{"staffSessionTokenID": "testStaffSessionTokenID"},
+		},
+		{
 			url: "/console/api/staff-session-trusted-devices", method: http.MethodGet,
 			handlerFunc: "StaffSessionTrustedDevices",
 			parameters:  map[string]string{},
@@ -2086,6 +2161,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"staffSessionTrustedDeviceID": "testStaffSessionTrustedDeviceID"},
 		},
 		{
+			url: "/console/api/staff-session-trusted-devices/testStaffSessionTrustedDeviceID/changes", method: http.MethodGet,
+			handlerFunc: "StaffSessionTrustedDeviceChangeHistory",
+			parameters:  map[string]string{"staffSessionTrustedDeviceID": "testStaffSessionTrustedDeviceID"},
+		},
+		{
 			url: "/console/api/staff-session-users", method: http.MethodGet,
 			handlerFunc: "StaffSessionUsers",
 			parameters:  map[string]string{},
@@ -2103,6 +2183,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/staff-session-users/testStaffSessionUserID", method: http.MethodPost,
 			handlerFunc: "StaffSessionUser",
+			parameters:  map[string]string{"staffSessionUserID": "testStaffSessionUserID"},
+		},
+		{
+			url: "/console/api/staff-session-users/testStaffSessionUserID/changes", method: http.MethodGet,
+			handlerFunc: "StaffSessionUserChangeHistory",
 			parameters:  map[string]string{"staffSessionUserID": "testStaffSessionUserID"},
 		},
 		{
@@ -2336,6 +2421,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "testTenantID"},
 		},
 		{
+			url: "/console/api/tenants/testTenantID/changes", method: http.MethodGet,
+			handlerFunc: "TenantChangeHistory",
+			parameters:  map[string]string{"tenantID": "testTenantID"},
+		},
+		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories", method: http.MethodGet,
 			handlerFunc: "TenantDirectories",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2353,6 +2443,11 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/testTenantDirectoryID", method: http.MethodPost,
 			handlerFunc: "TenantDirectory",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "tenantDirectoryID": "testTenantDirectoryID"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/testTenantDirectoryID/changes", method: http.MethodGet,
+			handlerFunc: "TenantDirectoryChangeHistory",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "tenantDirectoryID": "testTenantDirectoryID"},
 		},
 		{
@@ -2783,6 +2878,10 @@ func (s *generatedHandlersStub) Announcement() http.HandlerFunc {
 	return s.record("Announcement")
 }
 
+func (s *generatedHandlersStub) AnnouncementChangeHistory() http.HandlerFunc {
+	return s.record("AnnouncementChangeHistory")
+}
+
 func (s *generatedHandlersStub) AssignStaffRole() http.HandlerFunc {
 	return s.record("AssignStaffRole")
 }
@@ -3051,6 +3150,10 @@ func (s *generatedHandlersStub) StaffGroup() http.HandlerFunc {
 	return s.record("StaffGroup")
 }
 
+func (s *generatedHandlersStub) StaffGroupChangeHistory() http.HandlerFunc {
+	return s.record("StaffGroupChangeHistory")
+}
+
 func (s *generatedHandlersStub) StaffGroupMembers() http.HandlerFunc {
 	return s.record("StaffGroupMembers")
 }
@@ -3155,6 +3258,10 @@ func (s *generatedHandlersStub) StaffSession() http.HandlerFunc {
 	return s.record("StaffSession")
 }
 
+func (s *generatedHandlersStub) StaffSessionChangeHistory() http.HandlerFunc {
+	return s.record("StaffSessionChangeHistory")
+}
+
 func (s *generatedHandlersStub) StaffSessionAuthEvents() http.HandlerFunc {
 	return s.record("StaffSessionAuthEvents")
 }
@@ -3167,12 +3274,20 @@ func (s *generatedHandlersStub) StaffSessionIdentity() http.HandlerFunc {
 	return s.record("StaffSessionIdentity")
 }
 
+func (s *generatedHandlersStub) StaffSessionIdentityChangeHistory() http.HandlerFunc {
+	return s.record("StaffSessionIdentityChangeHistory")
+}
+
 func (s *generatedHandlersStub) StaffSessionMailLinks() http.HandlerFunc {
 	return s.record("StaffSessionMailLinks")
 }
 
 func (s *generatedHandlersStub) StaffSessionMailLink() http.HandlerFunc {
 	return s.record("StaffSessionMailLink")
+}
+
+func (s *generatedHandlersStub) StaffSessionMailLinkChangeHistory() http.HandlerFunc {
+	return s.record("StaffSessionMailLinkChangeHistory")
 }
 
 func (s *generatedHandlersStub) StaffSessionSignInAttempts() http.HandlerFunc {
@@ -3187,6 +3302,10 @@ func (s *generatedHandlersStub) StaffSessionToken() http.HandlerFunc {
 	return s.record("StaffSessionToken")
 }
 
+func (s *generatedHandlersStub) StaffSessionTokenChangeHistory() http.HandlerFunc {
+	return s.record("StaffSessionTokenChangeHistory")
+}
+
 func (s *generatedHandlersStub) StaffSessionTrustedDevices() http.HandlerFunc {
 	return s.record("StaffSessionTrustedDevices")
 }
@@ -3195,12 +3314,20 @@ func (s *generatedHandlersStub) StaffSessionTrustedDevice() http.HandlerFunc {
 	return s.record("StaffSessionTrustedDevice")
 }
 
+func (s *generatedHandlersStub) StaffSessionTrustedDeviceChangeHistory() http.HandlerFunc {
+	return s.record("StaffSessionTrustedDeviceChangeHistory")
+}
+
 func (s *generatedHandlersStub) StaffSessionUsers() http.HandlerFunc {
 	return s.record("StaffSessionUsers")
 }
 
 func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
+}
+
+func (s *generatedHandlersStub) StaffSessionUserChangeHistory() http.HandlerFunc {
+	return s.record("StaffSessionUserChangeHistory")
 }
 
 func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
@@ -3343,12 +3470,20 @@ func (s *generatedHandlersStub) Tenant() http.HandlerFunc {
 	return s.record("Tenant")
 }
 
+func (s *generatedHandlersStub) TenantChangeHistory() http.HandlerFunc {
+	return s.record("TenantChangeHistory")
+}
+
 func (s *generatedHandlersStub) TenantDirectories() http.HandlerFunc {
 	return s.record("TenantDirectories")
 }
 
 func (s *generatedHandlersStub) TenantDirectory() http.HandlerFunc {
 	return s.record("TenantDirectory")
+}
+
+func (s *generatedHandlersStub) TenantDirectoryChangeHistory() http.HandlerFunc {
+	return s.record("TenantDirectoryChangeHistory")
 }
 
 func (s *generatedHandlersStub) UnlinkStaffSessionIdentity() http.HandlerFunc {
@@ -3479,6 +3614,10 @@ func (s *generatedHandlersStub) MembersGroup() http.HandlerFunc {
 	return s.record("MembersGroup")
 }
 
+func (s *generatedHandlersStub) MembersGroupChangeHistory() http.HandlerFunc {
+	return s.record("MembersGroupChangeHistory")
+}
+
 func (s *generatedHandlersStub) MembersGroupMembers() http.HandlerFunc {
 	return s.record("MembersGroupMembers")
 }
@@ -3571,6 +3710,10 @@ func (s *generatedHandlersStub) MembersSessionAuthEvents() http.HandlerFunc {
 	return s.record("MembersSessionAuthEvents")
 }
 
+func (s *generatedHandlersStub) MembersSessionChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionChangeHistory")
+}
+
 func (s *generatedHandlersStub) MembersSessionIdentities() http.HandlerFunc {
 	return s.record("MembersSessionIdentities")
 }
@@ -3579,8 +3722,16 @@ func (s *generatedHandlersStub) MembersSessionIdentity() http.HandlerFunc {
 	return s.record("MembersSessionIdentity")
 }
 
+func (s *generatedHandlersStub) MembersSessionIdentityChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionIdentityChangeHistory")
+}
+
 func (s *generatedHandlersStub) MembersSessionMailLink() http.HandlerFunc {
 	return s.record("MembersSessionMailLink")
+}
+
+func (s *generatedHandlersStub) MembersSessionMailLinkChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionMailLinkChangeHistory")
 }
 
 func (s *generatedHandlersStub) MembersSessionMailLinks() http.HandlerFunc {
@@ -3595,6 +3746,10 @@ func (s *generatedHandlersStub) MembersSessionToken() http.HandlerFunc {
 	return s.record("MembersSessionToken")
 }
 
+func (s *generatedHandlersStub) MembersSessionTokenChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionTokenChangeHistory")
+}
+
 func (s *generatedHandlersStub) MembersSessionTokens() http.HandlerFunc {
 	return s.record("MembersSessionTokens")
 }
@@ -3603,12 +3758,20 @@ func (s *generatedHandlersStub) MembersSessionTrustedDevice() http.HandlerFunc {
 	return s.record("MembersSessionTrustedDevice")
 }
 
+func (s *generatedHandlersStub) MembersSessionTrustedDeviceChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionTrustedDeviceChangeHistory")
+}
+
 func (s *generatedHandlersStub) MembersSessionTrustedDevices() http.HandlerFunc {
 	return s.record("MembersSessionTrustedDevices")
 }
 
 func (s *generatedHandlersStub) MembersSessionUser() http.HandlerFunc {
 	return s.record("MembersSessionUser")
+}
+
+func (s *generatedHandlersStub) MembersSessionUserChangeHistory() http.HandlerFunc {
+	return s.record("MembersSessionUserChangeHistory")
 }
 
 func (s *generatedHandlersStub) MembersSessionUsers() http.HandlerFunc {
@@ -3733,6 +3896,10 @@ func (s *generatedHandlersStub) PatchPortalResources() http.HandlerFunc {
 
 func (s *generatedHandlersStub) Reading() http.HandlerFunc {
 	return s.record("Reading")
+}
+
+func (s *generatedHandlersStub) ReadingChangeHistory() http.HandlerFunc {
+	return s.record("ReadingChangeHistory")
 }
 
 func (s *generatedHandlersStub) Readings() http.HandlerFunc {

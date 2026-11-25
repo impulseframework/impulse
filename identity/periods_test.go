@@ -433,8 +433,8 @@ func TestManager_ClearEnded(t *testing.T) {
 			t.Fatalf("ClearEnded() = (%d, %v), want two rows cleared", cleared, err)
 		}
 		want := []string{
-			"remove membership " + membershipText(&gone) + " (the assignment ended by itself)",
-			"remove group member " + string(place.Group) + " " + string(place.User) + " (the assignment ended by itself)",
+			"remove membership " + membershipText(&gone) + " (PeriodEnd)",
+			"remove group member " + string(place.Group) + " " + string(place.User) + " (PeriodEnd)",
 		}
 		if diff := cmp.Diff(want, store.writes); diff != "" {
 			t.Errorf("buffered writes (-want +got):\n%s", diff)
@@ -464,7 +464,7 @@ func TestManager_ClearEnded(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ClearEnded() error = %v", err)
 		}
-		want := []string{"remove membership " + membershipText(&last) + " (the assignment ended by itself)"}
+		want := []string{"remove membership " + membershipText(&last) + " (PeriodEnd)"}
 		if diff := cmp.Diff(want, store.writes); diff != "" {
 			t.Errorf("buffered writes (-want +got): the one row goes, and no session ends and no account is deleted\n%s", diff)
 		}

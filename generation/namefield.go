@@ -308,20 +308,109 @@ func (r *resourceInfo) checkNameFieldFree(name *nameField) error {
 	return nil
 }
 
+// resolveRecordedNames describes, for every resource, the names its change records keep:
+// one beside every field that points at a row with a name (recordedNameOf). It runs
+// where resolveNameFields does, for the same reason.
+func (c *client) resolveRecordedNames(resources []*resourceInfo) {
+	byName := make(map[string]*resourceInfo, len(resources))
+	for _, res := range resources {
+		byName[c.pluralize(res.Name())] = res
+	}
+	for _, res := range resources {
+		res.RecordedNames = nil
+		if res.IsVirtual {
+			// A view's rows are read, never written, so it keeps no change records.
+			continue
+		}
+		for _, field := range res.Fields {
+			if name := c.recordedNameOf(res, field, byName); name != nil {
+				res.RecordedNames = append(res.RecordedNames, name)
+			}
+		}
+	}
+}
+
 // nameFieldOf is the name field the generator adds beside field, nil where it adds
 // none: the field points to no row, the row it points to has no name, or the name
 // could not be held to the request's tenant. The pointed-to resource may be a view,
 // whose name is read from the view's query (View): a view binds its tenant on a column
 // of its own, never through other tables.
 func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map[string]*resourceInfo) *nameField {
-	target, ok := pointedToResource(field)
-	if !ok || field.IsInputOnly() {
-		return nil
-	}
 	goName, ok := nameFieldName(field.Name())
 	if !ok {
 		return nil
 	}
+
+	return c.pointedName(res, field, byName, goName)
+}
+
+// recordedNameOf is the name a change record of res keeps beside field, nil where it
+// keeps none. It is found as nameFieldOf finds a name field, but for three things: a
+// resource listed across tenants is described like any other, since a write is of one
+// row in that row's tenant; the description needs no name of its own, so Field is empty
+// whatever the field is called; and where the field's picker lists no table, the name is
+// read from the table the row is really in (pickedName).
+func (c *client) recordedNameOf(res *resourceInfo, field *resourceField, byName map[string]*resourceInfo) *nameField {
+	return c.pointedName(res, field, byName, "")
+}
+
+// pointedName is the name of the row field points to, nil where there is none: the name
+// field called goName, or, where goName is empty, the name a change record keeps.
+func (c *client) pointedName(res *resourceInfo, field *resourceField, byName map[string]*resourceInfo, goName string) *nameField {
+	target, ok := pointedToResource(field)
+	if !ok || field.IsInputOnly() {
+		return nil
+	}
+	if goName == "" && field.HasDeclaredEnumeration() {
+		if _, enumeration := c.enumerationOf(target); !enumeration {
+			if picked := byName[target]; picked == nil || picked.IsVirtual {
+				return c.pickedName(res, field, target, picked, byName)
+			}
+		}
+	}
+
+	return c.nameOfRow(res, field, target, field.HasDeclaredEnumeration(), byName, goName)
+}
+
+// pickedName is the name a change record of res keeps beside a field whose picker lists
+// no table: a view, whose name comes out of the view's query, or a computed list (no
+// resource of the run, picked nil), whose rows are worked out in Go, neither of which a
+// write runs. The name is read from the table the row is really in, the first of these
+// that fits: one of the library's own lists names its table (tableOfList), where res
+// belongs to a tenant, since the list's grant is asked in the request's tenant; else the
+// table the column's foreign key references, described as the same field with no picker
+// is; else there is none, and the record keeps the id alone.
+func (c *client) pickedName(res *resourceInfo, field *resourceField, target string, picked *resourceInfo, byName map[string]*resourceInfo) *nameField {
+	if picked != nil && picked.identity != nil && res.IsDomainScoped() {
+		if listed, ok := picked.identity.tableOfList(picked.Name()); ok {
+			if source := picked.fieldNamed(listed.field); source != nil {
+				name := &nameField{key: field, source: source}
+				name.Key = accesstypes.Field(field.Name())
+				name.Resource = accesstypes.Resource(target)
+				name.Tag = accesstypes.Tag(source.WireName())
+				name.Table = listed.table
+				name.KeyColumn = listed.keyColumn
+				name.NameColumn = listed.nameColumn
+				name.TenantColumn = listed.tenantColumn
+				name.GrantInTenant = listed.tenantColumn == ""
+				name.Features = gatesOf(picked.Feature, source.Feature)
+
+				return name
+			}
+		}
+	}
+	if !field.IsForeignKey || field.ReferencedResource == "" {
+		return nil
+	}
+
+	return c.nameOfRow(res, field, field.ReferencedResource, false, byName, "")
+}
+
+// nameOfRow is the name of the row field points to in target, nil where there is none,
+// as pointedName answers it. declared says the field's picker names target, so the id
+// matches target's key column rather than the column the foreign key references.
+func (c *client) nameOfRow(res *resourceInfo, field *resourceField, target string, declared bool, byName map[string]*resourceInfo, goName string) *nameField {
+	listed := goName != ""
 	name := &nameField{key: field}
 	name.Field = accesstypes.Field(goName)
 	name.Key = accesstypes.Field(field.Name())
@@ -339,16 +428,16 @@ func (c *client) nameFieldOf(res *resourceInfo, field *resourceField, byName map
 		return nil
 	}
 	name.source = pointed.rowName()
-	keyColumn, keyed := pointedToKeyColumn(field, pointed)
+	keyColumn, keyed := pointedToKeyColumn(field, pointed, declared)
 	if name.source == nil || !keyed {
 		return nil
 	}
 	if pointed.IsDomainScoped() {
 		// The name of a tenant's row is read under that tenant alone, so the list
-		// reading it must be asked inside one tenant. The pointed-to row is held to
-		// it by its tenant column, or by the way it reaches its tenant through
-		// other tables.
-		if pointed.DomainBinding == nil || pointed.DomainBinding.Anchor == nil || !res.IsDomainScoped() || res.ListsAcrossTenants {
+		// reading it must be asked inside one tenant, and the write keeping it is of
+		// one row in its own tenant. The pointed-to row is held to it by its tenant
+		// column, or by the way it reaches its tenant through other tables.
+		if pointed.DomainBinding == nil || pointed.DomainBinding.Anchor == nil || !res.IsDomainScoped() || (listed && res.ListsAcrossTenants) {
 			return nil
 		}
 		name.TenantColumn = fieldColumn(pointed.DomainBinding.Anchor)
@@ -380,10 +469,11 @@ func pointedToResource(field *resourceField) (string, bool) {
 }
 
 // pointedToKeyColumn is the column of the pointed-to resource the id matches: the
-// column the foreign key references, else the resource's one key column. A resource
-// keyed by several columns has none.
-func pointedToKeyColumn(field *resourceField, pointed *resourceInfo) (string, bool) {
-	if !field.HasDeclaredEnumeration() && field.IsForeignKey && field.ReferencedField != "" {
+// column the foreign key references, where the field's picker does not name the resource
+// (declared), else the resource's one key column. A resource keyed by several columns
+// has none.
+func pointedToKeyColumn(field *resourceField, pointed *resourceInfo, declared bool) (string, bool) {
+	if !declared && field.IsForeignKey && field.ReferencedField != "" {
 		return field.ReferencedField, true
 	}
 	var column string

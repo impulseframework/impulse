@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -421,11 +422,11 @@ func (p *CrewSessionUserCreatePatch) ToStruct() *CrewSessionUser {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewSessionUserCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionUserCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionUserCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionUserCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -633,11 +634,11 @@ func (p *CrewSessionUserUpdatePatch) ToStruct() *CrewSessionUser {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewSessionUserUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewSessionUserUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionUserUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionUserUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -855,11 +856,52 @@ func NewCrewSessionUserDeletePatch(id impulse.UUID) *CrewSessionUserDeletePatch 
 	return &CrewSessionUserDeletePatch{patchSet: patchSet}
 }
 
-func (p *CrewSessionUserDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithEverythingUnder says the delete takes the rows under the CrewSessionUser with it:
+// the kinds its description lists as taken, the application's rows that name it in a
+// column that says so (@deletedWith) among them, each through its own delete. It takes
+// the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
+// CrewSessionUser that has such rows deletes nothing and is answered with the question a
+// person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
+// one save takes, the delete takes what fits, deepest first, and Left says what is left:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+func (p *CrewSessionUserDeletePatch) WithEverythingUnder() *CrewSessionUserDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// Left is what the delete left under the CrewSessionUser once it is buffered
+// (resource.DeleteLeft): nil where the delete finished, the CrewSessionUser with it.
+func (p *CrewSessionUserDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the CrewSessionUser that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the CrewSessionUser.
+func (p *CrewSessionUserDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *CrewSessionUserDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+
+// WithLibraryRowsAlone says the delete leaves the application's rows that name the
+// CrewSessionUser out: none is counted, asked about or taken, and none refuses the delete
+// (resource.PatchSet.DeleteLibraryRowsAlone). A CrewSessionUser deleted with its tenant is
+// deleted so, the tenant's delete having taken the application's rows under the tenant
+// already.
+func (p *CrewSessionUserDeletePatch) WithLibraryRowsAlone() *CrewSessionUserDeletePatch {
+	p.patchSet.DeleteLibraryRowsAlone()
+
+	return p
+}
+
+func (p *CrewSessionUserDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewSessionUserDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewSessionUserDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

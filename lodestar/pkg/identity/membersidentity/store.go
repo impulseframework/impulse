@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/membersresources"
@@ -265,8 +266,41 @@ func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransacti
 	return email, found, nil
 }
 
-func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := membersresources.NewMembersSessionUserDeletePatch(id).Buffer(ctx, txn); err != nil {
+// deletedBy is who a delete of an account or of a group is recorded as made by, in the
+// change records of the rows it takes that keep a change history: the request's person
+// (eventsource.UserEvent), and nobody for a call made outside any request, which carries
+// no session to read a person from. A row that keeps a change history refuses a delete
+// that names nobody: a job deletes such rows first, in a transaction before, under its
+// own process's name (eventsource.ProcessEvent).
+func deletedBy(ctx context.Context) []eventsource.EventSource {
+	if _, inRequest := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); !inRequest {
+		return nil
+	}
+
+	return []eventsource.EventSource{eventsource.UserEvent(ctx)}
+}
+
+func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The row's delete takes the application's rows that go with the account
+	// (@deletedWith), where it is told to. In a person's request the delete is that
+	// person's (deletedBy): a row it takes that keeps a change history records its
+	// delete as theirs.
+	patch := membersresources.NewMembersSessionUserDeletePatch(id)
+	if everythingUnder {
+		patch = patch.WithEverythingUnder()
+	}
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "membersresources.MembersSessionUserDeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the accounts: the row's delete leaves the application's rows out.
+	patch := membersresources.NewMembersSessionUserDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionUserDeletePatch.Buffer()")
 	}
 
@@ -660,7 +694,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	case err == nil:
 		patch := membersresources.NewMembersSessionSignInMethodUpdatePatch(row.Name).
 			SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersSessionSignInMethodUpdatePatch.Buffer()")
 		}
 
@@ -670,7 +704,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	patch := membersresources.NewMembersSessionSignInMethodCreatePatch(row.Name).
 		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionSignInMethodCreatePatch.Buffer()")
 	}
 
@@ -688,7 +722,7 @@ func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTran
 	switch {
 	case err == nil:
 		patch := membersresources.NewMembersSessionSignInMethodUpdatePatch(name).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersSessionSignInMethodUpdatePatch.Buffer()")
 		}
 
@@ -697,7 +731,7 @@ func (store) SetSelfServiceReset(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "membersresources.MembersSessionSignInMethodQuery.Read()")
 	}
 	patch := membersresources.NewMembersSessionSignInMethodCreatePatch(name).SetOpenSignUp(false).SetSelfServiceReset(on).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionSignInMethodCreatePatch.Buffer()")
 	}
 
@@ -730,7 +764,7 @@ func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteT
 	}
 	if found {
 		patch := membersresources.NewMembersSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRequireSecondFactor(on).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersSessionSignInSettingUpdatePatch.Buffer()")
 		}
 
@@ -738,7 +772,7 @@ func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteT
 	}
 	patch := membersresources.NewMembersSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
 		SetRequireSecondFactor(on).SetRememberBrowserDays(session.DefaultRememberedBrowserDays).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionSignInSettingCreatePatch.Buffer()")
 	}
 
@@ -755,7 +789,7 @@ func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteT
 	}
 	if found {
 		patch := membersresources.NewMembersSessionSignInSettingUpdatePatch(session.SignInSettingsRowName).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersSessionSignInSettingUpdatePatch.Buffer()")
 		}
 
@@ -763,7 +797,7 @@ func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteT
 	}
 	patch := membersresources.NewMembersSessionSignInSettingCreatePatch(session.SignInSettingsRowName).
 		SetRequireSecondFactor(true).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionSignInSettingCreatePatch.Buffer()")
 	}
 
@@ -980,6 +1014,10 @@ func (store) DeleteGroup(context.Context, resource.ReadWriteTransaction, impulse
 	return nil, errNoGroups
 }
 
+func (store) DeleteGroupWithTenant(context.Context, resource.ReadWriteTransaction, impulse.UUID) (*resource.DeleteLeft, error) {
+	return nil, errNoGroups
+}
+
 func (store) TenantGroups(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
 	return nil, nil
 }
@@ -1119,14 +1157,13 @@ func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransact
 	return memberships, places, nil
 }
 
-// RemoveEnded buffers each removal under the source that says the assignment ended by
-// itself (identity.EndedByItself): it is what a change record of the row holds in place
-// of a person's act.
+// RemoveEnded buffers each removal under the process that says the assignment ended by
+// itself (identity.EndedByItself): nobody made it.
 func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
 	for i := range memberships {
 		key := &memberships[i]
 		patch := membersresources.NewMembersUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-		if err := patch.Buffer(ctx, txn, identity.EndedByItself); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.ProcessEvent(identity.EndedByItself)); err != nil {
 			return errors.Wrap(err, "membersresources.MembersUserRoleDeletePatch.Buffer()")
 		}
 	}

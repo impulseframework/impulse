@@ -6,6 +6,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
@@ -75,7 +76,7 @@ func (m *SetSectorPilotClearance) Execute(ctx context.Context, txn resource.Read
 			return errors.Wrap(err, "identity.RefuseImpersonatorAsSubject()")
 		}
 	}
-	if err := resources.NewPilotUpdatePatch(m.PilotID).SetClearance(m.Clearance).Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := resources.NewPilotUpdatePatch(m.PilotID).SetClearance(m.Clearance).Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.PilotUpdatePatch.Buffer()")
 	}
 

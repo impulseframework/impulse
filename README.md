@@ -18,6 +18,7 @@ Every package below lives at the module root unless its path says otherwise.
 | --- | --- |
 | `impulse` (the root package) | Utility types and functions shared by the rest of the module. |
 | `accesstypes` | The permission, role, domain, resource and user types the `access` package works with. |
+| `eventsource` | Who made a change, as one typed value: the person, what their session acted as, the session, the process and the RPC method. It has no database code: `resource` keeps it on every change record, and a library that records who acted uses the same value. |
 | `access` | The permission engine: roles, grants and memberships, validated against the resources an application declares. |
 | `session` | Cookie-backed sessions for web applications: the `Auth`, its sign-in methods and its tables. Its subpackages carry the pieces: `sessionstorage`, `oidc`, `azure`, `google`, `signin`, `mail`, `deviceflow`, `cookie` and `sessioninfo`. |
 | `httpio` | Encoding and decoding for HTTP input and output. |

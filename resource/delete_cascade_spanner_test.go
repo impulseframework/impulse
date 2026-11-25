@@ -12,6 +12,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -41,15 +42,17 @@ func cascadeDatabase(t *testing.T, name string) *spanner.Client {
 }
 
 // cascadeRun is what one delete that takes rows did: what it answered, the round it
-// took, the rows it asked about and deleted, in order, and how many count and page
-// statements it sent.
+// took, the rows it asked about and deleted, in order, how many count, page and
+// by-tenant statements it sent, and the text of each, in order.
 type cascadeRun struct {
-	err    error
-	round  *takenRound
-	asked  []string
-	made   []string
-	counts int
-	pages  int
+	err        error
+	round      *takenRound
+	asked      []string
+	made       []string
+	counts     int
+	pages      int
+	byTenant   int
+	statements []string
 }
 
 // handedKind is a kind of row a test hands the delete (TakenKind): rows of it under the
@@ -91,7 +94,7 @@ func (k *handedKind) Check(context.Context, ReadWriteTransaction) error {
 	return k.refused
 }
 
-func (k *handedKind) Take(_ context.Context, _ ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
+func (k *handedKind) Take(_ context.Context, _ ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	if k.answer != nil {
 		*k.made = append(*k.made, fmt.Sprintf("%d %s and %d mutations of %d", k.answer.rows, k.words.Many, k.answer.mutations, budget))
 
@@ -121,6 +124,14 @@ func runTaking(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[strin
 func runTakingAlso(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, size int, handed ...*handedKind) *cascadeRun {
 	t.Helper()
 
+	return runTakingFor(t, db, tree, key, rows, everythingUnder, size, nil, handed...)
+}
+
+// runTakingFor is runTakingAlso for a delete whose sentences are written for the person
+// given (asked), nobody where it is nil: a trusted call, told every count.
+func runTakingFor(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, size int, asked *Caller, handed ...*handedKind) *cascadeRun {
+	t.Helper()
+
 	run := &cascadeRun{}
 	rows.asked, rows.made = &run.asked, &run.made
 	also := make([]TakenKind, 0, len(handed))
@@ -138,15 +149,22 @@ func runTakingAlso(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[s
 		if !ok {
 			return errors.Newf("the transaction is a %T, want Spanner's", txn)
 		}
-		run.asked, run.made, run.counts, run.pages = nil, nil, 0, 0
+		run.asked, run.made, run.counts, run.pages, run.byTenant, run.statements = nil, nil, 0, 0, 0, nil
 		taking := &takingDelete{
-			asked: &recordedDelete{tree: tree, key: key},
+			asked: &recordedDelete{tree: tree, key: key, caller: asked},
 			query: &takenQuery{tree: tree, key: key},
 			txn:   spannerTxn,
 			page: func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error) {
 				run.pages++
+				run.statements = append(run.statements, statement.SQL)
 
 				return spannerTxn.readPage(ctx, statement, types, answers)
+			},
+			byTenant: func(ctx context.Context, statement rowsUnderStatement) ([]tenantRows, error) {
+				run.byTenant++
+				run.statements = append(run.statements, statement.SQL)
+
+				return spannerTxn.countByTenant(ctx, statement)
 			},
 			size: size,
 			also: also,
@@ -154,6 +172,7 @@ func runTakingAlso(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[s
 		tracked, _ := takenTracked(tree, false)
 		round, err := taking.run(ctx, func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
 			run.counts++
+			run.statements = append(run.statements, statement.SQL)
 
 			return spannerTxn.countRows(ctx, statement)
 		}, tracked, everythingUnder)
@@ -735,19 +754,19 @@ func TestPatchSet_deleteTaken_rowsTheSaveWrote(t *testing.T) {
 	err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 		deleted := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(DeletePatchType)
 		deleted.SetKey("ID", "ta")
-		if err := deleted.Buffer(ctx, txn, "test"); err != nil {
+		if err := deleted.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 			return errors.Wrap(err, "the tracked row's own delete")
 		}
 		moved := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(UpdatePatchType)
 		moved.SetKey("ID", "tb")
 		moved.Set("Title", "elsewhere")
-		if err := moved.Buffer(ctx, txn, "test"); err != nil {
+		if err := moved.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 			return errors.Wrap(err, "the tracked row's change")
 		}
 		record := NewPatchSet(NewMetadata[takingForkRow]()).SetPatchType(DeletePatchType).DeleteEverythingUnder()
 		record.SetKey("ID", "r1")
 
-		return record.Buffer(ctx, txn, "test")
+		return record.Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 	})
 	if err != nil {
 		t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v, want the save committed", err)
@@ -823,13 +842,13 @@ func TestTransactionDeletes_refuse_whatTheDatabaseHeld(t *testing.T) {
 	err := NewSpannerClient(db).ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
 		row := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(DeletePatchType)
 		row.SetKey("ID", "ta")
-		if err := row.Buffer(ctx, txn, "test"); err != nil {
+		if err := row.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 			return errors.Wrap(err, "the tracked row's delete")
 		}
 		record := NewPatchSet(NewMetadata[underForkRow]()).SetPatchType(DeletePatchType)
 		record.SetKey("ID", "r1")
 
-		return record.Buffer(ctx, txn, "test")
+		return record.Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 	})
 	if want := "This row has 2 tracked rows. Delete them first."; !httpio.HasConflict(err) || httpio.Message(err) != want {
 		t.Fatalf("the save's error = %v (%q), want a conflict saying %q", err, httpio.Message(err), want)
@@ -885,7 +904,7 @@ func TestPatchSet_DeleteAlso(t *testing.T) {
 			}
 			record.SetKey("ID", id)
 			record.deleteSaveSize = size
-			if err := record.Buffer(ctx, txn, "test"); err != nil {
+			if err := record.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 				return err
 			}
 			left = record.DeleteLeft()
@@ -974,5 +993,157 @@ func TestPatchSet_DeleteAlso(t *testing.T) {
 	}
 	if readForkRow(t, db, "r4") == nil {
 		t.Error("the save that can take nothing deleted the record")
+	}
+}
+
+// underTaskTree describes a task whose delete takes the invoices that name it, and
+// lists under it, one step each, the invoices that name it or were checked against it
+// and its timesheets, which it neither takes nor is refused by. A timesheet's step may
+// be empty where movable says so.
+func underTaskTree(movable bool) *DeleteTree {
+	byTask := func(column string, mayBeEmpty bool) DeletePath {
+		return DeletePath{{Columns: []string{column}, Table: "CascadeTasks", References: []string{"Id"}, MayBeEmpty: mayBeEmpty}}
+	}
+
+	return &DeleteTree{
+		Record: "CascadeTasks", Words: DeleteWords{One: "task", Many: "tasks"}, Key: []string{"Id"},
+		Taken: []DeleteKind{{
+			Resource: "CascadeInvoices", Words: DeleteWords{One: "invoice", Many: "invoices"}, Key: []string{"Id"},
+			Paths: []DeletePath{byTask("TaskId", false)},
+		}},
+		Under: []DeleteKind{
+			{
+				Resource: "CascadeInvoices", Words: DeleteWords{One: "invoice", Many: "invoices"}, Key: []string{"Id"},
+				Paths: []DeletePath{byTask("CheckedTaskId", false), byTask("TaskId", false)},
+			},
+			{
+				Resource: "CascadeTimesheets", Words: DeleteWords{One: "timesheet", Many: "timesheets"}, Key: []string{"Id"},
+				Paths: []DeletePath{byTask("TaskId", movable)},
+			},
+		},
+	}
+}
+
+// TestTakingDelete_underItNotTaken holds, over the emulator, a delete that takes rows of
+// a record with a row straight under it that the description neither takes nor lists
+// under refusedBy: asked or taking alike, it is refused in the counted sentence of a
+// plain delete before any row is asked about, and nothing is buffered, though the taken
+// kind has rows; "Move or delete" where the row's step may be empty; "records under it
+// that you can't see" for a person who may not list the kind. A kind under the record by
+// two steps refuses by the step no taken kind of its resource holds, and not by the one
+// a taken kind holds. A record with no such row goes as before. The refusing kinds answer
+// before these, and these before the caller's grants on the taken kinds. A description
+// whose kinds under the record are all taken by the same step sends no statement for
+// them.
+func TestTakingDelete_underItNotTaken(t *testing.T) {
+	t.Parallel()
+
+	db := cascadeDatabase(t, "under-it-not-taken")
+	var mutations []*spanner.Mutation
+	for _, task := range []string{"plain", "sheet", "checked", "billed", "refused"} {
+		mutations = append(mutations, spanner.InsertMap("CascadeTasks", map[string]any{"Id": task}))
+	}
+	for _, row := range []map[string]any{
+		{"Id": "plain-i1", "TaskId": "plain"},
+		{"Id": "sheet-i1", "TaskId": "sheet"},
+		{"Id": "checked-i1", "CheckedTaskId": "checked"},
+		{"Id": "billed-i1", "TaskId": "billed", "CheckedTaskId": "billed"},
+		{"Id": "refused-i1", "TaskId": "refused"},
+	} {
+		mutations = append(mutations, spanner.InsertMap("CascadeInvoices", row))
+	}
+	for _, row := range []map[string]any{{"Id": "sheet-s1", "TaskId": "sheet"}, {"Id": "refused-s1", "TaskId": "refused"}} {
+		mutations = append(mutations, spanner.InsertMap("CascadeTimesheets", row))
+	}
+	mutations = append(mutations, spanner.InsertMap("CascadeComments", map[string]any{"Id": "refused-c1", "TaskId": "refused"}))
+	if _, err := db.Apply(t.Context(), mutations); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+	key := func(id string) map[string]any {
+		return map[string]any{"Id": id}
+	}
+
+	for _, everythingUnder := range []bool{false, true} {
+		name := "asked"
+		if everythingUnder {
+			name = "taking"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			refused := []struct {
+				name   string
+				tree   *DeleteTree
+				task   string
+				rows   cascadeRows
+				asked  *Caller
+				want   string
+				status int
+			}{
+				{name: "a row of a kind it does not take", tree: underTaskTree(false), task: "sheet", want: "This task has 1 timesheet. Delete it first."},
+				{name: "a row whose step may be empty", tree: underTaskTree(true), task: "sheet", want: "This task has 1 timesheet. Move or delete it first."},
+				{name: "a row by the step no taken kind holds", tree: underTaskTree(false), task: "checked", want: "This task has 1 invoice. Delete it first."},
+				{name: "a row by both steps, by the one no taken kind holds", tree: underTaskTree(false), task: "billed", want: "This task has 1 invoice. Delete it first."},
+				{
+					name: "a kind the person may not list", tree: underTaskTree(false), task: "sheet",
+					asked: whoLists(accesstypes.Decisions{"CascadeTimesheets": accesstypes.Denied()}),
+					want:  "This task has records under it that you can't see, so it can't be deleted.",
+				},
+				{
+					name: "before the caller's grants on the taken kinds", tree: underTaskTree(false), task: "sheet",
+					rows: cascadeRows{denied: httpio.NewForbiddenMessage("no grant on invoices")},
+					want: "This task has 1 timesheet. Delete it first.",
+				},
+				{
+					name: "after the refusing kinds",
+					tree: func() *DeleteTree {
+						tree := underTaskTree(false)
+						tree.RefusedBy = []DeleteKind{{
+							Resource: "CascadeComments", Words: DeleteWords{One: "comment", Many: "comments"}, Key: []string{"Id"},
+							Paths: []DeletePath{{{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}}}},
+						}}
+
+						return tree
+					}(),
+					task: "refused",
+					want: "This task has 1 comment, so it can't be deleted.",
+				},
+			}
+			for _, tt := range refused {
+				run := runTakingFor(t, db, tt.tree, key(tt.task), tt.rows, everythingUnder, 0, tt.asked)
+				if !httpio.HasConflict(run.err) || httpio.Message(run.err) != tt.want {
+					t.Errorf("%s: the delete = %v (%q), want a 409 saying %q", tt.name, run.err, httpio.Message(run.err), tt.want)
+				}
+				if len(run.asked) != 0 || len(run.made) != 0 {
+					t.Errorf("%s: the delete asked about %v and took %v, want nothing", tt.name, run.asked, run.made)
+				}
+			}
+
+			// The invoice of plain names it by the step its taken kind holds: it is not in
+			// the way.
+			run := runTaking(t, db, underTaskTree(false), key("plain"), cascadeRows{}, everythingUnder)
+			if everythingUnder {
+				if run.err != nil {
+					t.Fatalf("the delete with nothing in the way = %v, want it to take what is under the task", run.err)
+				}
+				if diff := cmp.Diff([]string{"ID=plain-i1 trusted"}, run.made); diff != "" {
+					t.Errorf("the rows the delete with nothing in the way took (-want +got):\n%s", diff)
+				}
+			} else if want := "Delete this task and everything under it: 1 invoice. This can't be undone."; statusOf(run.err) != http.StatusPreconditionRequired || httpio.Message(run.err) != want {
+				t.Errorf("the delete with nothing in the way = %v (%q), want a 428 saying %q", run.err, httpio.Message(run.err), want)
+			}
+
+			// Every kind under the record taken by the same step: no statement for them.
+			held := underTaskTree(false)
+			held.Under = held.Under[:1]
+			held.Under[0].Paths = held.Under[0].Paths[1:]
+			bare := underTaskTree(false)
+			bare.Under = nil
+			heldRun := runTaking(t, db, held, key("plain"), cascadeRows{}, everythingUnder)
+			bareRun := runTaking(t, db, bare, key("plain"), cascadeRows{}, everythingUnder)
+			if diff := cmp.Diff(bareRun.statements, heldRun.statements); diff != "" {
+				t.Errorf("the statements of a delete whose kinds under the record are all taken, against one that lists none under it (-without +with):\n%s", diff)
+			}
+		})
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
@@ -55,7 +56,7 @@ func (m *ReplaceMissionDocument) Execute(ctx context.Context, txn resource.ReadW
 		SetSize(file.Size).
 		SetStoreKey(file.Key).
 		SetProvenance(&resources.Provenance{System: "console-upload", Reference: file.Name, ReceivedAt: now})
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "resources.MissionDocumentUpdatePatch.Buffer()")
 	}
 

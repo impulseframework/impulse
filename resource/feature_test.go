@@ -84,6 +84,9 @@ func TestFeatureFlagsDDL(t *testing.T) {
 		dbType       DBType
 		wantCount    int
 		wantContains []string
+		// wantChanges is the history's statement whole: who made a flip in the nine
+		// columns a change record keeps it in, each nullable.
+		wantChanges string
 	}{
 		{
 			name:      "Spanner: both tables, commit timestamps on the write columns",
@@ -98,6 +101,20 @@ func TestFeatureFlagsDDL(t *testing.T) {
 				"ChangedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),",
 				") PRIMARY KEY (Name, ChangedAt)",
 			},
+			wantChanges: `CREATE TABLE FeatureFlagChanges (
+  Name STRING(64) NOT NULL,
+  ChangedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  Enabled BOOL NOT NULL,
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+) PRIMARY KEY (Name, ChangedAt)`,
 		},
 		{
 			name:      "Postgres: both tables, quoted identifiers",
@@ -111,6 +128,21 @@ func TestFeatureFlagsDDL(t *testing.T) {
 				`CREATE TABLE "FeatureFlagChanges" (`,
 				`PRIMARY KEY ("Name", "ChangedAt")`,
 			},
+			wantChanges: `CREATE TABLE "FeatureFlagChanges" (
+  "Name" VARCHAR(64) NOT NULL,
+  "ChangedAt" TIMESTAMPTZ NOT NULL,
+  "Enabled" BOOLEAN NOT NULL,
+  "Auth" TEXT,
+  "ActorUserId" TEXT,
+  "ActorUsername" TEXT,
+  "PrincipalUserId" TEXT,
+  "PrincipalUsername" TEXT,
+  "PrincipalRole" TEXT,
+  "SessionId" TEXT,
+  "Process" TEXT,
+  "Rpc" TEXT,
+  PRIMARY KEY ("Name", "ChangedAt")
+)`,
 		},
 		{name: "an unknown database has no statements", dbType: DBType("other")},
 	}
@@ -127,6 +159,11 @@ func TestFeatureFlagsDDL(t *testing.T) {
 			for _, want := range tt.wantContains {
 				if !strings.Contains(joined, want) {
 					t.Errorf("FeatureFlagsDDL(%s) missing %q:\n%s", tt.dbType, want, joined)
+				}
+			}
+			if tt.wantChanges != "" {
+				if diff := cmp.Diff(tt.wantChanges, got[1]); diff != "" {
+					t.Errorf("FeatureFlagsDDL(%s)'s FeatureFlagChanges statement mismatch (-want +got):\n%s", tt.dbType, diff)
 				}
 			}
 		})

@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/grpc/codes"
 )
@@ -31,9 +32,11 @@ func changeRecords(t *testing.T, db *spanner.Client, table, row string) []change
 	if err := db.Single().Query(context.Background(), stmt).Do(func(r *spanner.Row) error {
 		var record changeRecord
 		var changeSet string
-		if err := r.Columns(&record.Sequence, &changeSet, &record.TenantID); err != nil {
+		var tenant spanner.NullString
+		if err := r.Columns(&record.Sequence, &changeSet, &tenant); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
+		record.TenantID = tenant.StringVal
 		if err := json.Unmarshal([]byte(changeSet), &record.ChangeSet); err != nil {
 			return errors.Wrap(err, "json.Unmarshal()")
 		}
@@ -190,10 +193,10 @@ func TestChangeRecordOldValues_spanner(t *testing.T) {
 		seedNotice(t, db, "n-7")
 		var updateErr error
 		err := client.ExecuteFunc(context.Background(), func(ctx context.Context, txn ReadWriteTransaction) error {
-			if err := notice(DeletePatchType, "n-7", "").Buffer(ctx, txn, "test"); err != nil {
+			if err := notice(DeletePatchType, "n-7", "").Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 				return err
 			}
-			updateErr = notice(UpdatePatchType, "n-7", "second").Buffer(ctx, txn, "test")
+			updateErr = notice(UpdatePatchType, "n-7", "second").Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 
 			return updateErr
 		})
@@ -318,5 +321,53 @@ func TestChangeRecordOldValues_spanner_secret(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, changeRecords(t, db, "SealedRows", "other")); diff != "" {
 		t.Errorf("records given another secret mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestSpannerReadWriteTransaction_changeRecordsNotNoted pins, on the emulator, that the
+// transaction's record of the rows it wrote keeps nothing of a change record: after a
+// tracked create and update of one row in one transaction it holds the row's two writes
+// and nothing under DataChangeEvents, and the row's change records are written as before.
+func TestSpannerReadWriteTransaction_changeRecordsNotNoted(t *testing.T) {
+	t.Parallel()
+
+	db := changeDatabase(t, "transaction-rows-records")
+	client := NewSpannerClient(db)
+
+	if err := client.ExecuteFunc(t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
+		for _, p := range []*PatchSet[changeNotice]{notice(CreatePatchType, "n-noted", "first"), notice(UpdatePatchType, "n-noted", "second")} {
+			if err := p.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
+				return err
+			}
+		}
+		rw, ok := txn.(*SpannerReadWriteTransaction)
+		if !ok {
+			t.Fatalf("the transaction is %T, want *SpannerReadWriteTransaction", txn)
+		}
+		var kinds []PatchType
+		for _, write := range rw.rows.writes["Notices"] {
+			kinds = append(kinds, write.patchType)
+		}
+		if diff := cmp.Diff([]PatchType{CreatePatchType, UpdatePatchType}, kinds); diff != "" {
+			t.Errorf("the record of the transaction's writes of Notices mismatch (-want +got):\n%s", diff)
+		}
+		if got := rw.rows.writes["DataChangeEvents"]; len(got) != 0 {
+			t.Errorf("the record of the transaction's writes holds %d of DataChangeEvents, want none", len(got))
+		}
+		if got := rw.rows.images["DataChangeEvents"]; len(got) != 0 {
+			t.Errorf("the record of the transaction's row images holds %d of DataChangeEvents, want none", len(got))
+		}
+
+		return nil
+	}); err != nil {
+		t.Fatalf("ExecuteFunc() error = %v", err)
+	}
+
+	want := []changeRecord{
+		{Sequence: 1, ChangeSet: map[accesstypes.Field]DiffElem{"Body": changed(nil, "first")}},
+		{Sequence: 2, ChangeSet: map[accesstypes.Field]DiffElem{"Body": changed("first", "second")}},
+	}
+	if diff := cmp.Diff(want, changeRecords(t, db, "Notices", "n-noted")); diff != "" {
+		t.Errorf("the change records mismatch (-want +got):\n%s", diff)
 	}
 }

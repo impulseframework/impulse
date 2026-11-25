@@ -37,19 +37,29 @@ func (p KeySet) Add(key accesstypes.Field, value any) KeySet {
 	return p
 }
 
-// RowID generates a string representation of the key set, typically for use in logging or as a unique identifier.
+// RowID spells the key as one text, the RowId a change record of the row is filed
+// under: the value of a key of one part as it is, and for a key of several parts each
+// part's value with a backslash before every backslash and every bar in it, joined by
+// bars, so that two keys never spell the same text.
 func (p KeySet) RowID() string {
 	if len(p.keyParts) == 0 {
 		return ""
 	}
-
-	var id strings.Builder
-	for _, v := range p.keyParts {
-		fmt.Fprintf(&id, "|%v", v.Value)
+	if len(p.keyParts) == 1 {
+		return fmt.Sprint(p.keyParts[0].Value)
 	}
 
-	return id.String()[1:]
+	parts := make([]string, len(p.keyParts))
+	for i, part := range p.keyParts {
+		parts[i] = rowIDPart.Replace(fmt.Sprint(part.Value))
+	}
+
+	return strings.Join(parts, "|")
 }
+
+// rowIDPart writes one part of a key of several parts, so that the bar between two
+// parts is told from a bar within one.
+var rowIDPart = strings.NewReplacer(`\`, `\\`, `|`, `\|`)
 
 // KeySet converts the resource KeySet into a `spanner.KeySet`, which can be used in Spanner read or delete operations.
 func (p KeySet) KeySet() spanner.KeySet {

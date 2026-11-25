@@ -124,7 +124,7 @@ func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteT
 	}
 	if found {
 		patch := {{ .ResourcesPackage }}.New{{ .SignInSettingRow }}UpdatePatch(session.SignInSettingsRowName).SetRequireSecondFactor(on).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInSettingRow }}UpdatePatch.Buffer()")
 		}
 
@@ -132,7 +132,7 @@ func (store) SetRequireSecondFactor(ctx context.Context, txn resource.ReadWriteT
 	}
 	patch := {{ .ResourcesPackage }}.New{{ .SignInSettingRow }}CreatePatch(session.SignInSettingsRowName).
 		SetRequireSecondFactor(on).SetRememberBrowserDays(session.DefaultRememberedBrowserDays).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInSettingRow }}CreatePatch.Buffer()")
 	}
 
@@ -149,7 +149,7 @@ func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteT
 	}
 	if found {
 		patch := {{ .ResourcesPackage }}.New{{ .SignInSettingRow }}UpdatePatch(session.SignInSettingsRowName).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
-		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+		if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInSettingRow }}UpdatePatch.Buffer()")
 		}
 
@@ -157,7 +157,7 @@ func (store) SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteT
 	}
 	patch := {{ .ResourcesPackage }}.New{{ .SignInSettingRow }}CreatePatch(session.SignInSettingsRowName).
 		SetRequireSecondFactor(true).SetRememberBrowserDays(days).SetUpdatedAt(spanner.CommitTimestamp)
-	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
+	if err := patch.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .SignInSettingRow }}CreatePatch.Buffer()")
 	}
 

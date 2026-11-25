@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -384,11 +385,11 @@ func (p *RefitTaskCreatePatch) ToStruct() *RefitTask {
 	return p.patchSet.ToStruct()
 }
 
-func (p *RefitTaskCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitTaskCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitTaskCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitTaskCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -552,11 +553,11 @@ func (p *RefitTaskUpdatePatch) ToStruct() *RefitTask {
 	return p.patchSet.ToStruct()
 }
 
-func (p *RefitTaskUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitTaskUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitTaskUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitTaskUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -710,11 +711,11 @@ func NewRefitTaskDeletePatch(refitID impulse.UUID, taskNumber int64) *RefitTaskD
 	return &RefitTaskDeletePatch{patchSet: patchSet}
 }
 
-func (p *RefitTaskDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitTaskDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitTaskDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitTaskDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

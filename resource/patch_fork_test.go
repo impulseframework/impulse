@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"go.uber.org/mock/gomock"
 )
@@ -463,7 +464,7 @@ func TestPatchSet_fork_changeRecords(t *testing.T) {
 			p := NewPatchSet(NewMetadata[trackedForkRow]()).SetPatchType(UpdatePatchType)
 			p.SetKey("ID", "row-1")
 			p.Set("Title", "after")
-			if err := p.OrCreate(nil).Buffer(t.Context(), txn, "test"); err != nil {
+			if err := p.OrCreate(nil).Buffer(t.Context(), txn, eventsource.ProcessEvent("test")); err != nil {
 				t.Fatalf("Buffer() error = %v", err)
 			}
 			if reads != tt.wantReads {

@@ -7,6 +7,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 )
 
 const (
@@ -26,15 +27,47 @@ const (
 
 var _ PatchSetMetadata = (*DataChangeEvent)(nil)
 
-// DataChangeEvent represents a record of a change made to a database table.
+// ChangeOperation is what kind of write a change record records.
+type ChangeOperation string
+
+// The kinds of write a change record records. An insert-or-update is the one it did: a
+// create where it found no row, and an update otherwise.
+const (
+	ChangeCreate ChangeOperation = "create"
+	ChangeUpdate ChangeOperation = "update"
+	ChangeDelete ChangeOperation = "delete"
+)
+
+// DataChangeEvent represents a record of a change made to a database table. Nothing scans
+// a row into it: Columns is its only way to the table.
 type DataChangeEvent struct {
-	TableName   accesstypes.Resource `spanner:"TableName"`
-	RowID       string               `spanner:"RowId"`
-	Sequence    int                  `spanner:"Sequence"`
-	EventTime   time.Time            `spanner:"EventTime"`
-	EventSource string               `spanner:"EventSource"`
-	ChangeSet   spanner.NullJSON     `spanner:"ChangeSet"`
-	TenantID    string               `spanner:"TenantId"`
+	TableName accesstypes.Resource
+	RowID     string
+	EventTime time.Time
+	Sequence  int
+	Operation ChangeOperation
+	ChangeSet spanner.NullJSON
+	TenantID  string                  // empty for a row that has no tenant
+	Source    eventsource.EventSource // who made the change
+}
+
+// Columns answers the record as the columns its insert sets: those that hold something.
+// The six every record sets are always there, the tenant where the row has one, and each
+// column of who made the change that the value fills; no column is set to NULL or to an
+// empty text.
+func (e *DataChangeEvent) Columns() map[string]any {
+	columns := e.Source.Columns()
+	columns["TableName"] = string(e.TableName)
+	columns["RowId"] = e.RowID
+	columns["EventTime"] = e.EventTime
+	columns["Sequence"] = int64(e.Sequence)
+	columns["Operation"] = string(e.Operation)
+	columns["ChangeSet"] = e.ChangeSet
+	if e.TenantID != "" {
+		columns["TenantId"] = e.TenantID
+	}
+
+	return columns
 }
 
 // PatchType returns the PatchType for DataChangeEvent
@@ -55,13 +88,26 @@ func (d *DataChangeEvent) PrimaryKey() KeySet {
 // DiffElem represents the old and new values of a field that has been changed. A field
 // that holds a secret (conditions:"secret" on the resource struct) is recorded as changed
 // with neither value: Secret is set, and Old and New stay empty, so a change record says
-// that a password or a key was set and never what it was or is.
+// that a password or a key was set and never what it was or is. A field set to the
+// commit's own time is recorded with its old value and CommitTime set, since the moment is
+// the record's own EventTime and is not known before the commit. A field that points at
+// another row is recorded with that row's name beside each value (OldName, NewName), as it
+// was when the change was made: the value is an id, and the name behind an id is lost once
+// the row is renamed or deleted.
 type DiffElem struct {
 	Old any
 	New any
+	// OldName and NewName are the names of the rows Old and New point at, each as it
+	// was when the change was made; empty where the field points at no row, the row's
+	// resource declares no name, or no one row was found.
+	OldName string `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, OldName, NewName, Secret and CommitTime
+	NewName string `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, OldName, NewName, Secret and CommitTime
 	// Secret marks the change of a secret field, whose values are not kept. Its key is
 	// spelled as Old and New are, which carry no tag and so are stored under their names.
-	Secret bool `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New and Secret
+	Secret bool `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, OldName, NewName, Secret and CommitTime
+	// CommitTime marks a value set to the commit's own time: the moment is not known when
+	// the record is written, so New stays empty, and the record's EventTime is that value.
+	CommitTime bool `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New, OldName, NewName, Secret and CommitTime
 }
 
 type jsonFieldName string

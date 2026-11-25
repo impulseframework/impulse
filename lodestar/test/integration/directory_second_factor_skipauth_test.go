@@ -164,15 +164,15 @@ func TestDirectorySecondFactor(t *testing.T) {
 			t.Errorf("Cinder's sign-in settings once the word is taken back = %+v, want not vouched", part)
 		}
 
-		// 8. The change record names the rigger for both changes.
+		// 8. The change record names the rigger for both changes, and the method each ran.
 		riggerID := crewUserID(ctx, t, hq, "rigger").String()
 		sources := changeSources(ctx, t, s, "SectorDirectories")[before:]
 		if len(sources) != 2 {
-			t.Fatalf("the changes of Cinder's directory row = %q, want two: the word said and taken back", sources)
+			t.Fatalf("the changes of Cinder's directory row = %+v, want two: the word said and taken back", sources)
 		}
-		for _, source := range sources {
-			if !strings.HasPrefix(source, "rigger ("+riggerID+"), session ") {
-				t.Errorf("who changed Cinder's directory row = %q, want the rigger", source)
+		for i, method := range []string{"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor"} {
+			if differs := sources[i].differs(map[string]string{"ActorUsername": "rigger", "ActorUserId": riggerID, "SessionId": columnSet, "Rpc": method}); differs != "" {
+				t.Errorf("who made change %d of Cinder's directory row: %s; want the rigger, her session and the method", i+1, differs)
 			}
 		}
 	})

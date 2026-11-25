@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -29,6 +30,16 @@ func (Commendation) DefaultConfig() resource.Config {
 func (Commendation) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "PilotName", Key: "PilotID", Resource: "Pilots", Tag: "displayName", Table: "Pilots", KeyColumn: "Id", NameColumn: "DisplayName", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Commendation) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "PilotID", Resource: "Pilots", Tag: "displayName", Table: "Pilots", KeyColumn: "Id", NameColumn: "DisplayName", TenantColumn: ""},
 	}
 }
 
@@ -379,11 +390,11 @@ func (p *CommendationCreatePatch) ToStruct() *Commendation {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CommendationCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CommendationCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CommendationCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CommendationCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -530,11 +541,11 @@ func (p *CommendationUpdatePatch) ToStruct() *Commendation {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CommendationUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CommendationUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CommendationUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CommendationUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -688,11 +699,11 @@ func NewCommendationDeletePatch(id impulse.UUID) *CommendationDeletePatch {
 	return &CommendationDeletePatch{patchSet: patchSet}
 }
 
-func (p *CommendationDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CommendationDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CommendationDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CommendationDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

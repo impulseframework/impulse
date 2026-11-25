@@ -49,7 +49,7 @@ func Test_tenantDirectoryTakeTemplate(t *testing.T) {
 				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
 				"r.Body = http.MaxBytesReader(w, r.Body, router.BodyLimit)",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
-				"ctx = resource.WithCaller(ctx, caller)",
+				"ctx = resource.WithCaller(ctx, caller)\n\t\tctx = resource.WithRPC(ctx, \"TakeHarborDirectory\")",
 				"asksWarning, err := resource.AsksWarning(r)",
 				"tenant, err := impulse.UUIDFromString(string(domain))",
 				`httpio.NewNotFoundMessage("This harbor does not exist.")`,

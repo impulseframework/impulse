@@ -160,7 +160,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"rules := " + switchRules + "\n",
 				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
-				"ctx = resource.WithCaller(ctx, caller)",
+				"ctx = resource.WithCaller(ctx, caller)\n\t\tctx = resource.WithRPC(ctx, method)",
 				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif asksWarning && !only {",
 				`httpio.NewBadRequestMessagef("%s declares no warning: send the call without the X-Warning header", method)`,
 				"id, err := impulse.UUIDFromString(string(domain))",
@@ -310,7 +310,7 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				// The warning names the directory as the auth's registrations do.
 				"rules := NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)\n",
 				"req, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
-				"ctx = resource.WithCaller(ctx, caller)",
+				"ctx = resource.WithCaller(ctx, caller)\n\t\tctx = resource.WithRPC(ctx, \"OpenHarborToDirectory\")",
 				"role := accesstypes.Role(strings.TrimSpace(req.Role))",
 				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tvar warning *resource.Warning\n\t\tif role == \"\" && !asksWarning {",
 				"directory, err := rules.Directory(ctx, txn, domain)",
@@ -332,6 +332,7 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				`resource.MustNewRPCDecoder[request](a, "MakeHarborInviteOnly", accesstypes.Execute).WithCollection(router.Collection())`,
 				"rules := NewHarborDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)\n",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
+				"ctx = resource.WithCaller(ctx, caller)\n\t\tctx = resource.WithRPC(ctx, \"MakeHarborInviteOnly\")",
 				"asksWarning, err := resource.AsksWarning(r)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif asksWarning {",
 				`httpio.NewBadRequestMessage("MakeHarborInviteOnly declares no warning: send the call without the X-Warning header")`,
 				"directory, err := rules.Directory(ctx, txn, domain)",
@@ -1624,10 +1625,12 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 		asks      = "\treturn nil, errors.Wrap(err, \"identity.Tenant.RemovalWarning()\")\n\t}\n\tagain, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"Client.SeatedAgainBySignIn()\")\n\t}\n\tif again {\n\t\twarning.Also = append(warning.Also, tenant.SeatedAgainNote())\n\t}\n\n\treturn warning, nil"
 		own       = "\treturn nil, errors.Wrap(err, \"identity.Tenant.RemovalWarning()\")\n\t}\n\n\treturn warning, nil"
 		said      = "// Where the tenant is open to its directory and the person signs in through it, the\n// warning says they are seated again at their next sign-in."
-		deletes   = "// @answers(204)\n// @warning\ntype DeleteCrewSectorUser struct {"
+		deletes   = "// @answers(202, 204)\n// @warning\ntype DeleteCrewSectorUser struct {"
 		deleteAsk = "func (m *DeleteCrewSectorUser) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {\n\t// A tenant's method acts for a request made under the tenant's address.\n\ttenant, err := client.manager.Tenant(ctx)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"identity.Manager.Tenant()\")\n\t}\n\tagain, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"Client.SeatedAgainBySignIn()\")\n\t}\n\n\treturn tenant.DeletionWarning(again), nil\n}"
 		deleteSay = "// Before it runs on a tenant's side, the method says what it does (Warning): where the\n// tenant is open to its directory and the person signs in through it, that they can sign\n// in again and will get a new account."
-		noWarning = "// @answers(204)\ntype Delete"
+		noWarning = "// @answers(202, 204)\ntype Delete"
+		// Both sides say whose grant the rows that go with the account go on.
+		rowsGo = "// has such a row, it deletes nothing and answers the question a person is asked first,\n// with their counts; asked with it, it takes them. Nobody deletes themselves: the\n// caller's own account is refused.\n//\n// The rows that go with the account go on this method's grant: no grant is asked on\n// their own tables. For a request made for the whole application every such row goes.\n// For one made under a tenant's address the rows of that tenant go, and those of each\n// other tenant in which the person holds the same permission; a row of any other\n// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says\n// where it is.\n"
 	)
 	for _, tt := range []struct {
 		name  string
@@ -1675,9 +1678,9 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 				t.Fatalf("generateTemplateOutput(identityDeleteUserTemplate) error = %v", err)
 			}
 			if tt.reads {
-				assertContains(t, "the tenant's deletion", string(deletion), []string{deletes, deleteAsk, deleteSay}, nil)
+				assertContains(t, "the tenant's deletion", string(deletion), []string{deletes, deleteAsk, deleteSay, rowsGo}, nil)
 			} else {
-				assertContains(t, "the tenant's deletion", string(deletion), []string{noWarning}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
+				assertContains(t, "the tenant's deletion", string(deletion), []string{noWarning, rowsGo}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
 			}
 			wholeData := tenantData
 			wholeData.ForTenant = false
@@ -1685,7 +1688,7 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("generateTemplateOutput(identityDeleteUserTemplate) error = %v", err)
 			}
-			assertContains(t, "the whole application's deletion", string(whole), []string{noWarning}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
+			assertContains(t, "the whole application's deletion", string(whole), []string{noWarning, rowsGo}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
 		})
 	}
 }

@@ -98,15 +98,16 @@ const (
 // when a row under it is the real person's own, or a pass of a squadron or a group they
 // are in. Under the act kind the class also refuses the place in a squadron and the
 // contact, whoever they name, and keeps the pass out as it does for the pass's own
-// writes. A group that a pass names is not deleted while the pass stands: the foreign key
-// to CrewGroups refuses it. A row that goes with its sector is a limit of its own: a
-// sector's delete asks no grant of a row, and each row's delete rule still runs. The act
-// kind refuses that delete by its class. The role kind has no mask; no role Lodestar
-// ships deletes a sector, and an application whose role does refuses the delete in the
-// kind's mask
-// (accesstypes.RefusePermission(accesstypes.Delete, tenant)), and by name an action that
-// deletes a tenant (accesstypes.RefuseAction). None of Lodestar's foreign keys changes a
-// row where it stands, as PostgreSQL's ON DELETE SET NULL and ON UPDATE CASCADE do.
+// writes. A group that is deleted takes the passes that name it with it: the pass says
+// so (@deletedWith), the group's question counts them, and whoever deletes the group
+// needs what deleting each pass needs. A row that goes with its sector is a limit of
+// its own: a sector's delete asks no grant of a row, and each row's delete rule still
+// runs. The act kind refuses that delete by its class. The role kind has no mask; no
+// role Lodestar ships deletes a sector, and an application whose role does refuses the
+// delete in the kind's mask (accesstypes.RefusePermission(accesstypes.Delete, tenant)),
+// and by name an action that deletes a tenant (accesstypes.RefuseAction). None of
+// Lodestar's foreign keys changes a row where it stands, as PostgreSQL's ON DELETE SET
+// NULL and ON UPDATE CASCADE do.
 //
 // A column that records who made a row is another (a mission's booker,
 // Mission.BookedByUserID, which grants compare to the requester): the rule does not
@@ -208,7 +209,7 @@ type impersonateResponse struct {
 // actor's session; the actor's own session is linked as the source. Every minted session
 // carries a two-hour hard cap (MaxDuration), which the banner counts down.
 //
-// Demonstrates: impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, impersonation.mask, impersonation.grant-mask, impersonation.max-duration, @manualAddResource.execute, impersonation.identity-proof, impersonation.session-permissions.
+// Demonstrates: impersonation.view-as, impersonation.act-as-user, impersonation.act-as-role, impersonation.mask, impersonation.grant-mask, impersonation.max-duration, @manualAddResource, @manualAddResource.execute, hand-written-route, impersonation.identity-proof, impersonation.session-permissions.
 func (a *App) Impersonate() http.HandlerFunc {
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx := r.Context()

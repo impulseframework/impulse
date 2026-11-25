@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -339,7 +340,7 @@ func TestSpannerClient_fork_changeRecords(t *testing.T) {
 	// Created, then updated: one record each.
 	for i, title := range []string{"first", "second"} {
 		p := tracked(UpdatePatchType, "row-1", title).OrCreate(nil)
-		if err := p.Apply(ctx, client, "test"); err != nil {
+		if err := p.Apply(ctx, client, eventsource.ProcessEvent("test")); err != nil {
 			t.Fatalf("Apply() %d error = %v", i, err)
 		}
 		if got, want := records("row-1"), int64(i+1); got != want {
@@ -353,7 +354,7 @@ func TestSpannerClient_fork_changeRecords(t *testing.T) {
 		"an update-or-create": tracked(UpdatePatchType, "row-1", "second").OrCreate(nil),
 		"a plain update":      tracked(UpdatePatchType, "row-1", "second"),
 	} {
-		if err := repeat.Apply(ctx, client, "test"); err != nil {
+		if err := repeat.Apply(ctx, client, eventsource.ProcessEvent("test")); err != nil {
 			t.Errorf("%s that changes nothing: Apply() error = %v, want none", name, err)
 		}
 		if got := records("row-1"); got != 2 {
@@ -362,13 +363,13 @@ func TestSpannerClient_fork_changeRecords(t *testing.T) {
 	}
 	// The low-level insert-or-update keeps its refusal.
 	lowLevel := tracked(CreateOrUpdatePatchType, "row-1", "second")
-	if err := lowLevel.Apply(ctx, client, "test"); err == nil || !httpio.HasBadRequest(err) {
+	if err := lowLevel.Apply(ctx, client, eventsource.ProcessEvent("test")); err == nil || !httpio.HasBadRequest(err) {
 		t.Errorf("a low-level insert-or-update that changes nothing: Apply() error = %v, want its 400", err)
 	}
 	// One whose row is not there creates it, and one that changes it then changes it: one
 	// record each.
 	for i, title := range []string{"made", "changed"} {
-		if err := tracked(CreateOrUpdatePatchType, "row-3", title).Apply(ctx, client, "test"); err != nil {
+		if err := tracked(CreateOrUpdatePatchType, "row-3", title).Apply(ctx, client, eventsource.ProcessEvent("test")); err != nil {
 			t.Fatalf("a low-level insert-or-update: Apply() %d error = %v", i, err)
 		}
 		if got, want := records("row-3"), int64(i+1); got != want {
@@ -402,11 +403,11 @@ func TestSpannerClient_fork_changeRecords(t *testing.T) {
 		{"an update-or-create", "row-4", tracked(UpdatePatchType, "row-4", "again").OrCreate(nil), OutcomeUpdated},
 	} {
 		if err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
-			if err := tracked(CreatePatchType, second.id, "new").Buffer(ctx, txn, "test"); err != nil {
+			if err := tracked(CreatePatchType, second.id, "new").Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 				return err
 			}
 
-			return second.patch.Buffer(ctx, txn, "test")
+			return second.patch.Buffer(ctx, txn, eventsource.ProcessEvent("test"))
 		}); err != nil {
 			t.Errorf("%s of a row its transaction created: ExecuteFunc() error = %v", second.name, err)
 
@@ -426,11 +427,11 @@ func TestSpannerClient_fork_changeRecords(t *testing.T) {
 	// A create-unless-there of a row this transaction created skips.
 	var skipped Outcome
 	if err := client.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
-		if err := tracked(CreatePatchType, "row-5", "new").Buffer(ctx, txn, "test"); err != nil {
+		if err := tracked(CreatePatchType, "row-5", "new").Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 			return err
 		}
 		p := tracked(CreatePatchType, "row-5", "again").OrSkip()
-		if err := p.Buffer(ctx, txn, "test"); err != nil {
+		if err := p.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 			return err
 		}
 		skipped = p.Outcome()

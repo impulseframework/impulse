@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/shopspring/decimal"
 )
@@ -86,6 +87,17 @@ func (Refit) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "ShipName", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
 		{Field: "StatusName", Key: "StatusID", Resource: "", Tag: "", Table: "RefitStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Refit) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+		{Field: "", Key: "StatusID", Resource: "", Tag: "", Table: "RefitStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 	}
 }
 
@@ -466,11 +478,11 @@ func (p *RefitCreatePatch) ToStruct() *Refit {
 	return p.patchSet.ToStruct()
 }
 
-func (p *RefitCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -662,11 +674,11 @@ func (p *RefitUpdatePatch) ToStruct() *Refit {
 	return p.patchSet.ToStruct()
 }
 
-func (p *RefitUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -896,11 +908,11 @@ func (p *RefitDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *RefitDeleteP
 	return p
 }
 
-func (p *RefitDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *RefitDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *RefitDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *RefitDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

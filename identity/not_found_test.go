@@ -80,7 +80,9 @@ func TestManager_notFoundPlainly(t *testing.T) {
 		{
 			name: "DeleteUser, an account that does not exist", sentence: account, kept: []string{userID.String()},
 			call: func(t *testing.T, ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return nobody(t).DeleteUser(ctx, txn, userID)
+				_, err := nobody(t).DeleteUser(ctx, txn, userID, false)
+
+				return err
 			},
 		},
 		{

@@ -42,13 +42,17 @@ import (
 // is free for another sector, which the schema refused while Ember had it. The marshal,
 // seated in Ember and in Anvil, signs in afterwards as before and reaches Anvil.
 // Ember's rows go with it too: one in each of the tables that carry a sector's key (a
-// wing, a hangar, a pass into it, a mission, a consignment, a droid's report, a distress
-// call and a relay of it), while the rows of the sectors beside it stand. And one in
+// wing, a hangar, a pass into it in the name of Ember's group, a mission, a consignment, a
+// droid's report, a distress call and a relay of it), while the rows of the sectors
+// beside it stand. The pass goes with the group too (@deletedWith), and is counted and
+// taken once, as one of the sector's. And one in
 // each of the eight tables that reach their sector through another row: a squadron in
 // Ember's wing with a member, a ship in Ember's hangar with a refit and its task, a
 // sortie of Ember's mission with an expense, and a document of that mission. The
 // sector's delete takes each of them in code, through its kind's own delete, so a kind
-// that keeps a change record keeps one of the row that went. The ship flew Ember's own
+// that keeps a change record keeps one of the row that went. Each such record carries
+// Ember's key and the governor who sent the delete, and the sector's own earlier records
+// stand as they were. The ship flew Ember's own
 // sortie and the droid's report is of it: those two references say nothing of a delete,
 // and hold nothing here, since what names the ship goes in the same transaction.
 //
@@ -230,14 +234,16 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	localSession := leftBySignIn(ctx, t, s, local, localID, "azure", entra)
 	// Ember holds rows of its own by now, written here as rows: one in each table that
 	// carries a sector's key, and one in each table that reaches its sector through
-	// another row. The pass is into Ember's own hangar, in a person's name; the ship is
-	// in that hangar, flew the sortie of Ember's mission, and is the one the droid read.
+	// another row. The pass is into Ember's own hangar, in the name of Ember's group,
+	// which it says it goes with (@deletedWith): the sector's delete takes it once, among
+	// the sector's passes, before the group. The ship is in that hangar, flew the sortie of
+	// Ember's mission, and is the one the droid read.
 	emberWing, emberHangar, emberMission := newID(t), newID(t), newID(t)
 	emberSquadron, emberShip, emberRefit, emberSortie := newID(t), newID(t), newID(t), newID(t)
 	if _, err := s.db.Apply(ctx, []*spanner.Mutation{
 		spanner.Insert("Wings", []string{"Id", "SectorId", "Name"}, []any{emberWing, ember, "Ember Wing"}),
 		spanner.Insert("Hangars", []string{"Id", "SectorId", "Name", "Zone"}, []any{emberHangar, ember, "Ember Dock", "dock"}),
-		spanner.Insert("HangarPasses", []string{"Id", "SectorId", "HangarId", "UserId", "LevelId"}, []any{newID(t), ember, emberHangar, string(marshalUser), "visit"}),
+		spanner.Insert("HangarPasses", []string{"Id", "SectorId", "HangarId", "GroupId", "LevelId"}, []any{newID(t), ember, emberHangar, emberGroup, "visit"}),
 		spanner.InsertMap("Missions", map[string]any{
 			"Id": emberMission, "SectorId": ember, "ClientId": clientHalvardID, "KindId": "courier", "Title": "Ember's last run", "Hazard": 1,
 			"Fee": *big.NewRat(100, 1), "Deadline": time.Now().Add(24 * time.Hour), "BookedByUserId": string(governorUser), "BookedByName": "governor", "StatusId": "open",
@@ -424,6 +430,38 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		if eventsAfter[table] != eventsBefore[table]+1 {
 			t.Errorf("change events of %s: %d before the delete and %d after, want one more: the removal of Ember's row is in the audit", table, eventsBefore[table], eventsAfter[table])
 		}
+	}
+	// The record of each row's removal carries Ember's key, the ship's and the refit's,
+	// which reach it through a parent the same delete took, among them, and the governor
+	// who sent the delete.
+	for _, row := range []struct{ table, id string }{{"Missions", emberMission}, {"Ships", emberShip}, {"Refits", emberRefit}} {
+		records := rowChangeRecords(ctx, t, s, row.table, row.id)
+		if len(records) != 1 {
+			t.Errorf("%s %s has %d change record(s) after the sector's delete, want %d", row.table, row.id, len(records), 1)
+
+			continue
+		}
+		record := records[0]
+		if record.tenant.StringVal != ember {
+			t.Errorf("the change record of the delete of %s %s carries the tenant %q, want Ember's key: a row that goes with its sector is still recorded as the sector's", row.table, row.id, record.tenant.StringVal)
+		}
+		if record.who.Operation != "delete" || record.who.ActorUsername.StringVal != "governor" || !record.who.SessionID.Valid {
+			t.Errorf("the change record of %s %s is a %q by %q (session set %t), want a delete by the governor in his session", row.table, row.id, record.who.Operation, record.who.ActorUsername.StringVal, record.who.SessionID.Valid)
+		}
+	}
+	// The sector's own history stands: the founding and the disabling, and the delete,
+	// each with Ember's key.
+	sectorRecords := rowChangeRecords(ctx, t, s, "Sectors", ember)
+	if len(sectorRecords) < 3 {
+		t.Errorf("%s %s has %d change record(s) after the sector's delete, want %d", "Sectors", ember, len(sectorRecords), 3)
+	}
+	for i, record := range sectorRecords {
+		if record.tenant.StringVal != ember {
+			t.Errorf("the sector's own history after its delete: record %d carries the tenant %q, want Ember's key on every record, the earlier ones among them", i, record.tenant.StringVal)
+		}
+	}
+	if n := len(sectorRecords); n > 0 && (sectorRecords[n-1].who.Operation != "delete" || sectorRecords[n-1].who.ActorUsername.StringVal != "governor") {
+		t.Errorf("the sector's newest record is a %q by %q, want a delete by the governor", sectorRecords[n-1].who.Operation, sectorRecords[n-1].who.ActorUsername.StringVal)
 	}
 	// Ember's rows went with it, in every table that carries a sector's key, and the rows
 	// of the sectors beside it stand.
@@ -661,4 +699,37 @@ func newID(t *testing.T) string {
 	}
 
 	return id.String()
+}
+
+// rowChangeRecord is one change record of a row as the table holds it: what kind of write
+// it was and who made it, and the tenant it carries.
+type rowChangeRecord struct {
+	who    changeRecordWho
+	tenant spanner.NullString
+}
+
+// rowChangeRecords reads the change records of one row past the library, oldest first.
+func rowChangeRecords(ctx context.Context, t *testing.T, s *served, table, rowID string) []rowChangeRecord {
+	t.Helper()
+
+	iter := s.db.Single().Query(ctx, spanner.Statement{
+		SQL:    "SELECT " + changeRecordWhoColumns + ", TenantId FROM DataChangeEvents WHERE TableName = @table AND RowId = @row ORDER BY EventTime, Sequence",
+		Params: map[string]any{"table": table, "row": rowID},
+	})
+	var records []rowChangeRecord
+	if err := iter.Do(func(row *spanner.Row) error {
+		var record rowChangeRecord
+		who, err := scanChangeRecordWho(row, &record.tenant)
+		if err != nil {
+			return err
+		}
+		record.who = who
+		records = append(records, record)
+
+		return nil
+	}); err != nil {
+		t.Fatalf("reading the change records of %s %s: %v", table, rowID, err)
+	}
+
+	return records
 }

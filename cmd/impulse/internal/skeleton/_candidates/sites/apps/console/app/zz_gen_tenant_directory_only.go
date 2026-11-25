@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/router"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -105,6 +106,7 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
+		ctx = resource.WithRPC(ctx, method)
 
 		// A request that asks for the method's warning (X-Warning: true) is decoded
 		// and checked as the call is. Turning the switch on answers its warning in
@@ -124,7 +126,7 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessage("This tenant does not exist."))
 		}
-		eventSource := resource.UserEvent(ctx)
+		eventSource := eventsource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		dryRun, err := resource.IsDryRun(r)

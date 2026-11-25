@@ -45,11 +45,11 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 	}
 
-	// ShipLog states a word of several, with an apostrophe in it.
+	// CaptainLog states a word of several, with an apostrophe in it.
 	//
 	// @resource
-	// @rowWord(ship's log)
-	ShipLog struct {
+	// @rowWord(captain's log)
+	CaptainLog struct {
 		ID impulse.UUID `spanner:"Id"`
 	}
 

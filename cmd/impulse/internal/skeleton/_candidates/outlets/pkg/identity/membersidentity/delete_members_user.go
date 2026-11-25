@@ -5,6 +5,7 @@ package membersidentity
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -13,7 +14,18 @@ import (
 
 // DeleteMembersUser deletes a person of the Members auth, in one transaction:
 // every session they hold is ended, and their identity links and every role they hold
-// go with the account. Nobody deletes themselves: the caller's own account is refused.
+// go with the account, and with it the application's rows that name the account in a
+// column that says so (@deletedWith). Asked without EverythingUnder of an account that
+// has such a row, it deletes nothing and answers the question a person is asked first,
+// with their counts; asked with it, it takes them. Nobody deletes themselves: the
+// caller's own account is refused.
+//
+// The rows that go with the account go on this method's grant: no grant is asked on
+// their own tables. For a request made for the whole application every such row goes.
+// For one made under a tenant's address the rows of that tenant go, and those of each
+// other tenant in which the person holds the same permission; a row of any other
+// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says
+// where it is.
 //
 // The person's own row does not offer it (@notOnOwnAccount): nobody disables or deletes
 // themselves, and the method refuses the call.
@@ -25,17 +37,38 @@ import (
 // @callerEnters
 // @notOnOwnAccount(ID)
 // @outlet(portal)
-// @answers(204)
+// @answers(202, 204)
 type DeleteMembersUser struct {
 	// @target(MembersListedUser)
 	UserID impulse.UUID
+	// EverythingUnder says the person was asked what the account's delete takes and
+	// confirmed it, so the delete takes the application's rows that go with the account.
+	EverythingUnder bool
 }
 
-// Execute buffers the removal into the caller's transaction.
-func (m *DeleteMembersUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
-	if err := client.manager.DeleteUser(ctx, txn, m.UserID); err != nil {
-		return errors.Wrap(err, "identity.Manager.DeleteUser()")
+// DeleteMembersUserResult is what a delete of an account with more under it than
+// one save holds left (resource.DeleteLeft): the records this request deleted and the
+// records still under the account, which stands until a request takes the last of them.
+type DeleteMembersUserResult struct {
+	Deleted int64 `json:"deleted"`
+	Left    int64 `json:"left"`
+}
+
+// HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.
+func (*DeleteMembersUserResult) HTTPStatus() int {
+	return http.StatusAccepted
+}
+
+// Execute buffers the removal into the caller's transaction. It answers nothing (204)
+// once the account is gone, and what one save left (202) while it stands.
+func (m *DeleteMembersUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*DeleteMembersUserResult, error) {
+	left, err := client.manager.DeleteUser(ctx, txn, m.UserID, m.EverythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.DeleteUser()")
+	}
+	if left == nil {
+		return nil, nil
 	}
 
-	return nil
+	return &DeleteMembersUserResult{Deleted: left.Deleted, Left: left.Left}, nil
 }

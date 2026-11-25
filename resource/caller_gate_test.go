@@ -1,6 +1,8 @@
 package resource
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -93,6 +95,67 @@ func TestCaller_ExecuteGate(t *testing.T) {
 			t.Errorf("Caller.ExecuteGate() with no caller: error = %v, want the refusal of a call outside a frame", err)
 		}
 	})
+}
+
+// entryAccessor hands a targeted method's decoder the checker and no validator.
+type entryAccessor struct {
+	perms UserPermissions
+}
+
+func (entryAccessor) Validator() ValidatorFunc {
+	return nil
+}
+
+func (a entryAccessor) UserPermissions(*http.Request) UserPermissions {
+	return a.perms
+}
+
+// TestCaller_entryCheck pins what the caller a method's frame stamps says of the check it
+// was let in by: the method and the permission, for a method that names no row
+// (RPCDecoder.DecodeCaller) and for one that names a row (the gate a TargetedRPCDecoder's
+// decode answers). The caller of a gate a body asks through Caller.ExecuteGate, the
+// caller As answers and the caller a query answers carry neither.
+func TestCaller_entryCheck(t *testing.T) {
+	t.Parallel()
+
+	perms := &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Execute: {rpcEnforcedMethod, "TargetedMethod", "RateThing"}}}
+	request := func() *http.Request {
+		return httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(`{"name":"n"}`))
+	}
+	carries := func(t *testing.T, of string, caller *Caller, method accesstypes.Resource, permission accesstypes.Permission) {
+		t.Helper()
+
+		if caller.method != method || caller.permission != permission {
+			t.Errorf("%s carries the method %q and the permission %q, want %q and %q", of, caller.method, caller.permission, method, permission)
+		}
+	}
+
+	decoder, err := NewRPCDecoder[rpcEnforcementRequest](func(*http.Request) UserPermissions { return perms }, rpcEnforcedMethod, accesstypes.Execute)
+	if err != nil {
+		t.Fatalf("NewRPCDecoder() error = %v", err)
+	}
+	_, caller, err := decoder.DecodeCaller(request(), testScope)
+	if err != nil {
+		t.Fatalf("RPCDecoder.DecodeCaller() error = %v", err)
+	}
+	carries(t, "the caller of a method that names no row", caller, rpcEnforcedMethod, accesstypes.Execute)
+
+	targeted := MustNewTargetedRPCDecoder[rpcEnforcementRequest](entryAccessor{perms: perms}, nil, "TargetedMethod", accesstypes.Execute)
+	_, gate, err := targeted.Decode(request(), testScope)
+	if err != nil {
+		t.Fatalf("TargetedRPCDecoder.Decode() error = %v", err)
+	}
+	stamped := gate.Caller()
+	carries(t, "the caller of a method that names a row", stamped, "TargetedMethod", accesstypes.Execute)
+
+	asked, err := stamped.ExecuteGate(t.Context(), "RateThing", &rateRequest{})
+	if err != nil {
+		t.Fatalf("Caller.ExecuteGate() error = %v", err)
+	}
+	carries(t, "the caller of a gate a body asks", asked.Caller(), "", "")
+	carries(t, "the caller As answers", stamped.As(perms), "", "")
+	query := &QuerySet[enforcementResource]{userPermissions: perms, scope: testScope, env: RequestEnvironment()}
+	carries(t, "the caller a query answers", query.Caller(), "", "")
 }
 
 // TestQuerySet_Caller pins the caller a query answers for the list read through it: the

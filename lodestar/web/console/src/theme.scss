@@ -43,8 +43,8 @@ html {
 // no literal color (cmd/generate's TestWebStylesheetsCarryNoLiteralColor refuses one). Each
 // that colors text or a line is a light-dark pair, as mat.theme's tokens are, so it keeps its
 // contrast in the person's light or dark: amber for a hazard, a selection and a refusal the
-// server explained, green for a nominal reading and a probe the server allowed, teal for the
-// ship's log and a live transition. The highlight is a fill under its own dark text, and the
+// server explained, green for a nominal reading and a probe the server allowed, teal for a
+// live transition. The highlight is a fill under its own dark text, and the
 // view-as banner a band under its own white text, the same in both.
 html {
   --lodestar-amber: light-dark(#a5640a, #f2b544);

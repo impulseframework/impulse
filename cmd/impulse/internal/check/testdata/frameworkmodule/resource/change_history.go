@@ -15,20 +15,27 @@ func DataChangeEventsDDL(dbType DBType, period ChangeHistoryPeriod) []string {
 		createTable := `CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
   RowId STRING(MAX) NOT NULL,
-  Sequence INT64 NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
-  EventSource STRING(MAX) NOT NULL,
+  Sequence INT64 NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-  TenantId STRING(MAX) NOT NULL,
-) PRIMARY KEY (TableName, RowId, Sequence, EventTime)`
-		createIndex := "CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC)"
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC)`
 		switch {
 		case period.forever:
-			return []string{createTable, createIndex}
+			return []string{createTable}
 		case period.days >= 1:
 			return []string{
 				createTable,
-				createIndex,
 				"ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL " + strconv.Itoa(period.days) + " DAY))",
 			}
 		default:

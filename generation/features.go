@@ -629,6 +629,17 @@ func (r *resourceGenerator) resourceFeatureTests(data *featureTestsData, res *re
 			}
 			data.Routes = append(data.Routes, test)
 		}
+		histories, err := r.resourceChangeHistoryRoutes(res, outlet.prefix)
+		if err != nil {
+			return err
+		}
+		for _, route := range histories {
+			test, err := gateTestOf(route, pkTypes, resourceMatrixListQuery(res), res.Feature.Constant, outlet)
+			if err != nil {
+				return err
+			}
+			data.Routes = append(data.Routes, test)
+		}
 	}
 	if listRoute == nil {
 		return nil

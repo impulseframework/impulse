@@ -5,14 +5,15 @@ package integration
 // typed resource.Secret): a client sets it, the column holds it encrypted, and nothing
 // serves it back. This suite holds the declaration to each place the value could come
 // out of: the column itself, a read and a list, a columns, a filter and a sort that name
-// it, and the ship's log, which serves every change of a ship to the browser and so is
-// where a secret that the change record kept would be handed out. And it uses the key
+// it, the ship's change records, and the ship's history, which serves them to the browser
+// and so is where a secret that a change record kept would be handed out. And it uses the key
 // the way application code does, through the ship's generated Open methods, on its own
 // row and across a rotation of the application secret.
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -38,11 +39,11 @@ func TestSecretField(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := grants{
-		accesstypes.List:   append(withFields("Ships", "name", "registry"), resources.ShipsLogEntries),
+		accesstypes.List:   withFields("Ships", "name", "registry"),
 		accesstypes.Read:   withFields("Ships", "name", "registry"),
 		accesstypes.Update: withFields("Ships", "name", "transponderKey"),
 	}
-	h := mountLog(app.New(&testConfigurer{db: db, access: &staticAccess{g: g}}))
+	h := withHandWrittenRoutes(app.New(&testConfigurer{db: db, access: &staticAccess{g: g}}))
 
 	const first, second = "kf-7741-open-sesame", "kf-7741-close-sesame"
 	ship := sectorPath(anvil, "ships/"+shipKingfisherID)
@@ -146,7 +147,7 @@ func TestSecretField(t *testing.T) {
 	}
 	// Opened inside a transaction of a client that holds both versions, it is written
 	// again under the current one: the value is the same, so the ship's update stamp does
-	// not move and the ship's log gains no change (asserted on the log below).
+	// not move and the ship gains no change record (asserted on its records below).
 	stamp := readColumn[spanner.NullTime](ctx, t, db, "Ships", spanner.Key{shipKingfisherID}, "UpdatedAt")
 	err = resource.NewSpannerClient(db.Client, resource.WithSecretKeys(rotated)).ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().TransponderKey()).
@@ -233,32 +234,76 @@ func TestSecretField(t *testing.T) {
 		t.Errorf("a right guess answers %s and a wrong one %s; want one answer", right, wrong)
 	}
 
-	// The ship's log serves the changes: the key's, by the field's name, with neither
-	// the old value nor the new one, beside the rename with both of its values.
-	status, body = doRequest(t, h, http.MethodGet, sectorPath(anvil, "ships-log-entries"), "")
-	assertStatus(t, status, http.StatusOK, body)
-	leaks("the ship's log", body)
-	var named, renamed int
-	for _, entry := range decodeRows(t, body) {
-		if entry["tableName"] != "Ships" || entry["rowId"] != shipKingfisherID {
-			continue
+	// The ship's change records hold the key's two changes by the field's name, with
+	// neither the old value nor the new one, beside the rename with both of its values.
+	stmt := spanner.NewStatement("SELECT TO_JSON_STRING(ChangeSet) FROM DataChangeEvents WHERE TableName = 'Ships' AND RowId = @id ORDER BY EventTime, Sequence")
+	stmt.Params["id"] = shipKingfisherID
+	var named, renamed, records int
+	if err := db.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var set string
+		if err := row.Column(0, &set); err != nil {
+			return fmt.Errorf("reading a change set: %w", err)
 		}
-		changes, _ := entry["changeSet"].(map[string]any)
-		if change, ok := changes["TransponderKey"].(map[string]any); ok {
+		records++
+		leaks("a change record", []byte(set))
+		var changes map[string]map[string]any
+		if err := json.Unmarshal([]byte(set), &changes); err != nil {
+			return fmt.Errorf("decoding a change set: %w", err)
+		}
+		if change, ok := changes["TransponderKey"]; ok {
 			named++
 			if change["Secret"] != true || change["Old"] != nil || change["New"] != nil {
-				t.Errorf("the log's change of the key = %v, want it marked a secret with neither value", change)
+				t.Errorf("the record's change of the key = %v, want it marked a secret with neither value", change)
 			}
 		}
-		if change, ok := changes["Name"].(map[string]any); ok {
+		if change, ok := changes["Name"]; ok {
 			renamed++
 			if change["Old"] != "Kingfisher" || change["New"] != "Kingfisher II" {
-				t.Errorf("the log's change of the name = %v, want both values: a field that is no secret keeps them", change)
+				t.Errorf("the record's change of the name = %v, want both values: a field that is no secret keeps them", change)
 			}
 		}
+
+		return nil
+	}); err != nil {
+		t.Fatalf("reading the ship's change records: %v", err)
 	}
 	if named != 2 || renamed != 1 {
-		t.Errorf("the log names the key in %d change(s) and the name in %d, want 2 and 1 (the write that changed nothing writes no record): %s", named, renamed, body)
+		t.Errorf("the ship's change records name the key in %d and the name in %d, want 2 and 1 (the write that changed nothing changes no field)", named, renamed)
+	}
+
+	// The ship's history serves every record, newest first: the rename with both of its
+	// values, and each other record with no field, since the key is a field no answer
+	// serves and this caller's grant leaves the update stamp out.
+	status, body = doRequest(t, h, http.MethodGet, ship+"/changes", "")
+	assertStatus(t, status, http.StatusOK, body)
+	leaks("the ship's history", body)
+	var history struct {
+		Changes []struct {
+			Fields []struct {
+				Field string `json:"field"`
+				Old   any    `json:"old"`
+				New   any    `json:"new"`
+			} `json:"fields"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal(body, &history); err != nil {
+		t.Fatalf("decoding the ship's history: %v: %s", err, body)
+	}
+	if len(history.Changes) != records {
+		t.Fatalf("the ship's history holds %d record(s), want the %d the table holds: %s", len(history.Changes), records, body)
+	}
+	var listed int
+	for _, record := range history.Changes {
+		if len(record.Fields) == 0 {
+			continue
+		}
+		listed++
+		if fields := record.Fields; len(fields) != 1 || fields[0].Field != "name" || fields[0].Old != "Kingfisher" || fields[0].New != "Kingfisher II" {
+			t.Errorf("a record lists %+v, want the rename alone, with both of its values", fields)
+		}
+	}
+	if listed != 1 {
+		t.Errorf("the ship's history lists a field in %d record(s), want the rename's one: %s", listed, body)
 	}
 }
 

@@ -17,17 +17,24 @@ CREATE TABLE TrackedForkRows (
 CREATE TABLE DataChangeEvents (
   TableName STRING(MAX) NOT NULL,
   RowId STRING(MAX) NOT NULL,
-  Sequence INT64 NOT NULL,
   EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
-  EventSource STRING(MAX) NOT NULL,
+  Sequence INT64 NOT NULL,
+  Operation STRING(MAX) NOT NULL,
   ChangeSet JSON,
-  TenantId STRING(MAX) NOT NULL,
-) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
-
-CREATE INDEX DataChangeEventsByTenant ON DataChangeEvents(TenantId, EventTime DESC, TableName, RowId, Sequence DESC);
+  TenantId STRING(MAX),
+  Auth STRING(MAX),
+  ActorUserId STRING(MAX),
+  ActorUsername STRING(MAX),
+  PrincipalUserId STRING(MAX),
+  PrincipalUsername STRING(MAX),
+  PrincipalRole STRING(MAX),
+  SessionId STRING(MAX),
+  Process STRING(MAX),
+  Rpc STRING(MAX),
+) PRIMARY KEY (TableName, RowId, EventTime DESC, Sequence DESC);
 
 -- The change history's row deletion policy, as an application's first migration carries
--- it. The table's three statements are resource.DataChangeEventsDDL's, which a test pins.
+-- it. The table's two statements are resource.DataChangeEventsDDL's, which a test pins.
 ALTER TABLE DataChangeEvents ADD ROW DELETION POLICY (OLDER_THAN(EventTime, INTERVAL 365 DAY));
 
 -- The secret-field tests' fixture: a table that keeps change records and has a column

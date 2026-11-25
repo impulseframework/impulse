@@ -92,7 +92,6 @@ export function appMenus(): Menu[] {
             deckPages.roster,
             resourcePage(sectorHazardBoardsConfig, resourceMeta),
             resourcePage(expenseManifestsConfig, resourceMeta),
-            deckPages.shipsLog,
             deckPages.briefing,
           ],
         },

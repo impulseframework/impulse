@@ -4,8 +4,8 @@ package integration
 // SERVED stack (session cookies, XSRF, the hand-written mint route) over the real
 // engines. View as: mint as Cass with a List, Read mask and assert the flight deck's
 // Execute list is empty, a PATCH is refused, and the digest carries no write
-// permission. Act as a role: mint as role Dispatcher and assert the change event's
-// source names the actor and the role, a deadline extension succeeds while a squadron
+// permission. Act as a role: mint as role Dispatcher and assert the change record
+// names the actor and the role, a deadline extension succeeds while a squadron
 // assignment is refused because subject resolved to Greer, not to a dispatcher. Minting
 // from an impersonated session is refused. The masks the three kinds carry, and what a
 // session acting as a person is refused, are impersonation_mask_skipauth_test's.
@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -85,7 +84,7 @@ func giveMarshalStandIn(ctx context.Context, t *testing.T, s *served) {
 	}
 }
 
-// Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.mask, impersonation.identity-proof, impersonation.end, event-source, @manualAddResource.execute, impersonation.session-permissions.
+// Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.mask, impersonation.identity-proof, impersonation.end, event-source, @manualAddResource, @manualAddResource.execute, hand-written-route, impersonation.session-permissions.
 func TestImpersonatedSessions(t *testing.T) {
 	t.Parallel()
 
@@ -188,11 +187,12 @@ func TestImpersonatedSessions(t *testing.T) {
 		status, body = greer.do(ctx, http.MethodPatch, "/console/api/resources",
 			fmt.Appendf(nil, `[{"op":"patch","path":%q,"value":{"deadline":%q}}]`, opPath(anvil, "missions/"+missionConvoyID), deadline(27)))
 		assertStatus(t, status, http.StatusOK, body)
-		// ...and the change event names the actor, by username with the id of her
-		// account, and the role.
-		source, _ := latestChangeEvent(t, db, "Missions", missionConvoyID)
-		if want := fmt.Sprintf("governor (%s) as role Dispatcher, session ", account(t, "governor")); !strings.HasPrefix(source, want) {
-			t.Errorf("eventSource = %q, want it to begin %q", source, want)
+		// ...and the change record names the actor, by username with the id of his
+		// account, and the role, and no method: the change was made on the mission's own
+		// route.
+		who, _ := latestChangeEvent(t, db, "Missions", missionConvoyID)
+		if differs := who.differs(map[string]string{"ActorUsername": "governor", "ActorUserId": string(account(t, "governor")), "PrincipalRole": "Dispatcher", "SessionId": columnSet}); differs != "" {
+			t.Errorf("who changed the deadline, as the change record says: %s; want the governor acting as the role Dispatcher, his session, and no method", differs)
 		}
 
 		// The identity proof: grant A reads subject.squadrons against Greer's own

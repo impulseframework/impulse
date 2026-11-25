@@ -10,7 +10,6 @@ import { BriefingComponent } from './briefing/briefing.component';
 import { FlightDeckComponent } from './flight-deck/flight-deck.component';
 import { HangarDeckComponent } from './hangar-deck/hangar-deck.component';
 import { RosterComponent } from './roster/roster.component';
-import { ShipsLogComponent } from './ships-log/ships-log.component';
 
 const list = Permissions.List;
 
@@ -40,12 +39,6 @@ export const deckPages = {
     icon: 'groups',
     route: [DomainRoutePath, 'roster'],
     permission: { resource: Resources.Squadrons, permission: list },
-  }),
-  shipsLog: page({
-    label: "Ship's log",
-    icon: 'history',
-    route: [DomainRoutePath, 'ships-log'],
-    permission: { resource: Resources.ShipsLogEntries, permission: list },
   }),
   briefing: page({
     label: 'Briefing',
@@ -105,11 +98,6 @@ export const sectorRoute = (pages: Route[]): Route => {
         path: 'roster',
         loadComponent: (): Promise<Type<RosterComponent>> =>
           import('./roster/roster.component').then((comp) => comp.RosterComponent),
-      }),
-      pageRoute(deckPages.shipsLog, {
-        path: 'ships-log',
-        loadComponent: (): Promise<Type<ShipsLogComponent>> =>
-          import('./ships-log/ships-log.component').then((comp) => comp.ShipsLogComponent),
       }),
       pageRoute(deckPages.briefing, {
         path: 'briefing',

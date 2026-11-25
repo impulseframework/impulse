@@ -1,7 +1,6 @@
 package resource
 
 import (
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,10 +24,13 @@ const (
 	fileReleaseMutations = 0
 )
 
-// changeRecordMutations is what the change record of one removed row costs: an insert
-// counts once for each column it writes, and once for the record's entry in the table's
-// index by tenant.
-var changeRecordMutations = reflect.TypeFor[DataChangeEvent]().NumField() + 1
+// changeRecordMutations is what the change record of one removed row is counted to cost.
+// An insert counts once for each column it writes, and a record writes no more than the
+// table's sixteen columns. A record sets only the columns that hold something (the
+// delete of a tenant's row by an ordinary person sets eleven), but a save is filled to
+// DeleteMutationLimit with no margin, so the count is the most a record can cost. The
+// change history table has no index to enter the record in.
+const changeRecordMutations = 16
 
 // DeleteLink is one step from a row up toward the record it is under: the row's Columns
 // hold the key of a row of Table, in that table's References columns. A foreign key
@@ -144,6 +146,27 @@ type DeleteKind struct {
 	// kind under the tenant record, whose delete asks one permission, to delete a
 	// tenant. The kind's delete rule is asked all the same. The generator writes it.
 	Trusted bool
+	// AsCaller marks a kind of the application's under a record of the library's (a
+	// group, an account): its rows are checked against whoever the delete is for, the
+	// patch's caller or else the request's, though the record's own delete is not armed,
+	// since the library's method asked that person's grant on the record and none on
+	// these rows. Outside a request nobody is asked, and the rows go trusted. A delete
+	// told to take the library's rows alone leaves the kind out
+	// (PatchSet.DeleteLibraryRowsAlone). The kinds an account's delete takes are marked
+	// WithinReach instead. The generator writes it.
+	AsCaller bool
+	// WithinReach marks a kind of the application's that an account of the library's
+	// takes with it: its rows go on the permission the delete's request was let in by,
+	// with no grant asked on them and nothing asked for the caller, as far as that
+	// permission reaches. A request checked for the whole application reaches every row.
+	// One checked in a tenant reaches the rows of that tenant, and of each other tenant in
+	// which the person holds the same permission, with or without a condition; a row of
+	// any other tenant, or of none, refuses the delete before anything goes, in a sentence
+	// that says where it is. Outside a request every row goes. The kind's delete rule is asked
+	// all the same, every caller is told its count, and a delete told to take the
+	// library's rows alone leaves the kind out (PatchSet.DeleteLibraryRowsAlone). The
+	// generator writes it.
+	WithinReach bool
 }
 
 // movable reports whether a row of the kind can be taken from under the record without
@@ -200,6 +223,21 @@ type DeleteTree struct {
 	// its tenant. It is nil for a record that is no tenant's, and the rows under such a
 	// record are under it whatever tenant they are of.
 	Tenant *DomainBindingData
+	// Tenants is how a sentence about the record's delete names a tenant. The generator
+	// writes it for a record with a kind marked WithinReach, in an application that has a
+	// tenant record; it is nil anywhere else.
+	Tenants *DeleteTenants
+}
+
+// DeleteTenants is where a delete reads a tenant's name for a sentence, and what the
+// sentence calls a tenant. Table is the tenant record's table and Key its key column,
+// read as text. Name is the column that holds a tenant's name, empty where the record
+// marks none. Word is one tenant in the middle of a sentence ("company").
+type DeleteTenants struct {
+	Table string
+	Key   string
+	Name  string
+	Word  string
 }
 
 // RowName is what a sentence calls the row a delete is asked of, opening the sentence:
@@ -233,6 +271,26 @@ func (t *DeleteTree) Mutations(rows map[accesstypes.Resource]int, tracked func(a
 // columns of the same table.
 func (l DeleteLink) sameAs(other DeleteLink) bool {
 	return l.Table == other.Table && slices.Equal(l.Columns, other.Columns) && slices.Equal(l.References, other.References)
+}
+
+// holds reports whether the way is a way of a kind of the resource that the description
+// takes or lists under refusedBy, compared step by step (DeleteLink.sameAs): a row under
+// the record by it is taken, or refuses the delete, with that kind.
+func (t *DeleteTree) holds(resource accesstypes.Resource, way DeletePath) bool {
+	for _, kinds := range [][]DeleteKind{t.Taken, t.RefusedBy} {
+		for i := range kinds {
+			if kinds[i].Resource != resource {
+				continue
+			}
+			if slices.ContainsFunc(kinds[i].Paths, func(path DeletePath) bool {
+				return slices.EqualFunc(path, way, DeleteLink.sameAs)
+			}) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // nestingLinks are the links a row of the table is under another row of the same table

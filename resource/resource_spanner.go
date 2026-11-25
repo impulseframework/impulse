@@ -623,7 +623,11 @@ func (c *SpannerReadWriteTransaction) BufferMap(r PatchSetMetadata, patch map[st
 	}
 	c.buffered.record(r)
 	c.touchedRows.record(r)
-	c.rows.note(r.Resource(), r.PatchType(), rowMatchKey(r.PrimaryKey()), patchKeyByColumn(r), patch)
+	// A change record is no row a later read of the transaction asks for, so the record
+	// of the transaction's rows keeps nothing of it, as the two records above keep nothing.
+	if _, isEvent := r.(*DataChangeEvent); !isEvent {
+		c.rows.note(r.Resource(), r.PatchType(), rowMatchKey(r.PrimaryKey()), patchKeyByColumn(r), patch)
+	}
 
 	return nil
 }

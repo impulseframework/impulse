@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/tracer"
@@ -246,7 +247,7 @@ func (k *tenantAccounts) Check(ctx context.Context, txn resource.ReadWriteTransa
 // order while the next one's cost fits the budget: the person's memberships in the
 // tenant, their places in its groups, then the account with its identity links, its
 // sessions ended first (deleteAccount).
-func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
+func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -392,7 +393,7 @@ func (k *tenantRolesHeld) Check(context.Context, resource.ReadWriteTransaction) 
 
 // Take takes the memberships, then the groups' roles, while the next one's cost fits the
 // budget: one row of its table each.
-func (k *tenantRolesHeld) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
+func (k *tenantRolesHeld) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	held, roles, err := k.rolesHeld(ctx, txn)
 	if err != nil {
 		return 0, 0, false, err
@@ -453,8 +454,10 @@ func (k *tenantGroups) Check(context.Context, resource.ReadWriteTransaction) err
 // the store's delete of a group with everything under it. A group its own delete could not
 // take in one save leaves rows of the kind. A group whose cost does not fit what the round
 // has left is taken in part, its members and then its roles one at a time while the next
-// fits, and goes in the round in which the rest of it fits.
-func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
+// fits, and goes in the round in which the rest of it fits. The store's delete leaves the
+// application's rows out (DeleteGroupWithTenant): the tenant's delete took those under the
+// tenant before this kind is reached.
+func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	store := k.manager.store
 	groups, err := store.TenantGroups(ctx, txn, k.domain)
 	if err != nil {
@@ -480,9 +483,9 @@ func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransacti
 
 			return rows, mutations + spent, true, k.policyChanged(txn, rows+taken)
 		}
-		left, err := store.DeleteGroup(ctx, txn, id, true)
+		left, err := store.DeleteGroupWithTenant(ctx, txn, id)
 		if err != nil {
-			return rows, mutations, false, errors.Wrap(err, "identity.Store.DeleteGroup()")
+			return rows, mutations, false, errors.Wrap(err, "identity.Store.DeleteGroupWithTenant()")
 		}
 		mutations += cost
 		if left != nil {
@@ -556,7 +559,7 @@ func (k *tenantCustomRoles) Check(context.Context, resource.ReadWriteTransaction
 
 // Take deletes every custom role of the tenant at once where their cost fits the budget,
 // and none where it does not.
-func (k *tenantCustomRoles) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
+func (k *tenantCustomRoles) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	store := k.manager.store
 	roles, err := store.TenantRoles(ctx, txn, k.domain)
 	if err != nil {
@@ -606,7 +609,7 @@ func (k *tenantInvitations) Check(context.Context, resource.ReadWriteTransaction
 }
 
 // Take withdraws the invitations in key order while the next one's cost fits the budget.
-func (k *tenantInvitations) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
+func (k *tenantInvitations) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	store := k.manager.store
 	invitations, err := store.TenantInvitations(ctx, txn, k.domain)
 	if err != nil {

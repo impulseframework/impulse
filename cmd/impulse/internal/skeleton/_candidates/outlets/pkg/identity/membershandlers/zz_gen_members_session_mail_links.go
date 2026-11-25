@@ -265,3 +265,46 @@ func (h *Handlers) MembersSessionMailLink() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// MembersSessionMailLinkChangeHistory answers a page of one members session mail link's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) MembersSessionMailLinkChangeHistory() http.HandlerFunc {
+	type response struct {
+		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		Kind            string        `json:"kind"`
+		Email           string        `json:"email"`
+		Name            *string       `json:"name"`
+		UserID          *impulse.UUID `json:"userId"`
+		TenantID        *string       `json:"tenantId"`
+		EveryTenant     bool          `json:"everyTenant"`
+		RoleNames       []string      `json:"roleNames"`
+		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+		CreatedAt       time.Time     `json:"createdAt"`
+		ExpiresAt       time.Time     `json:"expiresAt"`
+		ConsumedAt      *time.Time    `json:"consumedAt"`
+		MailFailedAt    *time.Time    `json:"mailFailedAt"`
+		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+	}
+
+	decoder := NewQueryDecoder[membersresources.MembersSessionMailLink, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.MembersSessionMailLinkID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		membersresources.NewMembersSessionMailLinkQueryFromQuerySet(history.QuerySet()).SetID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

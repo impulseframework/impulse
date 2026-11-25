@@ -275,3 +275,47 @@ func (h *Handlers) CrewSessionImpersonation() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(rmap)
 	})
 }
+
+// CrewSessionImpersonationChangeHistory answers a page of one crew session impersonation's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
+func (h *Handlers) CrewSessionImpersonationChangeHistory() http.HandlerFunc {
+	type response struct {
+		SessionID         impulse.UUID              `json:"sessionId"         index:"true" perm:"-"`
+		ActorUsername     string                    `json:"actorUsername"`
+		ActorUserID       *impulse.UUID             `json:"actorUserId"`
+		ActorRealm        *string                   `json:"actorRealm"`
+		SourceSessionID   *impulse.UUID             `json:"sourceSessionId"`
+		PrincipalKind     string                    `json:"principalKind"`
+		PrincipalUserID   *string                   `json:"principalUserId"`
+		PrincipalUsername *string                   `json:"principalUsername"`
+		PrincipalRole     *string                   `json:"principalRole"`
+		Mask              accesstypes.NullMaskWords `json:"mask"`
+		Reason            *string                   `json:"reason"`
+		StartedAt         time.Time                 `json:"startedAt"`
+		ExpiresAt         time.Time                 `json:"expiresAt"`
+		EndedAt           *time.Time                `json:"endedAt"`
+		EndReason         *string                   `json:"endReason"`
+	}
+
+	decoder := NewQueryDecoder[crewresources.CrewSessionImpersonation, response](h, accesstypes.Read)
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		id := httpio.Param[impulse.UUID](r, router.CrewSessionImpersonationSessionID)
+
+		history, err := decoder.DecodeChangeHistory(r, h.UserPermissions(r), accesstypes.GlobalScope())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		crewresources.NewCrewSessionImpersonationQueryFromQuerySet(history.QuerySet()).SetSessionID(id)
+
+		page, err := history.Read(ctx, h.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(page)
+	})
+}

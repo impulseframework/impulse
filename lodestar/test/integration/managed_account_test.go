@@ -285,7 +285,9 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 		assertStatus(t, status, http.StatusNoContent, body)
 		w.standsHoldingNothing(t, "rio", rioIdentity)
 
-		status, body = post("cora", cinder, "delete-crew-sector-user", userBody("rio"))
+		// Told the person confirmed what the account's delete takes, the delete of an
+		// account nothing goes with answers as the plain one does.
+		status, body = post("cora", cinder, "delete-crew-sector-user", fmt.Sprintf(`{"userId":%q,"everythingUnder":true}`, w.ids["rio"]))
 		assertStatus(t, status, http.StatusNoContent, body)
 		if crewAccountExists(t, w.db, w.ids["rio"]) {
 			t.Error("rio's account is still there after Cinder deleted it")
@@ -394,7 +396,9 @@ func TestManagedAccountApplicationMethods(t *testing.T) {
 			{"remove-crew-password", userBody(name), http.StatusNoContent},
 			{"disable-crew-user", userBody(name), http.StatusNoContent},
 			{"enable-crew-user", userBody(name), http.StatusNoContent},
-			{"delete-crew-user", userBody(name), http.StatusNoContent},
+			// Told the person confirmed what the account's delete takes: an account nothing
+			// goes with is deleted as by the plain request.
+			{"delete-crew-user", fmt.Sprintf(`{"userId":%q,"everythingUnder":true}`, w.ids[name]), http.StatusNoContent},
 		}
 	}
 	// row is the person's row of the whole application's list as hq reads it, with the

@@ -1164,6 +1164,9 @@ func (r *resourceGenerator) generateIdentityDelegates() error {
 			for _, handlerType := range resourceEndpoints(res) {
 				delegates.Handlers = append(delegates.Handlers, identityDelegate{Name: r.handlerName(res.Name(), handlerType)})
 			}
+			if servesChangeHistory(res) {
+				delegates.Handlers = append(delegates.Handlers, identityDelegate{Name: res.Name() + changeHistorySuffix})
+			}
 		}
 		for _, res := range r.computedOf(home) {
 			if res.RoutingDisabled() {

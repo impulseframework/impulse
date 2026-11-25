@@ -2043,13 +2043,16 @@ class SideBuilder {
       // account standing. Where the method warns before it runs (on a tenant's side whose
       // server says what the delete does, and whether the person can come back through the
       // directory), the page asks only whom, and the server's words follow in the dialog.
-      // Where it does not, the page says all of it.
+      // Where it does not, the page says all of it. It runs through the delete dialog:
+      // where the application's records go with the account, the server's question counts
+      // them before anything is deleted.
       [
         methods.delete,
         {
           label: 'Delete',
           icon: 'delete',
           group: 'account',
+          deletes: true,
           confirm: (row, _listed, meta) => {
             if (meta?.warning !== undefined) {
               return `Delete ${named(row)}?`;

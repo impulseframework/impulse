@@ -547,21 +547,22 @@ func assertCardCount(t *testing.T, step string, body []byte, want float64) {
 	}
 }
 
-// readFlips reads the flag's change records in order, each as "<enabled> by <who>".
+// readFlips reads the flag's change records in order, each as "<enabled> by <username>",
+// the username from the column a record keeps the person's in.
 func readFlips(ctx context.Context, t *testing.T, db *initiator.SpannerDB, name string) []string {
 	t.Helper()
 
 	var flips []string
 	err := db.Single().Query(ctx, spanner.Statement{
-		SQL:    "SELECT Enabled, ChangedBy FROM FeatureFlagChanges WHERE Name = @name ORDER BY ChangedAt",
+		SQL:    "SELECT Enabled, ActorUsername FROM FeatureFlagChanges WHERE Name = @name ORDER BY ChangedAt",
 		Params: map[string]any{"name": name},
 	}).Do(func(row *spanner.Row) error {
 		var enabled bool
-		var by string
+		var by spanner.NullString
 		if err := row.Columns(&enabled, &by); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
-		flips = append(flips, fmt.Sprintf("%t by %s", enabled, by))
+		flips = append(flips, fmt.Sprintf("%t by %s", enabled, by.StringVal))
 
 		return nil
 	})

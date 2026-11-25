@@ -1,6 +1,84 @@
+import { Injector } from '@angular/core';
+import { MatDialog } from '@angular/material/dialog';
+import { Api } from '@app/service/zz_gen_api';
 import { BriefingTemplates, ClientRosters, MissionBoards, Missions, Resources } from '@app/service/zz_gen_constants';
 import { DomainRoutePath } from '@app/service/zz_gen_resources';
-import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@impulseframework/resource-angular/types';
+import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
+import {
+  enumeratedConfig,
+  field,
+  FieldElement,
+  listViewConfig,
+  RecordData,
+  RESOURCE_DOMAIN,
+  rootConfig,
+  section,
+} from '@impulseframework/resource-angular/types';
+
+/** The fields of a mission's page, the call sheet, with the labels the page gives them. */
+const callSheet: FieldElement[] = [
+  field({ name: Missions.fieldName.title, label: 'Title', cols: 6 }),
+  field({
+    name: Missions.fieldName.clientId,
+    label: 'Client',
+    cols: 6,
+    enumeratedConfig: enumeratedConfig({
+      listDisplay: [ClientRosters.fieldName.name, ClientRosters.fieldName.contactCount],
+      viewDisplay: [ClientRosters.fieldName.name, ClientRosters.fieldName.contactCount],
+      listConcatFn: 'hyphen-concat',
+      viewConcatFn: 'hyphen-concat',
+      sorts: [{ field: ClientRosters.fieldName.name, direction: 'asc' }],
+      // The roster is paged and projects the clients' token column on Name, so the
+      // picker's panel carries the search box: typing narrows the page on the server.
+      searchable: true,
+    }),
+  }),
+  field({ name: Missions.fieldName.kindId, label: 'Kind', cols: 4 }),
+  field({ name: Missions.fieldName.hazard, label: 'Hazard', cols: 4 }),
+  field({ name: Missions.fieldName.fee, label: 'Fee', cols: 4 }),
+  field({ name: Missions.fieldName.deadline, label: 'Deadline', cols: 6 }),
+  field({
+    name: Missions.fieldName.briefingTemplateId,
+    label: 'Briefing template',
+    cols: 6,
+    enumeratedConfig: enumeratedConfig({
+      listDisplay: [BriefingTemplates.fieldName.name],
+      viewDisplay: [BriefingTemplates.fieldName.name],
+      searchable: true,
+    }),
+  }),
+  field({ name: Missions.fieldName.statusId, label: 'Status', cols: 4 }),
+  field({ name: Missions.fieldName.brief, label: 'Brief', cols: 12 }),
+  field({ name: Missions.fieldName.notes, label: 'Notes', cols: 12 }),
+];
+
+/**
+ * Opens a mission's history over the page, from its row on the list and from its own
+ * page alike: the library's pop-up (`@impulseframework/resource-angular/change-history`),
+ * loaded when a person first asks for one, titled with the mission's name. It reads the
+ * mission's change records in the open sector, and names each field of the call sheet by
+ * the label the page gives it, the fields a person can narrow the history to. Where a
+ * change record kept the name of the row a field pointed at (the squadron, the status),
+ * From and To read the name as it was then.
+ *
+ * Demonstrates: change-history, change-history.names, change-tracking, event-source.
+ */
+export function openMissionHistory(row: RecordData, injector: Injector): void {
+  const dialog = injector.get(MatDialog);
+  const sector = injector.get(RESOURCE_DOMAIN)();
+  if (sector === undefined) {
+    throw new Error('no sector open');
+  }
+  const missions = (injector.get(RESOURCE_CLIENT) as Api).domain(sector).missions;
+  const id = String(row['id'] ?? '');
+  void import('@impulseframework/resource-angular/change-history').then((history) =>
+    history.openChangeHistory(dialog, {
+      title: `History of ${String(row['title'] ?? '')}`,
+      read: (query) => missions.changes([id], query),
+      fields: callSheet.map(({ name, label }) => ({ name, label })),
+    }),
+  );
+}
 
 // Missions is the config-driven page in the open sector: the library's list, form,
 // and pickers over a domain-scoped resource (RESOURCE_DOMAIN is the sector the URL
@@ -76,42 +154,9 @@ export const missionsConfig = rootConfig({
     elements: [
       section({
         label: 'Call sheet',
-        children: [
-          field({ name: Missions.fieldName.title, label: 'Title', cols: 6 }),
-          field({
-            name: Missions.fieldName.clientId,
-            label: 'Client',
-            cols: 6,
-            enumeratedConfig: enumeratedConfig({
-              listDisplay: [ClientRosters.fieldName.name, ClientRosters.fieldName.contactCount],
-              viewDisplay: [ClientRosters.fieldName.name, ClientRosters.fieldName.contactCount],
-              listConcatFn: 'hyphen-concat',
-              viewConcatFn: 'hyphen-concat',
-              sorts: [{ field: ClientRosters.fieldName.name, direction: 'asc' }],
-              // The roster is paged and projects the clients' token column on Name, so the
-              // picker's panel carries the search box: typing narrows the page on the server.
-              searchable: true,
-            }),
-          }),
-          field({ name: Missions.fieldName.kindId, label: 'Kind', cols: 4 }),
-          field({ name: Missions.fieldName.hazard, label: 'Hazard', cols: 4 }),
-          field({ name: Missions.fieldName.fee, label: 'Fee', cols: 4 }),
-          field({ name: Missions.fieldName.deadline, label: 'Deadline', cols: 6 }),
-          field({
-            name: Missions.fieldName.briefingTemplateId,
-            label: 'Briefing template',
-            cols: 6,
-            enumeratedConfig: enumeratedConfig({
-              listDisplay: [BriefingTemplates.fieldName.name],
-              viewDisplay: [BriefingTemplates.fieldName.name],
-              searchable: true,
-            }),
-          }),
-          field({ name: Missions.fieldName.statusId, label: 'Status', cols: 4 }),
-          field({ name: Missions.fieldName.brief, label: 'Brief', cols: 12 }),
-          field({ name: Missions.fieldName.notes, label: 'Notes', cols: 12 }),
-        ],
+        children: callSheet,
       }),
     ],
+    rowButtons: [{ label: 'History', icon: 'history', run: openMissionHistory }],
   }),
 });

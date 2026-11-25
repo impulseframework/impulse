@@ -65,6 +65,10 @@ type (
 	// holds one; it identifies nobody. The password hash is not a field, so it is never
 	// read or written here, and the normalized columns are the table's own.
 	//
+	// An account's delete takes with it the application's rows that name the account in
+	// a column that says so (@deletedWith), after a question that counts them, and is
+	// refused while a row names it in a column that does not.
+	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
@@ -1015,6 +1019,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -1365,8 +1370,41 @@ func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransacti
 	return email, found, nil
 }
 
-func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id).Buffer(ctx, txn); err != nil {
+// deletedBy is who a delete of an account or of a group is recorded as made by, in the
+// change records of the rows it takes that keep a change history: the request's person
+// (eventsource.UserEvent), and nobody for a call made outside any request, which carries
+// no session to read a person from. A row that keeps a change history refuses a delete
+// that names nobody: a job deletes such rows first, in a transaction before, under its
+// own process's name (eventsource.ProcessEvent).
+func deletedBy(ctx context.Context) []eventsource.EventSource {
+	if _, inRequest := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); !inRequest {
+		return nil
+	}
+
+	return []eventsource.EventSource{eventsource.UserEvent(ctx)}
+}
+
+func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The row's delete takes the application's rows that go with the account
+	// (@deletedWith), where it is told to. In a person's request the delete is that
+	// person's (deletedBy): a row it takes that keeps a change history records its
+	// delete as theirs.
+	patch := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id)
+	if everythingUnder {
+		patch = patch.WithEverythingUnder()
+	}
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}DeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the accounts: the row's delete leaves the application's rows out.
+	patch := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}DeletePatch.Buffer()")
 	}
 
@@ -2730,6 +2768,7 @@ package {{ .Package }}
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -2738,7 +2777,18 @@ import (
 
 // Delete{{ .Subject }}User deletes a person of the {{ .Auth }} auth, in one transaction:
 // every session they hold is ended, and their identity links and every role they hold
-// go with the account. Nobody deletes themselves: the caller's own account is refused.
+// go with the account, and with it the application's rows that name the account in a
+// column that says so (@deletedWith). Asked without EverythingUnder of an account that
+// has such a row, it deletes nothing and answers the question a person is asked first,
+// with their counts; asked with it, it takes them. Nobody deletes themselves: the
+// caller's own account is refused.
+//
+// The rows that go with the account go on this method's grant: no grant is asked on
+// their own tables. For a request made for the whole application every such row goes.
+// For one made under a tenant's address the rows of that tenant go, and those of each
+// other tenant in which the person holds the same permission; a row of any other
+// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says
+// where it is.
 {{- if and .ForTenant .ReadsSeatedAgain }}
 //
 // Before it runs on a tenant's side, the method says what it does (Warning): where the
@@ -2748,13 +2798,29 @@ import (
 //
 // @rpc` + identityTenantScope + identityCallerEnters + identityNotOnOwnAccount + `
 // @outlet({{ .Outlets }})
-// @answers(204)
+// @answers(202, 204)
 {{- if and .ForTenant .ReadsSeatedAgain }}
 // @warning
 {{- end }}
 type Delete{{ .Subject }}User struct {
 	// @target({{ .SubjectUser }})
 	UserID impulse.UUID
+	// EverythingUnder says the person was asked what the account's delete takes and
+	// confirmed it, so the delete takes the application's rows that go with the account.
+	EverythingUnder bool
+}
+
+// Delete{{ .Subject }}UserResult is what a delete of an account with more under it than
+// one save holds left (resource.DeleteLeft): the records this request deleted and the
+// records still under the account, which stands until a request takes the last of them.
+type Delete{{ .Subject }}UserResult struct {
+	Deleted int64 ` + "`json:\"deleted\"`" + `
+	Left    int64 ` + "`json:\"left\"`" + `
+}
+
+// HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.
+func (*Delete{{ .Subject }}UserResult) HTTPStatus() int {
+	return http.StatusAccepted
 }
 {{- if and .ForTenant .ReadsSeatedAgain }}
 
@@ -2776,13 +2842,18 @@ func (m *Delete{{ .Subject }}User) Warning(ctx context.Context, txn resource.Rea
 }
 {{- end }}
 
-// Execute buffers the removal into the caller's transaction.
-func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {` + identityTenantGuard + `
-	if err := client.manager.DeleteUser(ctx, txn, m.UserID); err != nil {
-		return errors.Wrap(err, "identity.Manager.DeleteUser()")
+// Execute buffers the removal into the caller's transaction. It answers nothing (204)
+// once the account is gone, and what one save left (202) while it stands.
+func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Delete{{ .Subject }}UserResult, error) {` + identityTenantGuardAnswering + `
+	left, err := client.manager.DeleteUser(ctx, txn, m.UserID, m.EverythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.DeleteUser()")
+	}
+	if left == nil {
+		return nil, nil
 	}
 
-	return nil
+	return &Delete{{ .Subject }}UserResult{Deleted: left.Deleted, Left: left.Left}, nil
 }
 `
 

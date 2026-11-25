@@ -71,9 +71,6 @@
                 "position"
               ],
               "condition": "filedBy = subject"
-            },
-            {
-              "resource": "ClientStatements"
             }
           ],
           "Read": [

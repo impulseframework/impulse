@@ -12,6 +12,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
+	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -24,10 +26,11 @@ func (CrewGroup) DefaultConfig() resource.Config {
 }
 
 // DeleteTree describes what a delete of a CrewGroup takes with it and what refuses
-// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// it: the library's own kinds, and the application's records that name the
+// CrewGroup, taken where their column says so (@deletedWith) and refusing its delete
+// where it does not. The kinds taken are in the order their rows are deleted, deepest
 // first, each with its ways up to the CrewGroup and what the delete of one of its
-// rows costs. The kinds under Under are the ones with a row directly under a CrewGroup
-// that the database does not remove with it.
+// rows costs.
 func (CrewGroup) DeleteTree() *resource.DeleteTree {
 	return &resource.DeleteTree{
 		Record: "CrewGroups",
@@ -35,6 +38,20 @@ func (CrewGroup) DeleteTree() *resource.DeleteTree {
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
 		Taken: []resource.DeleteKind{
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}, MayBeEmpty: true},
+					},
+				},
+				AsCaller: true,
+				Rows:     resources.HangarPassTakenRows(),
+			},
 			{
 				Resource: "CrewGroupRoles",
 				Words:    resource.DeleteWords{One: "role", Many: "roles"},
@@ -84,6 +101,19 @@ func (CrewGroup) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
 					},
 				},
+			},
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}, MayBeEmpty: true},
+					},
+				},
+				AsCaller: true,
 			},
 		},
 	}
@@ -461,11 +491,11 @@ func (p *CrewGroupCreatePatch) ToStruct() *CrewGroup {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewGroupCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewGroupCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewGroupCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -625,11 +655,11 @@ func (p *CrewGroupUpdatePatch) ToStruct() *CrewGroup {
 	return p.patchSet.ToStruct()
 }
 
-func (p *CrewGroupUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *CrewGroupUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewGroupUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -800,13 +830,13 @@ func NewCrewGroupDeletePatch(id impulse.UUID) *CrewGroupDeletePatch {
 }
 
 // WithEverythingUnder says the delete takes the rows under the CrewGroup with it:
-// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
-// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
-// Without it, a delete of a CrewGroup that has such rows
-// deletes nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
-// delete takes what fits, deepest first, and Left says what is left: buffer the delete
-// again, in a transaction of its own, until Left answers nil.
+// the kinds its description lists as taken, the application's rows that name it in a
+// column that says so (@deletedWith) among them, each through its own delete. It takes
+// the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
+// CrewGroup that has such rows deletes nothing and is answered with the question a
+// person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
+// one save takes, the delete takes what fits, deepest first, and Left says what is left:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
 func (p *CrewGroupDeletePatch) WithEverythingUnder() *CrewGroupDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
 
@@ -829,11 +859,22 @@ func (p *CrewGroupDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *CrewGrou
 	return p
 }
 
-func (p *CrewGroupDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+// WithLibraryRowsAlone says the delete leaves the application's rows that name the
+// CrewGroup out: none is counted, asked about or taken, and none refuses the delete
+// (resource.PatchSet.DeleteLibraryRowsAlone). A CrewGroup deleted with its tenant is
+// deleted so, the tenant's delete having taken the application's rows under the tenant
+// already.
+func (p *CrewGroupDeletePatch) WithLibraryRowsAlone() *CrewGroupDeletePatch {
+	p.patchSet.DeleteLibraryRowsAlone()
+
+	return p
+}
+
+func (p *CrewGroupDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *CrewGroupDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *CrewGroupDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

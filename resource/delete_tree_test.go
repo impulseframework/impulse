@@ -4,15 +4,18 @@ import (
 	"slices"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // TestDeleteTree_Mutations pins the one count of what a delete costs in a commit: each
 // row's delete, an entry in each index of its table, the change record of its removal
-// where changes are tracked, counted by its columns and its entry in the change history's
-// index by tenant, and nothing for a stored file's release, which the commit does not
-// carry.
+// where changes are tracked, counted at the most its columns can cost (the change history
+// table has no index), and nothing for a stored file's release, which the commit does not carry.
 func TestDeleteTree_Mutations(t *testing.T) {
 	t.Parallel()
 
@@ -26,8 +29,8 @@ func TestDeleteTree_Mutations(t *testing.T) {
 		},
 		RefusedBy: []DeleteKind{{Resource: "Invoices", Cost: DeleteCost{IndexEntries: 5}}},
 	}
-	// A change record writes its seven columns and one entry in the index by tenant.
-	changeRecord := 7 + 1
+	// A change record is counted at the most it can write: the table's sixteen columns.
+	changeRecord := 16
 
 	tests := []struct {
 		name string
@@ -48,7 +51,7 @@ func TestDeleteTree_Mutations(t *testing.T) {
 			want: (1 + 2) + 230*(1+1) + 41*1 + 14*1,
 		},
 		{
-			name:    "a tracked delete adds a change record for every row, counted by its columns and its index entry",
+			name:    "a tracked delete adds a change record for every row, counted by its columns",
 			rows:    map[accesstypes.Resource]int{"Tasks": 230, "Documents": 41, "Projects": 14},
 			tracked: true,
 			want:    (1 + 2 + changeRecord) + 230*(1+1+changeRecord) + 41*(1+changeRecord) + 14*(1+changeRecord),
@@ -72,6 +75,35 @@ func TestDeleteTree_Mutations(t *testing.T) {
 				t.Errorf("DeleteTree.Mutations() = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestChangeRecordMutations pins what a delete counts a change record to cost: the number
+// of columns the change history table declares, which is the most a record can set, and
+// never less than the fullest record sets (a session acting as a person, through a
+// process, in an RPC method, on a tenant's row), since a save is filled to
+// DeleteMutationLimit with no margin.
+func TestChangeRecordMutations(t *testing.T) {
+	t.Parallel()
+
+	stmts := DataChangeEventsDDL(SpannerDBType, KeepChangeHistoryForever())
+	if len(stmts) == 0 {
+		t.Fatal("DataChangeEventsDDL() = 0 statements, want the table's")
+	}
+	if declared := len(tableColumns(t, stmts[0])); changeRecordMutations != declared {
+		t.Errorf("changeRecordMutations = %d, want the %d columns the table declares", changeRecordMutations, declared)
+	}
+
+	asPerson := accountCtx("bob", bobID, &sessioninfo.Impersonation{
+		Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
+	})
+	fullest := &DataChangeEvent{
+		TableName: "Orders", RowID: "order-1", EventTime: spanner.CommitTimestamp, Operation: ChangeDelete,
+		ChangeSet: spanner.NullJSON{Valid: true, Value: map[string]any{}}, TenantID: "tenant-1",
+		Source: eventsource.UserProcessEvent(WithRPC(WithAuth(asPerson, "crew"), "CloseOrder"), "Import"),
+	}
+	if got := len(fullest.Columns()); got != 15 || got > changeRecordMutations {
+		t.Errorf("the fullest record sets %d columns, want 15, no more than the count %d", got, changeRecordMutations)
 	}
 }
 

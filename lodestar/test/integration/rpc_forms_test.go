@@ -5,7 +5,7 @@ package integration
 // fees, the archivist's redactions, the cadet's refusal); the release's armed manifest
 // read answers a typed receipt for the supercargo and the droid alike, and refuses a
 // caller with no Read on the manifest; CompleteMission's settlement lands through the
-// Paymaster role and the change event names the lead as that role.
+// Paymaster role and its change record names the lead and the method, and no role.
 
 import (
 	"encoding/json"
@@ -228,8 +228,9 @@ func TestReleaseConsignment_onceForEveryRole(t *testing.T) {
 
 // TestCompleteMission_asPaymaster pins the role a body borrows: the Flight Lead holds no
 // Update on Missions.settlement, so the settlement is posted through caller.As over the
-// Paymaster role, and the change event names the lead as that role, the same actor-aware
-// event an act-as-role session produces.
+// Paymaster role, and the settlement's change record names the lead by username and by
+// her account's id, with her session and the method, CompleteMission, and names no role:
+// the session acts as nobody else.
 //
 // Demonstrates: rpc.as-role, event-source.
 func TestCompleteMission_asPaymaster(t *testing.T) {
@@ -244,22 +245,42 @@ func TestCompleteMission_asPaymaster(t *testing.T) {
 	if !settled.Valid || settled.Numeric.FloatString(0) != "13500" {
 		t.Errorf("Settlement = %v, want 13500 (fee 15000 less 1500 of expenses)", settled)
 	}
-	source, keys := latestChangeEventTouching(t, db, "Missions", missionConvoyID, "Settlement")
-	if want := fmt.Sprintf("lead (%s) as role Paymaster, session ", account(t, "lead")); !strings.HasPrefix(source, want) {
-		t.Errorf("settlement event source = %q, want it to begin %q: the lead by username and account id, the role, the session", source, want)
+	who, keys := latestChangeEventTouching(t, db, "Missions", missionConvoyID, "Settlement")
+	if differs := who.differs(map[string]string{"ActorUsername": "lead", "ActorUserId": string(account(t, "lead")), "SessionId": columnSet, "Rpc": "CompleteMission"}); differs != "" {
+		t.Errorf("who posted the settlement, as its change record says: %s; want the lead by username and account id, her session and the method, and no role", differs)
 	}
 	if len(keys) != 1 || keys[0] != "Settlement" {
-		t.Errorf("settlement event changed %v, want exactly [Settlement]", keys)
+		t.Errorf("the settlement's change record changed %v, want exactly [Settlement]", keys)
+	}
+	// The frame's stamp of the mission's state is the method's too.
+	if who, _ := latestChangeEventTouching(t, db, "Missions", missionConvoyID, "StatusID"); who.RPC.StringVal != "CompleteMission" || who.ActorUsername.StringVal != "lead" {
+		t.Errorf("the state's change record names %q through %q, want lead through CompleteMission", who.ActorUsername.StringVal, who.RPC.StringVal)
+	}
+
+	// The convoy's history, read through its route, names the lead and the method.
+	posted := false
+	var sources []string
+	for _, change := range readHistory(t, h, "marshal", missionHistory(missionConvoyID, "")).Changes {
+		sources = append(sources, change.Source)
+		if change.Source == "lead, through the RPC CompleteMission" {
+			posted = true
+		}
+		if strings.Contains(change.Source, "Paymaster") {
+			t.Errorf("a change of the convoy's history says %q, want no role named", change.Source)
+		}
+	}
+	if !posted {
+		t.Errorf("who made the convoy's changes = %q, want a change by %q", sources, "lead, through the RPC CompleteMission")
 	}
 }
 
 // latestChangeEventTouching returns the newest DataChangeEvents row for the table and
-// row whose change set carries the column.
-func latestChangeEventTouching(t *testing.T, db *initiator.SpannerDB, tableName, rowID, column string) (eventSource string, changeSetKeys []string) {
+// row whose change set carries the field: who made the change, and the fields it changed.
+func latestChangeEventTouching(t *testing.T, db *initiator.SpannerDB, tableName, rowID, field string) (who changeRecordWho, changeSetKeys []string) {
 	t.Helper()
 
 	iter := db.Single().Query(t.Context(), spanner.Statement{
-		SQL: `SELECT EventSource, ChangeSet FROM DataChangeEvents
+		SQL: `SELECT ` + changeRecordWhoColumns + `, ChangeSet FROM DataChangeEvents
 		       WHERE TableName = @table AND RowId = @row ORDER BY EventTime DESC, Sequence DESC`,
 		Params: map[string]any{"table": tableName, "row": rowID},
 	})
@@ -267,15 +288,15 @@ func latestChangeEventTouching(t *testing.T, db *initiator.SpannerDB, tableName,
 	for {
 		row, err := iter.Next()
 		if err != nil {
-			t.Fatalf("no change event touching %s.%s on %s: %v", tableName, column, rowID, err)
+			t.Fatalf("no change record touching %s.%s on %s: %v", tableName, field, rowID, err)
 		}
-		var source string
 		var changeSet spanner.NullJSON
-		if err := row.Columns(&source, &changeSet); err != nil {
+		who, err := scanChangeRecordWho(row, &changeSet)
+		if err != nil {
 			t.Fatal(err)
 		}
 		set, _ := changeSet.Value.(map[string]any)
-		if _, ok := set[column]; !ok {
+		if _, ok := set[field]; !ok {
 			continue
 		}
 		keys := make([]string, 0, len(set))
@@ -283,6 +304,6 @@ func latestChangeEventTouching(t *testing.T, db *initiator.SpannerDB, tableName,
 			keys = append(keys, k)
 		}
 
-		return source, keys
+		return who, keys
 	}
 }

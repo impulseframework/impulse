@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -35,6 +36,16 @@ func (Reading) TenantBinding() resource.TenantBinding {
 func (Reading) NameFields() []resource.NameField {
 	return []resource.NameField{
 		{Field: "TenantName", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Reading) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
 	}
 }
 
@@ -376,11 +387,11 @@ func (p *ReadingCreatePatch) ToStruct() *Reading {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ReadingCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ReadingCreatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ReadingCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ReadingCreatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -508,11 +519,11 @@ func (p *ReadingUpdatePatch) ToStruct() *Reading {
 	return p.patchSet.ToStruct()
 }
 
-func (p *ReadingUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ReadingUpdatePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ReadingUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ReadingUpdatePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 
@@ -650,11 +661,11 @@ func NewReadingDeletePatch(id impulse.UUID) *ReadingDeletePatch {
 	return &ReadingDeletePatch{patchSet: patchSet}
 }
 
-func (p *ReadingDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
+func (p *ReadingDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
 
-func (p *ReadingDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...string) error {
+func (p *ReadingDeletePatch) Buffer(ctx context.Context, txn resource.ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	return p.patchSet.Buffer(ctx, txn, eventSource...)
 }
 

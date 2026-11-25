@@ -14,8 +14,7 @@ import (
 // portal outlet, names the portal's members and none of the console-only resources, and
 // its descriptor bootstraps under the domain route the console shares. The manual
 // registrations without an @outlet stay on the default outlet and the portal filter drops
-// them; ClientStatements names @outlet(portal) and appears in the portal's constants
-// alone. Both targets carry the two application-typed columns the same way: the
+// them. Both targets carry the two application-typed columns the same way: the
 // resources file imports Point from geojson for DistressCalls.Position and declares
 // MissionDocuments.Provenance in the resource's namespace; and both type the BYTES column
 // MissionDocuments.Digest a string with display type bytes. The console alone carries
@@ -25,7 +24,7 @@ import (
 // first unknown a real application's clients build and lint against. Needs no emulator:
 // it reads the committed output.
 //
-// Demonstrates: typescript.second-target, @manualAddResource.outlet, workflow.ts-constant, outlet.isolation, typescript.imported-type, typescript.derived-object, typescript.byte-slice, typescript.array-column, decode.nullable-slice, typescript.raw-json.
+// Demonstrates: typescript.second-target, workflow.ts-constant, outlet.isolation, typescript.imported-type, typescript.derived-object, typescript.byte-slice, typescript.array-column, decode.nullable-slice, typescript.raw-json.
 func TestPortalTargetEmission(t *testing.T) {
 	t.Parallel()
 
@@ -75,8 +74,8 @@ func TestPortalTargetEmission(t *testing.T) {
 		{
 			name:   "the portal's Resources constant carries its members only",
 			source: portalConstants,
-			want:   []string{"ClientContacts: 'ClientContacts'", "DistressCalls: 'DistressCalls'", "Missions: 'Missions'", "ClientStatements: 'ClientStatements'"},
-			absent: []string{"Refits:", "Ships:", "Squadrons:", "Pilots:", "Sorties:", "Consignments:", "SectorHazardBoards:", "Wings:", "ShipsLogEntries:"},
+			want:   []string{"ClientContacts: 'ClientContacts'", "DistressCalls: 'DistressCalls'", "Missions: 'Missions'"},
+			absent: []string{"Refits:", "Ships:", "Squadrons:", "Pilots:", "Sorties:", "Consignments:", "SectorHazardBoards:", "Wings:"},
 		},
 		{
 			name:   "the portal's Methods constant carries Stand Down only; the default-outlet manual registrations drop",
@@ -91,10 +90,9 @@ func TestPortalTargetEmission(t *testing.T) {
 			absent: []string{"Refits", "Squadrons", "Pilots"},
 		},
 		{
-			name:   "the console target still names everything, and not the portal-only statement",
+			name:   "the console target still names everything",
 			source: consoleConstants,
-			want:   []string{"Refits: 'Refits'", "Ships: 'Ships'", "Squadrons: 'Squadrons'", "Pilots: 'Pilots'", "Missions: 'Missions'", "ShipsLogEntries: 'ShipsLogEntries'"},
-			absent: []string{"ClientStatements:"},
+			want:   []string{"Refits: 'Refits'", "Ships: 'Ships'", "Squadrons: 'Squadrons'", "Pilots: 'Pilots'", "Missions: 'Missions'"},
 		},
 		{
 			name:   "the console resources file imports the declared type and derives the struct",
