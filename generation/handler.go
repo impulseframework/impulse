@@ -43,28 +43,8 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 		return errors.Wrap(err, "generateDomainGuard()")
 	}
 
-	if err := r.generateTenants(); err != nil {
-		return errors.Wrap(err, "generateTenants()")
-	}
-
-	if err := r.generateTenantCreation(); err != nil {
-		return errors.Wrap(err, "generateTenantCreation()")
-	}
-
-	if err := r.generateDirectoryOnly(); err != nil {
-		return errors.Wrap(err, "generateDirectoryOnly()")
-	}
-
-	if err := r.generateDirectoryRole(); err != nil {
-		return errors.Wrap(err, "generateDirectoryRole()")
-	}
-
-	if err := r.generateDirectoryFactor(); err != nil {
-		return errors.Wrap(err, "generateDirectoryFactor()")
-	}
-
-	if err := r.generateTenantSignInSettings(); err != nil {
-		return errors.Wrap(err, "generateTenantSignInSettings()")
+	if err := r.generateTenantFiles(); err != nil {
+		return err
 	}
 
 	if err := r.generateDecoders(); err != nil {
@@ -124,6 +104,31 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 		}
 		if err := r.generateConsolidatedPatchHandler(outlet, members); err != nil {
 			return errors.Wrap(err, "generateConsolidatedPatchHandler()")
+		}
+	}
+
+	return nil
+}
+
+// generateTenantFiles emits the handler package's files of the tenant record, each where
+// the program serves it: the roster, the create-your-tenant route, the tenant's own
+// methods of its directory, and the read of its sign-in settings.
+func (r *resourceGenerator) generateTenantFiles() error {
+	steps := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "generateTenants()", run: r.generateTenants},
+		{name: "generateTenantCreation()", run: r.generateTenantCreation},
+		{name: "generateDirectoryOnly()", run: r.generateDirectoryOnly},
+		{name: "generateDirectoryRole()", run: r.generateDirectoryRole},
+		{name: "generateDirectoryFactor()", run: r.generateDirectoryFactor},
+		{name: "generateDirectoryTake()", run: r.generateDirectoryTake},
+		{name: "generateTenantSignInSettings()", run: r.generateTenantSignInSettings},
+	}
+	for _, step := range steps {
+		if err := step.run(); err != nil {
+			return errors.Wrap(err, step.name)
 		}
 	}
 

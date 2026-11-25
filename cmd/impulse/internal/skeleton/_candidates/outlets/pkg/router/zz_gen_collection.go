@@ -948,6 +948,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffTenantGroupRoles",
 			},
 			{
+				Name:        "TakeTenantDirectory",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:        "TenantDirectories",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},

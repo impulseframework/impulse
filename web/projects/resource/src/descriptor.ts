@@ -131,17 +131,27 @@ export interface DomainRouteDescriptor {
  * The create-your-tenant route, where the outlet serves it: a signed-in person who holds no
  * tenant creates one and becomes its administrator. `route` is the route under the API
  * prefix (POST creates; GET answers `{ offered: boolean }`, whether the person may create
- * one now), `resource` the tenant record's resource, whose metadata says how each field is
- * drawn, `key` the name the answer carries the new tenant's id under, and `fields` the
- * body's fields in order, each with whether the route requires it. Absent where the
- * application's tenants are not made this way, and on a description from a generator that
- * predates it.
+ * one now, with the statement of `warning` where the creation would take a directory),
+ * `resource` the tenant record's resource, whose metadata says how each field is drawn,
+ * `key` the name the answer carries the new tenant's id under, `fields` the body's fields
+ * in order, each with whether the route requires it, and `warning` the phrase a person
+ * types under the statement in front of a creation that takes their organization's
+ * directory. Absent where the application's tenants are not made this way, and on a
+ * description from a generator that predates it.
  */
 export interface TenantCreationDescriptor {
   readonly route: string;
   readonly resource: string;
   readonly key: string;
   readonly fields: readonly { readonly name: string; readonly required: boolean }[];
+  /**
+   * Where the application's tenants have directories: the phrase a person types under the
+   * statement the GET answers when the creation would take the organization's directory
+   * they signed in through, which happens only in an application that holds a person to
+   * one tenant. The dialog asks the GET before it lets the person create, and asks
+   * nothing where this is absent.
+   */
+  readonly warning?: { readonly typed: string };
 }
 
 /**
@@ -425,13 +435,16 @@ export interface IdentityMethods {
   readonly withdrawInvitedTenant?: string;
   readonly takeRole?: string;
   /**
-   * On a tenant's side, how the tenant's people enter: `openToDirectory` names the role a
-   * person gets the first time they sign in through the tenant's directory,
-   * `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and `endDirectoryOnly`
-   * turn the directory-only switch, and `vouchForDirectorySecondFactor` and
+   * On a tenant's side, how the tenant's people enter: `takeDirectory` makes the
+   * directory the caller is signed in through the tenant's own, behind the statement that
+   * they are authorized to act for the organization, `openToDirectory` names the role a
+   * person gets when they sign in through the tenant's directory and hold nothing in the
+   * tenant, `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and
+   * `endDirectoryOnly` turn the directory-only switch, and `vouchForDirectorySecondFactor` and
    * `stopVouchingForDirectorySecondFactor` say, and take back, that the tenant's
    * directory asks its people for a second factor of its own. None names a row.
    */
+  readonly takeDirectory?: string;
   readonly openToDirectory?: string;
   readonly makeDirectoryInviteOnly?: string;
   readonly makeDirectoryOnly?: string;

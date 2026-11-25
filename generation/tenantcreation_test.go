@@ -487,10 +487,12 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		// And it is judged again in the transaction that writes the row, from the auth's
 		// tables, in the same words: two creations by one person at once write one tenant.
 		"holds, err := identityClient.HoldsTenant(ctx, txn, userPermissions.User())\n\t\t\tif err != nil {\n\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().HoldsTenant()\")\n\t\t\t}\n\t\t\tif holds {\n\t\t\t\treturn httpio.NewForbiddenMessage(\"You already hold a role in a station, so you cannot create a station of your own.\")\n\t\t\t}",
-		// Whether sign-up is open is read in the transaction that writes the row, and a
-		// person is refused in plain words while no sign-in method is open.
-		"open, err := identityClient.AnySignInMethodOpen(ctx, txn)",
-		`return httpio.NewForbiddenMessage("Sign-up is not open, so you cannot create a station of your own. Ask an administrator of the application to create one for you, or to invite you to one.")`,
+		// Whether the session's own sign-in method is open is read in the transaction
+		// that writes the row, and a person is refused in plain words when it is not:
+		// that another method is open admits nobody.
+		"open, err := identityClient.SessionSignInMethodOpen(ctx, txn)",
+		`return errors.Wrap(err, "StaffIdentity().SessionSignInMethodOpen()")`,
+		`return httpio.NewForbiddenMessage("Sign-up is not open for the way you signed in, so you cannot create a station of your own. Ask an administrator of the application to create one for you, or to invite you to one.")`,
 		// The create generates the id, the id's text is the tenant's domain, and the
 		// membership is written under it.
 		"var id impulse.UUID",
@@ -515,10 +517,15 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		// And in the GET, which offers what the POST would serve.
 		"held, err := userPermissions.HeldDomains(ctx)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
-		"open, err := identityClient.AnySignInMethodOpen(ctx, a.ResourceClient())",
+		"open, err := identityClient.SessionSignInMethodOpen(ctx, a.ResourceClient())",
 		"return httpio.NewEncoder(w).Ok(offer{Offered: open})",
 	}, []string{
 		"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy",
+		// A record that declares no directories takes none at creation: the GET answers
+		// no statement.
+		"TakeDirectoryWarning", "json:\"warning", "rules :=",
+		// Some other method being open admits nobody: neither handler asks it.
+		"AnySignInMethodOpen",
 		// Nothing is removed after the commit: the row and the administrator's
 		// membership are one transaction.
 		"DeletePatch", "SeatFirstAdministrator", "UserSurface",

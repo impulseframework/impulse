@@ -55,15 +55,16 @@ type (
 	// the invitations that wait are listed with their details for whoever may read
 	// them on this record (CrewInvitedSectors), and Headquarters changes one by
 	// withdrawing it and sending another. An invitation that says directory only is
-	// accepted through a directory alone, and a first sign-in through a directory
-	// another sector has is refused; either way nothing is made and the invitation
+	// accepted through a directory alone, and the sign-in that would accept it through
+	// a directory another sector has is refused; either way nothing is made and the invitation
 	// stands. The other way is the pioneer's, one generated route (POST
 	// /console/api/create-sector) for a person who signed in holding no sector, and names
-	// their own. The pioneer's way is open while a fleet administrator has a sign-in
-	// method of the crew auth open to sign-up (the console's Sign-in page), which is how
-	// she comes to hold a login at all: through the sign-up registration, any Google
-	// account. The route reads that in the transaction that writes the row, and refuses
-	// while every method is invite only. It writes the row, seats the person with the
+	// their own. The pioneer's way is open to a person who signed in through a sign-in
+	// method of the crew auth that a fleet administrator has open to sign-up (the
+	// console's Sign-in page), which is how she comes to hold a login at all: through the
+	// sign-up registration, any Google account. The route reads that in the transaction
+	// that writes the row, and refuses a person whose session came through a method that
+	// is invite only. It writes the row, seats the person with the
 	// roles the App names (SectorAdministratorRoles: SectorMarshal) and hands the sector
 	// to the roster, so their next request stands in it; a person who already holds a
 	// sector is refused, the governor included, since an administrator of one sector

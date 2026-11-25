@@ -378,6 +378,10 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		"`tenantSignInPage`",
 		"its directory and its rows with it, in one request, whether it is directory only or not, and its directory is then free for another tenant",
 		"Execute on the six generated methods of the tenant's own:",
+		"gets Execute on `Take<Record>Directory`, the method that takes the directory (which takes nothing from the request:",
+		"and warns first: the person reads that they are authorized to act on behalf of the organization and types `I am authorized`; the record's own create is refused), Delete, List and Read on `TenantDirectories`,",
+		"to make it the tenant's through `Take<Record>Directory`, behind its statement, and types no directory in;",
+		"Nobody types a directory in: the record's own create is refused, and the tenant's own method `TakeTenantDirectory` takes nothing from the request and sets the directory the caller is signed in through, after the statement that the caller is authorized to act on behalf of the organization,",
 		", and `VouchFor<Record>DirectorySecondFactor` and `StopVouchingFor<Record>DirectorySecondFactor`, by which the tenant says its directory asks its people for a second factor of its own, " +
 			"so that the application stops asking them for its mailed code, and takes that back (saying so is done by a person signed in through the directory, and warns first: the person types `vouch`);",
 		"the record shows `defaultSeat` and `asksSecondFactor` and its own update writes neither;",
@@ -418,6 +422,7 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		if noDirectories {
 			for _, word := range []string{
 				"TenantDirectories", "DirectoryOnly`", "directory only (", "tenantSignInPage", "OpenTenantToDirectory", "MakeTenantDirectoryOnly",
+				"Take<Record>Directory", "TakeTenantDirectory",
 				"DirectorySecondFactor", "asksSecondFactor",
 			} {
 				if strings.Contains(meaning, word) {
@@ -427,18 +432,15 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		}
 	}
 
-	// The one-tenant rule names the ways a role is given, and a directory's default
-	// role is one only where a tenant can have a directory.
-	const byDirectory = "refused however it would be given, by hand, by an invitation sent or accepted, or by a directory's default role, with a refusal"
+	// The one-tenant rule names the ways a role is refused: by hand and by an invitation.
+	// A directory's default role is not refused, the person is moved, which the item says
+	// only where a tenant can have a directory.
 	const byHand = "refused however it would be given, by hand or by an invitation sent or accepted, with a refusal"
+	const moved = "A directory's default role is not refused: a person who belongs to one tenant and signs in through the directory of another that is open to it is moved. They are given that tenant's default role, and every role and every place in a group they held in the first is taken away in the same transaction, also when they were its last administrator."
 	for _, noDirectories := range []bool{false, true} {
 		meaning := Tenancy{Table: "Tenants", OneTenantPerPerson: true, NoDirectories: noDirectories}.Meaning()
-		want, not := byDirectory, byHand
-		if noDirectories {
-			want, not = byHand, byDirectory
-		}
-		if !strings.Contains(meaning, want) || strings.Contains(meaning, not) {
-			t.Errorf("no directories %v: the one-tenant item does not say %q", noDirectories, want)
+		if !strings.Contains(meaning, byHand) || strings.Contains(meaning, moved) == noDirectories {
+			t.Errorf("no directories %v: the one-tenant item must say %q, and %q only where a tenant can have a directory", noDirectories, byHand, moved)
 		}
 		if noDirectories && strings.Contains(meaning, "default role") {
 			t.Error("the brief of an application whose tenants have no directories speaks of a directory's default role")

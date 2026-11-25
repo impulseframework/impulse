@@ -293,6 +293,38 @@ func TestListedSectors(t *testing.T) {
 		t.Errorf("Keelhaven's administrators = %v, want [Abel Keel keeper]: by name, by username for an account with none, through the sector's group too, in alphabetical order", got)
 	}
 
+	// Lowmere: three administrators, by a role of their own and through the sector's group,
+	// two of whose accounts are disabled. A disabled account holds its roles and
+	// administers nothing, so it is named among no administrators; it is still one of the
+	// sector's people.
+	lowmere := w.sector(ctx, "Lowmere", now)
+	at := accesstypes.DomainPolicyScope(accesstypes.Domain(lowmere))
+	holder, absent, leaver := w.account(ctx, "holder", ""), w.account(ctx, "absent", ""), w.account(ctx, "leaver", "")
+	w.apply(ctx, membership(at, "SectorMarshal", holder, time.Time{}, time.Time{}), membership(at, "SectorMarshal", absent, time.Time{}, time.Time{}))
+	w.group(ctx, lowmere, "Lookouts", "SectorMarshal", leaver)
+	w.apply(ctx,
+		spanner.UpdateMap("CrewSessionUsers", map[string]any{"Id": absent, "Disabled": true}),
+		spanner.UpdateMap("CrewSessionUsers", map[string]any{"Id": leaver, "Disabled": true}),
+	)
+	low := listedSectorRow(t, w.h, "governor", lowmere)
+	if low == nil {
+		t.Fatal("the list holds no row for Lowmere")
+	}
+	if got := administratorsOf(t, low); !slices.Equal(got, []string{"holder"}) {
+		t.Errorf("Lowmere's administrators = %v, want [holder]: the two whose accounts are disabled, by a role of their own and through the sector's group, are none of them", got)
+	}
+	if got := cell[float64](t, low, "people"); got != 3 {
+		t.Errorf("Lowmere's people = %v, want 3: a person whose account is disabled is still one of its people", got)
+	}
+	w.apply(ctx, spanner.UpdateMap("CrewSessionUsers", map[string]any{"Id": holder, "Disabled": true}))
+	low = listedSectorRow(t, w.h, "governor", lowmere)
+	if got := administratorsOf(t, low); len(got) != 0 {
+		t.Errorf("Lowmere's administrators once every one's account is disabled = %v, want none", got)
+	}
+	if got := cell[float64](t, low, "people"); got != 3 {
+		t.Errorf("Lowmere's people once every administrator's account is disabled = %v, want 3", got)
+	}
+
 	// The grants of the shipped role file: CrewCommon lists the sectors with their people,
 	// since when and their directory, and no administrators; the Surveyor reads who
 	// administers each; a person with no List on the list is refused it.

@@ -23,8 +23,8 @@ import (
 // them) and the connection the method's identities carry (@directoryConnection: a
 // Google Workspace by its domain, a Microsoft Entra tenant by its tenant id), and
 // naming, when the record carries the column, the default seat (@directoryDefaultSeat:
-// the role a person is seated with in the tenant at their first sign-in through the
-// directory, NULL where the tenant admits a stranger from it by invitation only) and,
+// the role a person is seated with when they sign in through the directory and hold
+// nothing in the tenant, NULL where the tenant admits a stranger from it by invitation only) and,
 // when the record carries that column, the tenant's word that its directory asks its
 // people for a second factor of its own (@directorySecondFactor, a BOOL). A
 // tenant has one directory and a directory is one tenant's: the schema holds both with
@@ -363,6 +363,7 @@ func (r *resourceGenerator) validateTenantDeclaration() error {
 	record.declaration = &tenantDeclaration{Directories: directories}
 	directories.directoryOf = record
 	directories.directoryRules = r.namedDirectoryRules(record)
+	directories.directoryCreateRefusal = directoryCreateRefusal(r.directoryTenantWord(record), record.Name())
 
 	return nil
 }
@@ -588,6 +589,13 @@ func tagsLiteral(fields []string) string {
 // as naming a package. Empty on every other resource.
 func (r *resourceInfo) DirectoryRules() string {
 	return r.directoryRules
+}
+
+// DirectoryCreateRefusal is the sentence the directories record's create is refused with:
+// a tenant takes its directory with the tenant's own method (Take<Record>Directory),
+// never by a create of the record. Empty on every other resource.
+func (r *resourceInfo) DirectoryCreateRefusal() string {
+	return r.directoryCreateRefusal
 }
 
 // DirectoryTenantWord is the word for one tenant in the comments the directories

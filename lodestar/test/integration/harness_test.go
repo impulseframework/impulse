@@ -308,6 +308,10 @@ type testConfigurer struct {
 	// jobs is the job process's starter, a fake the served stack's suites read the
 	// starts from; nil gets a fake of its own.
 	jobs jobs.Starter
+	// crewIdentity is the crew's identity client the App runs where the served stack
+	// builds one of its own (servedOptions.oneTenantPerPerson); nil runs the one the
+	// crew auth built.
+	crewIdentity *crewidentity.Client
 }
 
 // invitationLog holds the invitations the suites without a session manager handed
@@ -367,13 +371,19 @@ func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
 	}
 }
 
-// SignsInThrough judges an identity as an Auth that offers the fleet's Google sign-in
-// alone would, under the name the crew registers it ("google"): an identity of any other
-// method signs nobody in. The crew auth's own judgment, over its registrations and the
-// connections each takes, is driven on the served stack.
-func (noSessionAPI) SignsInThrough(method sessioninfo.AuthMethod, _ string) []string {
+// SignsInThrough judges an identity as the crew auth's two Google registrations would:
+// a personal Google account, under the connection of any Google account, signs in
+// through the sign-up registration (crew.SignUpRegistration), and any other Google
+// identity through the fleet's Google sign-in, under the name the crew registers it
+// ("google"); an identity of any other method signs nobody in. The crew auth's own
+// judgment, over its registrations and the connections each takes, is driven on the
+// served stack.
+func (noSessionAPI) SignsInThrough(method sessioninfo.AuthMethod, connection string) []string {
 	if method != sessioninfo.MethodGoogle {
 		return nil
+	}
+	if connection == signin.GoogleAnyAccountConnection {
+		return []string{crew.SignUpRegistration}
 	}
 
 	return []string{"google"}
@@ -436,9 +446,13 @@ func (noSessionAPI) NoticeRemovedFromTenant(context.Context, string, string, boo
 }
 
 // CrewIdentity is the crew auth's identity client: on the served stack the one the crew
-// auth built when it opened, as production's is; in a suite that serves no session
-// manager, one over the suite's crew engine.
+// auth built when it opened, as production's is, or the one the stack built where it
+// holds a person to one sector (servedOptions.oneTenantPerPerson); in a suite that
+// serves no session manager, one over the suite's crew engine.
 func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
+	if c.crewIdentity != nil {
+		return c.crewIdentity
+	}
 	if c.crewAuth != nil {
 		return c.crewAuth.Identity()
 	}
@@ -771,7 +785,9 @@ func doRequestRecordedWithHeaders(t *testing.T, h http.Handler, user accesstypes
 // which the permission checks, the row conditions' subject and the columns that record
 // who take. An account a test made is carried the same way once the test has said whose
 // it is (knownAs). Any other name is a person with no account, named by the username
-// alone.
+// alone. The session records no sign-in event unless the test has said how the person
+// signed in (signedInThrough): a route that reads the way the session came in (the
+// create-your-sector route's sign-up check) is then answered for that way.
 func sessionContext(t *testing.T, user accesstypes.User) context.Context {
 	t.Helper()
 
@@ -785,8 +801,46 @@ func sessionContext(t *testing.T, user accesstypes.User) context.Context {
 	} else if id, ok := madeAccountID(t, user); ok {
 		data.UserID = impulse.NullUUIDFromUUID(id)
 	}
+	if event, ok := signedInEvent(t, user); ok {
+		data.AuthEvents = []sessioninfo.AuthEvent{event}
+	}
 
 	return context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, data)
+}
+
+// signedInEvents holds how the people of the tests signed in: a test that says how a
+// person's synthetic session came in (signedInThrough) has it carry that sign-in event
+// from then on. A pair belongs to the top-level test that named it, as madeAccounts'
+// do. Each event is held by the address of a copy of its own: an event carries a list
+// (IDPAMR), so it is no value a map compares, and two tests that name one event each
+// hold their own copy.
+var signedInEvents sync.Map
+
+// signedInThrough tells the harness that the person's synthetic sessions signed in by the
+// event from here on, as the session's first auth event records the way a person came in
+// (sessioninfo.SessionData.EstablishedBy), and forgets it when the test ends.
+func signedInThrough(t *testing.T, username accesstypes.User, event *sessioninfo.AuthEvent) {
+	t.Helper()
+
+	key := madeAccount{test: topLevelTest(t), username: username}
+	held := new(sessioninfo.AuthEvent)
+	*held = *event
+	signedInEvents.Store(key, held)
+	t.Cleanup(func() { signedInEvents.CompareAndDelete(key, held) })
+}
+
+// signedInEvent is the sign-in event this test said the person's sessions carry, if it
+// said one (signedInThrough).
+func signedInEvent(t *testing.T, username accesstypes.User) (sessioninfo.AuthEvent, bool) {
+	t.Helper()
+
+	stored, _ := signedInEvents.Load(madeAccount{test: topLevelTest(t), username: username})
+	event, ok := stored.(*sessioninfo.AuthEvent)
+	if !ok {
+		return sessioninfo.AuthEvent{}, false
+	}
+
+	return *event, true
 }
 
 // madeAccounts holds the accounts the tests made: a test that creates a person and then
@@ -1094,6 +1148,12 @@ type servedOptions struct {
 	// second factor of its own, for the suite that proves a sector's word for its
 	// directory's second factor.
 	crewNotAdministered bool
+	// oneTenantPerPerson has the App run a crew identity client that holds a person to
+	// one sector (identity.WithOneTenantPerPerson), over the crew auth's engine and
+	// session manager, for the suites that prove what the create-your-sector route and the
+	// warning of opening a sector to its directory do in such an application. The crew
+	// auth's own client, which its sign-in hooks run, is as Lodestar builds it.
+	oneTenantPerPerson bool
 }
 
 // newServedWith is the served stack under the options.
@@ -1235,6 +1295,16 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	if opts.crewEngineAsMembers {
 		membersEngine = crewAuth.Access()
 	}
+	// Where the stack holds a person to one sector, the App runs a crew identity client
+	// built as the crew auth builds its own, with the rule beside it.
+	var crewIdentity *crewidentity.Client
+	if opts.oneTenantPerPerson {
+		_, sectorAdministrators := crew.AdministratorRoles()
+		crewIdentity, err = crewidentity.NewClient(crewAuth.Access(), crewAuth.Session().API(), app.NewSectorMaker(roster, fake), identity.WithAdministratorRoles(sectorAdministrators), identity.WithOneTenantPerPerson())
+		if err != nil {
+			t.Fatalf("crewidentity.NewClient() with one tenant per person: %v", err)
+		}
+	}
 	a := app.New(&testConfigurer{
 		db:            db,
 		access:        crewAuth.Access(),
@@ -1248,6 +1318,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		jobs:          starter,
 		tenants:       roster,
 		declarations:  roster.Declarations,
+		crewIdentity:  crewIdentity,
 	})
 	server.Config.Handler = router.New(a, router.AppHooks(a))
 	server.Start()

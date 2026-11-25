@@ -89,22 +89,29 @@ type (
 	//
 	// Nobody types a directory in. The row is written from a sign-in through the
 	// directory: the tenant's administrator, signed in through their organization's
-	// directory, makes it the tenant's on the Sign-in page, under the record's Create
-	// grant. The create takes no method and no connection from the request; the server
-	// reads both from the session, and refuses a session that came by password or with
-	// a personal account (a Google account outside every Workspace, a Microsoft
-	// personal account), which is no organization's directory. The administrator
-	// removes the directory under the Delete grant, which is refused while the tenant
-	// is directory only; the roles it gave stand, and the directory is free for another
-	// tenant. The change events are the audit.
+	// directory, makes it the tenant's on the Sign-in page with the tenant's own
+	// method Take%[3]sDirectory, under its Execute grant, after a statement that they
+	// are authorized to act on behalf of the organization, under which they type a
+	// phrase; the record's own create is refused. The method takes nothing from the
+	// request; the server reads the method and the connection from the session, and
+	// refuses a session that came by password or with a personal account (a Google
+	// account outside every Workspace, a Microsoft personal account), which is no
+	// organization's directory. The administrator removes the directory under the
+	// Delete grant, which is refused while the tenant is directory only; the roles it
+	// gave stand, and the directory is free for another tenant. The change events are
+	// the audit.
 	//
-	// DefaultSeat is the role a person is given in the tenant at their first sign-in
-	// through the directory, whether their account is created then or stood before; or
-	// NULL, and the tenant admits the directory's people by invitation only (a stranger
-	// is refused with no account, and an invitation is the way in). It is given once
-	// for the link between the account and the directory: a person whose role an
-	// administrator removed is not given it back by signing in. The record shows it and
-	// its own update never writes it: the tenant's own methods name it and clear it.
+	// DefaultSeat is the role the tenant gives a person who signs in through the
+	// directory and holds nothing in the tenant, at every sign-in: whether their
+	// account is new, stood before, or was tied to the directory before the tenant
+	// took it, and whatever they hold in other tenants; or NULL, and the tenant
+	// admits the directory's people by invitation only (a stranger is refused with
+	// no account, and an invitation is the way in). A person an administrator
+	// removes from the tenant is given the role again the next time they sign in
+	// through the directory: a role with no privileges keeps one person out while
+	// the tenant is open, and making the tenant invite only keeps everyone out who
+	// is not invited. The record shows it and its own update never writes it: the
+	// tenant's own methods name it and clear it.
 	//
 	// AsksSecondFactor says the tenant's administrator has said the directory asks its
 	// people for a second factor of its own. A person who signs in through the directory
@@ -255,9 +262,10 @@ const oneTenantOption = "identity.WithOneTenantPerPerson()"
 // declareOneTenant says a person belongs to one tenant on every auth whose roles the
 // application assigns: the identity client its New builds gains the identity package's
 // option, which every way a person comes to hold a role in a tenant is then held to (a
-// role given by hand, an invitation sent or accepted, a directory's default role). An
-// auth whose directory writes the roles gives none of its own, so it is left as it is;
-// an auth whose New builds the client in another form is recorded as the agent's.
+// role given by hand and an invitation sent or accepted are refused; a directory's
+// default role moves the person from the other tenant). An auth whose directory writes
+// the roles gives none of its own, so it is left as it is; an auth whose New builds the
+// client in another form is recorded as the agent's.
 func (tn Tenancy) declareOneTenant(a *app.App, ch *Change) error {
 	const rule = "a role in a second tenant is refused however it would be given, and the application's own people, who hold a role for the whole application or in every tenant, are outside the rule"
 	held := 0
@@ -390,7 +398,7 @@ func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, ser
 		return err
 	}
 	if admission {
-		directoryField := fmt.Sprintf("// %[1]s reads every tenant's declaration of one directory with the\n// default seat its row carries, in the sign-in's transaction, which the directory\n// admission decides a stranger's first sign-in with: the generated reader\n// (%[2]s). Required; New refuses nil.\n%[1]s signin.DirectoryReader[*%[3]s.ReadWriteTransaction]", directoriesAccessor, directoryReader, spanner)
+		directoryField := fmt.Sprintf("// %[1]s reads every tenant's declaration of one directory with the\n// default seat its row carries, in the sign-in's transaction, which the directory\n// admission decides every sign-in through a tenant's directory with: the generated\n// reader (%[2]s). Required; New refuses nil.\n%[1]s signin.DirectoryReader[*%[3]s.ReadWriteTransaction]", directoriesAccessor, directoryReader, spanner)
 		if edited, err = app.AddStructField(rel, edited, "Settings", directoryField); err != nil {
 			return err
 		}
@@ -579,7 +587,7 @@ func signInRule(session, record string, admission, admitWithoutTenant, noDirecto
 	policy := fmt.Sprintf("%[5]s%[3]s\t// Which tenants the session then reaches is decided again, tenant by tenant, where\n\t// its tenant list is computed (UserPermissions). The memberships are read outside\n\t// the sign-in's transaction (resource.SignInRoles): the Spanner client refuses the\n\t// engine's read under the transaction's context as a nested transaction.\n\t%[1]s.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.%[2]s%[4]s))\n", session, declarationsAccessor, without, option, admits)
 	policy += fmt.Sprintf("\n\t// The same rule, asked outside a sign-in, says whose password is disabled: a person\n\t// the rule would refuse a sign-in with a password as directory only. Their account\n\t// page draws no Password line and they are refused a first password\n\t// (SetPasswordDisabledCheck). The declarations are read with the sign-in's reader,\n\t// each in a transaction of its own (resource.OutsideSignIn).\n\t%s.SetPasswordDisabledCheck(signin.PasswordsDisabledByTenants(accessClient.UserManager(), resource.OutsideSignIn(db, settings.%s)))\n", session, declarationsAccessor)
 	if admission {
-		policy += fmt.Sprintf("\n\t// The directory admission: what a person gets at their first sign-in through a\n\t// tenant's directory, before the registration's account rule is reached. The row of\n\t// the tenant whose directory the identity came through decides. A row with a default\n\t// seat creates a stranger and gives them that role in the tenant in one transaction\n\t// (the identity client's DirectorySeated, which the session library runs inside the\n\t// transaction that links the account to the directory), and the sign-in rule then\n\t// finds the membership; a row with none refuses a stranger (invitation_only) and no\n\t// account is created, unless they followed an invitation link, which is the way in.\n\t// A person whose account stood before is given the default seat too, at the sign-in\n\t// that links the account to the directory, where they hold no role in the tenant; a\n\t// role an administrator removes afterwards is not given back by signing in. A\n\t// directory no tenant has falls to the registration's rule. The auth's roles are the\n\t// application's, so the admission is set here; an auth whose directory writes the\n\t// roles sets none.\n\t%s.SetDirectoryAdmission(settings.%s, identityClient.DirectorySeated())\n", session, directoriesAccessor)
+		policy += fmt.Sprintf("\n\t// The directory admission: what a person gets when they sign in through a\n\t// tenant's directory and hold nothing in the tenant, at every sign-in, before\n\t// the registration's account rule is reached. The row of the tenant whose\n\t// directory the identity came through decides. A row with a default seat\n\t// creates a stranger and gives them that role in the tenant in one transaction\n\t// (the identity client's DirectorySeated, which the session library runs inside\n\t// the sign-in's transaction), and the sign-in rule then finds the membership; a\n\t// row with none refuses a stranger (invitation_only) and no account is created,\n\t// unless they followed an invitation link, which is the way in. A person whose\n\t// account stood before is given the default seat too, at their next sign-in\n\t// through the directory, where they hold nothing in the tenant, whether the\n\t// account was tied to the directory before the tenant took it or not, and\n\t// whatever they hold in other tenants. A person an administrator removes from\n\t// the tenant is given it again the next time they sign in through the\n\t// directory: a role with no privileges keeps one person out while the tenant is\n\t// open, and making the tenant invite only keeps everyone out who is not\n\t// invited. A directory no tenant has falls to the registration's rule. The\n\t// auth's roles are the application's, so the admission is set here; an auth\n\t// whose directory writes the roles sets none.\n\t%s.SetDirectoryAdmission(settings.%s, identityClient.DirectorySeated())\n", session, directoriesAccessor)
 	}
 
 	return policy

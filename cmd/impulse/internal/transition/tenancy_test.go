@@ -286,6 +286,30 @@ func TestTenancyApply(t *testing.T) {
 						t.Errorf("%s lacks %q:\n%s", rel, want, got)
 					}
 				}
+				// A directory's role is given at every sign-in, and again after a removal: the
+				// table's comment and the record's say so, and neither says it is given once.
+				for rel, wants := range map[string][]string{
+					"schema/migrations/000003_Tenants.up.sql": {
+						"-- DefaultSeat names the role the tenant gives a person who signs in through the\n-- directory and holds nothing in the tenant, at every sign-in,",
+						"tied to the directory before the tenant took it, and\n-- whatever they hold in other tenants; a person an administrator removes from the\n-- tenant is given it again the next time they sign in through the directory.",
+					},
+					"pkg/resources/tenant_directories.go": {
+						"\t// DefaultSeat is the role the tenant gives a person who signs in through the\n\t// directory and holds nothing in the tenant, at every sign-in:",
+						"A person an administrator\n\t// removes from the tenant is given the role again the next time they sign in\n\t// through the directory: a role with no privileges keeps one person out while\n\t// the tenant is open, and making the tenant invite only keeps everyone out who\n\t// is not invited.",
+					},
+				} {
+					got := read(t, a, rel)
+					for _, want := range wants {
+						if !strings.Contains(got, want) {
+							t.Errorf("%s lacks %q:\n%s", rel, want, got)
+						}
+					}
+					for _, old := range []string{"at their first sign-in", "given once"} {
+						if strings.Contains(got, old) {
+							t.Errorf("%s still says %q of the directory's role", rel, old)
+						}
+					}
+				}
 				wantNoTenantPageFiles(t, a)
 				config := read(t, a, "pkg/config/tenancy.go")
 				for _, want := range []string{"c.tenants = app.NewTenantRoster(resource.NewSpannerClient(c.spannerClient))", "// No live service field was found on DataConfiguration", "c.tenants.Start(ctx)", "func (c *DataConfiguration) TenantRoster() *resource.TenantRoster"} {
@@ -436,9 +460,19 @@ func TestTenancyApply(t *testing.T) {
 				"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
 				"\t\"github.com/impulseframework/impulse/session/signin\"\n",
 				"\t\"github.com/impulseframework/impulse/resource\"\n",
+				// The directory's default seat is given at every sign-in through it, and
+				// again after a removal.
+				"\t// The directory admission: what a person gets when they sign in through a\n\t// tenant's directory and hold nothing in the tenant, at every sign-in,",
+				"A person an administrator removes from\n\t// the tenant is given it again the next time they sign in through the\n\t// directory: a role with no privileges keeps one person out while the tenant is\n\t// open, and making the tenant invite only keeps everyone out who is not\n\t// invited.",
+				"which the directory\n\t// admission decides every sign-in through a tenant's directory with: the generated\n\t// reader (app.NewTenantDirectoryReader).",
 			} {
 				if !strings.Contains(staff, want) {
 					t.Errorf("staff.go lacks %q:\n%s", want, staff)
+				}
+			}
+			for _, old := range []string{"at their first sign-in", "is not given back", "a stranger's first sign-in"} {
+				if strings.Contains(staff, old) {
+					t.Errorf("staff.go still says %q of the directory's default seat", old)
 				}
 			}
 		},

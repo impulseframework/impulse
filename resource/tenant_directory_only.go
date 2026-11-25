@@ -42,8 +42,8 @@ type TenantSignInSettings struct {
 	// Directory is the tenant's directory as people know it (DirectoryName), on or off,
 	// and never its connection. It is empty for a tenant with no directory.
 	Directory string `json:"directory,omitempty"`
-	// DefaultRole is the role a person gets the first time they sign in through the
-	// tenant's directory, in words (words.RoleInWords). It is empty where the tenant
+	// DefaultRole is the role a person gets when they sign in through the tenant's
+	// directory and hold nothing in the tenant, in words (words.RoleInWords). It is empty where the tenant
 	// admits the directory's people by invitation only, has no directory, or its
 	// directories record declares no default seat.
 	DefaultRole string `json:"defaultRole,omitempty"`
@@ -820,8 +820,8 @@ func turnsOn(value any) bool {
 
 // SignInSettings answers tenant's sign-in settings as they stand, in the caller's
 // transaction, with what a page of them says of how the tenant stands: its directory as
-// people know it, the role a person gets the first time they sign in through it, in
-// words, whether the caller's auth has passwords, how the caller signed in, whether the
+// people know it, the role a person gets when they sign in through it and hold nothing
+// in the tenant, in words, whether the caller's auth has passwords, how the caller signed in, whether the
 // tenant is directory only, and how many people the tenant's list holds and how many of
 // them the switch keeps out (CountedBy), counted as the warning counts them, with each
 // auth's share of both (DirectoryOnlyCount.Shares). While the switch is off it also says
@@ -910,10 +910,11 @@ func (r *TenantDirectoryRules) sessionDirectoryName(session *sessioninfo.Session
 	return r.directoryName(directory)
 }
 
-// defaultRoleInWords says, in words, the role a person gets the first time they sign in
-// through tenant's directory, which the tenant has: empty where it admits the
-// directory's people by invitation only, or where the directories record declares no
-// default seat, which leaves the read with no role to say and no reason to fail.
+// defaultRoleInWords says, in words, the role a person gets when they sign in through
+// tenant's directory, which the tenant has, and hold nothing in the tenant: empty where
+// it admits the directory's people by invitation only, or where the directories record
+// declares no default seat, which leaves the read with no role to say and no reason to
+// fail.
 func (r *TenantDirectoryRules) defaultRoleInWords(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) (string, error) {
 	if r.columns.DirectoriesKeyColumn == "" || r.columns.DefaultSeatColumn == "" {
 		return "", nil

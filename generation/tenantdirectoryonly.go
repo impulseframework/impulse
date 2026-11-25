@@ -173,7 +173,9 @@ func (r *resourceGenerator) tenantOwnRoute(prefix, httpMethod, handlerFunc, segm
 }
 
 // accumulateDirectoryOnlyRoute adds to every outlet the routes of the tenant's own
-// sign-in settings it serves (tenantOwnOutletRoutes): the read of them, the switch's
+// sign-in settings it serves (tenantOwnOutletRoutes): the read of them, the method that
+// takes the tenant's directory where the outlet serves the directories record to sessions
+// (directoryTake), the switch's
 // methods where the outlet serves the tenant record to sessions and the record declares
 // the switch, the methods that say how the tenant admits its directory's people
 // (directoryRole) and those of its word for its directory's second factor
@@ -224,7 +226,8 @@ func (r *resourceGenerator) directoryOnlyAuthzCases() []authzCase {
 	return cases
 }
 
-// collectDirectoryOnlyRegistrations registers the switch's methods, the methods that
+// collectDirectoryOnlyRegistrations registers the method that takes the tenant's
+// directory, the switch's methods, the methods that
 // say how the tenant admits its directory's people, and the methods of its word for its
 // directory's second factor into the collection, each with Execute in the tenant's
 // scope, where the application serves them. The names are the generator's: a method or
@@ -248,6 +251,11 @@ func (r *resourceGenerator) collectDirectoryOnlyRegistrations(b *resource.Collec
 		}
 
 		return nil
+	}
+	if take := r.directoryTake(); take != nil {
+		if err := register(take.methods(), fmt.Sprintf("the %s record (@%s)", take.directories.Name(), tenantDirectoryKeyword)); err != nil {
+			return err
+		}
 	}
 	if methods := r.directoryOnlyMethods(); len(methods) > 0 {
 		if err := register(methods, fmt.Sprintf("the %s record's directory-only switch (@%s)", r.tenantRecord().Name(), directoryOnlyKeyword)); err != nil {
@@ -437,7 +445,7 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 		return t.rc != nil && t.rc.HasPermission(accesstypes.DomainPermissionScope, accesstypes.Execute, accesstypes.Resource(method))
 	}
 
-	var methods []*tsTenantOwnMethod
+	methods := t.directoryTakeClientData(record, directories, word, served)
 	if record.declaresDirectoryOnly() && record.OnOutlet(t.targetOutlet()) {
 		for _, method := range directoryOnlyMethodsOf(record.Name()) {
 			if !served(method.Name) {
@@ -457,7 +465,7 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 			}
 			own := &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Fields: nil, Doc: fmt.Sprintf("makes the %s invite only for its directory's people: a person from the directory enters once they are invited", word)}
 			if method.Typed != "" {
-				own.Doc = fmt.Sprintf("opens the %s to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation", word)
+				own.Doc = fmt.Sprintf("opens the %s to its directory's people: each of them who holds nothing in the %s is given the role when they sign in through the directory, with no invitation", word, word)
 				own.Fields = []tsTenantOwnField{{Name: directoryRoleBodyField, Enumerated: t.directoryRolePicker}}
 			}
 			methods = append(methods, own)
@@ -474,6 +482,25 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 			}
 			methods = append(methods, &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Doc: doc, Fields: nil})
 		}
+	}
+
+	return methods
+}
+
+// directoryTakeClientData is the method that takes the record's directory, on a client
+// generated for an outlet that serves the directories record, where the collection
+// serves it (served); none otherwise. word is what a sentence calls one tenant.
+func (t *typescriptGenerator) directoryTakeClientData(record, directories *resourceInfo, word string, served func(method string) bool) []*tsTenantOwnMethod {
+	if directories == nil || !directories.OnOutlet(t.targetOutlet()) {
+		return nil
+	}
+	var methods []*tsTenantOwnMethod
+	for _, method := range directoryTakeMethodsOf(record.Name()) {
+		if !served(method.Name) {
+			continue
+		}
+		doc := fmt.Sprintf("takes the directory you are signed in through as the %s's own, after the statement that you are authorized to act for the organization", word)
+		methods = append(methods, &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Doc: doc, Fields: nil})
 	}
 
 	return methods

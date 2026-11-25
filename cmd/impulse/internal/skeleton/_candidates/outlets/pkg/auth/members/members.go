@@ -180,8 +180,8 @@ type Settings struct {
 	TenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]
 	// TenantDirectories reads every tenant's declaration of one directory with the
 	// default seat its row carries, in the sign-in's transaction, which the directory
-	// admission decides a stranger's first sign-in with: the generated reader
-	// (app.NewTenantDirectoryReader). Required; New refuses nil.
+	// admission decides every sign-in through a tenant's directory with: the generated
+	// reader (app.NewTenantDirectoryReader). Required; New refuses nil.
 	TenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]
 }
 
@@ -498,17 +498,18 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// leave it, and an account left holding nothing is deleted with its sessions.
 	authSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))
 
-	// The directory admission: what a person gets at their first sign-in through a
-	// tenant's directory, before the sign-in method's own choice is reached. The row of
-	// the tenant whose directory the identity came through decides. A row with a default
-	// seat creates a stranger and gives them that role in the tenant in one transaction
-	// (the identity client's DirectorySeated, which the session library runs inside the
-	// transaction that links the account to the directory), and the sign-in rule then
-	// finds the membership; a row with none refuses a stranger (invitation_only) and no
-	// account is created, unless they followed an invitation link, which is the way in.
-	// A person whose account stood before is given the default seat too, at the sign-in
-	// that links the account to the directory, where they hold no role in the tenant; a
-	// role an administrator removes afterwards is not given back by signing in. A
+	// The directory admission: what a person gets when they sign in through a tenant's
+	// directory and hold nothing in the tenant, at every sign-in, before the sign-in
+	// method's own choice is reached. The row of the tenant whose directory the identity
+	// came through decides. A row with a default seat creates a stranger and gives them
+	// that role in the tenant in one transaction (the identity client's DirectorySeated,
+	// which the session library runs inside the sign-in's transaction), and the sign-in
+	// rule then finds the membership; a row with none refuses a stranger (invitation_only)
+	// and no account is created, unless they followed an invitation link, which is the
+	// way in. A person whose account stood before is given the default seat too, at their
+	// next sign-in through the directory, where they hold nothing in the tenant; a role an
+	// administrator removes is given again at the next sign-in, and a role with no
+	// privileges keeps a person out. A
 	// directory no tenant has falls to the method, which is invite only: an account
 	// stands before the sign-in, or an invitation comes with it. The auth's roles are the
 	// application's, so the admission is set here; an auth whose directory writes the

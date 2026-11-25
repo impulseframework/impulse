@@ -762,6 +762,9 @@ type fakeSessions struct {
 	// method.
 	unoffered map[sessioninfo.AuthMethod]bool
 	untaken   map[string]bool
+	// through are the registrations an identity of a connection signs in through, where
+	// the fake is given them: two registrations of one method may take one connection.
+	through map[string][]string
 	// named are the names the registrations give a connection, and labels the labels of
 	// the buttons a person signs in to a method's directories with.
 	named  map[string]string
@@ -843,6 +846,9 @@ func (s fakeSessions) SignInMethods() []session.RegisteredMethod {
 func (s fakeSessions) SignsInThrough(method sessioninfo.AuthMethod, connection string) []string {
 	if s.unoffered[method] || s.untaken[connection] {
 		return nil
+	}
+	if names, ok := s.through[connection]; ok {
+		return names
 	}
 
 	return []string{string(method)}

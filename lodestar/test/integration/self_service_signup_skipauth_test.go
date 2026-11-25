@@ -30,8 +30,9 @@ import (
 // organization and so is no sector's directory: the route sets none on Ember, Ember
 // admits her as it admits a password, the session read reports no directory for her,
 // and her attempt to make her account Ember's directory is refused with what to do. A
-// person who charts a sector while signed in through an organization's directory has
-// it set on the new sector in the row's transaction (the tenanted skeleton proves it).
+// sector made by sign-up takes no directory whichever way its maker signed in, unless
+// the application holds a person to one sector
+// (self_service_sector_directory_skipauth_test.go proves both).
 //
 // Any Google account is a directory the fleet does not administer, so her sign-up
 // waits for the second factor: the browser lands on the login page with the pending
@@ -106,8 +107,7 @@ func TestSelfServiceSignUp_signInFirstThenChart(t *testing.T) {
 	}
 	// She is Ember's marshal, and making her personal account Ember's directory is
 	// refused with what to do; nothing is written.
-	makeEmbers := `[{"op":"add","path":"/sectors/` + ember + `/sector-directories","value":{}}]`
-	status, body = b.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(makeEmbers))
+	status, body = b.do(ctx, http.MethodPost, sectorPath(ember, "take-sector-directory"), []byte(`{}`))
 	if want := "A personal Google account is not an organization's directory, so it cannot be a sector's directory. Sign in with your organization's account (Google Workspace or Microsoft Entra) and try again."; status != http.StatusConflict || !strings.Contains(string(body), want) {
 		t.Errorf("making a personal Google account Ember's directory: status %d, want 409 saying %q: %s", status, want, body)
 	}

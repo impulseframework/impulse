@@ -31,8 +31,9 @@ import (
 // the directory north's and with it nobody's, by a standing session and by a fresh
 // sign-in alike: a directory closes its tenant to nobody until the tenant is directory
 // only. Nobody types a directory in: the console's staff sign in by
-// password, so the console's create is refused with how a directory is set, a request
-// that names a method and a connection is refused, and the directory is set in code
+// password, so the tenant's own method that takes a directory (TakeTenantDirectory) is
+// refused with how a directory is set, a create of the record that names a method and a
+// connection is refused, and the directory is set in code
 // through the generated step a sign-in takes (setDirectory), which holds it to the
 // rules: a second directory for a tenant, and the directory on another tenant, are each
 // refused with what to do. Turning directory only on is refused unless the person is
@@ -135,14 +136,13 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	}
 
 	// Nobody types a directory in. The console's administrator is signed in with a
-	// password: the session read reports no directory, the create that names none is
-	// refused with how a directory is set, and one that types a method and a connection
-	// is refused as naming fields the record does not take. Neither writes.
+	// password: the session read reports no directory, the tenant's own method, which
+	// names none, is refused with how a directory is set, and a create of the record that
+	// types a method and a connection is refused, as its every create is. Neither writes.
 	if status, body := admin.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK || strings.Contains(string(body), `"directory"`) {
 		t.Errorf("the administrator's password session: status %d: %s, want no directory reported", status, body)
 	}
-	fromSession := `[{"op":"add","path":"/tenants/` + north + `/tenant-directories","value":{}}]`
-	if status, body := admin.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(fromSession)); status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
+	if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/tenants/"+north+"/take-tenant-directory", []byte(`{}`)); status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
 		t.Errorf("setting north's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}
 	typed := `[{"op":"add","path":"/tenants/` + north + `/tenant-directories","value":{"method":"` + string(entra.Method) + `","connection":"` + entra.Connection + `"}}]`
@@ -257,10 +257,10 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// How north admits its directory's people is the tenant's own to say too, with two
 	// methods the tenant's administrator holds. Opening it names the role each of them
-	// is given at their first sign-in through the directory: asked for its warning
-	// first, the method says who will enter and with what role, and saves nothing; a
-	// role that is not one of the tenant's is refused. Making it invite only again is
-	// plain, and declares no warning.
+	// is given when they sign in through the directory and hold nothing in the tenant:
+	// asked for its warning first, the method says who will enter and with what role,
+	// and saves nothing; a role that is not one of the tenant's is refused. Making it
+	// invite only again is plain, and declares no warning.
 	open := func(role string, headers map[string]string) (int, []byte) {
 		return admin.doWith(ctx, http.MethodPost, consoleAPI+"/tenants/"+north+"/open-tenant-to-directory", []byte(`{"role":"`+role+`"}`), headers)
 	}

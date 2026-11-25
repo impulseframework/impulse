@@ -408,3 +408,38 @@ func TestManager_DirectoryName(t *testing.T) {
 		})
 	}
 }
+
+// TestTenant_SeatedAgainNote pins the note a removal's warning carries where the tenant is
+// open to its directory and the person signs in through it, in the application's word for
+// a tenant: the person is given the starting role again at their next sign-in, and a role
+// with no privileges is the way to keep them out.
+func TestTenant_SeatedAgainNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts []Option
+		want resource.WarningNote
+	}{
+		{
+			name: "the default word",
+			want: resource.WarningNote{Says: "This tenant is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. A role with no privileges keeps them out."},
+		},
+		{
+			name: "the application's word",
+			opts: []Option{WithTenantWord("sector")},
+			want: resource.WarningNote{Says: "This sector is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. A role with no privileges keeps them out."},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m, _ := newManager(t, groupStore(), wardenRoles, tt.opts...)
+			tenant := &Tenant{manager: m, domain: "alpha"}
+			if diff := cmp.Diff(tt.want, tenant.SeatedAgainNote()); diff != "" {
+				t.Errorf("SeatedAgainNote() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

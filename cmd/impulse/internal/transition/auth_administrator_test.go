@@ -237,7 +237,7 @@ func TestAuth_Apply_invitesAdministrator(t *testing.T) {
 			t.Errorf("%s does not say that the first administrator signs in through the directory:\n%s", deployAdministrators, administrators)
 		}
 		wellFormed(t, a, deployAdministrators)
-		if level := read(t, a, baseDataLevel); !strings.Contains(level, "\t// has an invitation mailed there (partners.Auth.InviteAdministrator), and the person's\n\t// first sign-in through the directory, from its link, is tied to the roles by the\n\t// invitation; the address the directory gives must be the invited one. Unset in\n\t// development, where no release runs and nobody is invited.\n\tPartnersAdministrator string `env:\"APP_PARTNERS_ADMINISTRATOR\"`\n") {
+		if level := read(t, a, baseDataLevel); !strings.Contains(level, "\t// has an invitation mailed there (partners.Auth.InviteAdministrator), and the person's\n\t// sign-in through the directory from its link accepts it and is given the roles; the\n\t// address the directory gives must be the invited one. Unset in development, where no\n\t// release runs and nobody is invited.\n\tPartnersAdministrator string `env:\"APP_PARTNERS_ADMINISTRATOR\"`\n") {
 			t.Errorf("%s does not say that the first administrator signs in through the directory:\n%s", baseDataLevel, level)
 		}
 	})

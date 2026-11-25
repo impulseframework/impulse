@@ -762,9 +762,6 @@
         "permissions": {
           "Create": [
             {
-              "resource": "TenantDirectories"
-            },
-            {
               "resource": "Announcements",
               "fields": [
                 "body",
@@ -867,6 +864,9 @@
             },
             {
               "resource": "TakeStaffTenantGroupRole"
+            },
+            {
+              "resource": "TakeTenantDirectory"
             },
             {
               "resource": "MakeTenantDirectoryOnly"

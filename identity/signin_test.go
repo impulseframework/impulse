@@ -345,19 +345,41 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 	t.Parallel()
 
 	id := userID.String()
+	ended := accesstypes.Period{End: time.Now().Add(-time.Hour)}
+	notBegun := accesstypes.Period{Start: time.Now().Add(time.Hour)}
+	inBeta := access.NewMembershipKey(betaScope, dana, "Reader")
+	endedInBeta := access.NewMembershipKey(betaScope, dana, "Writer")
+	// onAxis is a role in beta's domain on another axis than the tenants': it is no
+	// tenant's, and the move leaves it.
+	onAxis := access.NewMembershipKey(betaScope, dana, "Surveyor")
+	onAxis.Axis = "region"
+	global := access.NewMembershipKey(globalScope, dana, "Operator")
+	every := access.NewMembershipKey(everyScope, dana, "Reader")
+	nightPlace := access.GroupMemberKey{Group: GroupID(nightID), User: dana}
+	dayPlace := access.GroupMemberKey{Group: GroupID(dayID), User: dana}
+	alphaGiven := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}}
+	insertAlpha := "insert membership domain/alpha " + id + " Reader"
+	oneTenant := []Option{WithOneTenantPerPerson()}
 
 	tests := []struct {
 		name  string
 		seats []signin.DirectorySeat
-		// held are the memberships the person holds before the sign-in, as committed, and
-		// periods the periods of the ones that carry one.
-		held        []access.MembershipKey
-		periods     map[access.MembershipKey]accesstypes.Period
-		custom      []access.RoleKey
-		wantErr     func(error) bool
-		wantWrites  []string
-		wantGiven   []signin.DirectorySeat
-		wantChanged int
+		// opts are the manager's options. held are the memberships the person holds
+		// before the sign-in, as committed, and periods the periods of the ones that
+		// carry one; places are the groups they are in (nightID kept in alpha, staffID
+		// for the whole application, dayID in beta), and placePeriods the periods of
+		// those places.
+		opts         []Option
+		held         []access.MembershipKey
+		periods      map[access.MembershipKey]accesstypes.Period
+		places       []impulse.UUID
+		placePeriods map[access.GroupMemberKey]accesstypes.Period
+		custom       []access.RoleKey
+		wantErr      func(error) bool
+		wantWrites   []string
+		wantGiven    []signin.DirectorySeat
+		wantTaken    []accesstypes.Domain
+		wantChanged  int
 	}{
 		{
 			name:        "a person who holds a role in another tenant is given the default role in the directory's tenant",
@@ -433,12 +455,136 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 		{
 			name: "no default role gives nothing and tells the engine nothing",
 		},
+		{
+			name:   "a place in a group kept in the tenant is something the person holds there: nothing is given",
+			seats:  alphaGiven,
+			places: []impulse.UUID{nightID},
+		},
+		{
+			name:         "a place in the tenant's group whose period has not begun is one the person will hold: nothing is given",
+			seats:        alphaGiven,
+			places:       []impulse.UUID{nightID},
+			placePeriods: map[access.GroupMemberKey]accesstypes.Period{nightPlace: notBegun},
+		},
+		{
+			name:         "a person whose only place in the tenant's group has ended holds nothing there: the default role is given",
+			seats:        alphaGiven,
+			places:       []impulse.UUID{nightID},
+			placePeriods: map[access.GroupMemberKey]accesstypes.Period{nightPlace: ended},
+			wantWrites:   []string{insertAlpha},
+			wantGiven:    alphaGiven,
+			wantChanged:  1,
+		},
+		{
+			name:        "without one tenant per person nothing is ever taken: a person who holds roles and a place in another tenant is given the default role beside them",
+			seats:       alphaGiven,
+			held:        []access.MembershipKey{inBeta, endedInBeta},
+			periods:     map[access.MembershipKey]accesstypes.Period{endedInBeta: ended},
+			places:      []impulse.UUID{dayID},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:  "where a person belongs to one tenant, one who holds a role in the tenant is given nothing and nothing is taken",
+			seats: alphaGiven,
+			opts:  oneTenant,
+			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Editor"), inBeta},
+		},
+		{
+			name:        "where a person belongs to one tenant, one whose only role in the tenant has ended is given the default role",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			held:        []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Editor")},
+			periods:     map[access.MembershipKey]accesstypes.Period{access.NewMembershipKey(alphaScope, dana, "Editor"): ended},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:        "where a person belongs to one tenant, one who holds nothing anywhere is given the default role",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:    "where a person belongs to one tenant, one who belongs to another is moved: every role and place held in the other tenant is taken, ended ones too, each once, and a role on another axis and an ended role for the whole application stay",
+			seats:   alphaGiven,
+			opts:    oneTenant,
+			held:    []access.MembershipKey{inBeta, endedInBeta, onAxis, global},
+			periods: map[access.MembershipKey]accesstypes.Period{endedInBeta: ended, global: ended},
+			places:  []impulse.UUID{dayID},
+			wantWrites: []string{
+				"delete membership domain/beta " + id + " Reader",
+				"delete membership domain/beta " + id + " Writer",
+				"delete group member " + string(GroupID(dayID)) + " " + id,
+				insertAlpha,
+			},
+			wantGiven:   alphaGiven,
+			wantTaken:   []accesstypes.Domain{"beta"},
+			wantChanged: 1,
+		},
+		{
+			name:  "where a person belongs to one tenant, the other tenant's only administrator is moved too: no rule is asked",
+			seats: alphaGiven,
+			opts:  oneTenant,
+			held:  []access.MembershipKey{access.NewMembershipKey(betaScope, dana, accesstypes.Role("Administrator"))},
+			wantWrites: []string{
+				"delete membership domain/beta " + id + " Administrator",
+				insertAlpha,
+			},
+			wantGiven:   alphaGiven,
+			wantTaken:   []accesstypes.Domain{"beta"},
+			wantChanged: 1,
+		},
+		{
+			name:        "where a person belongs to one tenant, one who holds a role for the whole application is the application's own: the default role is given and nothing is taken",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			held:        []access.MembershipKey{global, inBeta},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:        "where a person belongs to one tenant, one who holds a role in every tenant is the application's own: the default role is given and nothing is taken",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			held:        []access.MembershipKey{every, inBeta},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:        "where a person belongs to one tenant, one in a group kept for the whole application is the application's own: the default role is given and nothing is taken",
+			seats:       alphaGiven,
+			opts:        oneTenant,
+			held:        []access.MembershipKey{inBeta},
+			places:      []impulse.UUID{staffID},
+			wantWrites:  []string{insertAlpha},
+			wantGiven:   alphaGiven,
+			wantChanged: 1,
+		},
+		{
+			name:         "where a person belongs to one tenant, one whose rows in another tenant have all ended is given the default role, and the ended rows stay",
+			seats:        alphaGiven,
+			opts:         oneTenant,
+			held:         []access.MembershipKey{inBeta},
+			periods:      map[access.MembershipKey]accesstypes.Period{inBeta: ended},
+			places:       []impulse.UUID{dayID},
+			placePeriods: map[access.GroupMemberKey]accesstypes.Period{dayPlace: ended},
+			wantWrites:   []string{insertAlpha},
+			wantGiven:    alphaGiven,
+			wantChanged:  1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{memberships: map[access.MembershipKey]bool{}, roles: map[access.RoleKey]bool{}}
+			store := groupStore()
 			for _, key := range tt.custom {
 				store.roles[key] = true
 			}
@@ -446,12 +592,19 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 				store.memberships[key] = true
 			}
 			store.membershipPeriods = tt.periods
-			m, engine := newManager(t, store, engineRoles)
+			for _, group := range tt.places {
+				store.groupMembers[access.GroupMemberKey{Group: GroupID(group), User: dana}] = true
+			}
+			store.placePeriods = tt.placePeriods
+			m, engine := newManager(t, store, engineRoles, tt.opts...)
 
-			var given []signin.DirectorySeat
+			var (
+				given []signin.DirectorySeat
+				taken []accesstypes.Domain
+			)
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				var err error
-				given, err = m.giveDirectoryRoles(ctx, txn, userID, "dana", tt.seats)
+				given, taken, err = m.giveDirectoryRoles(ctx, txn, userID, "dana", tt.seats)
 
 				return err
 			})
@@ -471,6 +624,9 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 			if tt.wantErr == nil {
 				if diff := cmp.Diff(tt.wantGiven, given); diff != "" {
 					t.Errorf("seats given (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tt.wantTaken, taken); diff != "" {
+					t.Errorf("tenants taken from (-want +got):\n%s", diff)
 				}
 			}
 			if engine.changed != tt.wantChanged {

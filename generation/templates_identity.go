@@ -968,9 +968,10 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 
 // DirectorySeated answers the session library's hook for a tenant directory's default
 // role (session.Auth.SetDirectoryAdmission) over the {{ .Auth }} auth's tables: the role
-// is given in the transaction that creates the person at their first sign-in, so no
-// account is left holding nothing (identity.Manager.DirectorySeated). The auth's package
-// sets it where it sets the invitation's.
+// is given in the sign-in's transaction to a person who signs in through the directory
+// and holds nothing in the tenant, at every sign-in, so no account is left holding
+// nothing (identity.Manager.DirectorySeated). The auth's package sets it where it sets
+// the invitation's.
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("{{ .Auth }}")
 }
@@ -2028,6 +2029,32 @@ func (c *Client) DirectoryInvitations(ctx context.Context, txn resource.ReadWrit
 	return invitations, nil
 }
 {{- end }}
+{{- end }}
+{{- if .ReadsSeatedAgain }}
+
+// SeatedAgainBySignIn reports whether a person of the {{ .Auth }} auth removed from the
+// {{ .TenantWord }} is given its starting role again the next time they sign in: the {{ .TenantWord }}'s
+// row of {{ .DirectorySeat.Table }} names a default seat, and the person has a sign-in identity
+// ({{ .Tables.Identities }}) whose method and connection are that row's. The directory gives a
+// person who holds nothing in the {{ .TenantWord }} that role at every sign-in
+// (identity.Manager.DirectorySeated). It is one statement past the declarations, as
+// UserID's is, read in the caller's transaction. The warning of the generated method
+// that removes a person from a {{ .TenantWord }} asks it, and on yes says so
+// (identity.Tenant.SeatedAgainNote).
+func (c *Client) SeatedAgainBySignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT EXISTS (SELECT 1 FROM {{ .Tables.Identities }} i JOIN {{ .DirectorySeat.Table }} d ON d.{{ .DirectorySeat.MethodColumn }} = i.Method AND d.{{ .DirectorySeat.ConnectionColumn }} = i.Connection WHERE i.UserId = @userId AND d.{{ .DirectorySeat.TenantColumn }} = @tenant AND d.{{ .DirectorySeat.SeatColumn }} IS NOT NULL AND d.{{ .DirectorySeat.SeatColumn }} != '')",
+		Params: map[string]any{"userId": userID.String(), "tenant": string(tenant)},
+	}
+	var seated bool
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		return row.Column(0, &seated)
+	}); err != nil {
+		return false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return seated, nil
+}
 {{- end }}` + identityGroupStore + identityPeriodStore
 
 	// identityDisableUserTemplate is the method that disables a person.

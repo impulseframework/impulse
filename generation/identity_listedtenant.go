@@ -212,10 +212,11 @@ func (d *identitySourceData) ListedTenantImports() string {
 }
 
 // ListedTenantDirectory is the SQL expression that says a tenant's directory by its kind,
-// alias the row of the directories table it reads: a Google Workspace with its domain,
-// the connection the row keeps, and every other kind by its kind alone. No other kind's
-// connection is said: a Microsoft Entra tenant's is an id nobody knows, and what a person
-// calls a directory is said by the sign-in registrations, which a query does not read.
+// alias the row of the directories table it reads: a Google Workspace with the connection
+// the row keeps, which is its domain or the name the application's sign-in registration
+// gives it, and every other kind by its kind alone. No other kind's connection is said: a
+// Microsoft Entra tenant's is an id nobody knows, and what a person calls a directory is
+// said by the sign-in registrations, which a query does not read.
 func (d *identitySourceData) ListedTenantDirectory(alias string) string {
 	directory := d.TenantDirectory()
 	method, connection := alias+"."+directory.MethodColumn, alias+"."+directory.ConnectionColumn

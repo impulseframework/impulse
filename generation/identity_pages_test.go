@@ -221,11 +221,11 @@ func Test_identityOn(t *testing.T) {
 			}},
 		},
 		{
-			name:      "a tenant's side names the directories record, the four methods that set how its people enter and the two of its word for its directory's second factor, and the whole application's side none",
+			name:      "a tenant's side names the directories record, the method that takes it, the four methods that set how its people enter and the two of its word for its directory's second factor, and the whole application's side none",
 			outlet:    "console",
 			instances: []*identityInstance{directed},
 			served: []string{
-				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories",
+				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories", "TakeSectorDirectory",
 				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
 				"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 			},
@@ -237,6 +237,7 @@ func Test_identityOn(t *testing.T) {
 						Scope: accesstypes.DomainPermissionScope,
 						Lists: []identityPart{part("users", "CrewSectorUsers"), part("directories", "SectorDirectories")},
 						Methods: []identityPart{
+							part("takeDirectory", "TakeSectorDirectory"),
 							part("openToDirectory", "OpenSectorToDirectory"), part("makeDirectoryInviteOnly", "MakeSectorInviteOnly"),
 							part("makeDirectoryOnly", "MakeSectorDirectoryOnly"), part("endDirectoryOnly", "EndSectorDirectoryOnly"),
 							part("vouchForDirectorySecondFactor", "VouchForSectorDirectorySecondFactor"),
@@ -268,7 +269,7 @@ func Test_identityOn(t *testing.T) {
 			outlet:    "console",
 			instances: []*identityInstance{crew},
 			served: []string{
-				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories",
+				"CrewSessionUsers", "CrewSectorUsers", "SectorDirectories", "TakeSectorDirectory",
 				"OpenSectorToDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly",
 				"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 			},

@@ -106,8 +106,9 @@ export interface TenantSignInSettings {
   /** The tenant's directory as people know it, on or off; absent for a tenant with no directory. */
   directory?: string;
   /**
-   * The role a person gets the first time they sign in through the tenant's directory, in
-   * words; absent where the tenant admits the directory's people by invitation only.
+   * The role a person gets when they sign in through the tenant's directory and hold
+   * nothing in the tenant, in words; absent where the tenant admits the directory's people
+   * by invitation only.
    */
   defaultRole?: string;
   /**

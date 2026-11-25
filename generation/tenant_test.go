@@ -140,7 +140,7 @@ func Test_resolveTenant(t *testing.T) {
 		{
 			name:    "the retired creation argument is refused with what replaced it, whatever it named",
 			structs: []string{"Enclave"},
-			wantErr: "struct Enclave: @tenant(creation: administrator) is no longer declared, and nobody creates an enclave directly. Staff holding the record's Create grant invite one person, with the enclave's details, and that person's first sign-in makes the enclave and seats them as its first administrator (the auth's generated Invite method). A person who signs up creates their own while an administrator has a sign-in method open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
+			wantErr: "struct Enclave: @tenant(creation: administrator) is no longer declared, and nobody creates an enclave directly. Staff holding the record's Create grant invite one person, with the enclave's details, and that person's first sign-in makes the enclave and seats them as its first administrator (the auth's generated Invite method). A person who signs up creates their own when they signed in through a sign-in method an administrator has open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
 		},
 		{
 			name:       "label: names the word for one tenant",
@@ -157,12 +157,12 @@ func Test_resolveTenant(t *testing.T) {
 		{
 			name:    "the argument that let a stranger create a tenant is refused the same way",
 			structs: []string{"Outland"},
-			wantErr: "struct Outland: @tenant(creation: self-service) is no longer declared, and nobody creates an outland directly. Staff holding the record's Create grant invite one person, with the outland's details, and that person's first sign-in makes the outland and seats them as its first administrator (the auth's generated Invite method). A person who signs up creates their own while an administrator has a sign-in method open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
+			wantErr: "struct Outland: @tenant(creation: self-service) is no longer declared, and nobody creates an outland directly. Staff holding the record's Create grant invite one person, with the outland's details, and that person's first sign-in makes the outland and seats them as its first administrator (the auth's generated Invite method). A person who signs up creates their own when they signed in through a sign-in method an administrator has open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
 		},
 		{
 			name:    "and so is the argument that kept both ways",
 			structs: []string{"Frontier"},
-			wantErr: "struct Frontier: @tenant(creation: both) is no longer declared, and nobody creates a frontier directly. Staff holding the record's Create grant invite one person, with the frontier's details, and that person's first sign-in makes the frontier and seats them as its first administrator (the auth's generated Invite method). A person who signs up creates their own while an administrator has a sign-in method open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
+			wantErr: "struct Frontier: @tenant(creation: both) is no longer declared, and nobody creates a frontier directly. Staff holding the record's Create grant invite one person, with the frontier's details, and that person's first sign-in makes the frontier and seats them as its first administrator (the auth's generated Invite method). A person who signs up creates their own when they signed in through a sign-in method an administrator has open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
 		},
 		{
 			name:    "the shape without its key is refused",

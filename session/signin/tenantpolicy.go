@@ -22,9 +22,10 @@ type Directory struct {
 }
 
 // DeclaredDirectory is one tenant's declaration of a directory, as a DirectoryReader
-// answers it for a stranger's first sign-in: the tenant, and the default seat the
-// tenant gives a person its directory vouched for, the role the sign-in seats them
-// with in the tenant, or "" when the tenant admits its people by invitation only, and
+// answers it for a sign-in through the directory: the tenant, and the default seat the
+// tenant gives a person its directory vouched for who holds nothing in the tenant, the
+// role the sign-in seats them with in the tenant at every sign-in through the
+// directory, or "" when the tenant admits its people by invitation only, and
 // whether the tenant says the directory asks for a second factor of its own.
 type DeclaredDirectory struct {
 	Tenant      accesstypes.Domain
@@ -37,10 +38,12 @@ type DeclaredDirectory struct {
 	SecondFactor bool
 }
 
-// DirectoryReader reads every tenant's declaration of a directory for a stranger's
-// first sign-in, in the sign-in's first transaction, typed to the storage's
-// transaction like the other hooks: the tenants that declare the directory the
-// identity came through, each with its default seat. A directory some tenant declares
+// DirectoryReader reads every tenant's declaration of a directory for a sign-in through
+// it, in the sign-in's first transaction, typed to the storage's transaction like the
+// other hooks: the tenants that declare the directory the identity came through, each
+// with its default seat, which is offered at every sign-in through the directory by an
+// account that is not disabled, a stranger's first and a linked identity's alike. A
+// directory some tenant declares
 // belongs to that tenant, and its declaration decides the stranger before the
 // registration's account rule does; a directory no tenant declares, an empty answer,
 // falls to the registration's rule as it would without the reader. The library asks
@@ -57,9 +60,9 @@ type DeclaredDirectory struct {
 // the hook that seats the person.
 type DirectoryReader[Tx any] func(ctx context.Context, tx Tx, directory Directory) ([]DeclaredDirectory, error)
 
-// DirectorySeat is a seat a first sign-in grants: a role in a tenant, the default seat
-// of a directory the tenant declared, written by the application's hook once the
-// user is committed.
+// DirectorySeat is a seat a sign-in through a directory offers: a role in a tenant,
+// the default seat of a directory the tenant declared, written by the application's
+// hook where the person holds nothing in the tenant.
 type DirectorySeat struct {
 	Tenant accesstypes.Domain
 	Role   accesstypes.Role
@@ -76,8 +79,9 @@ type TenantDeclaration struct {
 	// Directories are the directories the tenant admits its people through. A tenant
 	// has one directory, and a directory is one tenant's: the application's schema and
 	// its write paths hold both, so the list carries one directory at most. The
-	// directory seats a stranger at their first sign-in through it (DeclaredDirectory);
-	// it closes the tenant to nobody until the tenant is directory only.
+	// directory seats a person who signs in through it and holds nothing in the tenant,
+	// at every sign-in (DeclaredDirectory); it closes the tenant to nobody until the
+	// tenant is directory only.
 	Directories []Directory
 	// DirectoryOnly says the tenant's people enter through its directory only: a
 	// password, a personal account, any other sign-in that is not through a directory,

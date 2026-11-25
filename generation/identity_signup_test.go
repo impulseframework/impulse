@@ -157,7 +157,9 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		},
 		"crewidentity/client.go": {
 			"func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.SignedUp("Crew")`,
-			"func (c *Client) AnySignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {", "c.manager.AnyMethodOpen(ctx, reader)",
+			"func (c *Client) SessionSignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {", "c.manager.SessionMethodOpen(ctx, reader)",
+			`return false, errors.Wrap(err, "identity.Manager.SessionMethodOpen()")`,
+			"func (c *Client) OneTenantPerPerson() bool {", "return c.manager.OneTenantPerPerson()",
 			"opts = append(opts, identity.WithRoleGrants(grants{}))",
 		},
 	} {
@@ -167,7 +169,8 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 	assertFileContains(t, "crewidentity/make_crew_invite_only.go", nil, []string{"@warning", "Warning("})
 	// The members' directory writes the roles: nobody signs up to a role of the
 	// application's choosing, so the client answers no hook and asks nothing.
-	assertFileContains(t, "membersidentity/client.go", nil, []string{"SignedUp", "AnySignInMethodOpen"})
+	assertFileContains(t, "membersidentity/client.go", nil, []string{"SignedUp", "AnySignInMethodOpen", "SessionSignInMethodOpen", "func (c *Client) OneTenantPerPerson()"})
+	assertFileContains(t, "crewidentity/client.go", nil, []string{"AnySignInMethodOpen", "AnyMethodOpen"})
 }
 
 // Test_prepareIdentity_signUpWithTenants pins the part in an application with a tenant

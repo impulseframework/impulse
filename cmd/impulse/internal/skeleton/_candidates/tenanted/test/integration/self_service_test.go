@@ -16,11 +16,11 @@ import (
 	"github.com/impulseframework/impulse/session"
 )
 
-// The create-your-tenant route's answer while every sign-in method is invite only, and
-// what the Sign-in page's dialog shows before an administrator opens the password
-// method.
+// The create-your-tenant route's answer to a session that did not sign in through a
+// method open to sign-up, and what the Sign-in page's dialog shows before an
+// administrator opens the password method.
 const (
-	signUpClosed      = "Sign-up is not open, so you cannot create a tenant of your own. Ask an administrator of the application to create one for you, or to invite you to one."
+	signUpClosed      = "Sign-up is not open for the way you signed in, so you cannot create a tenant of your own. Ask an administrator of the application to create one for you, or to invite you to one."
 	passwordOpenWarns = "Anyone with an email address will be able to sign up and create a tenant of their own, without an invitation."
 )
 

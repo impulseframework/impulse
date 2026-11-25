@@ -55,7 +55,7 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 		return fmt.Appendf(nil, `{"invitationId":%q}`, invitation)
 	case "OpenSectorToDirectory":
 		return []byte(`{"role":"Cadet"}`)
-	case "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor":
+	case "TakeSectorDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor":
 		return []byte(`{}`)
 	case "CreateSector":
 		return []byte(chartEmber)
@@ -129,7 +129,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		"AssignCrewRole", "RemoveCrewRole", "AssignCrewSectorRole", "RemoveCrewSectorRole", "TakeCrewRole",
 		"AddCrewGroupMember", "RemoveCrewGroupMember", "GiveCrewGroupRole", "TakeCrewGroupRole", "GiveCrewSectorGroupRole",
 		"CreateCrewGroup", "DeleteCrewGroup", "InviteCrewUser", "InviteCrewSectorUser", "InviteCrewSector",
-		"OpenCrewSignUp", "MakeCrewInviteOnly", "OpenSectorToDirectory", "MakeSectorInviteOnly",
+		"OpenCrewSignUp", "MakeCrewInviteOnly", "TakeSectorDirectory", "OpenSectorToDirectory", "MakeSectorInviteOnly",
 		"MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 		"SetCrewSelfServiceReset", "CreateSector", "SetSectorPilotClearance",
 	} {

@@ -168,12 +168,14 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.CheckInvitedTenant":              {none: reads},
 	"Manager.InvitedTenants":                  {none: reads},
 	"Manager.SignInMethods":                   {none: reads},
-	"Manager.AnyMethodOpen":                   {none: reads},
+	"Manager.SessionMethodOpen":               {none: reads},
+	"Manager.OneTenantPerPerson":              {none: reads},
 	"Manager.SignInSettings":                  {none: reads},
 	"Manager.SignUpRoles":                     {none: reads},
 	"Manager.StartingRoles":                   {none: reads},
 	"Manager.SkippedStoredGrants":             {none: reads},
 	"Tenant.Domain":                           {none: reads},
+	"Tenant.SeatedAgainNote":                  {none: reads},
 }
 
 // subjectGuards are the two forms of the rule a method asks about a person named by the
