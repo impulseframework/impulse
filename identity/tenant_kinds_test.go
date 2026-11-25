@@ -238,13 +238,13 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 	wantWrites := []string{
 		"delete membership " + membershipText(&annaAlpha),
 		"end session " + annaLogin.String(),
-		"delete user " + annaID.String(),
+		"delete user " + annaID.String() + " with its tenant",
 		"delete membership " + membershipText(&benAlpha),
 		"delete group member " + nightID.String() + " " + benID.String(),
-		"delete user " + benID.String(),
+		"delete user " + benID.String() + " with its tenant",
 		"end session " + doraLogin.String(),
 		"delete identity " + doraLink.String(),
-		"delete user " + doraID.String(),
+		"delete user " + doraID.String() + " with its tenant",
 		"delete membership " + membershipText(&annaAlpha),
 		"delete membership " + membershipText(&benAlpha),
 		"delete membership " + membershipText(&caraAlpha),
@@ -291,7 +291,7 @@ func TestManager_TenantKinds_takeInRounds(t *testing.T) {
 	wantFirst := []string{
 		"delete membership " + membershipText(&annaAlpha),
 		"end session " + annaLogin.String(),
-		"delete user " + annaID.String(),
+		"delete user " + annaID.String() + " with its tenant",
 	}
 	if diff := cmp.Diff(wantFirst, first.writes); diff != "" {
 		t.Errorf("the first save's writes (-want +got):\n%s", diff)
@@ -325,7 +325,7 @@ func TestManager_TenantKinds_takeInRounds(t *testing.T) {
 	wantNext := []string{
 		"delete membership " + membershipText(&benAlpha),
 		"delete group member " + nightID.String() + " " + benID.String(),
-		"delete user " + benID.String(),
+		"delete user " + benID.String() + " with its tenant",
 	}
 	if diff := cmp.Diff(wantNext, next.writes); diff != "" {
 		t.Errorf("the next save's writes (-want +got):\n%s", diff)

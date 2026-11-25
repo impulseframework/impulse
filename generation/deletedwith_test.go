@@ -11,8 +11,9 @@ import (
 )
 
 // deletedWithTables is the schema of deletedwithfixture: a group's members and roles name
-// it, and beside them the application's tables name a group, a task, a project, an
-// assignment or a member's row, each by a foreign key the database does not follow.
+// it, the accounts table stands, and beside them the application's tables name a group, a
+// task, a project, an assignment or a member's row, each by a foreign key the database
+// does not follow.
 func deletedWithTables() map[string]*tableMetadata {
 	pk := columnMeta{IsPrimaryKey: true}
 	key := func(ordinal int64) columnMeta {
@@ -23,6 +24,13 @@ func deletedWithTables() map[string]*tableMetadata {
 	}
 	names := func(table string, ordinal int64) columnMeta {
 		return columnMeta{IsForeignKey: true, ReferencedTable: table, ReferencedColumn: "Id", OrdinalPosition: ordinal}
+	}
+	// person names the account too, by a column of the table's.
+	person := func(tab *tableMetadata) *tableMetadata {
+		tab.ForeignKeys = append(tab.ForeignKeys, fk("UserId", "CrewSessionUsers"))
+		tab.Columns["UserId"] = names("CrewSessionUsers", 3)
+
+		return tab
 	}
 	// under is a table whose rows name one row of another table, and the group too where
 	// group is set.
@@ -57,20 +65,21 @@ func deletedWithTables() map[string]*tableMetadata {
 
 	return map[string]*tableMetadata{
 		"CrewGroups":        {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": {OrdinalPosition: 1}}},
+		"CrewSessionUsers":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Username": {OrdinalPosition: 1}}},
 		"CrewGroupMembers":  {PkCount: 2, ForeignKeys: []foreignKeyMeta{fk("GroupId", "CrewGroups")}, Columns: map[string]columnMeta{"GroupId": key(0), "UserId": key(1)}},
 		"CrewGroupRoles":    {PkCount: 2, ForeignKeys: []foreignKeyMeta{fk("GroupId", "CrewGroups")}, Columns: map[string]columnMeta{"GroupId": key(0), "Role": key(1)}},
 		"Tasks":             under("", "", false),
-		"TaskAssignments":   under("TaskId", "Tasks", true),
+		"TaskAssignments":   person(under("TaskId", "Tasks", true)),
 		"TaskWatches":       under("TaskId", "Tasks", true),
 		"ShiftCovers":       covers,
-		"NotedAssignments":  under("GroupId", "CrewGroups", false),
+		"NotedAssignments":  person(under("GroupId", "CrewGroups", false)),
 		"AssignmentNotes":   under("AssignmentId", "NotedAssignments", false),
 		"AssignmentHolds":   under("AssignmentId", "NotedAssignments", false),
 		"HeldAssignments":   under("GroupId", "CrewGroups", false),
 		"HoldSlips":         under("AssignmentId", "HeldAssignments", false),
 		"NestedAssignments": nested,
 		"PlaceBadges":       badges,
-		"Projects":          under("", "", false),
+		"Projects":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": {OrdinalPosition: 1}}},
 		"ProjectTasks":      under("ProjectId", "Projects", false),
 		"LevelTasks":        {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "LevelId": {OrdinalPosition: 1}}},
 		"Ranks":             under("GroupId", "CrewGroups", false),
@@ -121,26 +130,27 @@ func deletedWithRun(t *testing.T, records []string, edit func(map[string]*resour
 	resources := slices.Concat(declared, own)
 	sortResources(resources)
 
-	return run, first, c.resolveLibraryDeleteTrees(resources)
+	return run, first, (&resourceGenerator{client: c}).resolveLibraryDeleteTrees(resources)
 }
 
 // libraryKind is what a test reads of a kind of a group's description: its name, its
 // ways up to the group, its links to itself, and its marks.
 type libraryKind struct {
-	Name     string
-	Paths    [][]deleteLink
-	Within   []deleteLink
-	Deletes  bool
-	Trusted  bool
-	AsCaller bool
-	Package  string
+	Name        string
+	Paths       [][]deleteLink
+	Within      []deleteLink
+	Deletes     bool
+	Trusted     bool
+	AsCaller    bool
+	WithinReach bool
+	Package     string
 }
 
 // libraryKinds reads the kinds of one list.
 func libraryKinds(kinds []*deleteKind) []libraryKind {
 	var got []libraryKind
 	for _, k := range kinds {
-		got = append(got, libraryKind{Name: k.Name, Paths: k.Paths, Within: k.Within, Deletes: k.Deletes, Trusted: k.Trusted, AsCaller: k.AsCaller, Package: k.Package})
+		got = append(got, libraryKind{Name: k.Name, Paths: k.Paths, Within: k.Within, Deletes: k.Deletes, Trusted: k.Trusted, AsCaller: k.AsCaller, WithinReach: k.WithinReach, Package: k.Package})
 	}
 
 	return got
@@ -312,9 +322,10 @@ func Test_deletedWith_groupNoApplicationNames(t *testing.T) {
 	}
 }
 
-// Test_deletedWith_refusals pins the three places @deletedWith is refused, each in the
-// sentence that says what to write: a column that names a record of the application's,
-// a column that names no group of an auth by a foreign key, and a read-only table.
+// Test_deletedWith_refusals pins the places @deletedWith is refused, each in the sentence
+// that says what to write: a column that names a record of the application's, the
+// tenant record and a read-only table among them, a column that names no group and no
+// account of an auth by a foreign key, and a read-only table.
 func Test_deletedWith_refusals(t *testing.T) {
 	t.Parallel()
 
@@ -330,9 +341,33 @@ func Test_deletedWith_refusals(t *testing.T) {
 			wantErr: "@deletedWith on ProjectTask.ProjectID: ProjectID names a project, a record of this application. Say on Project that its project tasks go with it: @deleteCascade(ProjectTask).",
 		},
 		{
-			name:    "a column the schema holds to no group",
+			name:    "a column that names the tenant record",
+			records: []string{"Project", "ProjectTask"},
+			edit: func(run map[string]*resourceInfo) {
+				run["Project"].IsTenant = true
+			},
+			wantErr: "@deletedWith on ProjectTask.ProjectID: ProjectID names a tenant, and a tenant's delete takes every row under the tenant already. Remove @deletedWith.",
+		},
+		{
+			name:    "a column that names a read-only table",
+			records: []string{"Project", "ProjectTask"},
+			edit: func(run map[string]*resourceInfo) {
+				run["Project"].EnumerationType = "ProjectKind"
+			},
+			wantErr: "@deletedWith on ProjectTask.ProjectID: ProjectID names a project, a read-only table (@enumerate) whose rows are never deleted. Remove @deletedWith.",
+		},
+		{
+			name:    "a column the schema holds to no group and no account",
 			records: []string{"LevelTask"},
-			wantErr: "@deletedWith on LevelTask.LevelID: the schema holds LevelId to no group of an auth by a foreign key. @deletedWith goes on the column that names a group of the library's; add the foreign key, or remove @deletedWith.",
+			wantErr: "@deletedWith on LevelTask.LevelID: the schema holds LevelId to no group and no account of an auth by a foreign key. @deletedWith goes on the column that names a group or an account of the library's; add the foreign key, or remove @deletedWith.",
+		},
+		{
+			name:    "a column the schema holds to a member's row",
+			records: []string{"PlaceBadge"},
+			edit: func(run map[string]*resourceInfo) {
+				markField(run, "PlaceBadge", "UserID", true)
+			},
+			wantErr: "@deletedWith on PlaceBadge.UserID: the schema holds UserId to no group and no account of an auth by a foreign key. @deletedWith goes on the column that names a group or an account of the library's; add the foreign key, or remove @deletedWith.",
 		},
 		{
 			name:    "a read-only table",
@@ -453,5 +488,257 @@ func Test_deletedWith_libraryRowsAlone(t *testing.T) {
 				t.Errorf("%s: NotedAssignment's patch has WithLibraryRowsAlone, or no WithEverythingUnder:\n%s", name, file)
 			}
 		}
+	}
+}
+
+// Test_deletedWith_accountRecord pins the account record of an auth's, which a column of
+// the application's can name as it names a group: it goes by the word a person calls it,
+// and its delete patch always takes rows when told, whether or not a record of the
+// application's names it. It can leave the application's rows out
+// (WithLibraryRowsAlone), and its WithEverythingUnder says what it takes.
+func Test_deletedWith_accountRecord(t *testing.T) {
+	t.Parallel()
+
+	run, _, err := deletedWithRun(t, []string{"Task"}, nil)
+	if err != nil {
+		t.Fatalf("resolveLibraryDeleteTrees() error = %v", err)
+	}
+	account := run["CrewSessionUser"]
+	c := &client{tableMap: deletedWithTables()}
+	if one, many := c.deleteWords(account); one != "account" || many != "accounts" {
+		t.Errorf("the account's words = %q, %q, want account, accounts", one, many)
+	}
+	if !account.TakesRowsUnder() {
+		t.Error("the account record's delete takes no rows when told")
+	}
+	file := renderResourceFile(t, account, "crewresources")
+	for _, want := range []string{
+		"func (p *CrewSessionUserDeletePatch) WithEverythingUnder() *CrewSessionUserDeletePatch {",
+		"func (p *CrewSessionUserDeletePatch) Left() *resource.DeleteLeft {",
+		"func (p *CrewSessionUserDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *CrewSessionUserDeletePatch {",
+		"func (p *CrewSessionUserDeletePatch) WithLibraryRowsAlone() *CrewSessionUserDeletePatch {",
+	} {
+		if !strings.Contains(file, want) {
+			t.Errorf("the account's file lacks %q:\n%s", want, file)
+		}
+	}
+	const said = "WithEverythingUnder says the delete takes the rows under the CrewSessionUser with it: the kinds its description lists as taken, the application's rows that name it in a column that says so (@deletedWith) among them, each through its own delete. It takes the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a CrewSessionUser that has such rows deletes nothing and is answered with the question a person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the delete takes what fits, deepest first, and Left says what is left: buffer the delete again, in a transaction of its own, until Left answers nil."
+	for name, file := range map[string]string{"account": file, "group": renderResourceFile(t, run["CrewGroup"], "crewresources")} {
+		want := said
+		if name == "group" {
+			want = strings.ReplaceAll(said, "CrewSessionUser", "CrewGroup")
+		}
+		if flat := strings.ReplaceAll(file, "\n// ", " "); !strings.Contains(flat, want) {
+			t.Errorf("the %s's WithEverythingUnder lacks the comment %q:\n%s", name, want, file)
+		}
+	}
+	// A record of the application's that takes rows says what its @deleteCascade lists.
+	if res := run["Task"]; res.TakesRowsUnder() {
+		t.Errorf("Task takes rows under it, and it declares none")
+	}
+}
+
+// markField marks the record's field as saying its row goes with what it names, or not
+// (resourceField.deletedWith), as the annotation marks it.
+func markField(run map[string]*resourceInfo, record, field string, marked bool) {
+	for _, f := range run[record].Fields {
+		if f.Name() == field {
+			f.deletedWith = marked
+		}
+	}
+}
+
+// userStep is the step from a person's column up to the accounts table.
+var userStep = link("UserId", "CrewSessionUsers")
+
+// takenWithinReach is an application's kind an account's delete takes, by its ways up
+// to the account: it goes on the permission to delete the account where it reaches.
+func takenWithinReach(name string, paths ...[]deleteLink) libraryKind {
+	return libraryKind{Name: name, Paths: paths, Deletes: true, WithinReach: true, Package: "resources"}
+}
+
+// Test_deletedWith_accountDescription pins the account record's description written a
+// second time over the application's records, by a group's rules: a record whose person
+// column says it goes with the account is taken, and what its own delete takes is taken
+// too, each marked WithinReach and not AsCaller, since an account's rows go on the
+// permission to delete it; what refuses its own delete refuses the account's, marked
+// AsCaller; a record that names the account and says nothing is under Under alone,
+// marked AsCaller. A record whose two columns say it goes with the group and with the
+// account is a taken kind of each, marked for each. The group's lists are what 8b's
+// rules give them.
+func Test_deletedWith_accountDescription(t *testing.T) {
+	t.Parallel()
+
+	noteWay := []deleteLink{link("AssignmentId", "NotedAssignments"), userStep}
+	tests := []struct {
+		name          string
+		records       []string
+		edit          func(map[string]*resourceInfo)
+		wantTaken     []libraryKind
+		wantRefusedBy []libraryKind
+		wantUnder     []libraryKind
+		wantGroup     []libraryKind
+	}{
+		{
+			name:    "the person column says the row goes with the account",
+			records: []string{"Task", "TaskAssignment"},
+			edit: func(run map[string]*resourceInfo) {
+				markField(run, "TaskAssignment", "UserID", true)
+				markField(run, "TaskAssignment", "GroupID", false)
+			},
+			wantTaken: []libraryKind{takenWithinReach("TaskAssignment", []deleteLink{userStep})},
+			wantUnder: []libraryKind{checkedWith("TaskAssignment", []deleteLink{userStep})},
+			wantGroup: []libraryKind{ownRole, ownMember},
+		},
+		{
+			name:      "the person column says nothing",
+			records:   []string{"Task", "TaskAssignment"},
+			edit:      func(run map[string]*resourceInfo) { markField(run, "TaskAssignment", "GroupID", false) },
+			wantUnder: []libraryKind{checkedWith("TaskAssignment", []deleteLink{userStep})},
+			wantGroup: []libraryKind{ownRole, ownMember},
+		},
+		{
+			name:      "both columns say so: a taken kind of the group's and of the account's",
+			records:   []string{"Task", "TaskAssignment"},
+			edit:      func(run map[string]*resourceInfo) { markField(run, "TaskAssignment", "UserID", true) },
+			wantTaken: []libraryKind{takenWithinReach("TaskAssignment", []deleteLink{userStep})},
+			wantUnder: []libraryKind{checkedWith("TaskAssignment", []deleteLink{userStep})},
+			wantGroup: []libraryKind{takenWith("TaskAssignment", []deleteLink{groupStep}), ownRole, ownMember},
+		},
+		{
+			name:          "what the record's own delete takes is within reach, and what refuses it is checked as the caller",
+			records:       []string{"NotedAssignment", "AssignmentNote", "AssignmentHold"},
+			edit:          func(run map[string]*resourceInfo) { markField(run, "NotedAssignment", "UserID", true) },
+			wantTaken:     []libraryKind{takenWithinReach("AssignmentNote", noteWay), takenWithinReach("NotedAssignment", []deleteLink{userStep})},
+			wantRefusedBy: []libraryKind{checkedWith("AssignmentHold", []deleteLink{link("AssignmentId", "NotedAssignments"), userStep})},
+			wantUnder:     []libraryKind{checkedWith("NotedAssignment", []deleteLink{userStep})},
+			wantGroup: []libraryKind{
+				takenWith("AssignmentNote", []deleteLink{link("AssignmentId", "NotedAssignments"), groupStep}),
+				takenWith("NotedAssignment", []deleteLink{groupStep}), ownRole, ownMember,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run, _, err := deletedWithRun(t, tt.records, tt.edit)
+			if err != nil {
+				t.Fatalf("resolveLibraryDeleteTrees() error = %v", err)
+			}
+			tree := run["CrewSessionUser"].DeleteTree
+			if tree == nil {
+				t.Fatal("the account has no description of its delete")
+			}
+			if tree.Record.One != "account" || tree.Record.Many != "accounts" {
+				t.Errorf("the account's words = %q, %q, want account, accounts", tree.Record.One, tree.Record.Many)
+			}
+			if diff := cmp.Diff(tt.wantTaken, libraryKinds(tree.Taken)); diff != "" {
+				t.Errorf("the account's taken kinds (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantRefusedBy, libraryKinds(tree.RefusedBy)); diff != "" {
+				t.Errorf("the account's refusing kinds (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantUnder, libraryKinds(tree.Under)); diff != "" {
+				t.Errorf("the account's kinds under it (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantGroup, libraryKinds(run["CrewGroup"].DeleteTree.Taken)); diff != "" {
+				t.Errorf("the group's taken kinds (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_deletedWith_accountLiteral pins how the account's description writes a kind of the
+// application's it takes: by the function the record's own package declares for it,
+// marked WithinReach and not AsCaller. A record that goes with the group and with the
+// account declares that function once.
+func Test_deletedWith_accountLiteral(t *testing.T) {
+	t.Parallel()
+
+	run, _, err := deletedWithRun(t, []string{"Task", "TaskAssignment"}, func(run map[string]*resourceInfo) {
+		markField(run, "TaskAssignment", "UserID", true)
+	})
+	if err != nil {
+		t.Fatalf("resolveLibraryDeleteTrees() error = %v", err)
+	}
+	if run["CrewSessionUser"].DeleteTree == nil {
+		t.Fatal("the account has no description of its delete")
+	}
+	literal := run["CrewSessionUser"].DeleteTreeLiteral()
+	if want := "Words: resource.DeleteWords{One: \"account\", Many: \"accounts\"},"; !strings.Contains(literal, want) {
+		t.Errorf("the account's description lacks %q:\n%s", want, literal)
+	}
+	_, taken, found := strings.Cut(literal, "Taken:")
+	if !found {
+		t.Fatalf("the account's description lists no taken kinds:\n%s", literal)
+	}
+	taken, _, _ = strings.Cut(taken, "Under:")
+	if want := "WithinReach: true,\nRows: resources.TaskAssignmentTakenRows(),\n},"; !strings.Contains(taken, want) || strings.Contains(taken, "AsCaller") {
+		t.Errorf("the account's taken kinds are written\n%s\nwant %q and no AsCaller", taken, want)
+	}
+	if file := renderResourceFile(t, run["TaskAssignment"], "resources"); strings.Count(file, "func TaskAssignmentTakenRows() resource.TakenRows {") != 1 {
+		t.Errorf("TaskAssignment's file declares its TakenRows other than once:\n%s", file)
+	}
+}
+
+// Test_deletedWith_accountTenants pins the tenants an account's description names for its
+// sentences: the tenant record's table, key and name column and the word for one tenant,
+// where the application has a tenant record and a kind is within reach; Name empty where
+// the record marks no name; none where the application has no tenant record, for an
+// account no marked column names, and in a group's description.
+func Test_deletedWith_accountTenants(t *testing.T) {
+	t.Parallel()
+
+	tenantRecord := func(named bool) func(map[string]*resourceInfo) {
+		return func(run map[string]*resourceInfo) {
+			project := run["Project"]
+			project.IsTenant, project.TenantLabel = true, "company"
+			if named {
+				project.TenantNameField = project.fieldNamed("Name")
+			}
+		}
+	}
+	both := func(edits ...func(map[string]*resourceInfo)) func(map[string]*resourceInfo) {
+		return func(run map[string]*resourceInfo) {
+			for _, edit := range edits {
+				edit(run)
+			}
+		}
+	}
+	markPerson := func(run map[string]*resourceInfo) { markField(run, "TaskAssignment", "UserID", true) }
+
+	tests := []struct {
+		name        string
+		edit        func(map[string]*resourceInfo)
+		wantAccount string
+	}{
+		{name: "a tenant record that marks its name", edit: both(tenantRecord(true), markPerson), wantAccount: `Tenants: &resource.DeleteTenants{Table: "Projects", Key: "Id", Name: "Name", Word: "company"},`},
+		{name: "a tenant record that marks none", edit: both(tenantRecord(false), markPerson), wantAccount: `Tenants: &resource.DeleteTenants{Table: "Projects", Key: "Id", Name: "", Word: "company"},`},
+		{name: "no tenant record", edit: markPerson},
+		{name: "an account no marked column names", edit: tenantRecord(true)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run, _, err := deletedWithRun(t, []string{"Task", "TaskAssignment", "Project"}, tt.edit)
+			if err != nil {
+				t.Fatalf("resolveLibraryDeleteTrees() error = %v", err)
+			}
+			var account string
+			if run["CrewSessionUser"].DeleteTree != nil {
+				account = run["CrewSessionUser"].DeleteTreeLiteral()
+			}
+			if tt.wantAccount != "" && !strings.Contains(account, tt.wantAccount) {
+				t.Errorf("the account's description lacks %q:\n%s", tt.wantAccount, account)
+			}
+			if tt.wantAccount == "" && strings.Contains(account, "Tenants:") {
+				t.Errorf("the account's description names the tenants:\n%s", account)
+			}
+			if group := run["CrewGroup"].DeleteTreeLiteral(); strings.Contains(group, "Tenants:") {
+				t.Errorf("the group's description names the tenants:\n%s", group)
+			}
+		})
 	}
 }

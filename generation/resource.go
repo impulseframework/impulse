@@ -627,9 +627,9 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 		r.resources = append(r.resources, beside...)
 		sortResources(r.resources)
 	}
-	// A column of the application's that names a group of an auth's says whether its row
-	// goes with the group: the group's description is written again over the
-	// application's records, once both are known.
+	// A column of the application's that names a group or an account of an auth's says
+	// whether its row goes with it: the group's and the account's descriptions are
+	// written again over the application's records, once both are known.
 	if err := r.resolveLibraryDeleteTrees(r.resources); err != nil {
 		return err
 	}

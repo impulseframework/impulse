@@ -126,6 +126,12 @@ type fakeStore struct {
 	// each user (none for the others).
 	costs    TenantDeleteCosts
 	withUser map[impulse.UUID]int
+	// userAsks marks a user row with rows of the application's that go with it, so the
+	// row's delete not told everythingUnder asks first, and userLeft is what the row's
+	// delete told everythingUnder answers one save left, nil for a delete that took
+	// everything.
+	userAsks bool
+	userLeft *resource.DeleteLeft
 	tokens   map[impulse.UUID]*Token
 	families map[impulse.UUID][]impulse.UUID
 	// methodRows are the rows of the sign-in methods table, by the method's name, and
@@ -350,11 +356,40 @@ func (f *fakeStore) ConfirmedEmail(_ context.Context, _ resource.ReadWriteTransa
 	return "", false, nil
 }
 
-func (f *fakeStore) DeleteUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+// fakeUserQuestion is the question the fake store's delete of a user row answers where
+// the account has rows that go with it (userAsks) and the delete is not told to take
+// them, as the delete patch does (428).
+const fakeUserQuestion = "Delete this account and everything under it: 7 task assignments. This can't be undone."
+
+// DeleteUser buffers the user row's delete as the generated store does: told
+// everythingUnder, the delete takes the application's rows that go with the account, and
+// not told, an account with such rows (userAsks) is asked about (428) and nothing is
+// written. What one save told everythingUnder left is f.userLeft.
+func (f *fakeStore) DeleteUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	if err := f.fail("DeleteUser"); err != nil {
-		return err
+		return nil, err
+	}
+	if everythingUnder {
+		f.writes = append(f.writes, "delete user "+id.String()+" with everything under it")
+
+		return f.userLeft, nil
+	}
+	if f.userAsks {
+		return nil, httpio.NewPreconditionRequiredMessage(fakeUserQuestion)
 	}
 	f.writes = append(f.writes, "delete user "+id.String())
+
+	return nil, nil
+}
+
+// DeleteUserWithTenant buffers the delete of the user row of an account that goes with
+// its tenant, as the generated store does, and nothing of the application's. The write it
+// records says which of the two deletes was called.
+func (f *fakeStore) DeleteUserWithTenant(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+	if err := f.fail("DeleteUserWithTenant"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, "delete user "+id.String()+" with its tenant")
 
 	return nil
 }

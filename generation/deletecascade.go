@@ -132,8 +132,13 @@ type deleteKind struct {
 	// AsCaller marks a kind of the application's in the description of a record of an
 	// auth's (resource.DeleteKind.AsCaller): the library deletes the record after its
 	// method asked the caller's grant on it, and the kind's rows are checked as that
-	// caller.
+	// caller. A kind an account's delete takes is marked WithinReach instead.
 	AsCaller bool
+	// WithinReach marks a kind of the application's that an account of an auth's takes
+	// with it (resource.DeleteKind.WithinReach): its rows go on the permission the method
+	// that deletes the account was let in by, with no grant asked on them, as far as that
+	// permission reaches.
+	WithinReach bool
 	// Package is the package that declares the kind's record where it is not the
 	// description's own: a kind of the application's that a record of an auth's takes.
 	// Its rows are deleted through the function that package declares for it
@@ -169,16 +174,23 @@ type deleteTree struct {
 	// Under is the kinds whose rows refuse a plain delete of the record (kindsUnder),
 	// by table name.
 	Under []*deleteKind
+	// Tenants is how a sentence about the delete names a tenant
+	// (resource.DeleteTree.Tenants): written for an account's description with a kind
+	// marked WithinReach, in an application with a tenant record, and nil anywhere else.
+	Tenants *resource.DeleteTenants
 }
 
 // deleteWords is the one place a kind of record gets its words for a sentence about a
 // delete: the resource's name in words, one and many, in lower case ("ShipClass" is
 // "ship class" and "ship classes", "PilotID" is "pilot id" and "pilot IDs"). The tenant
 // record takes the label it declares. An auth's group and the two kinds its delete
-// takes go by what a person calls them: a group, its members and its roles.
+// takes go by what a person calls them: a group, its members and its roles; and so does
+// its account record: an account.
 func (c *client) deleteWords(res *resourceInfo) (one, many string) {
 	if inst := res.identity; inst != nil {
 		switch res.Name() {
+		case inst.auth + "SessionUser":
+			return "account", "accounts"
 		case inst.auth + "Group":
 			return "group", "groups"
 		case inst.auth + "GroupMember":
@@ -787,10 +799,12 @@ func (r *resourceInfo) DeclaresDeleteCascade() bool {
 // TakesRowsUnder reports whether a delete of the record takes rows with it when it is
 // told to: the record declares its cascade, which always lists a kind as taken, or it is
 // the tenant record, whose delete takes the kinds handed to it (DeleteAlso) whether or
-// not the application has a kind of row under a tenant. Its delete patch then carries
+// not the application has a kind of row under a tenant, or an auth's account record,
+// whose store asks its delete to take the application's rows that go with it whether or
+// not a record of the application's names it. Its delete patch then carries
 // WithEverythingUnder, Left and DeleteAlso, and its handlers keep what a delete left.
 func (r *resourceInfo) TakesRowsUnder() bool {
-	return r.IsTenant || r.deleteCascade != nil && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
+	return r.IsTenant || r.isAccountRecord() || r.deleteCascade != nil && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
 }
 
 // DeleteTreeLiteral is the record's description as the Go value its file returns
@@ -805,6 +819,9 @@ func (r *resourceInfo) DeleteTreeLiteral() string {
 	fmt.Fprintf(&b, "Key: %s,\n", stringsLiteral(tree.Record.Key))
 	fmt.Fprintf(&b, "Cost: resource.DeleteCost{IndexEntries: %d, Files: %d},\n", tree.Record.IndexEntries, tree.Record.Files)
 	b.WriteString(deleteTenantLiteral(tree.Record.Tenant))
+	if tenants := tree.Tenants; tenants != nil {
+		fmt.Fprintf(&b, "Tenants: &resource.DeleteTenants{Table: %q, Key: %q, Name: %q, Word: %q},\n", tenants.Table, tenants.Key, tenants.Name, tenants.Word)
+	}
 	writeDeleteKinds(&b, "Taken", tree.Taken)
 	writeDeleteKinds(&b, "RefusedBy", tree.RefusedBy)
 	writeDeleteKinds(&b, "Under", tree.Under)
@@ -849,6 +866,9 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 		}
 		if kind.AsCaller {
 			b.WriteString("AsCaller: true,\n")
+		}
+		if kind.WithinReach {
+			b.WriteString("WithinReach: true,\n")
 		}
 		if kind.Deletes {
 			writeTakenRows(b, kind)

@@ -1628,6 +1628,8 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 		deleteAsk = "func (m *DeleteCrewSectorUser) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {\n\t// A tenant's method acts for a request made under the tenant's address.\n\ttenant, err := client.manager.Tenant(ctx)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"identity.Manager.Tenant()\")\n\t}\n\tagain, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"Client.SeatedAgainBySignIn()\")\n\t}\n\n\treturn tenant.DeletionWarning(again), nil\n}"
 		deleteSay = "// Before it runs on a tenant's side, the method says what it does (Warning): where the\n// tenant is open to its directory and the person signs in through it, that they can sign\n// in again and will get a new account."
 		noWarning = "// @answers(204)\ntype Delete"
+		// Both sides say whose grant the rows that go with the account go on.
+		rowsGo = "// go with the account. Nobody deletes themselves: the caller's own account is refused.\n//\n// The rows that go with the account go on this method's grant: no grant is asked on\n// their own tables. For a request made for the whole application every such row goes.\n// For one made under a tenant's address the rows of that tenant go, and a row of another\n// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says\n// where it is.\n"
 	)
 	for _, tt := range []struct {
 		name  string
@@ -1675,9 +1677,9 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 				t.Fatalf("generateTemplateOutput(identityDeleteUserTemplate) error = %v", err)
 			}
 			if tt.reads {
-				assertContains(t, "the tenant's deletion", string(deletion), []string{deletes, deleteAsk, deleteSay}, nil)
+				assertContains(t, "the tenant's deletion", string(deletion), []string{deletes, deleteAsk, deleteSay, rowsGo}, nil)
 			} else {
-				assertContains(t, "the tenant's deletion", string(deletion), []string{noWarning}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
+				assertContains(t, "the tenant's deletion", string(deletion), []string{noWarning, rowsGo}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
 			}
 			wholeData := tenantData
 			wholeData.ForTenant = false
@@ -1685,7 +1687,7 @@ func Test_identitySeatedAgainBySignIn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("generateTemplateOutput(identityDeleteUserTemplate) error = %v", err)
 			}
-			assertContains(t, "the whole application's deletion", string(whole), []string{noWarning}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
+			assertContains(t, "the whole application's deletion", string(whole), []string{noWarning, rowsGo}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
 		})
 	}
 }

@@ -537,7 +537,9 @@ func TestManager_ownAccount_withoutACaller(t *testing.T) {
 		{
 			name: "delete", says: "delete your own account",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager, id impulse.UUID) error {
-				return m.DeleteUser(ctx, txn, id)
+				_, err := m.DeleteUser(ctx, txn, id, false)
+
+				return err
 			},
 		},
 	}

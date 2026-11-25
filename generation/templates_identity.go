@@ -65,6 +65,10 @@ type (
 	// holds one; it identifies nobody. The password hash is not a field, so it is never
 	// read or written here, and the normalized columns are the table's own.
 	//
+	// An account's delete takes with it the application's rows that name the account in
+	// a column that says so (@deletedWith), after a question that counts them, and is
+	// refused while a row names it in a column that does not.
+	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
@@ -1365,8 +1369,25 @@ func (store) ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransacti
 	return email, found, nil
 }
 
-func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id).Buffer(ctx, txn); err != nil {
+func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The row's delete takes the application's rows that go with the account
+	// (@deletedWith), where it is told to.
+	patch := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id)
+	if everythingUnder {
+		patch = patch.WithEverythingUnder()
+	}
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}DeletePatch.Buffer()")
+	}
+
+	return patch.Left(), nil
+}
+
+func (store) DeleteUserWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The tenant's delete took the application's rows under the tenant before it reached
+	// the accounts: the row's delete leaves the application's rows out.
+	patch := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
+	if err := patch.Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}DeletePatch.Buffer()")
 	}
 
@@ -2739,6 +2760,12 @@ import (
 // Delete{{ .Subject }}User deletes a person of the {{ .Auth }} auth, in one transaction:
 // every session they hold is ended, and their identity links and every role they hold
 // go with the account. Nobody deletes themselves: the caller's own account is refused.
+//
+// The rows that go with the account go on this method's grant: no grant is asked on
+// their own tables. For a request made for the whole application every such row goes.
+// For one made under a tenant's address the rows of that tenant go, and a row of another
+// tenant, or of none, refuses the delete, with nothing gone, in a sentence that says
+// where it is.
 {{- if and .ForTenant .ReadsSeatedAgain }}
 //
 // Before it runs on a tenant's side, the method says what it does (Warning): where the
@@ -2776,9 +2803,11 @@ func (m *Delete{{ .Subject }}User) Warning(ctx context.Context, txn resource.Rea
 }
 {{- end }}
 
-// Execute buffers the removal into the caller's transaction.
+// Execute buffers the removal into the caller's transaction. It does not say the delete
+// takes the application's rows that go with the account (@deletedWith): an account that
+// has one is answered with the question.
 func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {` + identityTenantGuard + `
-	if err := client.manager.DeleteUser(ctx, txn, m.UserID); err != nil {
+	if _, err := client.manager.DeleteUser(ctx, txn, m.UserID, false); err != nil {
 		return errors.Wrap(err, "identity.Manager.DeleteUser()")
 	}
 

@@ -1,6 +1,7 @@
 // Package deletedwithfixture provides parsed-struct fixtures for the application's records
-// that name a group of an auth's (@deletedWith): the group's declaration takes its members
-// and its roles, as the auth's generated management declares them, and beside them the
+// that name a group or an account of an auth's (@deletedWith): the group's declaration
+// takes its members and its roles, as the auth's generated management declares them, the
+// account is declared as the management declares it, and beside them are the
 // application's records, of which each test reads the ones it is about.
 // deletedWithTables in the tests carries the foreign keys.
 package deletedwithfixture
@@ -35,6 +36,17 @@ type (
 		Role    string       `spanner:"Role"`
 	}
 
+	// CrewSessionUser is an account of the Crew auth: a row of the session library's users
+	// table.
+	//
+	// @resource
+	// @suppress(patchHandler)
+	// @rowWord(account)
+	CrewSessionUser struct {
+		ID       impulse.UUID `spanner:"Id"`
+		Username string       `spanner:"Username"`
+	}
+
 	// Task is an application's record that a link names.
 	//
 	// @resource
@@ -42,7 +54,8 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 	}
 
-	// TaskAssignment links a task to the group it is assigned to, and goes with the group.
+	// TaskAssignment links a task to the group it is assigned to, and goes with the group;
+	// it also names the person it is assigned to, and says nothing of the account.
 	//
 	// @resource
 	TaskAssignment struct {
@@ -50,6 +63,7 @@ type (
 		TaskID impulse.UUID `spanner:"TaskId"`
 		// @deletedWith
 		GroupID impulse.UUID `spanner:"GroupId"`
+		UserID  impulse.UUID `spanner:"UserId"`
 	}
 
 	// TaskWatch links a task to a group that watches it, and says nothing of the group's
@@ -74,7 +88,7 @@ type (
 	}
 
 	// NotedAssignment goes with the group it names and takes its notes with it; a hold on
-	// it refuses its delete.
+	// it refuses its delete. It also names a person.
 	//
 	// @resource
 	// @deleteCascade(AssignmentNote, refusedBy: AssignmentHold)
@@ -82,6 +96,7 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @deletedWith
 		GroupID impulse.UUID `spanner:"GroupId"`
+		UserID  impulse.UUID `spanner:"UserId"`
 	}
 
 	// AssignmentNote is a note on a noted assignment.
@@ -139,11 +154,13 @@ type (
 		UserID  string       `spanner:"UserId"`
 	}
 
-	// Project is an application's record its tasks name.
+	// Project is an application's record its tasks name, which a test may make the
+	// tenant record.
 	//
 	// @resource
 	Project struct {
-		ID impulse.UUID `spanner:"Id"`
+		ID   impulse.UUID `spanner:"Id"`
+		Name string       `spanner:"Name"`
 	}
 
 	// ProjectTask names its project and says it goes with it, where the project is the

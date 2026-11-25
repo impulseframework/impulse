@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // markDeletedWith marks each field of a table-backed struct that says a row of the record
@@ -27,12 +28,24 @@ func markDeletedWith(pStruct *parser.Struct, fields []*resourceField, annotation
 }
 
 // ApplicationCanName reports whether the record is one of an auth's that a column of the
-// application's can name and say its row goes with it (@deletedWith): an auth's group.
-// Its description is written a second time over the application's records
-// (resolveLibraryDeleteTrees), and its delete patch can leave the application's rows out
-// (WithLibraryRowsAlone).
+// application's can name and say its row goes with it (@deletedWith): an auth's group or
+// its account record. Its description is written a second time over the application's
+// records (resolveLibraryDeleteTrees), and its delete patch can leave the application's
+// rows out (WithLibraryRowsAlone).
 func (r *resourceInfo) ApplicationCanName() bool {
+	return r.isGroupRecord() || r.isAccountRecord()
+}
+
+// isGroupRecord reports whether the record is an auth's group: its declaration over the
+// groups table.
+func (r *resourceInfo) isGroupRecord() bool {
 	return r.identity != nil && !r.IsVirtual && r.Name() == r.identity.auth+"Group"
+}
+
+// isAccountRecord reports whether the record is an auth's account record: its declaration
+// over the session library's users table.
+func (r *resourceInfo) isAccountRecord() bool {
+	return r.identity != nil && !r.IsVirtual && r.Name() == r.identity.auth+"SessionUser"
 }
 
 // TakenFromAnotherPackage reports whether a delete of a record of another package takes
@@ -57,32 +70,38 @@ func (r *resourceInfo) TakenRowsLiteral() string {
 
 // resolveLibraryDeleteTrees writes a second time the description of each record of an
 // auth's that a column of the application's can name, once the run's resources are all
-// known: an auth's group (libraryDeleteTree). It first holds each column that says a row
-// goes with what it names (@deletedWith) to the schema (deletedWithStep), and refuses
-// every one that names no group of an auth's. The application's records are the run's
-// table-backed resources of no auth's that are no view and have a table in the schema.
-func (c *client) resolveLibraryDeleteTrees(resources []*resourceInfo) error {
+// known: an auth's group and its account record (libraryDeleteTree). It first holds each
+// column that says a row goes with what it names (@deletedWith) to the schema
+// (deletedWithStep), and refuses every one that names no group and no account of an
+// auth's. The application's records are the run's table-backed resources of no auth's
+// that are no view and have a table in the schema. An account's description names the
+// application's tenant record, where it has one, for its sentences (resource.DeleteTenants).
+func (r *resourceGenerator) resolveLibraryDeleteTrees(resources []*resourceInfo) error {
 	application := make(map[string]*resourceInfo)
 	var records []*resourceInfo
-	groups := make(map[string]*resourceInfo)
+	library := make(map[string]*resourceInfo)
 	var named []*resourceInfo
+	var tenant *resourceInfo
 	for _, res := range resources {
-		table := c.pluralize(res.Name())
-		if _, ok := c.tableMap[table]; !ok || res.IsVirtual {
+		table := r.pluralize(res.Name())
+		if _, ok := r.tableMap[table]; !ok || res.IsVirtual {
 			continue
 		}
 		switch {
 		case res.identity == nil:
 			application[table] = res
 			records = append(records, res)
+			if res.IsTenant {
+				tenant = res
+			}
 		case res.ApplicationCanName():
-			groups[table] = res
+			library[table] = res
 			named = append(named, res)
 		}
 	}
 
-	// marked holds, by the group's table, each record's steps up to it from the columns
-	// that say its row goes with the group, by the record's table.
+	// marked holds, by the library record's table, each record's steps up to it from the
+	// columns that say its row goes with that record, by the record's table.
 	marked := make(map[string]map[string][]deleteLink)
 	var errs []error
 	for _, res := range records {
@@ -90,7 +109,7 @@ func (c *client) resolveLibraryDeleteTrees(resources []*resourceInfo) error {
 			if !field.deletedWith {
 				continue
 			}
-			step, err := c.deletedWithStep(res, field, application, groups)
+			step, err := r.deletedWithStep(res, field, application, library)
 			if err != nil {
 				errs = append(errs, err)
 
@@ -99,7 +118,7 @@ func (c *client) resolveLibraryDeleteTrees(resources []*resourceInfo) error {
 			if marked[step.Table] == nil {
 				marked[step.Table] = make(map[string][]deleteLink)
 			}
-			table := c.pluralize(res.Name())
+			table := r.pluralize(res.Name())
 			if !slices.ContainsFunc(marked[step.Table][table], step.equal) {
 				marked[step.Table][table] = append(marked[step.Table][table], step)
 			}
@@ -109,23 +128,35 @@ func (c *client) resolveLibraryDeleteTrees(resources []*resourceInfo) error {
 		return errors.Wrapf(errors.Join(errs...), "@%s annotation error", deletedWithKeyword)
 	}
 
-	links := c.schemaLinks()
-	self := c.selfLinks()
+	var tenants *resource.DeleteTenants
+	if tenant != nil {
+		tenants = &resource.DeleteTenants{
+			Table: r.pluralize(tenant.Name()),
+			Key:   spannerColumn(tenant.PrimaryKey()),
+			Word:  r.directoryTenantWord(tenant),
+		}
+		if tenant.TenantNameField != nil {
+			tenants.Name = spannerColumn(tenant.TenantNameField)
+		}
+	}
+	links := r.schemaLinks()
+	self := r.selfLinks()
 	cascading := cascadingLinks(links)
-	for _, group := range named {
-		c.libraryDeleteTree(group, resources, records, application, marked[c.pluralize(group.Name())], links, self, cascading)
+	for _, record := range named {
+		r.libraryDeleteTree(record, resources, records, application, marked[r.pluralize(record.Name())], tenants, links, self, cascading)
 	}
 
 	return nil
 }
 
 // deletedWithStep holds a column that says a row of the record goes with what it names
-// (@deletedWith) to the schema, and answers the column's step up to the groups table it
-// names: the column is one the schema holds, alone, by a foreign key to the key of the
-// groups table of an auth's. A column the schema holds to a record of the application's,
-// a read-only table and any other column are refused, each in a sentence that says what
-// to write.
-func (c *client) deletedWithStep(res *resourceInfo, field *resourceField, application, groups map[string]*resourceInfo) (deleteLink, error) {
+// (@deletedWith) to the schema, and answers the column's step up to the table it names:
+// the column is one the schema holds, alone, by a foreign key to the key of the groups
+// table or the users table of an auth's (library). A column the schema holds to a record
+// of the application's (the tenant record and a read-only table each in a sentence of
+// its own), a read-only table and any other column are refused, each in a sentence that
+// says what to write.
+func (c *client) deletedWithStep(res *resourceInfo, field *resourceField, application, library map[string]*resourceInfo) (deleteLink, error) {
 	table := c.tableMap[c.pluralize(res.Name())]
 	column := fieldColumn(field)
 	for _, foreignKey := range table.ForeignKeys {
@@ -135,6 +166,14 @@ func (c *client) deletedWithStep(res *resourceInfo, field *resourceField, applic
 		}
 		one, _ := c.deleteWords(target)
 		_, many := c.deleteWords(res)
+		switch {
+		case target.IsTenant:
+			return deleteLink{}, errors.Newf("@%s on %s.%s: %s names a tenant, and a tenant's delete takes every row under the tenant already. Remove @%s.",
+				deletedWithKeyword, res.Name(), field.Name(), field.Name(), deletedWithKeyword)
+		case target.IsEnumeration():
+			return deleteLink{}, errors.Newf("@%s on %s.%s: %s names %s, a read-only table (@%s) whose rows are never deleted. Remove @%s.",
+				deletedWithKeyword, res.Name(), field.Name(), field.Name(), withArticle(one), enumerateKeyword, deletedWithKeyword)
+		}
 
 		return deleteLink{}, errors.Newf("@%s on %s.%s: %s names %s, a record of this application. Say on %s that its %s go with it: @%s(%s).",
 			deletedWithKeyword, res.Name(), field.Name(), field.Name(), withArticle(one), target.Name(), many, deleteCascadeKeyword, res.Name())
@@ -144,22 +183,23 @@ func (c *client) deletedWithStep(res *resourceInfo, field *resourceField, applic
 			deletedWithKeyword, res.Name(), field.Name(), res.Name(), enumerateKeyword, deletedWithKeyword)
 	}
 	for _, foreignKey := range table.ForeignKeys {
-		if _, ok := groups[foreignKey.ReferencedTable]; ok && slices.Equal(foreignKey.Columns, []string{column}) && slices.Equal(foreignKey.ReferencedColumns, []string{groupKeyColumn}) {
+		if _, ok := library[foreignKey.ReferencedTable]; ok && slices.Equal(foreignKey.Columns, []string{column}) && slices.Equal(foreignKey.ReferencedColumns, c.tableMap[foreignKey.ReferencedTable].keyColumns()) {
 			return foreignKey.link(table), nil
 		}
 	}
 
-	return deleteLink{}, errors.Newf("@%s on %s.%s: the schema holds %s to no group of an auth by a foreign key. @%s goes on the column that names a group of the library's; add the foreign key, or remove @%s.",
+	return deleteLink{}, errors.Newf("@%s on %s.%s: the schema holds %s to no group and no account of an auth by a foreign key. @%s goes on the column that names a group or an account of the library's; add the foreign key, or remove @%s.",
 		deletedWithKeyword, res.Name(), field.Name(), column, deletedWithKeyword, deletedWithKeyword)
 }
 
-// libraryDeleteTree writes the description of an auth's group a second time, over the
-// application's records. Under is the kinds whose rows refuse a plain delete of the group
-// (kindsUnder), the application's records and the auth's own declarations known by
-// table, and no other auth's. Taken is the application's kinds the group's delete takes,
-// deepest first, and then the group's own (its members and its roles, as its first
-// description has them). marked holds, by the record's table, each record's steps up to
-// the group from the columns that say its row goes with the group:
+// libraryDeleteTree writes the description of an auth's group or account record a second
+// time, over the application's records. Under is the kinds whose rows refuse a plain
+// delete of the record (kindsUnder), the application's records and the auth's own
+// declarations known by table, and no other auth's. Taken is the application's kinds the
+// record's delete takes, deepest first, and then the record's own (a group's members and
+// its roles, as its first description has them). marked holds, by the record's table,
+// each record's steps up to the library's record from the columns that say its row goes
+// with it:
 //
 //   - The record is taken, its ways those steps alone. A column of the record that names
 //     the group and says nothing is no way of the taken kind: it stays under Under.
@@ -173,30 +213,75 @@ func (c *client) deletedWithStep(res *resourceInfo, field *resourceField, applic
 //
 // Kinds of one table from more than one record or column are one kind in a list, their
 // ways joined, each once. Every kind of the application's is checked as whoever asked for
-// the group's delete (AsCaller), and a taken one is deleted through the function its
-// record's package declares for it (Package, <Name>TakenRows). RefusedBy is the group's
-// own, then the application's, by table. A group no record of the application's names
-// keeps the lists its first description has.
-func (c *client) libraryDeleteTree(group *resourceInfo, resources, records []*resourceInfo, application map[string]*resourceInfo, marked, links, self, cascading map[string][]deleteLink) {
-	if group.DeleteTree == nil {
-		group.DeleteTree = &deleteTree{Record: c.deleteKindOf(group, nil)}
-	}
+// the delete (AsCaller), but a kind an account's delete takes, which goes on the
+// permission to delete the account where it reaches (WithinReach); and a taken one is
+// deleted through the function its record's package declares for it (Package,
+// <Name>TakenRows). An account's description with a kind marked WithinReach names the
+// tenants (tenants, nil where the application has no tenant record). RefusedBy is the
+// record's own, then the application's, by table. A record no record of the
+// application's names keeps the lists its first description has, and one with none has
+// none.
+func (c *client) libraryDeleteTree(record *resourceInfo, resources, records []*resourceInfo, application map[string]*resourceInfo, marked map[string][]deleteLink, tenants *resource.DeleteTenants, links, self, cascading map[string][]deleteLink) {
 	byTable := make(map[string]*resourceInfo, len(application))
 	for table, res := range application {
 		byTable[table] = res
 	}
 	for _, res := range resources {
-		if res.identity == group.identity && !res.IsVirtual {
+		if res.identity == record.identity && !res.IsVirtual {
 			byTable[c.pluralize(res.Name())] = res
 		}
 	}
-	under := c.kindsUnder(group, byTable, links, self, cascading)
+	under := c.kindsUnder(record, byTable, links, self, cascading)
 	for _, kind := range under {
 		kind.AsCaller = application[kind.Table] != nil
 	}
 
 	pkg := c.resource.Package()
-	var taken, refusing []*deleteKind
+	taken, refusing := c.applicationKinds(records, marked, self)
+	account := record.isAccountRecord()
+	for _, kind := range taken {
+		kind.Package = pkg
+		if account {
+			kind.WithinReach = true
+		} else {
+			kind.AsCaller = true
+		}
+		if res, ok := application[kind.Table]; ok {
+			res.takenFromAnotherPackage = true
+		}
+	}
+	for _, kind := range refusing {
+		kind.AsCaller = true
+	}
+	sortDeepestFirst(taken)
+	slices.SortFunc(refusing, func(a, b *deleteKind) int {
+		return cmp.Compare(a.Table, b.Table)
+	})
+
+	tree := record.DeleteTree
+	if tree == nil {
+		if len(under)+len(taken)+len(refusing) == 0 {
+			return
+		}
+		tree = &deleteTree{Record: c.deleteKindOf(record, nil)}
+	}
+	described := &deleteTree{
+		Record:    tree.Record,
+		Taken:     slices.Concat(taken, tree.Taken),
+		RefusedBy: slices.Concat(tree.RefusedBy, refusing),
+		Under:     under,
+	}
+	if account && len(taken) > 0 {
+		described.Tenants = tenants
+	}
+	record.DeleteTree = described
+}
+
+// applicationKinds is what the application's records that name a library record add to its
+// description, through the steps marked from each up to it: a marked record and the kinds
+// its own delete takes (@deleteCascade) are taken, the kinds that refuse its delete
+// refuse, and the kinds under a record with no @deleteCascade refuse.
+func (c *client) applicationKinds(records []*resourceInfo, marked, self map[string][]deleteLink) (taken, refusing []*deleteKind) {
 	for _, res := range records {
 		table := c.pluralize(res.Name())
 		steps := marked[table]
@@ -229,27 +314,8 @@ func (c *client) libraryDeleteTree(group *resourceInfo, resources, records []*re
 		}
 		taken = addLibraryKind(taken, own)
 	}
-	for _, kind := range taken {
-		kind.AsCaller, kind.Package = true, pkg
-		if res, ok := application[kind.Table]; ok {
-			res.takenFromAnotherPackage = true
-		}
-	}
-	for _, kind := range refusing {
-		kind.AsCaller = true
-	}
-	sortDeepestFirst(taken)
-	slices.SortFunc(refusing, func(a, b *deleteKind) int {
-		return cmp.Compare(a.Table, b.Table)
-	})
 
-	tree := group.DeleteTree
-	group.DeleteTree = &deleteTree{
-		Record:    tree.Record,
-		Taken:     slices.Concat(taken, tree.Taken),
-		RefusedBy: slices.Concat(tree.RefusedBy, refusing),
-		Under:     under,
-	}
+	return taken, refusing
 }
 
 // extendedKind is a kind of a record's description as a kind of the group's: a copy whose

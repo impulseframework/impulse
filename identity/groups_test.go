@@ -842,7 +842,9 @@ func TestManager_DeleteUser_removesGroupPlaces(t *testing.T) {
 	m, engine := newManager(t, store, engineRoles)
 
 	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return m.DeleteUser(ctx, txn, userID)
+		_, err := m.DeleteUser(ctx, txn, userID, false)
+
+		return err
 	})
 	if err != nil {
 		t.Fatalf("DeleteUser() error = %v", err)

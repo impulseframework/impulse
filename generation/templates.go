@@ -885,6 +885,15 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
 // delete takes what fits, deepest first, and Left says what is left: buffer the delete
 // again, in a transaction of its own, until Left answers nil.
+{{- else if .Resource.ApplicationCanName }}
+// WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
+// the kinds its description lists as taken, the application's rows that name it in a
+// column that says so (@deletedWith) among them, each through its own delete. It takes
+// the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
+// {{ .Resource.Name }} that has such rows deletes nothing and is answered with the question a
+// person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
+// one save takes, the delete takes what fits, deepest first, and Left says what is left:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
 {{- else }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
