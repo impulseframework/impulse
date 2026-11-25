@@ -3179,7 +3179,7 @@ describe('identityPages, an Auth that keeps groups', () => {
     expect(methodsOf(people.rowMethods)).toEqual([['RemoveCrewGroupMember', 'Remove from the group']]);
     expect(methodsOf(people.listMethods)).toEqual([['AddCrewGroupMember', 'Add a person']]);
     // The method's warning is the question before the person leaves the group, in the
-    // server's words, which name the group and say when the account goes with it.
+    // server's words, which name the group.
     expect(presentation(people.rowMethods, 'RemoveCrewGroupMember').confirm).toBeUndefined();
     expect(columns(roles)).toEqual([
       ['role', 'Role'],

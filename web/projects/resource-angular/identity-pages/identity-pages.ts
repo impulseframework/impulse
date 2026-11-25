@@ -1404,12 +1404,12 @@ class SideBuilder {
    * The roles a person holds, under the person's row: one list, each role saying where
    * it comes from. A role of the person's own says "Their own", carries the reason it
    * was given for beside when it ends, and is taken away here, after the server's own
-   * question (the method's warning): whose role goes, where it is held, and whether the
-   * account goes with it. A role that comes through a group names the group and links to
-   * the group's page, where it is changed: the group loses the role there, or the person
-   * leaves the group. Where the server's list holds a person's own roles alone (a
-   * description from before the one list), the roles held through a group are a second
-   * list under it (rolesThroughGroupsOf). Give a role is offered above the list as well
+   * question (the method's warning): whose role goes, and where it is held. A role that
+   * comes through a group names the group and links to the group's page, where it is
+   * changed: the group loses the role there, or the person leaves the group. Where the
+   * server's list holds a person's own roles alone (a description from before the one
+   * list), the roles held through a group are a second list under it
+   * (rolesThroughGroupsOf). Give a role is offered above the list as well
    * as in the person's menu (giveRole), the same dialog in both places.
    */
   private rolesOf(): ChildResourceConfig | undefined {
@@ -1565,7 +1565,7 @@ class SideBuilder {
     });
   }
 
-  /** The people in a group, under the group's row. Removing one asks first in the server's words (the method's warning): who leaves which group, and whether the account goes with it. */
+  /** The people in a group, under the group's row. Removing one asks first in the server's words (the method's warning): who leaves which group. */
   private peopleOfGroup(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.groupUsers) {

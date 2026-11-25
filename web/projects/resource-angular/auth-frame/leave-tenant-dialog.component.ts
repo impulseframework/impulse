@@ -9,13 +9,11 @@ import { firstValueFrom } from 'rxjs';
 
 /**
  * The tenant a person asks to leave, as the window names it: its name, the roles they hold
- * there in words, whether leaving it deletes their account (the server's word, as the list
- * answered it), and what the application calls a tenant, in a sentence ("customer").
+ * there in words, and what the application calls a tenant, in a sentence ("customer").
  */
 export interface LeaveTenantDialogData {
   name: string;
   roles: readonly string[];
-  deletesAccount: boolean;
   word: string;
 }
 
@@ -50,11 +48,9 @@ export function askToLeaveTenant(dialog: MatDialog, data: LeaveTenantDialogData)
 
 /**
  * The window a person leaves one of their tenants from, opened by Leave on their account
- * page. It names the tenant and what is lost: every role the person holds there, or, where
- * leaving it deletes their account, the account itself. Its button stays locked until the
- * person types what they are doing, "Delete me", or "Delete my account" where the account
- * goes, without regard to capitals or the space around the words; Enter in the box presses
- * it once it is unlocked. Cancel, Escape and a press outside close the window, and nothing
+ * page. It names the tenant and what is lost: every role the person holds there. Its button
+ * stays locked until the person types what they are doing, "Delete me", without regard to
+ * capitals or the space around the words; Enter in the box presses it once it is unlocked. Cancel, Escape and a press outside close the window, and nothing
  * is asked of the server. The window asks nothing itself: it closes with true, and the page
  * leaves.
  */
@@ -151,19 +147,16 @@ export class LeaveTenantDialogComponent {
 
   readonly whatId = whatId;
   /** What the person types to unlock the button. */
-  readonly words = this.data.deletesAccount ? 'Delete my account' : 'Delete me';
-  readonly title = this.data.deletesAccount
-    ? `Leave ${this.data.name} and delete your account?`
-    : `Leave ${this.data.name}?`;
-  /** What is lost: the account, else the roles held in the tenant, else the person's place in it. */
-  readonly what = this.data.deletesAccount
-    ? `${this.data.name} is your only ${this.data.word}. Leaving it deletes your account: your sign-in and every role you hold. You are signed out everywhere. This cannot be undone.`
-    : this.data.roles.length > 0
+  readonly words = 'Delete me';
+  readonly title = `Leave ${this.data.name}?`;
+  /** What is lost: the roles held in the tenant, else the person's place in it. */
+  readonly what =
+    this.data.roles.length > 0
       ? `You lose every role you hold in ${this.data.name} (${this.data.roles.join(', ')}), right away. Only an administrator there can bring you back.`
       : `You lose your place in ${this.data.name}, right away. Only an administrator there can bring you back.`;
   readonly label = `Type "${this.words}" to go on`;
   /** The button's words. */
-  readonly verb = this.data.deletesAccount ? 'Delete my account' : `Leave ${this.data.name}`;
+  readonly verb = `Leave ${this.data.name}`;
 
   /** The box as typed. */
   readonly typed = signal('');

@@ -7,20 +7,12 @@ import { askToLeaveTenant, LeaveTenantDialogData } from './leave-tenant-dialog.c
 
 // Leave on the person's account page asks in a window of its own: it names the tenant and
 // what is lost, and its button stays locked until the person types what they are doing,
-// "Delete me", or "Delete my account" where leaving deletes the account. Cancel, Escape
-// and a press outside answer no.
+// "Delete me". Cancel, Escape and a press outside answer no.
 
 /** A tenant of several, where the person holds two roles. */
-const acme: LeaveTenantDialogData = {
-  name: 'Acme',
-  roles: ['Reader', 'Warden'],
-  deletesAccount: false,
-  word: 'customer',
-};
+const acme: LeaveTenantDialogData = { name: 'Acme', roles: ['Reader', 'Warden'], word: 'customer' };
 /** A tenant the person holds no role of their own in. */
-const beta: LeaveTenantDialogData = { name: 'Beta', roles: [], deletesAccount: false, word: 'customer' };
-/** The one tenant of a person who holds nothing else. */
-const only: LeaveTenantDialogData = { name: 'Acme', roles: ['Reader'], deletesAccount: true, word: 'customer' };
+const beta: LeaveTenantDialogData = { name: 'Beta', roles: [], word: 'customer' };
 
 describe('askToLeaveTenant', () => {
   const settle = async (): Promise<void> => {
@@ -98,31 +90,12 @@ describe('askToLeaveTenant', () => {
     );
   });
 
-  it('asks for "Delete my account" where leaving deletes the account, naming the tenant the only one', async () => {
-    await open(only);
-    expect(text('title')).toBe('Leave Acme and delete your account?');
-    expect(text('what')).toBe(
-      'Acme is your only customer. Leaving it deletes your account: your sign-in and every role you hold. You are signed out everywhere. This cannot be undone.',
-    );
-    expect(document.querySelector('.impulse-leave-tenant-dialog-field mat-label')?.textContent?.trim()).toBe(
-      'Type "Delete my account" to go on',
-    );
-    expect(text('leave')).toBe('Delete my account');
-  });
-
   for (const tt of [
     { name: 'nothing typed', data: acme, typed: '', want: true },
     { name: 'other words', data: acme, typed: 'leave', want: true },
     { name: 'the start of the words', data: acme, typed: 'Delete m', want: true },
     { name: 'the words with more after them', data: acme, typed: 'Delete me now', want: true },
     { name: 'the words in other capitals with space around them', data: acme, typed: ' delete ME ', want: false },
-    { name: '"Delete me" where the account goes', data: only, typed: 'Delete me', want: true },
-    {
-      name: '"Delete my account" in small letters where the account goes',
-      data: only,
-      typed: 'delete my account',
-      want: false,
-    },
   ]) {
     it(`keeps the button locked until the box holds the words: ${tt.name}`, async () => {
       await open(tt.data);
@@ -139,12 +112,12 @@ describe('askToLeaveTenant', () => {
   });
 
   it('answers yes on Enter in the box once the words are typed, and Enter before them does nothing', async () => {
-    const { answer } = await open(only);
-    await type('Delete me');
+    const { answer } = await open(acme);
+    await type('Delete m');
     enter();
     await settle();
     expect(part('title')).not.toBeNull();
-    await type('Delete my account');
+    await type('Delete me');
     enter();
     expect(await answer).toBe(true);
   });

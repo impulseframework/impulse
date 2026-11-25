@@ -547,24 +547,20 @@ export interface OwnSession {
 /**
  * One of the tenants a signed-in person holds something in, as the server answers it: its
  * key (`domain`), its name (the key where the server knows none), the roles the person
- * holds there in words, why they cannot leave it (absent where they can), and whether
- * leaving it deletes their account (the person then holds nothing still in force anywhere).
+ * holds there in words, and why they cannot leave it (absent where they can).
  */
 export interface OwnTenant {
   readonly domain: string;
   readonly name: string;
   readonly roles: readonly string[];
   readonly refusal?: string;
-  readonly deletesAccount: boolean;
 }
 
 /**
- * What leaving one of a person's own tenants answers: `left`, with whether the account was
- * deleted with it, or the server's refusal with its words: the tenant's last administrator
- * (403), a tenant the person is not in (404), or a leave that would no longer do what the
- * list said (409).
+ * What leaving one of a person's own tenants answers: `left`, or the server's refusal with
+ * its words: the tenant's last administrator (403), or a tenant the person is not in (404).
  */
-export type LeaveTenantResult = { readonly outcome: 'left'; readonly accountDeleted: boolean } | SignInRefusal;
+export type LeaveTenantResult = { readonly outcome: 'left' } | SignInRefusal;
 
 /**
  * The look a person chose for the application's pages: light, dark or as their device is
@@ -732,7 +728,7 @@ const codeRefusals: readonly number[] = [400, 401, 403, 404, 409, 429];
 const statusRefusals: readonly number[] = [401, 403];
 const changeRefusals: readonly number[] = [400, 401, 403, 409];
 /** Leaving one of the person's own tenants: 403 for its last administrator, 404 for a tenant they are not in, 409 for a leave the list no longer describes. */
-const leaveRefusals: readonly number[] = [403, 404, 409];
+const leaveRefusals: readonly number[] = [403, 404];
 /** A change or a removal of the person's own password: as a change, and 429 for a name whose failed proofs reached the server's limit. */
 const proofRefusals: readonly number[] = [...changeRefusals, 429];
 /** A password strength question: 429 for a browser that asked too often. */
@@ -801,7 +797,6 @@ interface OwnTenantAnswer {
   name?: unknown;
   roles?: unknown;
   refusal?: unknown;
-  deletesAccount?: unknown;
 }
 
 /** A person's own tenants as the server answers them, before they are checked. */
@@ -1522,10 +1517,9 @@ export class AuthClient {
 
   /**
    * Reads the tenants the signed-in person holds something in: reads the methods list
-   * again, then the list from the path it names. Each is `{ domain, name, roles, refusal?,
-   * deletesAccount }`, in the order the server sorts them: the roles held there in words,
-   * why the person cannot leave it where they cannot, and whether leaving it deletes their
-   * account. An entry with no key is left out, and a tenant the server names no name for is
+   * again, then the list from the path it names. Each is `{ domain, name, roles, refusal? }`,
+   * in the order the server sorts them: the roles held there in words, and why the person
+   * cannot leave it where they cannot. An entry with no key is left out, and a tenant the server names no name for is
    * named by its key. A server whose list names no such paths serves none, and the call
    * throws saying so.
    */
@@ -1540,33 +1534,28 @@ export class AuthClient {
         name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : entry.domain,
         roles: Array.isArray(entry.roles) ? entry.roles.filter((role): role is string => typeof role === 'string') : [],
         ...(typeof entry.refusal === 'string' && entry.refusal !== '' ? { refusal: entry.refusal } : {}),
-        deletesAccount: entry.deletesAccount === true,
       }));
   }
 
   /**
    * Takes the signed-in person out of one of their tenants at their own word: reads the
-   * methods list again, then posts `{ domain, deletesAccount }` to the path it names,
-   * `deletesAccount` being what the list told the person. It resolves `left`, with whether
-   * the account was deleted with it, or the server's refusal with its words: the tenant's
-   * last administrator (403), a tenant the person is not in (404), or a leave that would no
-   * longer do what the list said (409). A server whose list names no such paths serves
-   * none, and the call throws saying so.
+   * methods list again, then posts `{ domain }` to the path it names. It resolves `left`,
+   * or the server's refusal with its words: the tenant's last administrator (403), or a
+   * tenant the person is not in (404). Leaving takes every role the person holds in the
+   * tenant; the account stays. A server whose list names no such paths serves none, and
+   * the call throws saying so.
    */
-  async leaveTenant(domain: string, deletesAccount: boolean): Promise<LeaveTenantResult> {
+  async leaveTenant(domain: string): Promise<LeaveTenantResult> {
     const routes = await this.ownTenantsRoutes();
-    const response = await this.options.request<{ accountDeleted?: unknown } | RefusalAnswer | null>(
-      'POST',
-      routes.leave,
-      { body: { domain, deletesAccount }, absolute: true, accept: leaveRefusals },
-    );
+    const response = await this.options.request<RefusalAnswer | null>('POST', routes.leave, {
+      body: { domain },
+      absolute: true,
+      accept: leaveRefusals,
+    });
     if (response.status >= 400) {
       return refusalOf(response);
     }
-    return {
-      outcome: 'left',
-      accountDeleted: (response.body as { accountDeleted?: unknown } | null)?.accountDeleted === true,
-    };
+    return { outcome: 'left' };
   }
 
   /** The paths of the person's own tenants, from the methods list read again; it throws where the list names none. */
