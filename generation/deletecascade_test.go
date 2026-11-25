@@ -45,11 +45,13 @@ func link(column, table string) deleteLink {
 }
 
 // Test_deleteCascade_description pins the description the generator writes for a record
-// that declares what its delete takes: the kinds taken in delete order, deepest first,
-// each with its ways up to the record and what a row's delete costs, the kinds that
-// refuse the delete, and the kinds with a row directly under the record that the
-// database does not remove with it. A record that declares nothing has a description
-// of those last kinds alone, and a record with no such kind has none.
+// that declares what its delete takes: the kinds taken in delete order, deepest first and
+// kinds of one depth in reverse order of their names (tasks before project notes), so
+// the question, which reads the order backward, lists them by name; each with its ways up
+// to the record and what a row's delete costs; the kinds that refuse the delete; and the
+// kinds with a row directly under the record that the database does not remove with it.
+// A record that declares nothing has a description of those last kinds alone, and a
+// record with no such kind has none.
 func Test_deleteCascade_description(t *testing.T) {
 	t.Parallel()
 
@@ -64,12 +66,12 @@ func Test_deleteCascade_description(t *testing.T) {
 				Paths: [][]deleteLink{{link("TaskId", "Tasks"), link("ProjectId", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
 			},
 			{
-				Name: "ProjectNote", Table: "ProjectNotes", One: "project note", Many: "project notes", Key: []string{"Id", "Sequence"},
-				Paths: [][]deleteLink{{link("Id", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
-			},
-			{
 				Name: "Task", Table: "Tasks", One: "task", Many: "tasks", Key: []string{"Id"}, IndexEntries: 1,
 				Paths: [][]deleteLink{{link("ProjectId", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
+			},
+			{
+				Name: "ProjectNote", Table: "ProjectNotes", One: "project note", Many: "project notes", Key: []string{"Id", "Sequence"},
+				Paths: [][]deleteLink{{link("Id", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
 			},
 			{
 				Name: "Project", Table: "Projects", One: "project", Many: "projects", Key: []string{"Id"},
@@ -268,7 +270,7 @@ func Test_deleteCascade_groupKinds(t *testing.T) {
 	if group.Record.One != "group" || group.Record.Many != "groups" {
 		t.Errorf("the group's words = %q, %q, want group, groups", group.Record.One, group.Record.Many)
 	}
-	want := []kindWords{{Name: "CrewGroupMember", One: "member", Many: "members", Trusted: true}, {Name: "CrewGroupRole", One: "role", Many: "roles", Trusted: true}}
+	want := []kindWords{{Name: "CrewGroupRole", One: "role", Many: "roles", Trusted: true}, {Name: "CrewGroupMember", One: "member", Many: "members", Trusted: true}}
 	if diff := cmp.Diff(want, wordsOf(group.Taken)); diff != "" {
 		t.Errorf("the group's taken kinds (-want +got):\n%s", diff)
 	}
@@ -324,7 +326,7 @@ func Test_deleteCascade_groupNamedByApplicationTable(t *testing.T) {
 	if res.DeleteTree == nil {
 		t.Fatal("CrewGroup has no description of its delete")
 	}
-	want := []kindWords{{Name: "CrewGroupMember", One: "member", Many: "members", Trusted: true}, {Name: "CrewGroupRole", One: "role", Many: "roles", Trusted: true}}
+	want := []kindWords{{Name: "CrewGroupRole", One: "role", Many: "roles", Trusted: true}, {Name: "CrewGroupMember", One: "member", Many: "members", Trusted: true}}
 	if diff := cmp.Diff(want, wordsOf(res.DeleteTree.Taken)); diff != "" {
 		t.Errorf("the group's taken kinds (-want +got):\n%s", diff)
 	}
@@ -775,7 +777,7 @@ func Test_deleteCascade_refusals(t *testing.T) {
 			schema: func(c *client) {
 				underItsOwnKind(c, "Clients", "ParentClientId")
 			},
-			wantTaken:     []string{"TaskComments", "ProjectNotes", "Tasks", "Projects", "Clients"},
+			wantTaken:     []string{"TaskComments", "Tasks", "ProjectNotes", "Projects", "Clients"},
 			wantRefusedBy: []string{"Invoices"},
 		},
 		{
@@ -784,7 +786,7 @@ func Test_deleteCascade_refusals(t *testing.T) {
 			schema: func(c *client) {
 				underItsOwnKind(c, "Clients", "ParentClientId")
 			},
-			wantTaken:     []string{"TaskComments", "ProjectNotes", "Tasks", "Projects"},
+			wantTaken:     []string{"TaskComments", "Tasks", "ProjectNotes", "Projects"},
 			wantRefusedBy: []string{"Invoices", "Clients"},
 		},
 		{
@@ -929,21 +931,21 @@ func Test_deleteCascade_rowsUnderRowsOfTheirKind(t *testing.T) {
 			Paths: [][]deleteLink{{link("TaskId", "Tasks"), link("ProjectId", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
 		},
 		{
-			Name: "ProjectNote", Table: "ProjectNotes", One: "project note", Many: "project notes", Key: []string{"Id", "Sequence"},
-			Paths: [][]deleteLink{{link("Id", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
-		},
-		{
 			Name: "Task", Table: "Tasks", One: "task", Many: "tasks", Key: []string{"Id"}, IndexEntries: 1,
 			Paths:  [][]deleteLink{{link("ProjectId", "Projects"), link("ClientId", "Clients")}},
 			Within: []deleteLink{within("ParentTaskId", "Tasks")}, Deletes: true,
 		},
 		{
-			Name: "Invoice", Table: "Invoices", One: "invoice", Many: "invoices", Key: []string{"Id"},
-			Paths: [][]deleteLink{{link("ClientId", "Clients")}}, Deletes: true, Rule: true,
+			Name: "ProjectNote", Table: "ProjectNotes", One: "project note", Many: "project notes", Key: []string{"Id", "Sequence"},
+			Paths: [][]deleteLink{{link("Id", "Projects"), link("ClientId", "Clients")}}, Deletes: true,
 		},
 		{
 			Name: "Project", Table: "Projects", One: "project", Many: "projects", Key: []string{"Id"},
 			Paths: [][]deleteLink{{link("ClientId", "Clients")}}, Deletes: true,
+		},
+		{
+			Name: "Invoice", Table: "Invoices", One: "invoice", Many: "invoices", Key: []string{"Id"},
+			Paths: [][]deleteLink{{link("ClientId", "Clients")}}, Deletes: true, Rule: true,
 		},
 		{
 			Name: "Client", Table: "Clients", One: "client", Many: "clients", Key: []string{"Id"},
@@ -1058,7 +1060,8 @@ func Test_parseDeleteCascade(t *testing.T) {
 // Test_tenantDeleteTree pins the tenant record's description, which the library
 // declares: every kind of the application's rows that carry the tenant's key, by a
 // foreign key or as the column a tenant-scoped resource is read by, or lead to a row
-// that does, deepest first, and no kind that refuses.
+// that does, deepest first and kinds of one depth in reverse order of their names, and
+// no kind that refuses.
 //
 // The tenant's delete takes those rows in code: each kind is written with the delete of
 // one of its rows, which asks the kind's delete rule where it declares one and is never
@@ -1091,11 +1094,11 @@ func Test_tenantDeleteTree(t *testing.T) {
 	}
 	want := []kindPaths{
 		{Table: "TaskComments", Paths: [][]deleteLink{{link("TaskId", "Tasks"), link("ProjectId", "Projects"), link("ClientId", "Clients")}}},
-		{Table: "ProjectNotes", Paths: [][]deleteLink{{link("Id", "Projects"), link("ClientId", "Clients")}}},
 		{Table: "Tasks", Paths: [][]deleteLink{{link("ProjectId", "Projects"), link("ClientId", "Clients")}}},
-		{Table: "Invoices", Paths: [][]deleteLink{{link("ClientId", "Clients")}}},
-		{Table: "Ledgers", Paths: [][]deleteLink{{link("ClientId", "Clients")}}},
+		{Table: "ProjectNotes", Paths: [][]deleteLink{{link("Id", "Projects"), link("ClientId", "Clients")}}},
 		{Table: "Projects", Paths: [][]deleteLink{{link("ClientId", "Clients")}}},
+		{Table: "Ledgers", Paths: [][]deleteLink{{link("ClientId", "Clients")}}},
+		{Table: "Invoices", Paths: [][]deleteLink{{link("ClientId", "Clients")}}},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("the tenant's taken kinds mismatch (-want +got):\n%s", diff)
@@ -1115,14 +1118,14 @@ func Test_tenantDeleteTree(t *testing.T) {
 	}
 	wantDeletes := []kindDelete{
 		{Table: "TaskComments", Deletes: true, Trusted: true},
-		{Table: "ProjectNotes", Deletes: true, Trusted: true},
 		{
 			Table: "Tasks", Deletes: true, Trusted: true,
 			Within: []deleteLink{{Columns: []string{"ParentTaskId"}, Table: "Tasks", References: []string{"Id"}, MayBeEmpty: true}},
 		},
-		{Table: "Invoices", Deletes: true, Rule: true, Trusted: true},
-		{Table: "Ledgers", Deletes: true, Trusted: true},
+		{Table: "ProjectNotes", Deletes: true, Trusted: true},
 		{Table: "Projects", Deletes: true, Trusted: true},
+		{Table: "Ledgers", Deletes: true, Trusted: true},
+		{Table: "Invoices", Deletes: true, Rule: true, Trusted: true},
 	}
 	if diff := cmp.Diff(wantDeletes, gotDeletes); diff != "" {
 		t.Errorf("how the tenant's delete takes each kind mismatch (-want +got):\n%s", diff)

@@ -726,10 +726,11 @@ func (c *client) tenantDeleteTree(tenant *resourceInfo, resources []*resourceInf
 }
 
 // sortDeepestFirst puts kinds in delete order: the deepest first, and kinds of one
-// depth by name.
+// depth in reverse order of their names, so a question, which reads the order backward
+// and lists the kinds nearest the record first, lists kinds of one depth by name.
 func sortDeepestFirst(kinds []*deleteKind) {
 	slices.SortFunc(kinds, func(a, b *deleteKind) int {
-		return cmp.Or(cmp.Compare(b.depth(), a.depth()), cmp.Compare(a.Table, b.Table))
+		return cmp.Or(cmp.Compare(b.depth(), a.depth()), cmp.Compare(b.Table, a.Table))
 	})
 }
 

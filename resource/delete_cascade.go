@@ -1010,8 +1010,9 @@ func (d *recordedDelete) refuseRow(ctx context.Context, kind *DeleteKind, byRule
 }
 
 // question is what the person is asked before the delete takes the rows counted: the
-// kinds they may see, each with its count, the kind nearest the record first, then the
-// kinds code handed the delete (handed), which every caller is told.
+// kinds they may see, each with its count, in the delete order read backward (the kind
+// nearest the record first, and kinds equally near by name), then the kinds code handed
+// the delete (handed), which every caller is told.
 func (d *recordedDelete) question(ctx context.Context, levels *takenLevels, handed []kindRows) (string, error) {
 	var kinds []kindRows
 	for i := range slices.Backward(d.tree.Taken) {

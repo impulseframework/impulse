@@ -162,9 +162,10 @@ type DeleteTree struct {
 	// Cost is what deleting the record's own row costs.
 	Cost DeleteCost
 	// Taken are the kinds a delete of the record takes with it, in the order their rows
-	// are deleted: deepest first, so no row is deleted before the rows under it. The
-	// record's own kind is last among them where a row of the record is under another
-	// (a folder in a folder).
+	// are deleted: deepest first, so no row is deleted before the rows under it, and kinds
+	// of one depth in reverse order of their names, so the question, which reads the
+	// order backward, lists them by name. The record's own kind is last among them where
+	// a row of the record is under another (a folder in a folder).
 	Taken []DeleteKind
 	// RefusedBy are the kinds whose rows refuse the delete while one of them is under
 	// the record.
