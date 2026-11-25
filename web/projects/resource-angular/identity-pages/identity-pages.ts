@@ -420,10 +420,10 @@ class SideBuilder {
    * keeps no groups (directoryGroups says why, where a directory decides the roles).
    *
    * A row says what the group holds: how many people, and its roles, a line each, so
-   * nobody opens every group to learn what it is for. Delete is offered on a group that
-   * holds nothing; one that still has people or roles says what is left where Delete
-   * would be, and the server refuses a request that never saw the page. A group's page
-   * is headed by the group's name. Outside every tenant the list says where each group
+   * nobody opens every group to learn what it is for. Delete is offered on every group.
+   * A group that has people in it or holds roles is asked about first in the server's
+   * words, which count them, and they go with it. A group's page is headed by the
+   * group's name. Outside every tenant the list says where each group
    * is kept, in an application that has tenants.
    */
   groups(): RootConfig | undefined {
@@ -490,22 +490,9 @@ class SideBuilder {
           ],
           [
             methods.deleteGroup,
-            counted
-              ? {
-                  label: 'Delete',
-                  icon: 'delete',
-                  // Only a group that holds nothing is deleted: one that still has people
-                  // or roles says what is left, where Delete would be.
-                  when: (row) => whatIsLeft(row) === undefined,
-                  otherwise: (row) => emptyItFirst(row),
-                  confirm: (row) => `Delete ${named(row)}?`,
-                }
-              : {
-                  label: 'Delete',
-                  icon: 'delete',
-                  confirm: (row) =>
-                    `Delete ${named(row)}? A group that still has people in it or holds a role is not deleted: empty it first.`,
-                },
+            // The delete dialog asks the page's question, then the server's, which counts
+            // the people and the roles that go with the group.
+            { label: 'Delete', icon: 'delete', deletes: true, confirm: (row) => `Delete ${named(row)}?` },
           ],
         ]),
         listMethods: this.present([
@@ -2657,28 +2644,6 @@ function openToSignUp(rows: RecordData[]): string | undefined {
       return `${String(row['label'] ?? row['name'])} is open to sign-up. ${consequence}`.trim();
     })
     .join('\n');
-}
-
-/**
- * What a group still holds, as the row says it where Delete would be: "3 people and 2
- * roles", "1 person", "2 roles". Nothing for a group that holds nothing, which is the one
- * Delete is offered on. The counts are the server's, over what has not ended, which is
- * what it refuses a deletion for.
- */
-function whatIsLeft(row: RecordData): string | undefined {
-  const people = Number(row['people'] ?? 0);
-  const roles = Array.isArray(row['roles']) ? row['roles'].length : 0;
-  const left = [
-    ...(people > 0 ? [people === 1 ? '1 person' : `${people} people`] : []),
-    ...(roles > 0 ? [roles === 1 ? '1 role' : `${roles} roles`] : []),
-  ];
-  return left.length > 0 ? left.join(' and ') : undefined;
-}
-
-/** What a group that still holds something says where Delete would be; nothing for one that holds nothing. */
-function emptyItFirst(row: RecordData): string | undefined {
-  const left = whatIsLeft(row);
-  return left ? `${left}: empty it first` : undefined;
 }
 
 /**

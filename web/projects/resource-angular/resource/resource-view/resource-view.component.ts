@@ -58,7 +58,7 @@ import {
   DeleteResourceConfirmationModalComponent,
 } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { refusedSentence } from '../refused-fields';
-import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
+import { methodDoneMessage, openDeleteMethodDialog, openMethodDialog } from '../method-dialog/open-method-dialog';
 import { filledMethods, inNamedOrder, OfferedMethod, rowMethods } from '../row-methods/row-methods';
 import { civildateCoercion, flattenElements } from '../gui-constants';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
@@ -309,10 +309,16 @@ export class ResourceViewComponent implements OnInit {
   /**
    * Runs a method against the page's row through its dialog. Once it has run the page
    * says so and reads the row and its child lists again; a row the method removed takes
-   * the page away, as any read that finds the row gone does (see the constructor).
+   * the page away, as any read that finds the row gone does (see the constructor). A
+   * method that deletes its row (`deletes`) runs through the delete dialog instead.
    */
   runMethod(method: OfferedMethod): void {
-    openMethodDialog(this.dialog, method, this.store.viewData()).subscribe((result) => {
+    const row = this.store.viewData();
+    const opened =
+      method.presentation?.deletes && row
+        ? openDeleteMethodDialog(this.dialog, this.store.methodHandle(method.method), method, row)
+        : openMethodDialog(this.dialog, method, row);
+    opened.subscribe((result) => {
       if (!result) {
         return;
       }

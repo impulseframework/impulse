@@ -1,8 +1,13 @@
-import { ApiDescriptor, IdentityDescriptor, Resource } from '@impulseframework/resource';
+import { TestBed } from '@angular/core/testing';
+import { MatDialog } from '@angular/material/dialog';
+import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { ApiDescriptor, ApiError, IdentityDescriptor, Resource } from '@impulseframework/resource';
+import { OfferedMethod, openDeleteMethodDialog } from '@impulseframework/resource-angular/resource';
 import {
   ColumnConfig,
   FieldMeta,
   ListViewConfig,
+  Method,
   MethodMeta,
   MethodPresentation,
   RecordData,
@@ -3151,11 +3156,55 @@ describe('identityPages, an Auth that keeps groups', () => {
       domain: 'Sector',
       everyDomain: 'In every sector',
     });
-    expect(
-      (presentation(groups.rowMethods, 'DeleteCrewGroup').confirm as (row: RecordData) => string)({
-        name: 'Deck crew',
-      }),
-    ).toBe('Delete Deck crew? A group that still has people in it or holds a role is not deleted: empty it first.');
+    const remove = presentation(groups.rowMethods, 'DeleteCrewGroup');
+    expect((remove.confirm as (row: RecordData) => string)({ name: 'Deck crew' })).toBe('Delete Deck crew?');
+    expect(remove.deletes).toBe(true);
+  });
+
+  it("asks a group's delete in the page's words, then in the server's, and sends everythingUnder at the second press", async () => {
+    const remove = presentation(list(global[1]).rowMethods, 'DeleteCrewGroup');
+    const offered: OfferedMethod = {
+      method: 'DeleteCrewGroup' as Method,
+      meta: { target: { resource: 'CrewListedGroups', key: { groupId: 'id' } } } as unknown as MethodMeta,
+      label: 'Delete',
+      presentation: remove,
+    };
+    const counted = "Delete this group and everything under it: 3 members, 2 roles. This can't be undone.";
+    const sent: Record<string, unknown>[] = [];
+    const handle = {
+      execute: (body: Record<string, unknown>): Promise<unknown> => {
+        sent.push(body);
+        return body['everythingUnder']
+          ? Promise.resolve({ status: 204, result: undefined })
+          : Promise.reject(new ApiError('POST', '/api/delete-crew-group', 428, { message: counted }));
+      },
+    };
+    TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
+    const answers: unknown[] = [];
+    openDeleteMethodDialog(TestBed.inject(MatDialog), handle, offered, { id: 'g-1', name: 'Deck crew' }).subscribe(
+      (answer) => answers.push(answer),
+    );
+    const rest = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+    const said = (): string =>
+      (document.querySelector('.cdk-overlay-container')?.textContent ?? '').replace(/\s+/g, ' ');
+    const press = async (): Promise<void> => {
+      await rest();
+      [...document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button')]
+        .find((button) => button.textContent?.trim() === 'Delete')
+        ?.click();
+      await rest();
+    };
+
+    await rest();
+    expect(said()).toContain('Delete Deck crew?');
+    await press();
+    expect(said()).toContain(counted);
+    expect(said()).not.toContain('Delete Deck crew?');
+    expect(answers).toEqual([]);
+    await press();
+    expect(sent.map((body) => body['everythingUnder'])).toEqual([undefined, true]);
+    expect(sent.every((body) => body['groupId'] === 'g-1')).toBe(true);
+    expect(answers).toEqual([{ answer: undefined }]);
   });
 
   it("draws a group's row page with the people in it and the roles it holds, each list under the group", () => {

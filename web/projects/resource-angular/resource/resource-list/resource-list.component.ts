@@ -89,7 +89,7 @@ import {
   DeleteConfirmation,
   DeleteResourceConfirmationModalComponent,
 } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
-import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
+import { methodDoneMessage, openDeleteMethodDialog, openMethodDialog } from '../method-dialog/open-method-dialog';
 import {
   filledMethods,
   inNamedOrder,
@@ -1636,10 +1636,15 @@ export class ResourceListComponent implements OnInit {
    * method took away the row the list sits under, the page may have left before the
    * dialog answers here (a live page reads its row again as soon as the write lands):
    * what ran is still said, and the list, which nobody sees any more, reads no rows and
-   * tells no page.
+   * tells no page. A method that deletes its row (`deletes`) runs through the delete
+   * dialog instead.
    */
   runMethod(method: OfferedMethod, row?: RecordData): void {
-    openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows).subscribe((result) => {
+    const opened =
+      method.presentation?.deletes && row
+        ? openDeleteMethodDialog(this.dialog, this.store.methodHandle(method.method), method, row)
+        : openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows);
+    opened.subscribe((result) => {
       if (!result) {
         return;
       }

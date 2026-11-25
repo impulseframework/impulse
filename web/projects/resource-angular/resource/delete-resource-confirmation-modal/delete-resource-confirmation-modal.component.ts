@@ -18,6 +18,8 @@ export interface DeleteConfirmation {
   word?: string;
   /** Whether the row is deleted from its list; unset, it is deleted from its own page. */
   inList?: boolean;
+  /** The page's own question, where it asks one: asked in place of the one made of the parts above. */
+  question?: string;
   /**
    * The delete itself, where the page hands it to the dialog. The dialog runs it when its
    * Delete button is pressed and stays open until the server has answered, so a delete
@@ -39,7 +41,8 @@ export interface DeleteConfirmation {
 const asksFirst = 428;
 
 /**
- * The question asked before a row is deleted, so a person reads what is about to go. A
+ * The question asked before a row is deleted, so a person reads what is about to go: the
+ * page's own where it gives one (`question`). Otherwise a
  * row the page knows the name of is asked about by its name, and by the list it is in
  * where the page has a title for it ("Delete Night Watch from Groups?"). A row with no
  * name is asked about by the word its resource's rows go by ("Delete this hangar
@@ -47,6 +50,10 @@ const asksFirst = 428;
  * in its list and "this record" on its page ("Delete this row from Passes?").
  */
 export function deleteQuestion(asked: DeleteConfirmation = {}): string {
+  const question = asked.question?.trim() ?? '';
+  if (question !== '') {
+    return question;
+  }
   const name = asked.name?.trim() ?? '';
   const from = asked.from?.trim() ?? '';
   const word = asked.word?.trim() ?? '';
