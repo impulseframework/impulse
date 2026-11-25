@@ -767,9 +767,6 @@
                 "body",
                 "title"
               ]
-            },
-            {
-              "resource": "TenantDirectories"
             }
           ],
           "Delete": [
@@ -866,6 +863,9 @@
             },
             {
               "resource": "TakeStaffTenantGroupRole"
+            },
+            {
+              "resource": "TakeTenantDirectory"
             },
             {
               "resource": "MakeTenantDirectoryOnly"

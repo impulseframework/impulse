@@ -2481,9 +2481,6 @@
                 "answersRelayId",
                 "message"
               ]
-            },
-            {
-              "resource": "SectorDirectories"
             }
           ],
           "Update": [
@@ -2789,6 +2786,9 @@
             {
               "resource": "TakeCrewSectorGroupRole",
               "condition": "role != 'SectorMarshal'"
+            },
+            {
+              "resource": "TakeSectorDirectory"
             },
             {
               "resource": "MakeSectorDirectoryOnly"

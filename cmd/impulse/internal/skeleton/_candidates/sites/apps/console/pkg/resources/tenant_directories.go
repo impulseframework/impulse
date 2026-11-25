@@ -19,15 +19,18 @@ type (
 	// directory: an invitation that makes a tenant, accepted through the person's
 	// organization's directory, sets it as the tenant is made, and the tenant's
 	// administrator, signed in through their organization's directory, makes it the
-	// tenant's on the Sign-in page, under the record's Create grant
-	// (TenantAdministrator). The create takes no method and no connection from the
-	// request; the server reads both from the session. The staff auth signs in by
-	// password until a directory method joins it (impulse add method), and a session
-	// that came by password is refused, as is a personal account (a Google account
-	// outside every Workspace, a Microsoft personal account), which is no organization's
-	// directory. The administrator removes the directory under the Delete grant, which
-	// is refused while the tenant is directory only; the roles it gave stand, and the
-	// directory is free for another tenant. The change events are the audit.
+	// tenant's on the Sign-in page with the tenant's own method TakeTenantDirectory,
+	// under its Execute grant (TenantAdministrator), after a statement that they are
+	// authorized to act on behalf of the organization, under which they type a
+	// phrase; the record's own create is refused. The method takes nothing from the
+	// request; the server reads the method and the connection from the session. The
+	// staff auth signs in by password until a directory method joins it (impulse add
+	// method), and a session that came by password is refused, as is a personal
+	// account (a Google account outside every Workspace, a Microsoft personal
+	// account), which is no organization's directory. The administrator removes the
+	// directory under the Delete grant, which is refused while the tenant is directory
+	// only; the roles it gave stand, and the directory is free for another tenant. The
+	// change events are the audit.
 	// A tenant that is deleted takes its directory with it, directory only or not: the
 	// directory is a row under the tenant, and the tenant's delete takes every row under
 	// it in the same transaction, each through its kind's own delete (Tenant.DeleteTree).

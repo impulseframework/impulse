@@ -89,14 +89,17 @@ type (
 	//
 	// Nobody types a directory in. The row is written from a sign-in through the
 	// directory: the tenant's administrator, signed in through their organization's
-	// directory, makes it the tenant's on the Sign-in page, under the record's Create
-	// grant. The create takes no method and no connection from the request; the server
-	// reads both from the session, and refuses a session that came by password or with
-	// a personal account (a Google account outside every Workspace, a Microsoft
-	// personal account), which is no organization's directory. The administrator
-	// removes the directory under the Delete grant, which is refused while the tenant
-	// is directory only; the roles it gave stand, and the directory is free for another
-	// tenant. The change events are the audit.
+	// directory, makes it the tenant's on the Sign-in page with the tenant's own
+	// method Take%[3]sDirectory, under its Execute grant, after a statement that they
+	// are authorized to act on behalf of the organization, under which they type a
+	// phrase; the record's own create is refused. The method takes nothing from the
+	// request; the server reads the method and the connection from the session, and
+	// refuses a session that came by password or with a personal account (a Google
+	// account outside every Workspace, a Microsoft personal account), which is no
+	// organization's directory. The administrator removes the directory under the
+	// Delete grant, which is refused while the tenant is directory only; the roles it
+	// gave stand, and the directory is free for another tenant. The change events are
+	// the audit.
 	//
 	// DefaultSeat is the role a person is given in the tenant at their first sign-in
 	// through the directory, whether their account is created then or stood before; or

@@ -378,6 +378,10 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		"`tenantSignInPage`",
 		"its directory and its rows with it, in one request, whether it is directory only or not, and its directory is then free for another tenant",
 		"Execute on the six generated methods of the tenant's own:",
+		"gets Execute on `Take<Record>Directory`, the method that takes the directory (which takes nothing from the request:",
+		"and warns first: the person reads that they are authorized to act on behalf of the organization and types `I am authorized`; the record's own create is refused), Delete, List and Read on `TenantDirectories`,",
+		"to make it the tenant's through `Take<Record>Directory`, behind its statement, and types no directory in;",
+		"Nobody types a directory in: the record's own create is refused, and the tenant's own method `TakeTenantDirectory` takes nothing from the request and sets the directory the caller is signed in through, after the statement that the caller is authorized to act on behalf of the organization,",
 		", and `VouchFor<Record>DirectorySecondFactor` and `StopVouchingFor<Record>DirectorySecondFactor`, by which the tenant says its directory asks its people for a second factor of its own, " +
 			"so that the application stops asking them for its mailed code, and takes that back (saying so is done by a person signed in through the directory, and warns first: the person types `vouch`);",
 		"the record shows `defaultSeat` and `asksSecondFactor` and its own update writes neither;",
@@ -418,6 +422,7 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		if noDirectories {
 			for _, word := range []string{
 				"TenantDirectories", "DirectoryOnly`", "directory only (", "tenantSignInPage", "OpenTenantToDirectory", "MakeTenantDirectoryOnly",
+				"Take<Record>Directory", "TakeTenantDirectory",
 				"DirectorySecondFactor", "asksSecondFactor",
 			} {
 				if strings.Contains(meaning, word) {

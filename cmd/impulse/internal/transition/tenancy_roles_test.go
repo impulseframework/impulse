@@ -429,6 +429,30 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if got := fields("List", "CrewSectorIdentities"); !slices.Contains(got, "tenant") {
 			t.Errorf("List on CrewSectorIdentities names the fields %q, want the identity's tenant among them", got)
 		}
+		// The directory is taken with the tenant's own method, which says what taking it
+		// does first, under no condition; the record's own create is refused, so the role
+		// holds no Create on it, and keeps Delete, List and Read.
+		granted := func(permission, resource string) []access.Grant {
+			var found []access.Grant
+			for _, grant := range role.Permissions.grants(permission) {
+				if string(grant.Resource) == resource {
+					found = append(found, grant)
+				}
+			}
+
+			return found
+		}
+		if got := granted("Execute", "TakeSectorDirectory"); len(got) != 1 || got[0].Condition != "" {
+			t.Errorf("Execute on TakeSectorDirectory is granted as %+v, want once under no condition", got)
+		}
+		if got := granted("Create", "SectorDirectories"); len(got) != 0 {
+			t.Errorf("the role is granted Create on SectorDirectories, whose create is refused: %+v", got)
+		}
+		for _, permission := range []string{"Delete", "List", "Read"} {
+			if got := granted(permission, "SectorDirectories"); len(got) != 1 {
+				t.Errorf("%s on SectorDirectories is granted %d time(s), want once", permission, len(got))
+			}
+		}
 		// A grant the reference holds under a condition is written under it, in this
 		// application's names, and the test proves each in the same names: its role, its
 		// resources, its routes and its auth's package.
