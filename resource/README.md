@@ -6539,7 +6539,8 @@ and `UserProcessEvent` read it there (section 7). Where a person reads who made 
 change, the library writes it from the columns (`EventSource.String()`): "bob", "bob,
 through the RPC CloseOrder", "alice, acting as bob", "alice, acting as the role
 Support", "the process PruneReports". A record's history serves that sentence and no
-id.
+id. A tenant an invitation makes is recorded under the process AcceptInvitation: the
+write is made at the sign-in, before the person has a session.
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
 statements. For Spanner the first creates the table:

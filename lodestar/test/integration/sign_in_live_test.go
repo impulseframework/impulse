@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"testing"
@@ -197,8 +198,32 @@ func TestSignInLive_invitationMakesASector(t *testing.T) {
 	watching(ctx, t, s, live.Subscription{Principal: sectors, Resource: "Sectors"})
 
 	b.secondFactor(ctx, founder)
-	if sectorNamed(ctx, t, hq, "Dune") == nil {
+	dune := sectorNamed(ctx, t, hq, "Dune")
+	if dune == nil {
 		t.Fatal("no sector Dune after its invitation was accepted")
+	}
+
+	// The sector is made at the sign-in, before the founder has a session: its first
+	// change record names the process that makes it, and no account's id is in the
+	// sentence its history serves.
+	duneID := cell[string](t, dune, "id")
+	records := rowChangeRecords(ctx, t, s, "Sectors", duneID)
+	if len(records) == 0 {
+		t.Fatalf("Dune has no change record")
+	}
+	if first := records[0].who; first.Operation != "create" {
+		t.Errorf("Dune's first change record is a %q, want a create", first.Operation)
+	} else if differs := first.differs(map[string]string{"Process": "AcceptInvitation"}); differs != "" {
+		t.Errorf("Dune's first change record: %s", differs)
+	}
+	status, body = hq.do(ctx, http.MethodGet, consoleAPI+"/sectors/"+duneID+"/changes", nil)
+	assertStatus(t, status, http.StatusOK, body)
+	var page changeHistoryPage
+	if err := json.Unmarshal(body, &page); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v: %s", err, body)
+	}
+	if n := len(page.Changes); n == 0 || page.Changes[n-1].Source != "the process AcceptInvitation" {
+		t.Errorf("Dune's history = %+v, want its first record by the process AcceptInvitation", page.Changes)
 	}
 
 	wantTold(t, s, sectors, "Sectors", "", "the list of sectors")

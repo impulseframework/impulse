@@ -1514,8 +1514,7 @@ func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransact
 }
 
 // RemoveEnded buffers each removal under the process that says the assignment ended by
-// itself (resource.ProcessEvent(identity.EndedByItself)): it is what a change record of
-// the row holds in place of a person's act.
+// itself (identity.EndedByItself): nobody made it.
 func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
 	for i := range memberships {
 		key := &memberships[i]

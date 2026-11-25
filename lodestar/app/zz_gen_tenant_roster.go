@@ -214,7 +214,7 @@ func (m *sectorMaker) Make(ctx context.Context, txn resource.ReadWriteTransactio
 	if tenant.Caller != nil {
 		patch.Enforce(tenant.Caller)
 	}
-	if err := patch.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source)); err != nil {
+	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
 		return "", errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
 	}
 	if patch.NameIsSet() {
@@ -249,7 +249,7 @@ func (m *sectorMaker) Make(ctx context.Context, txn resource.ReadWriteTransactio
 			role := string(tenant.DefaultRole)
 			directory.SetDefaultSeat(&role)
 		}
-		if err := directory.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source)); err != nil {
+		if err := directory.Buffer(ctx, txn, tenant.Source); err != nil {
 			return "", errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
 		}
 	}

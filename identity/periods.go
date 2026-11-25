@@ -47,11 +47,11 @@ import (
 // ended reads it from the database's clock, the one the lists and the sign-in rule read:
 // a row is removed only once the database says its period is over (EndedAssignments).
 
-// EndedByItself is the name of the process a removal is recorded under when nobody made
-// it (resource.ProcessEvent): the assignment's period ended, and the row is removed at the
-// person's next sign-in. A change record of the row, where the application keeps one, says
-// so in place of a person's act.
-const EndedByItself = "the assignment ended by itself"
+// EndedByItself is the name of the process a removal is made under when nobody made it:
+// the assignment's period ended, and the row is removed at the person's next sign-in. A
+// store hands each such removal resource.ProcessEvent(EndedByItself) in place of a
+// person's act.
+const EndedByItself = "PeriodEnd"
 
 // PeriodStore is what the rules of an assignment's period need of one auth's tables,
 // which the generated package of the auth implements over its own typed queries and
@@ -81,7 +81,7 @@ type PeriodStore interface {
 	// opens no transaction.
 	EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (memberships []access.MembershipKey, places []access.GroupMemberKey, err error)
 	// RemoveEnded buffers the removal of memberships and places whose period ended,
-	// each under the source EndedByItself in place of a person's act.
+	// each under the process EndedByItself names, in place of a person's act.
 	RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error
 }
 
@@ -443,9 +443,9 @@ func (m *Manager) countingHolders(ctx context.Context, txn resource.ReadWriteTra
 // It is nobody's act, so the rules of a removal do not judge it. It removes the ended
 // rows and nothing else: the account stays, also when the ended assignment was the last
 // thing the person held; the rule on a tenant's last administrator is not asked, since
-// an ended role administers nothing; each row goes under the source EndedByItself; and
-// the permission engine is told nothing, since an ended assignment already counts for
-// nothing and no instance has anything to reload.
+// an ended role administers nothing; each row goes under the process EndedByItself
+// names; and the permission engine is told nothing, since an ended assignment already
+// counts for nothing and no instance has anything to reload.
 func (m *Manager) ClearEnded(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

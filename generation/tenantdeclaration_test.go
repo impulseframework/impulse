@@ -711,7 +711,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"\tif tenant.DirectoryOnly {\n\t\tif !hasDirectory {\n\t\t\treturn \"\", errors.New(\"a harbor that is directory only is made with its directory: the invitation was accepted through none\")\n\t\t}\n\t\tpatch.SetDirectoryOnly(true)\n\t}",
 				// The check a send makes arms the create with the caller.
 				"if tenant.Caller != nil {\n\t\tpatch.Enforce(tenant.Caller)\n\t}",
-				"if err := patch.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source)); err != nil {",
+				"if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {",
 				// The directory, where the person came through one, held to the rules: one
 				// another tenant has refuses the sign-in with its own code.
 				"\tif hasDirectory {\n\t\t// The directory the person came through becomes the harbor's own, held to",
@@ -736,11 +736,11 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			wantOrder: []string{
 				"patch.SetDirectoryOnly(true)",
 				"patch.Enforce(tenant.Caller)",
-				"patch.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source))",
+				"patch.Buffer(ctx, txn, tenant.Source)",
 				// The grants answer (the buffer) before a taken value is read for.
 				"resources.NewHarborQuery().SetName(patch.Name())",
 				"NewHarborDirectoryRules().Set(ctx, txn, domain, tenant.Directory)",
-				"directory.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source))",
+				"directory.Buffer(ctx, txn, tenant.Source)",
 				"// The check a send makes: nothing commits, and nothing is owed after it.",
 				"resource.AfterCommit(txn,",
 			},

@@ -2078,7 +2078,7 @@ func (m *{{ GoCamel $.Name }}Maker) Make(ctx context.Context, txn resource.ReadW
 	if tenant.Caller != nil {
 		patch.Enforce(tenant.Caller)
 	}
-	if err := patch.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source)); err != nil {
+	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
 		return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Name }}CreatePatch.Buffer()")
 	}
 	{{- range $field := .Fields }}
@@ -2120,7 +2120,7 @@ func (m *{{ GoCamel $.Name }}Maker) Make(ctx context.Context, txn resource.ReadW
 			directory.Set{{ $.DefaultSeat }}(&role)
 		}
 		{{- end }}
-		if err := directory.Buffer(ctx, txn, resource.ProcessEvent(tenant.Source)); err != nil {
+		if err := directory.Buffer(ctx, txn, tenant.Source); err != nil {
 			return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Directories }}CreatePatch.Buffer()")
 		}
 	}
