@@ -1048,7 +1048,7 @@ r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); as
 assert_py "the bosun's and the pilot's rows say so too, and the governor's, a super administrator, says nothing" "$r" "[u.get('cannotEnter') for u in rows if u['username'] in ('bosun','pilot')]==[\"$KEPT_OUT\",\"$KEPT_OUT\"] and [u.get('cannotEnter') for u in rows if u['username']=='governor']==[None]"
 MAKE_ONLY="$API/sectors/$BASTION_ID/make-sector-directory-only"
 END_ONLY="$API/sectors/$BASTION_ID/end-sector-directory-only"
-r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "the governor, a marshal in every sector, reads Bastion's switch in the sector: it is on" "$r" "rows=={'directoryOnly': True}"
+r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "the governor, a marshal in every sector, reads Bastion's switch in the sector: it is on" "$r" "rows['directoryOnly'] is True"
 r=$(warning governor "$MAKE_ONLY" '{}'); check "asked what turning it on would do while it is on, the warning is refused: there is nothing to turn on" 409 "$r"
 assert_py "and says so, naming neither Bastion's directory nor its people" "$r" "rows['message']=='This sector is directory only already: only people who sign in through its directory enter it. There is nothing to turn on.'"
 r=$(warning governor "$END_ONLY" '{}'); check "turning it off declares no warning: a request for one is refused, and runs nothing" 400 "$r"
@@ -1130,7 +1130,7 @@ r=$(req rigger GET "$API/user-domains"); assert_py "the rigger is kept out again
 RIGGER_ID=$(account rigger)
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$RIGGER_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor makes the rigger a marshal of Bastion itself" 204 "$r"
 r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at her next request, with nothing closed: Bastion admits its own marshal by her password and the code" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $CLOSED == {}"
-r=$(req rigger GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and she reads Bastion's switch, which she could turn off from the inside: it is on" "$r" "rows=={'directoryOnly': True}"
+r=$(req rigger GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "and she reads Bastion's switch, which she could turn off from the inside: it is on" "$r" "rows['directoryOnly'] is True"
 r=$(req governor GET "$API/sectors/$BASTION_ID/sign-in-settings"); assert_py "the governor reads Bastion's sign-in settings, which say whether the sector vouches for its directory's second factor" "$r" "'secondFactor' in rows"
 r=$(warning governor "$API/sectors/$BASTION_ID/vouch-for-sector-directory-second-factor" '{}'); check "signed in with a password, the governor is refused the warning of vouching for Bastion's directory: only a person signed in through it may say so" 409 "$r"
 r=$(warning governor "$API/sectors/$DAWN_ID/vouch-for-sector-directory-second-factor" '{}'); check "and in Dawn, which has no directory, there is no directory to vouch for" 409 "$r"
