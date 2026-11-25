@@ -32,8 +32,8 @@ type disabledTenantTeller interface {
 }
 
 // unenteredDomainLister is what the permissions SessionPermissions composes answer
-// beside UserPermissions: the tenants of the application's roster that this session does
-// not enter. unenteredDomains asks it.
+// beside UserPermissions: the tenants of the application's roster whose sign-in settings
+// do not admit this session. unenteredDomains asks it.
 type unenteredDomainLister interface {
 	UnenteredDomains(ctx context.Context) ([]accesstypes.Domain, error)
 }
@@ -121,16 +121,18 @@ func (m *maskedPermissions) ClosedDomains(ctx context.Context) ([]accesstypes.Do
 	return ClosedDomains(ctx, m.UserPermissions)
 }
 
-// unenteredDomains lists the tenants of the application's roster that this session does
-// not enter (UserPermissions.Reaches), sorted; never nil. It is the capability plan's
-// question for a method a row offers only to a caller whose session enters the row's
-// tenants (TenantsToEnter): the same question the method's own refusal asks of each
-// tenant, asked once for the roster. Unlike ClosedDomains it is asked of every session,
-// a person's own sign-in or not, and of tenants the session holds no grant in. The
-// permissions SessionPermissions composes answer it; any other UserPermissions, and an
-// application that keeps no declarations or no tenants, list none, and the row then
-// offers what the grants allow: the answer shapes what a page offers, and the method
-// refuses what it refuses either way.
+// unenteredDomains lists the tenants of the application's roster whose sign-in settings
+// do not admit this session (AdmitsSession), sorted; never nil. It is the capability
+// plan's question for a method a row offers only to a caller whose session enters the
+// row's tenants (TenantsToEnter): the same question the method's own refusal asks of
+// each tenant, asked once for the roster. Whether a tenant is disabled is not asked: a
+// disabled tenant is listed where its settings would keep the session out, as before it
+// was disabled. Unlike ClosedDomains it is asked of every session, a person's own
+// sign-in or not, and of tenants the session holds no grant in. The permissions
+// SessionPermissions composes answer it; any other UserPermissions, and an application
+// that keeps no declarations or no tenants, list none, and the row then offers what the
+// grants allow: the answer shapes what a page offers, and the method refuses what it
+// refuses either way.
 func unenteredDomains(ctx context.Context, perms UserPermissions) ([]accesstypes.Domain, error) {
 	lister, ok := perms.(unenteredDomainLister)
 	if !ok {
@@ -144,9 +146,9 @@ func unenteredDomains(ctx context.Context, perms UserPermissions) ([]accesstypes
 	return unentered, nil
 }
 
-// UnenteredDomains lists the roster's domains the session does not reach (the
-// admission's Reaches), sorted; never nil. An application that keeps no declarations or
-// no tenants lists none: every session reaches every domain.
+// UnenteredDomains lists the roster's domains whose sign-in settings do not admit the
+// session (the admission's admitsSession), sorted; never nil. An application that keeps
+// no declarations or no tenants lists none: every tenant's settings admit every session.
 func (p rosterPermissions) UnenteredDomains(ctx context.Context) ([]accesstypes.Domain, error) {
 	unentered := []accesstypes.Domain{}
 	if p.roster == nil || p.admission == nil {
@@ -157,11 +159,11 @@ func (p rosterPermissions) UnenteredDomains(ctx context.Context) ([]accesstypes.
 		return nil, errors.Wrap(err, "resource.DomainRoster")
 	}
 	for _, domain := range all {
-		reaches, err := p.admission.Reaches(ctx, domain)
+		admits, err := p.admission.admitsSession(ctx, domain)
 		if err != nil {
 			return nil, err
 		}
-		if !reaches {
+		if !admits {
 			unentered = append(unentered, domain)
 		}
 	}
@@ -171,7 +173,7 @@ func (p rosterPermissions) UnenteredDomains(ctx context.Context) ([]accesstypes.
 }
 
 // UnenteredDomains passes through: a mask attenuates what the session may do, never
-// where it may go (Reaches).
+// what a tenant's sign-in settings say of it (AdmitsSession).
 func (m *maskedPermissions) UnenteredDomains(ctx context.Context) ([]accesstypes.Domain, error) {
 	return unenteredDomains(ctx, m.UserPermissions)
 }

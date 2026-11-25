@@ -39,7 +39,8 @@ type UserPermissions interface {
 	// and enters every tenant; or the tenant is directory only and the
 	// session is its own administrator's, established with a password and
 	// carrying a second factor. Nobody else is exempt from a tenant's sign-in
-	// settings. It is the generated domain guard's
+	// settings. What the settings alone say of the session, whether or not the
+	// tenant is disabled, is AdmitsSession's answer. It is the generated domain guard's
 	// question before the foothold, and the attenuation behind every other
 	// answer: in a tenant the session does not reach it holds nothing —
 	// every check Denied, an empty digest, no foothold. Whether domain is a

@@ -738,7 +738,8 @@ row's struct names them in a `TenantsToEnter` method: a query that selects a col
 `Tenant` beside its key columns, and `Match`, which pairs each key column with the column of the
 row it is matched to (one pair for a row named by one column, a pair for each column of a row
 named by several). A row read with `capabilities=Execute` then leaves the method out for a
-caller whose session does not enter one of those tenants (`UserPermissions.Reaches`). A method
+caller whose session does not enter one of those tenants by the tenant's sign-in settings
+(`resource.AdmitsSession`, which does not ask whether the tenant is disabled). A method
 that names no row can be held the same way on the rows a page runs it from:
 `@callerEnters(Row, ...)` names the resource structs, each declares `TenantsToEnter`, and a row
 of one of them lists the method in its `Execute` answer as a row lists a method that names it.
@@ -3983,7 +3984,10 @@ gives everyone back what they held; an invitation into a disabled tenant is acce
 its person holds a place in a tenant they cannot enter until it is enabled; a person who
 holds a role in a disabled tenant still holds a tenant (`HeldDomains`); and a
 directory-only tenant that is disabled still keeps the accounts of its directory to that
-directory. Code that runs without a session, a scheduled task or a consumer, is not asked
+directory. The rules of who may manage a tenant's administrators ask what the tenant's
+sign-in settings say (`resource.AdmitsSession`), not whether it is disabled, so the
+application's staff manage the people of a disabled tenant as they did before. Code that
+runs without a session, a scheduled task or a consumer, is not asked
 the door and reads and writes a disabled tenant's records as any other's.
 
 **Deleting a tenant.** The record's generated delete clears what each auth holds for the

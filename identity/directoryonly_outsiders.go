@@ -24,14 +24,16 @@ import (
 // set the password or the address of a person who holds it, and walk in.
 //
 // So one judgment stands over every act that could (callerEnters): the request's caller
-// enters the tenant with the session they hold. It is the reach the tenant's own routes
-// are guarded by (resource.UserPermissions.Reaches): a tenant that is not directory
-// only admits every session, and one that is admits a session established through its
+// enters the tenant with the session they hold. It is what the tenant's sign-in settings
+// say of the session (resource.AdmitsSession): a tenant that is not directory only
+// admits every session, and one that is admits a session established through its
 // directory, a super administrator's, and its own administrator's come with a password
-// and a second factor. A session that views the application as someone else is
-// established by its impersonation and enters no directory-only tenant unless the real
-// person behind it is a super administrator, so viewing as a tenant's administrator
-// gains nothing. A caller the tenant does not admit is refused:
+// and a second factor. Whether the tenant is disabled is not asked: a disabled tenant
+// gives nobody a way in, and the rule binds the same people before, while and after. A
+// session that views the application as someone else is established by its
+// impersonation and enters no directory-only tenant unless the real person behind it is
+// a super administrator, so viewing as a tenant's administrator gains nothing. A caller
+// the tenant does not admit is refused:
 //
 //   - giving or taking one of the tenant's administrator roles in the tenant, to a
 //     person (AssignRoleFor, RemoveRole) or to a group of the tenant's own
@@ -72,9 +74,9 @@ func (m *Manager) callerEnters(ctx context.Context, tenant accesstypes.Domain) (
 	if caller.IsZero() {
 		return true, nil
 	}
-	enters, err := caller.Permissions.Reaches(ctx, tenant)
+	enters, err := resource.AdmitsSession(ctx, caller.Permissions, tenant)
 	if err != nil {
-		return false, errors.Wrap(err, "resource.UserPermissions.Reaches()")
+		return false, errors.Wrap(err, "resource.AdmitsSession()")
 	}
 
 	return enters, nil

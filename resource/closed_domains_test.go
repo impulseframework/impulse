@@ -307,6 +307,9 @@ func TestUnenteredDomains(t *testing.T) {
 		ctx            context.Context
 		noRoster       bool
 		noDeclarations bool
+		// disabled are the tenants of the roster that are disabled, each with what it
+		// declares otherwise.
+		disabled []accesstypes.Domain
 		// holds are the tenants the person holds a grant in; super makes them a super
 		// administrator; administers are the tenants they administer.
 		holds       []accesstypes.Domain
@@ -365,6 +368,29 @@ func TestUnenteredDomains(t *testing.T) {
 			want:  []accesstypes.Domain{bastion},
 		},
 		{
+			// Being disabled is not a sign-in setting: what the session may not do there
+			// is the door's, and the rows offer what the tenant's settings admit.
+			name:     "a disabled tenant that is not directory only is not given to a password session",
+			ctx:      sessionCtx("alice", nil, password),
+			disabled: []accesstypes.Domain{anvil},
+			holds:    []accesstypes.Domain{anvil, bastion},
+			want:     []accesstypes.Domain{bastion},
+		},
+		{
+			name:     "a disabled directory-only tenant is given to a password session, as its settings say",
+			ctx:      sessionCtx("alice", nil, password),
+			disabled: []accesstypes.Domain{bastion},
+			holds:    []accesstypes.Domain{bastion},
+			want:     []accesstypes.Domain{bastion},
+		},
+		{
+			name:     "and not to a session through its directory",
+			ctx:      sessionCtx("alice", nil, workspace),
+			disabled: []accesstypes.Domain{bastion},
+			holds:    []accesstypes.Domain{bastion},
+			want:     []accesstypes.Domain{},
+		},
+		{
 			name:     "an application without tenants is given none",
 			ctx:      sessionCtx("alice", nil, password),
 			noRoster: true,
@@ -394,7 +420,16 @@ func TestUnenteredDomains(t *testing.T) {
 			}
 			var declarations TenantDeclarations
 			if !tt.noDeclarations {
-				declarations = declared().read
+				reader := declared()
+				for _, domain := range tt.disabled {
+					declaration := reader.declarations[domain]
+					if declaration == nil {
+						declaration = &signin.TenantDeclaration{}
+					}
+					declaration.Disabled = true
+					reader.declarations[domain] = declaration
+				}
+				declarations = reader.read
 			}
 			perms := SessionPermissions(tt.ctx, forUser, forRole, tenants, declarations, nil)
 
