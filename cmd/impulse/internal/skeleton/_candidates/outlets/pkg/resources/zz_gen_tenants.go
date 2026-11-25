@@ -43,10 +43,10 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 		Tenant: &resource.DomainBindingData{Column: "Id"},
 		Taken: []resource.DeleteKind{
 			{
-				Resource: "Announcements",
-				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
+				Resource: "TenantDirectories",
+				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
 				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
 				Paths: []resource.DeletePath{
 					{
@@ -54,7 +54,7 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 					},
 				},
 				Trusted: true,
-				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Announcement], *resource.Caller) {}),
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[TenantDirectory], *resource.Caller) {}),
 			},
 			{
 				Resource: "Readings",
@@ -71,10 +71,10 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Reading], *resource.Caller) {}),
 			},
 			{
-				Resource: "TenantDirectories",
-				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
+				Resource: "Announcements",
+				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
 				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
 				Paths: []resource.DeletePath{
 					{
@@ -82,7 +82,7 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 					},
 				},
 				Trusted: true,
-				Rows:    resource.NewTakenRows(func(*resource.PatchSet[TenantDirectory], *resource.Caller) {}),
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Announcement], *resource.Caller) {}),
 			},
 		},
 		Under: []resource.DeleteKind{

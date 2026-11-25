@@ -64,24 +64,6 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 				}),
 			},
 			{
-				Resource: "MissionDocuments",
-				Words:    resource.DeleteWords{One: "mission document", Many: "mission documents"},
-				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 1},
-				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
-				Paths: []resource.DeletePath{
-					{
-						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
-					},
-				},
-				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[MissionDocument], caller *resource.Caller) {
-					patch := &MissionDocumentDeletePatch{patchSet: patchSet}
-					if !caller.IsZero() {
-						patch.Enforce(caller)
-					}
-				}),
-			},
-			{
 				Resource: "Sorties",
 				Words:    resource.DeleteWords{One: "sortie", Many: "sorties"},
 				Key:      []string{"Id"},
@@ -94,6 +76,24 @@ func (Mission) DeleteTree() *resource.DeleteTree {
 				},
 				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Sortie], caller *resource.Caller) {
 					patch := &SortieDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
+				Resource: "MissionDocuments",
+				Words:    resource.DeleteWords{One: "mission document", Many: "mission documents"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 1},
+				Tenant:   &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"MissionId"}, Table: "Missions", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[MissionDocument], caller *resource.Caller) {
+					patch := &MissionDocumentDeletePatch{patchSet: patchSet}
 					if !caller.IsZero() {
 						patch.Enforce(caller)
 					}

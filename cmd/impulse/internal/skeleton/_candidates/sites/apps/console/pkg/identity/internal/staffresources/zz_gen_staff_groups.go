@@ -36,19 +36,6 @@ func (StaffGroup) DeleteTree() *resource.DeleteTree {
 		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
 		Taken: []resource.DeleteKind{
 			{
-				Resource: "StaffGroupMembers",
-				Words:    resource.DeleteWords{One: "member", Many: "members"},
-				Key:      []string{"GroupId", "UserId"},
-				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
-				Paths: []resource.DeletePath{
-					{
-						{Columns: []string{"GroupId"}, Table: "StaffGroups", References: []string{"Id"}},
-					},
-				},
-				Trusted: true,
-				Rows:    resource.NewTakenRows(func(*resource.PatchSet[StaffGroupMember], *resource.Caller) {}),
-			},
-			{
 				Resource: "StaffGroupRoles",
 				Words:    resource.DeleteWords{One: "role", Many: "roles"},
 				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
@@ -60,6 +47,19 @@ func (StaffGroup) DeleteTree() *resource.DeleteTree {
 				},
 				Trusted: true,
 				Rows:    resource.NewTakenRows(func(*resource.PatchSet[StaffGroupRole], *resource.Caller) {}),
+			},
+			{
+				Resource: "StaffGroupMembers",
+				Words:    resource.DeleteWords{One: "member", Many: "members"},
+				Key:      []string{"GroupId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "StaffGroups", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[StaffGroupMember], *resource.Caller) {}),
 			},
 		},
 		Under: []resource.DeleteKind{

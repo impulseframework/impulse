@@ -897,6 +897,7 @@ func (store) DeleteCosts() identity.TenantDeleteCosts {
 		Identity:    resource.DeleteCost{IndexEntries: 3}.Mutations(false),
 		User:        resource.DeleteCost{IndexEntries: 3}.Mutations(false),
 		Invitation:  4,
+		SessionEnd:  3,
 	}
 }
 

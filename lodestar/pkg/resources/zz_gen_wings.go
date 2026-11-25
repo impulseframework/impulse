@@ -42,28 +42,6 @@ func (Wing) DeleteTree() *resource.DeleteTree {
 		Tenant: &resource.DomainBindingData{Column: "SectorId"},
 		Taken: []resource.DeleteKind{
 			{
-				Resource: "HangarPasses",
-				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
-				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
-				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
-				Paths: []resource.DeletePath{
-					{
-						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
-						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
-					},
-				},
-				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[HangarPass], caller *resource.Caller) {
-					patch := &HangarPassDeletePatch{patchSet: patchSet}
-					if !caller.IsZero() {
-						patch.Enforce(caller)
-						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-							return RefuseImpersonatorAsHangarPassSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
-						})
-					}
-				}),
-			},
-			{
 				Resource: "SquadronMemberships",
 				Words:    resource.DeleteWords{One: "squadron membership", Many: "squadron memberships"},
 				Key:      []string{"SquadronId", "UserId"},
@@ -81,6 +59,28 @@ func (Wing) DeleteTree() *resource.DeleteTree {
 						patch.Enforce(caller)
 						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 							return RefuseImpersonatorAsSquadronMembershipSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
+						})
+					}
+				}),
+			},
+			{
+				Resource: "HangarPasses",
+				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 9, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "SectorId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"SquadronId"}, Table: "Squadrons", References: []string{"Id"}, MayBeEmpty: true},
+						{Columns: []string{"WingId"}, Table: "Wings", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[HangarPass], caller *resource.Caller) {
+					patch := &HangarPassDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+							return RefuseImpersonatorAsHangarPassSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
 						})
 					}
 				}),

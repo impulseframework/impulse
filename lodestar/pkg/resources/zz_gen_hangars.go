@@ -81,6 +81,24 @@ func (Hangar) DeleteTree() *resource.DeleteTree {
 				}),
 			},
 			{
+				Resource: "Ships",
+				Words:    resource.DeleteWords{One: "ship", Many: "ships"},
+				Key:      []string{"Id"},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "HangarId", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
+					},
+				},
+				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Ship], caller *resource.Caller) {
+					patch := &ShipDeletePatch{patchSet: patchSet}
+					if !caller.IsZero() {
+						patch.Enforce(caller)
+					}
+				}),
+			},
+			{
 				Resource: "HangarPasses",
 				Words:    resource.DeleteWords{One: "hangar pass", Many: "hangar passes"},
 				Key:      []string{"Id"},
@@ -98,24 +116,6 @@ func (Hangar) DeleteTree() *resource.DeleteTree {
 						patchSet.RegisterDeleteCheckFunc(func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 							return RefuseImpersonatorAsHangarPassSubject(ctx, txn, resource.OperationDelete, patchSet.PrimaryKey(), patchSet)
 						})
-					}
-				}),
-			},
-			{
-				Resource: "Ships",
-				Words:    resource.DeleteWords{One: "ship", Many: "ships"},
-				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
-				Tenant:   &resource.DomainBindingData{Column: "HangarId", Path: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
-				Paths: []resource.DeletePath{
-					{
-						{Columns: []string{"HangarId"}, Table: "Hangars", References: []string{"Id"}},
-					},
-				},
-				Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Ship], caller *resource.Caller) {
-					patch := &ShipDeletePatch{patchSet: patchSet}
-					if !caller.IsZero() {
-						patch.Enforce(caller)
 					}
 				}),
 			},

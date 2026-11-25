@@ -949,14 +949,16 @@ func (store) DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransacti
 // table the schema does not hold costs nothing (identity.Store.DeleteCosts).
 func (store) DeleteCosts() identity.TenantDeleteCosts {
 	return identity.TenantDeleteCosts{
-		Membership:  resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		Group:       resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		GroupMember: resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		GroupRole:   resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		Role:        resource.DeleteCost{IndexEntries: 0}.Mutations(false),
-		Identity:    resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		User:        resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		Invitation:  4,
+		Membership:       resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		Group:            resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		GroupMember:      resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		GroupRole:        resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		Role:             resource.DeleteCost{IndexEntries: 0}.Mutations(false),
+		Identity:         resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		User:             resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		Invitation:       4,
+		SessionEnd:       3,
+		ImpersonationEnd: 2,
 	}
 }
 
