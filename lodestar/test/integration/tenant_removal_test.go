@@ -42,7 +42,7 @@ const (
 	nothingToRemoveHere  = "This person holds nothing in this sector itself, so there is nothing to remove here."
 	removalTakesMarshal  = "Removing this person from the sector takes away the role Sector marshal, which you may not take from them."
 	removalConfirmSector = "Remove from this sector"
-	removalSeatedAgain   = "This sector is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. A role with no privileges keeps them out."
+	removalSeatedAgain   = "This sector is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. To keep them out, disable their account instead."
 )
 
 // giveCrewRole gives the person the role in the scope, in a transaction of its own.
@@ -290,7 +290,7 @@ func TestTenantRemoval(t *testing.T) {
 // TestTenantRemoval_seatedAgainBySignIn holds what the removal's warning says of a sector
 // open to its directory: Cinder is open to the fleet's Workspace with a starting role, so
 // removing a person who signs in through the Workspace says they are given the role again
-// at their next sign-in, and that a role with no privileges keeps them out. A person with
+// at their next sign-in, and that disabling their account keeps them out. A person with
 // no sign-in through it is told nothing of the kind, and neither is the first once Cinder
 // is invite only. The warning writes nothing.
 func TestTenantRemoval_seatedAgainBySignIn(t *testing.T) {

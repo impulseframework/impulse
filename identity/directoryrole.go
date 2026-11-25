@@ -222,7 +222,7 @@ func (m *Manager) DirectoryName(directory signin.Directory) (name, label string)
 func (t *Tenant) SeatedAgainNote() resource.WarningNote {
 	return resource.WarningNote{
 		Says: fmt.Sprintf(
-			"This %s is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. A role with no privileges keeps them out.",
+			"This %s is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. To keep them out, disable their account instead.",
 			t.manager.tenantWord,
 		),
 		Names: nil,
