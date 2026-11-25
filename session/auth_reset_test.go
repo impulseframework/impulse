@@ -715,7 +715,6 @@ func TestAuth_Notices(t *testing.T) {
 			t.Errorf("messages after the notice for an unconfirmed address = %d, want still 1", got)
 		}
 	})
-
 }
 
 func authResetCase8(t *testing.T) {

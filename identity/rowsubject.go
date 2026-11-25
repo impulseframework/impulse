@@ -81,13 +81,11 @@ import (
 // is asked for Execute on its name and not for Delete on the record.
 //
 // A row a foreign key's own rule removes or rewrites is another: no write of the row is
-// made, so nothing is asked. impulse check refuses ON DELETE CASCADE among an
-// application's own tables. A row of an application's that names a row of the library's
-// under that rule (a pass given to a group) still goes with it, and what a mask refuses
-// there is the action that removes the library's row. PostgreSQL has referential
-// actions that change the row where it stands. ON DELETE SET NULL and ON DELETE SET
-// DEFAULT rewrite the column that named the parent when the parent is deleted, which
-// refusing the parent's delete under the mask closes
+// made, so nothing is asked. impulse check refuses ON DELETE CASCADE on an application's
+// tables, wherever the link points. PostgreSQL has referential actions that change the
+// row where it stands. ON DELETE SET NULL and ON DELETE SET DEFAULT rewrite the column
+// that named the parent when the parent is deleted, which refusing the parent's delete
+// under the mask closes
 // (accesstypes.RefusePermission(accesstypes.Delete, parent)). ON UPDATE CASCADE, SET
 // NULL and SET DEFAULT rewrite it when the parent's key is changed, which refusing the
 // parent's update closes (Update on the record, or on the one column the foreign key

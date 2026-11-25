@@ -5820,11 +5820,11 @@ own, outside any request, has no caller and is the application's act):
     not for Delete on the record.
 
   A row a foreign key's own rule removes or rewrites is another: no write of the row is
-  made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` among an
-  application's own tables (`no-delete-cascade`). A row of an application's that names a
-  row of the library's under that rule (a pass given to a group) still goes with it, and
-  what a mask refuses there is the action that removes the library's row. PostgreSQL has
-  referential actions that change the row where it stands. `ON DELETE SET NULL` and
+  made, so nothing is asked. `impulse check` refuses `ON DELETE CASCADE` on an
+  application's tables, wherever the link points (`no-delete-cascade`). An application's
+  record that names a group of the library's is not removed by the database when the group
+  is deleted. PostgreSQL has referential actions that change the row where it stands.
+  `ON DELETE SET NULL` and
   `ON DELETE SET DEFAULT` rewrite the column that named the parent when the parent is
   deleted, and refusing the parent's delete under the mask closes them
   (`accesstypes.RefusePermission(accesstypes.Delete, parent)`). `ON UPDATE CASCADE`,

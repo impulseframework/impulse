@@ -219,7 +219,7 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 // permission engine told once the transaction has committed. key is the membership, read
 // as held by the caller.
 func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
-	if _, err := m.judgeRoleRemoval(ctx, txn, scope, userID, key); err != nil {
+	if err := m.judgeRoleRemoval(ctx, txn, scope, userID, key); err != nil {
 		return err
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {

@@ -45,52 +45,42 @@ const (
 	roleNotHeldMessage = "This person no longer holds that role. Refresh the page to see what they hold."
 )
 
-// roleRemoval is the judgment of taking a membership away, as the removal and the
-// warning before it read it (judgeRoleRemoval).
-type roleRemoval struct {
-	// ended is whether the membership's period is over.
-	ended bool
-}
-
 // judgeRoleRemoval holds the removal of a membership the person holds to the rules of
-// RemoveRole, and answers whether the membership has ended. key is the membership, read
-// as held by the caller. It writes nothing.
-func (m *Manager) judgeRoleRemoval(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) (*roleRemoval, error) {
+// RemoveRole, as the removal and the warning before it read them. key is the membership,
+// read as held by the caller. It writes nothing.
+func (m *Manager) judgeRoleRemoval(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
 	// A membership whose period is over makes nobody a tenant's administrator, and its
 	// removal is not the directory-only tenant's to hold.
 	ended, err := m.membershipEnded(ctx, txn, userID, key)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !ended {
 		if err := m.requireEnteringToChange(ctx, scope, key.Role, nil); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	switch {
 	case scope.IsGlobal() && key.Role == accesstypes.SuperAdministrator:
 		if err := m.requireSuperAdministrator(ctx, txn, "takes the Super administrator role away"); err != nil {
-			return nil, err
+			return err
 		}
 		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "take the role from them"); err != nil {
-			return nil, err
+			return err
 		}
 	case !ended && m.callerIs(ctx, userID):
 		if err := m.refuseLastAdministrator(ctx, txn, scope, ownRoleGone(key)); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	// What the person holds beside the membership: the roles of their own and the
 	// groups they are in, read from what has not ended (holds).
 	all, err := m.holds(ctx, txn, userID)
 	if err != nil {
-		return nil, err
-	}
-	if err := m.refuseLeavingSeveralTenants(all, key); err != nil {
-		return nil, err
+		return err
 	}
 
-	return &roleRemoval{ended: ended}, nil
+	return m.refuseLeavingSeveralTenants(all, key)
 }
 
 // RoleRemovalWarning answers the warning before the person's membership of the role in
@@ -121,7 +111,7 @@ func (m *Manager) RoleRemovalWarning(ctx context.Context, txn resource.ReadWrite
 	if !held {
 		return nil, roleNotHeld(username, scope, role)
 	}
-	if _, err := m.judgeRoleRemoval(ctx, txn, scope, userID, &key); err != nil {
+	if err := m.judgeRoleRemoval(ctx, txn, scope, userID, &key); err != nil {
 		return nil, err
 	}
 
@@ -149,7 +139,7 @@ func (t *Tenant) RoleRemovalWarning(ctx context.Context, txn resource.ReadWriteT
 	if key == nil {
 		return nil, roleNotHeld(username, t.scope(), role)
 	}
-	if _, err := t.manager.judgeRoleRemoval(ctx, txn, t.scope(), userID, key); err != nil {
+	if err := t.manager.judgeRoleRemoval(ctx, txn, t.scope(), userID, key); err != nil {
 		return nil, err
 	}
 	consequence := fmt.Sprintf(roleRemovalHereConsequence, username, roleInWords(role), t.manager.tenantWord)

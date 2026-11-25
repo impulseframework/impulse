@@ -87,8 +87,9 @@ CREATE TABLE CrewSessionUsers (
 CREATE UNIQUE INDEX CrewSessionUsersByNormalizedUsername ON CrewSessionUsers(NormalizedUsername);
 
 -- The crew's sessions: the session library's Auth sessions (session.Auth), one table for
--- every sign-in method registered on the Crew auth. A session belongs to a user, and
--- deleting the user deletes its sessions; UserId is null only for a role-principal
+-- every sign-in method registered on the Crew auth. A session names its user and is not
+-- held to it by a foreign key: a deleted user's sessions are ended in code, and their rows
+-- stay until the timed removal takes them. UserId is null only for a role-principal
 -- impersonation. ProviderSessionId is the identity provider's session id when the
 -- method reports one, for front-channel logout, and ProviderSessionIssuer the issuer it
 -- belongs to: a provider's session id is unique only within its issuer. Browser is the
@@ -110,7 +111,6 @@ CREATE TABLE CrewSessions (
     CreatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT FK_CrewSessions_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX CrewSessions_Expired_idx
@@ -257,8 +257,9 @@ CREATE TABLE MembersSessionUsers (
 CREATE UNIQUE INDEX MembersSessionUsersByNormalizedUsername ON MembersSessionUsers(NormalizedUsername);
 
 -- The members's sessions: the session library's Auth sessions (session.Auth), one table for
--- every sign-in method registered on the Members auth. A session belongs to a user, and
--- deleting the user deletes its sessions; UserId is null only for a role-principal
+-- every sign-in method registered on the Members auth. A session names its user and is not
+-- held to it by a foreign key: a deleted user's sessions are ended in code, and their rows
+-- stay until the timed removal takes them. UserId is null only for a role-principal
 -- impersonation. ProviderSessionId is the identity provider's session id when the
 -- method reports one, for front-channel logout, and ProviderSessionIssuer the issuer it
 -- belongs to: a provider's session id is unique only within its issuer. Browser is the
@@ -280,7 +281,6 @@ CREATE TABLE MembersSessions (
     CreatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT FK_MembersSessions_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX MembersSessions_Expired_idx
@@ -468,10 +468,9 @@ CREATE TABLE Hangars (
 -- hangars open to the requester and the hangars the requester runs, each through a pass
 -- in their own name, in the name of a squadron they fly with or in the name of a group
 -- they are in. A pass goes with its hangar and with the wing of its squadron, in code
--- (Hangar and Wing declare it), and with its group by the database's rule (the foreign
--- key to CrewGroups is added below that table). A squadron that holds a pass is not
--- deleted until the pass is. Its foreign key to its hangar
--- holds the sector beside the hangar's id, so a pass never names another sector's
+-- (Hangar and Wing declare it). The foreign key to CrewGroups is added below that table.
+-- A squadron that holds a pass is not deleted until the pass is. Its foreign key to its
+-- hangar holds the sector beside the hangar's id, so a pass never names another sector's
 -- hangar. The holder check counts the three columns and takes exactly one; an empty
 -- UserId names nobody and is not counted.
 CREATE TABLE HangarPasses (
@@ -873,9 +872,9 @@ CREATE TABLE CrewGroups (
 
 CREATE UNIQUE INDEX CrewGroupsByName ON CrewGroups (Kind, Axis, DomainId, Name);
 
--- A hangar pass may name a group as its holder. The pass goes with the group: deleting
--- a group leaves no pass that names it.
-ALTER TABLE HangarPasses ADD CONSTRAINT FK_HangarPasses_GroupId FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id) ON DELETE CASCADE;
+-- A hangar pass may name a group as its holder. The foreign key keeps a pass from naming
+-- a group that is gone.
+ALTER TABLE HangarPasses ADD CONSTRAINT FK_HangarPasses_GroupId FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id);
 
 CREATE TABLE CrewGroupMembers (
   GroupId STRING(36) NOT NULL,
