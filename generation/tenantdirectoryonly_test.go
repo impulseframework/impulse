@@ -965,6 +965,12 @@ func Test_directoryOnlyClient(t *testing.T) {
 				t.Fatalf("applyOutletFilter() error = %v", err)
 			}
 			gen.resources = filtered
+			// The filter notes the directories record the package declares before it drops
+			// what is off the outlet: the create-your-tenant route takes a directory wherever
+			// it is served, so every outlet's client carries the phrase of its statement.
+			if !gen.tenantDirectories {
+				t.Error("applyOutletFilter() did not note the package's directories record")
+			}
 			got := gen.tenantOwnClientData()
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Fatalf("tenantOwnClientData() mismatch (-want +got):\n%s", diff)

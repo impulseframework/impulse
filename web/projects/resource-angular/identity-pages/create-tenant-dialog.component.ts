@@ -63,7 +63,8 @@ export function openCreateTenantDialog(
  * opens the tenant's first page. The route is no resource or method of the client, so the
  * dialog posts with the application's HttpClient. A refusal is said in place and the
  * dialog stays open: a name another tenant carries in the form's words, anything else in
- * the server's.
+ * the server's. Where the creation would take a directory, every refusal is said in the
+ * server's words: another tenant may have the directory, and the server says what to do.
  *
  * Where the description carries the phrase of a creation that may take a directory
  * (`tenantCreation.warning`), the dialog asks the route's GET once on opening and holds
@@ -226,10 +227,13 @@ export class CreateTenantDialogComponent {
   /**
    * The sentence a refused create is said with. A name another tenant carries is the one
    * conflict the form can cause (the unique index on the name answers 409), so it is said
-   * in the form's words; anything else is the server's message where it gave one.
+   * in the form's words; anything else is the server's message where it gave one. A
+   * creation that would take the organization's directory is refused 409 too where another
+   * tenant has that directory, so where the statement was shown a conflict is said in the
+   * server's words, which say which it is and what to do.
    */
   private refusalOf(failure: unknown, name: string): string {
-    if (failure instanceof HttpErrorResponse && failure.status === 409) {
+    if (failure instanceof HttpErrorResponse && failure.status === 409 && !this.warned()) {
       const article = articleFor(this.word) === 'an' ? 'An' : 'A';
       return `${article} ${this.word} named ${name} already exists. Choose another name.`;
     }

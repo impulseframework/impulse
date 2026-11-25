@@ -1148,6 +1148,18 @@ func Test_apiClientData_tenantCreation_declaration(t *testing.T) {
 	if got.Typed != resource.TakeDirectoryPhrase {
 		t.Errorf("Typed = %q, want the phrase typed under the statement, %q", got.Typed, resource.TakeDirectoryPhrase)
 	}
+	// An outlet that serves the record and not its directories record carries the phrase
+	// too, once the outlet filter has noted that the package declares one.
+	alone, err := declarationResources(t, "Sector")
+	if err != nil {
+		t.Fatalf("declarationResources() error = %v", err)
+	}
+	for noted, want := range map[bool]string{false: "", true: resource.TakeDirectoryPhrase} {
+		off := &typescriptGenerator{client: alone.client, tenantCreation: tenantCreationBoth, tenantDirectories: noted}
+		if carried := off.tenantCreationClientData(); carried == nil || carried.Typed != want {
+			t.Errorf("the directories record off the outlet, noted %t: tenantCreationClientData() = %+v, want Typed %q", noted, carried, want)
+		}
+	}
 	for _, res := range tsg.resources {
 		for _, f := range res.Fields {
 			f.typescriptType = "string"

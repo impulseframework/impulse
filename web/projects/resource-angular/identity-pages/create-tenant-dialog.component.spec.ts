@@ -335,6 +335,26 @@ describe('CreateTenantDialogComponent, where the creation may take a directory',
     o.http.expectNone('/console/api/create-office');
   });
 
+  it('says a conflict in the server words where the creation would take a directory, which another tenant may have', async () => {
+    const o = await open(descriptorOf([{ name: 'name', required: true }], undefined, 'I am authorized'));
+    o.http.expectOne('/console/api/create-office').flush({ offered: true, warning: statement });
+    o.component.form.controls['name'].setValue('West');
+    await settled(o);
+    await type(o, 'I am authorized');
+    const sentence =
+      "Acme already has an office here, and a directory belongs to one office. Ask that office's administrator to invite you.";
+
+    const refused = o.component.create();
+    o.http
+      .expectOne('/console/api/create-office')
+      .flush({ message: sentence }, { status: 409, statusText: 'Conflict' });
+    await refused;
+    await settled(o);
+    expect(text(o, '.refusal')).toBe(sentence);
+    expect(o.events).toEqual([]);
+    expect(createButton(o).disabled).toBe(false);
+  });
+
   it('asks nothing where the description carries no phrase', async () => {
     const o = await open(descriptorOf([{ name: 'name', required: true }]));
     o.http.expectNone('/console/api/create-office');

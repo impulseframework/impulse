@@ -44,6 +44,11 @@ type typescriptGenerator struct {
 	// record cannot make it: the decision reads the outlets' auths, which this generator
 	// does not know.
 	tenantCreation tenantCreation
+	// tenantDirectories says the package declares a tenant's directories record,
+	// whichever outlets serve it: the outlet filter notes it before it drops the records
+	// off the target outlet (applyOutletFilter), since the create-your-tenant route takes
+	// a directory wherever it is served.
+	tenantDirectories bool
 	// directoryRolePicker mirrors the resourceGenerator's choice of the list the role of
 	// the method that opens a tenant to its directory is picked from: the roles that
 	// exist in one tenant, of the auth whose generated identity client judges the role
@@ -173,6 +178,9 @@ func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, compu
 		}
 	}
 	for _, res := range resources {
+		if res.IsTenantDirectory {
+			t.tenantDirectories = true
+		}
 		if res.declaresDirectoryOnly() && !res.OnOutlet(t.targetOutlet()) {
 			for _, method := range directoryOnlyMethodsOf(res.Name()) {
 				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))

@@ -719,9 +719,11 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 		}
 	}
 	// A creation takes the directory its creator signed in through only where the
-	// package declares a tenant's directories; whether this one does is the offer's to
-	// answer, which the dialog asks where the phrase is carried.
-	if directories != nil {
+	// package declares a tenant's directories, on whichever outlets: the route takes it
+	// wherever it is served, so the phrase is carried also where the outlet filter
+	// dropped the directories record (tenantDirectories). Whether this creation takes
+	// one is the offer's to answer, which the dialog asks where the phrase is carried.
+	if directories != nil || t.tenantDirectories {
 		out.Typed = resource.TakeDirectoryPhrase
 	}
 
