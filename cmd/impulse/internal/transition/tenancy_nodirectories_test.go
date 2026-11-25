@@ -397,7 +397,7 @@ func TestTenancyMeaning_tenantDirectories(t *testing.T) {
 		"Giving the application tenant directories later is the author's act and no command's: the directories record (`@tenantDirectory`) and its table with its two unique indexes, the directory-only column on `Tenant` (`@directoryOnly`), each auth's directory reader and admission (`SetDirectoryAdmission`), the grants on the generated methods and the tenant's Sign-in page, as an application made with tenant directories has them (the tenanted skeleton); no `impulse add method` does it.",
 		"where the auth has a sign-in method through an organization's directory, an invited person accepts through it and is seated, a person of the same organization with no invitation is refused as a stranger while the method is invite only, with no account made, and no route of the API sets a tenant's directory.",
 		"and no menu for Sign-in settings, since no tenant has a directory to set there, each showing in its place only;",
-		"Sign-up. No tenant declares who may enter it, so there are no grants to give on a directories record and no Sign-in page to place.",
+		"Sign-up. No tenant has a directory, so there are no grants to give on a directories record and no Sign-in page to place.",
 		"that person's first sign-in makes the tenant and gives them the roles `TenantAdministratorRoles()` names, in one transaction, however they signed in.",
 		"which reads whether each tenant is disabled and nothing else: a tenant that is not disabled admits everyone it seats, however they signed in,",
 		"is handed to `resource.SessionPermissions` as in an application whose tenants have directories, and reads whether each tenant is disabled and nothing else.",

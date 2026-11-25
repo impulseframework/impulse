@@ -395,10 +395,10 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 // whatever the person acted as may do. No role the release ships deletes a sector, so
 // the suite makes one that does and gives it to the governor, as the suite of a deleted
 // sector does, and he disables the sector first, as Headquarters does: a sector is
-// disabled before it is deleted. The cadet, standing in for the governor, is refused the delete of a
-// disabled sector founded for the test: the sector stands, and so does every role held
-// in the crew. The governor, in a session of his own, then deletes it: the grant was
-// there all along, and the class is what refused.
+// disabled before it is deleted. The cadet, standing in for the governor, is refused
+// the delete of a disabled sector founded for the test: the sector stands, and so does
+// every role held in the crew. The governor, in a session of his own, then deletes it:
+// the grant was there all along, and the class is what refused.
 //
 // Demonstrates: impersonation.mask, impersonation.act-as-user, tenancy.deleted-tenant.
 func TestImpersonation_sectorDeletedActingAsAPerson(t *testing.T) {
