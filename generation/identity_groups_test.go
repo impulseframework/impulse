@@ -165,6 +165,10 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"func (store) InsertGroup(ctx context.Context, txn resource.ReadWriteTransaction, group *access.GroupRow) (impulse.UUID, error) {",
 			"func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {",
 			"patch := crewresources.NewCrewGroupDeletePatch(id)\n\tif everythingUnder {\n\t\tpatch = patch.WithEverythingUnder()\n\t}",
+			// The tenant's delete takes the application's rows under the tenant, so a group
+			// it takes leaves them out.
+			"func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {",
+			"patch := crewresources.NewCrewGroupDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()",
 			"return patch.Left(), nil",
 			"Where(clause.Kind().Equal(place.Kind).And().Axis().Equal(place.Axis).And().DomainID().Equal(place.Domain).And().Name().Equal(place.Name))",
 			"crewresources.NewCrewGroupMemberQueryClause().UserID().Equal(userID.String())",
@@ -181,6 +185,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			`var errNoGroups = errors.New("the Members auth keeps no groups of people: its groups are not managed here")`,
 			"func (store) UserGroups(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]identity.GroupPlace, error) {\n\treturn nil, nil\n}",
 			"func (store) InsertGroupMember(context.Context, resource.ReadWriteTransaction, *access.GroupMemberKey) (bool, error) {\n\treturn false, errNoGroups\n}",
+			"func (store) DeleteGroupWithTenant(context.Context, resource.ReadWriteTransaction, impulse.UUID) (*resource.DeleteLeft, error) {\n\treturn nil, errNoGroups\n}",
 		},
 	} {
 		content := readTreeFile(t, file)

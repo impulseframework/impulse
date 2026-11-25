@@ -97,6 +97,7 @@ func (c *client) extractResources(structs []*parser.Struct, validators ...struct
 
 			continue
 		}
+		markDeletedWith(pStruct, fields, annotations)
 
 		if err := c.resolveResource(resource, pStruct, annotations, structsByTable, table); err != nil {
 			resourceErrors = append(resourceErrors, err)

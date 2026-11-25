@@ -195,7 +195,8 @@ func TestManager_TenantKinds_counts(t *testing.T) {
 // its sessions ended; cara's and evan's accounts stay, their memberships in alpha going
 // with the roles held. A membership an account took is found and deleted again with the
 // roles held, as every delete in a save finds the rows the database held before it. The
-// group goes with everything under it, then the custom roles of alpha and its
+// group goes with everything under it, through the store's delete of a group that goes
+// with its tenant and never its plain delete, then the custom roles of alpha and its
 // invitation. The permission engine is told once, after the commit.
 func TestManager_TenantKinds_takeEverything(t *testing.T) {
 	t.Parallel()
@@ -249,7 +250,7 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 		"delete membership " + membershipText(&caraAlpha),
 		"delete membership " + membershipText(&evanAlpha),
 		"delete group role " + groupRoleText(&staffInAlpha),
-		"delete group " + nightID.String() + " with everything under it",
+		"delete group " + nightID.String() + " with its tenant",
 		"delete the custom roles of alpha",
 		"consume mail link " + invited.String(),
 	}
@@ -367,7 +368,7 @@ func TestManager_TenantKinds_otherKindsInRounds(t *testing.T) {
 			name: "groups: the group's own delete left rows under it", kind: 2, budget: 4,
 			groupLeft:  &resource.DeleteLeft{Deleted: 2, Left: 1},
 			want:       takenRows{Mutations: 4, More: true},
-			wantWrites: []string{"delete group " + nightID.String() + " with everything under it"},
+			wantWrites: []string{"delete group " + nightID.String() + " with its tenant"},
 		},
 		{
 			name: "custom roles: no room", kind: 3, budget: 0,
@@ -457,8 +458,9 @@ func TestManager_TenantKinds_sessionsCost(t *testing.T) {
 // than a save has room for: each save takes what fits of it, its members and then its
 // role, one at a time, answering no row, the mutations spent and that rows are left, and
 // the engine is told at each commit; the save in which what is left of the group fits
-// deletes it through the store's delete of a group, once, and says nothing is left. No
-// member or role is deleted twice.
+// deletes it through the store's delete of a group that goes with its tenant
+// (DeleteGroupWithTenant), once, and says nothing is left. No member or role is deleted
+// twice.
 func TestManager_TenantKinds_aGroupInParts(t *testing.T) {
 	t.Parallel()
 
@@ -515,7 +517,7 @@ func TestManager_TenantKinds_aGroupInParts(t *testing.T) {
 		"delete group member " + nightID.String() + " " + benID.String(),
 		"delete group member " + nightID.String() + " " + caraID.String(),
 		"delete group role " + groupRoleText(&nightInAlpha),
-		"delete group " + nightID.String() + " with everything under it",
+		"delete group " + nightID.String() + " with its tenant",
 	}
 	if diff := cmp.Diff(wantWrites, store.writes); diff != "" {
 		t.Errorf("buffered writes (-want +got):\n%s", diff)

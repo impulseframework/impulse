@@ -120,6 +120,19 @@ func (f *fakeStore) DeleteGroup(_ context.Context, _ resource.ReadWriteTransacti
 	return nil, nil
 }
 
+// DeleteGroupWithTenant buffers the delete of a group that goes with its tenant as the
+// generated store does: its members and roles with it, and nothing of the application's.
+// The write it records says which of the two deletes was called. What one save left is
+// f.groupLeft.
+func (f *fakeStore) DeleteGroupWithTenant(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {
+	if err := f.fail("DeleteGroupWithTenant"); err != nil {
+		return nil, err
+	}
+	f.writes = append(f.writes, "delete group "+id.String()+" with its tenant")
+
+	return f.groupLeft, nil
+}
+
 func (f *fakeStore) TenantGroups(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
 	if err := f.fail("TenantGroups"); err != nil {
 		return nil, err

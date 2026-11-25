@@ -129,6 +129,16 @@ type deleteKind struct {
 	// role in it; the method that deletes a group asks what removing each member and
 	// each role asks. The kind's delete rule is asked all the same.
 	Trusted bool
+	// AsCaller marks a kind of the application's in the description of a record of an
+	// auth's (resource.DeleteKind.AsCaller): the library deletes the record after its
+	// method asked the caller's grant on it, and the kind's rows are checked as that
+	// caller.
+	AsCaller bool
+	// Package is the package that declares the kind's record where it is not the
+	// description's own: a kind of the application's that a record of an auth's takes.
+	// Its rows are deleted through the function that package declares for it
+	// (<Name>TakenRows), and empty for a kind of the description's own package.
+	Package string
 	// Subject marks an armed kind whose record decides what a person may do
 	// (resourceInfo.SubjectGuarded): the delete of one of its rows also asks the
 	// record's questions as a removal (RefuseImpersonatorAs<Name>Subject), as the
@@ -837,6 +847,9 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 		if kind.Trusted {
 			b.WriteString("Trusted: true,\n")
 		}
+		if kind.AsCaller {
+			b.WriteString("AsCaller: true,\n")
+		}
 		if kind.Deletes {
 			writeTakenRows(b, kind)
 		}
@@ -869,22 +882,37 @@ func linkLiteral(link deleteLink) string {
 // that decides what a person may do is also asked that record's questions as a removal
 // (RefuseImpersonatorAs<Name>Subject), which the record's own write asks. A kind the
 // tenant record's delete takes (Trusted) is never armed: the closure takes no caller,
-// and only the kind's delete rule is asked of the row.
+// and only the kind's delete rule is asked of the row. A kind of another package's is
+// deleted through the function that package declares for it (<Name>TakenRows), which
+// is written as this one would be written in the package's own description.
 func writeTakenRows(b *strings.Builder, kind *deleteKind) {
-	if kind.Trusted {
-		if !kind.Rule {
-			fmt.Fprintf(b, "Rows: resource.NewTakenRows(func(*resource.PatchSet[%s], *resource.Caller) {}),\n", kind.Name)
-
-			return
-		}
-		fmt.Fprintf(b, "Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[%s], _ *resource.Caller) {\n", kind.Name)
-		fmt.Fprintf(b, "patch := &%sDeletePatch{patchSet: patchSet}\n", kind.Name)
-		b.WriteString("patch.registerValidateFunc()\n")
-		b.WriteString("}),\n")
+	if kind.Package != "" {
+		fmt.Fprintf(b, "Rows: %s.%sTakenRows(),\n", kind.Package, kind.Name)
 
 		return
 	}
-	fmt.Fprintf(b, "Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[%s], caller *resource.Caller) {\n", kind.Name)
+	b.WriteString("Rows: ")
+	writeTakenRowsValue(b, kind)
+	b.WriteString(",\n")
+}
+
+// writeTakenRowsValue writes the value writeTakenRows gives a kind (resource.NewTakenRows),
+// on lines of its own.
+func writeTakenRowsValue(b *strings.Builder, kind *deleteKind) {
+	if kind.Trusted {
+		if !kind.Rule {
+			fmt.Fprintf(b, "resource.NewTakenRows(func(*resource.PatchSet[%s], *resource.Caller) {})", kind.Name)
+
+			return
+		}
+		fmt.Fprintf(b, "resource.NewTakenRows(func(patchSet *resource.PatchSet[%s], _ *resource.Caller) {\n", kind.Name)
+		fmt.Fprintf(b, "patch := &%sDeletePatch{patchSet: patchSet}\n", kind.Name)
+		b.WriteString("patch.registerValidateFunc()\n")
+		b.WriteString("})")
+
+		return
+	}
+	fmt.Fprintf(b, "resource.NewTakenRows(func(patchSet *resource.PatchSet[%s], caller *resource.Caller) {\n", kind.Name)
 	fmt.Fprintf(b, "patch := &%sDeletePatch{patchSet: patchSet}\n", kind.Name)
 	if kind.Rule {
 		b.WriteString("patch.registerValidateFunc()\n")
@@ -897,7 +925,7 @@ func writeTakenRows(b *strings.Builder, kind *deleteKind) {
 		b.WriteString("})\n")
 	}
 	b.WriteString("}\n")
-	b.WriteString("}),\n")
+	b.WriteString("})")
 }
 
 // mayBeEmptyLiteral is the field a step that may be empty adds to its literal, and

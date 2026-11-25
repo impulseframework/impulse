@@ -51,11 +51,20 @@ type GroupStore interface {
 	// DescribeGroup buffers a new description on a group.
 	DescribeGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, description string) error
 	// DeleteGroup buffers the delete of a group, which takes its members and the roles
-	// it holds with it (the group's @deleteCascade). Told everythingUnder, it takes them;
-	// not told, a group with either deletes nothing and answers the question a person is
-	// asked first (428). It answers what one save left (nil where the group went), and
-	// is not armed against a caller: the rows are taken trusted.
+	// it holds with it (the group's @deleteCascade). It takes with them the application's
+	// rows that name the group in a column that says so (@deletedWith), each checked as
+	// the request's caller, and is refused while a row names the group in a column that
+	// does not. Told everythingUnder, it takes them; not told, a group with either deletes
+	// nothing and answers the question a person is asked first (428). It answers what one
+	// save left (nil where the group went), and is not armed against a caller: the rows
+	// are taken trusted.
 	DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error)
+	// DeleteGroupWithTenant buffers the delete of a group that goes with its tenant: its
+	// members and the roles it holds with it, and nothing of the application's. The
+	// tenant's delete takes the application's rows under the tenant itself, on its one
+	// permission, so the rows that name the group are neither counted, asked about nor
+	// taken here. It answers what one save left, as DeleteGroup does.
+	DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error)
 	// TenantGroups lists the groups kept in one tenant.
 	TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
 
