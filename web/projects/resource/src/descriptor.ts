@@ -128,6 +128,33 @@ export interface DomainRouteDescriptor {
 }
 
 /**
+ * The create-your-tenant route, where the outlet serves it: a signed-in person who holds no
+ * tenant creates one and becomes its administrator. `route` is the route under the API
+ * prefix (POST creates; GET answers `{ offered: boolean }`, whether the person may create
+ * one now, with the statement of `warning` where the creation would take a directory),
+ * `resource` the tenant record's resource, whose metadata says how each field is drawn,
+ * `key` the name the answer carries the new tenant's id under, `fields` the body's fields
+ * in order, each with whether the route requires it, and `warning` the phrase a person
+ * types under the statement in front of a creation that takes their organization's
+ * directory. Absent where the application's tenants are not made this way, and on a
+ * description from a generator that predates it.
+ */
+export interface TenantCreationDescriptor {
+  readonly route: string;
+  readonly resource: string;
+  readonly key: string;
+  readonly fields: readonly { readonly name: string; readonly required: boolean }[];
+  /**
+   * Where the application's tenants have directories: the phrase a person types under the
+   * statement the GET answers when the creation would take the organization's directory
+   * they signed in through, which happens only in an application that holds a person to
+   * one tenant. The dialog asks the GET before it lets the person create, and asks
+   * nothing where this is absent.
+   */
+  readonly warning?: { readonly typed: string };
+}
+
+/**
  * Everything the client needs to know about one generated API. The impulse TypeScript
  * generator emits it; the runtime interprets it. Routes carry no API prefix — the
  * client's `baseUrl` supplies it.
@@ -144,6 +171,7 @@ export interface ApiDescriptor {
   resources: Record<string, ResourceDescriptor>;
   methods: Record<string, MethodDescriptor>;
   domainRoute?: DomainRouteDescriptor;
+  tenantCreation?: TenantCreationDescriptor;
   /** The consolidated mutation route (`resources`), when consolidation is enabled. */
   consolidatedRoute?: string;
   permissionDigestRoute: string;
@@ -199,9 +227,12 @@ export interface IdentityDescriptor {
   /**
    * The tenant record's resource, where the outlet serves it. A list of the whole
    * application's side carries the key of the tenant a role or an invitation is in, an
-   * id nobody reads: the pages read the tenant's name from this resource (its metadata's
-   * `nameField`). Absent where the outlet does not serve the record, or on a description
-   * from a generator that predates it, and the pages show the key.
+   * id nobody reads, and the tenant's name beside it where every outlet that serves the
+   * Auth's management serves the record. The pages read from this resource's metadata the
+   * field the record's rows are known by (`nameField`): where the record marks none, the
+   * key is all a cell can show. Absent where the outlet does not serve the record, or on
+   * a description from a generator that predates it: the pages then name a tenant from
+   * the reader's own list of tenants, or in words.
    */
   readonly tenantResource?: string;
   /**
@@ -212,6 +243,15 @@ export interface IdentityDescriptor {
    * description from a generator that predates it.
    */
   readonly tenantDirectoryOnlyField?: string;
+  /**
+   * The tenant record's field that says when a tenant was made, as the wire names it, where
+   * the outlet serves the record and the record marks one (`@tenantSince`). The list of
+   * tenants carries the same moment as `since`. The tenants page leaves this field out of a
+   * tenant's form where its summary says Since, and shows it as the Since column where it
+   * lists the record itself. Absent where the record marks none, and on a description from a
+   * generator that predates it.
+   */
+  readonly tenantSinceField?: string;
   /**
    * The directories that decide the Auth's roles, in the words of its login page's
    * buttons ("Google", "Google or Microsoft"), where a directory writes them at every
@@ -314,6 +354,17 @@ export interface IdentityLists {
    */
   readonly invitedTenants?: string;
   /**
+   * The tenants, on the whole application's side of the Auth whose people make them: a row
+   * for each tenant with the tenant record's own fields, when the tenant was made where the
+   * record marks that column (`since`), and what no table holds of it: how many people it
+   * has (`people`), the kind of directory its people sign in through (`directory`) and who
+   * administers it (`administrators`). The list is a view over the tenant record, so a row
+   * opens the record. Absent where the Auth makes no tenants, where the outlet does not serve
+   * the record, and on a description from a generator that predates it; a page then lists the
+   * record itself.
+   */
+  readonly tenants?: string;
+  /**
    * The roles held for a set time and for a reason, on the whole application's side: what
    * the Break glass page lists, each with whether its time is over (`ended`).
    */
@@ -330,7 +381,8 @@ export interface IdentityLists {
  * no row. On a tenant's side `assignRole` runs against a person and
  * `removeRole` against a role held; on the whole application's side both take the
  * person's name, since a role may be held by a name that has no account.
- * `withdrawInvitation` runs against an invitation, `unlinkIdentity` against an identity,
+ * `withdrawInvitation` and `resendInvitation` run against an invitation,
+ * `unlinkIdentity` against an identity,
  * `endSession` against a session, `unlockSignIn` against a counted name, `openSignUp`
  * and `makeInviteOnly` name a sign-in method, which the page fills from its row, and the
  * rest run against a person. The methods over groups: `createGroup` names no row;
@@ -339,7 +391,7 @@ export interface IdentityLists {
  * against a role a group holds on a tenant's side, while the whole application's takes
  * the group's id and where the role is held. `removeFromTenant`, a tenant's side alone,
  * runs against a person: it takes away everything the person holds in the tenant itself,
- * and warns first, in the server's words, whether the account goes with it. `inviteTenant` names no row: it takes the
+ * and warns first, in the server's words, which roles go. `inviteTenant` names no row: it takes the
  * invited address and the tenant record's fields, and sends the invitation whose first
  * sign-in makes the tenant; `withdrawInvitedTenant` takes such an invitation's id
  * (`invitationId`), which the page fills from its row. `takeRole` names no row and no
@@ -348,6 +400,7 @@ export interface IdentityLists {
 export interface IdentityMethods {
   readonly invite?: string;
   readonly withdrawInvitation?: string;
+  readonly resendInvitation?: string;
   readonly assignRole?: string;
   readonly removeRole?: string;
   readonly disable?: string;
@@ -382,13 +435,16 @@ export interface IdentityMethods {
   readonly withdrawInvitedTenant?: string;
   readonly takeRole?: string;
   /**
-   * On a tenant's side, how the tenant's people enter: `openToDirectory` names the role a
-   * person gets the first time they sign in through the tenant's directory,
-   * `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and `endDirectoryOnly`
-   * turn the directory-only switch, and `vouchForDirectorySecondFactor` and
+   * On a tenant's side, how the tenant's people enter: `takeDirectory` makes the
+   * directory the caller is signed in through the tenant's own, behind the statement that
+   * they are authorized to act for the organization, `openToDirectory` names the role a
+   * person gets when they sign in through the tenant's directory and hold nothing in the
+   * tenant, `makeDirectoryInviteOnly` clears it, and `makeDirectoryOnly` and
+   * `endDirectoryOnly` turn the directory-only switch, and `vouchForDirectorySecondFactor` and
    * `stopVouchingForDirectorySecondFactor` say, and take back, that the tenant's
    * directory asks its people for a second factor of its own. None names a row.
    */
+  readonly takeDirectory?: string;
   readonly openToDirectory?: string;
   readonly makeDirectoryInviteOnly?: string;
   readonly makeDirectoryOnly?: string;

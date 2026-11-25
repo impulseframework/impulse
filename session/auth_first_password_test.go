@@ -155,6 +155,8 @@ func firstPasswordCase1(t *testing.T) {
 	}
 	if row := links.last(t); row.ConsumedAt == nil {
 		t.Error("the code still stands after it wrote the password, want it ended")
+	} else if links.takenBack(row.ID) {
+		t.Error("the code that wrote the password was ended as withdrawn, want it consumed: it was used")
 	}
 	if record := f.attemptsRecord("MAIL:pat@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the code was used = %+v, want none", record)
@@ -248,8 +250,10 @@ func firstPasswordCase3(t *testing.T) {
 	if got := decoded(t, rr)["message"]; got != "Too many wrong codes were entered. Ask for a new code in 15 minutes" {
 		t.Errorf("the fifth wrong code said %q, want it to say wrong codes were what was held and when to ask again", got)
 	}
-	if links.last(t).ConsumedAt == nil {
+	if row := links.last(t); row.ConsumedAt == nil {
 		t.Error("the code stands after five wrong ones, want it ended")
+	} else if !links.takenBack(row.ID) {
+		t.Error("the code ended after five wrong ones is not marked withdrawn, want it taken back")
 	}
 
 	// The account is held: the right code is taken no more, and no new one is mailed.

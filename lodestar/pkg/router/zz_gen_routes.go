@@ -43,6 +43,10 @@ const (
 	CrewGroupUserGroupID              httpio.ParamType = "crewGroupUserGroupID"
 	CrewGroupUserUserID               httpio.ParamType = "crewGroupUserUserID"
 	CrewListedGroupID                 httpio.ParamType = "crewListedGroupID"
+	CrewListedIdentityID              httpio.ParamType = "crewListedIdentityID"
+	CrewListedMailLinkID              httpio.ParamType = "crewListedMailLinkID"
+	CrewListedSectorID                httpio.ParamType = "crewListedSectorID"
+	CrewListedSessionID               httpio.ParamType = "crewListedSessionID"
 	CrewListedUserID                  httpio.ParamType = "crewListedUserID"
 	CrewSectorGroupID                 httpio.ParamType = "crewSectorGroupID"
 	CrewSectorGroupRoleGroupID        httpio.ParamType = "crewSectorGroupRoleGroupID"
@@ -75,6 +79,9 @@ const (
 	FeeByKindKindID                   httpio.ParamType = "feeByKindKindID"
 	HangarID                          httpio.ParamType = "hangarID"
 	HangarPassID                      httpio.ParamType = "hangarPassID"
+	MembersListedIdentityID           httpio.ParamType = "membersListedIdentityID"
+	MembersListedMailLinkID           httpio.ParamType = "membersListedMailLinkID"
+	MembersListedSessionID            httpio.ParamType = "membersListedSessionID"
 	MembersListedUserID               httpio.ParamType = "membersListedUserID"
 	MembersSectorIdentityID           httpio.ParamType = "membersSectorIdentityID"
 	MembersSectorInvitationID         httpio.ParamType = "membersSectorInvitationID"
@@ -216,7 +223,21 @@ type GeneratedHandlers interface {
 
 	CrewListedGroupRoles() http.HandlerFunc
 
+	CrewListedIdentities() http.HandlerFunc
+	CrewListedIdentity() http.HandlerFunc
+
+	CrewListedMailLinks() http.HandlerFunc
+	CrewListedMailLink() http.HandlerFunc
+
 	CrewListedRoleGrants() http.HandlerFunc
+
+	CrewListedSectors() http.HandlerFunc
+	CrewListedSector() http.HandlerFunc
+
+	CrewListedSessions() http.HandlerFunc
+	CrewListedSession() http.HandlerFunc
+
+	CrewListedSignInAttempts() http.HandlerFunc
 
 	CrewListedUsers() http.HandlerFunc
 	CrewListedUser() http.HandlerFunc
@@ -323,6 +344,7 @@ type GeneratedHandlers interface {
 	DescribeCrewSectorGroup() http.HandlerFunc
 
 	TenantSignInSettings() http.HandlerFunc
+	TakeSectorDirectory() http.HandlerFunc
 	MakeSectorDirectoryOnly() http.HandlerFunc
 	EndSectorDirectoryOnly() http.HandlerFunc
 	OpenSectorToDirectory() http.HandlerFunc
@@ -418,7 +440,18 @@ type GeneratedHandlers interface {
 
 	MembersHeldRoles() http.HandlerFunc
 
+	MembersListedIdentities() http.HandlerFunc
+	MembersListedIdentity() http.HandlerFunc
+
+	MembersListedMailLinks() http.HandlerFunc
+	MembersListedMailLink() http.HandlerFunc
+
 	MembersListedRoleGrants() http.HandlerFunc
+
+	MembersListedSessions() http.HandlerFunc
+	MembersListedSession() http.HandlerFunc
+
+	MembersListedSignInAttempts() http.HandlerFunc
 
 	MembersListedUsers() http.HandlerFunc
 	MembersListedUser() http.HandlerFunc
@@ -546,6 +579,10 @@ type GeneratedHandlers interface {
 	RequireCrewSectorPasswordChange() http.HandlerFunc
 
 	RequireMembersSecondFactor() http.HandlerFunc
+
+	ResendCrewInvitation() http.HandlerFunc
+
+	ResendCrewSectorInvitation() http.HandlerFunc
 
 	ResumeMission() http.HandlerFunc
 
@@ -840,9 +877,45 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/crew-listed-group-roles", crewListedGroupRolesHandler)
 	bounded.Post("/console/api/crew-listed-group-roles", crewListedGroupRolesHandler)
 
+	crewListedIdentitiesHandler := h.CrewListedIdentities()
+	bounded.Get("/console/api/crew-listed-identities", crewListedIdentitiesHandler)
+	bounded.Post("/console/api/crew-listed-identities", crewListedIdentitiesHandler)
+
+	crewListedIdentityHandler := h.CrewListedIdentity()
+	bounded.Get("/console/api/crew-listed-identities/{crewListedIdentityID}", crewListedIdentityHandler)
+	bounded.Post("/console/api/crew-listed-identities/{crewListedIdentityID}", crewListedIdentityHandler)
+
+	crewListedMailLinksHandler := h.CrewListedMailLinks()
+	bounded.Get("/console/api/crew-listed-mail-links", crewListedMailLinksHandler)
+	bounded.Post("/console/api/crew-listed-mail-links", crewListedMailLinksHandler)
+
+	crewListedMailLinkHandler := h.CrewListedMailLink()
+	bounded.Get("/console/api/crew-listed-mail-links/{crewListedMailLinkID}", crewListedMailLinkHandler)
+	bounded.Post("/console/api/crew-listed-mail-links/{crewListedMailLinkID}", crewListedMailLinkHandler)
+
 	crewListedRoleGrantsHandler := h.CrewListedRoleGrants()
 	bounded.Get("/console/api/crew-listed-role-grants", crewListedRoleGrantsHandler)
 	bounded.Post("/console/api/crew-listed-role-grants", crewListedRoleGrantsHandler)
+
+	crewListedSectorsHandler := h.CrewListedSectors()
+	bounded.Get("/console/api/crew-listed-sectors", crewListedSectorsHandler)
+	bounded.Post("/console/api/crew-listed-sectors", crewListedSectorsHandler)
+
+	crewListedSectorHandler := h.CrewListedSector()
+	bounded.Get("/console/api/crew-listed-sectors/{crewListedSectorID}", crewListedSectorHandler)
+	bounded.Post("/console/api/crew-listed-sectors/{crewListedSectorID}", crewListedSectorHandler)
+
+	crewListedSessionsHandler := h.CrewListedSessions()
+	bounded.Get("/console/api/crew-listed-sessions", crewListedSessionsHandler)
+	bounded.Post("/console/api/crew-listed-sessions", crewListedSessionsHandler)
+
+	crewListedSessionHandler := h.CrewListedSession()
+	bounded.Get("/console/api/crew-listed-sessions/{crewListedSessionID}", crewListedSessionHandler)
+	bounded.Post("/console/api/crew-listed-sessions/{crewListedSessionID}", crewListedSessionHandler)
+
+	crewListedSignInAttemptsHandler := h.CrewListedSignInAttempts()
+	bounded.Get("/console/api/crew-listed-sign-in-attempts", crewListedSignInAttemptsHandler)
+	bounded.Post("/console/api/crew-listed-sign-in-attempts", crewListedSignInAttemptsHandler)
 
 	crewListedUsersHandler := h.CrewListedUsers()
 	bounded.Get("/console/api/crew-listed-users", crewListedUsersHandler)
@@ -1072,6 +1145,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/console/api/sectors/{sectorID}/sign-in-settings", domainGuard(h.TenantSignInSettings()))
 
+	asked.Post("/console/api/sectors/{sectorID}/take-sector-directory", domainGuard(h.TakeSectorDirectory()))
+
 	asked.Post("/console/api/sectors/{sectorID}/make-sector-directory-only", domainGuard(h.MakeSectorDirectoryOnly()))
 
 	asked.Post("/console/api/sectors/{sectorID}/end-sector-directory-only", domainGuard(h.EndSectorDirectoryOnly()))
@@ -1216,9 +1291,37 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/members-held-roles", membersHeldRolesHandler)
 	bounded.Post("/console/api/members-held-roles", membersHeldRolesHandler)
 
+	membersListedIdentitiesHandler := h.MembersListedIdentities()
+	bounded.Get("/console/api/members-listed-identities", membersListedIdentitiesHandler)
+	bounded.Post("/console/api/members-listed-identities", membersListedIdentitiesHandler)
+
+	membersListedIdentityHandler := h.MembersListedIdentity()
+	bounded.Get("/console/api/members-listed-identities/{membersListedIdentityID}", membersListedIdentityHandler)
+	bounded.Post("/console/api/members-listed-identities/{membersListedIdentityID}", membersListedIdentityHandler)
+
+	membersListedMailLinksHandler := h.MembersListedMailLinks()
+	bounded.Get("/console/api/members-listed-mail-links", membersListedMailLinksHandler)
+	bounded.Post("/console/api/members-listed-mail-links", membersListedMailLinksHandler)
+
+	membersListedMailLinkHandler := h.MembersListedMailLink()
+	bounded.Get("/console/api/members-listed-mail-links/{membersListedMailLinkID}", membersListedMailLinkHandler)
+	bounded.Post("/console/api/members-listed-mail-links/{membersListedMailLinkID}", membersListedMailLinkHandler)
+
 	membersListedRoleGrantsHandler := h.MembersListedRoleGrants()
 	bounded.Get("/console/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 	bounded.Post("/console/api/members-listed-role-grants", membersListedRoleGrantsHandler)
+
+	membersListedSessionsHandler := h.MembersListedSessions()
+	bounded.Get("/console/api/members-listed-sessions", membersListedSessionsHandler)
+	bounded.Post("/console/api/members-listed-sessions", membersListedSessionsHandler)
+
+	membersListedSessionHandler := h.MembersListedSession()
+	bounded.Get("/console/api/members-listed-sessions/{membersListedSessionID}", membersListedSessionHandler)
+	bounded.Post("/console/api/members-listed-sessions/{membersListedSessionID}", membersListedSessionHandler)
+
+	membersListedSignInAttemptsHandler := h.MembersListedSignInAttempts()
+	bounded.Get("/console/api/members-listed-sign-in-attempts", membersListedSignInAttemptsHandler)
+	bounded.Post("/console/api/members-listed-sign-in-attempts", membersListedSignInAttemptsHandler)
 
 	membersListedUsersHandler := h.MembersListedUsers()
 	bounded.Get("/console/api/members-listed-users", membersListedUsersHandler)
@@ -1475,6 +1578,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/sectors/{sectorID}/require-crew-sector-password-change", domainGuard(h.RequireCrewSectorPasswordChange()))
 
 	asked.Post("/console/api/require-members-second-factor", h.RequireMembersSecondFactor())
+
+	asked.Post("/console/api/resend-crew-invitation", h.ResendCrewInvitation())
+
+	asked.Post("/console/api/sectors/{sectorID}/resend-crew-sector-invitation", domainGuard(h.ResendCrewSectorInvitation()))
 
 	asked.Post("/console/api/sectors/{sectorID}/resume-mission", domainGuard(h.ResumeMission()))
 
@@ -1821,7 +1928,18 @@ type GeneratedPortalHandlers interface {
 
 	MembersHeldRoles() http.HandlerFunc
 
+	MembersListedIdentities() http.HandlerFunc
+	MembersListedIdentity() http.HandlerFunc
+
+	MembersListedMailLinks() http.HandlerFunc
+	MembersListedMailLink() http.HandlerFunc
+
 	MembersListedRoleGrants() http.HandlerFunc
+
+	MembersListedSessions() http.HandlerFunc
+	MembersListedSession() http.HandlerFunc
+
+	MembersListedSignInAttempts() http.HandlerFunc
 
 	MembersListedUsers() http.HandlerFunc
 	MembersListedUser() http.HandlerFunc
@@ -2012,9 +2130,37 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-held-roles", membersHeldRolesHandler)
 	bounded.Post("/portal/api/members-held-roles", membersHeldRolesHandler)
 
+	membersListedIdentitiesHandler := h.MembersListedIdentities()
+	bounded.Get("/portal/api/members-listed-identities", membersListedIdentitiesHandler)
+	bounded.Post("/portal/api/members-listed-identities", membersListedIdentitiesHandler)
+
+	membersListedIdentityHandler := h.MembersListedIdentity()
+	bounded.Get("/portal/api/members-listed-identities/{membersListedIdentityID}", membersListedIdentityHandler)
+	bounded.Post("/portal/api/members-listed-identities/{membersListedIdentityID}", membersListedIdentityHandler)
+
+	membersListedMailLinksHandler := h.MembersListedMailLinks()
+	bounded.Get("/portal/api/members-listed-mail-links", membersListedMailLinksHandler)
+	bounded.Post("/portal/api/members-listed-mail-links", membersListedMailLinksHandler)
+
+	membersListedMailLinkHandler := h.MembersListedMailLink()
+	bounded.Get("/portal/api/members-listed-mail-links/{membersListedMailLinkID}", membersListedMailLinkHandler)
+	bounded.Post("/portal/api/members-listed-mail-links/{membersListedMailLinkID}", membersListedMailLinkHandler)
+
 	membersListedRoleGrantsHandler := h.MembersListedRoleGrants()
 	bounded.Get("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
 	bounded.Post("/portal/api/members-listed-role-grants", membersListedRoleGrantsHandler)
+
+	membersListedSessionsHandler := h.MembersListedSessions()
+	bounded.Get("/portal/api/members-listed-sessions", membersListedSessionsHandler)
+	bounded.Post("/portal/api/members-listed-sessions", membersListedSessionsHandler)
+
+	membersListedSessionHandler := h.MembersListedSession()
+	bounded.Get("/portal/api/members-listed-sessions/{membersListedSessionID}", membersListedSessionHandler)
+	bounded.Post("/portal/api/members-listed-sessions/{membersListedSessionID}", membersListedSessionHandler)
+
+	membersListedSignInAttemptsHandler := h.MembersListedSignInAttempts()
+	bounded.Get("/portal/api/members-listed-sign-in-attempts", membersListedSignInAttemptsHandler)
+	bounded.Post("/portal/api/members-listed-sign-in-attempts", membersListedSignInAttemptsHandler)
 
 	membersListedUsersHandler := h.MembersListedUsers()
 	bounded.Get("/portal/api/members-listed-users", membersListedUsersHandler)

@@ -175,6 +175,161 @@ func TestTenancy_Apply_leavesTheConditionsWhereNoTestProvesThem(t *testing.T) {
 			if !strings.Contains(meaning, "holds under a condition are yours to add, each with the test that proves it") || strings.Contains(meaning, "each under the condition the skeleton holds it to") {
 				t.Error("the brief does not say the conditional grants are the author's to add with their proof, or says the role carries them")
 			}
+			// The application's own administrator takes its condition only with the test that
+			// proves it: with no test written, its grants stay under none, and the change says
+			// why, in the words it gives for the tenant's role.
+			if got := conditionsOf(roleNamed(roleFileOf(t, a, roles).Roles.Global, referenceAdministrator)); len(got) != 0 {
+				t.Errorf("the application's administrator holds %q under a condition, and no test proves it", got)
+			}
+			accounts := accountConditions(t)
+			if got := skippedLine(ch, roles+": the role Administrator still changes every account from the whole application's side, also one a tenant manages: "+strconv.Itoa(len(accounts))+" grant(s) the tenanted skeleton's Administrator holds under managedByTenant = false were left under no condition, since impulse check holds every conditional grant to a test that proves it (conditions-proven) and the command wrote no such test: ", tt.wantWhy, ". They are Execute on DisableStaffUser, Execute on EnableStaffUser, ", ". Add the condition to each with its proof, as the tenanted skeleton's test/integration/grants_test.go proves them"); len(got) != 1 {
+				t.Errorf("the change does not say once that the administrator's %d grant(s) stay under no condition, and why (%s): %q", len(accounts), tt.wantWhy, ch.Skipped)
+			}
+			if got := linesWith(ch.Did, roles+": the role Administrator changes an account", nil); len(got) != 0 {
+				t.Errorf("the change says the administrator took a condition: %q", got)
+			}
+		})
+	}
+}
+
+// TestTenancy_Apply_leavesTheAdministratorWhereTheTestDoesNotProveIt holds the
+// application's own administrator to the rule the tenant's role is written under: its
+// grants on the whole application's methods that act on an account take the condition
+// the tenanted skeleton holds them to only with the test that proves it. Where the role
+// does not hold them as the skeleton's does, the test with the administrator's part does
+// not pair with the role file, so the command writes the tenant's role and its test as
+// it would with no such part, leaves the administrator as it was and says why; where the
+// tenant's role was there already the command writes no test, and says that.
+func TestTenancy_Apply_leavesTheAdministratorWhereTheTestDoesNotProveIt(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	// executeOf runs edit over the Execute grants of a role of the base's role file.
+	executeOf := func(t *testing.T, a *app.App, role string, edit func(grants []access.Grant) []access.Grant) {
+		t.Helper()
+
+		file := roleFileOf(t, a, roles)
+		entry := roleNamed(file.Roles.Global, role)
+		for i := range entry.Permissions {
+			if entry.Permissions[i].Permission == "Execute" {
+				entry.Permissions[i].Grants = edit(entry.Permissions[i].Grants)
+			}
+		}
+		encoded, err := file.encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(a.Abs(roles), encoded, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		name    string
+		prepare func(t *testing.T, a *app.App)
+		// wantHeld is what the administrator holds under a condition afterward, wantCount
+		// the grants it was not held to, and wantWhy what the change says of why. wantProof
+		// reports that the test of the tenant's role is written as it is with no such part.
+		wantHeld  []string
+		wantCount int
+		wantWhy   []string
+		wantProof bool
+	}{
+		{
+			name: "the administrator lacks one of the grants",
+			prepare: func(t *testing.T, a *app.App) {
+				t.Helper()
+				executeOf(t, a, referenceAdministrator, func(grants []access.Grant) []access.Grant {
+					return slices.DeleteFunc(grants, func(g access.Grant) bool {
+						return g.Resource == "DisableStaffUser"
+					})
+				})
+			},
+			wantCount: 11,
+			wantWhy:   []string{`the test proves Execute on DisableStaffUser under "managedByTenant = false", which the role would not carry`, "They are Execute on EnableStaffUser, "},
+			wantProof: true,
+		},
+		{
+			name: "the administrator holds one of the grants under another condition",
+			prepare: func(t *testing.T, a *app.App) {
+				t.Helper()
+				executeOf(t, a, referenceAdministrator, func(grants []access.Grant) []access.Grant {
+					for i := range grants {
+						if grants[i].Resource == "DisableStaffUser" {
+							grants[i].Condition = "disabled = false"
+						}
+					}
+
+					return grants
+				})
+			},
+			wantHeld:  []string{`Execute on DisableStaffUser under "disabled = false"`},
+			wantCount: 11,
+			wantWhy:   []string{`the test proves Execute on DisableStaffUser under "managedByTenant = false", which the role would not carry`, "They are Execute on EnableStaffUser, "},
+			wantProof: true,
+		},
+		{
+			name: "the tenant's role was there already",
+			prepare: func(t *testing.T, a *app.App) {
+				t.Helper()
+				file := roleFileOf(t, a, roles)
+				file.Roles.Domain = append(file.Roles.Domain, &roleEntry{Name: "TenantAdministrator", Description: "The author's own.", Permissions: rolePermissions{
+					{Permission: "Execute", Grants: []access.Grant{{Resource: "AssignStaffRole"}}},
+				}})
+				encoded, err := file.encode()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(a.Abs(roles), encoded, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantCount: 12,
+			wantWhy:   []string{"the role a tenant's administrator holds was there already, and the command writes the test only with that role", "They are Execute on DisableStaffUser, "},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := newBase(t, "staff")
+			tt.prepare(t, a)
+			ch := tenantedOn(t, a, Tenancy{Table: "Tenants"}, "staff", referenceCollection(t))
+
+			file := roleFileOf(t, a, roles)
+			if got := conditionsOf(roleNamed(file.Roles.Global, referenceAdministrator)); !slices.Equal(got, tt.wantHeld) {
+				t.Errorf("the application's administrator holds %q under a condition, want %q: nothing of it changed", got, tt.wantHeld)
+			}
+			texts := append([]string{"conditions-proven", "the command wrote no such test: "}, tt.wantWhy...)
+			if got := skippedLine(ch, roles+": the role Administrator still changes every account from the whole application's side, also one a tenant manages: "+strconv.Itoa(tt.wantCount)+" grant(s) the tenanted skeleton's Administrator holds under managedByTenant = false were left under no condition", texts...); len(got) != 1 {
+				t.Errorf("the change does not say once that %d grant(s) of the administrator stay under no condition, and why: %q", tt.wantCount, ch.Skipped)
+			}
+			if got := linesWith(ch.Did, roles+": the role Administrator changes an account", nil); len(got) != 0 {
+				t.Errorf("the change says the administrator took a condition: %q", got)
+			}
+			if !tt.wantProof {
+				if exists(a, tenantPeopleTest) {
+					t.Errorf("%s was written, and the command writes it only with the tenant's role", tenantPeopleTest)
+				}
+
+				return
+			}
+			// The tenant's role and its test are as the command writes them with no part of
+			// the administrator's: each condition, proven under the role's name alone, and the
+			// harness marked for the lint.
+			role := roleNamed(file.Roles.Domain, "TenantAdministrator")
+			if role == nil {
+				t.Fatalf("%s has no domain role TenantAdministrator; the change skipped %q", roles, ch.Skipped)
+			}
+			held := conditionsOf(role)
+			if got := provenByRole(t, read(t, a, tenantPeopleTest)); len(held) == 0 || !cmp.Equal(got, map[string][]string{"TenantAdministrator": held}) {
+				t.Errorf("%s proves %q, want the tenant's role's %q alone", tenantPeopleTest, got, held)
+			}
+			if got := strings.Count(read(t, a, integrationHarness), oneRoleDirective+"func provesGrant("); got != 1 {
+				t.Errorf("%s marks provesGrant for the lint %d time(s), want once", integrationHarness, got)
+			}
+			if got := linesWith(ch.Did, integrationHarness+": written again with its provesGrant marked", nil); len(got) != 1 {
+				t.Errorf("the change does not say once that it marked the harness: %q", ch.Did)
+			}
 		})
 	}
 }
@@ -185,60 +340,101 @@ func TestTenancy_Apply_leavesTheConditionsWhereNoTestProvesThem(t *testing.T) {
 // that set, require or remove a password, and the test proves each of those and no other,
 // signing people in through the simulated directory as the start's other tests do. The
 // password version of the test in such an application posts a password to a method it
-// does not serve and proves grants its role does not carry.
+// does not serve and proves grants its role does not carry. Where a person may be in
+// several tenants the application's own administrator is held to the accounts no tenant
+// manages on the same terms: each of its grants on the whole application's methods that
+// act on an account takes the condition, less the ones that ask for a password.
 func TestTenancy_Apply_provesTheConditionsWithNoPassword(t *testing.T) {
 	t.Parallel()
 
 	const roles = "pkg/auth/members/roles.json"
-	tn := Tenancy{Table: "Tenants", OneTenantPerPerson: true}
-	start := byDirectoryStart("members")
-	start.Tenants = &tn
-	a, _ := started(t, &start, "send_members_user_password_reset_link")
-	// The generator serves no management of a password for an auth with no password method.
-	collection := withoutResources(t, []byte(names.Rename(string(referenceCollection(t)), "staff", "members")),
-		"RequireMembersTenantPasswordChange", "RemoveMembersTenantPassword", "MembersTenantSignInWays", "SendMembersTenantUserPasswordResetLink",
-		"RequireMembersPasswordChange", "RemoveMembersPassword", "MembersSignInWays", "SendMembersUserPasswordResetLink", "SetMembersSelfServiceReset",
-	)
-	ch := tenantedOn(t, a, tn, "members", collection)
+	accounts := accountConditions(t)
+	tests := []struct {
+		name      string
+		oneTenant bool
+		// wantAccounts is what the application's administrator holds under a condition
+		// afterward, in the members auth's names.
+		wantAccounts []string
+	}{
+		{name: "a person belongs to one tenant", oneTenant: true},
+		{name: "a person may be in several tenants", wantAccounts: sorted(withoutPassword(strings.Split(names.Rename(strings.Join(accounts, "\n"), "staff", "members"), "\n")))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	role := roleNamed(roleFileOf(t, a, roles).Roles.Domain, "TenantAdministrator")
-	if role == nil {
-		t.Fatalf("%s has no domain role TenantAdministrator; the change skipped %q", roles, ch.Skipped)
-	}
-	held := conditionsOf(role)
-	if len(held) != 15 || slices.ContainsFunc(held, func(grant string) bool {
-		return strings.Contains(grant, "Password") || strings.Contains(grant, "SignInWays")
-	}) {
-		t.Errorf("the role holds %d grant(s) under a condition, want the reference's 15 that ask nothing of a password: %q", len(held), held)
-	}
-	if !exists(a, tenantPeopleTest) {
-		t.Fatalf("%s was not written; the change skipped %q", tenantPeopleTest, ch.Skipped)
-	}
-	proof := read(t, a, tenantPeopleTest)
-	if got := provenBy(t, proof, "TenantAdministrator"); !slices.Equal(got, held) {
-		t.Errorf("%s proves %q, want each grant the role holds under a condition and no other: %q", tenantPeopleTest, got, held)
-	}
-	for _, want := range []string{
-		`provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "DisableMembersTenantUser", "managedHere = true")`,
-		"s.auth.SeedCastFile(ctx, io.Discard,", "signIn(ctx, members.PersonaRegistration,", "membersAccount(ctx, t, s, name,", `"/api/assign-members-role"`, `"unlink-members-tenant-session-identity"`,
-	} {
-		if !strings.Contains(proof, want) {
-			t.Errorf("%s does not contain %q", tenantPeopleTest, want)
-		}
-	}
-	if got := strings.Count(read(t, a, integrationHarness), oneRoleDirective+"func provesGrant("); got != 1 {
-		t.Errorf("%s marks provesGrant for the lint %d time(s), want once: every grant the test proves is one role's", integrationHarness, got)
-	}
-	for _, never := range []string{`"password"`, "adminPassword", "passwordRemoval", "tenantWays", "first-day-pass", "second-subject-of-nora", "staff", "Staff"} {
-		if strings.Contains(proof, never) {
-			t.Errorf("%s contains %q, and the members auth has no password sign-in", tenantPeopleTest, never)
-		}
-	}
-	if got := linesWith(ch.Did, tenantPeopleTest+": the test that proves each of the 15 condition(s)", []string{"the members auth has no password sign-in, so the test signs people in through the simulated directory (the session library's skipAuth build tag)", "under the default build it is skipped, and says so"}); len(got) != 1 {
-		t.Errorf("the change does not say once that it wrote the test, and how it signs people in: %q", ch.Did)
-	}
-	if got := skippedLine(ch, roles); len(got) != 0 {
-		t.Errorf("the change leaves a step of the role file to the author: %q", got)
+			tn := Tenancy{Table: "Tenants", OneTenantPerPerson: tt.oneTenant}
+			start := byDirectoryStart("members")
+			start.Tenants = &tn
+			a, _ := started(t, &start, "send_members_user_password_reset_link")
+			// The generator serves no management of a password for an auth with no password method.
+			collection := withoutResources(t, []byte(names.Rename(string(referenceCollection(t)), "staff", "members")),
+				"RequireMembersTenantPasswordChange", "RemoveMembersTenantPassword", "MembersTenantSignInWays", "SendMembersTenantUserPasswordResetLink",
+				"RequireMembersPasswordChange", "RemoveMembersPassword", "MembersSignInWays", "SendMembersUserPasswordResetLink", "SetMembersSelfServiceReset",
+			)
+			ch := tenantedOn(t, a, tn, "members", collection)
+
+			file := roleFileOf(t, a, roles)
+			role := roleNamed(file.Roles.Domain, "TenantAdministrator")
+			if role == nil {
+				t.Fatalf("%s has no domain role TenantAdministrator; the change skipped %q", roles, ch.Skipped)
+			}
+			held := conditionsOf(role)
+			if len(held) != 15 || slices.ContainsFunc(held, func(grant string) bool {
+				return strings.Contains(grant, "Password") || strings.Contains(grant, "SignInWays")
+			}) {
+				t.Errorf("the role holds %d grant(s) under a condition, want the reference's 15 that ask nothing of a password: %q", len(held), held)
+			}
+			administrator := roleNamed(file.Roles.Global, "Administrator")
+			if administrator == nil {
+				t.Fatalf("%s has no global role Administrator", roles)
+			}
+			if got := conditionsOf(administrator); !slices.Equal(got, tt.wantAccounts) {
+				t.Errorf("the application's administrator holds under a condition (-want +written):\n%s", cmp.Diff(tt.wantAccounts, got))
+			}
+			if !exists(a, tenantPeopleTest) {
+				t.Fatalf("%s was not written; the change skipped %q", tenantPeopleTest, ch.Skipped)
+			}
+			proof := read(t, a, tenantPeopleTest)
+			want := map[string][]string{"TenantAdministrator": held}
+			if len(tt.wantAccounts) > 0 {
+				want["Administrator"] = tt.wantAccounts
+			}
+			if got := provenByRole(t, proof); !cmp.Equal(got, want) {
+				t.Errorf("%s proves, by role, other than each grant the roles hold under a condition (-want +proven):\n%s", tenantPeopleTest, cmp.Diff(want, got))
+			}
+			for _, want := range []string{
+				`provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "DisableMembersTenantUser", "managedHere = true")`,
+				"s.auth.SeedCastFile(ctx, io.Discard,", "signIn(ctx, members.PersonaRegistration,", "membersAccount(ctx, t, s, name,", `"/api/assign-members-role"`, `"unlink-members-tenant-session-identity"`,
+			} {
+				if !strings.Contains(proof, want) {
+					t.Errorf("%s does not contain %q", tenantPeopleTest, want)
+				}
+			}
+			// The harness is marked for the lint where every grant the test proves is one
+			// role's, and carries no mark where the test names two.
+			wantMarks := 1
+			if len(tt.wantAccounts) > 0 {
+				wantMarks = 0
+			}
+			if got := strings.Count(read(t, a, integrationHarness), oneRoleDirective+"func provesGrant("); got != wantMarks {
+				t.Errorf("%s marks provesGrant for the lint %d time(s), want %d", integrationHarness, got, wantMarks)
+			}
+			for _, never := range []string{`"password"`, "adminPassword", "passwordRemoval", "tenantWays", "first-day-pass", "second-subject-of-nora", "staff", "Staff"} {
+				if strings.Contains(proof, never) {
+					t.Errorf("%s contains %q, and the members auth has no password sign-in", tenantPeopleTest, never)
+				}
+			}
+			if got := linesWith(ch.Did, tenantPeopleTest+": the test that proves each of the 15 condition(s)", []string{"the members auth has no password sign-in, so the test signs people in through the simulated directory (the session library's skipAuth build tag)", "under the default build it is skipped, and says so"}); len(got) != 1 {
+				t.Errorf("the change does not say once that it wrote the test, and how it signs people in: %q", ch.Did)
+			}
+			if got := linesWith(ch.Did, roles+": the role Administrator changes an account from the whole application's side only where no tenant manages it: "+strconv.Itoa(len(tt.wantAccounts))+" grant(s)", nil); len(got) != min(len(tt.wantAccounts), 1) {
+				t.Errorf("the change does not say once that the administrator took the condition on its %d grant(s), or says it where none did: %q", len(tt.wantAccounts), ch.Did)
+			}
+			if got := skippedLine(ch, roles); len(got) != 0 {
+				t.Errorf("the change leaves a step of the role file to the author: %q", got)
+			}
+		})
 	}
 }
 
@@ -248,7 +444,10 @@ func TestTenancy_Apply_provesTheConditionsWithNoPassword(t *testing.T) {
 // a password left out of the version for an auth that has none. A grant the reference
 // gains under a condition is one the command would write no proof of, so every new
 // application would fall back to the role without its conditional grants; this fails
-// first, and says which proof the template lacks.
+// first, and says which proof the template lacks. Rendered with the application's own
+// administrator role, the test proves under that role's name each grant the reference's
+// Administrator holds under managedByTenant = false, and rendered without it no line names
+// that role.
 func TestTenantPeopleProof_provesTheReferencesConditions(t *testing.T) {
 	t.Parallel()
 
@@ -257,27 +456,35 @@ func TestTenantPeopleProof_provesTheReferencesConditions(t *testing.T) {
 		t.Fatal(err)
 	}
 	whole := conditionsOf(roleNamed(reference.Roles.Domain, referenceTenantAdministrator))
+	accounts := accountConditions(t)
 	tests := []struct {
-		name     string
-		password bool
-		want     []string
+		name          string
+		password      bool
+		administrator string
+		want          map[string][]string
 	}{
-		{name: "an auth with the password method", password: true, want: whole},
-		{name: "an auth with no password method", want: slices.DeleteFunc(slices.Clone(whole), func(grant string) bool {
-			return strings.Contains(grant, "Password") || strings.Contains(grant, "SignInWays")
-		})},
+		{name: "an auth with the password method", password: true, want: map[string][]string{referenceTenantAdministrator: whole}},
+		{name: "an auth with no password method", want: map[string][]string{referenceTenantAdministrator: withoutPassword(whole)}},
+		{
+			name: "an auth with the password method, and the application's administrator", password: true, administrator: referenceAdministrator,
+			want: map[string][]string{referenceTenantAdministrator: whole, referenceAdministrator: accounts},
+		},
+		{
+			name: "an auth with no password method, and the application's administrator", administrator: referenceAdministrator,
+			want: map[string][]string{referenceTenantAdministrator: withoutPassword(whole), referenceAdministrator: withoutPassword(accounts)},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data := &suiteData{Record: "Tenant", Kebab: "tenant", Segment: "tenants", South: devTenantSouth, Password: tt.password}
+			data := &suiteData{Record: "Tenant", Kebab: "tenant", Segment: "tenants", South: devTenantSouth, Password: tt.password, Administrator: tt.administrator}
 			files, err := renderSuites(tenantPeopleSuites, data, "example.com/acme/depot", "staff")
 			if err != nil {
 				t.Fatalf("renderSuites() error = %v", err)
 			}
-			if got := provenBy(t, string(files[tenantPeopleTest]), referenceTenantAdministrator); !slices.Equal(got, tt.want) {
-				t.Errorf("the test proves the conditions (-the reference's role +the test):\n%s", cmp.Diff(tt.want, got))
+			if got := provenByRole(t, string(files[tenantPeopleTest])); !cmp.Equal(got, tt.want) {
+				t.Errorf("the test proves the conditions, by role (-the reference's roles +the test):\n%s", cmp.Diff(tt.want, got))
 			}
 		})
 	}
@@ -286,6 +493,8 @@ func TestTenantPeopleProof_provesTheReferencesConditions(t *testing.T) {
 // TestTenancy_unprovenWords holds what the command says where the conditions the role
 // would carry are not the ones its test proves: each way round is named, since a grant
 // with no proof fails the application's check and a proof with no grant fails its tests.
+// Where the application's own administrator is held to the accounts no tenant manages
+// too, a line under that role's name pairs with that role's grant and no other.
 func TestTenancy_unprovenWords(t *testing.T) {
 	t.Parallel()
 
@@ -296,9 +505,13 @@ func TestTenancy_unprovenWords(t *testing.T) {
 	proven := func(role, resource, condition string) provenGrant {
 		return provenGrant{role: role, permission: "Execute", resource: resource, condition: condition}
 	}
+	administrator := func(grants ...conditionalGrant) *accountHold {
+		return &accountHold{role: &roleEntry{Name: "Administrator"}, grants: grants}
+	}
 	tests := []struct {
 		name        string
 		conditional []conditionalGrant
+		hold        *accountHold
 		proven      []provenGrant
 		want        string
 	}{
@@ -319,12 +532,32 @@ func TestTenancy_unprovenWords(t *testing.T) {
 			proven:      []provenGrant{proven("SectorAdministrator", "DisableCrewSectorUser", "heldGlobally = false"), proven("Administrator", "DisableCrewSectorUser", "heldElsewhere = false")},
 			want:        `the test the command writes proves the conditions of the tenanted skeleton's role, and they are not this application's: the role would carry Execute on DisableCrewSectorUser under "heldElsewhere = false", which the test does not prove; the test proves Execute on DisableCrewSectorUser under "heldGlobally = false", Execute on DisableCrewSectorUser under "heldElsewhere = false", which the role would not carry`,
 		},
+		{
+			name:        "each grant of both roles has its proof under its own role's name",
+			conditional: []conditionalGrant{carried("DisableCrewSectorUser", "heldElsewhere = false")},
+			hold:        administrator(carried("DisableCrewUser", "managedByTenant = false")),
+			proven:      []provenGrant{proven("SectorAdministrator", "DisableCrewSectorUser", "heldElsewhere = false"), proven("Administrator", "DisableCrewUser", "managedByTenant = false")},
+		},
+		{
+			name:        "a line under the tenant's role pairs with no grant of the administrator's",
+			conditional: []conditionalGrant{carried("DisableCrewSectorUser", "heldElsewhere = false")},
+			hold:        administrator(carried("DisableCrewUser", "managedByTenant = false")),
+			proven:      []provenGrant{proven("SectorAdministrator", "DisableCrewSectorUser", "heldElsewhere = false"), proven("SectorAdministrator", "DisableCrewUser", "managedByTenant = false")},
+			want:        `the test the command writes proves the conditions of the tenanted skeleton's role, and they are not this application's: the role would carry Execute on DisableCrewUser under "managedByTenant = false", which the test does not prove; the test proves Execute on DisableCrewUser under "managedByTenant = false", which the role would not carry`,
+		},
+		{
+			name:        "a grant of the administrator's with no line, and a line under its name with no grant",
+			conditional: []conditionalGrant{carried("DisableCrewSectorUser", "heldElsewhere = false")},
+			hold:        administrator(carried("DisableCrewUser", "managedByTenant = false"), carried("EnableCrewUser", "managedByTenant = false")),
+			proven:      []provenGrant{proven("SectorAdministrator", "DisableCrewSectorUser", "heldElsewhere = false"), proven("Administrator", "DisableCrewUser", "managedByTenant = false"), proven("Administrator", "DeleteCrewUser", "managedByTenant = false")},
+			want:        `the test the command writes proves the conditions of the tenanted skeleton's role, and they are not this application's: the role would carry Execute on EnableCrewUser under "managedByTenant = false", which the test does not prove; the test proves Execute on DeleteCrewUser under "managedByTenant = false", which the role would not carry`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := tn.unprovenWords(tt.conditional, tt.proven); got != tt.want {
+			if got := tn.unprovenWords(tt.conditional, tt.hold, tt.proven); got != tt.want {
 				t.Errorf("unprovenWords() = %q, want %q", got, tt.want)
 			}
 		})

@@ -76,6 +76,42 @@ func (a *App) CrewListedGroupRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedGroupRoles()
 }
 
+func (a *App) CrewListedIdentities() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedIdentities()
+}
+
+func (a *App) CrewListedIdentity() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedIdentity()
+}
+
+func (a *App) CrewListedMailLinks() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedMailLinks()
+}
+
+func (a *App) CrewListedMailLink() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedMailLink()
+}
+
+func (a *App) CrewListedSectors() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSectors()
+}
+
+func (a *App) CrewListedSector() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSector()
+}
+
+func (a *App) CrewListedSessions() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSessions()
+}
+
+func (a *App) CrewListedSession() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSession()
+}
+
+func (a *App) CrewListedSignInAttempts() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedSignInAttempts()
+}
+
 func (a *App) CrewListedUsers() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedUsers()
 }
@@ -472,6 +508,14 @@ func (a *App) RequireCrewSectorPasswordChange() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RequireCrewSectorPasswordChange()
 }
 
+func (a *App) ResendCrewInvitation() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).ResendCrewInvitation()
+}
+
+func (a *App) ResendCrewSectorInvitation() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).ResendCrewSectorInvitation()
+}
+
 func (a *App) RevokeCrewSectorUserTrustedDevices() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RevokeCrewSectorUserTrustedDevices()
 }
@@ -576,6 +620,34 @@ var _ = map[bool]struct{}{false: {}, members.Name == membersidentity.AuthName: {
 
 func (a *App) MembersHeldRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersHeldRoles()
+}
+
+func (a *App) MembersListedIdentities() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedIdentities()
+}
+
+func (a *App) MembersListedIdentity() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedIdentity()
+}
+
+func (a *App) MembersListedMailLinks() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedMailLinks()
+}
+
+func (a *App) MembersListedMailLink() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedMailLink()
+}
+
+func (a *App) MembersListedSessions() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSessions()
+}
+
+func (a *App) MembersListedSession() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSession()
+}
+
+func (a *App) MembersListedSignInAttempts() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedSignInAttempts()
 }
 
 func (a *App) MembersListedUsers() http.HandlerFunc {

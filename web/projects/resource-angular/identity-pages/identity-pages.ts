@@ -4,11 +4,11 @@ import {
   IdentityDescriptor,
   IdentitySideDescriptor,
   quoteFilterValue,
-  rowCapabilities,
   ScopeKind,
 } from '@impulseframework/resource';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
 import { Page, page, pageRoute } from '@impulseframework/resource-angular/auth-frame';
+import { articleFor, filterQueryParams } from '@impulseframework/resource-angular/resource';
 import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import {
   ChildResourceConfig,
@@ -23,7 +23,6 @@ import {
   Method,
   MethodPresentation,
   momentFormat,
-  multiColumnConfig,
   nameInLowerWords,
   nameInWords,
   PermissionScope,
@@ -34,6 +33,7 @@ import {
   rootConfig,
   RootConfig,
   section,
+  SessionInfo,
 } from '@impulseframework/resource-angular/types';
 import { format, isSameDay } from 'date-fns';
 import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-says';
@@ -47,14 +47,17 @@ import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-
 // writes no page for it: the people with what the caller may do to each, a person's row
 // page with the roles, the ways they sign in and the identities under it, the groups of
 // people with a group's people and roles under it, the invitations, and, for the whole
-// application, the invitations that make a tenant (staff bring an organization in by
-// inviting one person), the sessions, the failed sign-ins, the Auth's sign-in methods,
-// each invite only or open to sign-up, and Break glass, where a person takes a role for a
-// set time and says why. Where a directory decides the Auth's roles the Groups entry
-// stays, and its page says whose groups do that job. What differs from one application
-// to the next is read from the description: the Auth's name and label, the tenant
-// record's name, which side the pages are for, and what the Auth's sign-in methods give
-// (a list or a method the description does not name draws nothing).
+// application, the sessions, the failed sign-ins, the Auth's sign-in methods, each invite
+// only or open to sign-up, and Break glass, where a person takes a role for a set time and
+// says why. Where a directory decides the Auth's roles the Groups entry stays, and its
+// page says whose groups do that job. What differs from one application to the next is
+// read from the description: the Auth's name and label, the tenant record's name, which
+// side the pages are for, and what the Auth's sign-in methods give (a list or a method
+// the description does not name draws nothing).
+//
+// The invitations that make a tenant are no page of these: the tenants page shows them
+// above the tenants (tenant-pages.ts), from the configuration built here
+// (invitedTenantsConfig).
 //
 // The pages hold no logic of their own. A row's menu holds the methods the server says
 // the caller may run on that row; the words, the icons and the questions are the
@@ -62,8 +65,7 @@ import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-
 // disabled account and Disable on an enabled one.
 
 /** The pages of one side of an Auth's management, by what each lists. */
-export type IdentityPage =
-  'users' | 'groups' | 'invitations' | 'invitedTenants' | 'sessions' | 'signInAttempts' | 'signIn' | 'breakGlass';
+export type IdentityPage = 'users' | 'groups' | 'invitations' | 'sessions' | 'signInAttempts' | 'signIn' | 'breakGlass';
 
 /** Which pages to build, and where they go. */
 export interface IdentityPagesOptions {
@@ -115,12 +117,11 @@ const made = new WeakMap<ApiDescriptor, Map<string, BuiltPages>>();
 
 /**
  * The page configurations of one side of an Auth's management, in menu order: the
- * people, the groups, the invitations, and for the whole application the invitations
- * that make a tenant, the sessions, the failed sign-ins, the sign-in methods and Break
- * glass, each with its label and icon. A page whose list the description
- * does not name is left out. The same request answers the same configurations. Refused, naming
- * what is missing: an Auth the description does not carry, a side it does not carry,
- * and a tenant's side on an API with no tenant segment.
+ * people, the groups, the invitations, and for the whole application the sessions, the
+ * failed sign-ins, the sign-in methods and Break glass, each with its label and icon. A
+ * page whose list the description does not name is left out. The same request answers the
+ * same configurations. Refused, naming what is missing: an Auth the description does not
+ * carry, a side it does not carry, and a tenant's side on an API with no tenant segment.
  *
  * A page that lists nothing has no configuration and is not among them: the Groups page
  * of an Auth whose roles a directory decides, which `identityRoutes` and
@@ -158,19 +159,7 @@ function buildPages(
   resourceMeta: (resource: Resource) => ResourceMeta | undefined,
   options: IdentityPagesOptions,
 ): BuiltPage[] {
-  const identity = (descriptor.identity ?? []).find((candidate) => candidate.auth === options.auth);
-  if (!identity) {
-    const known = (descriptor.identity ?? []).map((candidate) => candidate.auth).join(', ') || 'none';
-    throw new Error(
-      `identityPages: the API description carries no generated management of the auth ${options.auth} (it carries: ${known}); the auth is named as GenerateIdentity names it, and its management is served on the outlets that declare or manage it`,
-    );
-  }
-  const side = identity.sides.find((candidate) => candidate.scope === options.scope);
-  if (!side) {
-    throw new Error(
-      `identityPages: the generated management of ${options.auth} has no ${options.scope === 'domain' ? "tenant's" : "whole application's"} side on this API`,
-    );
-  }
+  const { identity, side } = sideOf(descriptor, options);
   const build = new SideBuilder(descriptor, identity, side, resourceMeta, options);
   const listed = (config: RootConfig | undefined): BuiltPage[] => (config ? [{ config }] : []);
   const said = build.directoryGroups();
@@ -179,7 +168,6 @@ function buildPages(
     ...listed(build.groups()),
     ...(said ? [{ said }] : []),
     ...listed(build.invitations()),
-    ...listed(build.invitedTenants()),
     ...listed(build.sessions()),
     ...listed(build.signInAttempts()),
     ...listed(build.signIn()),
@@ -218,6 +206,60 @@ export function identityMenuPages(
   return builtPages(descriptor, resourceMeta, options).pages.map((built) =>
     'config' in built ? resourcePage(built.config, resourceMeta) : built.said.page,
   );
+}
+
+/**
+ * The Auth and the side of its management a request names. Refused, naming what is
+ * missing: an Auth the description does not carry, and a side it does not carry.
+ */
+function sideOf(
+  descriptor: ApiDescriptor,
+  options: IdentityPagesOptions,
+): { identity: IdentityDescriptor; side: IdentitySideDescriptor } {
+  const identity = (descriptor.identity ?? []).find((candidate) => candidate.auth === options.auth);
+  if (!identity) {
+    const known = (descriptor.identity ?? []).map((candidate) => candidate.auth).join(', ') || 'none';
+    throw new Error(
+      `identityPages: the API description carries no generated management of the auth ${options.auth} (it carries: ${known}); the auth is named as GenerateIdentity names it, and its management is served on the outlets that declare or manage it`,
+    );
+  }
+  const side = identity.sides.find((candidate) => candidate.scope === options.scope);
+  if (!side) {
+    throw new Error(
+      `identityPages: the generated management of ${options.auth} has no ${options.scope === 'domain' ? "tenant's" : "whole application's"} side on this API`,
+    );
+  }
+  return { identity, side };
+}
+
+// The configurations of the invitations that make a tenant, made for each description and
+// Auth, so every caller of one request reads the same configuration.
+const madeInvitations = new WeakMap<ApiDescriptor, Map<string, RootConfig | undefined>>();
+
+/**
+ * The configuration of the invitations that make a tenant, on the whole application's
+ * side of the Auth: the invitations still waiting, each with Withdraw, and the method that
+ * sends one, with its words. It is no page of the Auth's: the tenants page shows the list
+ * above the tenants and offers the method above its own list (tenant-pages.ts). Undefined
+ * where the side names no such list. The same description and Auth answer the same
+ * configuration. Refused as identityPages is: an Auth the description does not carry, and
+ * one with no whole application's side.
+ */
+export function invitedTenantsConfig(
+  descriptor: ApiDescriptor,
+  resourceMeta: (resource: Resource) => ResourceMeta | undefined,
+  options: { auth: string },
+): RootConfig | undefined {
+  const requests = madeInvitations.get(descriptor) ?? new Map<string, RootConfig | undefined>();
+  madeInvitations.set(descriptor, requests);
+  if (requests.has(options.auth)) {
+    return requests.get(options.auth);
+  }
+  const request: IdentityPagesOptions = { auth: options.auth, scope: 'global' };
+  const { identity, side } = sideOf(descriptor, request);
+  const config = new SideBuilder(descriptor, identity, side, resourceMeta, request).invitedTenants();
+  requests.set(options.auth, config);
+  return config;
 }
 
 /** The route of a page that says something: guarded by the grant its page needs, carrying the page and its sentences. */
@@ -280,7 +322,7 @@ class SideBuilder {
    * (personFields).
    */
   people(): RootConfig {
-    const { lists, methods } = this.side;
+    const { lists } = this.side;
     const users = lists.users as Resource;
     const related = [
       this.rolesOf(),
@@ -295,9 +337,10 @@ class SideBuilder {
       parentConfig: listViewConfig({
         title: this.tenant ? 'People' : this.heading('Accounts'),
         // What the list says of a person who left it while their page was open. A tenant's
-        // people are those who hold a role in it: the last role taken away takes the person
-        // off the list. An account that left the whole application's list was deleted: by
-        // its own Delete, or with the last thing it held.
+        // people are those who hold a role in it and those who sign in through its directory:
+        // the last role taken away takes a person off the list unless the tenant's directory
+        // signs them in. An account that left the whole application's list was deleted: by
+        // its own Delete, or with the tenant it belonged to alone.
         rowGone: this.tenant
           ? (row: RecordData): string => `${String(row['username'] ?? 'This person')} no longer holds a role here.`
           : (row: RecordData): string => {
@@ -329,6 +372,12 @@ class SideBuilder {
                 },
               ]
             : []),
+          // Who manages each account, on the whole application's side where the list says it:
+          // the tenant by its name, and the application's own administrators for an account no
+          // tenant manages. Which methods a row offers is the server's answer for the row.
+          ...(!this.tenant && this.has(users, 'managingTenant')
+            ? [this.tenantNamed('managingTenant' as FieldName, 'Managed by', (row) => this.managedBy(row))]
+            : []),
           ...this.columns(users, [
             ['lastSignInAt', 'Last sign-in'],
             // Only a tenant's list of its people carries these, and only where the tenant
@@ -352,18 +401,7 @@ class SideBuilder {
           ].map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.onPerson(),
-        listMethods: this.present([
-          [
-            methods.invite,
-            {
-              label: 'Invite',
-              icon: 'send',
-              says: inviteSays,
-              labels: this.where(),
-              ...this.rolesWhere('roles', methods.invite),
-            },
-          ],
-        ]),
+        listMethods: this.present([this.inviting()]),
         elements: [
           section({
             label: this.tenant ? 'Person' : 'Account',
@@ -381,10 +419,10 @@ class SideBuilder {
    * keeps no groups (directoryGroups says why, where a directory decides the roles).
    *
    * A row says what the group holds: how many people, and its roles, a line each, so
-   * nobody opens every group to learn what it is for. Delete is offered on a group that
-   * holds nothing; one that still has people or roles says what is left where Delete
-   * would be, and the server refuses a request that never saw the page. A group's page
-   * is headed by the group's name. Outside every tenant the list says where each group
+   * nobody opens every group to learn what it is for. Delete is offered on every group.
+   * A group that has people in it or holds roles is asked about first in the server's
+   * words, which count them, and they go with it. A group's page is headed by the
+   * group's name. Outside every tenant the list says where each group
    * is kept, in an application that has tenants.
    */
   groups(): RootConfig | undefined {
@@ -451,22 +489,9 @@ class SideBuilder {
           ],
           [
             methods.deleteGroup,
-            counted
-              ? {
-                  label: 'Delete',
-                  icon: 'delete',
-                  // Only a group that holds nothing is deleted: one that still has people
-                  // or roles says what is left, where Delete would be.
-                  when: (row) => whatIsLeft(row) === undefined,
-                  otherwise: (row) => emptyItFirst(row),
-                  confirm: (row) => `Delete ${named(row)}?`,
-                }
-              : {
-                  label: 'Delete',
-                  icon: 'delete',
-                  confirm: (row) =>
-                    `Delete ${named(row)}? A group that still has people in it or holds a role is not deleted: empty it first.`,
-                },
+            // The delete dialog asks the page's question, then the server's, which counts
+            // the people and the roles that go with the group.
+            { label: 'Delete', icon: 'delete', deletes: true, confirm: (row) => `Delete ${named(row)}?` },
           ],
         ]),
         listMethods: this.present([
@@ -515,33 +540,67 @@ class SideBuilder {
     };
   }
 
-  /** A tenant's invitations, or every link the whole application has mailed, each with Withdraw where it still stands. */
+  /**
+   * A tenant's invitations, or every link the whole application has mailed, each with
+   * Withdraw where it still stands. Where the server says each link's state (the list has
+   * `state`), the page opens on the links still open and filters by state and kind, a row
+   * says the kind in words and who sent an invitation, Send again is offered on an
+   * invitation that is open, has expired or could not be mailed, and the whole
+   * application's list of an application without tenants carries Invite above it.
+   */
   invitations(): RootConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.invitations) {
       return undefined;
     }
     const resource = lists.invitations as Resource;
-    const fields: Named[] = this.tenant
-      ? [
-          ['email', 'Email'],
-          ['name', 'Name'],
-          ['roleNames', 'Roles'],
-          ['createdAt', 'Sent'],
-          ['expiresAt', 'Expires'],
-          ['pending', 'Still open'],
-        ]
-      : [
-          ['kind', 'Kind'],
-          ['email', 'Email'],
-          ['name', 'Name'],
-          // The tenant a link invites into, where the application has tenants.
-          ...(this.identity.tenant ? ([['tenantId', nameInWords(this.identity.tenant)]] as Named[]) : []),
-          ['roleNames', 'Roles'],
-          ['createdAt', 'Sent'],
-          ['expiresAt', 'Expires'],
-          ['consumedAt', 'Used'],
-        ];
+    const byState = this.has(resource, 'state');
+    // The tenant a link invites into, where the application has tenants.
+    const tenantColumn: Named[] = this.identity.tenant ? [['tenantId', nameInWords(this.identity.tenant)]] : [];
+    let fields: Named[];
+    if (this.tenant) {
+      fields = byState
+        ? [
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ['roleNames', 'Roles'],
+            ['sentBy', 'Sent by'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+            ['state', 'State'],
+          ]
+        : [
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ['roleNames', 'Roles'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+            ['pending', 'Still open'],
+          ];
+    } else {
+      fields = byState
+        ? [
+            ['state', 'State'],
+            ['kind', 'Kind'],
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ...tenantColumn,
+            ['roleNames', 'Roles'],
+            ['sentBy', 'Sent by'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+          ]
+        : [
+            ['kind', 'Kind'],
+            ['email', 'Email'],
+            ['name', 'Name'],
+            ...tenantColumn,
+            ['roleNames', 'Roles'],
+            ['createdAt', 'Sent'],
+            ['expiresAt', 'Expires'],
+            ['consumedAt', 'Used'],
+          ];
+    }
     // Whether the list says where a link that names no tenant gives its roles: the whole
     // application's list, in an application with tenants, where the reader may read the
     // mark of an invitation into every tenant.
@@ -553,6 +612,21 @@ class SideBuilder {
     // application's list, where the reader may read when the mail failed.
     const unmailed = !this.tenant && this.has(resource, 'mailFailedAt');
     const into = (row: RecordData): string => String(row['tenantId'] ?? '') || this.invitedInto(row, placed, sender);
+    // Read with each row and not drawn. Where the server says each link's state, the
+    // whole application's list reads each of these it has, and a tenant's the mark of an
+    // invitation that makes a tenant, where it has it.
+    let unseen: string[];
+    if (byState) {
+      unseen = (
+        this.tenant ? ['makesTenant'] : ['everyTenant', 'invitedByUserId', 'mailFailedAt', 'makesTenant']
+      ).filter((name) => this.has(resource, name));
+    } else {
+      unseen = [
+        ...(placed ? ['everyTenant'] : []),
+        ...(sender ? ['invitedByUserId'] : []),
+        ...(unmailed ? ['mailFailedAt'] : []),
+      ];
+    }
     return rootConfig({
       page: this.tenant ? { label: 'Invitations', icon: 'mail' } : { label: 'Mailed links', icon: 'forward_to_inbox' },
       routeData: {
@@ -564,20 +638,29 @@ class SideBuilder {
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
+        ...(byState ? { opensWith: [{ field: 'state', operator: 'eq', value: 'open' }] } : {}),
         // The tenant a link invites into is named, where the tenant record can be read,
         // and a link that names none says where its roles are held instead. A link whose
-        // message could not be mailed says so where its dates would be.
+        // message could not be mailed says so where its dates would be. Where the server
+        // says each link's state, its state and kind are said in words, and who sent it
+        // is said but not filtered by.
         listColumns: [
-          ...this.columns(resource, fields).map((column) => {
+          ...this.columns(resource, fields).map((column): ColumnConfig => {
             if (column.id === 'tenantId') {
               return this.tenantNamed(column.id, column.header ?? '', into);
             }
+            if (column.id === 'state' && byState) {
+              return { ...linkStateColumn };
+            }
+            if (column.id === 'kind' && byState) {
+              return { ...linkKindColumn };
+            }
+            if (column.id === 'sentBy') {
+              return { ...column, filterable: false };
+            }
             return unmailed ? this.unmailedCell(column) : column;
           }),
-          // Read with each row and not drawn.
-          ...(placed ? [{ id: 'everyTenant' as FieldName, hidden: true }] : []),
-          ...(sender ? [{ id: 'invitedByUserId' as FieldName, hidden: true }] : []),
-          ...(unmailed ? [{ id: 'mailFailedAt' as FieldName, hidden: true }] : []),
+          ...unseen.map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.present([
           [
@@ -585,12 +668,22 @@ class SideBuilder {
             {
               label: 'Withdraw',
               icon: 'cancel_schedule_send',
-              // An invitation that was used or withdrawn has nothing left to withdraw.
-              when: (row) => (this.tenant ? row['pending'] === true : !row['consumedAt']),
+              // An invitation that was used or withdrawn has nothing left to withdraw;
+              // where the server says each link's state, an open invitation of a person
+              // alone has.
+              when: (row) => {
+                if (byState) {
+                  return row['state'] === 'open' && this.personInvitation(row);
+                }
+                return this.tenant ? row['pending'] === true : !row['consumedAt'];
+              },
               confirm: (row) => `Withdraw the invitation sent to ${String(row['email'])}?`,
             },
           ],
+          ...(byState ? [this.sendAgain()] : []),
         ]),
+        // A tenant's list carries Invite, and so does the whole application's of an
+        // application without tenants, where the server says each link's state.
         listMethods: this.tenant
           ? this.present([
               [
@@ -598,10 +691,60 @@ class SideBuilder {
                 { label: 'Invite', icon: 'send', says: inviteSays, ...this.rolesWhere('roles', methods.invite) },
               ],
             ])
-          : [],
+          : this.present(byState && !this.identity.tenant ? [this.inviting()] : []),
         elements: [],
       }),
     });
+  }
+
+  /**
+   * Invite as the Accounts page and a tenant's People page present it, and the Mailed
+   * links page of an application without tenants: one presentation, so the two cannot
+   * differ.
+   */
+  private inviting(): [string | undefined, Omit<MethodPresentation, 'method'>] {
+    const { methods } = this.side;
+    return [
+      methods.invite,
+      {
+        label: 'Invite',
+        icon: 'send',
+        says: inviteSays,
+        labels: this.where(),
+        ...this.rolesWhere('roles', methods.invite),
+      },
+    ];
+  }
+
+  /**
+   * Send again, on a mailed link that is an invitation of a person and is open, has
+   * expired or could not be mailed: it mails a new link, and the one mailed before stops
+   * working, which the question says of an open one.
+   */
+  private sendAgain(): [string | undefined, Omit<MethodPresentation, 'method'>] {
+    return [
+      this.side.methods.resendInvitation,
+      {
+        label: 'Send again',
+        icon: 'send',
+        when: (row) => resendable.includes(String(row['state'] ?? '')) && this.personInvitation(row),
+        confirm: (row) =>
+          row['state'] === 'open'
+            ? `Send the invitation to ${String(row['email'])} again? The link mailed before stops working.`
+            : `Send the invitation to ${String(row['email'])} again?`,
+        answered: mailed('The invitation is on its way.'),
+      },
+    ];
+  }
+
+  /**
+   * Whether a mailed link is an invitation of a person, which Withdraw and Send again act
+   * on: every row of a tenant's list is one; on the whole application's list a row whose
+   * kind is an invitation and whose first sign-in does not make a tenant, where the list
+   * marks that.
+   */
+  private personInvitation(row: RecordData): boolean {
+    return (this.tenant || row['kind'] === 'invitation') && row['makesTenant'] !== true;
   }
 
   /**
@@ -662,7 +805,8 @@ class SideBuilder {
     };
     return rootConfig({
       page: { label: title, icon: 'domain_add' },
-      routeData: { route: this.route('invitedTenants', `invited-${kebab(listed)}`), hasViewRoute: false },
+      // No page lives at it: the tenants page draws the list (invitedTenantsConfig).
+      routeData: { route: `${this.base}-invited-${kebab(listed)}`, hasViewRoute: false },
       parentConfig: listViewConfig({
         title,
         primaryResource: resource,
@@ -707,56 +851,126 @@ class SideBuilder {
     });
   }
 
-  /** Every session of the Auth's people, each with End the session: the whole application's alone. */
+  /**
+   * Every session of the Auth's people, each with End the session: the whole application's
+   * alone. Where the server says each session's state in one word (the list has `state`),
+   * the page opens on the live sessions and a row says whose the session is, how it signed
+   * in, the browser, marking the session the reader is using, and its state, by which the
+   * list filters (Live, Timed out, Ended); the username opens the account where the
+   * person's id names the list of the accounts. Otherwise a row says whether the session
+   * ended.
+   */
   sessions(): RootConfig | undefined {
     const { lists } = this.side;
     if (!lists.sessions) {
       return undefined;
     }
     const resource = lists.sessions as Resource;
+    const byState = this.has(resource, 'state');
+    const opensAccount = byState && this.namesAccount(resource);
+    const listColumns: ColumnConfig[] = byState
+      ? [
+          ...this.columns(resource, [['username', 'Username']]).map((column) => ({ ...column, opensRow: true })),
+          ...this.columns(resource, [['name', 'Name']]),
+          ...this.sessionDetails(resource),
+          ...this.columns(resource, sessionColumns),
+          { ...sessionStateColumn },
+          // Read with each row and not drawn: the Browser cell marks the reader's own by it.
+          ...(this.has(resource, 'id') ? [{ id: 'id' as FieldName, hidden: true }] : []),
+        ]
+      : this.columns(resource, [['username', 'Username'], ...sessionColumns, ['expired', 'Expired']]);
     return rootConfig({
       page: { label: 'Sessions', icon: 'devices' },
       routeData: { route: this.route('sessions', 'sessions'), hasViewRoute: false },
       parentConfig: listViewConfig({
         title: this.heading('Sessions'),
         primaryResource: resource,
-        showViewButton: false,
+        showViewButton: opensAccount,
+        ...(opensAccount ? { rowRoute: 'userId' as FieldName } : {}),
+        ...(byState ? { opensWith: [{ field: 'state', operator: 'eq', value: 'live' }] } : {}),
         showRowCount: true,
-        listColumns: this.columns(resource, [['username', 'Username'], ...sessionColumns]),
+        listColumns,
         rowMethods: this.onSession(),
         elements: [],
       }),
     });
   }
 
-  /** The names whose failed sign-ins are being counted or are locked out, each with Unlock: the whole application's alone. */
+  /**
+   * The names whose failed sign-ins are being counted or are locked out, each with Unlock:
+   * the whole application's alone. Where the server says what each row counts (the list
+   * has `kind`), a row says it in words (a name, mail to an address, wrong codes), the
+   * account the count is kept for, the count against its limit or as how many were sent or
+   * wrong, and how long it is locked, and the list filters by whether it is locked; the
+   * account opens where the person's id names the list of the accounts. Otherwise a row
+   * says the name, the count and the lock as they are stored.
+   */
   signInAttempts(): RootConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.signInAttempts) {
       return undefined;
     }
     const resource = lists.signInAttempts as Resource;
+    const byKind = this.has(resource, 'kind');
+    const opensAccount = byKind && this.namesAccount(resource);
+    const listColumns: ColumnConfig[] = byKind
+      ? [
+          ...this.columns(resource, [['subject', 'Username']]).map((column) => ({
+            ...column,
+            valueGetter: (row: RecordData) => attemptSubject(row),
+          })),
+          ...this.columns(resource, [['account', 'Account']]).map((column) => ({
+            ...column,
+            opensRow: true,
+            filterable: false,
+            sortable: false,
+            valueGetter: (row: RecordData) => attemptAccount(row),
+          })),
+          ...this.columns(resource, [['failures', 'Count']]).map((column) => ({
+            ...column,
+            filterable: false,
+            valueGetter: (row: RecordData) => attemptCount(row),
+          })),
+          ...this.columns(resource, [['state', 'State']]).map((column) => ({
+            ...column,
+            sortable: false,
+            filterChoices: attemptStateWords,
+            valueGetter: (row: RecordData) => attemptState(row, Date.now()),
+          })),
+          ...this.columns(resource, [['updatedAt', 'Last change']]),
+          // Read with each row and not drawn: the cells above say them.
+          ...this.known(resource, [
+            ['name', ''],
+            ['kind', ''],
+            ['failureLimit', ''],
+            ['lockedUntil', ''],
+          ]).map(([name]) => ({ id: name as FieldName, hidden: true })),
+        ]
+      : this.columns(resource, [
+          ['name', 'Name'],
+          ['failures', 'Failed tries'],
+          ['lockedUntil', 'Locked until'],
+          ['updatedAt', 'Last try'],
+        ]);
     return rootConfig({
       page: { label: 'Failed sign-ins', icon: 'gpp_bad' },
       routeData: { route: this.route('signInAttempts', 'failed-sign-ins'), hasViewRoute: false },
       parentConfig: listViewConfig({
         title: this.heading('Failed sign-ins'),
         primaryResource: resource,
-        showViewButton: false,
+        showViewButton: opensAccount,
+        ...(opensAccount ? { rowRoute: 'userId' as FieldName } : {}),
+        ...(byKind ? { emptyMessage: 'No sign-in is locked or being counted.' } : {}),
         showRowCount: true,
-        listColumns: this.columns(resource, [
-          ['name', 'Name'],
-          ['failures', 'Failed tries'],
-          ['lockedUntil', 'Locked until'],
-          ['updatedAt', 'Last try'],
-        ]),
+        listColumns,
         rowMethods: this.present([
           [
             methods.unlockSignIn,
             {
               label: 'Unlock',
               icon: 'lock_open',
-              confirm: (row) => `Unlock ${String(row['name'])}? The count of failed tries starts over.`,
+              confirm: (row) =>
+                byKind ? unlockQuestion(row) : `Unlock ${String(row['name'])}? The count of failed tries starts over.`,
             },
           ],
         ]),
@@ -1124,6 +1338,8 @@ class SideBuilder {
    * is something to say, and whether the email address is confirmed (emailConfirmed). The
    * fields those two read are held by the page's form and not drawn: a field the page
    * says in words reads the form's values, and the form holds a field the page names.
+   * Where the list says how many devices the person trusts (trustedDevices), the page
+   * says the number beside the last sign-in.
    */
   private personFields(users: Resource): ConfigElement[] {
     const drawn = (named: Named[]): ConfigElement[] =>
@@ -1157,6 +1373,7 @@ class SideBuilder {
         : []),
       ...drawn([
         ['lastSignInAt', 'Last sign-in'],
+        ['trustedDevices', 'Trusted devices'],
         ['cannotEnter', 'Cannot enter'],
         ['createdAt', 'Created'],
       ]),
@@ -1173,12 +1390,12 @@ class SideBuilder {
    * The roles a person holds, under the person's row: one list, each role saying where
    * it comes from. A role of the person's own says "Their own", carries the reason it
    * was given for beside when it ends, and is taken away here, after the server's own
-   * question (the method's warning): whose role goes, where it is held, and whether the
-   * account goes with it. A role that comes through a group names the group and links to
-   * the group's page, where it is changed: the group loses the role there, or the person
-   * leaves the group. Where the server's list holds a person's own roles alone (a
-   * description from before the one list), the roles held through a group are a second
-   * list under it (rolesThroughGroupsOf). Give a role is offered above the list as well
+   * question (the method's warning): whose role goes, and where it is held. A role that
+   * comes through a group names the group and links to the group's page, where it is
+   * changed: the group loses the role there, or the person leaves the group. Where the
+   * server's list holds a person's own roles alone (a description from before the one
+   * list), the roles held through a group are a second list under it
+   * (rolesThroughGroupsOf). Give a role is offered above the list as well
    * as in the person's menu (giveRole), the same dialog in both places.
    */
   private rolesOf(): ChildResourceConfig | undefined {
@@ -1216,6 +1433,7 @@ class SideBuilder {
         showViewButton: link !== undefined,
         ...(link ? { rowRoute: link } : {}),
         collapsible: false,
+        emptyMessage: 'This person holds no role here.',
         listColumns: [
           ...this.columns(resource, [['role', 'Role']]),
           ...comesFrom,
@@ -1252,6 +1470,7 @@ class SideBuilder {
       showViewButton: link !== undefined,
       ...(link ? { rowRoute: link } : {}),
       collapsible: false,
+      emptyMessage: 'This person holds no role.',
       listColumns: [
         ...this.columns(resource, [['role', 'Role']]),
         ...comesFrom,
@@ -1309,6 +1528,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'No role comes to this person through a group.',
       listColumns: this.tenant
         ? this.columns(resource, [
             ...named,
@@ -1331,7 +1551,7 @@ class SideBuilder {
     });
   }
 
-  /** The people in a group, under the group's row. Removing one asks first in the server's words (the method's warning): who leaves which group, and whether the account goes with it. */
+  /** The people in a group, under the group's row. Removing one asks first in the server's words (the method's warning): who leaves which group. */
   private peopleOfGroup(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.groupUsers) {
@@ -1344,6 +1564,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'Nobody is in the group.',
       listColumns: this.columns(resource, [
         ['username', 'Username'],
         ['name', 'Name'],
@@ -1406,6 +1627,7 @@ class SideBuilder {
         parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
         showViewButton: false,
         collapsible: false,
+        emptyMessage: 'The group holds no role.',
         listColumns: [
           ...this.columns(resource, [['role', 'Role'], ['createdAt', 'Given'], ...periodColumns]),
           ...counted,
@@ -1433,6 +1655,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: 'The group holds no role.',
       listColumns: [
         ...this.columns(resource, [['role', 'Role']]),
         ...(this.has(resource, 'kind') && this.identity.tenant
@@ -1485,6 +1708,11 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      // A role file may keep a shared person's password and identities from a tenant's
+      // reader, so an empty list there says what is shown, not what is.
+      emptyMessage: this.tenant
+        ? 'Nothing of how this person signs in is shown here.'
+        : 'This person has no way to sign in.',
       listColumns: this.columns(resource, [
         ['through', 'Signs in with'],
         ['connection', 'Connection'],
@@ -1524,6 +1752,7 @@ class SideBuilder {
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
+      emptyMessage: this.tenant ? 'No directory sign-in is shown here.' : 'No directory sign-in is linked.',
       listColumns: this.columns(resource, [
         ['method', 'Sign-in method'],
         ['connection', 'Connection'],
@@ -1545,20 +1774,61 @@ class SideBuilder {
     });
   }
 
-  /** A person's sessions, under the person's row: the whole application's alone. */
+  /**
+   * A person's live sessions, under the person's row: the whole application's alone. The
+   * list is the sessions the server says are live, each with how it signed in and its
+   * browser where the list says them, the session the reader is using marked, and under it
+   * a link opens the Sessions page filtered by the person's username, where every session
+   * of theirs is. Where the
+   * server's list does not say which are live (a description from before it did), the list
+   * is every session, as it was.
+   */
   private sessionsOf(): ChildResourceConfig | undefined {
     const { lists } = this.side;
     if (!lists.sessions) {
       return undefined;
     }
     const resource = lists.sessions as Resource;
+    if (!this.has(resource, 'live')) {
+      return listViewConfig({
+        title: 'Sessions',
+        primaryResource: resource,
+        parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
+        showViewButton: false,
+        collapsible: false,
+        emptyMessage: 'This person has no session.',
+        listColumns: this.columns(resource, [...sessionColumns, ['expired', 'Expired']]),
+        rowMethods: this.onSession(),
+        elements: [],
+      });
+    }
+    const sessionsPage = this.route('sessions', 'sessions');
     return listViewConfig({
-      title: 'Sessions',
+      title: 'Live sessions',
       primaryResource: resource,
       parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
+      // The list's own filter, sent beside the one by the person's id.
+      filter: () => 'live:eq:true',
       showViewButton: false,
       collapsible: false,
-      listColumns: this.columns(resource, sessionColumns),
+      emptyMessage: 'This person has no live session.',
+      listColumns: [
+        ...this.sessionDetails(resource),
+        ...this.columns(resource, sessionColumns),
+        // Read with each row and not drawn: the Browser cell marks the reader's own by it.
+        ...(this.has(resource, 'browser') && this.has(resource, 'id') ? [{ id: 'id' as FieldName, hidden: true }] : []),
+      ],
+      more: (person) => {
+        const username = person?.['username'];
+        if (typeof username !== 'string' || username === '') {
+          return undefined;
+        }
+        return {
+          label: `All of ${username}'s sessions`,
+          route: sessionsPage,
+          queryParams: filterQueryParams([{ field: 'username', operator: 'eq', value: username }]),
+        };
+      },
       rowMethods: this.onSession(),
       elements: [],
     });
@@ -1594,7 +1864,6 @@ class SideBuilder {
   private onPerson(): MethodPresentation[] {
     const { methods } = this.side;
     const named = (row: RecordData): string => String(row['username'] ?? 'this person');
-    const removal = this.tenant ? methods.removeFromTenant : undefined;
     return this.present([
       // The group is the menu entry's alone: giveRole() draws the button above the person's
       // roles too, which is in no menu.
@@ -1663,7 +1932,12 @@ class SideBuilder {
           icon: 'block',
           group: 'account',
           when: (row) => row['disabled'] === false,
-          confirm: (row) => `Disable ${named(row)}? They cannot sign in until the account is enabled again.`,
+          // A row whose State says another tenant also holds the person (statesOf's own
+          // test) is told the account is the whole application's.
+          confirm: (row) =>
+            this.tenant && row['heldElsewhere'] === true && row['heldInEveryTenant'] !== true
+              ? `Disable ${named(row)}? They cannot sign in to any ${this.tenantWord} until the account is enabled again.`
+              : `Disable ${named(row)}? They cannot sign in until the account is enabled again.`,
         },
       ],
       [
@@ -1688,37 +1962,38 @@ class SideBuilder {
           when: (row) => row['heldHere'] !== false,
         },
       ],
-      // On a tenant's side that has the removal from the tenant, the removal stands in
-      // Delete's place on a row whose answer lists it: taking a person the tenant holds
-      // alone out of it takes the account. Delete is drawn beside it, or alone, where the
-      // row says the tenant manages the account through its directory (managedHere) and the
-      // removal would leave the account standing: a person of the directory who holds
-      // nothing in the tenant itself, or who holds roles elsewhere too. A row whose answer
-      // does not list the removal keeps Delete.
+      // Delete is the account's own delete, drawn wherever the row's answer lists it; the
+      // removal from the tenant beside it takes what the person holds there and leaves the
+      // account standing. Where the method warns before it runs (on a tenant's side whose
+      // server says what the delete does, and whether the person can come back through the
+      // directory), the page asks only whom, and the server's words follow in the dialog.
+      // Where it does not, the page says all of it.
       [
         methods.delete,
         {
           label: 'Delete',
           icon: 'delete',
           group: 'account',
-          confirm: (row) =>
-            this.identity.tenant
+          confirm: (row, _listed, meta) => {
+            if (meta?.warning !== undefined) {
+              return `Delete ${named(row)}?`;
+            }
+            return this.identity.tenant
               ? `Delete ${named(row)}? The account is removed from every ${this.tenantWord}, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.`
-              : `Delete ${named(row)}? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.`,
-          ...(removal === undefined ? {} : { when: (row: RecordData) => deleteBesideRemoval(row, removal) }),
+              : `Delete ${named(row)}? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.`;
+          },
         },
       ],
     ]);
   }
 
-  /** How the method that ends one session is presented. */
+  /**
+   * How the method that ends one session is presented. It asks no question of its own:
+   * the method declares a warning, so the dialog asks the server, whose words say when
+   * the session is the reader's own.
+   */
   private onSession(): MethodPresentation[] {
-    return this.present([
-      [
-        this.side.methods.endSession,
-        { label: 'End the session', icon: 'logout', confirm: 'End this session? The browser or device is signed out.' },
-      ],
-    ]);
+    return this.present([[this.side.methods.endSession, { label: 'End the session', icon: 'logout' }]]);
   }
 
   /**
@@ -1844,6 +2119,20 @@ class SideBuilder {
   }
 
   /**
+   * Who manages an account of the whole application's list, in words, for a row that names
+   * no tenant: the application's own administrators. For a row whose tenant has no name to
+   * show (the tenant record marks none) it is the tenant's key, as heldIn says it, which is
+   * all there is. A tenant that has a name the reader may not read is said by tenantNamed.
+   */
+  private managedBy(row: RecordData): string {
+    const tenant = row['managingTenant'];
+    if (tenant === undefined || tenant === null || tenant === '') {
+      return 'Application administrators';
+    }
+    return `${nameInWords(this.identity.tenant ?? 'Tenant')} ${String(tenant)}`;
+  }
+
+  /**
    * Where a mailed link that names no tenant gives its roles, in words: every tenant, or
    * the whole application, or both for the first administrator's own invitation, which
    * nobody sent and which gives the Super Administrator role (told where the list reads
@@ -1907,6 +2196,39 @@ class SideBuilder {
   }
 
   /**
+   * Whether the list's person's id (`userId`) names the list of this side's accounts (the
+   * metadata's `enumeratedResource`), so a row can open the person's account by it.
+   */
+  private namesAccount(resource: Resource): boolean {
+    const users = this.side.lists.users;
+    return (this.resourceMeta(resource)?.fields ?? []).some(
+      (candidate) => candidate.fieldName === 'userId' && users !== undefined && candidate.enumeratedResource === users,
+    );
+  }
+
+  /**
+   * The columns of a list of sessions that say how each session signed in and the
+   * browser it was signed in from, each where the list has its field. The Browser cell of
+   * the session the reader is using says so (sessionBrowser).
+   */
+  private sessionDetails(resource: Resource): ColumnConfig[] {
+    return [
+      ...this.columns(resource, [['signedInWith', 'Signed in with']]),
+      ...(this.has(resource, 'browser')
+        ? [
+            {
+              id: 'browser' as FieldName,
+              header: 'Browser',
+              filterable: false,
+              sortable: false,
+              valueGetter: (row: RecordData, reader: SessionInfo) => sessionBrowser(row, reader),
+            },
+          ]
+        : []),
+    ];
+  }
+
+  /**
    * What the whole application's method that takes a role from a person takes, from a
    * row that names the role and where it is held.
    */
@@ -1948,18 +2270,19 @@ class SideBuilder {
   }
 
   /**
-   * A column over a field that holds a tenant's key, showing the tenant's name: the
-   * tenant record's row is read by the keys on the page (the list's related-record
-   * column) and its name field shown; a reader who may not read the record is shown the
-   * name their own list of tenants holds, for a tenant they hold a role in
-   * (`tenantKey`). Under a heading that is not the tenant's word the name follows the
-   * word ("Sector Anvil" under "Held in"), and under the word itself it stands alone. A
-   * tenant's key is an id nobody reads, so a row whose tenant's name the reader may not
-   * read says that in words (tenantUnseen) and never shows the key. Where the outlet's
-   * description names no tenant record there is none to read, and the reader's own list
-   * of tenants and those words are what a row shows. `otherwise` says what a row shows
-   * that names no tenant; it is all a row shows where the record marks no name, since
-   * the key is then all there is.
+   * A column over a field that holds a tenant's key, showing the tenant's name: a plain
+   * column on the key that says how it words a row with no name. Where the list carries
+   * the name beside the key (the generator points the key to the tenant record where
+   * every outlet that serves the Auth's management serves the record, and the server then
+   * reads the name with each row), the list shows the name, sorts by it and filters by
+   * it, where the person may list it. Where the list carries none, or the person may not
+   * list it, a row says the name the person's own list of tenants holds, for a tenant they
+   * hold a role in (`tenantKey`), and otherwise says in words that the reader cannot see
+   * the tenant (tenantUnseen), never the key, an id nobody reads; the column then neither
+   * sorts nor filters. Under a heading that is not the tenant's word the name follows the
+   * word ("Sector Anvil" under "Held in"), and under the word itself it stands alone.
+   * `otherwise` says what a row shows that names no tenant; it is all a row shows where
+   * the record marks no name, since the key is then all there is.
    */
   private tenantNamed(id: FieldName, header: string, otherwise: (row: RecordData) => string): ColumnConfig {
     const record = this.identity.tenantResource as Resource | undefined;
@@ -1972,22 +2295,13 @@ class SideBuilder {
     }
     const word = nameInWords(this.identity.tenant ?? 'Tenant');
     const worded = header.trim().toLowerCase() !== word.toLowerCase();
-    return multiColumnConfig({
+    return {
       id,
       header,
-      // Where the outlet serves no tenant record there is none to read: the person's own
-      // list of tenants names the tenant, or the page's words stand.
-      additionalIds:
-        record && meta?.nameField && key
-          ? [{ resource: record, id: key as FieldName, field: meta.nameField as FieldName }]
-          : [],
-      concatFn: 'hyphen-concat',
       tenantKey: true,
       ...(worded ? { said: (name: string) => `${word} ${name}` } : {}),
       fallback: (row: RecordData) => (String(row[id] ?? '') === '' ? otherwise(row) : this.tenantUnseen()),
-      // The field holds the key: a filter typed over the column would be asked for an id.
-      filterable: false,
-    });
+    };
   }
 
   /**
@@ -2047,9 +2361,11 @@ class SideBuilder {
    * says where the field is true, in the order the lines are said: Disabled; Must change
    * password, where the side has a password method; and on a tenant's side that another
    * tenant also holds the person, that they hold a role in every tenant at once (In every
-   * tenant, in the application's word, short enough for the State column), or that they
-   * hold a role in the whole application, which keeps Disable and Delete from the
-   * tenant's administrator as a shared person does.
+   * tenant, in the application's word, short enough for the State column), that they
+   * hold a role in the whole application, or that they sign in through another tenant's
+   * directory, which manages their account. What a tenant's administrator may do to a
+   * person is the server's answer for the row, by who manages the account; the lines say
+   * why a row offers less.
    */
   private stateLines(): Named[] {
     const password = this.side.methods.requirePasswordChange !== undefined;
@@ -2061,6 +2377,7 @@ class SideBuilder {
             ['heldElsewhere', `Also in another ${this.tenantWord}`],
             ['heldInEveryTenant', `In every ${this.tenantWord}`],
             ['heldGlobally', 'Also holds a role in the whole application'],
+            ['managedByAnotherDirectory', `Signs in through another ${this.tenantWord}'s directory`],
           ] as Named[])
         : []),
     ];
@@ -2101,14 +2418,12 @@ class SideBuilder {
   }
 
   /**
-   * The fields a tenant's side reads with a person and does not draw besides the State's:
-   * whether the person holds something in the tenant itself, by which the removal from
-   * the tenant is offered, and whether the tenant manages the account (managedHere), by
-   * which Delete is drawn beside the removal (deleteBesideRemoval). Each only where the
-   * list has it.
+   * The field a tenant's side reads with a person and does not draw besides the State's:
+   * whether the person holds something in the tenant itself (heldHere), by which the
+   * removal from the tenant is offered. Only where the list has it.
    */
   private tenantFacts(resource: Resource): string[] {
-    return this.tenant ? ['heldHere', 'managedHere'].filter((name) => this.has(resource, name)) : [];
+    return this.tenant && this.has(resource, 'heldHere') ? ['heldHere'] : [];
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
@@ -2233,26 +2548,6 @@ function decidedElsewhere(row: RecordData): boolean {
   return row['directoryGivesRoles'] === true || row['ownRule'] === true;
 }
 
-/**
- * Whether a tenant's people page draws Delete on a person's row, where the tenant's side
- * has the removal from the tenant (removal, its method). A row whose answer does not list
- * the removal keeps Delete. A row whose answer lists it draws Delete only where the row
- * says the tenant manages the account (managedHere) and the removal would leave the
- * account standing: the person holds nothing in the tenant itself, or holds a role in
- * another tenant or for the whole application too. A row that carries no managedHere is
- * read as one the tenant does not manage. Whether Delete is offered at all is still the
- * server's answer for the row.
- */
-function deleteBesideRemoval(row: RecordData, removal: string): boolean {
-  if (!(rowCapabilities(row)?.Execute ?? []).includes(removal)) {
-    return true;
-  }
-  if (row['managedHere'] !== true) {
-    return false;
-  }
-  return row['heldHere'] === false || row['heldElsewhere'] === true || row['heldGlobally'] === true;
-}
-
 /** What a sign-in method's row says of sign-up: who decides, or what an administrator chose. */
 function signUpChoice(row: RecordData): string {
   if (row['directoryGivesRoles'] === true) {
@@ -2320,28 +2615,6 @@ function openToSignUp(rows: RecordData[]): string | undefined {
       return `${String(row['label'] ?? row['name'])} is open to sign-up. ${consequence}`.trim();
     })
     .join('\n');
-}
-
-/**
- * What a group still holds, as the row says it where Delete would be: "3 people and 2
- * roles", "1 person", "2 roles". Nothing for a group that holds nothing, which is the one
- * Delete is offered on. The counts are the server's, over what has not ended, which is
- * what it refuses a deletion for.
- */
-function whatIsLeft(row: RecordData): string | undefined {
-  const people = Number(row['people'] ?? 0);
-  const roles = Array.isArray(row['roles']) ? row['roles'].length : 0;
-  const left = [
-    ...(people > 0 ? [people === 1 ? '1 person' : `${people} people`] : []),
-    ...(roles > 0 ? [roles === 1 ? '1 role' : `${roles} roles`] : []),
-  ];
-  return left.length > 0 ? left.join(' and ') : undefined;
-}
-
-/** What a group that still holds something says where Delete would be; nothing for one that holds nothing. */
-function emptyItFirst(row: RecordData): string | undefined {
-  const left = whatIsLeft(row);
-  return left ? `${left}: empty it first` : undefined;
 }
 
 /**
@@ -2419,6 +2692,55 @@ const unmailedWords: Readonly<Record<string, string>> = {
   expiresAt: 'Ended',
   consumedAt: '',
 };
+
+/** The words for each state the server says a mailed link is in, in the order the State column's filter offers them. */
+const linkStateWords: readonly { value: string; label: string }[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'accepted', label: 'Accepted' },
+  { value: 'withdrawn', label: 'Withdrawn' },
+  { value: 'expired', label: 'Expired' },
+  { value: 'notMailed', label: 'Not mailed' },
+];
+
+/**
+ * The words for each kind of link the server mails, in the order the Kind column's
+ * filter offers them.
+ */
+const linkKindWords: readonly { value: string; label: string }[] = [
+  { value: 'invitation', label: 'Invitation' },
+  { value: 'verification', label: 'Address confirmation' },
+  { value: 'sign-up', label: 'Sign-up' },
+  { value: 'first-password', label: 'First password code' },
+  { value: 'password-reset', label: 'Password reset' },
+  { value: 'address-change', label: 'Address change' },
+];
+
+/** The states of an invitation Send again is offered on: open, expired, or not mailed. */
+const resendable: readonly string[] = ['open', 'expired', 'notMailed'];
+
+/**
+ * A column that says a stored word of a mailed link in the words given for it, offers
+ * those words in its filter and does not sort; a word it has none for is written as
+ * stored.
+ */
+function linkWordsColumn(id: string, header: string, words: readonly { value: string; label: string }[]): ColumnConfig {
+  return {
+    id: id as FieldName,
+    header,
+    sortable: false,
+    filterChoices: words,
+    valueGetter: (row: RecordData) => {
+      const stored = typeof row[id] === 'string' ? row[id] : '';
+      return words.find((said) => said.value === stored)?.label ?? stored;
+    },
+  };
+}
+
+/** The State column of the mailed links and a tenant's invitations (linkStateWords). */
+const linkStateColumn: ColumnConfig = linkWordsColumn('state', 'State', linkStateWords);
+
+/** The Kind column of the whole application's mailed links (linkKindWords). */
+const linkKindColumn: ColumnConfig = linkWordsColumn('kind', 'Kind', linkKindWords);
 
 /**
  * The last day a period that ends at the instant counts, as a list shows it: the day of
@@ -2498,6 +2820,116 @@ function lockLine(until: unknown, now: number): string {
   return `Locked until ${format(instant, isSameDay(instant, now) ? 'h:mm a' : momentFormat(instant, now))}`;
 }
 
+/** The kinds of count whose budget is mail sent (or codes mailed), each with what the row counts. */
+const attemptMailKinds: Record<string, string> = {
+  mail: 'Mail to',
+  code: 'Sign-in codes to',
+  reset: 'Password reset links to',
+  invitationCode: 'Codes for the invitation to',
+};
+
+/** The kinds of count whose budget is wrong codes entered, each with what the row counts. */
+const attemptGuessKinds: Record<string, string> = {
+  invitationGuess: 'Wrong codes for the invitation to',
+  addressGuess: 'Wrong codes for',
+  codeGuess: 'Wrong sign-in codes for',
+  firstPassword: 'Wrong first-password codes for',
+};
+
+/** The words of a failed sign-in's state, in the order the State column's filter offers them. */
+const attemptStateWords: readonly { value: string; label: string }[] = [
+  { value: 'locked', label: 'Locked' },
+  { value: 'counting', label: 'Counting' },
+];
+
+/** A row of the failed sign-ins: its kind and what it is for as the server says them, as text. */
+function attemptOf(row: RecordData): { kind: string; subject: string } {
+  return {
+    kind: typeof row['kind'] === 'string' ? row['kind'] : '',
+    subject: typeof row['subject'] === 'string' ? row['subject'] : '',
+  };
+}
+
+/**
+ * What a row of the failed sign-ins counts, in words: the name a person typed for a
+ * sign-in ("ada"), "Mail to ada@fleet.example" for mail and codes sent, "Wrong codes for
+ * ada@fleet.example" for wrong codes entered, and the subject alone for a kind it does not
+ * know.
+ */
+function attemptSubject(row: RecordData): string {
+  const { kind, subject } = attemptOf(row);
+  const said = attemptMailKinds[kind] ?? attemptGuessKinds[kind];
+  return said === undefined ? subject : `${said} ${subject}`;
+}
+
+/**
+ * The account a row of the failed sign-ins is kept for, by its name: "No such account"
+ * on a name a person typed that no account holds, and nothing on any other row with none.
+ */
+function attemptAccount(row: RecordData): string {
+  const account = row['account'];
+  if (typeof account === 'string' && account !== '') {
+    return account;
+  }
+  return attemptOf(row).kind === 'signIn' ? 'No such account' : '';
+}
+
+/**
+ * The count of a row of the failed sign-ins: for a name, against the limit that locks it
+ * ("3 of 5"); for mail, how many were sent ("3 sent"); for codes, how many were wrong
+ * ("3 wrong"); and the count alone otherwise.
+ */
+function attemptCount(row: RecordData): string {
+  const { kind } = attemptOf(row);
+  const failures = String(row['failures'] ?? '');
+  if (kind in attemptMailKinds) {
+    return `${failures} sent`;
+  }
+  if (kind in attemptGuessKinds) {
+    return `${failures} wrong`;
+  }
+  const limit = row['failureLimit'];
+  return kind === 'signIn' && typeof limit === 'number' ? `${failures} of ${limit}` : failures;
+}
+
+/** The longest a lock is said with its time: one that passes later is a count no time resets. */
+const attemptLockSaid = 366 * 24 * 60 * 60_000;
+
+/**
+ * The State of a row of the failed sign-ins: for a locked one, until when and how long is
+ * left ("Locked until 3:15 PM, 12 minutes left", lockLine and timeLeft); "Locked" alone
+ * where the lock passes more than 366 days from now, a count no time resets, or the row
+ * carries no time; "Counting" for the rest.
+ */
+function attemptState(row: RecordData, now: number): string {
+  if (row['state'] !== 'locked') {
+    return attemptStateWords.find((words) => words.value === row['state'])?.label ?? String(row['state'] ?? '');
+  }
+  const until = row['lockedUntil'];
+  const instant = typeof until === 'string' || until instanceof Date ? new Date(until) : undefined;
+  const line = lockLine(until, now);
+  if (instant === undefined || line === '' || instant.getTime() - now > attemptLockSaid) {
+    return 'Locked';
+  }
+  return `${line}, ${timeLeft(instant.getTime() - now)} left`;
+}
+
+/**
+ * What Unlock asks of a row of the failed sign-ins, by what it counts: of a name, that
+ * its count starts over; of mail, that it can be sent again at once; of wrong codes,
+ * that codes can be entered again.
+ */
+function unlockQuestion(row: RecordData): string {
+  const { kind, subject } = attemptOf(row);
+  if (kind in attemptMailKinds) {
+    return `Clear this count? Mail to ${subject} can be sent again at once.`;
+  }
+  if (kind in attemptGuessKinds) {
+    return 'Clear this count? Codes can be entered again.';
+  }
+  return `Unlock ${subject}? The count of failed tries starts over.`;
+}
+
 /**
  * A length of time in words a person reads at a glance: "45 minutes", "3 hours 10
  * minutes", "1 day", rounded down to the unit, and "less than a minute" at the very end.
@@ -2523,12 +2955,48 @@ function timeLeft(left: number): string {
   return count(Math.floor(hours / 24), 'day');
 }
 
-/** The columns of a session, beside whose it is. */
+/** The columns of a session both lists of sessions draw, beside whose it is. */
 const sessionColumns: Named[] = [
   ['authenticatedAt', 'Signed in'],
   ['updatedAt', 'Last active'],
-  ['expired', 'Expired'],
 ];
+
+/** The words for each state the server says a session is in, in the order the State column's filter offers them. */
+const sessionStateWords: readonly { value: string; label: string }[] = [
+  { value: 'live', label: 'Live' },
+  { value: 'timedOut', label: 'Timed out' },
+  { value: 'ended', label: 'Ended' },
+];
+
+/**
+ * The Sessions page's State column: the state the server says a session is in, in the
+ * words its filter offers (sessionStateWords); a state it does not know is written as
+ * stored.
+ */
+const sessionStateColumn: ColumnConfig = {
+  id: 'state' as FieldName,
+  header: 'State',
+  sortable: false,
+  filterChoices: sessionStateWords,
+  valueGetter: (row: RecordData) => {
+    const state = typeof row['state'] === 'string' ? row['state'] : '';
+    return sessionStateWords.find((words) => words.value === state)?.label ?? state;
+  },
+};
+
+/**
+ * What a session's Browser cell says: the browser's name, and of the session the reader
+ * is using (the session read's `sessionId`), ", this browser" after it ("Chrome on macOS,
+ * this browser"), or "This browser" where the session keeps no browser's name.
+ */
+function sessionBrowser(row: RecordData, reader: SessionInfo): string {
+  const name = typeof row['browser'] === 'string' ? row['browser'] : '';
+  const own = typeof reader.sessionId === 'string' && reader.sessionId !== '' && row['id'] === reader.sessionId;
+  if (!own) {
+    return name;
+  }
+  return name === '' ? 'This browser' : `${name}, this browser`;
+}
 
 /** The key of the password among the ways a person signs in (the row's `way`); every other way is an identity. */
 const passwordWay = 'password';
@@ -2561,7 +3029,7 @@ function leftToSignInThrough(ways: readonly RecordData[]): string {
 
 /** A word with its article: "a sector", "an office". */
 function withArticle(word: string): string {
-  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`;
+  return `${articleFor(word)} ${word}`;
 }
 
 /** A PascalCase name as a route segment: `FleetStaff` is "fleet-staff". */

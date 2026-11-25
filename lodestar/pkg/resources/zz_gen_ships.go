@@ -81,6 +81,16 @@ func (Ship) DeleteTree() *resource.DeleteTree {
 	}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Ship) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "HangarName", Key: "HangarID", Resource: "Hangars", Tag: "name", Table: "Hangars", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "SectorId"},
+		{Field: "ClassName", Key: "ClassID", Resource: "ShipClasses", Tag: "designation", Table: "ShipClasses", KeyColumn: "Id", NameColumn: "Designation", TenantColumn: ""},
+	}
+}
+
 // SecretContext names what a secret of the row is bound to: its primary key, column by
 // column in key order. A stored secret opens on the row it was written for and on no
 // other (resource.Secret).

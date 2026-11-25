@@ -101,8 +101,9 @@ func (w *tenantListsWorld) facts(ctx context.Context, t *testing.T, name, identi
 // account is disabled alone. A person who signs in through Cinder's directory and
 // holds nothing is in Cinder's list and no other, and Cinder disables and deletes them.
 // Anvil's removal of such a person, or of their last role, leaves the account standing
-// in Cinder's list, holding nothing; Cinder's removal of its own directory person who
-// holds a role at Cinder alone deletes the account, as before.
+// in Cinder's list, holding nothing, and the warning before the removal says nothing of
+// the account; so does Cinder's removal of its own directory person who holds a role at
+// Cinder alone.
 func TestManagedAccountSectorMethods(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -126,7 +127,7 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 	// signs in through it and is a Cadet at Cinder alone.
 	rioIdentity := w.directoryPerson(ctx, t, "rio", anvil)
 	solIdentity := w.directoryPerson(ctx, t, "sol", anvil)
-	w.directoryPerson(ctx, t, "tam", cinder)
+	tamIdentity := w.directoryPerson(ctx, t, "tam", cinder)
 
 	post := func(user accesstypes.User, sector, method, body string) (int, []byte) {
 		return doRequestAs(t, w.h, user, http.MethodPost, sectorPath(sector, method), body)
@@ -277,8 +278,8 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 	t.Run("another sector's removal of the person leaves the account standing, holding nothing, in Cinder's list, and Cinder deletes it", func(t *testing.T) {
 		status, body := w.askRemovalWarning(t, "rio")
 		assertStatus(t, status, http.StatusOK, body)
-		if warning := decodeWarning(t, body); len(warning.Also) != 1 || warning.Also[0].Says != removalManagedElsewhere {
-			t.Errorf("the warning before Anvil's removal of rio = %+v, want the one note %q", warning, removalManagedElsewhere)
+		if warning := decodeWarning(t, body); len(warning.Also) != 0 {
+			t.Errorf("the warning before Anvil's removal of rio = %+v, want no note", warning)
 		}
 		status, body = w.removeFromSector(t, "marshal", "rio")
 		assertStatus(t, status, http.StatusNoContent, body)
@@ -295,27 +296,21 @@ func TestManagedAccountSectorMethods(t *testing.T) {
 		assertStatus(t, status, http.StatusNoContent, body)
 		w.standsHoldingNothing(t, "sol", solIdentity)
 	})
-	t.Run("the sector whose directory a person signs in through removes them and the account goes, as before", func(t *testing.T) {
+	t.Run("the sector whose directory a person signs in through removes them and the account stays, holding nothing, in its list", func(t *testing.T) {
 		status, body := post("cora", cinder, sectorRemovalPath, userBody("tam"))
 		assertStatus(t, status, http.StatusNoContent, body)
-		if crewAccountExists(t, w.db, w.ids["tam"]) {
-			t.Error("tam's account is still there after Cinder removed them, the last thing they held")
-		}
+		w.standsHoldingNothing(t, "tam", tamIdentity)
 	})
 }
 
-// removalManagedElsewhere is the note of a removal's warning where the person then holds
-// nothing and the account stays, because another sector's directory signs them in.
-const removalManagedElsewhere = "They then hold nothing, but their account stays: the sector whose directory they sign in through manages it."
-
-// standsHoldingNothing fails unless the person's account stands after a removal by Anvil,
-// its identity still linked and holding nothing, with no row in Anvil's list and a row in
+// standsHoldingNothing fails unless the person's account stands after a removal, its
+// identity still linked and holding nothing, with no row in Anvil's list and a row in
 // Cinder's that says Cinder manages it and the person holds nothing there.
 func (w *tenantListsWorld) standsHoldingNothing(t *testing.T, name, identity string) {
 	t.Helper()
 
 	if !crewAccountExists(t, w.db, w.ids[name]) {
-		t.Fatalf("%s's account is gone, want it standing: Cinder's directory signs them in", name)
+		t.Fatalf("%s's account is gone, want it standing", name)
 	}
 	if f := w.facts(t.Context(), t, name, identity); !f.Linked || len(f.Held) != 0 {
 		t.Errorf("%s's account is linked = %t and holds %v, want linked and holding nothing", name, f.Linked, f.Held)
@@ -336,4 +331,208 @@ func (w *tenantListsWorld) standsHoldingNothing(t *testing.T, name, identity str
 func factsEqual(a, b *accountFacts) bool {
 	return a.Username == b.Username && a.Name == b.Name && a.Email == b.Email && a.PasswordHash == b.PasswordHash &&
 		a.Disabled == b.Disabled && a.PasswordChangeRequired == b.PasswordChangeRequired && a.Linked == b.Linked && slices.Equal(a.Held, b.Held)
+}
+
+// TestManagedAccountApplicationMethods holds the whole application's acts on an account
+// to the accounts no sector manages. A holder of Headquarters who administers no sector
+// reads every account, and the person's row of the whole application's list says whether
+// a sector manages the account (managedByTenant) and which (managingTenant); each act on
+// the account reads that row, the unlink the identity's row of the list of identities,
+// and goes through only under managedByTenant = false. A person who holds a role in one
+// sector alone is that sector's; given a role in a second, the person is nobody's but the
+// application's, and neither sector disables them while each still sends them the reset
+// link. A person who signs in through Cinder's directory is Cinder's whatever else they
+// hold, and a super administrator acts on that account by giving themselves Cinder's
+// administrator role and acting from Cinder's side. A person who holds a role for the
+// whole application alone is the application's, as before.
+func TestManagedAccountApplicationMethods(t *testing.T) {
+	t.Parallel()
+	w := newTenantListsWorld(t)
+	ctx := t.Context()
+
+	// The grants this suite proves, pinned to the roles file (conditions-proven).
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "DisableCrewUser", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "EnableCrewUser", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "DeleteCrewUser", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "RenameCrewUser", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "SetCrewUserName", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "SetCrewUserEmail", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "RequireCrewPasswordChange", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "EndCrewUserSessions", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "RevokeCrewUserTrustedDevices", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "UnlinkCrewSessionIdentity", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "RemoveCrewPassword", "managedByTenant = false")
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "SendCrewUserPasswordResetLink", "managedByTenant = false")
+
+	// hq holds Headquarters and nothing else; bea is Bastion's Marshal, and Anvil's is the
+	// world's marshal.
+	w.ids["hq"] = string(makeCrewAccount(ctx, t, w.db, "hq"))
+	w.giveCrewRole(ctx, t, "hq", "Headquarters", accesstypes.GlobalPolicyScope())
+	w.seat(ctx, t, "bea", "SectorMarshal", bastion)
+
+	post := func(user accesstypes.User, path, body string) (int, []byte) {
+		return doRequestAs(t, w.h, user, http.MethodPost, path, body)
+	}
+	userBody := func(name string) string { return fmt.Sprintf(`{"userId":%q}`, w.ids[name]) }
+	// The application's acts on an account, in an order that leaves the delete last, each
+	// with its body and the status it answers when it goes through: the two that mail
+	// answer whether the message went.
+	type act struct {
+		method, body string
+		status       int
+	}
+	acts := func(name, identity string) []act {
+		return []act{
+			{"rename-crew-user", fmt.Sprintf(`{"userId":%q,"username":"%s-renamed"}`, w.ids[name], name), http.StatusNoContent},
+			{"set-crew-user-name", fmt.Sprintf(`{"userId":%q,"name":"Somebody Else"}`, w.ids[name]), http.StatusNoContent},
+			{"set-crew-user-email", fmt.Sprintf(`{"userId":%q,"email":"%s-new@example.com"}`, w.ids[name], name), http.StatusOK},
+			{"require-crew-password-change", userBody(name), http.StatusNoContent},
+			{"end-crew-user-sessions", userBody(name), http.StatusNoContent},
+			{"revoke-crew-user-trusted-devices", userBody(name), http.StatusNoContent},
+			{"send-crew-user-password-reset-link", userBody(name), http.StatusOK},
+			{"unlink-crew-session-identity", fmt.Sprintf(`{"identityId":%q}`, identity), http.StatusNoContent},
+			{"remove-crew-password", userBody(name), http.StatusNoContent},
+			{"disable-crew-user", userBody(name), http.StatusNoContent},
+			{"enable-crew-user", userBody(name), http.StatusNoContent},
+			{"delete-crew-user", userBody(name), http.StatusNoContent},
+		}
+	}
+	// row is the person's row of the whole application's list as hq reads it, with the
+	// methods it offers hq.
+	row := func(name string) (facts map[string]any, offered []any) {
+		t.Helper()
+
+		status, body := doRequestAs(t, w.h, "hq", http.MethodGet, consoleAPI+"/"+crewListedAccountsPath+"/"+w.ids[name]+"?capabilities=Execute", "")
+		assertStatus(t, status, http.StatusOK, body)
+		facts = decodeRow(t, body)
+		capabilities, _ := facts["zzCapabilities"].(map[string]any)
+		offered, _ = capabilities["Execute"].([]any)
+
+		return facts, offered
+	}
+	disabled := func(name string) bool {
+		return readColumn[bool](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids[name]}, "Disabled")
+	}
+	// confirmed writes a password and an address the person confirmed on the account.
+	confirmed := func(name string) *spanner.Mutation {
+		return spanner.UpdateMap("CrewSessionUsers", map[string]any{
+			"Id": w.ids[name], "PasswordHash": "the-hash-of-" + name, "EmailVerifiedAt": spanner.CommitTimestamp,
+		})
+	}
+
+	t.Run("a person one sector holds alone is that sector's, and the application's once a second holds them", func(t *testing.T) {
+		// rho holds a password, an address she confirmed and the Cadet's role at Anvil.
+		w.ids["rho"] = string(makeCrewAccountAt(ctx, t, w.db, "rho", "rho@example.com"))
+		if _, err := w.db.Apply(ctx, []*spanner.Mutation{confirmed("rho")}); err != nil {
+			t.Fatalf("writing rho's password and confirmed address: %v", err)
+		}
+		w.giveCrewRole(ctx, t, "rho", "Cadet", accesstypes.DomainPolicyScope(anvil))
+
+		facts, offered := row("rho")
+		if facts["managedByTenant"] != true || text(facts, "managingTenant") != anvil {
+			t.Errorf("rho's row says managedByTenant = %v and managingTenant = %v, want true and Anvil's key", facts["managedByTenant"], facts["managingTenant"])
+		}
+		if slices.Contains(offered, any("DisableCrewUser")) {
+			t.Errorf("rho's row offers hq %v, want no DisableCrewUser while Anvil manages the account", offered)
+		}
+		if status, body := post("hq", crewMethod("disable-crew-user"), userBody("rho")); status != http.StatusForbidden {
+			t.Errorf("the whole application's disable of rho, whom Anvil manages: status %d, want 403: %s", status, body)
+		}
+		if disabled("rho") {
+			t.Fatal("rho is disabled after the refused call")
+		}
+
+		// Given a role at Bastion too, rho is held by two sectors: no sector manages the
+		// account.
+		w.giveCrewRole(ctx, t, "rho", "Cadet", accesstypes.DomainPolicyScope(bastion))
+		facts, offered = row("rho")
+		if facts["managedByTenant"] != false || facts["managingTenant"] != nil {
+			t.Errorf("rho's row says managedByTenant = %v and managingTenant = %v, want false and none", facts["managedByTenant"], facts["managingTenant"])
+		}
+		if !slices.Contains(offered, any("DisableCrewUser")) {
+			t.Errorf("rho's row offers hq %v, want DisableCrewUser once no sector manages the account", offered)
+		}
+		for _, method := range []string{"disable-crew-user", "enable-crew-user"} {
+			status, body := post("hq", crewMethod(method), userBody("rho"))
+			assertStatus(t, status, http.StatusNoContent, body)
+			if want := method == "disable-crew-user"; disabled("rho") != want {
+				t.Errorf("rho disabled = %v after the whole application's %s, want %v", disabled("rho"), method, want)
+			}
+		}
+		for _, by := range []struct {
+			marshal accesstypes.User
+			sector  string
+		}{{"marshal", anvil}, {"bea", bastion}} {
+			if status, body := post(by.marshal, sectorPath(by.sector, "disable-crew-sector-user"), userBody("rho")); status != http.StatusForbidden {
+				t.Errorf("%s disabling rho at %s: status %d, want 403: %s", by.marshal, by.sector, status, body)
+			}
+			// The grant lets the link through; this world mails nobody, so the answer says
+			// it was not sent (the served stack mails it: TestManagedAccountResetLink).
+			status, body := post(by.marshal, sectorPath(by.sector, "send-crew-sector-user-password-reset-link"), userBody("rho"))
+			assertStatus(t, status, http.StatusOK, body)
+		}
+		if disabled("rho") {
+			t.Error("rho is disabled after the marshals' refused calls")
+		}
+	})
+
+	// pat signs in through Cinder's directory and is a Cadet at Anvil: Cinder manages the
+	// account.
+	patIdentity := w.directoryPerson(ctx, t, "pat", anvil)
+
+	t.Run("a person a sector's directory manages is refused every act from the whole application", func(t *testing.T) {
+		before := w.facts(ctx, t, "pat", patIdentity)
+		for _, a := range acts("pat", patIdentity) {
+			if status, body := post("hq", crewMethod(a.method), a.body); status != http.StatusForbidden {
+				t.Errorf("the whole application's %s on pat: status %d, want 403: %s", a.method, status, body)
+			}
+		}
+		if after := w.facts(ctx, t, "pat", patIdentity); !factsEqual(&after, &before) {
+			t.Errorf("pat's account after the refused calls = %+v, want %+v", after, before)
+		}
+	})
+
+	t.Run("a super administrator gives themselves the sector's administrator role and acts from its side", func(t *testing.T) {
+		w.ids["sal"] = string(makeCrewAccount(ctx, t, w.db, "sal"))
+		w.giveCrewRole(ctx, t, "sal", "SuperAdministrator", accesstypes.GlobalPolicyScope())
+		status, body := post("sal", crewMethod("assign-crew-role"), fmt.Sprintf(`{"userId":%q,"role":"SectorMarshal","domain":%q}`, w.ids["sal"], cinder))
+		assertStatus(t, status, http.StatusNoContent, body)
+		status, body = post("sal", sectorPath(cinder, "disable-crew-sector-user"), userBody("pat"))
+		assertStatus(t, status, http.StatusNoContent, body)
+		if !disabled("pat") {
+			t.Error("pat is not disabled after the super administrator's call from Cinder's side")
+		}
+	})
+
+	t.Run("a person who holds a role for the whole application alone is the application's", func(t *testing.T) {
+		// uma holds a password, an address she confirmed, two identities under the fleet's
+		// connection, which no sector's directory takes, and Crew common for the whole
+		// application.
+		w.ids["uma"] = string(makeCrewAccountAt(ctx, t, w.db, "uma", "uma@example.com"))
+		mutations := []*spanner.Mutation{confirmed("uma")}
+		var identities []string
+		for _, subject := range []string{"uma-first", "uma-second"} {
+			id, err := impulse.NewUUID()
+			if err != nil {
+				t.Fatalf("impulse.NewUUID: %v", err)
+			}
+			identities = append(identities, id.String())
+			mutations = append(mutations, spanner.InsertMap("CrewSessionIdentities", map[string]any{
+				"Id": id.String(), "UserId": w.ids["uma"], "Method": "google", "Connection": "fleet", "Subject": subject,
+				"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+			}))
+		}
+		if _, err := w.db.Apply(ctx, mutations); err != nil {
+			t.Fatalf("writing uma's account and identities: %v", err)
+		}
+		w.giveCrewRole(ctx, t, "uma", "CrewCommon", accesstypes.GlobalPolicyScope())
+
+		for _, a := range acts("uma", identities[0]) {
+			status, body := post("hq", crewMethod(a.method), a.body)
+			assertStatus(t, status, a.status, body)
+		}
+		if crewAccountExists(t, w.db, w.ids["uma"]) {
+			t.Error("uma's account is still there after the whole application deleted it")
+		}
+	})
 }

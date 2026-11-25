@@ -2,8 +2,6 @@ package identity
 
 import (
 	"context"
-	"slices"
-	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -182,24 +180,18 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 // and the role need not exist any more: a membership of a role since deleted is removed
 // like any other.
 //
-// Two rules of the user management are held here. A person who removes a role from
-// themselves in a tenant is held to the rule on the tenant's last administrator
-// (refuseLastAdministrator). And a person left with no role anywhere and no place in a
-// group is deleted with their identity links and sessions in the same transaction
-// (deleteWithLastRole), whoever removed the role. An account that signs in through a
-// tenant's directory is that tenant's to delete: it goes this way only with the last
-// thing it holds in that tenant itself, and otherwise stays, holding nothing, in that
-// tenant's list of its people. The Super Administrator role has its own: it is taken away
-// by a caller who holds it, and never from the last holder who can sign in, whoever
-// asks (requireSuperAdministrator, refuseLastSuperAdministrator).
-// Where a person belongs to one tenant (WithOneTenantPerPerson) there is a third: the
+// A person who removes a role from themselves in a tenant is held to the rule on the
+// tenant's last administrator (refuseLastAdministrator). The Super Administrator role has
+// its own rule: it is taken away by a caller who holds it, and never from the last holder
+// who can sign in, whoever asks (requireSuperAdministrator, refuseLastSuperAdministrator).
+// Where a person belongs to one tenant (WithOneTenantPerPerson) there is another: the
 // last role a person holds outside the tenants stays while they hold roles in more than
-// one tenant (refuseLeavingSeveralTenants).
+// one tenant (refuseLeavingSeveralTenants). Where the role is the last thing the person
+// holds, the account stays, holding nothing.
 //
 // What the person holds is read as committed: a second removal for the same person in
-// one transaction does not see the first, as no read sees a buffered write, so the
-// account is deleted only when one call removes the last role. Remove one role of a
-// person per transaction.
+// one transaction does not see the first, as no read sees a buffered write. Remove one
+// role of a person per transaction.
 //
 // RoleRemovalWarning answers what a call would do, from the same judgment, and writes
 // nothing.
@@ -227,184 +219,14 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 // permission engine told once the transaction has committed. key is the membership, read
 // as held by the caller.
 func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
-	removal, err := m.judgeRoleRemoval(ctx, txn, scope, userID, key)
-	if err != nil {
+	if err := m.judgeRoleRemoval(ctx, txn, scope, userID, key); err != nil {
 		return err
-	}
-	// The notice is mailed to the address the person confirmed, read while the account
-	// is still there to read it from.
-	// A membership whose period is over gave the person nothing: its removal is no
-	// removal from a tenant.
-	if !removal.ended {
-		if err := m.noticeRemoval(ctx, txn, userID, &taken{own: key, group: impulse.NilUUID, groupRole: nil}, []access.MembershipKey{*key}, removal.deletes); err != nil {
-			return err
-		}
-	}
-	switch {
-	case removal.deletes:
-		if err := m.deleteWithLastRole(ctx, txn, userID, removal.kept, key); err != nil {
-			return err
-		}
-	case removal.last:
-		if err := m.logManagedElsewhere(ctx, txn, userID, removal.managedBy); err != nil {
-			return err
-		}
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteMembership()")
 	}
 
 	return m.policyChangesAtCommit(txn)
-}
-
-// taken is what an act takes from a person, for the notice of a removal from a tenant:
-// a membership of their own, their place in a group, or one role of a group they are
-// in.
-type taken struct {
-	own       *access.MembershipKey
-	group     impulse.UUID
-	groupRole *access.GroupRoleKey
-}
-
-// reachWithout answers the roles a person holds that have not ended, of their own and
-// through the groups they stand in, less what an act takes (gone): each as the key of
-// the role where it is held. now is the instant the periods are read at.
-func (m *Manager) reachWithout(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, gone *taken, now time.Time) ([]access.MembershipKey, error) {
-	own, places, err := m.standing(ctx, txn, userID)
-	if err != nil {
-		return nil, err
-	}
-	left := make([]access.MembershipKey, 0, len(own))
-	skipped := false
-	for i := range own {
-		if gone.own != nil && !skipped && own[i] == *gone.own {
-			skipped = true
-
-			continue
-		}
-		left = append(left, own[i])
-	}
-	for _, place := range places {
-		if place.ID == gone.group && gone.groupRole == nil {
-			continue
-		}
-		holding, err := m.groupHolding(ctx, txn, place.ID, now)
-		if err != nil {
-			return nil, err
-		}
-		for _, role := range holding.roles {
-			if gone.groupRole != nil && role == *gone.groupRole {
-				continue
-			}
-			left = append(left, access.MembershipKey{Kind: role.Kind, Axis: role.Axis, Domain: role.Domain, Role: role.Role, User: User(userID)})
-		}
-	}
-
-	return left, nil
-}
-
-// noticeRemoval registers the notice that an administrator removed a person from a
-// tenant, for after the commit. lost are the roles the act (gone) takes from the
-// person, each where it is held; the notice is owed for each tenant among them that
-// the person reaches no more once the act is done: no role of their own there that has
-// not ended, none through a group they stand in, and none held in every tenant at
-// once, which reaches each. It says so when the account goes with the act (deleted).
-// A person who leaves a tenant themselves is told nothing, nor is one who loses a role
-// held for the whole application or in every tenant; a role that ends by itself is no
-// removal and never reaches this, and neither does the deletion of an account or the
-// clearing of a tenant, which are not removals of a person from a tenant.
-func (m *Manager) noticeRemoval(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, gone *taken, lost []access.MembershipKey, deleted bool) error {
-	if m.callerIs(ctx, userID) {
-		return nil
-	}
-	left, err := m.reachWithout(ctx, txn, userID, gone, time.Now())
-	if err != nil {
-		return err
-	}
-	everywhere := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), User(userID), "")
-	told := map[string]bool{}
-	for i := range lost {
-		at := &lost[i]
-		if _, one := tenantScope(at); !one || told[at.Domain] {
-			continue
-		}
-		// What still holds the person in the tenant: another role in the tenant itself,
-		// or one held in every tenant at once, which reaches this one.
-		if slices.ContainsFunc(left, func(key access.MembershipKey) bool {
-			return key.Axis == at.Axis && ((key.Kind == at.Kind && key.Domain == at.Domain) || (key.Kind == everywhere.Kind && key.Domain == everywhere.Domain))
-		}) {
-			continue
-		}
-		told[at.Domain] = true
-		address, confirmed, err := m.store.ConfirmedEmail(ctx, txn, userID)
-		if err != nil {
-			return errors.Wrap(err, "identity.Store.ConfirmedEmail()")
-		}
-		if !confirmed {
-			return nil
-		}
-		tenant := at.Domain
-		if err := m.noticeAfterCommit(txn, "the notice of a removal from "+tenant+" to user "+userID.String(), func(ctx context.Context) error {
-			return m.sessions.NoticeRemovedFromTenant(ctx, address, tenant, deleted)
-		}); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// noticePlaceTaken registers the notice owed a person an administrator takes out of a
-// group: taking the person out takes each role the group holds from them, and the
-// notice is owed for each tenant among those roles the person reaches no more
-// (noticeRemoval). A place whose period has ended gave the person nothing, and its
-// removal is no removal from a tenant. deleted says the account goes with the place.
-func (m *Manager) noticePlaceTaken(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID, deleted bool) error {
-	holding, err := m.groupHolding(ctx, txn, groupID, time.Now())
-	if err != nil {
-		return err
-	}
-	if !slices.Contains(holding.members, User(userID)) {
-		return nil
-	}
-	lost := make([]access.MembershipKey, 0, len(holding.roles))
-	for _, role := range holding.roles {
-		lost = append(lost, access.MembershipKey{Kind: role.Kind, Axis: role.Axis, Domain: role.Domain, Role: role.Role, User: User(userID)})
-	}
-
-	return m.noticeRemoval(ctx, txn, userID, &taken{own: nil, group: groupID, groupRole: nil}, lost, deleted)
-}
-
-// noticeGroupRoleTaken registers the notice owed each person of a group an
-// administrator takes a role from: the role goes from everyone who stands in the group,
-// and the notice is owed to each of them who reaches the role's tenant no more
-// (noticeRemoval). A role whose period has ended gave nobody anything, and a role held
-// for the whole application or in every tenant at once is no one tenant's: nobody is
-// read for it. No account goes with a group's role: the person keeps their place in the
-// group.
-func (m *Manager) noticeGroupRoleTaken(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, key *access.GroupRoleKey) error {
-	if _, one := tenantScope(&access.MembershipKey{Kind: key.Kind, Axis: key.Axis, Domain: key.Domain, Role: key.Role, User: ""}); !one {
-		return nil
-	}
-	holding, err := m.groupHolding(ctx, txn, groupID, time.Now())
-	if err != nil {
-		return err
-	}
-	if !slices.Contains(holding.roles, *key) {
-		return nil
-	}
-	for _, member := range holding.members {
-		userID, ok := UserID(member)
-		if !ok {
-			continue
-		}
-		lost := []access.MembershipKey{{Kind: key.Kind, Axis: key.Axis, Domain: key.Domain, Role: key.Role, User: member}}
-		if err := m.noticeRemoval(ctx, txn, userID, &taken{own: nil, group: groupID, groupRole: key}, lost, false); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // policyChangesAtCommit registers the word to the permission engine on the transaction,

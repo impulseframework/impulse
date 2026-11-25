@@ -90,9 +90,11 @@ func inviteBody(t *testing.T, email string, roles ...string) []byte {
 // the message, the stranger opens the invitation on a fresh browser and asks for a login
 // with a password. The link only opened the invitation: nothing is made until the code
 // mailed to the invited address is entered. The code entered, the login exists and is
-// signed in holding the role; the invitation is consumed, the address is theirs
-// verified, and when the governor takes that one role away, the last the person holds
-// anywhere, the account goes with it.
+// signed in holding the role; the invitation is consumed, and the address is theirs
+// verified. When the governor takes that one role away, the last the person holds
+// anywhere, the account stays, holding nothing, and its session stands. Invited again at
+// the same address, the person accepts with the account that holds it: the role is
+// theirs again, and no second account is made.
 //
 // Demonstrates: auth.invitation, auth.email-address.
 func TestInvitation_globalSignUpWithPassword(t *testing.T) {
@@ -175,17 +177,46 @@ func TestInvitation_globalSignUpWithPassword(t *testing.T) {
 		t.Errorf("standing invitations after the acceptance = %v, want none", standing)
 	}
 
-	// The rule on a last role: the governor takes the one role away, and the account
-	// goes with it.
+	// The last role: the governor takes the one role away, and the account stays,
+	// holding nothing, with the session it is signed in with.
 	take := jsonBody(t, map[string]any{"userId": row["id"], "role": "ClientBrowser"})
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("remove-crew-role"), take); status != http.StatusNoContent {
 		t.Fatalf("the governor takes the ensign's role away: status %d: %s", status, body)
 	}
-	if row := crewAccount(ctx, t, governor, username); row != nil {
-		t.Errorf("the ensign's account after the last role went = %v, want it deleted", row)
+	if row := crewAccount(ctx, t, governor, username); row == nil || row["email"] != email {
+		t.Fatalf("the ensign's account after the last role went = %v, want it kept with its address", row)
 	}
-	if sess := stranger.session(ctx); sess["authenticated"] == true {
-		t.Errorf("the ensign's session after the account went = %v, want ended", sess)
+	if held := crewRolesHeld(ctx, t, governor, username); len(held) != 0 {
+		t.Errorf("the ensign's roles after the last role went = %v, want none", held)
+	}
+	if sess := stranger.session(ctx); sess["authenticated"] != true || sess["username"] != username {
+		t.Errorf("the ensign's session after the last role went = %v, want it standing", sess)
+	}
+
+	// Invited again at the address the account holds: the invitation is sent as any is,
+	// and the account that holds the address accepts it, signed in. No second account is
+	// made for the address.
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("invite-crew-user"), inviteBody(t, email, "ClientBrowser")); status != http.StatusOK {
+		t.Fatalf("the governor invites the ensign's address again: status %d: %s", status, body)
+	}
+	_, again := lastMailTo(t, s, email, "invitation")
+	if again == token {
+		t.Fatal("the second invitation mailed the first one's link")
+	}
+	if status, body := stranger.do(ctx, http.MethodPost, consoleAPI+"/user/invitation", jsonBody(t, map[string]string{"token": again})); status != http.StatusOK {
+		t.Fatalf("the ensign opens the second invitation: status %d: %s", status, body)
+	}
+	if status, body := stranger.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/accept", nil); status != http.StatusOK {
+		t.Fatalf("the ensign accepts the second invitation: status %d: %s", status, body)
+	}
+	if held := crewRolesHeld(ctx, t, governor, username); !equalStrings(held, []string{"ClientBrowser"}) {
+		t.Errorf("the ensign's roles after the second acceptance = %v, want ClientBrowser alone", held)
+	}
+	if n := rowsWhere(ctx, t, s, "CrewSessionUsers", "Email", email); n != 1 {
+		t.Errorf("accounts holding %s after the second invitation = %d, want the one", email, n)
+	}
+	if standing := standingInvitations(ctx, t, governor); len(standing) != 0 {
+		t.Errorf("standing invitations after the second acceptance = %v, want none", standing)
 	}
 }
 

@@ -1,13 +1,19 @@
-import { ApiDescriptor, IdentityDescriptor, Resource } from '@impulseframework/resource';
+import { TestBed } from '@angular/core/testing';
+import { MatDialog } from '@angular/material/dialog';
+import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { ApiDescriptor, ApiError, IdentityDescriptor, Resource } from '@impulseframework/resource';
+import { OfferedMethod, openDeleteMethodDialog, rowMethods } from '@impulseframework/resource-angular/resource';
 import {
   ColumnConfig,
   FieldMeta,
   ListViewConfig,
+  Method,
+  MethodMeta,
   MethodPresentation,
-  MultiColumnConfig,
   RecordData,
   ResourceMeta,
   RootConfig,
+  SessionInfo,
 } from '@impulseframework/resource-angular/types';
 import { pageDataKey } from '@impulseframework/resource-angular/auth-frame';
 import { format } from 'date-fns';
@@ -33,6 +39,15 @@ const fields = (...names: string[]): ResourceMeta =>
     ),
   }) as ResourceMeta;
 
+/**
+ * A list's metadata with the tenant's name beside the field that holds its key, as the
+ * generator writes it for a list whose key it points to the tenant record.
+ */
+const withTenantName = (meta: ResourceMeta, of: string): ResourceMeta => ({
+  ...meta,
+  nameFields: [{ fieldName: `${of.replace(/Id$/, '')}Name`, of, filterable: 'always' }],
+});
+
 const metas: Record<string, ResourceMeta> = {
   CrewSessionUsers: fields(
     'id',
@@ -45,22 +60,25 @@ const metas: Record<string, ResourceMeta> = {
     'createdAt',
     'lastSignInAt',
   ),
-  CrewUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
+  CrewUserRoles: withTenantName(fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'), 'domainId'),
   // The lists a role is picked from: each answers for the method its filter names.
   CrewGivableRoles: fields('name', 'description', 'method', 'group', 'domain', 'everyDomain'),
   CrewSectorRoles: fields('name', 'description', 'method'),
   CrewSessionIdentities: fields('id', 'userId', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
-  CrewSessionMailLinks: fields(
-    'id',
-    'kind',
-    'email',
-    'name',
+  CrewSessionMailLinks: withTenantName(
+    fields(
+      'id',
+      'kind',
+      'email',
+      'name',
+      'tenantId',
+      'everyTenant',
+      'roleNames',
+      'createdAt',
+      'expiresAt',
+      'consumedAt',
+    ),
     'tenantId',
-    'everyTenant',
-    'roleNames',
-    'createdAt',
-    'expiresAt',
-    'consumedAt',
   ),
   CrewSessions: fields('id', 'userId', 'username', 'expired', 'authenticatedAt', 'updatedAt'),
   CrewSessionSignInAttempts: fields('name', 'failures', 'lockedUntil', 'updatedAt'),
@@ -307,6 +325,8 @@ const presentation = (presentations: false | MethodPresentation[] | undefined, m
   return found;
 };
 const children = (config: RootConfig): ListViewConfig[] => config.relatedConfigs as ListViewConfig[];
+/** The session read a column's getter is handed where the spec says nothing of the reader. */
+const noReader = {} as SessionInfo;
 /** The filter a presentation asks a picker's list with, from the dialog's values; a picker it does not narrow fails the spec. */
 const narrowed = (presented: MethodPresentation, field: string): ((values: RecordData) => string) => {
   const narrow = presented.narrows?.[field];
@@ -335,6 +355,24 @@ describe("identityPages, the whole application's side", () => {
       'CrewSessions',
       'CrewSessionSignInAttempts',
       'CrewSignInMethods',
+    ]);
+  });
+
+  it('builds no page for the invitations that make a tenant, where the description names their list: the tenants page shows them', () => {
+    const [wholeApplication, tenant] = crew.sides;
+    const invitingSide = {
+      ...wholeApplication,
+      lists: { ...wholeApplication.lists, invitedTenants: 'CrewInvitedSectors' },
+      methods: { ...wholeApplication.methods, inviteTenant: 'InviteCrewSector' },
+    };
+    const inviting = { ...descriptor, identity: [{ ...crew, sides: [invitingSide, tenant] }] } as ApiDescriptor;
+    const built = identityPages(inviting, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(built.map((page) => page.routeData.route)).toEqual([
+      'crew-accounts',
+      'crew-mailed-links',
+      'crew-sessions',
+      'crew-failed-sign-ins',
+      'crew-sign-in',
     ]);
   });
 
@@ -405,7 +443,7 @@ describe("identityPages, the whole application's side", () => {
         ['ownRule', 'Decided by its own rule', true],
       ]);
       const choice = list(signIn).listColumns.find((column) => column.id === 'openSignUp')?.valueGetter;
-      expect([password, google, entra, partners, widened].map((row) => choice?.(row))).toEqual([
+      expect([password, google, entra, partners, widened].map((row) => choice?.(row, noReader))).toEqual([
         'Open',
         'Invite only',
         'Set by the directory',
@@ -457,7 +495,7 @@ describe("identityPages, the whole application's side", () => {
         'The sign-in page will no longer offer "Forgot your password?". A link already mailed still works, and an administrator can still send one.',
       );
       const stands = list(signIn).listColumns.find((column) => column.id === 'selfServiceReset')?.valueGetter;
-      expect([password, on, google].map((row) => stands?.(row))).toEqual(['No', 'Yes', '']);
+      expect([password, on, google].map((row) => stands?.(row, noReader))).toEqual(['No', 'Yes', '']);
     });
 
     it('asks a plain question before a method is made invite only, and leaves the question of opening one to the warning the server writes', () => {
@@ -911,17 +949,18 @@ describe("identityPages, the whole application's side", () => {
       ['kind', undefined],
       ['createdAt', 'Given'],
     ]);
-    // The sector a role is held in is named: the list reads the sector record's row by the
-    // key the membership carries and shows its name after the sector's word, since the
-    // heading does not say what the name is a name of. A reader who may not read the
-    // record is shown the name their own list of sectors holds (tenantKey). The words
-    // below are what a row says that names no sector, or whose sector's name the reader
-    // may not read: words a person reads, and never the sector's key.
-    const where = roles.listColumns[1] as MultiColumnConfig;
-    expect(where.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    // The sector a role is held in is named: the list carries the sector's name beside the
+    // key the membership carries, and the column on the key shows it after the sector's
+    // word, since the heading does not say what the name is a name of, and sorts and
+    // filters by it. A reader who may not read the name is shown the name their own list
+    // of sectors holds (tenantKey). The words below are what a row says that names no
+    // sector, or whose sector's name the reader may not read: words a person reads, and
+    // never the sector's key.
+    const where = roles.listColumns[1];
+    expect(where.id).toBe('domainId');
     expect(where.tenantKey).toBe(true);
     expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
-    expect(where.filterable).toBe(false);
+    expect([where.filterable, where.sortable, where.valueGetter]).toEqual([undefined, undefined, undefined]);
     expect(roles.listColumns[2].hidden).toBe(true);
     const heldIn = where.fallback as (row: RecordData) => string;
     const remove = presentation(roles.rowMethods, 'RemoveCrewRole');
@@ -1011,12 +1050,32 @@ describe("identityPages, the whole application's side", () => {
     expect(where.valueGetter?.({ kind: 'every', domainId: '' })).toBe('Every sector');
   });
 
+  it("draws the same column whether or not the list carries the sector's name beside the key: the list decides what a row shows", () => {
+    const unnamed = (resource: Resource): ResourceMeta =>
+      resource === 'CrewUserRoles' ? { ...metas[resource], nameFields: undefined } : metas[resource];
+    const [unnamedPeople] = identityPages({ ...descriptor }, unnamed, { auth: 'Crew', scope: 'global' });
+    const named = children(people)[0].listColumns[1];
+    const without = children(unnamedPeople)[0].listColumns[1];
+    expect(Object.keys(without).sort()).toEqual(Object.keys(named).sort());
+    expect([without.id, without.header, without.tenantKey]).toEqual([named.id, named.header, named.tenantKey]);
+    expect([without.filterable, without.sortable, without.valueGetter]).toEqual([undefined, undefined, undefined]);
+    expect(without.said?.('Anvil', {})).toBe(named.said?.('Anvil', {}));
+    const rows: RecordData[] = [
+      { kind: 'domain', domainId: 's-1' },
+      { kind: 'global', domainId: '' },
+      { kind: 'every', domainId: '' },
+    ];
+    expect(rows.map((row) => without.fallback?.(row))).toEqual(rows.map((row) => named.fallback?.(row)));
+    expect(without.fallback?.({ kind: 'domain', domainId: 's-1' })).toBe('A sector you cannot see');
+  });
+
   it("where the outlet serves no sector record there is none to read: a row names the sector from the person's own list of tenants, or says the page's words, and never the key", () => {
     const unserved = { ...descriptor, identity: [{ ...crew, tenantResource: undefined }] } as ApiDescriptor;
     const [unservedPeople] = identityPages(unserved, resourceMeta, { auth: 'Crew', scope: 'global' });
-    const where = children(unservedPeople)[0].listColumns[1] as MultiColumnConfig;
+    const where = children(unservedPeople)[0].listColumns[1];
     // No record is read, and the list asks the person's own tenants for the name.
-    expect(where.additionalIds).toEqual([]);
+    expect(where.id).toBe('domainId');
+    expect([where.filterable, where.sortable, where.valueGetter]).toEqual([undefined, undefined, undefined]);
     expect(where.tenantKey).toBe(true);
     expect(where.said?.('Anvil', {})).toBe('Sector Anvil');
     const said = where.fallback as (row: RecordData) => string;
@@ -1031,8 +1090,10 @@ describe("identityPages, the whole application's side", () => {
       ? { ...metas[resource], fields: [...metas[resource].fields, ...fields('invitedByUserId', 'mailFailedAt').fields] }
       : metas[resource];
   const dates = ['createdAt', 'expiresAt', 'consumedAt'];
-  const cell = (config: RootConfig, id: string): ((row: RecordData) => string | string[]) | undefined =>
-    list(config).listColumns.find((column) => column.id === id)?.valueGetter;
+  const cell = (config: RootConfig, id: string): ((row: RecordData) => string | string[]) | undefined => {
+    const getter = list(config).listColumns.find((column) => column.id === id)?.valueGetter;
+    return getter && ((row: RecordData) => getter(row, noReader));
+  };
 
   it('says a link whose message could not be mailed was not mailed and ended, and leaves its Used cell empty', () => {
     // The pages of a descriptor are made once, so pages over other fields take a descriptor of their own.
@@ -1061,7 +1122,7 @@ describe("identityPages, the whole application's side", () => {
   it("says the first administrator's own invitation gives roles in the whole application and in every sector", () => {
     // The pages of a descriptor are made once, so pages over other fields take a descriptor of their own.
     const [, links] = identityPages({ ...descriptor }, sentMetas, { auth: 'Crew', scope: 'global' });
-    const into = (config: RootConfig): MultiColumnConfig => list(config).listColumns[3] as MultiColumnConfig;
+    const into = (config: RootConfig): ColumnConfig => list(config).listColumns[3];
     const first = {
       kind: 'invitation',
       tenantId: null,
@@ -1104,8 +1165,9 @@ describe("identityPages, the whole application's side", () => {
     // The sector a link invites into is named the same way, under a heading that is the
     // sector's word already, so the name stands alone. Where the reader may not read the
     // sector's name the cell says so, and never shows the key.
-    const into = list(invitations).listColumns[3] as MultiColumnConfig;
-    expect(into.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    const into = list(invitations).listColumns[3];
+    expect(into.id).toBe('tenantId');
+    expect([into.filterable, into.sortable, into.valueGetter]).toEqual([undefined, undefined, undefined]);
     expect(into.tenantKey).toBe(true);
     expect(into.said).toBeUndefined();
     expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
@@ -1117,6 +1179,9 @@ describe("identityPages, the whole application's side", () => {
     expect(into.fallback?.({ tenantId: null, everyTenant: false, roleNames: ['Clerk'] })).toBe('The whole application');
     expect(into.fallback?.({ tenantId: null, everyTenant: false, roleNames: [] })).toBe('');
     expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
+    // Ending a session asks in the server's words, which say when it is the reader's own,
+    // so the page asks no question of its own.
+    expect(presentation(list(sessions).rowMethods, 'EndCrewSession').confirm).toBeUndefined();
     expect(columns(list(sessions)).map(([id]) => id)).toEqual(['username', 'authenticatedAt', 'updatedAt', 'expired']);
     expect(methodsOf(list(attempts).rowMethods)).toEqual([['UnlockCrewSignIn', 'Unlock']]);
     expect(methodsOf(children(people)[2].rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
@@ -1131,7 +1196,7 @@ describe("identityPages, the whole application's side", () => {
         : metas[resource];
     const [, unmarkedLinks] = identityPages({ ...descriptor }, unmarked, { auth: 'Crew', scope: 'global' });
     expect(list(unmarkedLinks).listColumns.some((column) => column.hidden)).toBe(false);
-    const into = list(unmarkedLinks).listColumns[3] as MultiColumnConfig;
+    const into = list(unmarkedLinks).listColumns[3];
     expect(into.fallback?.({ tenantId: null, roleNames: ['Clerk'] })).toBe('');
   });
 });
@@ -1243,6 +1308,29 @@ describe("identityPages, a tenant's side", () => {
         : metas[resource];
     const [unsharedPeople] = identityPages({ ...descriptor }, unshared, { auth: 'Crew', scope: 'domain' });
     expect(hiddenColumns(list(unsharedPeople))).toEqual(['heldElsewhere']);
+  });
+
+  it('asks before disabling a person whose State says another sector also holds them that they cannot sign in to any sector', () => {
+    const disable = presentation(list(people).rowMethods, 'DisableCrewSectorUser');
+    const asks = disable.confirm as (row: RecordData) => string;
+    const ada: RecordData = { username: 'ada', disabled: false, heldElsewhere: true };
+    expect(asks(ada)).toBe('Disable ada? They cannot sign in to any sector until the account is enabled again.');
+    // A row that says the person holds a role in every sector, and one another sector does not hold, are asked as before.
+    expect(asks({ ...ada, heldInEveryTenant: true })).toBe(
+      'Disable ada? They cannot sign in until the account is enabled again.',
+    );
+    expect(asks({ username: 'ada', disabled: false })).toBe(
+      'Disable ada? They cannot sign in until the account is enabled again.',
+    );
+    // The tenant's word is the description's.
+    const costCenters = { ...descriptor, identity: [{ ...crew, tenant: 'CostCenter' }] } as ApiDescriptor;
+    const [costCenterPeople] = identityPages(costCenters, resourceMeta, { auth: 'Crew', scope: 'domain' });
+    const asksThere = presentation(list(costCenterPeople).rowMethods, 'DisableCrewSectorUser').confirm as (
+      row: RecordData,
+    ) => string;
+    expect(asksThere(ada)).toBe(
+      'Disable ada? They cannot sign in to any cost center until the account is enabled again.',
+    );
   });
 
   it("heads a person's page by the person, and says there that another sector also holds them", () => {
@@ -1358,7 +1446,7 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       : resourceMeta(resource);
   const [people] = identityPages(removing, removingMetas, { auth: 'Crew', scope: 'domain' });
 
-  it('offers Remove from the sector after Enable, warned by the server, and Delete on a row that does not offer it', () => {
+  it('offers Remove from the sector after Enable, warned by the server, and Delete', () => {
     expect(methodsOf(list(people).rowMethods)).toEqual([
       ['AssignCrewSectorRole', 'Give a role'],
       ['SetCrewSectorUserName', 'Change the name'],
@@ -1373,18 +1461,9 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       undefined,
       'The person was removed.',
     ]);
-    // Delete is drawn on a row whose answer does not list the removal, and not on one whose
-    // answer does and that says nothing of who manages the account.
-    const answered = (capabilities: { Execute?: string[] }): RecordData =>
-      ({ zzCapabilities: capabilities }) as unknown as RecordData;
+    // Delete is the server's to offer on a row: the page draws it wherever the row's answer lists it.
     const deleteEntry = presentation(list(people).rowMethods, 'DeleteCrewSectorUser');
-    expect(deleteEntry.hidden).toBeUndefined();
-    expect([
-      deleteEntry.when?.(answered({ Execute: ['DeleteCrewSectorUser', 'RemoveCrewSectorUser'] })),
-      deleteEntry.when?.(answered({ Execute: ['DeleteCrewSectorUser'] })),
-      deleteEntry.when?.(answered({})),
-      deleteEntry.when?.({}),
-    ]).toEqual([false, true, true, true]);
+    expect([deleteEntry.hidden, deleteEntry.when]).toEqual([undefined, undefined]);
     // A tenant's side without the removal keeps Delete on every row.
     const [without] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Crew', scope: 'domain' });
     const kept = presentation(list(without).rowMethods, 'DeleteCrewSectorUser');
@@ -1409,43 +1488,20 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(presentation(children(people)[0].listMethods, 'AssignCrewSectorRole').group).toBeUndefined();
   });
 
-  it('draws Delete beside the removal, or alone, where the row says the sector manages the account through its directory and the removal would leave the account standing', () => {
-    const remove = presentation(list(people).rowMethods, 'RemoveCrewSectorUser').when;
-    const del = presentation(list(people).rowMethods, 'DeleteCrewSectorUser').when;
-    const offering = (execute: string[], facts: Record<string, unknown>): RecordData =>
-      ({ zzCapabilities: { Execute: execute }, ...facts }) as unknown as RecordData;
-    const both = ['DeleteCrewSectorUser', 'RemoveCrewSectorUser'];
-    // The removal is not offered on the row: Delete as the server offers it.
-    expect(del?.(offering(['DeleteCrewSectorUser'], { heldHere: true, managedHere: false }))).toBe(true);
-    // The removal is offered: [Remove from the sector, Delete] by what the row says.
-    const drawn = (facts: Record<string, unknown>): [boolean | undefined, boolean | undefined] => [
-      remove?.(offering(both, facts)),
-      del?.(offering(both, facts)),
-    ];
-    expect([
-      // The person holds nothing in the sector itself, and the sector does not manage the account.
-      drawn({ heldHere: false, managedHere: false }),
-      drawn({ heldHere: false }),
-      // A person of the sector's directory who holds nothing in the sector itself.
-      drawn({ heldHere: false, managedHere: true }),
-      // A person of the sector's directory who holds roles elsewhere too.
-      drawn({ heldHere: true, managedHere: true, heldElsewhere: true, heldGlobally: false }),
-      drawn({ heldHere: true, managedHere: true, heldElsewhere: false, heldGlobally: true }),
-      // The sector holds the person alone: the removal takes the account.
-      drawn({ heldHere: true, managedHere: true, heldElsewhere: false, heldGlobally: false }),
-      // The sector does not manage the account, or the row does not say.
-      drawn({ heldHere: true, managedHere: false, heldElsewhere: true, heldGlobally: false }),
-      drawn({ heldHere: true, heldElsewhere: true }),
-    ]).toEqual([
-      [false, false],
-      [false, false],
-      [false, true],
-      [true, true],
-      [true, true],
-      [true, false],
-      [true, false],
-      [true, false],
+  it("draws Delete wherever the row's answer lists it, beside the removal, and no Delete where the answer lists the removal alone", () => {
+    const targeting = ['RemoveCrewSectorUser', 'DeleteCrewSectorUser'];
+    const drawn = (execute: string[]): string[] =>
+      rowMethods(
+        { zzCapabilities: { Execute: execute }, heldHere: true } as unknown as RecordData,
+        targeting,
+        () => ({}) as MethodMeta,
+        list(people).rowMethods || undefined,
+      ).map((offer) => offer.method);
+    expect(drawn(['RemoveCrewSectorUser', 'DeleteCrewSectorUser'])).toEqual([
+      'RemoveCrewSectorUser',
+      'DeleteCrewSectorUser',
     ]);
+    expect(drawn(['RemoveCrewSectorUser'])).toEqual(['RemoveCrewSectorUser']);
   });
 
   it('asks before a delete, on both sides, that the account goes from every sector and that Disable keeps it', () => {
@@ -1458,6 +1514,25 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       ask(list(people).rowMethods, 'DeleteCrewSectorUser'),
       ask(list(accounts).rowMethods, 'DeleteCrewUser'),
     ]).toEqual([question, question]);
+  });
+
+  it("asks only whom a delete takes where the method's metadata says it warns, since the server's words follow", () => {
+    type Question = (row: RecordData, listed?: readonly RecordData[], meta?: MethodMeta) => string;
+    const ask = (rowMethods: ListViewConfig['rowMethods'], method: string): Question =>
+      presentation(rowMethods, method).confirm as Question;
+    const [accounts] = identityPages({ ...removing }, removingMetas, { auth: 'Crew', scope: 'global' });
+    const question =
+      'Delete ada? The account is removed from every sector, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.';
+    const warns = { warning: {} } as MethodMeta;
+    const warnsNot = {} as MethodMeta;
+    expect(ask(list(people).rowMethods, 'DeleteCrewSectorUser')({ username: 'ada' }, undefined, warns)).toBe(
+      'Delete ada?',
+    );
+    expect(ask(list(people).rowMethods, 'DeleteCrewSectorUser')({ username: 'ada' }, undefined, warnsNot)).toBe(
+      question,
+    );
+    expect(ask(list(people).rowMethods, 'DeleteCrewSectorUser')({ username: 'ada' })).toBe(question);
+    expect(ask(list(accounts).rowMethods, 'DeleteCrewUser')({ username: 'ada' }, undefined, warnsNot)).toBe(question);
   });
 
   it('offers the removal on every row but one that says the person holds nothing in the sector itself', () => {
@@ -1482,21 +1557,14 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(stateOf(list(accounts))({ heldInEveryTenant: true, heldElsewhere: true })).toEqual([]);
   });
 
-  it('reads with each person whether they hold something in the sector itself and whether the sector manages the account, and draws neither', () => {
-    expect(hiddenColumns(list(people))).toEqual([
-      'heldElsewhere',
-      'heldInEveryTenant',
-      'heldGlobally',
-      'heldHere',
-      'managedHere',
-    ]);
+  it('reads with each person whether they hold something in the sector itself, and does not draw it', () => {
+    expect(hiddenColumns(list(people))).toEqual(['heldElsewhere', 'heldInEveryTenant', 'heldGlobally', 'heldHere']);
     expect(pageFields(people).filter(([, , drawn]) => drawn === false)).toEqual([
       ['field', 'disabled', false],
       ['field', 'heldElsewhere', false],
       ['field', 'heldInEveryTenant', false],
       ['field', 'heldGlobally', false],
       ['field', 'heldHere', false],
-      ['field', 'managedHere', false],
     ]);
   });
 });
@@ -1553,6 +1621,7 @@ describe("identityPages, a person's password", () => {
       ways: 'CrewSignInWays',
       remove: 'RemoveCrewPassword',
       unlink: 'UnlinkCrewSessionIdentity',
+      noWay: 'This person has no way to sign in.',
     },
     {
       name: "a tenant's side",
@@ -1560,8 +1629,17 @@ describe("identityPages, a person's password", () => {
       ways: 'CrewSectorSignInWays',
       remove: 'RemoveCrewSectorPassword',
       unlink: 'UnlinkCrewSectorSessionIdentity',
+      // A role file may keep a shared person's password and identities from a tenant's
+      // reader: the sentence says what is shown, not what is.
+      noWay: 'Nothing of how this person signs in is shown here.',
     },
   ]) {
+    it(`says in a sentence of its own that a person has no way to sign in that is shown, on ${tt.name}`, () => {
+      expect(waysOf(identityPages(withPassword, resourceMeta, { auth: 'Crew', scope: tt.scope })).emptyMessage).toBe(
+        tt.noWay,
+      );
+    });
+
     it(`lists the ways a person signs in under the person, above their identities, on ${tt.name}`, () => {
       const pages = identityPages(withPassword, resourceMeta, { auth: 'Crew', scope: tt.scope });
       const titles = children(pages[0]).map((child) => child.title);
@@ -1905,6 +1983,686 @@ describe("identityPages, the people lists lead with the person's name", () => {
   });
 });
 
+// Where the server says which sessions are live (the sessions list has `live`), a person's
+// page lists the live ones and links under them to all of the person's sessions on the
+// Sessions page. A list from before the server said so is drawn as it was.
+describe('identityPages, the sessions where the server says which are live', () => {
+  const liveMetas: Record<string, ResourceMeta> = {
+    ...metas,
+    CrewSessions: fields('id', 'userId', 'username', 'expired', 'live', 'authenticatedAt', 'updatedAt'),
+  };
+  const liveMeta = (resource: Resource): ResourceMeta => liveMetas[resource];
+  // A description of its own: the pages are made once for each description.
+  const liveDescriptor = { ...descriptor } as ApiDescriptor;
+  const [people, , sessions] = identityPages(liveDescriptor, liveMeta, { auth: 'Crew', scope: 'global' });
+  const liveOf = (): ListViewConfig => children(people)[2];
+
+  it('lists under a person the live sessions, when each signed in and was last active, and says when there is none', () => {
+    const live = liveOf();
+    expect([live.title, live.primaryResource, live.parentRelation]).toEqual([
+      'Live sessions',
+      'CrewSessions',
+      { parentKey: 'id', childKey: 'userId' },
+    ]);
+    // The list's own filter, sent beside the one by the person's id.
+    expect(live.filter({ id: 'u-1', username: 'ada' })).toBe('live:eq:true');
+    expect(columns(live)).toEqual([
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+    ]);
+    expect(live.emptyMessage).toBe('This person has no live session.');
+    expect(methodsOf(live.rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
+  });
+
+  it("links under a person's live sessions to every session of theirs, on the Sessions page filtered by their username", () => {
+    const live = liveOf();
+    expect(live.more?.({ id: 'u-1', username: 'ada' })).toEqual({
+      label: "All of ada's sessions",
+      route: sessions.routeData.route,
+      queryParams: { filter: ['username:eq:ada'] },
+    });
+    expect(sessions.routeData.route).toBe('crew-sessions');
+    // A row with no username has no filter to open the page at.
+    expect(live.more?.({ id: 'u-1' })).toBeUndefined();
+    expect(live.more?.({ id: 'u-1', username: '' })).toBeUndefined();
+  });
+
+  it('draws both lists as it did where the server does not say which sessions are live', () => {
+    const [before, , every] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    const of = children(before)[2];
+    expect(of.title).toBe('Sessions');
+    expect(columns(of)).toEqual([
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+      ['expired', 'Expired'],
+    ]);
+    expect(of.filter({ id: 'u-1', username: 'ada' })).toBe('');
+    expect(of.more).toBeUndefined();
+    expect(of.emptyMessage).toBe('This person has no session.');
+    expect(columns(list(every))).toEqual([
+      ['username', 'Username'],
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+      ['expired', 'Expired'],
+    ]);
+  });
+});
+
+// Where the server says each session's state in one word (the sessions list has `state`),
+// the Sessions page opens on the live sessions, says whose each is, how it signed in and
+// the browser, marks the reader's own, and opens the account from the username.
+describe('identityPages, the Sessions page where the server says the state of each session', () => {
+  /** The sessions list with every field, its person's id naming the given list where one is given. */
+  const sessionsMeta = (userTarget?: string): ResourceMeta => {
+    const meta = fields(
+      'id',
+      'userId',
+      'username',
+      'name',
+      'expired',
+      'live',
+      'state',
+      'signedInWith',
+      'browser',
+      'authenticatedAt',
+      'updatedAt',
+    );
+    return {
+      ...meta,
+      fields: meta.fields.map((field) =>
+        field.fieldName === 'userId' && userTarget !== undefined
+          ? ({ ...field, enumeratedResource: userTarget } as FieldMeta)
+          : field,
+      ),
+    };
+  };
+  /** The pages over a description of their own, the sessions list's metadata as given. */
+  const pagesOver = (sessionsList: ResourceMeta): RootConfig[] =>
+    identityPages(
+      { ...descriptor } as ApiDescriptor,
+      (resource: Resource): ResourceMeta => (resource === 'CrewSessions' ? sessionsList : metas[resource]),
+      { auth: 'Crew', scope: 'global' },
+    );
+  const [people, , sessions] = pagesOver(sessionsMeta('CrewSessionUsers'));
+  const reader = (sessionId?: string): SessionInfo =>
+    ({ authenticated: true, username: 'ada', sessionId }) as SessionInfo;
+
+  it('draws the username, the name, how each session signed in, the browser, when, and the state, and reads the id', () => {
+    expect(visibleColumns(list(sessions))).toEqual([
+      ['username', 'Username'],
+      ['name', 'Name'],
+      ['signedInWith', 'Signed in with'],
+      ['browser', 'Browser'],
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+      ['state', 'State'],
+    ]);
+    expect(hiddenColumns(list(sessions))).toEqual(['id']);
+    expect(columnOf(list(sessions), 'username').opensRow).toBe(true);
+    const browser = columnOf(list(sessions), 'browser');
+    expect([browser.filterable, browser.sortable]).toEqual([false, false]);
+    expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
+  });
+
+  it('draws only the columns whose fields the list has', () => {
+    const [, , fewer] = pagesOver(fields('id', 'userId', 'username', 'state', 'updatedAt'));
+    expect(visibleColumns(list(fewer))).toEqual([
+      ['username', 'Username'],
+      ['updatedAt', 'Last active'],
+      ['state', 'State'],
+    ]);
+  });
+
+  it('says the state in words, and offers the same words in its filter', () => {
+    const state = columnOf(list(sessions), 'state');
+    expect(state.sortable).toBe(false);
+    expect(state.filterChoices).toEqual([
+      { value: 'live', label: 'Live' },
+      { value: 'timedOut', label: 'Timed out' },
+      { value: 'ended', label: 'Ended' },
+    ]);
+    const said = state.valueGetter as (row: RecordData) => string;
+    expect([said({ state: 'live' }), said({ state: 'timedOut' }), said({ state: 'ended' })]).toEqual([
+      'Live',
+      'Timed out',
+      'Ended',
+    ]);
+  });
+
+  it("marks the reader's own session in its Browser cell, and says the browser's name alone on every other", () => {
+    const said = columnOf(list(sessions), 'browser').valueGetter as (row: RecordData, reader: SessionInfo) => string;
+    expect(said({ id: 's-1', browser: 'Chrome on macOS' }, reader('s-1'))).toBe('Chrome on macOS, this browser');
+    expect(said({ id: 's-1', browser: null }, reader('s-1'))).toBe('This browser');
+    expect(said({ id: 's-2', browser: 'Firefox on Linux' }, reader('s-1'))).toBe('Firefox on Linux');
+    expect(said({ id: 's-2', browser: null }, reader('s-1'))).toBe('');
+    // A read that names no session marks no row.
+    expect(said({ id: 's-1', browser: 'Chrome on macOS' }, reader())).toBe('Chrome on macOS');
+  });
+
+  it("opens the account from the username only where the person's id names the list of the accounts", () => {
+    expect([list(sessions).showViewButton, list(sessions).rowRoute]).toEqual([true, 'userId']);
+    for (const meta of [sessionsMeta(), sessionsMeta('CrewGroups')]) {
+      const [, , unlinked] = pagesOver(meta);
+      expect([list(unlinked).showViewButton, list(unlinked).rowRoute]).toEqual([false, undefined]);
+    }
+  });
+
+  it('opens on the live sessions', () => {
+    expect(list(sessions).opensWith).toEqual([{ field: 'state', operator: 'eq', value: 'live' }]);
+  });
+
+  it("lists under a person the live sessions with how each signed in and its browser, the reader's own marked", () => {
+    const live = children(people)[2];
+    expect(visibleColumns(live)).toEqual([
+      ['signedInWith', 'Signed in with'],
+      ['browser', 'Browser'],
+      ['authenticatedAt', 'Signed in'],
+      ['updatedAt', 'Last active'],
+    ]);
+    expect(hiddenColumns(live)).toEqual(['id']);
+    const said = columnOf(live, 'browser').valueGetter as (row: RecordData, reader: SessionInfo) => string;
+    expect(said({ id: 's-1', browser: 'Safari on iPhone' }, reader('s-1'))).toBe('Safari on iPhone, this browser');
+    expect(live.filter({ id: 'u-1', username: 'ada' })).toBe('live:eq:true');
+    expect(live.title).toBe('Live sessions');
+  });
+});
+
+// Where the server says what each failed sign-in counts (the list has `kind`), the Failed
+// sign-ins page says what each row counts and whose it is, the count against its limit or
+// as how many were sent or wrong, and how long it is locked.
+describe('identityPages, the Failed sign-ins page where the server says what each row counts', () => {
+  const attemptsMeta = (userTarget?: string): ResourceMeta => {
+    const meta = fields(
+      'name',
+      'kind',
+      'subject',
+      'userId',
+      'account',
+      'failures',
+      'failureLimit',
+      'state',
+      'locked',
+      'lockedUntil',
+      'windowEndsAt',
+      'updatedAt',
+    );
+    return {
+      ...meta,
+      fields: meta.fields.map((field) =>
+        field.fieldName === 'userId' && userTarget !== undefined
+          ? ({ ...field, enumeratedResource: userTarget } as FieldMeta)
+          : field,
+      ),
+    };
+  };
+  const pagesOver = (attemptsList: ResourceMeta): RootConfig[] =>
+    identityPages(
+      { ...descriptor } as ApiDescriptor,
+      (resource: Resource): ResourceMeta => (resource === 'CrewSessionSignInAttempts' ? attemptsList : metas[resource]),
+      { auth: 'Crew', scope: 'global' },
+    );
+  const attempts = pagesOver(attemptsMeta('CrewSessionUsers'))[3];
+  const cell = (id: string): ((row: RecordData) => string) => {
+    const getter = columnOf(list(attempts), id).valueGetter;
+    if (!getter) {
+      throw new Error(`the column ${id} has no getter`);
+    }
+    return (row: RecordData) => getter(row, noReader) as string;
+  };
+
+  it('draws the username, the account, the count, the state and the last change, and reads the rest', () => {
+    expect(visibleColumns(list(attempts))).toEqual([
+      ['subject', 'Username'],
+      ['account', 'Account'],
+      ['failures', 'Count'],
+      ['state', 'State'],
+      ['updatedAt', 'Last change'],
+    ]);
+    expect(hiddenColumns(list(attempts))).toEqual(['name', 'kind', 'failureLimit', 'lockedUntil']);
+    const account = columnOf(list(attempts), 'account');
+    expect([account.opensRow, account.filterable, account.sortable]).toEqual([true, false, false]);
+    expect(columnOf(list(attempts), 'failures').filterable).toBe(false);
+    const state = columnOf(list(attempts), 'state');
+    expect(state.sortable).toBe(false);
+    expect(state.filterChoices).toEqual([
+      { value: 'locked', label: 'Locked' },
+      { value: 'counting', label: 'Counting' },
+    ]);
+    expect([list(attempts).showViewButton, list(attempts).rowRoute]).toEqual([true, 'userId']);
+    expect(list(attempts).emptyMessage).toBe('No sign-in is locked or being counted.');
+    const [, , , unlinked] = pagesOver(attemptsMeta());
+    expect([list(unlinked).showViewButton, list(unlinked).rowRoute]).toEqual([false, undefined]);
+  });
+
+  it('says what each row counts, and the count, by its kind', () => {
+    const rows: [string, string, string][] = [
+      ['signIn', 'ada', '3 of 5'],
+      ['mail', 'Mail to ada@fleet.example', '3 sent'],
+      ['code', 'Sign-in codes to ada@fleet.example', '3 sent'],
+      ['reset', 'Password reset links to ada@fleet.example', '3 sent'],
+      ['invitationCode', 'Codes for the invitation to ada@fleet.example', '3 sent'],
+      ['invitationGuess', 'Wrong codes for the invitation to ada@fleet.example', '3 wrong'],
+      ['addressGuess', 'Wrong codes for ada@fleet.example', '3 wrong'],
+      ['codeGuess', 'Wrong sign-in codes for ada', '3 wrong'],
+      ['firstPassword', 'Wrong first-password codes for ada', '3 wrong'],
+      ['somethingNew', 'ada', '3'],
+    ];
+    for (const [kind, username, count] of rows) {
+      const subject = username.endsWith('ada') ? 'ada' : 'ada@fleet.example';
+      const row = { kind, subject, failures: 3, failureLimit: kind === 'signIn' ? 5 : null };
+      expect([kind, cell('subject')(row), cell('failures')(row)]).toEqual([kind, username, count]);
+    }
+    // A name's count with no limit beside it is the count alone.
+    expect(cell('failures')({ kind: 'signIn', subject: 'ada', failures: 3 })).toBe('3');
+  });
+
+  it("names the account, says a name nobody holds is no account's, and says nothing of any other row with none", () => {
+    expect(cell('account')({ kind: 'signIn', account: 'Ada Lovelace' })).toBe('Ada Lovelace');
+    expect(cell('account')({ kind: 'signIn', account: null })).toBe('No such account');
+    expect(cell('account')({ kind: 'mail', account: null })).toBe('');
+  });
+
+  describe('the lock', () => {
+    const noon = new Date(2026, 10, 23, 12, 0);
+    const later = (minutes: number): Date => new Date(noon.getTime() + minutes * 60_000);
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(noon);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('says until when a row is locked and how long is left, the time alone on the same day', () => {
+      const at = later(12);
+      expect(cell('state')({ state: 'locked', lockedUntil: at.toISOString() })).toBe(
+        `Locked until ${format(at, 'h:mm a')}, 12 minutes left`,
+      );
+    });
+
+    it('says the day too where the lock passes on another day', () => {
+      const at = later(24 * 60 + 30);
+      expect(cell('state')({ state: 'locked', lockedUntil: at.toISOString() })).toBe(
+        `Locked until ${format(at, 'M/d/yy h:mm a')}, 1 day left`,
+      );
+    });
+
+    it('says Locked alone of a lock no time ends, and of one with no time, and Counting of the rest', () => {
+      expect(cell('state')({ state: 'locked', lockedUntil: later(100 * 365 * 24 * 60).toISOString() })).toBe('Locked');
+      expect(cell('state')({ state: 'locked', lockedUntil: null })).toBe('Locked');
+      expect(cell('state')({ state: 'counting', lockedUntil: null })).toBe('Counting');
+    });
+  });
+
+  it('asks before Unlock in the words of what the row counts', () => {
+    const unlock = presentation(list(attempts).rowMethods, 'UnlockCrewSignIn');
+    expect([unlock.label, unlock.icon]).toEqual(['Unlock', 'lock_open']);
+    const asks = unlock.confirm as (row: RecordData) => string;
+    expect(asks({ kind: 'signIn', subject: 'ada' })).toBe('Unlock ada? The count of failed tries starts over.');
+    expect(asks({ kind: 'mail', subject: 'ada@fleet.example' })).toBe(
+      'Clear this count? Mail to ada@fleet.example can be sent again at once.',
+    );
+    expect(asks({ kind: 'codeGuess', subject: 'ada' })).toBe('Clear this count? Codes can be entered again.');
+  });
+
+  it('draws the page as it did where the server does not say what each row counts', () => {
+    const [, , , before] = identityPages({ ...descriptor } as ApiDescriptor, resourceMeta, {
+      auth: 'Crew',
+      scope: 'global',
+    });
+    expect(columns(list(before)).map(([id]) => id)).toEqual(
+      ['name', 'failures', 'lockedUntil', 'updatedAt'].filter((id) =>
+        metas['CrewSessionSignInAttempts'].fields.some((field) => field.fieldName === id),
+      ),
+    );
+    const asks = presentation(list(before).rowMethods, 'UnlockCrewSignIn').confirm as (row: RecordData) => string;
+    expect(asks({ name: 'ada' })).toBe('Unlock ada? The count of failed tries starts over.');
+  });
+});
+
+describe("identityPages, the Mailed links and a tenant's Invitations pages where the server says each link's state", () => {
+  // The whole application's mailed links and a tenant's invitations as the generator
+  // writes them where the server says each link's state and who sent it.
+  const linksMeta = withTenantName(
+    fields(
+      'id',
+      'kind',
+      'state',
+      'email',
+      'name',
+      'userId',
+      'tenantId',
+      'everyTenant',
+      'roleNames',
+      'invitedByUserId',
+      'sentBy',
+      'makesTenant',
+      'createdAt',
+      'expiresAt',
+      'consumedAt',
+      'mailFailedAt',
+      'withdrawnAt',
+    ),
+    'tenantId',
+  );
+  const invitationsMeta = fields(
+    'id',
+    'domainId',
+    'email',
+    'name',
+    'roleNames',
+    'invitedByUserId',
+    'sentBy',
+    'createdAt',
+    'expiresAt',
+    'consumedAt',
+    'withdrawnAt',
+    'state',
+    'pending',
+  );
+  const stated: Record<string, ResourceMeta> = {
+    ...metas,
+    CrewSessionMailLinks: linksMeta,
+    CrewSectorInvitations: invitationsMeta,
+  };
+  // Each side sends an invitation again.
+  const resending = {
+    ...descriptor,
+    identity: [
+      {
+        ...crew,
+        sides: crew.sides.map((side) => ({
+          ...side,
+          methods: {
+            ...side.methods,
+            resendInvitation: side.scope === 'global' ? 'ResendCrewInvitation' : 'ResendCrewSectorInvitation',
+          },
+        })),
+      },
+    ],
+  } as ApiDescriptor;
+  /** The pages of a side over the lists as given; the pages of a description are made once, so each call takes its own. */
+  const pagesOf = (scope: 'global' | 'domain', read: Record<string, ResourceMeta> = stated): RootConfig[] =>
+    identityPages({ ...resending } as ApiDescriptor, (resource: Resource) => read[resource], { auth: 'Crew', scope });
+  const [, links] = pagesOf('global');
+  const [, invitations] = pagesOf('domain');
+  /** What a column's cell says of a row. */
+  const said =
+    (column: ColumnConfig) =>
+    (row: RecordData): string | string[] => {
+      if (!column.valueGetter) {
+        throw new Error(`the column ${column.id} has no getter`);
+      }
+      return column.valueGetter(row, noReader);
+    };
+  const states = ['open', 'accepted', 'withdrawn', 'expired', 'notMailed'];
+  const invitation = (state: string): RecordData => ({
+    kind: 'invitation',
+    state,
+    makesTenant: false,
+    email: 'ada@fleet.example',
+  });
+
+  it("draws the whole application's links by state, kind, address, name, sector, roles, sender and dates, and reads the rest", () => {
+    expect(visibleColumns(list(links))).toEqual([
+      ['state', 'State'],
+      ['kind', 'Kind'],
+      ['email', 'Email'],
+      ['name', 'Name'],
+      ['tenantId', 'Sector'],
+      ['roleNames', 'Roles'],
+      ['sentBy', 'Sent by'],
+      ['createdAt', 'Sent'],
+      ['expiresAt', 'Expires'],
+    ]);
+    expect(hiddenColumns(list(links))).toEqual(['everyTenant', 'invitedByUserId', 'mailFailedAt', 'makesTenant']);
+    expect(columnOf(list(links), 'sentBy').filterable).toBe(false);
+    // The sector is named as on the page before, and a link that names none says where its roles are held.
+    const into = columnOf(list(links), 'tenantId');
+    expect(into.tenantKey).toBe(true);
+    expect(into.fallback?.({ tenantId: null, everyTenant: true, roleNames: ['Pilot'] })).toBe('Every sector');
+    // A link whose message could not be mailed says so where its dates would be.
+    const unmailed = {
+      createdAt: '2026-11-20T10:00:00Z',
+      expiresAt: '2026-11-27T10:00:00Z',
+      mailFailedAt: '2026-11-20T10:00:01Z',
+    };
+    expect([
+      said(columnOf(list(links), 'createdAt'))(unmailed),
+      said(columnOf(list(links), 'expiresAt'))(unmailed),
+    ]).toEqual(['Not mailed', 'Ended']);
+    // Nothing is sent from above the list: an invitation is sent from the Accounts page.
+    expect(list(links).listMethods).toEqual([]);
+  });
+
+  it("draws a tenant's invitations by address, name, roles, sender, dates and state", () => {
+    expect(visibleColumns(list(invitations))).toEqual([
+      ['email', 'Email'],
+      ['name', 'Name'],
+      ['roleNames', 'Roles'],
+      ['sentBy', 'Sent by'],
+      ['createdAt', 'Sent'],
+      ['expiresAt', 'Expires'],
+      ['state', 'State'],
+    ]);
+    expect(hiddenColumns(list(invitations))).toEqual([]);
+    expect(columnOf(list(invitations), 'sentBy').filterable).toBe(false);
+    expect(methodsOf(list(invitations).listMethods)).toEqual([['InviteCrewSectorUser', 'Invite']]);
+    // A list that marks an invitation that makes a tenant has the mark read with each row.
+    const marked = {
+      ...stated,
+      CrewSectorInvitations: {
+        ...invitationsMeta,
+        fields: [...invitationsMeta.fields, ...fields('makesTenant').fields],
+      },
+    };
+    const [, withMark] = pagesOf('domain', marked);
+    expect(hiddenColumns(list(withMark))).toEqual(['makesTenant']);
+  });
+
+  it('says each state and each kind in words, and offers those words in its filter', () => {
+    for (const page of [links, invitations]) {
+      const state = columnOf(list(page), 'state');
+      expect(state.sortable).toBe(false);
+      expect(state.filterChoices).toEqual([
+        { value: 'open', label: 'Open' },
+        { value: 'accepted', label: 'Accepted' },
+        { value: 'withdrawn', label: 'Withdrawn' },
+        { value: 'expired', label: 'Expired' },
+        { value: 'notMailed', label: 'Not mailed' },
+      ]);
+      expect(states.map((word) => said(state)({ state: word }))).toEqual([
+        'Open',
+        'Accepted',
+        'Withdrawn',
+        'Expired',
+        'Not mailed',
+      ]);
+    }
+    const kind = columnOf(list(links), 'kind');
+    expect(kind.sortable).toBe(false);
+    expect(kind.filterChoices).toEqual([
+      { value: 'invitation', label: 'Invitation' },
+      { value: 'verification', label: 'Address confirmation' },
+      { value: 'sign-up', label: 'Sign-up' },
+      { value: 'first-password', label: 'First password code' },
+      { value: 'password-reset', label: 'Password reset' },
+      { value: 'address-change', label: 'Address change' },
+    ]);
+    expect(
+      ['invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change', 'magic-link'].map(
+        (word) => said(kind)({ kind: word }),
+      ),
+    ).toEqual([
+      'Invitation',
+      'Address confirmation',
+      'Sign-up',
+      'First password code',
+      'Password reset',
+      'Address change',
+      // A kind the page has no words for is said as the server stores it.
+      'magic-link',
+    ]);
+  });
+
+  it('opens both pages on the links still open', () => {
+    const open = [{ field: 'state', operator: 'eq', value: 'open' }];
+    expect([list(links).opensWith, list(invitations).opensWith]).toEqual([open, open]);
+  });
+
+  it('offers Withdraw on an open invitation alone, and Send again on one that is open, has expired or could not be mailed', () => {
+    expect(methodsOf(list(links).rowMethods)).toEqual([
+      ['WithdrawCrewInvitation', 'Withdraw'],
+      ['ResendCrewInvitation', 'Send again'],
+    ]);
+    const withdraw = presentation(list(links).rowMethods, 'WithdrawCrewInvitation');
+    const again = presentation(list(links).rowMethods, 'ResendCrewInvitation');
+    expect(again.icon).toBe('send');
+    expect(states.map((state) => withdraw.when?.(invitation(state)))).toEqual([true, false, false, false, false]);
+    expect(states.map((state) => again.when?.(invitation(state)))).toEqual([true, false, false, true, true]);
+    // A link of another kind, and an invitation whose first sign-in makes a sector, are offered neither.
+    for (const row of [
+      { ...invitation('open'), kind: 'password-reset' },
+      { ...invitation('expired'), kind: 'verification' },
+      { ...invitation('open'), makesTenant: true },
+      { ...invitation('expired'), makesTenant: true },
+    ]) {
+      expect([withdraw.when?.(row), again.when?.(row)]).toEqual([false, false]);
+    }
+    expect((withdraw.confirm as (row: RecordData) => string)(invitation('open'))).toBe(
+      'Withdraw the invitation sent to ada@fleet.example?',
+    );
+    // Every row of a tenant's list is an invitation, and the list carries no mark of one that makes a tenant.
+    expect(methodsOf(list(invitations).rowMethods)).toEqual([
+      ['WithdrawCrewSectorInvitation', 'Withdraw'],
+      ['ResendCrewSectorInvitation', 'Send again'],
+    ]);
+    const tenantWithdraw = presentation(list(invitations).rowMethods, 'WithdrawCrewSectorInvitation');
+    const tenantAgain = presentation(list(invitations).rowMethods, 'ResendCrewSectorInvitation');
+    expect(states.map((state) => tenantWithdraw.when?.({ state }))).toEqual([true, false, false, false, false]);
+    expect(states.map((state) => tenantAgain.when?.({ state }))).toEqual([true, false, false, true, true]);
+  });
+
+  it("asks before sending again, saying an open one's link stops working, and reads whether the mail went", () => {
+    for (const [page, method] of [
+      [links, 'ResendCrewInvitation'],
+      [invitations, 'ResendCrewSectorInvitation'],
+    ] as const) {
+      const again = presentation(list(page).rowMethods, method);
+      const asks = again.confirm as (row: RecordData) => string;
+      expect(asks(invitation('open'))).toBe(
+        'Send the invitation to ada@fleet.example again? The link mailed before stops working.',
+      );
+      expect([asks(invitation('expired')), asks(invitation('notMailed'))]).toEqual([
+        'Send the invitation to ada@fleet.example again?',
+        'Send the invitation to ada@fleet.example again?',
+      ]);
+      expect(again.answered?.({ id: 'i-2', sent: true })).toEqual({ message: 'The invitation is on its way.' });
+      expect(again.answered?.({ sent: false, reason: 'The address refused the message.' })).toEqual({
+        message: 'The address refused the message.',
+        failed: true,
+      });
+    }
+  });
+
+  it('carries Invite above the Mailed links of an application without tenants, as the Accounts page presents it', () => {
+    const office: IdentityDescriptor = {
+      auth: 'Office',
+      label: 'Office',
+      sides: [
+        {
+          scope: 'global',
+          lists: {
+            users: 'OfficeSessionUsers',
+            rolesToGive: 'OfficeGivableRoles',
+            invitations: 'OfficeListedMailLinks',
+          },
+          methods: {
+            invite: 'InviteOfficeUser',
+            withdrawInvitation: 'WithdrawOfficeInvitation',
+            resendInvitation: 'ResendOfficeInvitation',
+          },
+        },
+      ],
+    };
+    const officeMetas: Record<string, ResourceMeta> = {
+      OfficeSessionUsers: fields('id', 'username', 'name', 'email', 'disabled', 'lastSignInAt'),
+      OfficeGivableRoles: fields('name', 'description', 'method'),
+      // The generator writes the same list for every application: a link carries a tenant.
+      OfficeListedMailLinks: fields(
+        'id',
+        'kind',
+        'state',
+        'email',
+        'name',
+        'tenantId',
+        'everyTenant',
+        'roleNames',
+        'invitedByUserId',
+        'sentBy',
+        'makesTenant',
+        'createdAt',
+        'expiresAt',
+        'mailFailedAt',
+      ),
+    };
+    const [accounts, mailed] = identityPages(
+      { ...descriptor, domainRoute: undefined, identity: [office] } as ApiDescriptor,
+      (resource: Resource) => officeMetas[resource],
+      { auth: 'Office', scope: 'global' },
+    );
+    expect(visibleColumns(list(mailed)).map(([, header]) => header)).toEqual([
+      'State',
+      'Kind',
+      'Email',
+      'Name',
+      'Roles',
+      'Sent by',
+      'Sent',
+      'Expires',
+    ]);
+    expect(methodsOf(list(mailed).listMethods)).toEqual([['InviteOfficeUser', 'Invite']]);
+    const shown = (offer: MethodPresentation): unknown[] => [
+      offer.label,
+      offer.icon,
+      offer.says,
+      offer.labels,
+      narrowed(offer, 'roles')({}),
+    ];
+    expect(shown(presentation(list(mailed).listMethods, 'InviteOfficeUser'))).toEqual(
+      shown(presentation(list(accounts).listMethods, 'InviteOfficeUser')),
+    );
+    expect(list(mailed).opensWith).toEqual([{ field: 'state', operator: 'eq', value: 'open' }]);
+  });
+
+  it('draws both pages as before where the server does not say the state', () => {
+    const [, before] = pagesOf('global', metas);
+    const [, tenantBefore] = pagesOf('domain', metas);
+    expect(visibleColumns(list(before)).map(([id]) => id)).toEqual([
+      'kind',
+      'email',
+      'name',
+      'tenantId',
+      'roleNames',
+      'createdAt',
+      'expiresAt',
+      'consumedAt',
+    ]);
+    expect(visibleColumns(list(tenantBefore)).map(([id]) => id)).toEqual([
+      'email',
+      'name',
+      'roleNames',
+      'createdAt',
+      'expiresAt',
+      'pending',
+    ]);
+    expect(methodsOf(list(before).rowMethods)).toEqual([['WithdrawCrewInvitation', 'Withdraw']]);
+    expect(methodsOf(list(tenantBefore).rowMethods)).toEqual([['WithdrawCrewSectorInvitation', 'Withdraw']]);
+    expect([list(before).opensWith, list(tenantBefore).opensWith]).toEqual([[], []]);
+    expect(list(before).listMethods).toEqual([]);
+  });
+});
+
 describe("identityPages, what Invite's dialog says", () => {
   const [accounts] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
   const [people, invitations] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });
@@ -2027,13 +2785,151 @@ describe('identityPages, the people lists say what each person holds, and a lock
   });
 });
 
+// Where the application has tenants, the whole application's list says which tenant
+// manages each account, and a tenant's list says of a person that another tenant's
+// directory signs them in. Which methods a row offers is the server's answer for the row.
+describe('identityPages, who manages an account', () => {
+  // The people lists as a server serves them with what each person holds and who manages their account.
+  const managing = (resource: Resource): ResourceMeta => {
+    switch (resource) {
+      case 'CrewSessionUsers':
+        return fields(...metas[resource].fields.map((field) => field.fieldName), 'roles', 'managingTenant');
+      case 'CrewSectorUsers':
+        return fields(...metas[resource].fields.map((field) => field.fieldName), 'roles', 'managedByAnotherDirectory');
+      default:
+        return metas[resource];
+    }
+  };
+  // A description of its own: the same request answers the same pages.
+  const [accounts] = identityPages({ ...descriptor }, managing, { auth: 'Crew', scope: 'global' });
+  const [people] = identityPages({ ...descriptor }, managing, { auth: 'Crew', scope: 'domain' });
+  const managedBy = (config: RootConfig): ColumnConfig => columnOf(list(config), 'managingTenant');
+  const directoryLine = "Signs in through another sector's directory";
+
+  it('the Accounts list says after State which sector manages each account, by its name', () => {
+    expect(visibleColumns(list(accounts))).toEqual([
+      ['name', 'Name'],
+      ['username', 'Username'],
+      ['email', 'Email'],
+      ['roles', 'Roles'],
+      ['disabled', 'State'],
+      ['managingTenant', 'Managed by'],
+      ['lastSignInAt', 'Last sign-in'],
+    ]);
+    // The column is on the key and names the sector after its word, under a header that is
+    // not the word. This description's accounts carry no name beside the key (a generated
+    // list carries one where the key points to the tenant record, and the library's list
+    // then shows it, sorts by it and filters by it). Where a list carries none, a row says
+    // the name the reader's own list of sectors holds (tenantKey), and the list draws the
+    // column with neither a sort nor a filter, as it draws a column whose cells do not say
+    // the stored value; the key is an id nobody reads.
+    const by = managedBy(accounts);
+    expect(by.tenantKey).toBe(true);
+    expect([by.filterable, by.sortable, by.valueGetter]).toEqual([undefined, undefined, undefined]);
+    expect(by.said?.('Anvil', {})).toBe('Sector Anvil');
+    // Where the reader may not read the sector's name the cell says so, and never shows the key.
+    expect(by.fallback?.({ managingTenant: 'a1111111-1111-4111-8111-111111111111' })).toBe('A sector you cannot see');
+  });
+
+  it('says Application administrators of an account no sector manages', () => {
+    const by = managedBy(accounts);
+    expect(by.fallback?.({ managingTenant: null })).toBe('Application administrators');
+    expect(by.fallback?.({ managingTenant: '' })).toBe('Application administrators');
+    expect(by.fallback?.({})).toBe('Application administrators');
+  });
+
+  it('names the sector by its key where the tenant record marks no name, as the roles do', () => {
+    const unnamed = (resource: Resource): ResourceMeta =>
+      resource === 'Sectors' ? fields('id', 'region') : managing(resource);
+    const [plain] = identityPages({ ...descriptor }, unnamed, { auth: 'Crew', scope: 'global' });
+    const said = columnOf(list(plain), 'managingTenant').valueGetter as (row: RecordData) => string;
+    expect(said({ managingTenant: 's-1' })).toBe('Sector s-1');
+    expect(said({ managingTenant: null })).toBe('Application administrators');
+  });
+
+  it('draws no Managed by where the list does not say who manages an account', () => {
+    const [plain] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(columns(list(plain)).map(([id]) => id)).not.toContain('managingTenant');
+    const [staffAccounts] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Staff', scope: 'global' });
+    expect(columns(list(staffAccounts)).map(([id]) => id)).not.toContain('managingTenant');
+  });
+
+  it("a sector's People list keeps its columns, and says in State that another sector's directory signs a person in", () => {
+    expect(visibleColumns(list(people))).toEqual([
+      ['name', 'Name'],
+      ['username', 'Username'],
+      ['email', 'Email'],
+      ['roles', 'Roles'],
+      ['disabled', 'State'],
+      ['lastSignInAt', 'Last sign-in'],
+    ]);
+    const says = stateOf(list(people));
+    expect(says({ managedByAnotherDirectory: true })).toEqual([directoryLine]);
+    expect(says({ managedByAnotherDirectory: false })).toEqual([]);
+    // After the line that says the person holds a role in the whole application.
+    expect(says({ heldElsewhere: true, heldGlobally: true, managedByAnotherDirectory: true })).toEqual([
+      'Also in another sector',
+      'Also holds a role in the whole application',
+      directoryLine,
+    ]);
+    // Read with each row and not drawn, as the fields of the other lines are, and said on a person's page too.
+    expect(hiddenColumns(list(people))).toContain('managedByAnotherDirectory');
+    expect(sayingOf(people, 'State')({ managedByAnotherDirectory: true })).toEqual([directoryLine, true]);
+    // The tenant's word is the description's.
+    const costCenters = { ...descriptor, identity: [{ ...crew, tenant: 'CostCenter' }] } as ApiDescriptor;
+    const [costCenterPeople] = identityPages(costCenters, managing, { auth: 'Crew', scope: 'domain' });
+    expect(stateOf(list(costCenterPeople))({ managedByAnotherDirectory: true })).toEqual([
+      "Signs in through another cost center's directory",
+    ]);
+  });
+
+  it("says nothing of another sector's directory on the whole application's side, nor reads it where the list leaves it out", () => {
+    expect(stateOf(list(accounts))({ managedByAnotherDirectory: true })).toEqual([]);
+    expect(hiddenColumns(list(accounts))).not.toContain('managedByAnotherDirectory');
+    const [plain] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Crew', scope: 'domain' });
+    expect(hiddenColumns(list(plain))).not.toContain('managedByAnotherDirectory');
+  });
+});
+
+// Where the accounts list says how many devices each person trusts, a person's page says
+// the number beside the last sign-in. A tenant's people list does not say it, and its
+// page draws none.
+describe('identityPages, how many devices a person trusts', () => {
+  const trusting = (resource: Resource): ResourceMeta =>
+    resource === 'CrewSessionUsers'
+      ? fields(...metas[resource].fields.map((field) => field.fieldName), 'trustedDevices')
+      : metas[resource];
+  // A description of its own: the same request answers the same pages.
+  const [accounts] = identityPages({ ...descriptor }, trusting, { auth: 'Crew', scope: 'global' });
+  const [people] = identityPages({ ...descriptor }, trusting, { auth: 'Crew', scope: 'domain' });
+
+  it("says on a person's page how many devices they trust, directly after the last sign-in", () => {
+    const shown = personSection(accounts).children.filter((child) => child.shouldRender !== false);
+    const after = shown.findIndex((child) => child.name === 'lastSignInAt');
+    expect(shown.slice(after, after + 2).map((child) => [child.type, child.name, child.label])).toEqual([
+      ['field', 'lastSignInAt', 'Last sign-in'],
+      ['field', 'trustedDevices', 'Trusted devices'],
+    ]);
+  });
+
+  it("draws no count where the list does not say it: on a tenant's page, and where the server says it nowhere", () => {
+    const [plain] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    for (const config of [people, plain]) {
+      expect(pageFields(config).map(([, name]) => name)).not.toContain('trustedDevices');
+    }
+  });
+});
+
 // An Auth that keeps groups of people: the description names the groups, the people in
 // them, the roles they hold and the roles each person holds through one, on each side,
 // with the methods that manage them.
 describe('identityPages, an Auth that keeps groups', () => {
   const groupMetas: Record<string, ResourceMeta> = {
     ...metas,
-    CrewGroups: fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+    CrewGroups: withTenantName(
+      fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+      'domainId',
+    ),
     CrewGroupUsers: fields('groupId', 'userId', 'username', 'name', 'groupName', 'createdAt'),
     CrewGroupRoles: fields('groupId', 'kind', 'axis', 'domainId', 'role', 'createdAt'),
     CrewUserGroupRoles: fields('userId', 'username', 'groupId', 'groupName', 'kind', 'axis', 'domainId', 'role'),
@@ -2127,6 +3023,30 @@ describe('identityPages, an Auth that keeps groups', () => {
     ).toBe('sectors/:sectorID/groups');
   });
 
+  it('says, under a person and under a group, in a sentence of its own that a list holds nothing, on both sides', () => {
+    const said = (page: RootConfig): [string, string | undefined][] =>
+      children(page).map((child) => [child.title, child.emptyMessage]);
+    expect(said(global[0])).toEqual([
+      ['Roles held', 'This person holds no role.'],
+      ['Roles held through a group', 'No role comes to this person through a group.'],
+      ['Sign-in identities', 'No directory sign-in is linked.'],
+      ['Sessions', 'This person has no session.'],
+    ]);
+    // A tenant's side says what is shown: a role file may keep a shared person's
+    // identities from a tenant's reader, so an empty list there does not say there are none.
+    expect(said(domain[0])).toEqual([
+      ['Roles held here', 'This person holds no role here.'],
+      ['Roles held here through a group', 'No role comes to this person through a group.'],
+      ['Sign-in identities', 'No directory sign-in is shown here.'],
+    ]);
+    for (const page of [global[1], domain[1]]) {
+      expect(said(page)).toEqual([
+        ['People in the group', 'Nobody is in the group.'],
+        ['Roles the group holds', 'The group holds no role.'],
+      ]);
+    }
+  });
+
   it('leaves the Groups page and the roles through groups out where the Auth keeps none', () => {
     const without = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
     expect(without.map((page) => page.page?.label)).toEqual([
@@ -2154,8 +3074,9 @@ describe('identityPages, an Auth that keeps groups', () => {
       ['domainId', 'Kept in'],
       ['kind', undefined],
     ]);
-    const kept = groups.listColumns[2] as MultiColumnConfig;
-    expect(kept.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    const kept = groups.listColumns[2];
+    expect(kept.id).toBe('domainId');
+    expect([kept.filterable, kept.sortable, kept.valueGetter]).toEqual([undefined, undefined, undefined]);
     expect(kept.tenantKey).toBe(true);
     expect(kept.said?.('Anvil', {})).toBe('Sector Anvil');
     const keptIn = kept.fallback as (row: RecordData) => string;
@@ -2196,11 +3117,55 @@ describe('identityPages, an Auth that keeps groups', () => {
       domain: 'Sector',
       everyDomain: 'In every sector',
     });
-    expect(
-      (presentation(groups.rowMethods, 'DeleteCrewGroup').confirm as (row: RecordData) => string)({
-        name: 'Deck crew',
-      }),
-    ).toBe('Delete Deck crew? A group that still has people in it or holds a role is not deleted: empty it first.');
+    const remove = presentation(groups.rowMethods, 'DeleteCrewGroup');
+    expect((remove.confirm as (row: RecordData) => string)({ name: 'Deck crew' })).toBe('Delete Deck crew?');
+    expect(remove.deletes).toBe(true);
+  });
+
+  it("asks a group's delete in the page's words, then in the server's, and sends everythingUnder at the second press", async () => {
+    const remove = presentation(list(global[1]).rowMethods, 'DeleteCrewGroup');
+    const offered: OfferedMethod = {
+      method: 'DeleteCrewGroup' as Method,
+      meta: { target: { resource: 'CrewListedGroups', key: { groupId: 'id' } } } as unknown as MethodMeta,
+      label: 'Delete',
+      presentation: remove,
+    };
+    const counted = "Delete this group and everything under it: 3 members, 2 roles. This can't be undone.";
+    const sent: Record<string, unknown>[] = [];
+    const handle = {
+      execute: (body: Record<string, unknown>): Promise<unknown> => {
+        sent.push(body);
+        return body['everythingUnder']
+          ? Promise.resolve({ status: 204, result: undefined })
+          : Promise.reject(new ApiError('POST', '/api/delete-crew-group', 428, { message: counted }));
+      },
+    };
+    TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
+    const answers: unknown[] = [];
+    openDeleteMethodDialog(TestBed.inject(MatDialog), handle, offered, { id: 'g-1', name: 'Deck crew' }).subscribe(
+      (answer) => answers.push(answer),
+    );
+    const rest = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+    const said = (): string =>
+      (document.querySelector('.cdk-overlay-container')?.textContent ?? '').replace(/\s+/g, ' ');
+    const press = async (): Promise<void> => {
+      await rest();
+      [...document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button')]
+        .find((button) => button.textContent?.trim() === 'Delete')
+        ?.click();
+      await rest();
+    };
+
+    await rest();
+    expect(said()).toContain('Delete Deck crew?');
+    await press();
+    expect(said()).toContain(counted);
+    expect(said()).not.toContain('Delete Deck crew?');
+    expect(answers).toEqual([]);
+    await press();
+    expect(sent.map((body) => body['everythingUnder'])).toEqual([undefined, true]);
+    expect(sent.every((body) => body['groupId'] === 'g-1')).toBe(true);
+    expect(answers).toEqual([{ answer: undefined }]);
   });
 
   it("draws a group's row page with the people in it and the roles it holds, each list under the group", () => {
@@ -2224,7 +3189,7 @@ describe('identityPages, an Auth that keeps groups', () => {
     expect(methodsOf(people.rowMethods)).toEqual([['RemoveCrewGroupMember', 'Remove from the group']]);
     expect(methodsOf(people.listMethods)).toEqual([['AddCrewGroupMember', 'Add a person']]);
     // The method's warning is the question before the person leaves the group, in the
-    // server's words, which name the group and say when the account goes with it.
+    // server's words, which name the group.
     expect(presentation(people.rowMethods, 'RemoveCrewGroupMember').confirm).toBeUndefined();
     expect(columns(roles)).toEqual([
       ['role', 'Role'],
@@ -2470,7 +3435,7 @@ describe('identityPages, the period of an assignment', () => {
       if (!column) {
         throw new Error(`no column ${id}`);
       }
-      return column.valueGetter ? column.valueGetter(row) : row[id];
+      return column.valueGetter ? column.valueGetter(row, noReader) : row[id];
     };
     // "Until 1 December", picked in the viewer's time zone, is kept as the first instant
     // of 2 December there. The list reads the instant before it, which the table writes

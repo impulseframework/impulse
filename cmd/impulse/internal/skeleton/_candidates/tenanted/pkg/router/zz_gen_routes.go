@@ -37,6 +37,10 @@ const (
 	StaffGroupUserGroupID           httpio.ParamType = "staffGroupUserGroupID"
 	StaffGroupUserUserID            httpio.ParamType = "staffGroupUserUserID"
 	StaffListedGroupID              httpio.ParamType = "staffListedGroupID"
+	StaffListedIdentityID           httpio.ParamType = "staffListedIdentityID"
+	StaffListedMailLinkID           httpio.ParamType = "staffListedMailLinkID"
+	StaffListedSessionID            httpio.ParamType = "staffListedSessionID"
+	StaffListedTenantID             httpio.ParamType = "staffListedTenantID"
 	StaffListedUserID               httpio.ParamType = "staffListedUserID"
 	StaffSessionID                  httpio.ParamType = "staffSessionID"
 	StaffSessionIdentityID          httpio.ParamType = "staffSessionIdentityID"
@@ -121,6 +125,7 @@ type GeneratedHandlers interface {
 	DescribeStaffTenantGroup() http.HandlerFunc
 
 	TenantSignInSettings() http.HandlerFunc
+	TakeTenantDirectory() http.HandlerFunc
 	MakeTenantDirectoryOnly() http.HandlerFunc
 	EndTenantDirectoryOnly() http.HandlerFunc
 	OpenTenantToDirectory() http.HandlerFunc
@@ -186,6 +191,10 @@ type GeneratedHandlers interface {
 
 	RequireStaffTenantPasswordChange() http.HandlerFunc
 
+	ResendStaffInvitation() http.HandlerFunc
+
+	ResendStaffTenantInvitation() http.HandlerFunc
+
 	RevokeStaffSessionToken() http.HandlerFunc
 
 	RevokeStaffTenantUserTrustedDevices() http.HandlerFunc
@@ -234,7 +243,21 @@ type GeneratedHandlers interface {
 
 	StaffListedGroupRoles() http.HandlerFunc
 
+	StaffListedIdentities() http.HandlerFunc
+	StaffListedIdentity() http.HandlerFunc
+
+	StaffListedMailLinks() http.HandlerFunc
+	StaffListedMailLink() http.HandlerFunc
+
 	StaffListedRoleGrants() http.HandlerFunc
+
+	StaffListedSessions() http.HandlerFunc
+	StaffListedSession() http.HandlerFunc
+
+	StaffListedSignInAttempts() http.HandlerFunc
+
+	StaffListedTenants() http.HandlerFunc
+	StaffListedTenant() http.HandlerFunc
 
 	StaffListedUsers() http.HandlerFunc
 	StaffListedUser() http.HandlerFunc
@@ -418,6 +441,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/api/tenants/{tenantID}/sign-in-settings", domainGuard(h.TenantSignInSettings()))
 
+	asked.Post("/api/tenants/{tenantID}/take-tenant-directory", domainGuard(h.TakeTenantDirectory()))
+
 	asked.Post("/api/tenants/{tenantID}/make-tenant-directory-only", domainGuard(h.MakeTenantDirectoryOnly()))
 
 	asked.Post("/api/tenants/{tenantID}/end-tenant-directory-only", domainGuard(h.EndTenantDirectoryOnly()))
@@ -493,6 +518,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/api/require-staff-second-factor", h.RequireStaffSecondFactor())
 
 	asked.Post("/api/tenants/{tenantID}/require-staff-tenant-password-change", domainGuard(h.RequireStaffTenantPasswordChange()))
+
+	asked.Post("/api/resend-staff-invitation", h.ResendStaffInvitation())
+
+	asked.Post("/api/tenants/{tenantID}/resend-staff-tenant-invitation", domainGuard(h.ResendStaffTenantInvitation()))
 
 	asked.Post("/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
 
@@ -572,9 +601,45 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-listed-group-roles", staffListedGroupRolesHandler)
 	bounded.Post("/api/staff-listed-group-roles", staffListedGroupRolesHandler)
 
+	staffListedIdentitiesHandler := h.StaffListedIdentities()
+	bounded.Get("/api/staff-listed-identities", staffListedIdentitiesHandler)
+	bounded.Post("/api/staff-listed-identities", staffListedIdentitiesHandler)
+
+	staffListedIdentityHandler := h.StaffListedIdentity()
+	bounded.Get("/api/staff-listed-identities/{staffListedIdentityID}", staffListedIdentityHandler)
+	bounded.Post("/api/staff-listed-identities/{staffListedIdentityID}", staffListedIdentityHandler)
+
+	staffListedMailLinksHandler := h.StaffListedMailLinks()
+	bounded.Get("/api/staff-listed-mail-links", staffListedMailLinksHandler)
+	bounded.Post("/api/staff-listed-mail-links", staffListedMailLinksHandler)
+
+	staffListedMailLinkHandler := h.StaffListedMailLink()
+	bounded.Get("/api/staff-listed-mail-links/{staffListedMailLinkID}", staffListedMailLinkHandler)
+	bounded.Post("/api/staff-listed-mail-links/{staffListedMailLinkID}", staffListedMailLinkHandler)
+
 	staffListedRoleGrantsHandler := h.StaffListedRoleGrants()
 	bounded.Get("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
 	bounded.Post("/api/staff-listed-role-grants", staffListedRoleGrantsHandler)
+
+	staffListedSessionsHandler := h.StaffListedSessions()
+	bounded.Get("/api/staff-listed-sessions", staffListedSessionsHandler)
+	bounded.Post("/api/staff-listed-sessions", staffListedSessionsHandler)
+
+	staffListedSessionHandler := h.StaffListedSession()
+	bounded.Get("/api/staff-listed-sessions/{staffListedSessionID}", staffListedSessionHandler)
+	bounded.Post("/api/staff-listed-sessions/{staffListedSessionID}", staffListedSessionHandler)
+
+	staffListedSignInAttemptsHandler := h.StaffListedSignInAttempts()
+	bounded.Get("/api/staff-listed-sign-in-attempts", staffListedSignInAttemptsHandler)
+	bounded.Post("/api/staff-listed-sign-in-attempts", staffListedSignInAttemptsHandler)
+
+	staffListedTenantsHandler := h.StaffListedTenants()
+	bounded.Get("/api/staff-listed-tenants", staffListedTenantsHandler)
+	bounded.Post("/api/staff-listed-tenants", staffListedTenantsHandler)
+
+	staffListedTenantHandler := h.StaffListedTenant()
+	bounded.Get("/api/staff-listed-tenants/{staffListedTenantID}", staffListedTenantHandler)
+	bounded.Post("/api/staff-listed-tenants/{staffListedTenantID}", staffListedTenantHandler)
 
 	staffListedUsersHandler := h.StaffListedUsers()
 	bounded.Get("/api/staff-listed-users", staffListedUsersHandler)

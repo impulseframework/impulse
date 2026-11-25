@@ -128,15 +128,15 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// The tenants that are closed to this sign-in sit under the person's places, apart from
+// The tenants this session cannot enter sit under the person's places, apart from
 // them: each named, with a lock and the reason the server gives, and nothing to open.
-.impulse-place-switcher-closed {
+.impulse-place-switcher-unavailable {
   margin-top: 4px;
   padding: 0 6px 6px 10px;
   border-top: 1px solid var(--mat-sys-outline-variant);
 }
 
-.impulse-place-switcher-closed-heading {
+.impulse-place-switcher-unavailable-heading {
   padding: 10px 0 4px 26px;
   font-size: 11px;
   font-weight: 500;
@@ -145,7 +145,7 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.impulse-place-switcher-closed-place {
+.impulse-place-switcher-unavailable-place {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
   column-gap: 8px;
@@ -153,7 +153,7 @@
   padding: 4px 0;
 }
 
-.impulse-place-switcher-closed-icon {
+.impulse-place-switcher-unavailable-icon {
   grid-row: 1 / span 2;
   width: 18px;
   height: 18px;
@@ -162,7 +162,7 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.impulse-place-switcher-closed-name {
+.impulse-place-switcher-unavailable-name {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -170,7 +170,7 @@
   line-height: 18px;
 }
 
-.impulse-place-switcher-closed-reason {
+.impulse-place-switcher-unavailable-reason {
   grid-column: 2;
   font-size: 12px;
   line-height: 1.35;

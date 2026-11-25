@@ -17,6 +17,8 @@ import { MatExpansionModule, MatExpansionPanel } from '@angular/material/expansi
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ActivatedRoute, Router } from '@angular/router';
+import { ListPermission } from '@impulseframework/resource';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { ListViewConfig, RecordData, RESOURCE_META, RootConfig } from '@impulseframework/resource-angular/types';
 import {
   openCreateDialog,
@@ -40,6 +42,7 @@ import { addRowLabel, rowWordsOf } from '../row-words';
     NgTemplateOutlet,
   ],
   providers: [ResourceStore],
+  host: { '[hidden]': 'held()' },
 })
 export class ResourceListCreateComponent {
   /* eslint-disable  @typescript-eslint/no-explicit-any */
@@ -47,6 +50,7 @@ export class ResourceListCreateComponent {
 
   injector = inject(Injector);
   store = inject(ResourceStore);
+  private auth = inject(AuthService);
   private resourceMeta = inject(RESOURCE_META);
   /**
    * The store of the row page this list sits under: the page's row and the count of the
@@ -108,6 +112,33 @@ export class ResourceListCreateComponent {
 
   /** Whether the list may ask: at once when nothing relates it to a parent, else once the parent's key value is present. */
   listReady = computed(() => this.childKey() === '' || this.parentKey() !== '');
+
+  /**
+   * Whether the list is drawn only while it has a row (`hiddenWhenEmpty`): a list drawn
+   * above or below a page's own list, which no parent narrows. The list a page is built
+   * on, and a list under a row, say their empty sentence instead.
+   */
+  private waitsForRow = computed(
+    () => this.config().hiddenWhenEmpty === true && !this.ownsPage() && this.childKey() === '',
+  );
+
+  /**
+   * Whether the list is asked for its rows: always, but for a list that waits for a row
+   * where the person's digest gives no List on its resource, which is never asked, so
+   * nobody is shown a refusal for a list they did not open.
+   */
+  listAsked = computed(
+    () =>
+      !this.waitsForRow() ||
+      this.auth.hasPermission({ resource: this.config().primaryResource, permission: ListPermission }),
+  );
+
+  /**
+   * Whether the list is left out of the page: it waits for a row and its latest answer
+   * holds none, while its first answer is awaited, where its request failed, and where
+   * it is not asked. Nothing is drawn in its place.
+   */
+  held = computed(() => this.waitsForRow() && (this.listChild()?.store.page().rows.length ?? 0) === 0);
 
   config = computed(() => {
     const inputConfig = this.resourceConfig();

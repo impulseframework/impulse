@@ -116,9 +116,10 @@ type (
 		// @enumerate(ClientRosters)
 		ClientID impulse.UUID `spanner:"ClientId"`
 		// @attribute(kind)
-		KindID string  `spanner:"KindId"`
-		Title  string  `spanner:"Title"`
-		Brief  *string `spanner:"Brief"`
+		KindID string `spanner:"KindId"`
+		// @name
+		Title string  `spanner:"Title"`
+		Brief *string `spanner:"Brief"`
 		// @enumerate(BriefingTemplates)
 		BriefingTemplateID *string `spanner:"BriefingTemplateId"`
 		// @attribute(hazard)

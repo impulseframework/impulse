@@ -1598,6 +1598,8 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
   const manifests = 'Manifests' as Resource;
   const boards = 'Boards' as Resource;
   const ledgers = 'Ledgers' as Resource;
+  // The wing a ledger is kept for: a resource known by its name, which the ledger carries beside the wing's id.
+  const wings = 'Wings' as Resource;
   const paged = (resource: Resource, route: string): ApiDescriptor['resources'][string] => ({
     resource,
     property: route,
@@ -1640,7 +1642,8 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
         { fieldName: 'shipName', displayType: 'string', required: true, isIndex: false, search: ['startswith'] },
       ],
     },
-    // No search fields: shown by its title and narrowed by a prefix on it; also sorted by its sorties.
+    // No search fields: shown by its title and narrowed by a prefix on it; also sorted by its
+    // sorties, or by its wing's name.
     [ledgers]: {
       route: 'ledgers',
       computed: true,
@@ -1648,6 +1651,17 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
         id,
         { fieldName: 'title', displayType: 'string', required: true, isIndex: false, search: ['startswith'] },
         { fieldName: 'sorties', displayType: 'number', required: true, isIndex: false },
+        { fieldName: 'wingId', displayType: 'enumerated', required: false, isIndex: true, enumeratedResource: wings },
+      ],
+      nameFields: [{ fieldName: 'wingName', of: 'wingId' }],
+    },
+    [wings]: {
+      route: 'wings',
+      nameField: 'name',
+      fields: [
+        id,
+        { fieldName: 'name', displayType: 'string', required: true, isIndex: false },
+        { fieldName: 'callSign', displayType: 'string', required: true, isIndex: false },
       ],
     },
   };
@@ -1673,8 +1687,9 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
     display: string,
     states: Record<string, PermissionDigestState>,
     sorts: FieldSort[] = [],
+    others: PermissionDigest = {},
   ): Promise<EnumeratedFieldComponent> => {
-    const digest: PermissionDigest = { [source]: { List: 'granted', Read: 'granted' } };
+    const digest: PermissionDigest = { [source]: { List: 'granted', Read: 'granted' }, ...others };
     for (const [name, state] of Object.entries(states)) {
       digest[`${source}.${name}`] = { List: state, Read: state };
     }
@@ -1793,5 +1808,37 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
 
     expect(sortsOf('ledgers').length).toBeGreaterThan(0);
     expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:desc']));
+  });
+
+  it('a configured sort by a name field of the source is not sent where the digest lists the id beside it and not the pointed-to name: the picker pages by the display column', async () => {
+    await typeOver(
+      ledgers,
+      'title',
+      { title: 'granted', wingId: 'granted' },
+      [{ field: 'wingName' as FieldName, direction: 'asc' }],
+      {
+        [wings]: { List: 'granted' },
+        [`${wings}.callSign`]: { List: 'granted' },
+      },
+    );
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:asc']));
+  });
+
+  it('the same sort is sent where the digest lists the id and the pointed-to name', async () => {
+    await typeOver(
+      ledgers,
+      'title',
+      { title: 'granted', wingId: 'granted' },
+      [{ field: 'wingName' as FieldName, direction: 'asc' }],
+      {
+        [wings]: { List: 'granted' },
+        [`${wings}.name`]: { List: 'granted' },
+      },
+    );
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['wingName:asc']));
   });
 });

@@ -88,8 +88,9 @@ CREATE TABLE CrewSessionUsers (
 CREATE UNIQUE INDEX CrewSessionUsersByNormalizedUsername ON CrewSessionUsers(NormalizedUsername);
 
 -- The crew's sessions: the session library's Auth sessions (session.Auth), one table for
--- every sign-in method registered on the Crew auth. A session belongs to a user, and
--- deleting the user deletes its sessions; UserId is null only for a role-principal
+-- every sign-in method registered on the Crew auth. A session names its user and is not
+-- held to it by a foreign key: a deleted user's sessions are ended in code, and their rows
+-- stay until the timed removal takes them. UserId is null only for a role-principal
 -- impersonation. ProviderSessionId is the identity provider's session id when the
 -- method reports one, for front-channel logout, and ProviderSessionIssuer the issuer it
 -- belongs to: a provider's session id is unique only within its issuer. Browser is the
@@ -111,7 +112,6 @@ CREATE TABLE CrewSessions (
     CreatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT FK_CrewSessions_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX CrewSessions_Expired_idx
@@ -136,10 +136,16 @@ CREATE TABLE Sectors (
   Name STRING(MAX) NOT NULL,
   Region STRING(MAX) NOT NULL,
   Established DATE NOT NULL,
+  -- When the sector was charted: the time of the commit that made the row, written by the
+  -- record's create and never changed. The crew's list of sectors says it as Since.
+  ChartedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   -- The sector's people enter through its directory only: no other sign-in reaches a
   -- sector whose flag is true, a password included. Half of what the sector declares
   -- about who may enter it; the other half is its row of SectorDirectories.
   DirectoryOnly BOOL NOT NULL DEFAULT (FALSE),
+  -- The sector is disabled: its crew are shut out while its records stay, and nobody
+  -- enters it but a super administrator. A sector is disabled before it is deleted.
+  Disabled BOOL NOT NULL DEFAULT (FALSE),
 
   CONSTRAINT CK_Sectors_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);
@@ -154,8 +160,9 @@ CREATE UNIQUE INDEX SectorsByName ON Sectors(Name);
 -- when the sector is charted or when its marshal, signed in through it, makes it the
 -- sector's. A sector has one directory and a directory belongs to one sector, which the
 -- two unique indexes below hold.
--- DefaultSeat names the role a person is given in the sector at their first sign-in
--- through the directory; NULL says the sector admits them by invitation only.
+-- DefaultSeat names the role a person is given in the sector when they sign in through
+-- the directory and hold nothing in the sector, at every sign-in; NULL says the sector
+-- admits them by invitation only.
 -- AsksSecondFactor says the sector's marshal has said the directory asks its people for a
 -- second factor of its own, so a sign-in through it is not asked for the mailed code.
 CREATE TABLE SectorDirectories (
@@ -251,8 +258,9 @@ CREATE TABLE MembersSessionUsers (
 CREATE UNIQUE INDEX MembersSessionUsersByNormalizedUsername ON MembersSessionUsers(NormalizedUsername);
 
 -- The members's sessions: the session library's Auth sessions (session.Auth), one table for
--- every sign-in method registered on the Members auth. A session belongs to a user, and
--- deleting the user deletes its sessions; UserId is null only for a role-principal
+-- every sign-in method registered on the Members auth. A session names its user and is not
+-- held to it by a foreign key: a deleted user's sessions are ended in code, and their rows
+-- stay until the timed removal takes them. UserId is null only for a role-principal
 -- impersonation. ProviderSessionId is the identity provider's session id when the
 -- method reports one, for front-channel logout, and ProviderSessionIssuer the issuer it
 -- belongs to: a provider's session id is unique only within its issuer. Browser is the
@@ -274,7 +282,6 @@ CREATE TABLE MembersSessions (
     CreatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt         TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT FK_MembersSessions_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX MembersSessions_Expired_idx
@@ -385,6 +392,10 @@ CREATE TABLE Pilots (
 
 CREATE UNIQUE INDEX PilotsByUserId ON Pilots(UserId);
 
+-- A list that shows a pilot by name (a squadron's roster, the commendations desk) is
+-- filtered by that name through this index.
+CREATE INDEX PilotsByDisplayName ON Pilots(DisplayName);
+
 CREATE TABLE ClientContacts (
   Id STRING(36) NOT NULL,
   UserId STRING(36) NOT NULL,
@@ -424,6 +435,7 @@ CREATE TABLE Squadrons (
   -- column back to NULL. Spanner cannot index an ARRAY column, so the field carries no
   -- allow_filter and no list filters or sorts by it.
   Callsigns ARRAY<STRING(16)>,
+  Name_Search TOKENLIST AS (TOKENIZE_SUBSTRING(Name, relative_search_types => ['value_prefix', 'value_suffix'])) HIDDEN,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX SquadronsByName ON Squadrons(Name);
@@ -457,10 +469,9 @@ CREATE TABLE Hangars (
 -- hangars open to the requester and the hangars the requester runs, each through a pass
 -- in their own name, in the name of a squadron they fly with or in the name of a group
 -- they are in. A pass goes with its hangar and with the wing of its squadron, in code
--- (Hangar and Wing declare it), and with its group by the database's rule (the foreign
--- key to CrewGroups is added below that table). A squadron that holds a pass is not
--- deleted until the pass is. Its foreign key to its hangar
--- holds the sector beside the hangar's id, so a pass never names another sector's
+-- (Hangar and Wing declare it). The foreign key to CrewGroups is added below that table.
+-- A squadron that holds a pass is not deleted until the pass is. Its foreign key to its
+-- hangar holds the sector beside the hangar's id, so a pass never names another sector's
 -- hangar. The holder check counts the three columns and takes exactly one; an empty
 -- UserId names nobody and is not counted.
 CREATE TABLE HangarPasses (
@@ -862,9 +873,9 @@ CREATE TABLE CrewGroups (
 
 CREATE UNIQUE INDEX CrewGroupsByName ON CrewGroups (Kind, Axis, DomainId, Name);
 
--- A hangar pass may name a group as its holder. The pass goes with the group: deleting
--- a group leaves no pass that names it.
-ALTER TABLE HangarPasses ADD CONSTRAINT FK_HangarPasses_GroupId FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id) ON DELETE CASCADE;
+-- A hangar pass may name a group as its holder. The foreign key keeps a pass from naming
+-- a group that is gone.
+ALTER TABLE HangarPasses ADD CONSTRAINT FK_HangarPasses_GroupId FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id);
 
 CREATE TABLE CrewGroupMembers (
   GroupId STRING(36) NOT NULL,
@@ -1100,6 +1111,10 @@ CREATE UNIQUE INDEX CrewSessionPendingSignInsByTokenHash ON CrewSessionPendingSi
 
 CREATE INDEX CrewSessionPendingSignInsByExpiresAt ON CrewSessionPendingSignIns(ExpiresAt);
 
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE CrewSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The members's identity links: which provider subject is which person. A Members session
 -- user holds one row per registration they have signed in through (the Google
 -- registration's subject under its method and connection), keyed uniquely so a
@@ -1185,6 +1200,10 @@ CREATE TABLE MembersSessionPendingSignIns (
 CREATE UNIQUE INDEX MembersSessionPendingSignInsByTokenHash ON MembersSessionPendingSignIns(TokenHash);
 
 CREATE INDEX MembersSessionPendingSignInsByExpiresAt ON MembersSessionPendingSignIns(ExpiresAt);
+
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE MembersSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 
 -- The crew's sign-in attempts: the password method's attempt limiter counts the failed
 -- attempts on one name, known or not, within a window, and the lock those failures
@@ -1276,9 +1295,11 @@ CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STO
 -- update so one link completes once. A revoked invitation is consumed by hand, and a
 -- link whose message could not be mailed is consumed where the mail failed, with
 -- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
--- verification link, a first-password code, a reset link and an address confirmation
--- go with their user. CreatedAt, ConsumedAt and MailFailedAt take the commit time;
--- ExpiresAt is the library's deadline, written as given.
+-- link that was taken back is consumed too, with WithdrawnAt set: it tells a
+-- withdrawal from an acceptance. A verification link, a first-password code, a reset
+-- link and an address confirmation go with their user. CreatedAt, ConsumedAt,
+-- MailFailedAt and WithdrawnAt take the commit time; ExpiresAt is the library's
+-- deadline, written as given.
 CREATE TABLE CrewSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -1295,6 +1316,7 @@ CREATE TABLE CrewSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_CrewSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT CK_CrewSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_CrewSessionMailLinks_CrewSessionUsers FOREIGN KEY (UserId) REFERENCES CrewSessionUsers (Id) ON DELETE CASCADE,
@@ -1304,10 +1326,11 @@ CREATE UNIQUE INDEX CrewSessionMailLinksByTokenHash ON CrewSessionMailLinks(Toke
 
 CREATE INDEX CrewSessionMailLinksByKind ON CrewSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
--- A sector's links, newest first, with the columns a sector's list of its invitations
--- shows: a page of that list reads its own rows from the index and nothing else. A link
--- that names no sector is not in it.
-CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenantId ON CrewSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+-- A sector's links, newest first, with every column of the table a sector's list of its
+-- invitations reads: a page of that list reads its own rows from the index and no row of
+-- the table. The name of an invitation's sender comes from the users table, by the
+-- sender's id. A link that names no sector is not in it.
+CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenantId ON CrewSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt, MailFailedAt, WithdrawnAt);
 
 -- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
 ALTER TABLE CrewSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
@@ -1402,9 +1425,11 @@ CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Usernam
 -- update so one link completes once. A revoked invitation is consumed by hand, and a
 -- link whose message could not be mailed is consumed where the mail failed, with
 -- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
--- verification link, a first-password code, a reset link and an address confirmation
--- go with their user. CreatedAt, ConsumedAt and MailFailedAt take the commit time;
--- ExpiresAt is the library's deadline, written as given.
+-- link that was taken back is consumed too, with WithdrawnAt set: it tells a
+-- withdrawal from an acceptance. A verification link, a first-password code, a reset
+-- link and an address confirmation go with their user. CreatedAt, ConsumedAt,
+-- MailFailedAt and WithdrawnAt take the commit time; ExpiresAt is the library's
+-- deadline, written as given.
 CREATE TABLE MembersSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -1421,6 +1446,7 @@ CREATE TABLE MembersSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_MembersSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT CK_MembersSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_MembersSessionMailLinks_MembersSessionUsers FOREIGN KEY (UserId) REFERENCES MembersSessionUsers (Id) ON DELETE CASCADE,
@@ -1430,10 +1456,11 @@ CREATE UNIQUE INDEX MembersSessionMailLinksByTokenHash ON MembersSessionMailLink
 
 CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
--- A sector's links, newest first, with the columns a sector's list of its invitations
--- shows: a page of that list reads its own rows from the index and nothing else. A link
--- that names no sector is not in it.
-CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenantId ON MembersSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+-- A sector's links, newest first, with every column of the table a sector's list of its
+-- invitations reads: a page of that list reads its own rows from the index and no row of
+-- the table. The name of an invitation's sender comes from the users table, by the
+-- sender's id. A link that names no sector is not in it.
+CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenantId ON MembersSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt, MailFailedAt, WithdrawnAt);
 
 -- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
 ALTER TABLE MembersSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
@@ -1476,6 +1503,11 @@ CREATE INDEX CrewSessionTokensByUser ON CrewSessionTokens(UserId, RevokedAt, Exp
 
 CREATE INDEX CrewSessionTokensByFamilyId ON CrewSessionTokens(FamilyId, RevokedAt);
 
+-- A token's row is removed 30 days after the token expired (ExpiresAt), revoked or not. A
+-- refresh token that was rotated stays until then, so one presented again before it
+-- expires is still caught as a reuse.
+ALTER TABLE CrewSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The crew's device codes: the device authorizations command-line clients start for
 -- the droids outlet (RFC 8628; the session library's SessionDeviceCodes migration,
 -- under the auth's prefix). The client holds the opaque device code and the row keeps
@@ -1505,6 +1537,10 @@ CREATE TABLE CrewSessionDeviceCodes (
 CREATE UNIQUE INDEX CrewSessionDeviceCodesByHash ON CrewSessionDeviceCodes(DeviceCodeHash);
 
 CREATE INDEX CrewSessionDeviceCodesByUserCode ON CrewSessionDeviceCodes(UserCode, ExpiresAt);
+
+-- A device code's row is removed one day after the code expired (ExpiresAt), whether it
+-- was approved, denied or never decided.
+ALTER TABLE CrewSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 
 -- The crew's second factor (the session library's SessionFactors migration, under the
 -- auth's prefix): the sign-in codes and the trusted devices. A factor code is one code
@@ -1552,6 +1588,9 @@ CREATE UNIQUE INDEX CrewSessionTrustedDevicesByTokenHash ON CrewSessionTrustedDe
 
 CREATE INDEX CrewSessionTrustedDevicesByUser ON CrewSessionTrustedDevices(UserId, RevokedAt);
 
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE CrewSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The members' second factor (the session library's SessionFactors migration, under the
 -- auth's prefix): the sign-in codes mailed for a pending sign-in and the browsers a
 -- member asked to be remembered after one, shaped as the crew's
@@ -1590,14 +1629,19 @@ CREATE UNIQUE INDEX MembersSessionTrustedDevicesByTokenHash ON MembersSessionTru
 
 CREATE INDEX MembersSessionTrustedDevicesByUser ON MembersSessionTrustedDevices(UserId, RevokedAt);
 
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE MembersSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 CREATE SEARCH INDEX ClientsSearch ON Clients(Name_Search, ContactName_Search, ContactEmail_Search);
 
 CREATE SEARCH INDEX ClientContactsSearch ON ClientContacts(DisplayName_Search) STORING (ClientId);
 
+CREATE SEARCH INDEX SquadronsSearch ON Squadrons(Name_Search);
+
 CREATE SEARCH INDEX MissionsSearch ON Missions(Title_Search, Deadline_Search) PARTITION BY SectorId;
 
--- The mission board's box also reaches Clients' index, and comes back to the missions
--- through ClientId: the key set costs the matches only with this index.
+-- A filter by the client's name, on the missions and on the mission board, comes back to
+-- the missions through ClientId: this index answers it.
 CREATE INDEX MissionsBySectorIdClientId ON Missions(SectorId, ClientId);
 
 CREATE INDEX HangarsBySectorIdNameLower ON Hangars(SectorId, Name_Lower);

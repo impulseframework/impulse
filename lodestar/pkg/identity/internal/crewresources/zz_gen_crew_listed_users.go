@@ -22,6 +22,15 @@ func (CrewListedUser) DefaultConfig() resource.Config {
 	return resource.Config{}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (CrewListedUser) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "ManagingTenantName", Key: "ManagingTenant", Resource: "Sectors", Tag: "name", Table: "Sectors", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
+	}
+}
+
 // crewListedUserRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewListedUserReadSets holds one Set per read operation.
@@ -37,6 +46,9 @@ type crewListedUserRead struct {
 	LastSignInAt           *time.Time   `json:"lastSignInAt"`
 	Roles                  []string     `json:"roles"`
 	LockedUntil            *time.Time   `json:"lockedUntil"`
+	TrustedDevices         int64        `json:"trustedDevices"`
+	ManagedByTenant        bool         `json:"managedByTenant"`
+	ManagingTenant         *string      `json:"managingTenant"`
 }
 
 var crewListedUserReadSets resource.SetCache[CrewListedUser, crewListedUserRead]
@@ -156,6 +168,9 @@ func (c *CrewListedUserColumns) All() *CrewListedUserColumns {
 		"LastSignInAt",
 		"Roles",
 		"LockedUntil",
+		"TrustedDevices",
+		"ManagedByTenant",
+		"ManagingTenant",
 	}
 
 	return c
@@ -227,6 +242,24 @@ func (c *CrewListedUserColumns) LockedUntil() *CrewListedUserColumns {
 	return c
 }
 
+func (c *CrewListedUserColumns) TrustedDevices() *CrewListedUserColumns {
+	c.fields = append(c.fields, "TrustedDevices")
+
+	return c
+}
+
+func (c *CrewListedUserColumns) ManagedByTenant() *CrewListedUserColumns {
+	c.fields = append(c.fields, "ManagedByTenant")
+
+	return c
+}
+
+func (c *CrewListedUserColumns) ManagingTenant() *CrewListedUserColumns {
+	c.fields = append(c.fields, "ManagingTenant")
+
+	return c
+}
+
 type CrewListedUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -253,6 +286,14 @@ func (p CrewListedUserQueryPartialClause) Name() CrewListedUserQueryIdent[string
 
 func (p CrewListedUserQueryPartialClause) Email() CrewListedUserQueryIdent[string] {
 	return CrewListedUserQueryIdent[string]{Ident: resource.NewIdent[string]("Email", p.partialClause, true)}
+}
+
+func (p CrewListedUserQueryPartialClause) ManagedByTenant() CrewListedUserQueryIdent[bool] {
+	return CrewListedUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("ManagedByTenant", p.partialClause, true)}
+}
+
+func (p CrewListedUserQueryPartialClause) ManagingTenant() CrewListedUserQueryIdent[string] {
+	return CrewListedUserQueryIdent[string]{Ident: resource.NewIdent[string]("ManagingTenant", p.partialClause, true)}
 }
 
 type CrewListedUserQueryClause struct {
@@ -363,6 +404,18 @@ func (c *crewListedUserSort) Roles() *CrewListedUserSort {
 
 func (c *crewListedUserSort) LockedUntil() *CrewListedUserSort {
 	return c.addField("LockedUntil")
+}
+
+func (c *crewListedUserSort) TrustedDevices() *CrewListedUserSort {
+	return c.addField("TrustedDevices")
+}
+
+func (c *crewListedUserSort) ManagedByTenant() *CrewListedUserSort {
+	return c.addField("ManagedByTenant")
+}
+
+func (c *crewListedUserSort) ManagingTenant() *CrewListedUserSort {
+	return c.addField("ManagingTenant")
 }
 
 type CrewListedUserSort struct {

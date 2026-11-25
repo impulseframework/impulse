@@ -37,6 +37,7 @@ import { PermissionDigestState, pickerSort, readMode } from '@impulseframework/r
 import { concatFunctions, hyphenConcat } from '../../../concat-fns';
 import { PagedListRequest } from '../../../paged-list';
 import { answeredSorts, pageLabel, queryableMeta } from '../../../resource-list/list-request';
+import { listableNames, namesListableOf } from '../../../resource-list/name-columns';
 import { SearchBoxComponent } from '../../../search-box/search-box.component';
 import {
   filterReachesPII,
@@ -208,6 +209,12 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   /** The digest's List field set for any resource (listableFieldsOf): the source's own and a search branch's child. */
   private readonly listableOf = listableFieldsOf(this.auth);
 
+  /**
+   * The digest's List field set for a resource an id of the source points to, as its name
+   * is judged (namesListableOf): the empty set once a digest has answered and names no field.
+   */
+  private readonly namesOf = namesListableOf(this.auth);
+
   /** The digest's List field set for the source itself. */
   private sourceListable = computed<ReadonlySet<string> | undefined>(() => {
     const resource = this.resource();
@@ -302,8 +309,19 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     return this.editMode() === 'view' && this.picker().viewDetails === true && this.closedTo() === undefined;
   });
 
+  /**
+   * The picker's configured sorts as the server answers them for this person
+   * (answeredSorts). A sort by a name field of the source is sent only where the person
+   * may list the name (listableNames), as a list sends it.
+   */
   sorts = computed(() => {
-    return answeredSorts(this.picker().sorts, this.sourceMeta(), this.sourceListStates(), this.sourceListable());
+    return answeredSorts(
+      this.picker().sorts,
+      this.sourceMeta(),
+      this.sourceListStates(),
+      this.sourceListable(),
+      listableNames(this.sourceMeta(), this.namesOf, this.resourceMeta),
+    );
   });
 
   /**

@@ -23,8 +23,8 @@ import (
 // them) and the connection the method's identities carry (@directoryConnection: a
 // Google Workspace by its domain, a Microsoft Entra tenant by its tenant id), and
 // naming, when the record carries the column, the default seat (@directoryDefaultSeat:
-// the role a person is seated with in the tenant at their first sign-in through the
-// directory, NULL where the tenant admits a stranger from it by invitation only) and,
+// the role a person is seated with when they sign in through the directory and hold
+// nothing in the tenant, NULL where the tenant admits a stranger from it by invitation only) and,
 // when the record carries that column, the tenant's word that its directory asks its
 // people for a second factor of its own (@directorySecondFactor, a BOOL). A
 // tenant has one directory and a directory is one tenant's: the schema holds both with
@@ -45,7 +45,8 @@ import (
 // @tenantDirectory on the struct, @directoryOnly, @directoryMethod, @directoryConnection,
 // @directoryDefaultSeat and @directorySecondFactor on its fields, each refused where it
 // cannot mean anything, and the record's @tenantName, the name the tenant list carries,
-// beside them.
+// @tenantSince, when a tenant was made, and @tenantDisabled, whether a tenant is
+// disabled, beside them.
 // The rules that read across structs (one directories record, the record it belongs
 // to) run once every struct is extracted (rejectSecondTenantDirectory,
 // validateTenantDeclaration). The scope and the tenant record resolve first.
@@ -80,6 +81,14 @@ func resolveTenantDeclaration(res *resourceInfo, pStruct *parser.Struct, annotat
 			res.DirectoryOnlyField = flag
 		case fieldAnnotations.Has(tenantNameKeyword):
 			if err := res.setTenantNameColumn(field); err != nil {
+				return err
+			}
+		case fieldAnnotations.Has(tenantSinceKeyword):
+			if err := res.setTenantSinceColumn(field); err != nil {
+				return err
+			}
+		case fieldAnnotations.Has(tenantDisabledKeyword):
+			if err := res.setTenantDisabledColumn(field); err != nil {
 				return err
 			}
 		case fieldAnnotations.Has(directoryMethodKeyword):
@@ -120,6 +129,50 @@ func (r *resourceInfo) setTenantNameColumn(field *parser.Field) error {
 	if r.TenantNameField == nil {
 		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), tenantNameKeyword)
 	}
+
+	return nil
+}
+
+// setTenantSinceColumn records the tenant record's column holding when a tenant was made
+// (@tenantSince), refusing it off the record, on a column that is neither a timestamp nor
+// a nullable one, and declared twice. The mark writes nothing: the field's tags decide how
+// the column is written and served, as for any field.
+func (r *resourceInfo) setTenantSinceColumn(field *parser.Field) error {
+	switch {
+	case !r.IsTenant:
+		return errors.Newf("struct %s field %s: @%s on a resource that is not the tenant record; when a tenant was made is the @%s record's column", r.Name(), field.Name(), tenantSinceKeyword, tenantKeyword)
+	case !isTimeOrNullableTime(field.GoType()):
+		return errors.Newf("struct %s field %s: @%s on a %s column; when a tenant was made is a timestamp (time.Time) or a nullable timestamp (*time.Time)", r.Name(), field.Name(), tenantSinceKeyword, field.Type())
+	case r.TenantSinceField != nil:
+		return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already, and a tenant was made once", r.Name(), field.Name(), tenantSinceKeyword, r.TenantSinceField.Name())
+	}
+	r.TenantSinceField = r.fieldNamed(field.Name())
+	if r.TenantSinceField == nil {
+		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), tenantSinceKeyword)
+	}
+
+	return nil
+}
+
+// setTenantDisabledColumn records the tenant record's column saying a tenant is disabled
+// (@tenantDisabled), refusing it off the record, on a column that is not a BOOL, declared
+// twice, and on a field the resource does not carry as a column. The mark writes
+// nothing: the field is an ordinary field of the record, which the record's update
+// writes under the caller's grant on it, as for any field.
+func (r *resourceInfo) setTenantDisabledColumn(field *parser.Field) error {
+	switch {
+	case !r.IsTenant:
+		return errors.Newf("struct %s field %s: @%s on a resource that is not the tenant record; whether a tenant is disabled is the tenant record's column, so annotate the @%s record's BOOL column", r.Name(), field.Name(), tenantDisabledKeyword, tenantKeyword)
+	case !isBoolKinded(field.GoType()):
+		return errors.Newf("struct %s field %s: @%s on a %s column; whether a tenant is disabled is a BOOL, true while the tenant's people are shut out", r.Name(), field.Name(), tenantDisabledKeyword, field.Type())
+	case r.TenantDisabledField != nil:
+		return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already, and a tenant has one such column", r.Name(), field.Name(), tenantDisabledKeyword, r.TenantDisabledField.Name())
+	}
+	disabled := r.fieldNamed(field.Name())
+	if disabled == nil {
+		return errors.Newf("struct %s field %s: @%s on a field the resource does not carry as a column; whether a tenant is disabled is the tenant record's BOOL column", r.Name(), field.Name(), tenantDisabledKeyword)
+	}
+	r.TenantDisabledField = disabled
 
 	return nil
 }
@@ -180,6 +233,25 @@ func isStringOrNullableString(t types.Type) bool {
 	return isStringKinded(t)
 }
 
+// isTimeOrNullableTime reports whether the type is the time package's Time or a pointer
+// to it, an alias unwrapped at either level.
+func isTimeOrNullableTime(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	t = types.Unalias(t)
+	if p, isPointer := t.(*types.Pointer); isPointer {
+		t = types.Unalias(p.Elem())
+	}
+	named, isNamed := t.(*types.Named)
+	if !isNamed {
+		return false
+	}
+	obj := named.Obj()
+
+	return obj.Pkg() != nil && obj.Pkg().Path()+"."+obj.Name() == timeGoType
+}
+
 // setDirectoryColumn records one of the directories record's two columns, refusing it
 // off the record, on a column that is not a string, and declared twice.
 func (r *resourceInfo) setDirectoryColumn(dest **resourceField, field *parser.Field, keyword, meaning string) error {
@@ -225,8 +297,9 @@ func isBoolKinded(t types.Type) bool {
 
 // SignalsTenants reports whether the resource's generated write paths keep every
 // instance's tenant roster current after their commit: the tenant record, whose rows
-// are the tenants and whose directory-only flag is part of what each declares, and the
-// directories record, whose rows are the rest of the declaration.
+// are the tenants and whose directory-only flag and disabled column are part of what
+// each declares, and the directories record, whose rows are the rest of the
+// declaration.
 func (r *resourceInfo) SignalsTenants() bool {
 	return r.IsTenant || r.IsTenantDirectory
 }
@@ -319,6 +392,7 @@ func (r *resourceGenerator) validateTenantDeclaration() error {
 	record.declaration = &tenantDeclaration{Directories: directories}
 	directories.directoryOf = record
 	directories.directoryRules = r.namedDirectoryRules(record)
+	directories.directoryCreateRefusal = directoryCreateRefusal(r.directoryTenantWord(record), record.Name())
 
 	return nil
 }
@@ -412,6 +486,33 @@ func tenantDirectoryWriteData(record *resourceInfo) *tenantDirectoryWrite {
 // sentence carries it ("sector", "ship class").
 func (r *resourceGenerator) directoryTenantWord(record *resourceInfo) string {
 	return strings.ToLower(r.tenantWord(record).One)
+}
+
+// tenantDisabledRequirement is what the tenant record's generated delete hands
+// resource.RequireTenantDisabled, so a tenant is deleted only once it is disabled: the
+// record's table, its key column, its @tenantDisabled column, and the word for one
+// tenant the refusal says.
+type tenantDisabledRequirement struct {
+	Table     string
+	KeyColumn string
+	Column    string
+	Word      string
+}
+
+// tenantDisabledRequirement resolves what the record's delete asks of a tenant before
+// its removal is buffered: nil on every resource but the tenant record, which marks the
+// column saying a tenant is disabled (resolveTenantRecord refuses one that does not).
+func (r *resourceGenerator) tenantDisabledRequirement(record *resourceInfo) *tenantDisabledRequirement {
+	if !record.IsTenant {
+		return nil
+	}
+
+	return &tenantDisabledRequirement{
+		Table:     r.pluralize(record.Name()),
+		KeyColumn: spannerColumn(record.PrimaryKey()),
+		Column:    spannerColumn(record.TenantDisabledField),
+		Word:      r.directoryTenantWord(record),
+	}
 }
 
 // directoryNamers are the expressions that name a directory in a generated frame of
@@ -546,6 +647,13 @@ func (r *resourceInfo) DirectoryRules() string {
 	return r.directoryRules
 }
 
+// DirectoryCreateRefusal is the sentence the directories record's create is refused with:
+// a tenant takes its directory with the tenant's own method (Take<Record>Directory),
+// never by a create of the record. Empty on every other resource.
+func (r *resourceInfo) DirectoryCreateRefusal() string {
+	return r.directoryCreateRefusal
+}
+
 // DirectoryTenantWord is the word for one tenant in the comments the directories
 // record's write paths carry: the tenant record's name in lower-case words. Empty on
 // every other resource.
@@ -560,10 +668,11 @@ func (r *resourceInfo) DirectoryTenantWord() string {
 // tenantDeclarationColumns is the declaration as the generated constructors hand it to
 // resource.WithTenantDeclarations, resource.NewTenantDeclarationReader and
 // resource.NewTenantDirectoryReader: the column names behind the record's annotated
-// fields, the default seat's and the tenant's word's empty where the record carries
-// none.
+// fields, the disabled column's, the default seat's and the tenant's word's empty where
+// the record carries none.
 type tenantDeclarationColumns struct {
 	DirectoryOnly        string
+	Disabled             string
 	DirectoriesTable     string
 	TenantColumn         string
 	MethodColumn         string
@@ -589,6 +698,7 @@ func (r *resourceGenerator) declarationColumns(record *resourceInfo) *tenantDecl
 	if record.DirectoryOnlyField != nil {
 		columns.DirectoryOnly = spannerColumn(record.DirectoryOnlyField)
 	}
+	columns.Disabled = spannerColumn(record.TenantDisabledField)
 	if directories.DirectoryDefaultSeatField != nil || directories.DirectorySecondFactorField != nil {
 		columns.DirectoriesKeyColumn = spannerColumn(directories.PrimaryKey())
 	}

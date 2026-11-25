@@ -46,7 +46,7 @@
     </impulse-resource-list-create>
   }
 
-  @if (listReady()) {
+  @if (listReady() && listAsked()) {
     <impulse-resource-list
       #list
       [viewRoute]="rootConfig().routeData.route"

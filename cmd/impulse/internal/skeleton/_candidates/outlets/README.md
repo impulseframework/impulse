@@ -43,7 +43,7 @@ nobody a power that giving the role directly would not: who is in a group, and w
 holds, is changed by someone who may give or take those roles directly, and a tenant puts
 its own people in its groups, while an account from outside the tenant is put there from
 the whole application's accounts. The list of groups says how many people each group has and the roles it
-holds, and offers Delete only on a group that holds nothing; a person's page lists their
+holds, and offers Delete on every group, asking first with a count of its people and roles; a person's page lists their
 roles in one list that says "Their own" or names the group each comes through. On the
 Break glass page (`/staff-break-glass`) a person takes a role in a tenant for a set time
 and says why, when they hold the page's grant and could give themselves that role there:
@@ -55,8 +55,8 @@ same page for the members auth (`/members-break-glass`), and the members role fi
 its lists and its method to no role, as it gives nothing of the whole application's side. The library draws them from the API description (`identityRoutes` in each application's
 `app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
 the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
-(`app.menus.ts`) shows Tenants (All tenants) and System (the staff's accounts, the
-Invited tenants page and Feature flags) in Configuration, and People and Tenant (Sign-in settings)
+(`app.menus.ts`) shows Tenants (All tenants and Invite a tenant…) and System (the staff's accounts and
+Feature flags) in Configuration, and People and Tenant (Sign-in settings)
 inside a tenant; the portal's shows System (the members' accounts) and People. The
 person's own menu holds Your account (on the console: the username, name, email address
 and password, as lines that open in place to change them, and where the person is signed
@@ -66,8 +66,8 @@ Appearance and Sign out. Help ends with About, a pop-up that carries the release
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator
-brings an organization in by inviting one person, on the console's Invited tenants page
-(System), which the library draws from the staff auth's generated `InviteStaffTenant`,
+brings an organization in by inviting one person, on the console's tenants page (All
+tenants), which lists the invitations still waiting above the tenants, and which the library draws from the staff auth's generated `InviteStaffTenant`,
 `StaffInvitedTenants` and `WithdrawStaffInvitedTenant`. Sending the invitation takes the
 `Administrator` role's Create grant on the record, and a name a tenant holds is refused
 there. No tenant exists while the invitation waits; the invited person's first sign-in
@@ -78,7 +78,8 @@ page. The staff auth is handed what makes the tenant by the data level
 (`staff.Settings.TenantMaker`, the generated `app.NewTenantMaker` over the roster, built before the
 auth), and refuses to start without it. A person who signed up and holds no tenant
 creates their own through the generated create-your-tenant route, which the dashboard
-offers while an administrator has a sign-in method open to sign-up.
+offers to a person who signed in through a sign-in method an administrator has open to
+sign-up.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the tenant's directory, the organization its people sign in
@@ -115,7 +116,7 @@ role outside any one tenant (a global role, or one held in every tenant) is admi
 then enters a tenant only where its declaration admits their session, and a person
 holding no tenant is refused. Which tenants the session
 then reaches is decided again per tenant where its tenant list is computed, and a tenant
-that seats the person and is closed to their session stays in the list marked closed,
+that seats the person and is closed to their session stays in the list as not available,
 with the reason: the data
 level's roster keeps every tenant's declaration beside its key
 (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions`), the
@@ -127,8 +128,8 @@ there and removes it, and changes everything else with the tenant's own generate
 methods, which `TenantAdministrator` holds and the page runs through the library's
 method dialog: `OpenTenantToDirectory`
 (`POST /console/api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of
-the directory's people is given at their first sign-in through it, a role the caller
-could give directly, picked from the list of the roles they may give
+the directory's people is given when they sign in through it and hold nothing in the
+tenant, a role the caller could give directly, picked from the list of the roles they may give
 (`StaffTenantDirectoryRoles`), and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
 (`POST /console/api/tenants/{tenantID}/make-tenant-directory-only`) and
 `EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
@@ -230,7 +231,10 @@ generated router test proves the route sits behind the token check.
   every tenant is not one tenant's to take (`everyDomain = false`), and an
   invitation is withdrawn while it stands (`pending = true`);
   `test/integration/tenant_people_test.go` proves each of them for the staff on the
-  console and `tenant_members_test.go` for the members on the portal. A new resource stays invisible until a role in its auth's file is granted
+  console and `tenant_members_test.go` for the members on the portal. The application's
+  `Administrator` changes an account only where no tenant manages it
+  (`managedByTenant = false`), and `test/integration/grants_test.go` proves that too.
+  A new resource stays invisible until a role in its auth's file is granted
   it. Every grant in either file is proven live by `test/integration/grants_test.go`, which
   opens each auth the way the deployment does and asks its engine about each
   unconditional grant; a conditional grant is proven by a test case that names it through

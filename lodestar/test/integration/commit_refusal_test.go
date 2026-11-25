@@ -12,11 +12,12 @@ package integration
 // (TestDeleteAlone_refusesWhatTheCallerMayNotTake). The referential refusal (409) is reproduced
 // by a create naming a client that does not exist, and beside a delete the same request makes,
 // by the sentence covering both causes. A squadron and what is under it (the one mission
-// assigned to it, and its memberships and pass), deleted in one transaction, succeed in either
-// order: the squadron declares nothing, so its count runs once the request's deletes are
-// buffered and leaves those rows out. A wing declares its delete, so it is judged as the delete
-// is buffered: deleted ahead of the one mission assigned to its squadron, in one request, it is
-// refused, and nothing is deleted. A refit task created under a task number the refit already
+// assigned to it, and its memberships and pass), deleted in one transaction, are refused in
+// either order, in the sentence that counts them: the squadron declares nothing, and its count
+// reads what the database held before the transaction, so rows that are not declared to go
+// with a record are deleted in an earlier request. A wing declares its delete, so it is judged
+// as the delete is buffered: deleted ahead of the one mission assigned to its squadron, in one
+// request, it is refused, and nothing is deleted. A refit task created under a task number the refit already
 // holds (a client-supplied compound key) and a ship created under a seeded registry
 // (ShipsByRegistry) are the duplicate-key and duplicate-unique-value refusals on a create
 // (409); a client renamed to another client's name is the duplicate unique value on an update
@@ -126,18 +127,22 @@ func TestCommitRefusal(t *testing.T) {
 		},
 		{
 			// The sweep is the one mission assigned to Ashfall, in Cinder: the mission
-			// that names the squadron goes first, then the squadron it named.
-			name:       "the row that names another, then the row it names, in one transaction succeed",
-			target:     "/console/api/resources",
-			ops:        "[" + removeIn(cinder, "missions/"+missionSweepID) + "," + removeIn(cinder, "squadrons/"+squadronAshfallID) + "]",
-			wantStatus: http.StatusOK,
+			// that names the squadron goes first, then the squadron it named. The
+			// squadron's count reads the mission as the database held it, and refuses;
+			// the caller may list none of the kinds under a squadron, so the sentence
+			// says only that there are records.
+			name:        "the row that names another, then the row it names, in one transaction are refused in the count's sentence",
+			target:      "/console/api/resources",
+			ops:         "[" + removeIn(cinder, "missions/"+missionSweepID) + "," + removeIn(cinder, "squadrons/"+squadronAshfallID) + "]",
+			wantStatus:  http.StatusConflict,
+			wantMessage: "This squadron has records under it that you can't see, so it can't be deleted.",
 		},
 		{
 			// The patrol is the one mission assigned to Portcullis, in Bastion, beside its
-			// two members and its pass into the Rampart: the squadron goes first, while the
-			// mission, the memberships and the pass still name it, and the commit finds
-			// nothing left that does.
-			name:   "the row another names, then the row that names it, in one transaction succeed",
+			// two members and its pass into the Rampart: the squadron goes first, and its
+			// count reads the mission, the memberships and the pass as the database held
+			// them.
+			name:   "the row another names, then the rows that name it, in one transaction are refused in the count's sentence",
 			target: "/console/api/resources",
 			ops: "[" + strings.Join([]string{
 				removeIn(bastion, "squadrons/"+squadronPortcullisID), removeIn(bastion, "missions/"+missionPatrolID),
@@ -145,7 +150,8 @@ func TestCommitRefusal(t *testing.T) {
 				removeIn(bastion, "squadron-memberships/"+squadronPortcullisID+"/"+memberPortcullisPilot),
 				removeIn(bastion, "hangar-passes/"+passPortcullisID),
 			}, ",") + "]",
-			wantStatus: http.StatusOK,
+			wantStatus:  http.StatusConflict,
+			wantMessage: "This squadron has records under it that you can't see, so it can't be deleted.",
 		},
 		{
 			// The Good Samaritan's refit already has task 2: the client-supplied compound

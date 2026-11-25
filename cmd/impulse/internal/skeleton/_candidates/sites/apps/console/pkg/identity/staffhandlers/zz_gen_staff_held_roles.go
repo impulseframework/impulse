@@ -19,18 +19,19 @@ import (
 
 func (h *Handlers) StaffHeldRoles() http.HandlerFunc {
 	type staffHeldRole struct {
-		UserID    impulse.UUID `json:"userId"    index:"true" perm:"-"`
-		Username  string       `json:"username"  index:"true"`
-		Kind      string       `json:"kind"      index:"true" perm:"-"`
-		Axis      string       `json:"axis"      perm:"-"`
-		DomainID  string       `json:"domainId"  index:"true" perm:"-"`
-		Role      string       `json:"role"      index:"true" perm:"-"`
-		GroupID   string       `json:"groupId"   index:"true" perm:"-"`
-		GroupName string       `json:"groupName" index:"true"`
-		CreatedAt time.Time    `json:"createdAt"`
-		StartsAt  *time.Time   `json:"startsAt"`
-		EndsAt    *time.Time   `json:"endsAt"`
-		Reason    *string      `json:"reason"`
+		UserID     impulse.UUID `json:"userId"     index:"true"      perm:"-"`
+		Username   string       `json:"username"   index:"true"`
+		Kind       string       `json:"kind"       index:"true"      perm:"-"`
+		Axis       string       `json:"axis"       perm:"-"`
+		DomainID   string       `json:"domainId"   index:"true"      perm:"-"`
+		Role       string       `json:"role"       index:"true"      perm:"-"`
+		GroupID    string       `json:"groupId"    index:"true"      perm:"-"`
+		GroupName  string       `json:"groupName"  index:"true"`
+		CreatedAt  time.Time    `json:"createdAt"`
+		StartsAt   *time.Time   `json:"startsAt"`
+		EndsAt     *time.Time   `json:"endsAt"`
+		Reason     *string      `json:"reason"`
+		DomainName *string      `json:"domainName" nameof:"DomainID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -69,7 +70,7 @@ func (h *Handlers) StaffHeldRoles() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*staffHeldRole)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -121,6 +122,11 @@ func (h *Handlers) StaffHeldRoles() http.HandlerFunc {
 					if !row.Masked("reason") {
 						rmap["reason"] = rec.Reason
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {

@@ -5,7 +5,6 @@ import {
   field,
   foreignKeyDefault,
   listViewConfig,
-  multiColumnConfig,
   rootConfig,
   section,
 } from '@impulseframework/resource-angular/types';
@@ -87,22 +86,10 @@ export const distressCallsConfig = rootConfig({
       showViewButton: false,
       listColumns: [
         { id: DistressRelays.fieldName.message },
-        // The relay answered, by its message: the row holds an id, which nobody reads.
-        // The field behind the column is the id, so the column offers no filter or sort.
-        multiColumnConfig({
-          id: DistressRelays.fieldName.answersRelayId,
-          header: 'Answers',
-          additionalIds: [
-            {
-              id: DistressRelays.fieldName.id,
-              resource: Resources.DistressRelays,
-              field: DistressRelays.fieldName.message,
-            },
-          ],
-          concatFn: 'hyphen-concat',
-          filterable: false,
-          sortable: false,
-        }),
+        // The relay answered, by its message: the row holds an id, which nobody reads, and
+        // the list asks the server for the answered relay's message beside it (a relay is
+        // known by its message) and sorts by it.
+        { id: DistressRelays.fieldName.answersRelayId, header: 'Answers' },
         { id: DistressRelays.fieldName.relayedByName, header: 'Relayed by' },
         { id: DistressRelays.fieldName.relayedAt, header: 'Relayed' },
       ],

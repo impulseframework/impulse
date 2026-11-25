@@ -24,7 +24,21 @@
                 "name",
                 "region",
                 "established",
-                "directoryOnly"
+                "directoryOnly",
+                "disabled"
+              ]
+            },
+            {
+              "resource": "CrewListedSectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "disabled",
+                "people",
+                "since",
+                "directory"
               ]
             },
             {
@@ -58,7 +72,8 @@
                 "name",
                 "region",
                 "established",
-                "directoryOnly"
+                "directoryOnly",
+                "disabled"
               ]
             },
             {
@@ -89,7 +104,7 @@
       },
       {
         "name": "Headquarters",
-        "description": "Runs the fleet from headquarters: manages clients, ships, pilots and sectors, brings a new sector in by inviting its first marshal, manages the crew's and the clients' accounts and seats, and issues bulletins.",
+        "description": "Runs the fleet from headquarters: manages clients, ships, pilots and sectors, brings a new sector in by inviting its first marshal, seats the crew, manages the clients' accounts and the crew's accounts that no sector manages, and issues bulletins.",
         "permissions": {
           "List": [
             {
@@ -153,7 +168,10 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -162,6 +180,22 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -201,7 +235,10 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -210,6 +247,22 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -239,6 +292,21 @@
                 "subject",
                 "tenant",
                 "userId"
+              ]
+            },
+            {
+              "resource": "CrewListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -280,7 +348,29 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "CrewListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -289,6 +379,22 @@
                 "failures",
                 "lockedUntil",
                 "updatedAt",
+                "windowEndsAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSignInAttempts",
+              "fields": [
+                "account",
+                "failureLimit",
+                "failures",
+                "kind",
+                "locked",
+                "lockedUntil",
+                "state",
+                "subject",
+                "updatedAt",
+                "userId",
                 "windowEndsAt"
               ]
             },
@@ -385,6 +491,21 @@
               ]
             },
             {
+              "resource": "MembersListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
+              ]
+            },
+            {
               "resource": "MembersSessionMailLinks",
               "fields": [
                 "consumedAt",
@@ -398,7 +519,29 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "MembersListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -407,6 +550,22 @@
                 "failures",
                 "lockedUntil",
                 "updatedAt",
+                "windowEndsAt"
+              ]
+            },
+            {
+              "resource": "MembersListedSignInAttempts",
+              "fields": [
+                "account",
+                "failureLimit",
+                "failures",
+                "kind",
+                "locked",
+                "lockedUntil",
+                "state",
+                "subject",
+                "updatedAt",
+                "userId",
                 "windowEndsAt"
               ]
             },
@@ -564,6 +723,20 @@
               ]
             },
             {
+              "resource": "CrewListedSectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "disabled",
+                "people",
+                "since",
+                "directory",
+                "administrators"
+              ]
+            },
+            {
               "resource": "CrewInvitedSectorRoles",
               "fields": [
                 "description"
@@ -614,7 +787,10 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -623,6 +799,22 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -653,7 +845,10 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -662,6 +857,22 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -678,6 +889,21 @@
                 "subject",
                 "tenant",
                 "userId"
+              ]
+            },
+            {
+              "resource": "CrewListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -710,7 +936,29 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "CrewListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -745,6 +993,21 @@
               ]
             },
             {
+              "resource": "MembersListedIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId",
+                "managedByTenant",
+                "managingTenant"
+              ]
+            },
+            {
               "resource": "MembersSessionMailLinks",
               "fields": [
                 "consumedAt",
@@ -758,7 +1021,29 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "MembersListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -891,7 +1176,8 @@
               "fields": [
                 "name",
                 "region",
-                "established"
+                "established",
+                "disabled"
               ]
             },
             {
@@ -925,10 +1211,12 @@
               "resource": "IssueBulletin"
             },
             {
-              "resource": "DisableCrewUser"
+              "resource": "DisableCrewUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "EnableCrewUser"
+              "resource": "EnableCrewUser",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "AssignCrewRole"
@@ -949,7 +1237,8 @@
               "resource": "EndCrewSession"
             },
             {
-              "resource": "EndCrewUserSessions"
+              "resource": "EndCrewUserSessions",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "EndCrewSessionImpersonation"
@@ -961,13 +1250,16 @@
               "resource": "EndMembersUserSessions"
             },
             {
-              "resource": "RequireCrewPasswordChange"
+              "resource": "RequireCrewPasswordChange",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "UnlinkCrewSessionIdentity"
+              "resource": "UnlinkCrewSessionIdentity",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RemoveCrewPassword"
+              "resource": "RemoveCrewPassword",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "RevokeCrewSessionToken"
@@ -976,16 +1268,20 @@
               "resource": "UnlinkMembersSessionIdentity"
             },
             {
-              "resource": "DeleteCrewUser"
+              "resource": "DeleteCrewUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RenameCrewUser"
+              "resource": "RenameCrewUser",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "SendCrewUserPasswordResetLink"
+              "resource": "SendCrewUserPasswordResetLink",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "RevokeCrewUserTrustedDevices"
+              "resource": "RevokeCrewUserTrustedDevices",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "DeleteMembersUser"
@@ -1033,10 +1329,12 @@
               "resource": "WithdrawCrewInvitedSector"
             },
             {
-              "resource": "SetCrewUserEmail"
+              "resource": "SetCrewUserEmail",
+              "condition": "managedByTenant = false"
             },
             {
-              "resource": "SetCrewUserName"
+              "resource": "SetCrewUserName",
+              "condition": "managedByTenant = false"
             },
             {
               "resource": "SetMembersUserEmail"
@@ -1127,7 +1425,9 @@
             {
               "resource": "CrewListedUsers",
               "fields": [
-                "username"
+                "username",
+                "managedByTenant",
+                "managingTenant"
               ]
             },
             {
@@ -1314,6 +1614,20 @@
                 "invitedByUserId",
                 "createdAt",
                 "expiresAt"
+              ]
+            },
+            {
+              "resource": "CrewListedSectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "disabled",
+                "people",
+                "since",
+                "directory",
+                "administrators"
               ]
             },
             {
@@ -1555,10 +1869,11 @@
               "resource": "MissionBoards",
               "fields": [
                 "title",
-                "clientName",
-                "squadronName",
+                "clientId",
+                "squadronId",
                 "kindId",
                 "statusId",
+                "briefingTemplateId",
                 "deadline",
                 "daysLeft"
               ]
@@ -1567,14 +1882,12 @@
               "resource": "SquadronRosters",
               "fields": [
                 "squadronName",
-                "pilotName",
                 "pilotId"
               ]
             },
             {
               "resource": "PilotAssignments",
               "fields": [
-                "squadronName",
                 "wingName"
               ]
             },
@@ -1583,6 +1896,7 @@
               "fields": [
                 "username",
                 "name",
+                "displayName",
                 "email",
                 "disabled",
                 "heldElsewhere",
@@ -1639,9 +1953,12 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
               ]
             },
@@ -1986,9 +2303,12 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
               ]
             },
@@ -2164,9 +2484,6 @@
                 "answersRelayId",
                 "message"
               ]
-            },
-            {
-              "resource": "SectorDirectories"
             }
           ],
           "Update": [
@@ -2472,6 +2789,9 @@
             {
               "resource": "TakeCrewSectorGroupRole",
               "condition": "role != 'SectorMarshal'"
+            },
+            {
+              "resource": "TakeSectorDirectory"
             },
             {
               "resource": "MakeSectorDirectoryOnly"
@@ -3097,8 +3417,8 @@
               "resource": "MissionBoards",
               "fields": [
                 "title",
-                "clientName",
-                "squadronName",
+                "clientId",
+                "squadronId",
                 "kindId",
                 "statusId",
                 "deadline",
@@ -3109,14 +3429,12 @@
               "resource": "SquadronRosters",
               "fields": [
                 "squadronName",
-                "pilotName",
                 "pilotId"
               ]
             },
             {
               "resource": "PilotAssignments",
               "fields": [
-                "squadronName",
                 "wingName"
               ]
             },
@@ -3282,8 +3600,8 @@
               "resource": "MissionBoards",
               "fields": [
                 "title",
-                "clientName",
-                "squadronName",
+                "clientId",
+                "squadronId",
                 "kindId",
                 "statusId",
                 "deadline",
@@ -3385,8 +3703,8 @@
               "resource": "MissionBoards",
               "fields": [
                 "title",
-                "clientName",
-                "squadronName",
+                "clientId",
+                "squadronId",
                 "kindId",
                 "statusId",
                 "deadline",

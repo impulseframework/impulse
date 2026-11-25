@@ -109,7 +109,8 @@ func throwaways(n int) []any {
 
 // InsertImpersonatedSession inserts a session row and its impersonation record
 // atomically, honoring the request's custom session data semantics exactly as
-// InsertSession does (per-call data, configured resolver, or neither).
+// InsertSession does (per-call data, configured resolver, or neither), and removes the
+// sessions idle more than 30 days once the session is in, as it does.
 func (s *SessionStorageDriver) InsertImpersonatedSession(
 	ctx context.Context, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, imp *dbtype.InsertImpersonation,
 ) (impulse.UUID, error) {
@@ -133,6 +134,7 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 	if err := s.execSessionInsert(ctx, id, query, args, req, s.initialAuthEvent(id, req, imp, insertRecord)); err != nil {
 		return impulse.NilUUID, err
 	}
+	sessionsRemoval.remove(ctx, s.conn, s.sessionTable())
 
 	return id, nil
 }
@@ -212,9 +214,9 @@ func (s *SessionStorageDriver) DestroyImpersonatedSessions(ctx context.Context, 
 		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "ActorUsername" = $1 AND "EndedAt" IS NULL`, impTable)
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)
@@ -256,9 +258,9 @@ func (s *SessionStorageDriver) DestroyImpersonatedSession(ctx context.Context, s
 		SET "EndedAt" = now(), "EndReason" = $2
 		WHERE "SessionId" = $1 AND "EndedAt" IS NULL`, impTable)
 
-	txn, err := s.conn.Begin(ctx)
+	txn, err := s.begin(ctx)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Begin()")
+		return errors.Wrap(err, "SessionStorageDriver.begin()")
 	}
 	defer func() {
 		_ = txn.Rollback(ctx)

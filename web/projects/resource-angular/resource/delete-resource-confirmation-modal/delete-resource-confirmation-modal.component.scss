@@ -7,3 +7,9 @@
   margin: 12px 0 0;
   color: var(--mat-sys-error, #b3261e);
 }
+
+// How many records a delete too large for one request has deleted, under the question
+// or under the refusal that stopped it.
+.progress {
+  margin: 12px 0 0;
+}

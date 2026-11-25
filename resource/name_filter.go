@@ -64,7 +64,7 @@ func (q *QuerySet[Resource]) nameFilters(dbType DBType, filterAst ExpressionNode
 			return nil, errors.Newf("name field %s: its id field %s not found in db struct", field, name.Key)
 		}
 
-		query, err := q.nameViewQuery(&name.NameField, registry)
+		query, err := q.nameViewQuery(&name.NameField, registry, grant.IsConditional())
 		if err != nil {
 			return nil, err
 		}

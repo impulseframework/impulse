@@ -19,10 +19,14 @@ type (
 	// and where they are held (TenantID for one tenant, EveryTenant for every tenant,
 	// neither for the whole application), and the name its sender gave the person
 	// (Name), where they gave one. A link stands while it is neither consumed nor
-	// expired, and one that was followed and one that was withdrawn are both consumed.
-	// A link whose message could not be mailed is consumed too, where the mail failed,
-	// and MailFailedAt says when: the one field that tells it from a link that was
-	// used. The link itself is in the message alone and its hash is not a field.
+	// expired, and one that was followed and one that was withdrawn are both consumed,
+	// the second with WithdrawnAt set. A link whose message could not be mailed is
+	// consumed too, where the mail failed, and MailFailedAt says when: the one field
+	// that tells it from a link that was used. A link that was taken back is consumed
+	// too, with WithdrawnAt set: it tells a withdrawal from an acceptance. The link
+	// itself is in the message alone and its hash is not a field. A page lists the
+	// links through CrewListedMailLink, which says what became of each and who sent
+	// it.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -31,13 +35,14 @@ type (
 	// @page(default: 25, max: 200)
 	// @rowWord(mailed link)
 	CrewSessionMailLink struct {
-		ID          impulse.UUID  `spanner:"Id"`
-		Kind        string        `spanner:"Kind"`
-		Email       string        `spanner:"Email"`
-		Name        *string       `spanner:"Name"`
-		UserID      *impulse.UUID `spanner:"UserId"`
-		TenantID    *string       `spanner:"TenantId"`
-		EveryTenant bool          `spanner:"EveryTenant"`
+		ID     impulse.UUID  `spanner:"Id"`
+		Kind   string        `spanner:"Kind"`
+		Email  string        `spanner:"Email"`
+		Name   *string       `spanner:"Name"`
+		UserID *impulse.UUID `spanner:"UserId"`
+		// @enumerate(Sectors)
+		TenantID    *string `spanner:"TenantId"`
+		EveryTenant bool    `spanner:"EveryTenant"`
 		// @roleOf(Crew)
 		RoleNames       []string      `spanner:"RoleNames"`
 		InvitedByUserID *impulse.UUID `spanner:"InvitedByUserId"`
@@ -45,5 +50,6 @@ type (
 		ExpiresAt       time.Time     `spanner:"ExpiresAt"`
 		ConsumedAt      *time.Time    `spanner:"ConsumedAt"`
 		MailFailedAt    *time.Time    `spanner:"MailFailedAt"`
+		WithdrawnAt     *time.Time    `spanner:"WithdrawnAt"`
 	}
 )

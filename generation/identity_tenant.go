@@ -233,6 +233,7 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 		files = append(files,
 			method("Invite"+subject+"User", identityTenantInviteUserTemplate, identityMailLinks, identityMemberships),
 			method("Withdraw"+subject+"Invitation", identityWithdrawInvitationTemplate, identityMailLinks, identityMemberships),
+			method("Resend"+subject+"Invitation", identityResendInvitationTemplate, identityMailLinks, identityMemberships),
 		)
 	}
 
@@ -269,24 +270,30 @@ func (d *identitySourceData) PickedUser() string {
 	return d.User()
 }
 
-// SubjectIdentity is the struct whose row a method names an identity by: the identities
-// table's for the whole application, and the tenant's list of its people's identities
-// for a tenant.
+// SubjectIdentity is the struct whose row a method names an identity by: the tenant's
+// list of its people's identities for a tenant; for the whole application, its list of
+// the identities that says who manages each account where the application has a tenant
+// record (identity_holdings.go), so that a grant's condition reads it, and the
+// declaration over the identities table where it has none.
 func (d *identitySourceData) SubjectIdentity() string {
 	if d.ForTenant {
 		return d.TenantIdentity()
+	}
+	if d.listsIdentities() {
+		return d.ListedIdentity()
 	}
 
 	return d.Identity()
 }
 
-// SubjectMailLink is the struct whose row a method names an invitation by: the mail
-// links table's for the whole application, and the tenant's list of invitations for a
-// tenant.
+// SubjectMailLink is the struct whose row a method names an invitation by: the list of
+// the mailed links a page shows for the whole application (ListedMailLink), and the
+// tenant's list of invitations for a tenant, so a row of the list a page shows offers
+// the methods.
 func (d *identitySourceData) SubjectMailLink() string {
 	if d.ForTenant {
 		return d.TenantMailLink()
 	}
 
-	return d.MailLink()
+	return d.ListedMailLink()
 }

@@ -47,8 +47,10 @@ import (
 //
 // The views are declared beside the tables they read, in the instance's declarations
 // package, and each is named for what it holds: the auth's name, the application's
-// tenant record's, and the thing listed (listName). The whole application's lists keep
-// the names of their tables.
+// tenant record's, and the thing listed (listName). The whole application's lists are
+// named after the auth alone: the declarations over its tables, and the views beside
+// them (identity_holdings.go), two of which say who manages each account as a tenant's
+// lists do.
 
 // identityTenant is the application's tenant record as the sources of the generated
 // management name it. The sources are written before the packages are loaded, so the
@@ -79,6 +81,11 @@ type identityTenant struct {
 	// tenant is opened to its directory's people with, which the generated methods
 	// judge by the role file's grants (seatsDirectory).
 	directorySeat string
+	// seated is where the directories record keeps its default seat, with its table
+	// and columns, nil where the application declares none or a column cannot be read
+	// (identity_directory.go): the generated client reads from it whether a person
+	// removed from a tenant is given its starting role again at their next sign-in.
+	seated *identityDirectorySeat
 	// directoryOutlets are the outlets the directories record is served on, nil where
 	// the application declares none: the two methods that say how a tenant admits its
 	// directory's people are served on the session outlets among them.
@@ -244,7 +251,10 @@ func (d *identitySourceData) TenantWord() string {
 // a picker of it, for the field that says which tenant a role is given in: the record is
 // served on every outlet the instance's methods are on, since a picker lists a resource
 // of the method's own outlet. It is empty otherwise, and in an application with no
-// tenant record, and the field is then typed.
+// tenant record, and the field is then typed. The whole application's lists that carry
+// a tenant's key point it to the record under the same condition, since a declared
+// pointer names a resource of the list's own outlet: the server then reads the tenant's
+// name with each row. Where the condition fails the lists carry no name.
 func (d *identitySourceData) TenantPicker() string {
 	if d.tenant == nil {
 		return ""
@@ -339,7 +349,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	directory, directories, seat, directoryOutlets, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
+	directory, directories, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
 	if err != nil {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the directory-only switch (@%s) and the directories record (@%s) from the sources of %s", r.identityTree.Dir(), directoryOnlyKeyword, tenantDirectoryKeyword, r.resource.Dir())
 	}
@@ -351,7 +361,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 
 	return &identityTenant{
 		name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label),
-		directory: directory, directorySeat: seat, directoryOutlets: directoryOutlets, directories: directories,
+		directory: directory, directorySeat: directories.seat, seated: directories.seated, directoryOutlets: directories.outlets, directories: directories.record,
 		invitation: invitation, unreadable: unreadable,
 	}, nil
 }

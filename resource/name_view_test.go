@@ -6,8 +6,11 @@ package resource
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -63,6 +66,41 @@ type squadronTagsView struct{}
 // Subquery is the view's query.
 func (squadronTagsView) Subquery() (query string, params map[string]any) {
 	return "SELECT Id, SectorId, Name AS Tag FROM Squadrons WHERE Name != @leftOutLabel", map[string]any{"leftOutLabel": "Red"}
+}
+
+// squadronNamesQuery is the lighter query the named labels' view gives its names
+// through: the same columns, its own parameter leaving the blue squadron out.
+const squadronNamesQuery = "SELECT Id, SectorId, Name AS Label FROM Squadrons WHERE Name != @leftOutName"
+
+// namedLabelsView is the view of squadron labels that gives its names through a query
+// of their own (NameSubqueryer).
+type namedLabelsView struct{}
+
+// Subquery is the view's query.
+func (namedLabelsView) Subquery() (query string, params map[string]any) {
+	return squadronLabelsQuery, map[string]any{"leftOutLabel": "Green"}
+}
+
+// NameSubquery is the query the view gives its names through.
+func (namedLabelsView) NameSubquery() (query string, params map[string]any) {
+	return squadronNamesQuery, map[string]any{"leftOutName": "Blue"}
+}
+
+// withNamesView is a view of squadron labels whose name query opens with a WITH clause.
+type withNamesView struct{ squadronLabelsView }
+
+// NameSubquery is the query the view gives its names through.
+func (withNamesView) NameSubquery() (query string, params map[string]any) {
+	return "WITH Named AS (SELECT Id, SectorId, Name FROM Squadrons) SELECT Id, SectorId, Name AS Label FROM Named", nil
+}
+
+// unreadableNamesView is a view of squadron labels whose name query binds a parameter
+// and cannot be read to its end.
+type unreadableNamesView struct{ squadronLabelsView }
+
+// NameSubquery is the query the view gives its names through.
+func (unreadableNamesView) NameSubquery() (query string, params map[string]any) {
+	return "SELECT Id, SectorId, Name AS Label FROM Squadrons WHERE Name != @leftOutName AND Name != 'Gray", map[string]any{"leftOutName": "Blue"}
 }
 
 // labelViews hands the squadron labels' view to a decoder.
@@ -139,7 +177,8 @@ func (labelPassView) Subquery() (query string, params map[string]any) {
 }
 
 // labelCollection binds the passes and the squadron labels to their sector by its
-// column, and declares a label, which a condition on the grant of the name reads.
+// column, and declares a label, which a condition on the grant of the name reads, and
+// a pass's squadron, which a condition on the grant of the squadron's id reads.
 func labelCollection(t *testing.T) *GeneratedCollection {
 	t.Helper()
 
@@ -148,6 +187,7 @@ func labelCollection(t *testing.T) *GeneratedCollection {
 			Name:        "HangarPasses",
 			Scope:       accesstypes.DomainPermissionScope,
 			Permissions: []accesstypes.Permission{accesstypes.List},
+			Attributes:  []AttributeData{{Name: "squadron", Column: "SquadronId", Type: AttributeTypeString}},
 			Domain:      &DomainBindingData{Column: "SectorId"},
 		},
 		{
@@ -238,6 +278,44 @@ func labelsFrom(dbType DBType, alias string) string {
 	}
 
 	return fmt.Sprintf("(%s ) AS %#q", query, alias)
+}
+
+// nameReference is what a statement writes for the squadron's name where the name is an
+// item of the statement's row of names.
+func nameReference(dbType DBType) string {
+	if dbType == PostgresDBType {
+		return `"zzNames"."zzNameSquadronName"`
+	}
+
+	return "zzNames.zzNameSquadronName"
+}
+
+// labelRowItem is the squadron's name lookup as an item of the row of names.
+func labelRowItem(dbType DBType, lookup string) string {
+	if dbType == PostgresDBType {
+		return lookup + ` AS "zzNameSquadronName"`
+	}
+
+	return lookup + " AS zzNameSquadronName"
+}
+
+// labelRowFrom is the row of names the FROM carries after the list's own FROM item,
+// holding the squadron's name lookup alone.
+func labelRowFrom(dbType DBType, lookup string) string {
+	if dbType == PostgresDBType {
+		return ` CROSS JOIN LATERAL (SELECT ` + labelRowItem(dbType, lookup) + `) AS "zzNames"`
+	}
+
+	return ", UNNEST(ARRAY(SELECT AS STRUCT " + labelRowItem(dbType, lookup) + ")) AS zzNames"
+}
+
+// labelIDColumn is the passes' id as the select list writes it.
+func labelIDColumn(dbType DBType) string {
+	if dbType == PostgresDBType {
+		return `"Id"`
+	}
+
+	return "Id"
 }
 
 // TestNameView_statement pins what a statement writes for a name read from a view:
@@ -335,13 +413,120 @@ func TestNameView_statement(t *testing.T) {
 		for dbType, lookup := range lookups {
 			stmt := labelStatement(t, "/?columns=id,squadronName&sort=squadronName&limit=2", perms, dbType)
 			sql := oneLine(stmt.SQL)
-			for _, want := range []string{lookup, "ORDER BY " + lookup + " ASC"} {
+			for _, want := range []string{labelRowItem(dbType, lookup), "ORDER BY " + nameReference(dbType) + " ASC"} {
 				if !strings.Contains(sql, want) {
 					t.Errorf("%s statement =\n%s\nwant it to contain:\n%s", dbType, sql, want)
 				}
 			}
 			if _, own := stmt.Params["leftOutLabel"]; own || stmt.Params["_c1"] != "Green" || stmt.Params["_c2"] != "Red" {
 				t.Errorf("%s params = %v, want the view's leftOutLabel bound to Green as _c1 and the label Red as _c2", dbType, stmt.Params)
+			}
+		}
+	})
+
+	t.Run("sorted by the name: the view's query is read once, in the row of names the FROM carries", func(t *testing.T) {
+		t.Parallel()
+
+		lookups := bothDatabases(
+			"(SELECT `ca1`.`Label` FROM "+labelsFrom(SpannerDBType, "ca1")+" WHERE `ca1`.`Id` = `HangarPasses`.`SquadronId` AND `ca1`.`SectorId` = @domain)",
+			`(SELECT "ca1"."Label" FROM `+labelsFrom(PostgresDBType, "ca1")+` WHERE "ca1"."Id" = "HangarPasses"."SquadronId" AND "ca1"."SectorId" = @domain)`,
+		)
+		for dbType, lookup := range lookups {
+			qSet := decodeLabels(t, newLabelDecoder[labelPass, labelPassRequest](t, labelViews), "/?columns=id,squadronName&sort=squadronName&limit=2", &nameGrantPermissions{}, dbType)
+			ref := nameReference(dbType)
+			item := ref + " AS zzNameSquadronName"
+			if dbType == PostgresDBType {
+				item = ref + ` AS "zzNameSquadronName"`
+			}
+
+			stmt, err := qSet.stmt(dbType)
+			if err != nil {
+				t.Fatalf("stmt(%s) error = %v", dbType, err)
+			}
+			sql := oneLine(stmt.SQL)
+			for _, want := range []string{"FROM HangarPasses" + labelRowFrom(dbType, lookup) + " WHERE", "SELECT " + labelIDColumn(dbType) + ", " + item + " FROM", "ORDER BY " + ref + " ASC"} {
+				if !strings.Contains(sql, want) {
+					t.Errorf("%s statement =\n%s\nwant it to contain:\n%s", dbType, sql, want)
+				}
+			}
+			if reads := strings.Count(sql, "Name != @_c1"); reads != 1 {
+				t.Errorf("%s statement reads the view's query %d times, want once:\n%s", dbType, reads, sql)
+			}
+
+			// The next page's predicate compares the same item with the boundary row's name.
+			red := "Red"
+			row := &Row[labelPass]{Data: labelPass{ID: "p2"}, cursorValues: map[accesstypes.Field]reflect.Value{"SquadronName": reflect.ValueOf(&red)}}
+			keys, err := qSet.boundaryKeys(row)
+			if err != nil {
+				t.Fatalf("boundaryKeys() error = %v", err)
+			}
+			qSet.cursor = &cursor{Direction: pageNext, Keys: keys}
+			stmt, err = qSet.stmt(dbType)
+			if err != nil {
+				t.Fatalf("stmt(%s) of the next page error = %v", dbType, err)
+			}
+			sql = oneLine(stmt.SQL)
+			where, _, _ := strings.Cut(sql, "ORDER BY")
+			_, where, _ = strings.Cut(where, " WHERE ")
+			if !strings.Contains(where, ref+" > @") || !strings.Contains(where, ref+" = @") {
+				t.Errorf("%s next page's WHERE =\n%s\nwant the boundary compared with %s", dbType, where, ref)
+			}
+			if reads := strings.Count(sql, "Name != @_c1"); reads != 1 {
+				t.Errorf("%s next page's statement reads the view's query %d times, want once:\n%s", dbType, reads, sql)
+			}
+		}
+	})
+
+	t.Run("sorted by the name, the squadron's id held under a condition: the condition wraps the item's reference", func(t *testing.T) {
+		t.Parallel()
+
+		perms := &nameGrantPermissions{decisions: map[grantByScope]accesstypes.Decision{
+			{scope: inSector1, perm: accesstypes.List, res: "HangarPasses.squadronId"}: conditionalOn("HangarPasses.squadronId", "squadron = 'q-red'"),
+		}}
+		for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+			stmt := labelStatement(t, "/?columns=id,squadronName&sort=squadronName&limit=2", perms, dbType)
+			sql := oneLine(stmt.SQL)
+			held := regexp.MustCompile(`CASE WHEN \S+ = @_c\d THEN ` + regexp.QuoteMeta(nameReference(dbType)) + ` END`)
+			if got := len(held.FindAllString(sql, -1)); got != 2 {
+				t.Errorf("%s statement =\n%s\nholds %d CASEs over the reference, want two: the select item and the order", dbType, sql, got)
+			}
+			if !strings.Contains(sql, "ORDER BY CASE WHEN") {
+				t.Errorf("%s statement =\n%s\nwant the order on the CASE over the reference", dbType, sql)
+			}
+			// The condition's value takes the first placeholder here, the view's parameter the second.
+			if reads := strings.Count(sql, "Name != @_c"); reads != 1 {
+				t.Errorf("%s statement reads the view's query %d times, want once:\n%s", dbType, reads, sql)
+			}
+		}
+	})
+
+	t.Run("a view that gives its names through a query of their own: the lookup and the filter read it, unless the name's grant is held under a condition", func(t *testing.T) {
+		t.Parallel()
+
+		named := NameViews{"SquadronLabels": namedLabelsView{}}
+		conditional := &nameGrantPermissions{decisions: map[grantByScope]accesstypes.Decision{
+			{scope: inSector1, perm: accesstypes.List, res: squadronLabelGrant}: conditionalOn(squadronLabelGrant, "label = 'Red'"),
+		}}
+		target := "/?columns=id,squadronName&filter=squadronName:eq:Red&sort=id&limit=2"
+		for _, dbType := range []DBType{SpannerDBType, PostgresDBType} {
+			stmt, err := decodeLabels(t, newLabelDecoder[labelPass, labelPassRequest](t, named), target, &nameGrantPermissions{}, dbType).stmt(dbType)
+			if err != nil {
+				t.Fatalf("stmt(%s) error = %v", dbType, err)
+			}
+			sql := oneLine(stmt.SQL)
+			if reads := strings.Count(sql, "FROM Squadrons WHERE Name != @_c1 )"); reads != 2 || strings.Contains(sql, "@leftOut") {
+				t.Errorf("%s statement =\n%s\nwant the lookup and the filter each to read the name query, its parameter as @_c1", dbType, sql)
+			}
+			if stmt.Params["_c1"] != "Blue" || slices.Contains(slices.Collect(maps.Values(stmt.Params)), any("Green")) {
+				t.Errorf("%s params = %v, want the name query's leftOutName bound to Blue as _c1, and nothing of the view's own query", dbType, stmt.Params)
+			}
+
+			stmt, err = decodeLabels(t, newLabelDecoder[labelPass, labelPassRequest](t, named), target, conditional, dbType).stmt(dbType)
+			if err != nil {
+				t.Fatalf("stmt(%s) under a condition error = %v", dbType, err)
+			}
+			if values := slices.Collect(maps.Values(stmt.Params)); !slices.Contains(values, any("Green")) || slices.Contains(values, any("Blue")) {
+				t.Errorf("%s params under a condition = %v, want the view's own query's leftOutLabel bound, and nothing of the name query", dbType, stmt.Params)
 			}
 		}
 	})
@@ -390,6 +575,16 @@ func TestNameView_decoder(t *testing.T) {
 			name:  "handed a view whose query opens with WITH",
 			views: NameViews{"SquadronLabels": withLabelsView{}},
 			want:  "name field SquadronName of HangarPasses is read from the view SquadronLabels, whose query opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's query without WITH, each WITH table as a subquery in its FROM.",
+		},
+		{
+			name:  "handed a view whose name query opens with WITH",
+			views: NameViews{"SquadronLabels": withNamesView{}},
+			want:  "name field SquadronName of HangarPasses is read from the view SquadronLabels, whose name query (NameSubquery) opens with a WITH clause: the name is read inside the statement of the list that shows it, where a WITH clause cannot go. Write the view's name query (NameSubquery) without WITH, each WITH table as a subquery in its FROM.",
+		},
+		{
+			name:  "handed a view whose name query binds a parameter and cannot be read to its end",
+			views: NameViews{"SquadronLabels": unreadableNamesView{}},
+			want:  "name field SquadronName of HangarPasses is read from the view SquadronLabels, and the view's name query (NameSubquery) cannot be read to its end (syntax error: :1:90: unclosed string literal): the statement that reads the name writes each parameter of the view under a name of its own, and so reads the whole name query (NameSubquery). Correct the name query (NameSubquery) at that place.",
 		},
 		{
 			name:  "handed a view that binds a parameter and whose query cannot be read to its end",
@@ -753,6 +948,16 @@ func TestNameView_onSpanner(t *testing.T) {
 			name:   "isnull",
 			target: "/?columns=id,squadronName&filter=squadronName:isnull&sort=id&limit=all",
 			want:   []string{"p2 none", "p3 none", "p4 none", "p5 none"},
+		},
+		{
+			name:   "sorted by the name and filtered by it",
+			target: "/?columns=id,squadronName&filter=squadronName:isnull&sort=squadronName:asc&limit=all",
+			want:   []string{"p2 none", "p3 none", "p4 none", "p5 none"},
+		},
+		{
+			name:   "sorted by the name the other way and filtered by it",
+			target: "/?columns=id,squadronName&filter=squadronName:eq:Red&sort=squadronName:desc&limit=all",
+			want:   []string{"p1 Red"},
 		},
 	}
 	for _, tt := range filters {

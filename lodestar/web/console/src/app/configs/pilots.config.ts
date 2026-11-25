@@ -84,7 +84,7 @@ export const sectorPilotsConfig = rootConfig({
       parentRelation: { parentKey: Pilots.fieldName.userId, childKey: PilotAssignments.fieldName.userId },
       rowRoute: PilotAssignments.fieldName.squadronId,
       listColumns: [
-        { id: PilotAssignments.fieldName.squadronName, header: 'Squadron' },
+        { id: PilotAssignments.fieldName.squadronId, header: 'Squadron' },
         { id: PilotAssignments.fieldName.wingName, header: 'Wing' },
       ],
       elements: [

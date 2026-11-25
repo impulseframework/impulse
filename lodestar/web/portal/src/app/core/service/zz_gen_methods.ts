@@ -413,9 +413,10 @@ const methodMap: MethodMap = {
   },
   [Methods.EndMembersSession]: {
     route: 'end-members-session',
-    target: { resource: Resources.MembersSessions, key: { sessionId: 'id' } },
+    target: { resource: Resources.MembersListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -548,7 +549,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkMembersSessionIdentity]: {
     route: 'unlink-members-session-identity',
-    target: { resource: Resources.MembersSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.MembersListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -557,7 +558,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockMembersSignIn]: {
     route: 'unlock-members-sign-in',
-    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.MembersListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [

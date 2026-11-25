@@ -128,30 +128,36 @@ func Test_tenantInvitationIn(t *testing.T) {
 			source: citadelTenantSource,
 			want: &identityTenantInvitation{
 				fields: []identityTenantField{
-					{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true},
-					{Name: "Motto", Type: "*string", Wire: "motto"},
-					{Name: "Founded", Type: "civil.Date", Wire: "founded", Required: true, Text: true},
+					{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true},
+					{Name: "Motto", Type: "*string", Wire: "motto", Column: "Motto"},
+					{Name: "Founded", Type: "civil.Date", Wire: "founded", Column: "Founded", Required: true, Text: true},
 					// A type the resources package declares is written with the package.
-					{Name: "Kind", Type: "resources.CitadelKind", Wire: "kind", Required: true, Text: true},
+					{Name: "Kind", Type: "resources.CitadelKind", Wire: "kind", Column: "Kind", Required: true, Text: true},
 					// A yes or no the create requires is no text a form must fill: its zero is
 					// an answer.
-					{Name: "Walled", Type: "bool", Wire: "walled", Required: true},
+					{Name: "Walled", Type: "bool", Wire: "walled", Column: "Walled", Required: true},
 					// A column with a default is not required.
-					{Name: "Garrison", Type: "int64", Wire: "garrison"},
-					{Name: "Towers", Type: "[]string", Wire: "towers"},
+					{Name: "Garrison", Type: "int64", Wire: "garrison", Column: "Garrison"},
+					{Name: "Towers", Type: "[]string", Wire: "towers", Column: "Towers"},
 				},
 				nameField: "Name", nameColumn: "Name",
-				directoryOnly: &identityTenantField{Name: "Closed", Type: "bool", Wire: "closed"},
+				directoryOnly: &identityTenantField{Name: "Closed", Type: "bool", Wire: "closed", Column: "Closed"},
 				seats:         true,
 				// The packages of the carried fields alone: neither the key's nor the
 				// secret's.
-				imports: []string{`"cloud.google.com/go/civil"`, `"example.com/acme/beacon/pkg/0/resources"`},
+				imports:    []string{`"cloud.google.com/go/civil"`, `"example.com/acme/beacon/pkg/0/resources"`},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
 			},
 		},
 		{
 			name:   "a record that marks no name, declares no switch and has no directories record",
 			source: oneFieldCitadel("", ""),
-			want:   &identityTenantInvitation{fields: []identityTenantField{{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true}}},
+			want: &identityTenantInvitation{
+				fields:     []identityTenantField{{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true}},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
+			},
 		},
 		{
 			name:    "a record whose table the schema does not hold is read as nothing",
@@ -216,10 +222,12 @@ func Test_tenantInvitationIn(t *testing.T) {
 			columns: map[string]columnMeta{"Seal": extra},
 			want: &identityTenantInvitation{
 				fields: []identityTenantField{
-					{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true},
-					{Name: "Seal", Type: "resource.Key[resources.Vault]", Wire: "seal", Required: true, Text: true},
+					{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true},
+					{Name: "Seal", Type: "resource.Key[resources.Vault]", Wire: "seal", Column: "Seal", Required: true, Text: true},
 				},
-				imports: []string{`"example.com/acme/beacon/pkg/12/resources"`, `"github.com/impulseframework/impulse/resource"`},
+				imports:    []string{`"example.com/acme/beacon/pkg/12/resources"`, `"github.com/impulseframework/impulse/resource"`},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
 			},
 		},
 		{
@@ -228,10 +236,12 @@ func Test_tenantInvitationIn(t *testing.T) {
 			columns: map[string]columnMeta{"Dues": {SpannerType: "NUMERIC", IsNullable: true}},
 			want: &identityTenantInvitation{
 				fields: []identityTenantField{
-					{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true},
-					{Name: "Dues", Type: "*money.Amount", Wire: "dues"},
+					{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true},
+					{Name: "Dues", Type: "*money.Amount", Wire: "dues", Column: "Dues"},
 				},
-				imports: []string{`"example.com/lib/money/v5"`},
+				imports:    []string{`"example.com/lib/money/v5"`},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
 			},
 		},
 		{
@@ -240,10 +250,25 @@ func Test_tenantInvitationIn(t *testing.T) {
 			columns: map[string]columnMeta{"Since": {SpannerType: "DATE"}},
 			want: &identityTenantInvitation{
 				fields: []identityTenantField{
-					{Name: "Name", Type: "string", Wire: "name", Required: true, Text: true},
-					{Name: "Since", Type: "cv.Date", Wire: "since", Required: true, Text: true},
+					{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true},
+					{Name: "Since", Type: "cv.Date", Wire: "since", Column: "Since", Required: true, Text: true},
 				},
-				imports: []string{`cv "cloud.google.com/go/civil"`},
+				imports:    []string{`cv "cloud.google.com/go/civil"`},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
+			},
+		},
+		{
+			// A new tenant is made enabled, by the column's default: no invitation carries
+			// whether it is disabled, and the reading keeps the field apart.
+			name:    "a record that marks the column saying a tenant is disabled keeps it apart and carries it on no invitation",
+			source:  oneFieldCitadel("", "\t// @tenantDisabled\n\tDisabled bool `spanner:\"Disabled\"`\n"),
+			columns: map[string]columnMeta{"Disabled": {SpannerType: "BOOL", HasDefault: true}},
+			want: &identityTenantInvitation{
+				fields:     []identityTenantField{{Name: "Name", Type: "string", Wire: "name", Column: "Name", Required: true, Text: true}},
+				disabled:   &identityTenantField{Name: "Disabled", Type: "bool", Wire: "disabled", Column: "Disabled"},
+				key:        identityTenantField{Name: "ID", Type: "impulse.UUID", Column: "Id"},
+				keyImports: []string{`"github.com/impulseframework/impulse"`},
 			},
 		},
 	}
@@ -564,14 +589,14 @@ func Test_prepareIdentity_invitedTenant_shapes(t *testing.T) {
 	t.Run("a field's type reached through an alias is written through it, and the written source resolves it", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 
-		source := oneFieldCitadel("\tcv \"cloud.google.com/go/civil\"\n", "\tSince cv.Date `spanner:\"Since\"`\n")
+		source := oneFieldCitadel("\tcv \"cloud.google.com/go/civil\"\n", "\tOpened cv.Date `spanner:\"Opened\"`\n")
 		r := citadelGenerator(t, source, func(r *resourceGenerator) {
-			r.tableMap["Citadels"].Columns["Since"] = columnMeta{SpannerType: "DATE"}
+			r.tableMap["Citadels"].Columns["Opened"] = columnMeta{SpannerType: "DATE"}
 		})
 		if err := r.prepareIdentity(); err != nil {
 			t.Fatalf("prepareIdentity() error = %v", err)
 		}
-		for _, file := range []string{"crewidentity/invite_crew_citadel.go", "crewidentity/crew_invited_citadels.go"} {
+		for _, file := range []string{"crewidentity/invite_crew_citadel.go", "crewidentity/crew_invited_citadels.go", listedCitadelFile} {
 			assertContains(t, file, identitySource(t, file), []string{"cv \"cloud.google.com/go/civil\"", "cv.Date"}, nil)
 		}
 	})
@@ -648,7 +673,7 @@ func Test_prepareIdentity_newTenantColumn(t *testing.T) {
 	// The members' people make no tenant, so their mail links table is asked for no
 	// column: with the crew's in place the run passes whatever the members' holds.
 	r = citadelGenerator(t, citadelTenantSource, func(r *resourceGenerator) {
-		r.tableMap["MembersSessionMailLinks"] = &tableMetadata{Columns: map[string]columnMeta{everyTenantColumn: {SpannerType: "BOOL"}, mailFailedColumn: {SpannerType: "TIMESTAMP", IsNullable: true}}}
+		r.tableMap["MembersSessionMailLinks"] = &tableMetadata{Columns: map[string]columnMeta{everyTenantColumn: {SpannerType: "BOOL"}, mailFailedColumn: {SpannerType: "TIMESTAMP", IsNullable: true}, withdrawnColumn: {SpannerType: "TIMESTAMP", IsNullable: true}}}
 	})
 	if err := r.prepareIdentity(); err != nil {
 		t.Errorf("prepareIdentity() with the members' mail links table lacking the column: error = %v", err)
@@ -938,13 +963,49 @@ func Test_holdIdentityTenantInvitation(t *testing.T) {
 			name:    "and so are sources written for a field the create requires where the load finds it optional",
 			structs: []string{"Citadel"},
 			written: func(inst *identityInstance) { inst.tenant.invitation.fields[1].Required = true },
-			wantErr: "the invitation's sources were written for the fields [Name name required=true; Motto motto required=true; Founded founded required=true; Walled walled required=true] and the loaded record carries [Name name required=true; Motto motto required=false; Founded founded required=true; Walled walled required=true]",
+			wantErr: "the invitation's sources were written for the fields [Name name required=true; Motto motto required=true; Founded founded required=true; Walled walled required=true; whether it is disabled Disabled disabled] and the loaded record carries [Name name required=true; Motto motto required=false; Founded founded required=true; Walled walled required=true; whether it is disabled Disabled disabled]",
 		},
 		{
 			name:    "and sources written for no switch where the load finds one",
 			structs: []string{"Harbor", "HarborDirectory"},
 			written: func(inst *identityInstance) { inst.tenant.invitation.directoryOnly = nil },
-			wantErr: "and the loaded record carries [Name name required=true; the directory-only switch DirectoryOnly directoryOnly]",
+			wantErr: "and the loaded record carries [Name name required=true; the directory-only switch DirectoryOnly directoryOnly; whether it is disabled Disabled disabled]",
+		},
+		{
+			name:    "and on the field that says when a tenant was made",
+			structs: []string{"Cove"},
+		},
+		{
+			name:    "and on the field that says whether a tenant is disabled",
+			structs: []string{"Haven"},
+		},
+		{
+			name:    "sources written for no field that says whether a tenant is disabled where the load finds one",
+			structs: []string{"Haven"},
+			written: func(inst *identityInstance) { inst.tenant.invitation.disabled = nil },
+			wantErr: "the invitation's sources were written for the fields [Name name required=true] and the loaded record carries [Name name required=true; whether it is disabled Disabled disabled]",
+		},
+		{
+			name:    "sources written for another field that says when a tenant was made",
+			structs: []string{"Cove"},
+			written: func(inst *identityInstance) {
+				inst.tenant.invitation.since = &identityTenantField{Name: "Opened", Wire: "opened", Column: "Opened"}
+			},
+			wantErr: "the invitation's sources were written for the fields [when it was made Opened; whether it is disabled Disabled disabled] and the loaded record carries [when it was made MadeAt; whether it is disabled Disabled disabled]",
+		},
+		{
+			name:    "and sources written for none where the load finds one",
+			structs: []string{"Cove"},
+			written: func(inst *identityInstance) { inst.tenant.invitation.since = nil },
+			wantErr: "the invitation's sources were written for the fields [whether it is disabled Disabled disabled] and the loaded record carries [when it was made MadeAt; whether it is disabled Disabled disabled]",
+		},
+		{
+			name:    "and sources written for one where the load finds none",
+			structs: []string{"Citadel"},
+			written: func(inst *identityInstance) {
+				inst.tenant.invitation.since = &identityTenantField{Name: "Founded", Wire: "founded", Column: "Founded"}
+			},
+			wantErr: "Walled walled required=true; when it was made Founded; whether it is disabled Disabled disabled] and the loaded record carries [Name name required=true; Motto motto required=false; Founded founded required=true; Walled walled required=true; whether it is disabled Disabled disabled]",
 		},
 		{
 			name:    "where no auth invites, a create that requires a secret is the application's own to supply",

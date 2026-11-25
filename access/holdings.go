@@ -62,8 +62,7 @@ type HeldRole struct {
 
 // GroupContent is one group of people as UserManager.GroupContents lists it, with what
 // it holds: how many people are in it and the roles it holds, each with where it is
-// held. Both are what has not ended, an assignment whose period has not begun among it,
-// so a group that holds nothing by this answer is one DeleteGroup removes.
+// held. Both are what has not ended, an assignment whose period has not begun among it.
 type GroupContent struct {
 	GroupInfo
 
@@ -234,11 +233,9 @@ func compareHeldRoles(a, b *HeldRole) int {
 // GroupContents returns the groups kept in scope, sorted by name, each with how many
 // people are in it and the roles it holds: what a list of groups says of each, so a
 // person does not open every group to learn what it is for. Both count what has not
-// ended, an assignment whose period has not begun among it, which is what DeleteGroup
-// refuses a group for: a group listed with no people and no roles is one it removes. A
-// role the group's members do not hold through it (the Super Administrator role, and for
-// a group kept in one tenant a role held outside it) is listed too, since its row stands
-// in a deletion's way like any other.
+// ended, an assignment whose period has not begun among it. A role the group's members do
+// not hold through it (the Super Administrator role, and for a group kept in one tenant a
+// role held outside it) is listed too: the group holds it, and it goes with the group.
 func (u *userManager) GroupContents(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupContent, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

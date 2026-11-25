@@ -6,6 +6,7 @@ package app
 import (
 	"net/http"
 	"slices"
+	"time"
 
 	"cloud.google.com/go/civil"
 	"github.com/impulseframework/impulse"
@@ -24,7 +25,9 @@ func (a *App) Sectors() http.HandlerFunc {
 		Name          string       `json:"name"          index:"true"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"chartedAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	type response []map[string]any
@@ -83,9 +86,17 @@ func (a *App) Sectors() http.HandlerFunc {
 					if !row.Masked("established") {
 						rmap["established"] = rec.Established
 					}
+				case "ChartedAt":
+					if !row.Masked("chartedAt") {
+						rmap["chartedAt"] = rec.ChartedAt
+					}
 				case "DirectoryOnly":
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
+					}
+				case "Disabled":
+					if !row.Masked("disabled") {
+						rmap["disabled"] = rec.Disabled
 					}
 				}
 			}
@@ -114,7 +125,9 @@ func (a *App) Sector() http.HandlerFunc {
 		Name          string       `json:"name"          index:"true"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"chartedAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	decoder := NewQueryDecoder[resources.Sector, response](a, accesstypes.Read)
@@ -161,9 +174,17 @@ func (a *App) Sector() http.HandlerFunc {
 				if !row.Masked("established") {
 					rmap["established"] = rec.Established
 				}
+			case "ChartedAt":
+				if !row.Masked("chartedAt") {
+					rmap["chartedAt"] = rec.ChartedAt
+				}
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {
 					rmap["directoryOnly"] = rec.DirectoryOnly
+				}
+			case "Disabled":
+				if !row.Masked("disabled") {
+					rmap["disabled"] = rec.Disabled
 				}
 			}
 		}
@@ -183,7 +204,9 @@ func (a *App) SectorChangeHistory() http.HandlerFunc {
 		Name          string       `json:"name"          index:"true"`
 		Region        string       `json:"region"`
 		Established   civil.Date   `json:"established"`
+		ChartedAt     time.Time    `json:"chartedAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	decoder := NewQueryDecoder[resources.Sector, response](a, accesstypes.Read)

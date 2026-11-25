@@ -1187,8 +1187,8 @@ func Test_methodStartingPoints(t *testing.T) {
 
 	// Open sign-up on an auth with no password method, where the application's tenants
 	// have directories, is a starting point like any other: the auth's first administrator
-	// comes in by an invitation, which ties the person's first sign-in through the
-	// directory to the roles however many organizations the method admits.
+	// comes in by an invitation, which gives the person the roles at the sign-in through
+	// the directory that accepts it, however many organizations the method admits.
 	if _, err := authStartingPoint(open, outlets, app.DefaultOutletName, []authpkg.Method{google}); err != nil {
 		t.Errorf("add auth with a directory method alone under Open sign-up, where tenants have directories: error = %v, want the starting point", err)
 	}

@@ -27,7 +27,10 @@ export const Resources = {
   StaffHeldRoles: 'StaffHeldRoles' as Resource,
   StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
   StaffListedGroups: 'StaffListedGroups' as Resource,
+  StaffListedMailLinks: 'StaffListedMailLinks' as Resource,
   StaffListedRoleGrants: 'StaffListedRoleGrants' as Resource,
+  StaffListedSessions: 'StaffListedSessions' as Resource,
+  StaffListedSignInAttempts: 'StaffListedSignInAttempts' as Resource,
   StaffListedUsers: 'StaffListedUsers' as Resource,
   StaffRememberLengths: 'StaffRememberLengths' as Resource,
   StaffRoles: 'StaffRoles' as Resource,
@@ -71,6 +74,7 @@ export const Methods = {
   RenameStaffUser: 'RenameStaffUser' as Method,
   RequireStaffPasswordChange: 'RequireStaffPasswordChange' as Method,
   RequireStaffSecondFactor: 'RequireStaffSecondFactor' as Method,
+  ResendStaffInvitation: 'ResendStaffInvitation' as Method,
   RevokeStaffSessionToken: 'RevokeStaffSessionToken' as Method,
   RevokeStaffUserTrustedDevices: 'RevokeStaffUserTrustedDevices' as Method,
   SendStaffUserPasswordResetLink: 'SendStaffUserPasswordResetLink' as Method,
@@ -284,6 +288,47 @@ export namespace StaffListedGroups {
   };
 }
 
+export namespace StaffListedMailLinks {
+  export const fieldName = {
+    consumedAt: 'consumedAt' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    email: 'email' as FieldName,
+    everyTenant: 'everyTenant' as FieldName,
+    expiresAt: 'expiresAt' as FieldName,
+    id: 'id' as FieldName,
+    invitedByUserId: 'invitedByUserId' as FieldName,
+    kind: 'kind' as FieldName,
+    mailFailedAt: 'mailFailedAt' as FieldName,
+    makesTenant: 'makesTenant' as FieldName,
+    name: 'name' as FieldName,
+    roleNames: 'roleNames' as FieldName,
+    sentBy: 'sentBy' as FieldName,
+    state: 'state' as FieldName,
+    tenantId: 'tenantId' as FieldName,
+    userId: 'userId' as FieldName,
+    withdrawnAt: 'withdrawnAt' as FieldName,
+  };
+  export const resourceName = {
+    consumedAt: 'StaffListedMailLinks.consumedAt' as Resource,
+    createdAt: 'StaffListedMailLinks.createdAt' as Resource,
+    email: 'StaffListedMailLinks.email' as Resource,
+    everyTenant: 'StaffListedMailLinks.everyTenant' as Resource,
+    expiresAt: 'StaffListedMailLinks.expiresAt' as Resource,
+    id: 'StaffListedMailLinks.id' as Resource,
+    invitedByUserId: 'StaffListedMailLinks.invitedByUserId' as Resource,
+    kind: 'StaffListedMailLinks.kind' as Resource,
+    mailFailedAt: 'StaffListedMailLinks.mailFailedAt' as Resource,
+    makesTenant: 'StaffListedMailLinks.makesTenant' as Resource,
+    name: 'StaffListedMailLinks.name' as Resource,
+    roleNames: 'StaffListedMailLinks.roleNames' as Resource,
+    sentBy: 'StaffListedMailLinks.sentBy' as Resource,
+    state: 'StaffListedMailLinks.state' as Resource,
+    tenantId: 'StaffListedMailLinks.tenantId' as Resource,
+    userId: 'StaffListedMailLinks.userId' as Resource,
+    withdrawnAt: 'StaffListedMailLinks.withdrawnAt' as Resource,
+  };
+}
+
 export namespace StaffListedRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -311,6 +356,68 @@ export namespace StaffListedRoleGrants {
   };
 }
 
+export namespace StaffListedSessions {
+  export const fieldName = {
+    authenticatedAt: 'authenticatedAt' as FieldName,
+    browser: 'browser' as FieldName,
+    createdAt: 'createdAt' as FieldName,
+    expired: 'expired' as FieldName,
+    id: 'id' as FieldName,
+    live: 'live' as FieldName,
+    name: 'name' as FieldName,
+    signedInWith: 'signedInWith' as FieldName,
+    state: 'state' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+    userId: 'userId' as FieldName,
+    username: 'username' as FieldName,
+  };
+  export const resourceName = {
+    authenticatedAt: 'StaffListedSessions.authenticatedAt' as Resource,
+    browser: 'StaffListedSessions.browser' as Resource,
+    createdAt: 'StaffListedSessions.createdAt' as Resource,
+    expired: 'StaffListedSessions.expired' as Resource,
+    id: 'StaffListedSessions.id' as Resource,
+    live: 'StaffListedSessions.live' as Resource,
+    name: 'StaffListedSessions.name' as Resource,
+    signedInWith: 'StaffListedSessions.signedInWith' as Resource,
+    state: 'StaffListedSessions.state' as Resource,
+    updatedAt: 'StaffListedSessions.updatedAt' as Resource,
+    userId: 'StaffListedSessions.userId' as Resource,
+    username: 'StaffListedSessions.username' as Resource,
+  };
+}
+
+export namespace StaffListedSignInAttempts {
+  export const fieldName = {
+    account: 'account' as FieldName,
+    failureLimit: 'failureLimit' as FieldName,
+    failures: 'failures' as FieldName,
+    kind: 'kind' as FieldName,
+    locked: 'locked' as FieldName,
+    lockedUntil: 'lockedUntil' as FieldName,
+    name: 'name' as FieldName,
+    state: 'state' as FieldName,
+    subject: 'subject' as FieldName,
+    updatedAt: 'updatedAt' as FieldName,
+    userId: 'userId' as FieldName,
+    windowEndsAt: 'windowEndsAt' as FieldName,
+  };
+  export const resourceName = {
+    account: 'StaffListedSignInAttempts.account' as Resource,
+    failureLimit: 'StaffListedSignInAttempts.failureLimit' as Resource,
+    failures: 'StaffListedSignInAttempts.failures' as Resource,
+    kind: 'StaffListedSignInAttempts.kind' as Resource,
+    locked: 'StaffListedSignInAttempts.locked' as Resource,
+    lockedUntil: 'StaffListedSignInAttempts.lockedUntil' as Resource,
+    name: 'StaffListedSignInAttempts.name' as Resource,
+    state: 'StaffListedSignInAttempts.state' as Resource,
+    subject: 'StaffListedSignInAttempts.subject' as Resource,
+    updatedAt: 'StaffListedSignInAttempts.updatedAt' as Resource,
+    userId: 'StaffListedSignInAttempts.userId' as Resource,
+    windowEndsAt: 'StaffListedSignInAttempts.windowEndsAt' as Resource,
+  };
+}
+
 export namespace StaffListedUsers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
@@ -323,6 +430,7 @@ export namespace StaffListedUsers {
     name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     roles: 'roles' as FieldName,
+    trustedDevices: 'trustedDevices' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
@@ -336,6 +444,7 @@ export namespace StaffListedUsers {
     name: 'StaffListedUsers.name' as Resource,
     passwordChangeRequired: 'StaffListedUsers.passwordChangeRequired' as Resource,
     roles: 'StaffListedUsers.roles' as Resource,
+    trustedDevices: 'StaffListedUsers.trustedDevices' as Resource,
     username: 'StaffListedUsers.username' as Resource,
   };
 }
@@ -429,6 +538,7 @@ export namespace StaffSessionMailLinks {
     roleNames: 'roleNames' as FieldName,
     tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
+    withdrawnAt: 'withdrawnAt' as FieldName,
   };
   export const resourceName = {
     consumedAt: 'StaffSessionMailLinks.consumedAt' as Resource,
@@ -444,6 +554,7 @@ export namespace StaffSessionMailLinks {
     roleNames: 'StaffSessionMailLinks.roleNames' as Resource,
     tenantId: 'StaffSessionMailLinks.tenantId' as Resource,
     userId: 'StaffSessionMailLinks.userId' as Resource,
+    withdrawnAt: 'StaffSessionMailLinks.withdrawnAt' as Resource,
   };
 }
 
@@ -766,6 +877,7 @@ export namespace CreateStaffGroup {
 export namespace DeleteStaffGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 
@@ -871,6 +983,12 @@ export namespace RequireStaffPasswordChange {
 
 export namespace RequireStaffSecondFactor {
   export const fieldName = {};
+}
+
+export namespace ResendStaffInvitation {
+  export const fieldName = {
+    invitationId: 'invitationId' as FieldName,
+  };
 }
 
 export namespace RevokeStaffSessionToken {

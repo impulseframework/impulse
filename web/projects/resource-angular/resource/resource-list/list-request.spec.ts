@@ -10,6 +10,7 @@ import { PageTurn } from '@impulseframework/resource-angular/grid';
 import { ColumnConfig, FieldName } from '@impulseframework/resource-angular/types';
 import {
   answeredSorts,
+  configuredFilterChoices,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
@@ -20,8 +21,8 @@ import {
   positionAfter,
   queryableMeta,
   refuseKeylessConfig,
+  refuseNameColumns,
   refuseWriteOnlyColumns,
-  relatedUnreadMessage,
   roleQuestionField,
   rolesQuestion,
   searchEligibility,
@@ -46,11 +47,27 @@ const boards: ResourceMeta = {
   ],
 };
 
+// The same board with ids that point to a squadron and a pilot, each with a name beside it:
+// the squadron's name the server filters and matches text in, the pilot's neither.
+const namedBoards: ResourceMeta = {
+  ...boards,
+  fields: [
+    ...boards.fields,
+    field('squadronId', { displayType: 'enumerated', isIndex: true, filterable: 'always' }),
+    field('pilotId', { displayType: 'enumerated' }),
+  ],
+  nameFields: [
+    { fieldName: 'squadronName', of: 'squadronId', filterable: 'always', search: ['contains', 'startswith'] },
+    { fieldName: 'pilotName', of: 'pilotId' },
+  ],
+};
+
 describe('filterEligibility', () => {
   const cases: {
     name: string;
     meta: ResourceMeta | undefined;
     columns: string[];
+    pageFields?: string[];
     want: Record<string, string | undefined>;
   }[] = [
     {
@@ -66,6 +83,33 @@ describe('filterEligibility', () => {
       want: {},
     },
     { name: 'no metadata, nothing filters', meta: undefined, columns: ['title'], want: {} },
+    {
+      name: "a column on a name field takes the name field's filterable, and one the server filters by nothing is absent",
+      meta: namedBoards,
+      columns: ['title', 'squadronName', 'pilotName'],
+      want: { title: 'always', squadronName: 'always' },
+    },
+    {
+      name: "a field of the page's own filter that no column shows takes its field's filterable",
+      meta: boards,
+      columns: ['fee'],
+      pageFields: ['title'],
+      want: { fee: 'withIndexed', title: 'always' },
+    },
+    {
+      name: "a name field the page's own filter names takes the name field's",
+      meta: namedBoards,
+      columns: ['title'],
+      pageFields: ['squadronName'],
+      want: { title: 'always', squadronName: 'always' },
+    },
+    {
+      name: 'a page field the server filters by nothing, and one that is no field, are absent',
+      meta: boards,
+      columns: [],
+      pageFields: ['daysLeft', 'notAField'],
+      want: {},
+    },
   ];
 
   for (const tt of cases) {
@@ -74,6 +118,7 @@ describe('filterEligibility', () => {
         filterEligibility(
           tt.meta,
           tt.columns.map((id) => ({ id })),
+          tt.pageFields,
         ),
       ).toEqual(tt.want as never);
     });
@@ -211,6 +256,29 @@ describe('answeredSorts', () => {
     const listable = new Set(['holder', 'budget']);
 
     expect(answeredSorts(sorts, passes, states, listable)).toEqual([sorts[1], sorts[4]]);
+  });
+
+  it('a sort by a name field is answered where the digest lists the id it stands beside, or nothing narrows, and dropped where it does not', () => {
+    const named: ResourceMeta = { ...table, nameFields: [{ fieldName: 'bayName', of: 'bay' }] };
+    const byBayName = [{ field: 'bayName', direction: 'asc' as const }, sorts[4]];
+
+    expect(answeredSorts(byBayName, named, {}, new Set(['bay']))).toEqual(byBayName);
+    expect(answeredSorts(byBayName, named, {})).toEqual(byBayName);
+    expect(answeredSorts(byBayName, named, {}, new Set(['holder', 'bayName']))).toEqual([sorts[4]]);
+  });
+
+  it('a sort by a name field is dropped where the id is listed and the name is not, and answered where both are', () => {
+    const named: ResourceMeta = { ...table, nameFields: [{ fieldName: 'bayName', of: 'bay' }] };
+    const byBayName = [{ field: 'bayName', direction: 'asc' as const }, sorts[4]];
+
+    expect(answeredSorts(byBayName, named, {}, new Set(['bay']), new Set())).toEqual([sorts[4]]);
+    expect(answeredSorts(byBayName, named, {}, undefined, new Set())).toEqual([sorts[4]]);
+    expect(answeredSorts(byBayName, named, {}, new Set(['bay']), new Set(['bayName']))).toEqual(byBayName);
+    const asked = [
+      { field: 'bayName' as FieldName, direction: 'asc' as const },
+      { field: 'id' as FieldName, direction: 'asc' as const },
+    ];
+    expect(listSorts(asked, named, {}, undefined, new Set(['bay']), new Set())).toEqual([asked[1]]);
   });
 
   it('the sorts handed in are not changed, and a new array comes back', () => {
@@ -480,6 +548,43 @@ describe('filterChoiceLists', () => {
   }
 });
 
+// A column of the page's config can name the values its field filters by and their words,
+// for a field that takes one of a fixed set the metadata does not list: those lists, by
+// column id, in the config's order.
+describe('configuredFilterChoices', () => {
+  const states = [
+    { value: 'live', label: 'Live' },
+    { value: 'timedOut', label: 'Timed out' },
+    { value: 'ended', label: 'Ended' },
+  ];
+  const kinds = [
+    { value: 'invitation', label: 'Invitation' },
+    { value: 'sign-up', label: 'Sign-up' },
+  ];
+  const cases: {
+    name: string;
+    columns: { id: string; filterChoices?: readonly { value: string; label: string }[] }[];
+    want: Record<string, unknown>;
+  }[] = [
+    { name: 'no column names its values', columns: [{ id: 'username' }, { id: 'browser' }], want: {} },
+    {
+      name: 'one column names its values, in its order',
+      columns: [{ id: 'username' }, { id: 'state', filterChoices: states }],
+      want: { state: states },
+    },
+    {
+      name: 'two columns name theirs',
+      columns: [{ id: 'kind', filterChoices: kinds }, { id: 'email' }, { id: 'state', filterChoices: states }],
+      want: { kind: kinds, state: states },
+    },
+  ];
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(configuredFilterChoices(tt.columns)).toEqual(tt.want as never);
+    });
+  }
+});
+
 // A role column's filter asks the list's own resource for the roles its rows hold beyond
 // those the metadata lists: which column asks, and what the question's condition says.
 describe('roleQuestionField', () => {
@@ -554,6 +659,12 @@ describe('searchEligibility', () => {
       want: {},
     },
     { name: 'no metadata, no matches', meta: undefined, columns: ['title'], want: {} },
+    {
+      name: "a column on a name field takes the name field's matches, and one that answers none is absent",
+      meta: namedBoards,
+      columns: ['title', 'squadronName', 'pilotName'],
+      want: { title: ['contains', 'startswith'], squadronName: ['contains', 'startswith'] },
+    },
   ];
 
   for (const tt of cases) {
@@ -732,52 +843,6 @@ describe('listEmptyMessage', () => {
   }
 });
 
-describe('relatedUnreadMessage', () => {
-  const refused = new ApiError('GET', '/api/sectors', 403, {
-    message: 'scope (global), user (3f2a9c1e-7b64-4d1a-9e0c-5a8d2b7f6c13) does not have (List) on [Sectors]',
-  });
-  const cases: { name: string; error: unknown; headings: string[]; want: string }[] = [
-    {
-      name: 'a refused read names the column and says the person may not see its records',
-      error: refused,
-      headings: ['Kept in'],
-      want: 'You do not have permission to see the records named in the Kept in column.',
-    },
-    {
-      name: 'two columns over one read are both named',
-      error: refused,
-      headings: ['Kept in', 'Owner'],
-      want: 'You do not have permission to see the records named in the Kept in and Owner columns.',
-    },
-    {
-      name: 'three are named as a person lists them',
-      error: refused,
-      headings: ['Kept in', 'Owner', 'Home port'],
-      want: 'You do not have permission to see the records named in the Kept in, Owner and Home port columns.',
-    },
-    {
-      name: 'a read the server could not serve is not a refusal of the person',
-      error: new ApiError('GET', '/api/sectors', 500, { message: serverSays.failed }),
-      headings: ['Kept in'],
-      want: 'The records named in the Kept in column could not be loaded.',
-    },
-    {
-      name: 'a read that never got an answer says the same',
-      error: new Error('network down'),
-      headings: ['Kept in'],
-      want: 'The records named in the Kept in column could not be loaded.',
-    },
-  ];
-
-  for (const tt of cases) {
-    it(tt.name, () => {
-      const said = relatedUnreadMessage(tt.error, tt.headings);
-      expect(said).toBe(tt.want);
-      expect(carriesServerWords(said)).toBe(false);
-    });
-  }
-});
-
 describe('refuseKeylessConfig', () => {
   const orders: ResourceMeta = { route: 'standing-orders', fields: [field('section'), field('directive')] };
   const cases: {
@@ -839,8 +904,7 @@ describe('refuseWriteOnlyColumns', () => {
       field('transcript', { writeOnly: true }),
     ],
   };
-  const column = (id: string, additionalIds?: { id: string; resource?: Resource; field?: string }[]): ColumnConfig =>
-    (additionalIds ? { id, additionalIds } : { id }) as unknown as ColumnConfig;
+  const column = (id: string): ColumnConfig => ({ id }) as unknown as ColumnConfig;
 
   const cases: { name: string; meta: ResourceMeta | undefined; columns: ColumnConfig[]; wantThrows?: RegExp }[] = [
     { name: 'columns over returned fields pass', meta: calls, columns: [column('summary'), column('id')] },
@@ -849,17 +913,6 @@ describe('refuseWriteOnlyColumns', () => {
       meta: calls,
       columns: [column('summary'), column('transcript')],
       wantThrows: /^DistressCalls: listColumns names transcript, which is write-only: a list never returns it$/,
-    },
-    {
-      name: 'a concatenated column reading the write-only field off this resource is refused',
-      meta: calls,
-      columns: [column('summary', [{ id: 'transcript' }])],
-      wantThrows: /names transcript, which is write-only/,
-    },
-    {
-      name: "a concatenated column reading another resource's field of the same name passes",
-      meta: calls,
-      columns: [column('summary', [{ id: 'transcript', resource: 'Logs' as Resource, field: 'text' }])],
     },
     {
       name: 'a resource with no write-only field passes whatever is named',
@@ -873,6 +926,50 @@ describe('refuseWriteOnlyColumns', () => {
     it(tt.name, () => {
       const call = (): void => {
         refuseWriteOnlyColumns('DistressCalls' as Resource, tt.columns, tt.meta);
+      };
+      if (tt.wantThrows) {
+        expect(call).toThrow(tt.wantThrows);
+      } else {
+        expect(call).not.toThrow();
+      }
+    });
+  }
+});
+
+describe('refuseNameColumns', () => {
+  const passes: ResourceMeta = {
+    route: 'hangar-passes',
+    fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('squadronId'), field('levelId')],
+    nameFields: [{ fieldName: 'squadronName', of: 'squadronId' }],
+  } as ResourceMeta;
+  const unnamed: ResourceMeta = { route: 'hangar-passes', fields: [field('id'), field('squadronId')] };
+  const column = (id: string, hidden?: boolean): ColumnConfig =>
+    (hidden ? { id, hidden } : { id }) as unknown as ColumnConfig;
+  const refusal =
+    /^HangarPasses: listColumns names squadronName, the name beside squadronId\. Put the column on squadronId: the list shows the name there, and sorts and filters by it$/;
+
+  const cases: { name: string; meta: ResourceMeta | undefined; columns: ColumnConfig[]; wantThrows?: RegExp }[] = [
+    {
+      name: 'a column on a name field is refused, naming the id to put it on',
+      meta: passes,
+      columns: [column('levelId'), column('squadronName')],
+      wantThrows: refusal,
+    },
+    {
+      name: 'a hidden column on a name field is refused too',
+      meta: passes,
+      columns: [column('squadronName', true)],
+      wantThrows: refusal,
+    },
+    { name: 'the column on the id passes', meta: passes, columns: [column('squadronId'), column('levelId')] },
+    { name: 'metadata with no name field passes every column', meta: unnamed, columns: [column('squadronName')] },
+    { name: 'no metadata passes', meta: undefined, columns: [column('squadronName')] },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      const call = (): void => {
+        refuseNameColumns('HangarPasses' as Resource, tt.columns, tt.meta);
       };
       if (tt.wantThrows) {
         expect(call).toThrow(tt.wantThrows);

@@ -29,6 +29,7 @@ func (a *App) Refits() http.HandlerFunc {
 		OpenedByUserID string              `json:"openedByUserId"`
 		OpenedByName   string              `json:"openedByName"`
 		Notes          *string             `json:"notes"`
+		ShipName       *string             `json:"shipName"       nameof:"ShipID"`
 		StatusName     *string             `json:"statusName"     nameof:"StatusID" index:"true"`
 	}
 
@@ -141,6 +142,7 @@ func (a *App) Refit() http.HandlerFunc {
 		OpenedByUserID string              `json:"openedByUserId"`
 		OpenedByName   string              `json:"openedByName"`
 		Notes          *string             `json:"notes"`
+		ShipName       *string             `json:"shipName"       nameof:"ShipID"`
 		StatusName     *string             `json:"statusName"     nameof:"StatusID"`
 	}
 
@@ -232,6 +234,7 @@ func (a *App) RefitChangeHistory() http.HandlerFunc {
 		OpenedByUserID string              `json:"openedByUserId"`
 		OpenedByName   string              `json:"openedByName"`
 		Notes          *string             `json:"notes"`
+		ShipName       *string             `json:"shipName"       nameof:"ShipID"`
 		StatusName     *string             `json:"statusName"     nameof:"StatusID"`
 	}
 

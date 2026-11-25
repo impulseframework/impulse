@@ -113,6 +113,10 @@ type identityInstance struct {
 	// groupSet is the name of the subject set of a person's groups, "" where the
 	// instance keeps no groups (identity_groups.go).
 	groupSet string
+	// deleteCosts and userCascades are what a tenant's delete costs the auth's rows by,
+	// read off the schema (identity_tenantkinds.go).
+	deleteCosts  []identityDeleteCost
+	userCascades []identityUserCascade
 }
 
 // identityTable names one of an auth's tables by what it holds.
@@ -319,7 +323,7 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 			inst.password = true
 			inst.usernameIsEmail = m.usernameIsEmail
 		}
-		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label, syncsRoles: m.syncsRoles})
+		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label, syncsRoles: m.syncsRoles, method: m.kind.sessionMethod()})
 		if m.syncsRoles {
 			inst.rolesSynced = true
 		}
@@ -345,6 +349,8 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 			return nil, errors.Newf("Auth(%q): the schema holds no table %s, so there is nothing of the auth to manage; its tables are named by its package's name in PascalCase (TablePrefix = %q), each the session library's own name under it", auth.importPath, inst.tableName(kind), name)
 		}
 	}
+	inst.deleteCosts = r.identityDeleteCosts(inst)
+	inst.userCascades = r.identityUserCascades(inst.session.Users)
 
 	return inst, nil
 }
@@ -383,6 +389,9 @@ func (r *resourceGenerator) prepareIdentity() error {
 		if err := inst.refuseInvitationNamesTaken(); err != nil {
 			return err
 		}
+		if err := inst.refuseListedTenantNamesTaken(); err != nil {
+			return err
+		}
 		if err := r.requireEveryTenantColumn(inst); err != nil {
 			return err
 		}
@@ -390,6 +399,12 @@ func (r *resourceGenerator) prepareIdentity() error {
 			return err
 		}
 		if err := r.requireMailFailedColumn(inst); err != nil {
+			return err
+		}
+		if err := r.requireWithdrawnColumn(inst); err != nil {
+			return err
+		}
+		if err := r.requireSessionBrowserColumn(inst); err != nil {
 			return err
 		}
 		if err := r.refuseReservedRole(inst); err != nil {
@@ -721,6 +736,7 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			// someone else. It gives a role, which the acceptance seats the person in.
 			identitySourceFile{dir: inst.methods, name: fileStem("Invite" + inst.auth + "User"), template: identityInviteUserTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Withdraw" + inst.auth + "Invitation"), template: identityWithdrawInvitationTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
+			identitySourceFile{dir: inst.methods, name: fileStem("Resend" + inst.auth + "Invitation"), template: identityResendInvitationTemplate, needs: []identityTable{identityMailLinks, identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Assign" + inst.auth + "Role"), template: identityAssignRoleTemplate, needs: []identityTable{identityMemberships}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Remove" + inst.auth + "Role"), template: identityRemoveRoleTemplate, needs: []identityTable{identityMemberships}},
 		)
@@ -737,6 +753,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// outlets sign in: the method staff send one with, the list of the ones that stand,
 	// and the method that withdraws one.
 	files = append(files, r.invitedTenantSources(inst)...)
+	// The whole application's list of the tenants, each with its people, its directory
+	// and its administrators, where an outlet serves both the management and the record.
+	files = append(files, r.listedTenantSources(inst)...)
 	// The methods one tenant runs, and the computed resources beside them, where the
 	// application has a tenant record.
 	files = append(files, inst.tenantMethodSources()...)
@@ -750,6 +769,12 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// What is held and why: a person's roles as one list, the groups with what each
 	// holds, and the taking of a role for a set time.
 	files = append(files, r.holdingSources(inst)...)
+	// The sessions as a page lists them, each saying whether it is live.
+	files = append(files, r.sessionListSources(inst)...)
+	// The mailed links as a page lists them, each saying what became of it and who
+	// sent it.
+	files = append(files, r.mailLinkListSources(inst)...)
+	files = append(files, r.signInAttemptListSources(inst)...)
 	// What the rules ask of the role file: who may give a role and take one away.
 	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {
@@ -839,8 +864,10 @@ func sortMethods(methods []*rpcMethodInfo) {
 
 // identityResources reads each instance's declarations as resources of the run, each
 // marked with its instance: the declarations over its tables and, in the same package,
-// the views that are a tenant's lists. fsetPkg is the package whose file set places a
-// declaration in its file.
+// the views that are a tenant's lists. A declaration over a table is marked before the
+// resolutions that read more than one resource run, since its description of a delete
+// reads the mark (declaredDeleteTree, deleteWords). fsetPkg is the package whose file
+// set places a declaration in its file.
 func (c *client) identityResources(packageMap map[string]*packages.Package, fsetPkg *packages.Package) ([]*resourceInfo, error) {
 	var resources []*resourceInfo
 	for _, inst := range c.identity {
@@ -849,22 +876,40 @@ func (c *client) identityResources(packageMap map[string]*packages.Package, fset
 			return nil, errors.Newf("no packages found in %q", inst.resources.Dir())
 		}
 		structs := parser.ParsePackage(pkg).Structs
-		extracted, err := c.structsToResources(structs, c.validateStructNameMatchesFile(fsetPkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
+		extracted, err := c.instanceResources(inst, structs, c.validateStructNameMatchesFile(fsetPkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
 		if err != nil {
-			return nil, errors.Wrapf(err, "the generated declarations of Auth(%q)", inst.importPath)
+			return nil, err
 		}
 		lists, err := c.structsToVirtualResources(structs, c.validateStructNameMatchesFile(fsetPkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
 		if err != nil {
 			return nil, errors.Wrapf(err, "the generated lists of Auth(%q)", inst.importPath)
 		}
-		extracted = append(extracted, lists...)
-		for _, res := range extracted {
+		for _, res := range lists {
 			res.identity = inst
 		}
 		resources = append(resources, extracted...)
+		resources = append(resources, lists...)
 	}
 
 	return resources, nil
+}
+
+// instanceResources extracts an instance's declarations over its tables, marks each
+// with the instance, and then runs the resolutions that read more than one of them
+// (resolveAcrossResources), once.
+func (c *client) instanceResources(inst *identityInstance, structs []*parser.Struct, validators ...structValidator) ([]*resourceInfo, error) {
+	extracted, err := c.extractResources(structs, validators...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "the generated declarations of Auth(%q)", inst.importPath)
+	}
+	for _, res := range extracted {
+		res.identity = inst
+	}
+	if err := c.resolveAcrossResources(extracted); err != nil {
+		return nil, errors.Wrapf(err, "the generated declarations of Auth(%q)", inst.importPath)
+	}
+
+	return extracted, nil
 }
 
 // identityComputedResources reads the computed resources each instance declares beside

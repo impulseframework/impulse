@@ -33,7 +33,11 @@ func identityFixtureGenerator(t *testing.T, tables ...string) *resourceGenerator
 				newTenantColumn:   {SpannerType: "STRING(MAX)", IsNullable: true},
 				everyTenantColumn: {SpannerType: "BOOL"},
 				mailFailedColumn:  {SpannerType: "TIMESTAMP", IsNullable: true},
+				withdrawnColumn:   {SpannerType: "TIMESTAMP", IsNullable: true},
 			}
+		}
+		if strings.HasSuffix(table, "Sessions") {
+			r.tableMap[table].Columns = map[string]columnMeta{sessionBrowserColumn: {SpannerType: "STRING(MAX)", IsNullable: true}}
 		}
 	}
 
@@ -56,8 +60,11 @@ var (
 
 // Test_identityInstances_signIns pins what an instance knows of its auth's sign-in
 // registrations: every one the login page offers, the password method among them, in
-// declaration order, with the name it is registered under and the words its button
-// carries. The list of how a person signs in names each way by them.
+// declaration order, with the name it is registered under, the words its button
+// carries, and the session library's word for its method, the one an auth event of a
+// sign-in through it records (the persona method is the library's OpenID Connect
+// method). The list of how a person signs in names each way by them, and the list of
+// the sessions says how each signed in by them.
 func Test_identityInstances_signIns(t *testing.T) {
 	t.Parallel()
 
@@ -75,7 +82,12 @@ func Test_identityInstances_signIns(t *testing.T) {
 			got = inst.signIns
 		}
 	}
-	want := []identitySignIn{{Name: "google", Label: "Fleet Google"}, {Name: "password", Label: "Password"}, {Name: "lakeside", Label: "Lakeside"}, {Name: "persona", Label: "Persona"}}
+	want := []identitySignIn{
+		{Name: "google", Label: "Fleet Google", method: "google"},
+		{Name: "password", Label: "Password", method: "password"},
+		{Name: "lakeside", Label: "Lakeside", method: "azure"},
+		{Name: "persona", Label: "Persona", method: "oidc"},
+	}
 	if diff := cmp.Diff(want, got, cmp.AllowUnexported(identitySignIn{})); diff != "" {
 		t.Errorf("the Members instance's sign-ins mismatch (-want +got):\n%s", diff)
 	}
@@ -379,6 +391,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/rename_crew_user.go",
 		"crewidentity/require_crew_password_change.go",
 		"crewidentity/require_crew_second_factor.go",
+		"crewidentity/resend_crew_invitation.go",
 		"crewidentity/revoke_crew_session_token.go",
 		"crewidentity/revoke_crew_user_trusted_devices.go",
 		"crewidentity/send_crew_user_password_reset_link.go",
@@ -393,6 +406,9 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/unlock_crew_sign_in.go",
 		"crewidentity/withdraw_crew_invitation.go",
 		"internal/crewresources/crew_held_roles.go",
+		"internal/crewresources/crew_listed_mail_links.go",
+		"internal/crewresources/crew_listed_sessions.go",
+		"internal/crewresources/crew_listed_sign_in_attempts.go",
 		"internal/crewresources/crew_listed_users.go",
 		"internal/crewresources/crew_role_grants.go",
 		"internal/crewresources/crew_roles.go",
@@ -411,6 +427,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_user_roles.go",
 		"internal/crewresources/resources.go",
 		"internal/membersresources/members_held_roles.go",
+		"internal/membersresources/members_listed_sessions.go",
 		"internal/membersresources/members_listed_users.go",
 		"internal/membersresources/members_roles.go",
 		"internal/membersresources/members_session_users.go",
@@ -478,7 +495,7 @@ func Test_prepareIdentity(t *testing.T) {
 			// the frames of a tenant's directory ask each auth's client.
 			"func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {",
 		},
-		"crewidentity/store.go":                         {"identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID,", "crewresources.NewCrewSessionTokenColumns().UserID().FamilyID().ExpiresAt().RevokedAt()", "func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {", "AddColumns(crewresources.NewCrewSessionIdentityColumns().ID().Method().Connection()).", "identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection}", "func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {", "AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).", `row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = IF(STRPOS(@username, '@') > 0, CAST(LOWER(CAST(@username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(@username)))"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = CAST(LOWER(CAST(@email AS BYTES)) AS STRING) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":        string(sessionstorage.MailLinkInvitation),`, `"EveryTenant": row.EveryTenant,`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
+		"crewidentity/store.go":                         {"identity.Token{UserID: row.Data.UserID, FamilyID: row.Data.FamilyID,", "crewresources.NewCrewSessionTokenColumns().UserID().FamilyID().ExpiresAt().RevokedAt()", "func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {", "AddColumns(crewresources.NewCrewSessionIdentityColumns().ID().Method().Connection()).", "identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection}", "func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {", "AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).", `row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = IF(STRPOS(@username, '@') > 0, CAST(LOWER(CAST(@username AS BYTES)) AS STRING), NORMALIZE(NORMALIZE_AND_CASEFOLD(@username)))"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = CAST(LOWER(CAST(@email AS BYTES)) AS STRING) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":        string(sessionstorage.MailLinkInvitation),`, `"EveryTenant": row.EveryTenant,`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)", "crewresources.NewCrewSessionMailLinkUpdatePatch(id).SetConsumedAt(&consumedAt).SetWithdrawnAt(&consumedAt).Buffer(ctx, txn)", `" FROM CrewSessionMailLinks WHERE Id = @id AND Kind = @kind"`, "func (store) SentInvitation(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (invitation *identity.SentInvitation, found bool, err error) {"},
 		"internal/crewresources/crew_role_grants.go":    {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go": {"CrewSessionToken struct {", "RevokedAt     *time.Time"},
 		"crewidentity/remove_crew_password.go":          {"// @rpc\n// @outlet(default)\n// @answers(204)\n// @class(credential)\ntype RemoveCrewPassword struct {\n\t// @target(CrewListedUser)\n\tUserID impulse.UUID\n}", "client.manager.RemovePassword(ctx, txn, m.UserID)"},
@@ -494,9 +511,21 @@ func Test_prepareIdentity(t *testing.T) {
 			"var signInWords = map[string]string{\n\t\"password\": \"Password\",\n\t\"google\":   \"" + fleetDirectory + "\",\n}",
 			"func signInThrough(way *identity.SignInWay) string {",
 		},
+		// A page lists the sessions from the list that says which are live, so the method
+		// that ends one names its session by a row of it.
+		// It asks first, in the server's words: ending the session the request arrived on
+		// signs the caller out, and the warning says so.
+		"crewidentity/end_crew_session.go": {
+			"// @answers(204)\n// @warning\ntype EndCrewSession struct {\n\t// @target(CrewListedSession)\n\tSessionID impulse.UUID\n}", "client.manager.EndSession(ctx, txn, m.SessionID)",
+			"func (m *EndCrewSession) Warning(ctx context.Context, _ resource.ReadWriteTransaction, _ *Client) (*resource.Warning, error) {",
+			"if sessioninfo.IDFromCtx(ctx) == m.SessionID {",
+			`Consequence: "This is the session you are using. Ending it signs you out.",`, `Confirm:     "End the session and sign out",`,
+			`Consequence: "The browser or device this session is on is signed out.",`, `Confirm:     "End the session",`,
+			"// Before it runs, the method says what it does (Warning): for the session the caller\n// is using, that ending it signs them out.",
+		},
 		"crewidentity/revoke_crew_user_trusted_devices.go":       {"// @target(CrewListedUser)", "client.manager.RevokeTrustedDevices(ctx, txn, m.UserID)"},
 		"internal/crewresources/crew_session_trusted_devices.go": {"CrewSessionTrustedDevice struct {", "RevokedAt  *time.Time", "// @suppress(patchHandler)"},
-		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewSessionSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},
+		"crewidentity/unlock_crew_sign_in.go":                    {"// @target(CrewListedSignInAttempt)", "client.manager.UnlockSignIn(ctx, txn, m.Name)"},
 		"crewidentity/invite_crew_user.go": {
 			// The application has no tenants, so the invitation names no place: its roles are
 			// held for the whole application (Test_prepareIdentity_placeFields).
@@ -505,7 +534,8 @@ func Test_prepareIdentity(t *testing.T) {
 			"invitation := &identity.Invitation{Email: m.Email, Name: m.Name}",
 			"Sent bool", "client.manager.Invite(ctx, txn, invitation, func(sent bool) { result.Sent = sent })",
 		},
-		"crewidentity/withdraw_crew_invitation.go": {"// @target(CrewSessionMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
+		"crewidentity/withdraw_crew_invitation.go": {"// @target(CrewListedMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
+		"crewidentity/resend_crew_invitation.go":   {"// @target(CrewListedMailLink)", "client.manager.ResendInvitation(ctx, txn, m.InvitationID, func(sent bool) { result.Sent = sent })", "ResendCrewInvitationResult struct {", "No role is given the method"},
 		"crewidentity/disable_crew_user.go":        {"// @rpc", "// @outlet(default)", "// @target(CrewListedUser)", "func (m *DisableCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {"},
 		// An address is asked for and never written: the method takes one, answers how
 		// the mailing went, and hands the manager the callback that tells it.
@@ -527,7 +557,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/set_crew_user_name.go":                {"type SetCrewUserName struct {", "// @target(CrewListedUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"membersidentity/set_members_user_name.go":          {"type SetMembersUserName struct {", "// @target(MembersListedUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"internal/crewresources/crew_session_users.go":      {"Name                   *string      `spanner:\"Name\"`"},
-		"internal/crewresources/crew_session_mail_links.go": {"Name        *string       `spanner:\"Name\"`", "EveryTenant bool          `spanner:\"EveryTenant\"`", "MailFailedAt    *time.Time    `spanner:\"MailFailedAt\"`", "(first-password), a password reset (password-reset)"},
+		"internal/crewresources/crew_session_mail_links.go": {"Name        *string       `spanner:\"Name\"`", "EveryTenant bool          `spanner:\"EveryTenant\"`", "MailFailedAt    *time.Time    `spanner:\"MailFailedAt\"`", "WithdrawnAt     *time.Time    `spanner:\"WithdrawnAt\"`", "(first-password), a password reset (password-reset)"},
 		// A role is given to and taken from a person by the id of their account, and given
 		// to nobody an id names no user of.
 		"crewidentity/assign_crew_role.go": {
@@ -915,6 +945,10 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 		"internal/crewresources/crew_ship_users.go": {
 			generationHeader, "package crewresources", "// @virtual", "// @permissionScope(domain)", "// @outlet(default)", "// @order(Username asc)",
 			"CrewShipUser struct {", "// @primarykey", "// @domain", "// @attribute(heldElsewhere)", "// @attribute(heldGlobally)",
+			// What a list that points to a person shows them by: their name, or their
+			// username when they have none.
+			"// @name\n\t\tDisplayName            string     `spanner:\"DisplayName\"            allow_filter:\"true\"`",
+			"  u.Name AS Name,\n  COALESCE(NULLIF(u.Name, ''), u.Username) AS DisplayName,\n  u.Email AS Email,\n",
 			"const crewShipUserQuery = `",
 			"WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''\n      AND " + standingSQL("o") + "\n  ) OR EXISTS (",
 			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldElsewhere,",
@@ -1080,6 +1114,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/remove_crew_ship_user.go",
 		"crewidentity/rename_crew_ship_user.go",
 		"crewidentity/require_crew_ship_password_change.go",
+		"crewidentity/resend_crew_ship_invitation.go",
 		"crewidentity/revoke_crew_ship_user_trusted_devices.go",
 		"crewidentity/send_crew_ship_user_password_reset_link.go",
 		"crewidentity/set_crew_ship_user_email.go",
@@ -1131,6 +1166,11 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/withdraw_crew_ship_invitation.go": {
 			"type WithdrawCrewShipInvitation struct {", "// @target(CrewShipInvitation)", "// @permissionScope(domain)", guard,
 			"row of CrewShipInvitation, the tenant's own list of invitations", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)",
+		},
+		"crewidentity/resend_crew_ship_invitation.go": {
+			"ResendCrewShipInvitation struct {", "// @target(CrewShipInvitation)", "// @permissionScope(domain)", guard,
+			"row of CrewShipInvitation, the tenant's own list of invitations", "client.manager.ResendInvitation(ctx, txn, m.InvitationID, func(sent bool) { result.Sent = sent })",
+			"No role is given the method",
 		},
 		"crewidentity/assign_crew_ship_role.go": {
 			"type AssignCrewShipRole struct {", "// @permissionScope(domain)", "// @target(CrewShipUser)", "// @attribute(role)",

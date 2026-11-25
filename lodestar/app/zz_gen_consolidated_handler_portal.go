@@ -92,12 +92,17 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 		)
 		userPermissions := a.UserPermissions(r)
 
+		// What the request's deletes left under their records, summed: the answer is a 202
+		// with it where one left any.
+		var left *resource.DeleteLeft
+
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
+			left = nil
 			r, err := resource.CloneRequest(r)
 			if err != nil {
 				return errors.Wrap(err, "resource.CloneRequest()")
@@ -213,8 +218,16 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewDistressCallDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewDistressCallDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.DistressCallDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 					case "missions":
@@ -245,8 +258,16 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewMissionDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewMissionDeletePatchFromPatchSet(id, patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.MissionDeletePatch.Buffer()")
+							}
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 					case "mission-documents":
@@ -301,6 +322,11 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)
+		if left != nil {
+			// A delete that took what fits one save says what is left: the same request,
+			// sent again, goes on.
+			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
+		}
 
 		return httpio.NewEncoder(w).Ok(resp)
 	})

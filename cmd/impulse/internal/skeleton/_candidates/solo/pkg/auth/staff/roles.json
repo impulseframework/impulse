@@ -133,7 +133,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices"
               ]
             },
             {
@@ -142,6 +143,22 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -208,7 +225,29 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "StaffListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {
@@ -217,6 +256,22 @@
                 "failures",
                 "lockedUntil",
                 "updatedAt",
+                "windowEndsAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSignInAttempts",
+              "fields": [
+                "account",
+                "failureLimit",
+                "failures",
+                "kind",
+                "locked",
+                "lockedUntil",
+                "state",
+                "subject",
+                "updatedAt",
+                "userId",
                 "windowEndsAt"
               ]
             },
@@ -417,7 +472,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "roles",
-                "lockedUntil"
+                "lockedUntil",
+                "trustedDevices"
               ]
             },
             {
@@ -426,6 +482,22 @@
                 "userId",
                 "username",
                 "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffListedSessions",
+              "fields": [
+                "userId",
+                "username",
+                "name",
+                "expired",
+                "live",
+                "state",
+                "signedInWith",
+                "browser",
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
@@ -474,7 +546,29 @@
                 "name",
                 "roleNames",
                 "tenantId",
-                "userId"
+                "userId",
+                "withdrawnAt"
+              ]
+            },
+            {
+              "resource": "StaffListedMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "everyTenant",
+                "expiresAt",
+                "invitedByUserId",
+                "kind",
+                "mailFailedAt",
+                "makesTenant",
+                "name",
+                "roleNames",
+                "sentBy",
+                "state",
+                "tenantId",
+                "userId",
+                "withdrawnAt"
               ]
             },
             {

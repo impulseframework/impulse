@@ -261,6 +261,10 @@ const (
 	// methods of a tenant's word for its directory's second factor, written where the
 	// directories record carries the column; a singular stem like the roster's.
 	tenantDirectoryFactorOutputName = "tenant_directory_factor"
+	// tenantDirectoryTakeOutputName names the handler package's file carrying the method
+	// that takes a tenant's directory, written where the tenant record declares a
+	// directories record; a singular stem like the roster's.
+	tenantDirectoryTakeOutputName = "tenant_directory_take"
 	// tenantDirectoryOnlyOutputName names the handler package's file carrying the
 	// tenant record's directory-only switch: the two methods that turn it, written
 	// where the record declares the switch; a singular stem like the roster's.
@@ -325,6 +329,7 @@ var reservedOutputStems = map[string]reservedOutput{
 	tenantDirectoryOnlyOutputName:   {file: generatedGoFileName(tenantDirectoryOnlyOutputName), carries: "the directory-only switch's handlers"},
 	tenantDirectoryRoleOutputName:   {file: generatedGoFileName(tenantDirectoryRoleOutputName), carries: "the handlers of a directory's default role"},
 	tenantDirectoryFactorOutputName: {file: generatedGoFileName(tenantDirectoryFactorOutputName), carries: "the handlers of a tenant's word for its directory's second factor"},
+	tenantDirectoryTakeOutputName:   {file: generatedGoFileName(tenantDirectoryTakeOutputName), carries: "the handler of the method that takes a tenant's directory"},
 	tenantSignInSettingsOutputName:  {file: generatedGoFileName(tenantSignInSettingsOutputName), carries: "the read of a tenant's sign-in settings"},
 	permissionsOutputName:           {file: generatedGoFileName(permissionsOutputName), carries: "the permission endpoints"},
 	liveOutputName:                  {file: generatedGoFileName(liveOutputName), carries: "the live handlers"},
@@ -1504,6 +1509,9 @@ type resourceInfo struct {
 	// people know it; nil where the record marks none, and the tenant list names each
 	// tenant by its key.
 	TenantNameField *resourceField
+	// TenantSinceField is the tenant record's @tenantSince column, when a tenant was made;
+	// nil where the record marks none, and the list of tenants then has no Since.
+	TenantSinceField *resourceField
 	// RowNameField is the field the resource's rows are known by (@name); nil where it
 	// declares none, and a field pointing to one of its rows shows the stored value.
 	RowNameField *resourceField
@@ -1514,13 +1522,18 @@ type resourceInfo struct {
 	// the tenant's people enter through its directories only; nil when the record
 	// declares none, and every tenant admits a password.
 	DirectoryOnlyField *resourceField
+	// TenantDisabledField is the tenant record's @tenantDisabled column, the BOOL saying
+	// the tenant is disabled: the roster and the sign-in's reader read it beside the
+	// tenant's key, and the record's generated delete refuses a tenant whose column is
+	// false. Nil on every other resource.
+	TenantDisabledField *resourceField
 	// IsTenantDirectory marks the directories record (@tenantDirectory): the
 	// tenant-scoped resource whose row is the directory a tenant admits its people
 	// through, one for a tenant and one tenant's, with DirectoryMethodField
 	// (@directoryMethod) and DirectoryConnectionField (@directoryConnection) as its two
 	// columns, and DirectoryDefaultSeatField (@directoryDefaultSeat) as the column
-	// naming the role a person is seated with at their first sign-in through the
-	// directory, nil where the record carries none and every tenant admits a stranger
+	// naming the role a person is seated with when they sign in through the directory and
+	// hold nothing in the tenant, nil where the record carries none and every tenant admits a stranger
 	// from its directory by invitation only. DirectorySecondFactorField
 	// (@directorySecondFactor) is the BOOL column saying the tenant says its directory
 	// asks its people for a second factor of its own, nil where the record carries none
@@ -1540,9 +1553,12 @@ type resourceInfo struct {
 	// record's declaration; nil on every other resource. The directories record's
 	// generated write paths name the record's directory rules by it, and
 	// directoryRules is the expression that builds those rules in a generated frame of
-	// the handler package (resourceGenerator.namedDirectoryRules), set with it.
-	directoryOf    *resourceInfo
-	directoryRules string
+	// the handler package (resourceGenerator.namedDirectoryRules), set with it, as is
+	// directoryCreateRefusal, the sentence the record's create is refused with
+	// (directoryCreateRefusal).
+	directoryOf            *resourceInfo
+	directoryRules         string
+	directoryCreateRefusal string
 
 	// ListsAcrossTenants marks a tenant-scoped resource whose list is also served
 	// without the tenant's segment (@listAcrossTenants): one request reads its rows in
@@ -2322,8 +2338,8 @@ func (f *resourceField) IsOutputOnly() bool {
 	// column too: only Go code writes it, as an @upload body does. And a
 	// generated column: the database computes it, and refuses a write. The
 	// directories record's method and connection are the same shape as the
-	// tenant key: the generated create stamps them from the caller's sign-in,
-	// so the wire cannot type a directory in. And the tenant record's
+	// tenant key: the tenant's own method that takes a directory stamps them
+	// from the caller's sign-in, so the wire cannot type a directory in. And the tenant record's
 	// directory-only switch: the tenant's own method turns it, held to its
 	// rules, so the record's global write paths cannot. And the directories
 	// record's default seat: the tenant's own methods set and clear it, the
@@ -2634,7 +2650,9 @@ const (
 	featureKeyword               string = "feature"               // Gates a resource, a field or an RPC method behind a feature flag, by the flag's constant: @feature(Debriefs)
 	tenantKeyword                string = "tenant"                // Declares the tenant record: the global, table-backed @resource whose rows are the tenants and whose key is the domain in every tenant-scoped URL
 	directoryOnlyKeyword         string = "directoryOnly"         // Marks the tenant record's BOOL column saying the tenant's people enter through its directories only, so a password does not reach it
+	tenantDisabledKeyword        string = "tenantDisabled"        // Marks the tenant record's BOOL column saying the tenant is disabled: its people are shut out while its records stay, and a super administrator alone enters it
 	tenantNameKeyword            string = "tenantName"            // Marks the tenant record's string column holding a tenant's name, which the session's tenant list carries for the tenant's own people to see
+	tenantSinceKeyword           string = "tenantSince"           // Marks the tenant record's timestamp column holding when the tenant was made, which the list of tenants an auth's generated management serves says as Since
 	nameKeyword                  string = "name"                  // Marks the string field a resource's rows are known by: a field pointing to one of its rows gains a name field beside it, read-only and stored nowhere
 	tenantDirectoryKeyword       string = "tenantDirectory"       // Declares the directories record: the tenant-scoped @resource whose rows are the directories a tenant admits its people through, one per declaration
 	directoryMethodKeyword       string = "directoryMethod"       // Marks the directories record's string column holding the sign-in method a directory is reached through (google, azure, workos)
@@ -2692,7 +2710,9 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		featureKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanField: genlang.ArgsRequired | genlang.Exclusive},
 		tenantKeyword:                {genlang.ScanStruct: genlang.Exclusive},
 		directoryOnlyKeyword:         {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		tenantDisabledKeyword:        {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantNameKeyword:            {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
+		tenantSinceKeyword:           {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		nameKeyword:                  {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},
 		tenantDirectoryKeyword:       {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 		directoryMethodKeyword:       {genlang.ScanField: genlang.NoArgs | genlang.Exclusive},

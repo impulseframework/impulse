@@ -6,6 +6,7 @@ package app
 import (
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -21,7 +22,9 @@ func (a *App) Tenants() http.HandlerFunc {
 	type tenant struct {
 		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
 		Name          string       `json:"name"          index:"true"`
+		CreatedAt     time.Time    `json:"createdAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	type response []map[string]any
@@ -72,9 +75,17 @@ func (a *App) Tenants() http.HandlerFunc {
 					if !row.Masked("name") {
 						rmap["name"] = rec.Name
 					}
+				case "CreatedAt":
+					if !row.Masked("createdAt") {
+						rmap["createdAt"] = rec.CreatedAt
+					}
 				case "DirectoryOnly":
 					if !row.Masked("directoryOnly") {
 						rmap["directoryOnly"] = rec.DirectoryOnly
+					}
+				case "Disabled":
+					if !row.Masked("disabled") {
+						rmap["disabled"] = rec.Disabled
 					}
 				}
 			}
@@ -101,7 +112,9 @@ func (a *App) Tenant() http.HandlerFunc {
 	type response struct {
 		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
 		Name          string       `json:"name"          index:"true"`
+		CreatedAt     time.Time    `json:"createdAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	decoder := NewQueryDecoder[resources.Tenant, response](a, accesstypes.Read)
@@ -140,9 +153,17 @@ func (a *App) Tenant() http.HandlerFunc {
 				if !row.Masked("name") {
 					rmap["name"] = rec.Name
 				}
+			case "CreatedAt":
+				if !row.Masked("createdAt") {
+					rmap["createdAt"] = rec.CreatedAt
+				}
 			case "DirectoryOnly":
 				if !row.Masked("directoryOnly") {
 					rmap["directoryOnly"] = rec.DirectoryOnly
+				}
+			case "Disabled":
+				if !row.Masked("disabled") {
+					rmap["disabled"] = rec.Disabled
 				}
 			}
 		}
@@ -160,7 +181,9 @@ func (a *App) TenantChangeHistory() http.HandlerFunc {
 	type response struct {
 		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
 		Name          string       `json:"name"          index:"true"`
+		CreatedAt     time.Time    `json:"createdAt"`
 		DirectoryOnly bool         `json:"directoryOnly"`
+		Disabled      bool         `json:"disabled"`
 	}
 
 	decoder := NewQueryDecoder[resources.Tenant, response](a, accesstypes.Read)

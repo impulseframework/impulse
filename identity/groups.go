@@ -11,7 +11,6 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
-	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/tracer"
 )
@@ -25,10 +24,10 @@ import (
 // way around the rule that only a super administrator makes another.
 //
 // The rules of what a group may hold are the permission engine's
-// (access.UserManager.GroupRole); the rules held here are the user management's: a group
-// goes only once it is emptied, a place in a group keeps an account as a role of its own
-// does, and one tenant per person counts a place in a tenant's group as a role in that
-// tenant.
+// (access.UserManager.GroupRole); the rules held here are the user management's: a
+// group's delete takes its members and the roles it holds with it, after a question that
+// counts them, and one tenant per person counts a place in a tenant's group as a role in
+// that tenant.
 //
 // A group gives nobody a power that giving the role directly would not. A change to who
 // is in a group, or to what a group holds, is judged as the role changes it makes
@@ -51,8 +50,12 @@ type GroupStore interface {
 	GroupNamed(ctx context.Context, txn resource.ReadWriteTransaction, place *access.GroupRow) (bool, error)
 	// DescribeGroup buffers a new description on a group.
 	DescribeGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, description string) error
-	// DeleteGroup buffers the removal of a group's row.
-	DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// DeleteGroup buffers the delete of a group, which takes its members and the roles
+	// it holds with it (the group's @deleteCascade). Told everythingUnder, it takes them;
+	// not told, a group with either deletes nothing and answers the question a person is
+	// asked first (428). It answers what one save left (nil where the group went), and
+	// is not armed against a caller: the rows are taken trusted.
+	DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error)
 	// TenantGroups lists the groups kept in one tenant.
 	TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
 
@@ -174,61 +177,69 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 	return nil
 }
 
-// DeleteGroup buffers the removal of a group, in the caller's transaction, and has the
-// permission engine told once the transaction has committed. A group that still has a
-// member or holds a role is refused until it is emptied: nobody loses a role because a
-// group was deleted, each person is removed and each role taken by an act of its own.
-// The members and the roles are read as committed. A member or a role whose period has
-// ended gives nobody anything: it does not stand in the way, and its row goes with the
-// group. One whose period has not begun stands in the way like one that counts.
-func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) error {
+// DeleteGroup deletes a group with its members and the roles it holds, in the caller's
+// transaction, and has the permission engine told once the transaction has committed.
+// Asked without everythingUnder of a group that has either, it deletes nothing and
+// answers the question a person is asked first, with their counts; asked with it, it
+// takes them. Each member and each role is asked what its own removal asks
+// (RemoveGroupMember, TakeGroupRole), so nobody deletes a group that gives them the last
+// administrator's role of a tenant. A member or a role whose period has ended gives
+// nobody anything and is asked nothing: the delete takes it with the rest, and counts it
+// in the question. It answers what one save left where the group had more under it than
+// one save holds (nil once the group is gone).
+func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	group, err := m.requireGroup(ctx, txn, groupID)
-	if err != nil {
-		return err
-	}
-	members, err := m.store.GroupMembers(ctx, txn, groupID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.GroupMembers()")
-	}
-	roles, err := m.store.GroupRoles(ctx, txn, groupID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.GroupRoles()")
+	if _, err := m.requireGroup(ctx, txn, groupID); err != nil {
+		return nil, err
 	}
 	periods, err := m.store.GroupPeriods(ctx, txn, groupID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.GroupPeriods()")
+		return nil, errors.Wrap(err, "identity.Store.GroupPeriods()")
 	}
 	now := time.Now()
-	standingMembers := slices.DeleteFunc(slices.Clone(members), func(user accesstypes.User) bool { return periods.Members[user].Ended(now) })
-	standingRoles := slices.DeleteFunc(slices.Clone(roles), func(key access.GroupRoleKey) bool { return periods.Roles[key].Ended(now) })
-	if len(standingMembers) > 0 || len(standingRoles) > 0 {
-		return httpio.NewConflictMessageWithErrorf(
-			errors.Newf(
-				"the group %s still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it",
-				group.Name, len(standingMembers), len(standingRoles),
-			),
-			"The group %s still has a member or holds a role. Remove its members and take its roles away, then delete it.", group.Name,
-		)
+	roles, err := m.store.GroupRoles(ctx, txn, groupID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.GroupRoles()")
 	}
-	// What is left has ended, and goes with the group.
-	for _, user := range members {
-		if err := m.store.DeleteGroupMember(ctx, txn, &access.GroupMemberKey{Group: GroupID(groupID), User: user}); err != nil {
-			return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
+	for i := range roles {
+		if periods.Roles[roles[i]].Ended(now) {
+			continue
+		}
+		scope, err := roles[i].Scope()
+		if err != nil {
+			return nil, errors.Wrap(err, "access.GroupRoleKey.Scope()")
+		}
+		if err := m.refuseTakingGroupRole(ctx, txn, groupID, scope, &roles[i]); err != nil {
+			return nil, err
 		}
 	}
-	for _, key := range roles {
-		if err := m.store.DeleteGroupRole(ctx, txn, &key); err != nil {
-			return errors.Wrap(err, "identity.Store.DeleteGroupRole()")
+	members, err := m.store.GroupMembers(ctx, txn, groupID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.GroupMembers()")
+	}
+	for _, member := range members {
+		if periods.Members[member].Ended(now) {
+			continue
+		}
+		userID, ok := UserID(member)
+		if !ok {
+			return nil, errors.Newf("the group %s has a member %q that is no account's id", groupID, member)
+		}
+		if err := m.refuseImpersonatorAsSubject(ctx, userID, "take yourself out of a group"); err != nil {
+			return nil, err
+		}
+		if err := m.refuseTakingPlace(ctx, txn, groupID, userID); err != nil {
+			return nil, err
 		}
 	}
-	if err := m.store.DeleteGroup(ctx, txn, groupID); err != nil {
-		return errors.Wrap(err, "identity.Store.DeleteGroup()")
+	left, err := m.store.DeleteGroup(ctx, txn, groupID, everythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.DeleteGroup()")
 	}
 
-	return m.policyChangesAtCommit(txn)
+	return left, m.policyChangesAtCommit(txn)
 }
 
 // AddGroupMemberFor buffers a person's place in a group, in the caller's transaction, and
@@ -313,15 +324,8 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 // the person's next request is served without the group's roles. A person who is not in
 // the group is no error.
 //
-// A place in a group keeps an account as a role of its own does, so the rule on an
-// account nothing admits applies here as it does to a role taken away (RemoveRole): a
-// person left with no role of their own and no place in any group is deleted with their
-// identity links and sessions, in the same transaction. What the person holds is read as
-// committed, and a row whose period has ended keeps the account like any other: an
-// account goes when nothing at all is left of what was given to it (keeps). An account
-// that signs in through a tenant's directory is that tenant's to delete: it goes this way
-// only with the last thing it holds in that tenant itself, and otherwise stays, holding
-// nothing, in that tenant's list of its people.
+// Where the place is the last thing the person holds, the account stays, holding
+// nothing.
 //
 // Taking a person out of a group takes each of the group's roles from them, so the
 // removal is held to what a role's removal is: a request needs what taking each role
@@ -349,24 +353,8 @@ func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteT
 	if !in {
 		return nil
 	}
-	removal, err := m.judgeGroupMemberRemoval(ctx, txn, groupID, userID)
-	if err != nil {
+	if err := m.refuseTakingPlace(ctx, txn, groupID, userID); err != nil {
 		return err
-	}
-	// The notice of a removal from a tenant is mailed to the address the person
-	// confirmed, read while the account is still there to read it from.
-	if err := m.noticePlaceTaken(ctx, txn, groupID, userID, removal.deletes); err != nil {
-		return err
-	}
-	switch {
-	case removal.deletes:
-		if err := m.deleteLeftWithNothing(ctx, txn, userID, "the group they were removed from was the last thing they held"); err != nil {
-			return err
-		}
-	case removal.last:
-		if err := m.logManagedElsewhere(ctx, txn, userID, removal.managedBy); err != nil {
-			return err
-		}
 	}
 	if err := m.store.DeleteGroupMember(ctx, txn, &key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
@@ -491,25 +479,6 @@ func (m *Manager) refuseTakingPlace(ctx context.Context, txn resource.ReadWriteT
 	return m.refuseSeveralTenantsLeft(&removed, held)
 }
 
-// deleteLeftWithNothing deletes the account of a person who holds no role of their own
-// and no place in a group once the caller's removal is applied, with their identity
-// links and sessions (deleteAccount). An id no user holds has no account to delete.
-func (m *Manager) deleteLeftWithNothing(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, why string) error {
-	username, found, err := m.store.Username(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
-	}
-	if !found {
-		return nil
-	}
-	if err := m.deleteAccount(ctx, txn, userID); err != nil {
-		return err
-	}
-	logger.FromCtx(ctx).Infof("identity: %q (%s) holds no role and no place in a group: %s, so the account is deleted with its identity links and sessions", username, userID, why)
-
-	return nil
-}
-
 // GiveGroupRoleFor buffers the role a group holds in the scope, in the caller's
 // transaction, and has the permission engine told once the transaction has committed,
 // so every person in the group is served with the role at their next request. The role
@@ -618,9 +587,6 @@ func (m *Manager) TakeGroupRole(ctx context.Context, txn resource.ReadWriteTrans
 	if err := m.refuseTakingGroupRole(ctx, txn, groupID, scope, &key); err != nil {
 		return err
 	}
-	if err := m.noticeGroupRoleTaken(ctx, txn, groupID, &key); err != nil {
-		return err
-	}
 	if err := m.store.DeleteGroupRole(ctx, txn, &key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteGroupRole()")
 	}
@@ -685,15 +651,12 @@ func (m *Manager) requireGroup(ctx context.Context, txn resource.ReadWriteTransa
 // caller removes. An assignment whose period has ended places a person nowhere, and is
 // left out (standing); one whose period has not begun places them where it will count.
 func (m *Manager) holds(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {
-	held, places, err := m.standing(ctx, txn, userID)
+	rows, err := m.readHeld(ctx, txn, userID)
 	if err != nil {
 		return nil, err
 	}
-	for _, place := range places {
-		held = append(held, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(userID)})
-	}
 
-	return held, nil
+	return rows.placingAt(time.Now()), nil
 }
 
 // removeGroupPlaces buffers the removal of every place in a group the person has, for an
@@ -711,82 +674,6 @@ func (m *Manager) removeGroupPlaces(ctx context.Context, txn resource.ReadWriteT
 	}
 
 	return len(places) > 0, nil
-}
-
-// tenantGroups is what a tenant holds of groups, read before a tenant is cleared: the
-// groups kept in it with their members and roles, and the roles any group holds in it.
-type tenantGroups struct {
-	groups  []impulse.UUID
-	members []access.GroupMemberKey
-	roles   []access.GroupRoleKey
-}
-
-// readTenantGroups reads what a tenant holds of groups: its own groups with their
-// members and the roles they hold, and the roles groups kept for the whole application
-// hold in the tenant.
-func (m *Manager) readTenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (*tenantGroups, error) {
-	groups, err := m.store.TenantGroups(ctx, txn, domain)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.TenantGroups()")
-	}
-	held := &tenantGroups{groups: groups, members: nil, roles: nil}
-	for _, id := range groups {
-		members, err := m.store.GroupMembers(ctx, txn, id)
-		if err != nil {
-			return nil, errors.Wrap(err, "identity.Store.GroupMembers()")
-		}
-		for _, user := range members {
-			held.members = append(held.members, access.GroupMemberKey{Group: GroupID(id), User: user})
-		}
-		roles, err := m.store.GroupRoles(ctx, txn, id)
-		if err != nil {
-			return nil, errors.Wrap(err, "identity.Store.GroupRoles()")
-		}
-		held.roles = append(held.roles, roles...)
-	}
-	inTenant, err := m.store.TenantGroupRoles(ctx, txn, domain)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.TenantGroupRoles()")
-	}
-	for _, key := range inTenant {
-		if !slices.Contains(held.roles, key) {
-			held.roles = append(held.roles, key)
-		}
-	}
-
-	return held, nil
-}
-
-// clear buffers the removal of what the tenant holds of groups: every role a group holds
-// in the tenant, every member of the tenant's own groups, then the groups.
-func (g *tenantGroups) clear(ctx context.Context, txn resource.ReadWriteTransaction, store Store) error {
-	for _, key := range g.roles {
-		if err := store.DeleteGroupRole(ctx, txn, &key); err != nil {
-			return errors.Wrap(err, "identity.Store.DeleteGroupRole()")
-		}
-	}
-	for _, key := range g.members {
-		if err := store.DeleteGroupMember(ctx, txn, &key); err != nil {
-			return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
-		}
-	}
-	for _, id := range g.groups {
-		if err := store.DeleteGroup(ctx, txn, id); err != nil {
-			return errors.Wrap(err, "identity.Store.DeleteGroup()")
-		}
-	}
-
-	return nil
-}
-
-// empty reports whether the tenant holds nothing of groups.
-func (g *tenantGroups) empty() bool {
-	return len(g.groups) == 0 && len(g.roles) == 0
-}
-
-// inGroups reports whether the group is one of the tenant's own.
-func (g *tenantGroups) inGroups(id impulse.UUID) bool {
-	return slices.Contains(g.groups, id)
 }
 
 // requireTenantGroup reads a group of the tenant, or answers NotFound: a group kept
@@ -822,14 +709,14 @@ func (t *Tenant) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransa
 	return t.manager.DescribeGroup(ctx, txn, groupID, description)
 }
 
-// DeleteGroup buffers the removal of a group of the tenant, once it is emptied (see
-// Manager.DeleteGroup).
-func (t *Tenant) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) error {
+// DeleteGroup deletes a group of the tenant with its members and the roles it holds
+// (see Manager.DeleteGroup).
+func (t *Tenant) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
-		return err
+		return nil, err
 	}
 
-	return t.manager.DeleteGroup(ctx, txn, groupID)
+	return t.manager.DeleteGroup(ctx, txn, groupID, everythingUnder)
 }
 
 // requireTenantPerson holds a person a tenant's method names to the tenant's people: the

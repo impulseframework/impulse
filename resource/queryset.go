@@ -1390,6 +1390,12 @@ func (q *QuerySet[Resource]) stmt(dbType DBType) (*Statement, error) {
 	if from != "" {
 		query = from
 	}
+	// The names read from a view that the list is ordered by are read once, as the
+	// row of names beside each row (withNameLookups).
+	query, err = rendered.namesRowFrom(dbType, query)
+	if err != nil {
+		return nil, err
+	}
 
 	orderByClause, limitClause, err := q.pageClauses(dbType, rendered)
 	if err != nil {

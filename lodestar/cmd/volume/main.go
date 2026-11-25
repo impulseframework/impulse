@@ -368,6 +368,7 @@ func (w *world) sectors(ctx context.Context) error {
 		m := spanner.InsertMap("Sectors", map[string]any{
 			colID: id, colName: sectorName(i), "Region": "Synthetic reach",
 			"Established": civil.Date{Year: 2200 + i%50, Month: time.January, Day: 1},
+			"ChartedAt":   spanner.CommitTimestamp,
 		})
 		if err := w.loader.add(ctx, m); err != nil {
 			return err

@@ -1,6 +1,7 @@
 -- The staff auth's session tables: the session library's Auth sessions (session.Auth), one
--- set of tables for every sign-in method registered on the auth. A session belongs to a
--- user, and deleting the user deletes its sessions; UserId is null only for a
+-- set of tables for every sign-in method registered on the auth. A session names its user
+-- and is not held to it by a foreign key: a deleted user's sessions are ended in code, and
+-- their rows stay until the timed removal takes them. UserId is null only for a
 -- role-principal impersonation. ProviderSessionId is the identity provider's session id
 -- when the method reports one, for front-channel logout, and ProviderSessionIssuer the
 -- issuer it belongs to. Browser is the name of the browser a session was signed in from
@@ -21,7 +22,6 @@ CREATE TABLE StaffSessions (
     CreatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_StaffSessionsId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-    CONSTRAINT FK_StaffSessions_StaffSessionUsers FOREIGN KEY (UserId) REFERENCES StaffSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX StaffSessions_Expired_idx ON StaffSessions (Expired DESC);
@@ -116,6 +116,10 @@ CREATE UNIQUE INDEX StaffSessionPendingSignInsByTokenHash ON StaffSessionPending
 
 CREATE INDEX StaffSessionPendingSignInsByExpiresAt ON StaffSessionPendingSignIns(ExpiresAt);
 
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE StaffSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+
 -- The sign-in attempts: the attempt limiter's count of failed password attempts per
 -- sign-in name, known or not, within a window, and the lock those failures earned. The
 -- row is keyed by the submitted name, never by the user row, so an unknown name is
@@ -191,9 +195,11 @@ CREATE TABLE StaffSessionSignInSettings (
 -- update so one link completes once. A revoked invitation is consumed by hand, and a
 -- link whose message could not be mailed is consumed where the mail failed, with
 -- MailFailedAt set: it tells such a link from one that was followed or withdrawn. A
--- verification link, a first-password code, a reset link and an address confirmation
--- go with their user. CreatedAt, ConsumedAt and MailFailedAt take the commit time;
--- ExpiresAt is the library's deadline, written as given.
+-- link that was taken back is consumed too, with WithdrawnAt set: it tells a
+-- withdrawal from an acceptance. A verification link, a first-password code, a reset
+-- link and an address confirmation go with their user. CreatedAt, ConsumedAt,
+-- MailFailedAt and WithdrawnAt take the commit time; ExpiresAt is the library's
+-- deadline, written as given.
 CREATE TABLE StaffSessionMailLinks (
     Id         STRING(36) NOT NULL,
     TokenHash  BYTES(32) NOT NULL,
@@ -210,6 +216,7 @@ CREATE TABLE StaffSessionMailLinks (
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     MailFailedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+    WithdrawnAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_StaffSessionMailLinksId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
     CONSTRAINT CK_StaffSessionMailLinksKind CHECK (Kind IN ('invitation', 'verification', 'sign-up', 'first-password', 'password-reset', 'address-change')),
     CONSTRAINT FK_StaffSessionMailLinks_StaffSessionUsers FOREIGN KEY (UserId) REFERENCES StaffSessionUsers (Id) ON DELETE CASCADE,
@@ -219,10 +226,11 @@ CREATE UNIQUE INDEX StaffSessionMailLinksByTokenHash ON StaffSessionMailLinks(To
 
 CREATE INDEX StaffSessionMailLinksByKind ON StaffSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
--- A tenant's links, newest first, with the columns a tenant's list of its invitations
--- shows: a page of that list reads its own rows from the index and nothing else. A link
--- that names no tenant is not in it.
-CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenantId ON StaffSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
+-- A tenant's links, newest first, with every column of the table a tenant's list of its
+-- invitations reads: a page of that list reads its own rows from the index and no row of
+-- the table. The name of an invitation's sender comes from the users table, by the
+-- sender's id. A link that names no tenant is not in it.
+CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenantId ON StaffSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt, MailFailedAt, WithdrawnAt);
 
 -- A mail link's row is removed 30 days after the link expired (ExpiresAt), used or not.
 ALTER TABLE StaffSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
@@ -263,6 +271,11 @@ CREATE INDEX StaffSessionTokensByUser ON StaffSessionTokens(UserId, RevokedAt, E
 
 CREATE INDEX StaffSessionTokensByFamilyId ON StaffSessionTokens(FamilyId, RevokedAt);
 
+-- A token's row is removed 30 days after the token expired (ExpiresAt), revoked or not. A
+-- refresh token that was rotated stays until then, so one presented again before it
+-- expires is still caught as a reuse.
+ALTER TABLE StaffSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The device codes: the device authorizations command-line clients start for a machine
 -- outlet whose tokens the staff auth issues (RFC 8628). The client holds the opaque
 -- device code and the row keeps its hash; the person is shown the user code, normalized
@@ -291,6 +304,10 @@ CREATE TABLE StaffSessionDeviceCodes (
 CREATE UNIQUE INDEX StaffSessionDeviceCodesByHash ON StaffSessionDeviceCodes(DeviceCodeHash);
 
 CREATE INDEX StaffSessionDeviceCodesByUserCode ON StaffSessionDeviceCodes(UserCode, ExpiresAt);
+
+-- A device code's row is removed one day after the code expired (ExpiresAt), whether it
+-- was approved, denied or never decided.
+ALTER TABLE StaffSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 
 -- The second factor of the staff auth's sessions: the sign-in codes and the trusted
 -- devices. A sign-in code is one code mailed for a pending sign-in (PendingId): the mail
@@ -336,3 +353,6 @@ CREATE TABLE StaffSessionTrustedDevices (
 CREATE UNIQUE INDEX StaffSessionTrustedDevicesByTokenHash ON StaffSessionTrustedDevices(TokenHash);
 
 CREATE INDEX StaffSessionTrustedDevicesByUser ON StaffSessionTrustedDevices(UserId, RevokedAt);
+
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE StaffSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));

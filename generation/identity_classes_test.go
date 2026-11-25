@@ -66,10 +66,12 @@ var identityMethodActs = map[string]accesstypes.ActionClass{
 
 	// Who is let in, and with what: an invitation carries the roles its person will
 	// hold, or makes them the administrator of a new tenant, and its withdrawal takes
-	// that away; a sign-in method opened to sign-up gives a role to everyone who signs
-	// up through it, and made invite only gives it to nobody.
+	// that away, and an invitation sent again is a new one; a sign-in method opened to
+	// sign-up gives a role to everyone who signs up through it, and made invite only
+	// gives it to nobody.
 	"InviteUser":            changesAccess,
 	"WithdrawInvitation":    changesAccess,
+	"ResendInvitation":      changesAccess,
 	"InviteTenant":          changesAccess,
 	"WithdrawInvitedTenant": changesAccess,
 	"OpenSignUp":            changesAccess,
@@ -252,6 +254,7 @@ var wantAccessMethods = map[string][]string{
 	"TakeRole":              {"TakeCrewRole", "TakeMembersRole"},
 	"InviteUser":            {"InviteCrewShipUser", "InviteCrewUser"},
 	"WithdrawInvitation":    {"WithdrawCrewInvitation", "WithdrawCrewShipInvitation"},
+	"ResendInvitation":      {"ResendCrewInvitation", "ResendCrewShipInvitation"},
 	"InviteTenant":          {"InviteCrewShip"},
 	"WithdrawInvitedTenant": {"WithdrawCrewInvitedShip"},
 	"OpenSignUp":            {"OpenCrewSignUp"},

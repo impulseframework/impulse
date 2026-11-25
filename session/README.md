@@ -78,8 +78,9 @@ person's name `Name` (`SessionNames`), the tenant an invitation makes, the mail
 links table's `NewTenant` column (`SessionTenantInvitations`), the mark that an
 invitation's roles are held in every tenant, its `EveryTenant` column
 (`SessionInvitationPlaces`), the time a link's message could not be mailed, its
-`MailFailedAt` column (`SessionUnmailedLinks`), and the invitation a code was mailed
-for, the factor codes table's `InvitationId` column (`SessionCodeInvitations`); see
+`MailFailedAt` column (`SessionUnmailedLinks`), the invitation a code was mailed
+for, the factor codes table's `InvitationId` column (`SessionCodeInvitations`), and the
+time a link was taken back, its `WithdrawnAt` column (`SessionWithdrawnLinks`); see
 "Users and their
 email address" for the two shapes the address columns take, "A person's name" and
 "Invitations".
@@ -87,7 +88,7 @@ email address" for the two shapes the address columns take, "A person's name" an
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
 
-**Rows that are over are removed.** Three tables would otherwise keep every row ever
+**Rows that are over are removed.** Seven tables would otherwise keep every row ever
 written, and each removes its own:
 
 - The sessions table removes a session 30 days after its last activity (`UpdatedAt`). A
@@ -101,6 +102,15 @@ written, and each removes its own:
   sign-in code.
 - The mail links table removes a link 30 days after it expired (`ExpiresAt`), used or
   not.
+- The tokens table removes a token 30 days after it expired (`ExpiresAt`), revoked or
+  not. A refresh token that was rotated stays until then, so one presented again before
+  it expires is still caught as a reuse.
+- The trusted devices table removes a remembered browser 30 days after it expired
+  (`ExpiresAt`), revoked or not.
+- The device codes table removes a device authorization one day after it expired
+  (`ExpiresAt`), whether it was approved, denied or never decided.
+- The pending sign-ins table removes a pending sign-in one day after it expired
+  (`ExpiresAt`), consumed or not, and the sign-in codes mailed for it go with it.
 
 On Spanner the tables carry row deletion policies, and Spanner removes the rows in the
 background (its documentation says typically within 72 hours of the moment a row is
@@ -111,36 +121,52 @@ ALTER TABLE Sessions ADD ROW DELETION POLICY (OLDER_THAN(UpdatedAt, INTERVAL 30 
 ALTER TABLE SessionSignInAttempts ADD COLUMN EndsAt TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED;
 ALTER TABLE SessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));
 ALTER TABLE SessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+ALTER TABLE SessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+ALTER TABLE SessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+ALTER TABLE SessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
+ALTER TABLE SessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 ```
 
-PostgreSQL has no such policy, so the `Auth` store removes the rows as it writes: a
-sign-in removes the sessions that are due, a failed attempt removes the sign-in attempts
-rows that are due, and a link's insert removes the mail links that are due. Each write
-removes at most 100 rows, oldest first, and passes over a session, a sign-in attempts
-row or a link another transaction holds; nothing sweeps the tables. The removal is never
-the write's failure: one that fails is logged as an error, and the sign-in, the recorded
-failure or the link stands. A request that ends while its sign-in's removal runs is
-another matter: the sign-in fails with the request, as in any statement of its
-transaction, and a removal a deadline cut short is logged. Sessions are counted by the
-UTC day of their last activity (`UpdatedOn`, a column the database works out from
-`UpdatedAt`): a session goes once that day is more than 30 days back, so 30 to 31 days
-after its last activity and never sooner. The store reads the sessions that are due by
-an index on `UpdatedOn`, which changes once a day for a session in use, so the activity
-update most requests make writes no index while its row's page has room. Only a sign-in
-removes sessions. A session a `Preauth` store makes, one the application starts and an
-impersonated session remove nothing, so on PostgreSQL an application that only ever
-makes such sessions keeps every session row.
+PostgreSQL has no such policy, so the store removes the rows as it writes: a write that
+inserts a session removes the sessions that are due (a sign-in, a `Preauth` store's
+`Login`, a session the application starts and an impersonated session), a failed attempt
+removes the sign-in attempts rows that are due, a link's insert removes the mail links
+that are due, and a write that inserts a token, a trusted device, a device code or a
+pending sign-in removes the rows of its own table that are due. Three writes insert
+tokens: a token's own insert, a refresh, and the poll that redeems an approved device
+code. Each write removes at most 100 rows, oldest first, and passes over a row another
+transaction holds; nothing sweeps the tables. The removal is never the write's failure:
+one that fails is logged as an error, and the write that carried it stands. A request
+that ends while its sign-in's removal runs is another matter: the sign-in fails with the
+request, as in any statement of its transaction, and a removal a deadline cut short is
+logged. Sessions are counted by the UTC day of their last activity (`UpdatedOn`, a
+column the database works out from `UpdatedAt`): a session goes once that day is more
+than 30 days back, so 30 to 31 days after its last activity and never sooner. The store
+reads the sessions that are due by an index on `UpdatedOn`, which changes once a day for
+a session in use, so the activity update most requests make writes no index while its
+row's page has room.
 
-The shipped sets carry all of this (`SessionRowRemoval`: on Spanner in the base set and
-in the auth set, on PostgreSQL in the auth set). A table named per group, or kept in the
-application's own migrations, needs the same statements under its name. On PostgreSQL
-the store reads `EndsAt` and `UpdatedOn`: without the column it removes no row of that
-table and logs an error at each write. A table of the application's that references the
-sessions table or the mail links table needs `ON DELETE CASCADE` on that foreign key, as
-the custom session data table has: on PostgreSQL a foreign key without it stops the
-removal from that table while a row it holds is due, logged at each write. On
-PostgreSQL the referencing column also needs an index, which the database does not make
-for a foreign key: without one, each row the removal deletes reads that table whole.
+The shipped sets carry all of this: `SessionRowRemoval` for the first three tables (in
+the base set and in the auth set of each store), and `SessionExpiredRowRemoval` for the
+other four, in the auth set of each store (on Spanner their policies, on PostgreSQL the
+indexes on `ExpiresAt` the store reads the due rows by). A table named per group, or
+kept in the application's own migrations, needs the same statements under its name. On
+PostgreSQL the sessions table's are:
+
+```sql
+ALTER TABLE "Sessions" ADD COLUMN "UpdatedOn" date GENERATED ALWAYS AS (("UpdatedAt" AT TIME ZONE 'UTC')::date) STORED;
+CREATE INDEX "Sessions_UpdatedOn_idx" ON "Sessions" USING btree ("UpdatedOn");
+```
+
+On PostgreSQL the store reads `EndsAt` and `UpdatedOn`: without the column it removes no
+row of that table and logs an error at each write. The other four removals read
+`ExpiresAt`, which each of those tables has; without its index on `ExpiresAt`, each
+write that carries the removal reads the table whole. A table of the application's that
+references one of these tables needs `ON DELETE CASCADE` on that foreign key, as the
+custom session data table has: on PostgreSQL a foreign key without it stops the removal
+from that table while a row it holds is due, logged at each write. On PostgreSQL the
+referencing column also needs an index, which the database does not make for a foreign
+key: without one, each row the removal deletes reads that table whole.
 
 ## Auth sessions (multiple sign-in methods)
 
@@ -209,12 +235,15 @@ as it is, and a mail links table named per group, or kept in the application's o
 migrations, carries the column as the shipped one does. A table without it fails the
 first link written or read.
 
-The schema keeps its own integrity: a session belongs to an existing user (`UserId`,
-null only for a role-principal impersonation), and deleting a user deletes its
-sessions, their auth events and its identity links; your custom data tables cascade
-from the session and user rows likewise. A session that ends is marked expired, and its
-row stays until it has been idle 30 days (see "Rows that are over are removed" under
-"Schema"); auth events last exactly as long as their session rows.
+A session names its user (`UserId`, null only for a role-principal impersonation) and
+is not held to it by a foreign key: a deleted user's sessions are ended in code, and
+their rows stay until the timed removal takes them. The auth set's
+`SessionRowsOutliveUsers` migration drops the key its first migration made; a sessions
+table named per group, or kept in the application's own migrations, needs the same drop
+under its name. Deleting a user deletes its identity links with it, and your custom data
+tables cascade from the session and user rows likewise. A session that ends is marked
+expired, and its row stays until it has been idle 30 days (see "Rows that are over are
+removed" under "Schema"); auth events last exactly as long as their session rows.
 
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
@@ -342,7 +371,12 @@ DML what a later rule must read.
   that account, under the sign-in name. That link is their first sign-in through the
   directory, so the tenant's default seat is given at it too, through the hook, in
   the transaction that makes the link, whether the link is made at once or after
-  their password confirmed it.
+  their password confirmed it, and the hook is offered it again at every later
+  sign-in through the directory: a tenant that is open to its directory gives its
+  starting role to a person who signs in through the directory and holds nothing in
+  the tenant, at every sign-in, whether the account is new, stood before, or was tied
+  to the directory before the tenant took it, and whatever the person holds in other
+  tenants.
 
   **A first link on a name alone needs something to vouch for it.** An account created
   ahead with no password, which has never signed in (one the application created
@@ -363,8 +397,8 @@ DML what a later rule must read.
   therefore linked at a first sign-in only with their invitation, or once they have a
   password to confirm with. The deployment's own first administrator, who holds roles
   for the whole application and belongs to no tenant, is no such account: the
-  deployment creates none ahead of the person and invites them, and the invitation is
-  what ties their first sign-in through a directory to the roles, however many
+  deployment creates none ahead of the person and invites them, and the invitation
+  gives them the roles at the sign-in through a directory that accepts it, however many
   organizations the method admits (see "The first administrator's invitation").
   Any other sign-in under the name is refused as a
   person no account was created for is, with that refusal's own code and words, which
@@ -421,11 +455,13 @@ DML what a later rule must read.
   (`identity_rejected`) before anything is written, and neither account gains a link. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
   seated with it in the tenant, through the hook, in the transaction
-  that creates the account and links it. The hook is called once for a link, never
-  for a sign-in that finds the link, and the application's hook gives the seat only
-  where the person holds none in the tenant (the generated identity client's does),
-  so a seat an administrator removed is not given back by signing in, and a link that
-  is deleted and made again gives it again. A seat the invitation the sign-in consumes names too (the
+  that creates the account and links it. The hook is called at every sign-in through
+  the directory by an account that is not disabled, also one that finds the link, and
+  the application's hook gives the seat only where the person holds nothing in the
+  tenant (the generated identity client's does). So a person an administrator removes
+  from the tenant is given the default seat again the next time they sign in through
+  the directory. Disabling their account keeps one person out while the tenant is
+  open; making the tenant invite only keeps everyone out who is not invited. A seat the invitation the sign-in consumes names too (the
   same role in the same tenant) is given once, by the invitation, and is left out of
   what the hook is handed. A declaration naming none admits strangers by invitation only, the
   invitation the sign-in carries being the account as through a method that is invite
@@ -506,13 +542,26 @@ A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
    `Provision`'s `onProvisioned` writes. A link decision
    holds the user against another link decision until the transaction ends
    (PostgreSQL: a transaction-scoped advisory lock keyed by the user, which holds
-   neither session inserts nor a rule's own reads of the user; Spanner: the
-   transaction is serializable), so two racing sign-ins from two connections cannot
-   both link a password-less user. A transaction the database ends to break a deadlock
-   or a serialization failure runs once more.
+   neither session inserts nor a rule's own reads of the user, in a transaction at
+   read committed, so the decision that waited reads the link the one before it wrote;
+   Spanner: the transaction is serializable), so two racing sign-ins from two
+   connections cannot both link a password-less user. A transaction the database ends
+   to break a deadlock or a serialization failure runs once more.
 2. **Decision and session**: the user is read (a disabled one is refused), the
    sign-in policy runs, and the session row is inserted with its auth events and custom
    session data.
+
+**The isolation level.** The store names the isolation level of its transactions: every
+read-write transaction on Spanner is serializable, whatever level the application set for
+its client, and every transaction it begins on PostgreSQL is read committed, whatever
+default the server, the database, the role or the connection sets
+(`default_transaction_isolation`). On PostgreSQL the store's rules take a lock and then
+read, and each holds only while that read sees what the transaction that held the lock
+committed. At repeatable read a transaction reads the snapshot its first statement took,
+so a link decision that waited would find no link of the one it waited for. An account
+rule, a sign-in policy and a resolver of custom session data run in the store's
+transaction, so their own statements are at that level too. A statement the store sends
+outside a transaction is one statement at the connection's default.
 
 Each transaction **commits unless a hook or the storage returns an error**. A `Reject`,
 `Confirm`, `Deny` or `RequireMFA` answer is not an error: it commits the hook's own
@@ -694,7 +743,9 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   (`signin.Directory`: a method and the connection its identities carry, which is the
   Entra tenant id, the name the registration gives a Google Workspace, or a WorkOS
   connection id) and whether its people come through those **only**
-  (`DirectoryOnly`). A tenant's declaration restricts that tenant's door, and a
+  (`DirectoryOnly`). It also says whether the tenant is **disabled** (`Disabled`): a
+  disabled tenant seats nobody at a sign-in, and no session enters it but a super
+  administrator's. A tenant's declaration restricts that tenant's door, and a
   directory-only tenant also keeps the accounts that sign in through its directory to
   that directory (rule 2 below); beyond those accounts, a tenant that is not directory
   only, and a tenant that declares nothing (a nil declaration), admits everyone it
@@ -710,26 +761,29 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   one tenant at most), in the sign-in's first transaction; `seatHook`, a
   `session.DirectorySeatedHook[Tx]`, is the application's two functions over a
   person's roles. Its `Seat` seats the person with the seat the declaration
-  names (`signin.DirectorySeat`), inside the transaction that links the identity to
-  the user, which it is handed, so the link is made and the seat given together or
+  names (`signin.DirectorySeat`), inside the sign-in's transaction, which it is
+  handed, so a link that transaction makes is made and the seat given together or
   neither is, under the contract the invitation hook has (see "Invitations"). Its
   `OnlyIn` answers whether a tenant is the only place a person holds anything, read in
   that transaction, which the library asks before it links an identity on its name
   alone to an account that has never signed in (see "A first link on a name alone"
   above). The generated identity client answers both.
-  `Seat` is called at a person's first sign-in through the directory, the one that
-  makes the link, whether the account is created in it or stood before: a person
-  given a role ahead of their first sign-in, or invited by another tenant, has an
-  account, which the sign-in links to after the pending confirmation
-  (`Pending().Confirm()`) when it holds a password, and at once when it holds none
-  and the link is vouched for, and the hook
-  runs in the transaction of that link (the storage's `LinkConfirmedIdentity` for
-  the confirmed one, which an `AuthStore` of the application's own must implement).
-  It is called once for a link: a later sign-in finds the link and calls nothing.
-  Whether the person is seated is the hook's to decide over what it is handed: the
-  generated identity client's gives the seat where the person holds no role in the
-  tenant, so a seat an administrator removed is not given back by signing in, and a
-  link that is deleted and made again gives it again. A personal account, one of the
+  `Seat` is called at every sign-in through the directory by an account that is not
+  disabled. At a person's first sign-in through the directory, the one that makes
+  the link, whether the account is created in it or stood before (a person given a
+  role ahead of their first sign-in, or invited by another tenant, has an account,
+  which the sign-in links to after the pending confirmation (`Pending().Confirm()`)
+  when it holds a password, and at once when it holds none and the link is vouched
+  for), the hook runs in the transaction of that link (the storage's
+  `LinkConfirmedIdentity` for the confirmed one, which an `AuthStore` of the
+  application's own must implement). At every later sign-in it runs in the sign-in's
+  first transaction, which finds the link. Whether the person is seated is the hook's
+  to decide over what it is handed: the generated identity client's gives the seat
+  where the person holds nothing in the tenant. So a person an administrator removes
+  from the tenant is given the default seat again the next time they sign in through
+  the directory; disabling their account keeps one person out while the tenant is
+  open, and making the tenant invite only keeps everyone out who is not invited. A
+  personal account, one of the
   two connections that stand for everyone who is in no organization
   (`signin.Directory.PersonalAccounts`: any Google account,
   `signin.GoogleAnyAccountConnection`, and Microsoft's personal accounts,
@@ -771,10 +825,10 @@ The rules, in order, once the user is known:
    organization's directory, each with the code rule 7 gives it. The tenant's own
    administrators are the exception: a person who administers that tenant and signs in
    with a password is held for the mailed code, as in rule 3; an administrator of
-   another tenant is not. Nothing is taken from the account: with the tenant's directory
-   only turned off, the password signs the person in again. An `Auth` that sets no
-   directory admission hands the policy no directories, and this rule then refuses
-   nobody.
+   another tenant is not. Neither is an administrator of a tenant that is disabled.
+   Nothing is taken from the account: with the tenant's directory only turned off, the
+   password signs the person in again. An `Auth` that sets no directory admission hands
+   the policy no directories, and this rule then refuses nobody.
 3. A tenant's own administrators keep a way into their tenant. A person who signs in
    with a password and administers a tenant that is directory only is not refused, and
    the sign-in is held for the library's second factor, the code it mails
@@ -784,15 +838,17 @@ The rules, in order, once the user is known:
    broken, or was set wrong, would otherwise be a tenant nobody in it could mend. See
    "A tenant's administrators and a directory-only tenant" below for who that is.
    Nobody but a super administrator and a tenant's own administrators, in their own
-   tenant, enters a directory-only tenant another way than through its directory.
+   tenant, enters a directory-only tenant another way than through its directory. A
+   tenant that is disabled gives no such way in.
 4. A person holding a role outside any one tenant is admitted: in the global partition,
    which is no tenant's and which no declaration governs, or in every tenant domain,
    whose tenants the policy has no list of. It is no exemption: the session then
    reaches a tenant only where the tenant's declaration admits it, as anyone's does.
-5. A person who is a member of no tenant is refused (`no_tenant`), unless the policy
-   was built with `signin.AdmitWithoutTenant()`, which the self-service shape of an
-   application needs: a stranger signs in, then creates their organization and its
-   first membership, and until then the session reaches no tenant.
+5. A person who is a member of no tenant, or whose every tenant is disabled, is refused
+   (`no_tenant`), unless the policy was built with `signin.AdmitWithoutTenant()`, which
+   the self-service shape of an application needs: a stranger signs in, then creates
+   their organization and its first membership, and until then the session reaches no
+   tenant.
 6. The sign-in is admitted when one of the person's tenants admits it
    (`signin.TenantDeclaration.Admits`). A tenant that is not directory only admits
    every sign-in: a password, a personal account, a session the application starts for
@@ -868,8 +924,10 @@ through a directory from the application's own). A session reaches every tenant 
 seats the person, except a tenant that is directory only and whose directory is not the
 one the person signed in through; such a tenant is still reached by its own
 administrator's password session that carries a second factor
-(`TenantDeclaration.AdmitsAdministrator`, above). So a person seated in a directory-only tenant and in
-a tenant that is not signs in by password and reaches the second; signed in through the
+(`TenantDeclaration.AdmitsAdministrator`, above). A tenant that is disabled
+(`TenantDeclaration.IsDisabled`) is reached by no session but a super administrator's,
+whatever its sign-in settings admit; the application asks that first. So a person
+seated in a directory-only tenant and in a tenant that is not signs in by password and reaches the second; signed in through the
 first one's directory they reach both. A person invited into one tenant who signs in
 through another tenant's directory reaches both, unless the tenant that invited them is
 directory only. A member of two directory-only tenants reaches the one whose directory
@@ -1313,8 +1371,9 @@ only while its row is live: not expired and not consumed. Completing, canceling 
 replacing it consumes the row by a conditional update, before the completion signs in,
 so the token is single-use: of two completions racing on a copied cookie, one proceeds
 and the other answers `pending_expired`. No session row exists until the sign-in
-completes, so nothing of a pending identity ever validates as a session. Expired and
-consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
+completes, so nothing of a pending identity ever validates as a session. An expired row,
+consumed or not, is removed a day after it expired (see "Rows that are over are removed"
+under "Schema").
 
 ### The second factor
 
@@ -1550,8 +1609,9 @@ pending sign-in at a time, however many are recorded at once (the PostgreSQL dri
 takes the pending sign-in's row for the insert, and Spanner's transaction is
 serializable), and the codes go with the pending sign-in. A trusted device
 is a row of `SessionTrustedDevices`: the user, the token's hash, and when it was
-created, expires, was last used and revoked; the devices go with the user. Expired and
-consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
+created, expires, was last used and revoked; the devices go with the user. A code is
+removed with its pending sign-in, a day after that expired, and a trusted device 30 days
+after it expired, revoked or not (see "Rows that are over are removed" under "Schema").
 
 ### Every session
 
@@ -1656,11 +1716,11 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `UserByEmail(ctx, email)` | The user holding an address, verified or not. See "Users and their email address". |
 | `RequestAddressChange(ctx, id, email, by)` | An administrator's change of a person's address: mails the link that confirms the new address to it and changes nothing until the link is followed. Refused for a person who signs in through an organization's directory and holds a confirmed address (Conflict). See "Users and their email address". |
 | `SendPasswordReset(ctx, id, by)` | Mails the user a link that resets their password, to the address they confirmed; Conflict, in one sentence, for an account with no password or no confirmed address, and for one whose password the tenants' sign-in settings disable. See "A password reset". |
-| `NoticeFactorReset(ctx, id)`, `NoticeRemovedFromTenant(ctx, to, tenant, accountDeleted)` | The notices of an administrator's reset of the second factor and of a removal from a tenant, for an application that makes either change in rows of its own; each goes to a confirmed address and to no other. |
+| `NoticeFactorReset(ctx, id)` | The notice of an administrator's reset of the second factor, for an application that makes the change in rows of its own; it goes to a confirmed address and to no other. |
 | `WaitForMail()` | Waits for the mail a person's own request for a reset link sends after its answer; for a test, and for a shutdown that lets mail finish: the auth package `impulse` writes calls it in its `Close`, which an application calls once it has stopped serving and before it closes the database. |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
 | `Invite(ctx, &InvitationRequest{Email, Name, TenantID, EveryTenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
-| `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent ends the invitation and marks its row as not mailed (`MailFailedAt`), so a list of the links tells it from one that was used or withdrawn. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
+| `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent ends the invitation and marks its row as not mailed (`MailFailedAt`), so a list of the links tells it from one that was used or withdrawn. A link that was taken back is consumed with `WithdrawnAt` set, so a list tells Withdrawn from Accepted. The `SessionWithdrawnLinks` migration also stores `WithdrawnAt` and `MailFailedAt` in the index a tenant's list of its invitations reads without a row of the table. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
 
 **A seed that gives a user its roles.** A role is held by the id of an account, so a
 seed needs the id before the user exists. `session.SeedUserID(auth, username)` is that
@@ -2218,7 +2278,9 @@ their own live sessions, the one of the request first and marked, each with the 
 the browser it was signed in from ("Chrome on Android", worked out from the User-Agent
 header when the session was made; absent where it was not recognized), when it was
 signed in and when it was last used, and how many browsers are remembered for them.
-`Auth.EndOwnSession()` takes `{"sessionId"}` and ends one of the person's own
+The session read (`Authenticated`) carries `sessionId` for a signed-in request.
+`sessionId` is the id of the session the request arrived on: what a list of sessions
+marks as the reader's own. `Auth.EndOwnSession()` takes `{"sessionId"}` and ends one of the person's own
 sessions, never the request's own; `Auth.EndOtherSessions()` ends all but the request's
 own and answers how many of the listed ones ended. Both also end a session of the
 person's that has timed out and is no longer listed, so nothing can bring it back.
@@ -2229,16 +2291,11 @@ and refuse an impersonated session. These four, and the two of the username, als
 a request a token authenticated.
 
 **The person sees their tenants and leaves one**, signed in: `Auth.OwnTenants()` answers
-`{"tenants": [{"domain", "name", "roles", "refusal", "deletesAccount"}]}`, the tenants the
-person holds something in, each by its name (`SetTenantNames`; the tenant's key where no name
-is known) with the roles they hold there in words, why they cannot leave it where they cannot
-(`refusal`, absent where they can), and whether leaving it deletes their account.
-`Auth.LeaveTenant()` accepts `{"domain", "deletesAccount"}` and answers `{"accountDeleted"}`:
-everything the person holds in the tenant goes, and the account goes with it, and every
-session of theirs, when the person then holds nothing still in force anywhere: a role or a
-place whose time has ended keeps no account against its person's own leaving, and goes with
-it. `deletesAccount` is what the page told the person; where it is no longer true the request
-is refused (409) and nothing changes, so nobody deletes their account having agreed to less.
+`{"tenants": [{"domain", "name", "roles", "refusal"}]}`, the tenants the person holds
+something in, each by its name (`SetTenantNames`; the tenant's key where no name is known)
+with the roles they hold there in words, and why they cannot leave it where they cannot
+(`refusal`, absent where they can). `Auth.LeaveTenant()` accepts `{"domain"}` and answers 200
+with no body. Leaving takes every role the person holds in the tenant. The account stays.
 Who belongs where is the application's to say: both handlers answer through the hook the
 auth's package sets (`SetOwnTenants`, the generated identity client's `OwnTenants`), which
 holds the rules: a tenant's last administrator does not leave it. Both validate the session
@@ -2894,7 +2951,10 @@ in `SessionTokens` and `SessionDeviceCodes` (the shipped migrations `000007` on 
 and `000006` on PostgreSQL; `WithTokensTableName`, `WithDeviceCodesTableName`), keyed
 by the hash of the secret, with the person, the outlet, the kind, the family, the
 name or client, the issue, expiry, last use and revocation (`revoked`, `rotated`,
-`reuse`, `user`); a person's rows go with the person.
+`reuse`, `user`); a person's rows go with the person. A token's row is removed 30 days
+after the token expired and a device authorization's a day after it expired (see "Rows
+that are over are removed" under "Schema"); a device code polled after its row is gone
+answers `invalid_grant`, as an unknown code does.
 
 #### From a command line
 
@@ -2948,15 +3008,9 @@ that resets a password, the link that confirms an address an administrator set, 
 sign-in code of the second factor, and the code that accepts an invitation, which comes
 in a message of its own. It also sends notices, which carry no link and are
 not counted against the limit on mail to an address: that an account's address changed
-(to the old address), that an administrator reset a person's second factor, and that an
-administrator removed a person from a tenant, which says so when the account went with
-it. The removal notice is for an administrator's act that leaves the person with no role
-in the tenant, of their own or through a group: a role taken, the person taken out of a
-group, or a role taken from a group; where that was the last thing the person held
-anywhere and the account went with it, the notice says so. It is not sent when an
-administrator deletes the account outright or a tenant is cleared, for a role that ends
-by itself, or when the person leaves themselves. A link, a code or a notice goes to a confirmed address or, where it is what
-confirms one, to the address being confirmed. It writes
+(to the old address), and that an administrator reset a person's second factor. A link,
+a code or a notice goes to a confirmed address or, where it is what confirms one, to the
+address being confirmed. It writes
 to one interface, `mail.Sender` (`session/mail`), and knows nothing of the mail system
 behind it; an application configures a driver and hands it to the `Auth`. A message is
 plain text with one link in it (`mail.Message`: the recipient, the subject and the body),
@@ -3473,7 +3527,7 @@ table is the wire contract:
 | `pending_expired` | `RefusedPendingExpired` | Auth: a confirmation or MFA step arrived after its pending identity expired or was used. |
 | `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or the standard account rule found no sign-in name to use as the username. |
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: an administrator required a new password of the signed-in user; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
-| `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
+| `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, or every tenant of theirs is disabled, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), and either a directory-only tenant's directory signs the account in and this is not that directory, or every tenant that seats the person is directory only and none of them has that directory as its own. |
 | `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in with a password by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. A password sign-in by a person who administers the tenant is not refused: it is held for the second factor (see "The tenant policy", rules 2 and 3). |
 | `directory_only_personal_account` | `RefusedDirectoryOnlyPersonalAccount` | Auth, the tenant policy: a sign-in with a personal account (through Google or Microsoft, with an account that is in no organization's directory) by a person whose account a directory-only tenant's directory signs in, or whose every tenant is directory only. The person used no password, so a login page asks them for their organization's account. |

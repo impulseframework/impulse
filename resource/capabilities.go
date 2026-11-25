@@ -227,7 +227,7 @@ func (q *QuerySet[Resource]) checkCapabilityPermissions(ctx context.Context) err
 			}
 		}
 
-		decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, perm, resources...)
+		decisions, err := judgedDecisions(ctx, q.userPermissions, q.collection, q.env, q.scope, perm, resources...)
 		if err != nil {
 			return errors.Wrap(err, "resource.UserPermissions.Check()")
 		}

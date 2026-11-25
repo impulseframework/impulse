@@ -446,7 +446,7 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 	groupNote := "// Where the group is kept in a citadel and holds one of that citadel's\n// administrator roles there, a row offers it only to a caller whose session enters the\n// citadel (@callerEnters); the method refuses anyone else.\n//\n// @rpc"
 	// The removal's comment goes on to say that it asks first.
 	groupRemovalNote := "// Where the group is kept in a citadel and holds one of that citadel's\n// administrator roles there, a row offers it only to a caller whose session enters the\n// citadel (@callerEnters); the method refuses anyone else.\n//\n" +
-		"// The method declares a warning with no word to type: asked first, the server says who\n// leaves which group, and, where the place is the last thing the person holds, that the\n// account is deleted with it.\n//\n// @rpc"
+		"// The method declares a warning with no word to type: asked first, the server says who\n// leaves which group.\n//\n// @rpc"
 	notes := map[string]string{
 		"membersidentity/add_members_group_member.go":    groupNote,
 		"membersidentity/remove_members_group_member.go": groupRemovalNote,
@@ -498,7 +498,7 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 		}
 	}
 
-	// The five structs answer it over the column that holds the account's id, and the
+	// The six structs answer it over the column that holds the account's id, and the
 	// whole application's accounts, which its methods on a person name, are one of them.
 	for file, lines := range map[string][]string{
 		"internal/crewresources/crew_session_users.go": {
@@ -507,6 +507,7 @@ func Test_prepareIdentity_callerEnters(t *testing.T) {
 			"func (CrewSessionUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}",
 		},
 		"internal/crewresources/crew_session_identities.go": {"func (CrewSessionIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},
+		"internal/crewresources/crew_listed_identities.go":  {"func (CrewListedIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},
 		"internal/crewresources/crew_listed_users.go":       {"func (CrewListedUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}"},
 		"internal/crewresources/crew_citadel_users.go":      {"func (CrewCitadelUser) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"Id\")\n}"},
 		"internal/crewresources/crew_citadel_identities.go": {"func (CrewCitadelIdentity) TenantsToEnter() resource.TenantsToEnter {\nreturn crewSessionUserTenantsToEnter(\"UserId\")\n}"},

@@ -53,14 +53,55 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
 		}},
+		// CrewListedIdentities: the tables its query reads.
+		{Resource: crewresources.CrewListedIdentity{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
+			{Name: resources.SectorDirectory{}.Resource()},
+		}},
+		// CrewListedMailLinks: the tables its query reads.
+		{Resource: crewresources.CrewListedMailLink{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionMailLink{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+		}},
+		// CrewListedSectors: the tables its query reads.
+		{Resource: crewresources.CrewListedSector{}.Resource(), Global: true, Root: resources.Sector{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
+			{Name: resources.SectorDirectory{}.Resource()},
+		}},
+		// CrewListedSessions: the tables its query reads.
+		{Resource: crewresources.CrewListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionAuthEvent{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionImpersonation{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+			{Name: crewresources.CrewSession{}.Resource(), Global: true},
+		}},
+		// CrewListedSignInAttempts: the tables its query reads.
+		{Resource: crewresources.CrewListedSignInAttempt{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: crewresources.CrewSessionMailLink{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+		}},
 		// CrewListedUsers: the tables its query reads.
 		{Resource: crewresources.CrewListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionSignInSetting{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionTrustedDevice{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
+			{Name: resources.SectorDirectory{}.Resource()},
 			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
 		// CrewSectorGroups: the tables its query reads.
@@ -106,6 +147,7 @@ var LiveDerivations = &live.Derivations{
 		// CrewSectorInvitations: the tables its query reads.
 		{Resource: crewresources.CrewSectorInvitation{}.Resource(), Tables: []live.SourceTable{
 			{Name: crewresources.CrewSessionMailLink{}.Resource(), Global: true},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 		}},
 		// CrewSectorSignInWays: the tables declared with @changedBy.
 		{Resource: crewidentity.CrewSectorSignInWay{}.Resource(), Tables: []live.SourceTable{

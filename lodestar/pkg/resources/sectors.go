@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"time"
+
 	"cloud.google.com/go/civil"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
@@ -29,12 +31,13 @@ type (
 	// (schema/migrations) is what keeps two sectors from carrying one name, and an
 	// application that allows that drops the index.
 	//
-	// A sector that is deleted leaves nothing of itself behind: the generated delete path
-	// removes, in the transaction that deletes the row, the roles people held in the
-	// sector, the custom roles made in it and the invitations into it that still stood,
-	// in the crew's tables and the members' alike (each auth's generated identity client,
-	// ClearTenant), and a person who held roles in that sector alone goes with it. No
-	// role Lodestar ships holds Delete on Sectors; the suite gives one to prove it.
+	// A sector that is deleted leaves nothing of itself behind. The roles people hold in
+	// the tenant, its groups, its custom roles, its invitations and the accounts that
+	// belonged to it alone are kinds of the tenant's delete: counted in its question and
+	// taken in its rounds, in the crew's tables and the members' alike (each auth's
+	// generated identity client, TenantKinds). The delete is of a disabled sector: one that
+	// is not disabled is refused, in a sentence that says to disable it first. No role
+	// Lodestar ships holds Delete on Sectors; the suite gives one to prove it.
 	//
 	// Sector itself is a GLOBAL resource: administering the sector list is a global
 	// concern. The place switcher lists only the sectors a login holds a grant in.
@@ -53,15 +56,16 @@ type (
 	// the invitations that wait are listed with their details for whoever may read
 	// them on this record (CrewInvitedSectors), and Headquarters changes one by
 	// withdrawing it and sending another. An invitation that says directory only is
-	// accepted through a directory alone, and a first sign-in through a directory
-	// another sector has is refused; either way nothing is made and the invitation
+	// accepted through a directory alone, and the sign-in that would accept it through
+	// a directory another sector has is refused; either way nothing is made and the invitation
 	// stands. The other way is the pioneer's, one generated route (POST
 	// /console/api/create-sector) for a person who signed in holding no sector, and names
-	// their own. The pioneer's way is open while a fleet administrator has a sign-in
-	// method of the crew auth open to sign-up (the console's Sign-in page), which is how
-	// she comes to hold a login at all: through the sign-up registration, any Google
-	// account. The route reads that in the transaction that writes the row, and refuses
-	// while every method is invite only. It writes the row, seats the person with the
+	// their own. The pioneer's way is open to a person who signed in through a sign-in
+	// method of the crew auth that a fleet administrator has open to sign-up (the
+	// console's Sign-in page), which is how she comes to hold a login at all: through the
+	// sign-up registration, any Google account. The route reads that in the transaction
+	// that writes the row, and refuses a person whose session came through a method that
+	// is invite only. It writes the row, seats the person with the
 	// roles the App names (SectorAdministratorRoles: SectorMarshal) and hands the sector
 	// to the roster, so their next request stands in it; a person who already holds a
 	// sector is refused, the governor included, since an administrator of one sector
@@ -83,7 +87,7 @@ type (
 	// Cinder's), reaches Cinder and every other sector that seats him and is not
 	// directory only; the rigger, by password, reaches Anvil and not Bastion, which
 	// admits its people through its directory only (the seed makes the persona
-	// provider its directory) and stays on her chart marked closed, with the reason;
+	// provider its directory) and stays on her chart as not available, with the reason;
 	// the bosun, whose only sector is Bastion, is refused at sign-in. The pioneer signs
 	// up with a personal Google account, which is no organization's directory: the
 	// create-sector route sets none on her Ember, and
@@ -92,7 +96,15 @@ type (
 	// the row's transaction, and is refused when another sector has it. The record's
 	// change events (DataChangeEvents, Config) are the audit of every edit.
 	//
-	// Demonstrates: tenancy.tenant-record, tenancy.run-time-tenant, tenancy.invited-tenant, tenancy.deleted-tenant, tenancy.concealed, tenancy.self-service, tenancy.declaration, tenancy.directory-only, tenancy.creator-directory, @order, @page.
+	// A sector can be disabled (Disabled): from their next request its crew hold nothing
+	// in it and it answers them as a sector that does not exist, their chart lists it
+	// under "Not available" with the reason ("Ember is disabled."), and a person whose
+	// every sector is disabled signs in as a person who holds none does: admitted to the
+	// console, which admits a person with no sector so that she can chart one. The
+	// governor, a super administrator, still enters it. Enabled again, everyone has what
+	// they had.
+	//
+	// Demonstrates: tenancy.tenant-record, tenancy.run-time-tenant, tenancy.invited-tenant, tenancy.deleted-tenant, tenancy.concealed, tenancy.self-service, tenancy.declaration, tenancy.directory-only, tenancy.disabled, tenancy.creator-directory, @order, @page.
 	//
 	// @resource
 	// @tenant
@@ -106,6 +118,11 @@ type (
 		Name        string     `spanner:"Name"`
 		Region      string     `spanner:"Region"`
 		Established civil.Date `spanner:"Established"`
+		// ChartedAt is when the sector was charted: the database writes it with the row, at
+		// the commit that makes the sector, whichever way it is made, and nothing changes it
+		// afterward. The crew's list of sectors says it as Since.
+		// @tenantSince
+		ChartedAt time.Time `spanner:"ChartedAt" conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
 		// DirectoryOnly says the sector's people enter through its directory only: no
 		// other sign-in reaches the sector, and the flag closes this sector alone. The
 		// switch is the sector's own: the sector's marshal (SectorMarshal) turns it with the
@@ -118,6 +135,15 @@ type (
 		// sets the flag with the directory.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
+		// Disabled says the sector is disabled: its crew are shut out while its records
+		// stay, and nobody enters it but a super administrator, the sector's own marshal
+		// included. It is an ordinary field of the record: whoever holds Update on it
+		// disables a sector and enables it again (Headquarters), and enabling gives
+		// everyone back what they held, since no role, group or invitation is touched. A
+		// sector is disabled before it is deleted: the record's delete refuses one that is
+		// not.
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 )
 

@@ -83,6 +83,12 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	// administrator signs in only to a caller who enters the sectors the person
 	// administers, read by the engine's own names, the ones the methods refuse by.
 	membersresources.SetMembersSessionUserAdministratorRoles(manager.TenantAdministratorRoles())
+	// The list of the auth's sessions says which are live by the timeout the Auth judges a
+	// request by.
+	membersresources.SetMembersListedSessionTimeout(sessions.SessionTimeout())
+	// The list of the failed sign-ins says the limit that locks a name by asking the Auth
+	// at each query: the limit is fixed when the password method is registered.
+	membersresources.SetMembersListedSignInAttemptLimit(sessions.SignInFailureLimit)
 
 	return &Client{manager: manager}, nil
 }
@@ -146,20 +152,15 @@ func (c *Client) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransact
 	return holds, nil
 }
 
-// ClearTenant buffers the removal of everything the Members auth holds for a tenant, in
-// the transaction that deletes the tenant's row (identity.Manager.ClearTenant): every
-// membership held in it, the custom roles made in it with their grants, and the
-// withdrawal of every invitation into it that still stands. A person the tenant's
-// memberships were the only ones of is deleted with their identity links and sessions,
-// by the rule on an account nothing admits. The generated delete of the tenant record
-// calls it; an application that deletes a tenant in a transaction of its own calls it
-// there.
-func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) error {
-	if err := c.manager.ClearTenant(ctx, txn, domain); err != nil {
-		return errors.Wrap(err, "identity.Manager.ClearTenant()")
-	}
-
-	return nil
+// TenantKinds answers what the Members auth holds for a tenant as kinds of the
+// tenant's delete (identity.Manager.TenantKinds): the accounts that are the tenant's
+// alone, the roles held in it, its groups, its custom roles and its invitations that
+// still stand. The generated delete of the tenant record hands them to the delete
+// (resource.PatchSet.DeleteAlso), which counts them in its question and takes them in
+// its rounds; an application that deletes a tenant in code of its own hands them to its
+// delete there.
+func (c *Client) TenantKinds(domain accesstypes.Domain) []resource.TakenKind {
+	return c.manager.TenantKinds(domain)
 }
 
 // DirectoryName answers what the Members auth's sign-in registrations call a

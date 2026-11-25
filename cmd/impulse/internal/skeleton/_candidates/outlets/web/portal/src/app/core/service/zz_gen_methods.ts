@@ -104,21 +104,45 @@ export interface CreateMembersTenantGroupResult {
 
 export interface DeleteMembersGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteMembersGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteMembersGroup answers with. */
+export interface DeleteMembersGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteMembersGroup declares; the method chooses one per response. */
-export type DeleteMembersGroupStatus = 204;
+export type DeleteMembersGroupStatus = 202 | 204;
+/** The answer DeleteMembersGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersGroupAnswer {
+  status: DeleteMembersGroupStatus;
+  result: DeleteMembersGroupResult;
+}
 
 export interface DeleteMembersTenantGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteMembersTenantGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteMembersTenantGroup answers with. */
+export interface DeleteMembersTenantGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteMembersTenantGroup declares; the method chooses one per response. */
-export type DeleteMembersTenantGroupStatus = 204;
+export type DeleteMembersTenantGroupStatus = 202 | 204;
+/** The answer DeleteMembersTenantGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersTenantGroupAnswer {
+  status: DeleteMembersTenantGroupStatus;
+  result: DeleteMembersTenantGroupResult;
+}
 
 export interface DeleteMembersTenantUserConfig {
   userId: string | FieldPointer;
@@ -378,6 +402,30 @@ export interface RequireMembersSecondFactorConfig {}
 export interface RequireMembersSecondFactor {}
 /** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
 export type RequireMembersSecondFactorStatus = 204;
+
+export interface ResendMembersInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendMembersInvitation {
+  invitationId: string;
+}
+/** The result ResendMembersInvitation answers with. */
+export interface ResendMembersInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
+export interface ResendMembersTenantInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendMembersTenantInvitation {
+  invitationId: string;
+}
+/** The result ResendMembersTenantInvitation answers with. */
+export interface ResendMembersTenantInvitationResult {
+  id: string;
+  sent: boolean;
+}
 
 export interface RevokeMembersSessionTokenConfig {
   tokenId: string | FieldPointer;
@@ -747,19 +795,23 @@ const methodMap: MethodMap = {
   [Methods.DeleteMembersGroup]: {
     route: 'delete-members-group',
     target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteMembersTenantGroup]: {
     route: 'delete-members-tenant-group',
     target: { resource: Resources.MembersTenantGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteMembersTenantUser]: {
@@ -767,6 +819,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],
@@ -838,9 +891,10 @@ const methodMap: MethodMap = {
   },
   [Methods.EndMembersSession]: {
     route: 'end-members-session',
-    target: { resource: Resources.MembersSessions, key: { sessionId: 'id' } },
+    target: { resource: Resources.MembersListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -994,6 +1048,24 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [],
   },
+  [Methods.ResendMembersInvitation]: {
+    route: 'resend-members-invitation',
+    target: { resource: Resources.MembersListedMailLinks, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.ResendMembersTenantInvitation]: {
+    route: 'resend-members-tenant-invitation',
+    target: { resource: Resources.MembersTenantInvitations, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
   [Methods.RevokeMembersSessionToken]: {
     route: 'revoke-members-session-token',
     target: { resource: Resources.MembersSessionTokens, key: { tokenId: 'id' } },
@@ -1111,7 +1183,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkMembersSessionIdentity]: {
     route: 'unlink-members-session-identity',
-    target: { resource: Resources.MembersSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.MembersListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1129,7 +1201,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockMembersSignIn]: {
     route: 'unlock-members-sign-in',
-    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.MembersListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -1138,7 +1210,7 @@ const methodMap: MethodMap = {
   },
   [Methods.WithdrawMembersInvitation]: {
     route: 'withdraw-members-invitation',
-    target: { resource: Resources.MembersSessionMailLinks, key: { invitationId: 'id' } },
+    target: { resource: Resources.MembersListedMailLinks, key: { invitationId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

@@ -270,19 +270,20 @@ an application cannot import. It is not the `oidc` method of the last column: th
 names a single provider in a setting, so it serves one organization.
 
 One thing differs between Google and Microsoft: invitations. An invitation is accepted
-only with the invited email address. Google vouches for the address a sign-in carries, so
-a Google sign-in with the invited address accepts at once, and one with another address
-is refused. Microsoft does not vouch for an address. A Microsoft sign-in carries none
-unless the application's registration at Microsoft is set up to send it, and the one it
-then carries is whatever the administrator of that Microsoft directory wrote: anybody can
-make a directory and write somebody else's address in it. So that address counts for
-nothing, whether it is the invited one or another. A person who accepts an invitation with
-Microsoft, or with another provider that sends no address or does not vouch for the one
-it sends, is stopped before the application opens and mailed a code at the invited
-address. They type no address: the code goes to the one that was invited. Entering the
-code accepts the invitation, and a new person's account is made with the invited address,
-confirmed. The first administrator of an auth whose only method is Microsoft accepts the
-same way.
+only with the invited email address. Google vouches for the address a sign-in carries
+where the address is Google's own to answer for, a Gmail address or the address of a
+Google Workspace account, so such a sign-in with the invited address accepts at once, and
+one with another address is refused. Microsoft does not vouch for an address. A Microsoft
+sign-in carries none unless the application's registration at Microsoft is set up to send
+it, and the one it then carries is whatever the administrator of that Microsoft directory
+wrote: anybody can make a directory and write somebody else's address in it. So that
+address counts for nothing, whether it is the invited one or another. A person who accepts
+an invitation with Microsoft, with a Google account made with an address from somewhere
+else, or with another provider that sends no address or does not vouch for the one it
+sends, is stopped before the application opens and mailed a code at the invited address.
+They type no address: the code goes to the one that was invited. Entering the code accepts
+the invitation, and a new person's account is made with the invited address, confirmed.
+The first administrator of an auth whose only method is Microsoft accepts the same way.
 
 The code shows that the mailbox is the person's, and nothing more. It makes a new person's
 account, and it confirms the invited address on the account of a person who already signs
@@ -545,13 +546,10 @@ link mailed to the confirmed address of their account.
 - The address an account held is told when the account's address was changed.
 - A person is told when an administrator forgets the browsers they trusted, so that their
   next sign-in asks for the code again.
-- A person is told when an administrator removes them from a tenant: when the last role
-  they held there is taken, whether it was their own or one they had through a group. The
-  message says so when the account was deleted with it.
 
-Nothing is mailed when an account is disabled or enabled, when a role ends by itself, when
-a person leaves a tenant themselves, or when an administrator deletes the account
-outright.
+Nothing is mailed when an account is disabled or enabled, when a role ends by itself, when a
+person is removed from a tenant or leaves one themselves, or when an administrator deletes
+the account outright.
 
 ### Acting as someone else
 
@@ -1029,15 +1027,17 @@ Nobody creates a tenant directly. A tenant comes to exist in one of two ways.
 
 **By invitation.** Staff do not create tenants. They invite a person, and that person's
 first sign-in creates the tenant and makes them its first administrator. This is how to
-control who is added. In the skeletons the invitation is sent from the Invited tenants
-page, in the System menu, by a holder of the `Administrator` role. The invitation carries
+control who is added. In the skeletons the invitation is sent from the tenants page (All
+tenants, in the Tenants menu), which lists the invitations still waiting above the
+tenants, by a holder of the `Administrator` role. The invitation carries
 the tenant's name. Where a tenant can have a directory, it can also say that the tenant
 is entered through its directory only, and name the role the directory's people start
 with.
 
 **By sign-up.** Anyone can sign up and create their own tenant, and becomes its first
-administrator. This works while an administrator has a sign-in method open to sign-up on
-the auth's Sign-in page. In an application with tenants, opening a method names no default
+administrator. This works for a person who signed in through a sign-in method that an
+administrator has open to sign-up on the auth's Sign-in page; that another method is open
+does not count. In an application with tenants, opening a method names no default
 role: a person who signs up holds no tenant, and the application offers to let them
 create one. A person who already has a tenant creates no second one this way, in any
 shape. Every tenant the person is in counts, also one the session cannot enter: a tenant
@@ -1046,11 +1046,20 @@ hides from a session that acts as the person. A session that acts as someone els
 creates one only where its mask allows, as
 [Acting as someone else](#acting-as-someone-else) describes.
 
+A tenant made by sign-up has no directory, whichever way its maker signed in, so two
+colleagues who each sign up each get a tenant. The organization's directory is taken
+afterwards by an administrator of the tenant, as
+[What a tenant's administrator sets](#what-a-tenants-administrator-sets) describes. The
+exception is an application that holds a person to one tenant: there a person who signs up
+through their organization's directory takes it with the tenant they create, and a colleague
+is refused a second tenant for the same organization.
+
 Whether its tenants are made by invitation, by sign-up or both does not change an
 application's shape. With tenants, a shape's name says how a tenant's people come to the
 tenant, not how the tenant came to exist.
 
-Where a tenant can have a directory, and the person who makes the tenant is signed in
+Where a tenant can have a directory, and the tenant is made from a staff invitation, or by
+sign-up in an application that holds a person to one tenant, by a person who is signed in
 through an organization's directory, that directory becomes the tenant's own, in the same
 step. A person whose organization's directory is already another tenant's makes no second
 tenant: they are refused, and told to ask that tenant's administrator for an invitation.
@@ -1080,12 +1089,13 @@ a tenant then has one is settled while the application runs.
 
 An application without the directories record has no tenant directories, and that is
 shapes 5 and 7. No tenant takes a directory, none is opened to one and none is made
-directory only. A Google, Microsoft or other provider's method is then a way for an
-invited person to sign in and nothing more: a person from an organization's directory
-who has no account and no invitation joins no tenant, whichever methods the auth has.
-They are refused while the method is invite only, as every method starts. Where an
-administrator has opened the method to sign-up, they get an account that holds no
-tenant, and can create a tenant of their own, as
+directory only. A tenant there has no Sign-in settings page, since everything on that page
+is about the tenant's directory. A Google, Microsoft or other provider's method is then a
+way for an invited person to sign in and nothing more: a person from an organization's
+directory who has no account and no invitation joins no tenant, whichever methods the auth
+has. They are refused while the method is invite only, as every method starts. Where an
+administrator has opened the method to sign-up, they get an account that holds no tenant,
+and can create a tenant of their own, as
 [Who can create a tenant](#who-can-create-a-tenant) describes.
 
 A person who has an account already is not such a person. Their sign-in under the account's
@@ -1107,10 +1117,19 @@ directories.
 
 Nobody types a directory in. It is set from a sign-in, in one of two ways:
 
-- when the tenant is made, by a person who is signed in through an organization's
-  directory;
+- when the tenant is made from a staff invitation, or made by sign-up in an application
+  that holds a person to one tenant, by a person who is signed in through an
+  organization's directory;
 - later, by an administrator of the tenant who is signed in through their organization's
   directory, on the tenant's Sign-in page.
+
+Nobody checks who may act for an organization, so taking its directory is attested. On
+the Sign-in page, and in the dialog that creates a tenant where the creation takes the
+directory, the person first reads a statement that opens "You are stating that you are
+authorized to act on behalf of" the organization, named as its directory gives it, and
+then says what taking the directory does. They type `I am authorized` under it, and the
+button is held until they have. A tenant made from a staff invitation takes its maker's
+directory with no statement.
 
 The directory is a Google Workspace, a Microsoft Entra tenant, or an organization's
 identity provider that the application registers with the `oidc` method. A personal
@@ -1128,17 +1147,18 @@ the tenant's Sign-in page.
 | Choice | What it does |
 | --- | --- |
 | The tenant's directory | Makes the directory the administrator is signed in through the tenant's own, or removes it. |
-| Open to the directory, or invite only | Open names the role each person from the directory is given at their first sign-in through it, with no invitation. The role is one of the tenant's roles that the administrator could give directly. Invite only clears it: the directory's people then need an invitation. A tenant starts invite only unless the invitation that made it named a role. |
+| Open to the directory, or invite only | Open names the role each person from the directory is given when they sign in through it and hold nothing in the tenant, at every sign-in, with no invitation. The role is one of the tenant's roles that the administrator could give directly. Invite only clears it: the directory's people then need an invitation. A tenant starts invite only unless the invitation that made it named a role. |
 | The directory's second factor | Says that the tenant's directory asks its people for a second factor of its own. The application then stops asking the people who sign in through that directory for its mailed code, in this tenant and in every tenant that gave them a role. It is the tenant's word, and nothing checks it. A Super Administrator, and anyone who signs in with a password, are asked as before. Taking it back asks the directory's people again from their next sign-in. The choice is there where the application's directories carry it, and there is something to turn off only while the application asks everyone for a second factor. |
 | Directory only | Closes the tenant to every sign-in but one through its directory: no password, no personal account, no other organization's directory. That keeps out the application's own staff too. Two kinds of people still get in: an administrator of the tenant itself, with a password and a code mailed to their email address, and a Super Administrator. |
 
 A person from a tenant's directory gets in by the tenant's choice, whether or not the
 sign-in method is open to sign-up on the auth's Sign-in page.
 
-Opening the tenant to its directory, making it directory only and vouching for the
-directory's second factor each warn first, with who is affected, and are confirmed by
-typing a word (`open`, `close`, `vouch`). Removing a
-tenant's directory asks first too, in a dialog that names the directory.
+Taking the directory warns first, with the statement above. Opening the tenant to its
+directory, making it directory only and vouching for the directory's second factor each
+warn first too, with who is affected, and are confirmed by typing a word (`open`,
+`close`, `vouch`). Removing a tenant's directory asks first as well, in a dialog that
+names the directory.
 
 A tenant's administrator can turn directory only on once the tenant has its directory,
 and must be signed in through that directory to do it. Where the auth has the password
@@ -1162,8 +1182,62 @@ A tenant's choices restrict who enters that tenant and no other. A tenant that i
 directory only admits everyone it has given a role, however they signed in.
 
 Deleting a tenant takes its directory with it, whether the tenant is directory only or
-not, along with the roles held in the tenant, the invitations into it that still stand
-and its rows. The directory can then be made another tenant's.
+not, along with its rows, the roles held in the tenant, its groups, its custom roles, the
+invitations into it that still stand and the accounts that belonged to it alone. The
+directory can then be made another tenant's.
+
+### Keeping a person out of an open tenant
+
+A tenant that is open to its directory gives its default role to every person who signs in
+through the directory and holds nothing in the tenant, at every sign-in. So removing a
+person from the tenant, or taking their roles away, does not keep them out: they are given
+the default role again the next time they sign in through the directory. Deleting their
+account does not keep them out either: their next sign-in through the directory makes a
+new account with the default role.
+
+What keeps a person out depends on how far out they should be.
+
+- **Out of the application, for good or for a while.** Disable their account. A disabled
+  account is refused at every sign-in and given nothing, its sessions end at once, and
+  enabling it brings the person back with every role they held. The tenant whose directory
+  a person signs in through manages their account, so with the skeletons' role file its
+  administrator can disable it, also when the person is in other tenants. Disabling is for
+  the whole application: a person who is also in another tenant cannot sign in to any
+  tenant until the account is enabled again. Delete the account once the person is out of
+  the organization's directory.
+- **Out of this tenant only, while they go on working in another** (where a person may be
+  in several tenants). Make a group with no roles in the tenant, which the skeletons' role
+  file lets a tenant's administrator do, put the person in it, and then take away the roles
+  they hold in the tenant, one at a time. A place in a group counts as holding something in
+  the tenant, so the directory gives them nothing, and a group with no roles lets them do
+  nothing there. Do not use Remove from the tenant: it takes the place in the group with
+  the roles, and the person is given the default role again.
+- **A whole class of people, or someone who has not signed in yet.** Make the tenant invite
+  only, or have the organization block the application for those people in its own
+  directory. Nobody has an account before their first sign-in, so until then there is
+  nothing to disable.
+
+A tenant that is made invite only and later opened again gives the default role to
+everyone who signs in through the directory and holds nothing in it by then, the people
+removed in the meantime among them.
+
+### A disabled tenant
+
+The application's staff can disable a tenant: a customer that has left, has not paid, or
+is about to be deleted. Nothing of the tenant is removed. From their next request its
+people, its own administrators among them, cannot enter it, and the switcher lists it
+under "Not available" with the reason, "Acme is disabled." A person whose only tenant is
+disabled is treated at sign-in as a person who is in no tenant. Only a super
+administrator still enters a disabled tenant.
+
+Who may disable a tenant is said in the application's role file: it is a change of one
+field of the tenant's record. In a new application the application's own administrator
+may. When the tenant is enabled again everyone has what they had: no role, group or
+invitation was touched. An invitation into a disabled tenant can still be accepted, and
+its person gets in once the tenant is enabled.
+
+A tenant is disabled before it is deleted. A delete of a tenant that is not disabled is
+refused: "Disable this tenant before deleting it."
 
 ### Who manages an account
 
@@ -1195,9 +1269,9 @@ role file's word for the whole application. It is not the "Global" of shapes 7 a
 which is about being in several tenants.) A tenant with a directory lists everyone who
 signs in through it, also a person who holds no role in the tenant, so the tenant that
 manages an account can disable or delete it. Removing a person from a tenant, or taking
-away the last thing they hold, deletes their account only where no other tenant manages
-it: the account of a person who signs in through another tenant's directory stays,
-holding nothing, in that tenant's list. With the skeletons' role file, a tenant's
+away the last thing they hold, leaves their account standing, holding nothing: the account
+of a person who signs in through a tenant's directory stays in that tenant's list. With
+the skeletons' role file, a tenant's
 administrator can do this much:
 
 | A tenant's administrator can | For whom |
@@ -1214,14 +1288,42 @@ administrator can do this much:
 A browser a person trusted is one they asked the application to remember, after they
 entered the code the application mails at a sign-in that asks for a second step.
 
+The application's own administrators manage the accounts no tenant manages. The whole
+application's list of people says which those are (`managedByTenant`, and
+`managingTenant`, the tenant that does), and where a person may be in several tenants
+the skeletons' role file gives the application's administrator each account method, and
+the reset link, under `managedByTenant = false`. Where a person belongs to one tenant,
+or the application has no tenants, the application's administrators manage every account
+and the grants carry no condition. To act on an account a tenant manages, a super
+administrator gives themselves that tenant's administrator role in the tenant and acts
+from the tenant's side; the role given is recorded like any other.
+
+The condition goes on those twelve methods, the ones in the last two rows of the table,
+and on no other. Giving and taking a role, or a place in a group, ending one session,
+revoking a token and clearing a lockout name no account's row, so they stay with
+the application's administrators whoever manages the account. One thing follows from
+the roles. For a person who signs in through no tenant's directory, who manages the
+account follows from what the person holds: a role given for the whole application, or in
+a second tenant, makes the account the application's to manage, and it is the tenant's
+again once the person holds something in that tenant alone. Taking the last thing a
+person holds takes nothing else: the account stays, holding nothing, managed by the tenant
+whose directory the person signs in through, or otherwise by the application's own
+administrators. An application that wants its everyday administrators not to move an
+account between the two gives the methods that give and take roles to another role.
+
 An application that `impulse new` makes with tenants, or that `impulse add tenancy` gives
-them, starts with this role in its own names (`<Record>Administrator`): each of these
-grants on what the application serves, under the same condition. The command writes
+them, starts with the tenant's administrator role in its own names
+(`<Record>Administrator`): each grant of the table above on what the application serves,
+under the same condition. The command writes
 `test/integration/tenant_people_test.go` with it, the test that proves each condition
 on the served application, because `impulse check` refuses a conditional grant that no
 test proves (`conditions-proven`). Where the auth has no password sign-in, the role and
 its test leave out the rows about a password, which such an application does not serve,
-and the test signs people in through the simulated directory (`-tags skipAuth`).
+and the test signs people in through the simulated directory (`-tags skipAuth`). Where a
+person may be in several tenants, the command also holds the application's own
+administrator role to the accounts no tenant manages (`managedByTenant = false` on each
+of its grants that acts on an account, the reset link among them), as the skeletons' role
+file does, and the same test proves that condition.
 
 `impulse check` has a check for the last row, named `tenant-accounts`. It fails when a
 grant lets a role held in a tenant run one of those operations on an account with no
@@ -1229,10 +1331,9 @@ condition that tests the person's row. Which condition is the application's to c
 
 Some rules hold whatever the role file says. Among them:
 
-- Taking away the last role a person holds anywhere, their own or through a group,
-  deletes the account, with its sign-in identities and its sessions. Where a directory's
-  people get an account without an invitation, such a person's next sign-in through the
-  directory is a first sign-in again, and makes a new account with the default role.
+- Taking away a role, a place in a group or a person from a tenant never deletes the
+  account, and neither does leaving a tenant: the account stays, holding nothing. An
+  account is deleted by its own delete, or with the tenant it belonged to alone.
 - Only a Super Administrator gives or takes the Super Administrator role, or changes how
   another Super Administrator signs in. The role is never taken from the last holder who
   can sign in.
@@ -1268,7 +1369,7 @@ unless they administer that tenant or are a super administrator, and a person wh
 tenant is directory only, who is an administrator of none of them and holds no role
 outside them. The page shows them no Password line, and they cannot choose a first
 password. The switcher next to the application's name lists their tenants. A tenant they
-cannot enter with the way they signed in is listed as closed, with the reason.
+cannot enter is listed under "Not available", with the reason.
 
 ## With tenants, one tenant per person
 
@@ -1282,9 +1383,25 @@ its identity client, the object that carries out every change to the auth's acco
 `--one-tenant-per-person` on `impulse new` and `impulse add tenancy` writes it, and so
 does `--shape` with shape 5 or 6. With the option:
 
-- a role in a tenant is refused for a person who holds a role in another tenant, however
-  it would be given: directly, by an accepted invitation, or by a directory's default
-  role;
+- a role in a tenant is refused for a person who holds a role in another tenant, when it is
+  given directly or by an accepted invitation;
+- a person who signs in through the directory of a tenant that is open to it, and belongs
+  to another tenant, is moved to the directory's tenant: they are given its default role
+  there, and lose every role and every place in a group they held in the other tenant,
+  also when they were its last administrator. Nothing else of their account changes. The
+  directory's tenant owns its directory's people, whoever arrived first. A sign-in that
+  also carries an invitation into the directory's tenant is refused for such a person, as an
+  invitation into a second tenant is: they sign in once without the invitation, are moved, and
+  can accept it then;
+- putting such a person back into the other tenant holds only until their next sign-in
+  through the directory, which moves them again: the directory's tenant owns its
+  directory's people. To release one of them to another tenant, the directory's tenant is
+  made invite only, and an invite-only tenant moves nobody;
+- the move is made as soon as the directory has vouched for the person, also where the
+  application then holds the sign-in for a code of its own that is never entered. A
+  tenant made from a staff invitation that named a role is open from its first day and
+  moves its directory's people the same way; the staff member who sends that invitation
+  is shown no warning of it, where an administrator who opens a tenant later is;
 - an invitation into a tenant is refused as soon as it is sent, if the invited email
   address is the confirmed address of an account that belongs to another tenant;
 - a refusal never says which tenant holds the person.
@@ -1315,12 +1432,13 @@ Any method can be used, and the methods are the same for every tenant. No tenant
 directory: an application made with this shape has tenants and no tenant directories, so
 a Google, Microsoft or other provider's method is a way for an invited person to sign in
 and nothing more. An invited person accepts by signing in with any of the auth's methods
-(with Google, the sign-in carries the invited email address; with Microsoft, or with
-another provider that does not vouch for the address it sends, the person is mailed a
-code at the invited address, as
+(with a Gmail address or a Google Workspace account, the Google sign-in carries the
+invited email address; with Microsoft, with a Google account made with an address from
+somewhere else, or with another provider, the person is mailed a code at the invited
+address, as
 [Which sign-in methods each shape can use](#which-sign-in-methods-each-shape-can-use)
-describes). A person from an organization's directory who has no account and no
-invitation joins no tenant, whichever methods the auth has, as
+describes). A person from an organization's directory who has no account and no invitation
+joins no tenant, whichever methods the auth has, as
 [A tenant's directory](#a-tenants-directory) describes, and nothing can be opened to a
 directory or made directory only.
 
@@ -1365,7 +1483,9 @@ Before the method is added, the line ends after `come by invitation alone`.
 `impulse add tenancy`.
 
 - **Gets an account**: anyone in the tenant's directory, once the tenant has opened
-  itself to its directory. They land in that tenant. A person belongs to one tenant, so
+  itself to its directory. They land in that tenant. So does a person of the directory
+  who was invited into another tenant first: their next sign-in through the directory
+  moves them. A person belongs to one tenant, so
   an invitation from a second tenant is refused, when it is sent or when it is accepted.
 - **Starts with**: the default role the tenant set for its directory. A tenant that sets
   no default role invites its people instead.
@@ -1551,12 +1671,23 @@ directory, and the list width lets the organizations on the list have one. A met
 wide as any organization lets every tenant choose. A tenant that has no directory is
 invite only, which is ordinary in this shape.
 
-A person is given the directory's default role at their first sign-in through the
-directory, whether their account is created then or existed before, unless they already
-hold a role in the tenant. A later sign-in gives nothing: a role the tenant's
-administrator took away afterward is not given back while the person still has their
-account. Taking away the last role a person holds anywhere deletes the account, and
-their next sign-in through the directory is then a first one again.
+A person who signs in through the directory and holds nothing in the tenant is given
+the directory's default role, at every sign-in: whether their account is created then,
+existed before, or was tied to the directory before the tenant took it. A person who
+holds anything in the tenant is given nothing more. So a person whose role the tenant's
+administrator took away is given the default role again at their next sign-in through
+the directory. To keep one person out while the tenant is open, disable their account. To
+keep out everyone who is not invited, make the tenant invite only.
+[Keeping a person out of an open tenant](#keeping-a-person-out-of-an-open-tenant) says
+what each does, and how to keep a person out of one tenant alone. A person who leaves the
+tenant themselves, or whose last role in it is taken away, is given the default role
+again the same way.
+
+The default role must stay one of the tenant's roles. If the role no longer exists (a
+custom role that was deleted, a role a release removed from the role file), a person of
+the directory who holds nothing in the tenant cannot sign in through the directory until
+the tenant's administrator names another role or makes the tenant invite only. A person
+who holds something in the tenant signs in as before.
 
 ```sh
 impulse add tenancy --shape global-users-each-tenant-chooses

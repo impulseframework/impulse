@@ -30,6 +30,7 @@ type membersSectorUserRead struct {
 	DomainID                  string       `json:"domainId"`
 	Username                  string       `json:"username"`
 	Name                      *string      `json:"name"`
+	DisplayName               string       `json:"displayName"`
 	Email                     *string      `json:"email"`
 	EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
 	Disabled                  bool         `json:"disabled"`
@@ -158,6 +159,7 @@ func (c *MembersSectorUserColumns) All() *MembersSectorUserColumns {
 		"DomainID",
 		"Username",
 		"Name",
+		"DisplayName",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
@@ -199,6 +201,12 @@ func (c *MembersSectorUserColumns) Username() *MembersSectorUserColumns {
 
 func (c *MembersSectorUserColumns) Name() *MembersSectorUserColumns {
 	c.fields = append(c.fields, "Name")
+
+	return c
+}
+
+func (c *MembersSectorUserColumns) DisplayName() *MembersSectorUserColumns {
+	c.fields = append(c.fields, "DisplayName")
 
 	return c
 }
@@ -323,6 +331,10 @@ func (p MembersSectorUserQueryPartialClause) Username() MembersSectorUserQueryId
 	return MembersSectorUserQueryIdent[string]{Ident: resource.NewIdent[string]("Username", p.partialClause, true)}
 }
 
+func (p MembersSectorUserQueryPartialClause) DisplayName() MembersSectorUserQueryIdent[string] {
+	return MembersSectorUserQueryIdent[string]{Ident: resource.NewIdent[string]("DisplayName", p.partialClause, false)}
+}
+
 func (p MembersSectorUserQueryPartialClause) HeldElsewhere() MembersSectorUserQueryIdent[bool] {
 	return MembersSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldElsewhere", p.partialClause, true)}
 }
@@ -431,6 +443,10 @@ func (c *membersSectorUserSort) Username() *MembersSectorUserSort {
 
 func (c *membersSectorUserSort) Name() *MembersSectorUserSort {
 	return c.addField("Name")
+}
+
+func (c *membersSectorUserSort) DisplayName() *MembersSectorUserSort {
+	return c.addField("DisplayName")
 }
 
 func (c *membersSectorUserSort) Email() *MembersSectorUserSort {

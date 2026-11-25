@@ -17,10 +17,10 @@ import (
 	"github.com/impulseframework/impulse/internal/words"
 )
 
-// The browser half of add tenancy: the tenant pages copied into the default browser
-// project in the record's words, the tenant menus in the menu file, the place outside
+// The browser half of add tenancy: the tenant menus in the menu file, the place outside
 // every tenant in the frame's configuration, the routes in the tenant shape, and the
-// sign-in page's landing at the root. The
+// sign-in page's landing at the root. The tenant pages are the library's, drawn from the
+// generated description, and no file is copied for them. The
 // reference's record is Tenants; an application whose record is another (Clients,
 // ServiceAreas) gets every name the generator derives from the record, and every word
 // the screen shows, in its own record's words. The reference's auth is the skeletons'
@@ -31,21 +31,15 @@ import (
 // referenceTable is the tenant record table of the candidates the pages are copied from.
 const referenceTable = "Tenants"
 
-// writeBrowser lays the tenant pages into the default browser project and edits its menu
-// file, configuration, routes and sign-in page.
+// writeBrowser edits the default browser project's menu file, configuration, routes and
+// sign-in page.
 func (tn Tenancy) writeBrowser(a *app.App, site *app.Site, ch *Change) error {
 	source, ok, err := tn.browserSource(a, site.Generator, ch)
 	if err != nil || !ok {
 		return err
 	}
 	auth := consoleAuth(a, site, source)
-	if err := tn.copyTenantPages(a, source, auth, ch); err != nil {
-		return err
-	}
 	if err := tn.editMenus(a, source, auth, ch); err != nil {
-		return err
-	}
-	if err := tn.editMenuSpec(a, site, source, auth, ch); err != nil {
 		return err
 	}
 	if err := tn.editDialogsSpec(a, source, auth, ch); err != nil {
@@ -79,7 +73,7 @@ func (tn Tenancy) browserSource(a *app.App, g *app.Generator, ch *Change) (sourc
 	rel := strings.TrimPrefix(strings.TrimPrefix(target.Dir, w.Dir), "/")
 	project, found := app.ProjectFor(projects, rel)
 	if !found || project.SourceRoot == "" {
-		ch.skipf("%s/angular.json has no project rooted over %s, so the browser was left as it was: the tenant pages (the All %s page's configuration and the dialog a person who signed up creates their own %s through), the tenant menus and the tenant segment in the routes", w.Dir, rel, tn.manyLower(), tn.oneLower())
+		ch.skipf("%s/angular.json has no project rooted over %s, so the browser was left as it was: the tenant menus and the tenant segment in the routes", w.Dir, rel)
 
 		return "", false, nil
 	}
@@ -117,11 +111,6 @@ func forAuth(text, auth string) string {
 	return names.Rename(text, skeleton.PlaceholderAuth, auth)
 }
 
-// tenantsConfigPath is the configuration of the All tenants page, relative to the
-// project's source root, which every application the tenant pages were laid into has: an
-// application that has it has the tenant pages already.
-const tenantsConfigPath = "app/configs/tenants.config.ts"
-
 // withoutDirectory is one stretch of a reference browser file that speaks of a tenant's
 // directory, and what stands in its place in an application whose tenants have none.
 type withoutDirectory struct {
@@ -129,17 +118,14 @@ type withoutDirectory struct {
 }
 
 // withoutDirectories are the stretches of the reference's browser files that an
-// application whose tenants have no directories is written without: the All tenants
-// page's directory-only column and field (the record carries no such field there), the
-// menu that places the tenant's Sign-in settings page, and that page's route, each with
-// its name in the import of the library's identity pages.
+// application whose tenants have no directories is written without: the menu that places
+// the tenant's Sign-in settings page, and that page's route, each with its name in the
+// import of the library's identity pages. The library's tenants page reads the
+// description, which names no directory-only field there.
 var withoutDirectories = []withoutDirectory{
-	{tenantsConfigPath, "changes\n// its name and whether its people enter through its directories only. A tenant's key is an\n// id the server generates, which nobody types: the list leaves it out, and the row page\n// shows it read only, for whoever supports the application.", "changes\n// its name. A tenant's key is an id the server generates, which nobody types: the list\n// leaves it out, and the row page shows it read only, for whoever supports the\n// application."},
-	{tenantsConfigPath, "listColumns: [{ id: Tenants.fieldName.name }, { id: Tenants.fieldName.directoryOnly, header: 'Directory only' }],", "listColumns: [{ id: Tenants.fieldName.name }],"},
-	{tenantsConfigPath, "          field({ name: Tenants.fieldName.directoryOnly, label: 'Directory only', cols: 4 }),\n", ""},
-	{appMenusFile, "import { identityMenuPages, tenantSignInPage } from '@impulseframework/resource-angular/identity-pages';\n", "import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';\n"},
+	{appMenusFile, "import {\n  identityMenuPages,\n  inviteTenantAction,\n  tenantSignInPage,\n  tenantsPage,\n} from '@impulseframework/resource-angular/identity-pages';\n", "import { identityMenuPages, inviteTenantAction, tenantsPage } from '@impulseframework/resource-angular/identity-pages';\n"},
 	{appMenusFile, "    {\n      label: 'Tenant',\n      groups: [{ entries: [tenantSignInPage(apiDescriptor, { auth: 'Staff' })] }],\n    },\n", ""},
-	{appRoutesFile, "import { identityRoutes, tenantSignInRoute } from '@impulseframework/resource-angular/identity-pages';\n", "import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';\n"},
+	{appRoutesFile, "import { identityRoutes, tenantSignInRoute, tenantsRoute } from '@impulseframework/resource-angular/identity-pages';\n", "import { identityRoutes, tenantsRoute } from '@impulseframework/resource-angular/identity-pages';\n"},
 	{appRoutesFile, "          // Who may enter the tenant: its declared directories and its directory-only flag.\n          tenantSignInRoute(apiDescriptor, { auth: 'Staff' }),\n", ""},
 }
 
@@ -162,50 +148,6 @@ func (tn Tenancy) forTenants(rel, text string) (string, error) {
 	}
 
 	return text, nil
-}
-
-// copyTenantPages lays the tenant pages (tenantWebFiles) into the browser project, for
-// the auth and in the record's words. The tenant's Sign-in settings page is none of
-// them: the library draws it where a tenant can have a directory, and the routes and the
-// menu file place it.
-func (tn Tenancy) copyTenantPages(a *app.App, source, auth string, ch *Change) error {
-	dst := path.Join(source, tenantsConfigPath)
-	if _, err := os.Stat(a.Abs(dst)); err == nil {
-		ch.skipf("%s already exists and was left alone", dst)
-
-		return nil
-	}
-	for _, f := range tenantWebFiles {
-		reference, err := skeleton.FS(f.candidate)
-		if err != nil {
-			return err
-		}
-		src, err := fs.ReadFile(reference, "web/console/src/"+f.rel)
-		if err != nil {
-			return errors.Wrap(err, "fs.ReadFile()")
-		}
-		text, err := tn.forTenants(f.rel, string(src))
-		if err != nil {
-			return err
-		}
-		if err := writeNew(a, path.Join(source, f.rel), tn.inRecordWords(f.rel, forAuth(text, auth))); err != nil {
-			return err
-		}
-	}
-	renamed := ""
-	if tn.Table != referenceTable {
-		renamed = fmt.Sprintf(", with every name and word of the reference's Tenant record the %s record's", tn.Record())
-	}
-	if tn.NoDirectories {
-		ch.didf("%s and %s: the dialog a person who signed up creates their own %s through (the create-your-own route) and the configuration of All %s, the library's list page over the record, from the reference%s, without the directory-only column and field, which the record does not carry; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher. No Sign-in settings page is placed: that page is where a %s's directory is set and what it is made the only way in of, and no %s has one",
-			path.Join(source, "app/components/ui/new-tenant")+"/", path.Join(source, tenantsConfigPath), tn.oneLower(), tn.manyLower(), renamed, tn.oneLower(), tn.oneLower(), tn.oneLower())
-
-		return nil
-	}
-	ch.didf("%s and %s: the dialog a person who signed up creates their own %s through (the create-your-own route) and the configuration of All %s, the library's list page over the record, from the reference%s; the library's frame carries the %s the URL names, the guard on the tenant segment, the refusal page and the place switcher, and the library draws the %s's Sign-in settings page, which the routes and the menu file place",
-		path.Join(source, "app/components/ui/new-tenant")+"/", path.Join(source, tenantsConfigPath), tn.oneLower(), tn.manyLower(), renamed, tn.oneLower(), tn.oneLower())
-
-	return nil
 }
 
 // The words for the record: one and many as the screen shows them ("Service area",
@@ -235,69 +177,33 @@ type recordRename struct {
 
 // recordRenames are the renames from the reference's record to the application's, in
 // order: the quoted words the screen shows, then the names the generator derives from
-// the record (its resources, the types of their bodies, the client's properties, the
-// routes, the create-your-tenant route with its body and answer, the route parameter,
-// the directories record's tenant field, and the generated methods of the tenant's own:
-// the two that turn the record's directory-only switch, the two that say how it admits
-// its directory's people, and the two that say whether its directory asks for a second
-// factor, each with its route), and last the role a tenant's administrator holds, which
-// the command names for the record (AdministratorRole), so a spec's role and the
-// sentence that says it in words both speak of the application's.
+// the record (its resources, the routes and the route parameter). An entry stands only
+// for a name the reference's menus, routes or test of the dialogs carry: a name one of
+// them comes to carry gets its entry then, held by a test that reads what the command
+// writes.
 func (tn Tenancy) recordRenames() []recordRename {
-	rec, table := tn.Record(), tn.Table
-	r, t := lowerFirst(rec), lowerFirst(table)
-	kr, kt := strcase.ToKebab(rec), strcase.ToKebab(table)
+	table := tn.Table
+	r, kt := lowerFirst(tn.Record()), strcase.ToKebab(table)
 	quoted := func(old, with string) recordRename {
 		return recordRename{regexp.MustCompile(regexp.QuoteMeta("'" + old + "'")), "'" + with + "'"}
 	}
 
 	return []recordRename{
-		quoted("All tenants", "All "+tn.manyLower()),
 		quoted("Tenants", tn.many()),
 		quoted("Tenant", tn.one()),
-		quoted("tenants", kt),
-		{regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9]*?)TenantRoles\b`), "${1}" + rec + "Roles"},
-		{regexp.MustCompile(`-tenant-roles\b`), "-" + kr + "-roles"},
-		{regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9]*?)TenantDirectoryRoles\b`), "${1}" + rec + "DirectoryRoles"},
-		{regexp.MustCompile(`-tenant-directory-roles\b`), "-" + kr + "-directory-roles"},
-		{regexp.MustCompile(`\bTenantDirectories\b`), rec + "Directories"},
-		{regexp.MustCompile(`\btenantDirectories\b`), r + "Directories"},
-		{regexp.MustCompile(`\btenant-directories\b`), kr + "-directories"},
-		{regexp.MustCompile(`\b(Make|End)TenantDirectoryOnly\b`), "${1}" + rec + "DirectoryOnly"},
-		{regexp.MustCompile(`\b(make|end)TenantDirectoryOnly\b`), "${1}" + rec + "DirectoryOnly"},
-		{regexp.MustCompile(`\b(make|end)-tenant-directory-only\b`), "${1}-" + kr + "-directory-only"},
-		{regexp.MustCompile(`\bOpenTenantToDirectory\b`), "Open" + rec + "ToDirectory"},
-		{regexp.MustCompile(`\bopenTenantToDirectory\b`), "open" + rec + "ToDirectory"},
-		{regexp.MustCompile(`\bopen-tenant-to-directory\b`), "open-" + kr + "-to-directory"},
-		{regexp.MustCompile(`\bMakeTenantInviteOnly\b`), "Make" + rec + "InviteOnly"},
-		{regexp.MustCompile(`\bmakeTenantInviteOnly\b`), "make" + rec + "InviteOnly"},
-		{regexp.MustCompile(`\bmake-tenant-invite-only\b`), "make-" + kr + "-invite-only"},
-		{regexp.MustCompile(`\b(VouchFor|StopVouchingFor)TenantDirectorySecondFactor\b`), "${1}" + rec + "DirectorySecondFactor"},
-		{regexp.MustCompile(`\b(vouchFor|stopVouchingFor)TenantDirectorySecondFactor\b`), "${1}" + rec + "DirectorySecondFactor"},
-		{regexp.MustCompile(`\b(vouch-for|stop-vouching-for)-tenant-directory-second-factor\b`), "${1}-" + kr + "-directory-second-factor"},
-		{regexp.MustCompile(`\bTenantsCreate\b`), table + "Create"},
-		{regexp.MustCompile(`\bCreateTenantAnswer\b`), "Create" + rec + "Answer"},
-		{regexp.MustCompile(`\bCreateTenant\b`), "Create" + rec},
-		{regexp.MustCompile(`\bcreateTenantRoute\b`), "create" + rec + "Route"},
-		{regexp.MustCompile(`\bcreate-tenant\b`), "create-" + kr},
 		{regexp.MustCompile(`\bTenants\b`), table},
-		{regexp.MustCompile(`\.tenants\b`), "." + t},
-		{regexp.MustCompile(`\{ tenants: `), "{ " + t + ": "},
 		{regexp.MustCompile(`\btenants/`), kt + "/"},
-		{regexp.MustCompile(`'/tenants'`), "'/" + kt + "'"},
 		{regexp.MustCompile(`\btenantID\b`), r + "ID"},
-		{regexp.MustCompile(`\btenantId\b`), r + "Id"},
-		{regexp.MustCompile(`\b` + referenceTenantAdministrator + `\b`), tn.AdministratorRole()},
 	}
 }
 
-// inRecordWords renames a copied file's record from the reference's to the
-// application's: every name the generator derives from the record, and the record's
-// word in the sentences the screen shows. Those are a template's and a spec's whole
-// text, and in any other TypeScript file the text of its string literals, where a
-// component holds what it says from its code (a dialog's words, a message). The
-// library's own words stay: a Microsoft Entra tenant and its tenant id are the
-// directory's, and the copied components keep their names.
+// inRecordWords renames the record of a file written from the reference (the menus, the
+// routes, the test of the dialogs) from the reference's to the application's: every name
+// the generator derives from the record, and the record's word in the sentences the
+// screen shows. Those are a template's and a spec's whole text, and in any other
+// TypeScript file the text of its string literals, where a component holds what it says
+// from its code (a dialog's words, a message). The library's own words stay: a
+// Microsoft Entra tenant and its tenant id are the directory's.
 func (tn Tenancy) inRecordWords(rel, text string) string {
 	if tn.Table == referenceTable {
 		return text
@@ -528,8 +434,8 @@ var (
 // record's menu (All), People (the tenant's side of the auth's people) and, where a
 // tenant can have a directory, the record's own menu (Sign-in settings), each showing in
 // its place only, as the reference's menu file has them, with the imports they need.
-// The page staff bring a tenant in from is among the auth's pages for the whole
-// application, which the menu file places already.
+// Staff bring a tenant in from the record's list, which lists the invitations still
+// waiting above the tenants.
 func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	rel := path.Join(source, appMenusFile)
 	data, mode, err := readFile(a, rel)
@@ -547,7 +453,7 @@ func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 
 		return nil
 	}
-	if tn.NoDirectories && strings.Contains(text, "tenantsConfig") {
+	if tn.NoDirectories && strings.Contains(text, "tenantsPage(") {
 		ch.skipf("%s places the All %s page already, so the tenant menus were left as they are", rel, tn.manyLower())
 
 		return nil
@@ -611,51 +517,6 @@ const appMenusSpecFile = "app/app.menus.spec.ts"
 // appDialogsSpecFile is the test of the dialogs the library draws for the generated
 // methods, under a project's source root.
 const appDialogsSpecFile = "app/app.dialogs.spec.ts"
-
-// systemPagesRE reads where the base skeleton's menu test lists the pages the System menu
-// alone places: the auth's mailed links, then its sessions.
-var systemPagesRE = regexp.MustCompile(`\n([ \t]*)'Mailed links',\n[ \t]*'Sessions',\n`)
-
-// editMenuSpec names the page staff bring a tenant in from in the menu file's test,
-// where the test lists the pages the System menu alone places as the base skeleton's
-// does. The library draws that page for the auth a tenant is made through, among the
-// auth's pages for the whole application, after its mailed links, so a test that pins
-// those pages fails until it names the page. A console whose auth makes no tenant has no
-// such page, and its test is left without a word, as is an application with no such test.
-func (tn Tenancy) editMenuSpec(a *app.App, site *app.Site, source, auth string, ch *Change) error {
-	maker := tn.makerAuth(a, site)
-	if maker == nil || !strings.EqualFold(maker.Name, auth) {
-		return nil
-	}
-	rel := path.Join(source, appMenusSpecFile)
-	data, mode, err := readFile(a, rel)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	label := "Invited " + tn.manyLower()
-	text := string(data)
-	if strings.Contains(text, "'"+label+"'") {
-		return nil
-	}
-	loc := systemPagesRE.FindStringSubmatchIndex(text)
-	if loc == nil {
-		ch.skipf("%s does not list the pages the System menu places as the skeleton's test does ('Mailed links', then 'Sessions'), so it was left as it is: the System menu gains %s, the page staff bring a %s in from, after Mailed links, and a test that pins the menu's pages names it there", rel, label, tn.oneLower())
-
-		return nil
-	}
-	indent := text[loc[2]:loc[3]]
-	at := loc[0] + len("\n"+indent+"'Mailed links',\n")
-	edited := text[:at] + indent + "'" + label + "',\n" + text[at:]
-	if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
-		return errors.Wrap(err, "os.WriteFile()")
-	}
-	ch.didf("%s: the pages the System menu places gain %s, the page staff bring a %s in from, after Mailed links", rel, label, tn.oneLower())
-
-	return nil
-}
 
 // editDialogsSpec writes the test of the dialogs again as the tenanted skeleton's where
 // it is as the base skeleton rendered it, for the auth, as editRoutes writes the routes.

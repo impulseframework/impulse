@@ -45,17 +45,16 @@ func (h *Handlers) EndMembersSession() http.HandlerFunc {
 
 		p := (*membersidentity.EndMembersSession)(params)
 
-		// The X-Warning header takes the value true or is left off the request: any
-		// other value is refused here, and the call is not run.
+		// A request that asks for the method's warning (X-Warning: true) is decoded
+		// and checked as the call is, and answers what Warning writes for it in
+		// place of running the call: the transaction below rolls back.
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if asksWarning {
-			// The method declares no warning (@warning): a request that asks for one
-			// is refused, and never runs the call.
-			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("EndMembersSession declares no warning: send the call without the X-Warning header"))
-		}
+		var warning *resource.Warning
 
 		// The rows the method writes are collected for the live pages, published once
 		// the commit lands and before the answer; a transaction that rolls back wrote
@@ -71,29 +70,26 @@ func (h *Handlers) EndMembersSession() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			// Declared target: locate the row within the tenancy predicate
-			// before the body runs.
-			row, err := membersresources.NewMembersSessionQuery().
-				AddColumns(membersresources.NewMembersSessionColumns().ID()).
-				SetID(p.SessionID).
-				Read(ctx, txn)
-			if err != nil {
-				if httpio.HasNotFound(err) {
-					// No row has the key. Every row the method cannot reach is
-					// answered alike, so the words never say a row is there.
-					return resource.TargetNotFound("MembersSession", p.SessionID)
-				}
-
-				return errors.Wrap(err, "membersresources.MembersSessionQuery.Read()")
-			}
-			if row == nil {
-				return resource.TargetNotFound("MembersSession", p.SessionID)
-			}
-
-			// A row-referencing condition on the caller's Execute grant
-			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "MembersSessions", Label: "MembersSession", PKColumns: []string{"Id"}}, p.SessionID); err != nil {
+			// Declared target: a row of the MembersListedSession view.
+			// A view's row is one row of its query, so the gate locates it by
+			// the key and judges any row-referencing condition on the caller's
+			// Execute grant against it, in one SELECT over that query in this
+			// transaction. No row there is NotFound.
+			if err := gate.EnforceView(ctx, txn, resource.ExecuteTarget{Resource: "MembersListedSessions", Label: "MembersListedSession", PKColumns: []string{"Id"}, View: membersresources.MembersListedSession{}}, p.SessionID); err != nil {
 				return err
+			}
+
+			if asksWarning {
+				said, err := p.Warning(ctx, txn, h.RPCClient())
+				if err != nil {
+					return errors.Wrap(err, "EndMembersSession.Warning()")
+				}
+				if err := resource.CheckWarning("EndMembersSession", said); err != nil {
+					return errors.Wrap(err, "resource.CheckWarning()")
+				}
+				warning = said
+
+				return resource.ErrWarningAsked
 			}
 			if err := p.Execute(ctx, txn, h.RPCClient()); err != nil {
 				return errors.Wrap(err, "Transaction.Execute()")
@@ -104,6 +100,9 @@ func (h *Handlers) EndMembersSession() http.HandlerFunc {
 
 			return nil
 		}); err != nil {
+			if asksWarning && resource.WarningAsked(err) {
+				return httpio.NewEncoder(w).Ok(warning)
+			}
 			if dryRun && resource.DryRunRolledBack(err) {
 				return httpio.NewEncoder(w).Ok(nil)
 			}

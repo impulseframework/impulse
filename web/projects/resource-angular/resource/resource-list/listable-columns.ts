@@ -4,10 +4,7 @@ import { ColumnConfig } from '@impulseframework/resource-angular/types';
  * The configured columns a caller may list, judged by the digest's field-level List
  * entries. Every column when the digest carries no field information (undefined:
  * nothing narrows); otherwise the columns whose fields the digest grants. Key fields
- * are structural, never grant-bearing, and always pass. A concatenated column passes
- * when its own field and every field it reads off this resource pass; a field it reads
- * off a referenced resource travels in that resource's own request and is not judged
- * here.
+ * are structural, never grant-bearing, and always pass.
  */
 export function listableColumns(
   configured: readonly ColumnConfig[],
@@ -17,16 +14,7 @@ export function listableColumns(
   if (!listable) {
     return [...configured];
   }
-  const granted = (id: string): boolean => keys.has(id) || listable.has(id);
-  return configured.filter((col) => {
-    if (!granted(col.id)) {
-      return false;
-    }
-    if (!('additionalIds' in col)) {
-      return true;
-    }
-    return col.additionalIds.every((extra) => extra.resource !== undefined || granted(extra.id));
-  });
+  return configured.filter((col) => keys.has(col.id) || listable.has(col.id));
 }
 
 /**

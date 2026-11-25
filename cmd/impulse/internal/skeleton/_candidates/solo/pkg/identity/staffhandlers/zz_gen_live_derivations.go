@@ -51,12 +51,31 @@ var LiveDerivations = &live.Derivations{
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
 			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
 		}},
+		// StaffListedMailLinks: the tables its query reads.
+		{Resource: staffresources.StaffListedMailLink{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionMailLink{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+		}},
+		// StaffListedSessions: the tables its query reads.
+		{Resource: staffresources.StaffListedSession{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionAuthEvent{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+			{Name: staffresources.StaffSession{}.Resource(), Global: true},
+		}},
+		// StaffListedSignInAttempts: the tables its query reads.
+		{Resource: staffresources.StaffListedSignInAttempt{}.Resource(), Global: true, Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionMailLink{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
+		}},
 		// StaffListedUsers: the tables its query reads.
 		{Resource: staffresources.StaffListedUser{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: staffresources.StaffGroupMember{}.Resource(), Global: true},
 			{Name: staffresources.StaffGroupRole{}.Resource(), Global: true},
 			{Name: staffresources.StaffGroup{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionSignInAttempt{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionSignInSetting{}.Resource(), Global: true},
+			{Name: staffresources.StaffSessionTrustedDevice{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
 			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
 		}},

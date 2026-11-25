@@ -3,7 +3,6 @@ package generation
 import (
 	"cmp"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -111,9 +110,6 @@ type deleteKind struct {
 	// key column, the row being its tenant. It is nil for a kind whose rows are no
 	// tenant's, and for the tenant record under a tenant.
 	Tenant *resource.DomainBindingData
-	// RemovedWith is the tables whose row's delete makes the database remove rows of
-	// the kind (removedWith). It is written for the kinds under Under alone.
-	RemovedWith []string
 	// Within is the kind's links to itself: a row under a row of its own kind
 	// (selfLinks). It is written for the taken kinds alone, since a delete that takes
 	// a row takes the rows of its kind under it too. The record's own kind has none:
@@ -126,10 +122,12 @@ type deleteKind struct {
 	Deletes bool
 	Rule    bool
 	// Trusted marks a kind whose row's delete is not armed against the caller of the
-	// record's delete: each kind the tenant record's delete takes. The grant to delete
-	// a tenant answers for every row under it, which is what a tenant's delete means,
-	// and a person who may delete a tenant need hold no role in it. The kind's delete
-	// rule is asked all the same.
+	// record's delete: each kind the tenant record's delete takes, and each kind of an
+	// auth's own declarations that a record of the same auth takes (a group's members
+	// and roles). The grant to delete a tenant answers for every row under it, which is
+	// what a tenant's delete means, and a person who may delete a tenant need hold no
+	// role in it; the method that deletes a group asks what removing each member and
+	// each role asks. The kind's delete rule is asked all the same.
 	Trusted bool
 	// Subject marks an armed kind whose record decides what a person may do
 	// (resourceInfo.SubjectGuarded): the delete of one of its rows also asks the
@@ -166,8 +164,19 @@ type deleteTree struct {
 // deleteWords is the one place a kind of record gets its words for a sentence about a
 // delete: the resource's name in words, one and many, in lower case ("ShipClass" is
 // "ship class" and "ship classes", "PilotID" is "pilot id" and "pilot IDs"). The tenant
-// record takes the label it declares.
+// record takes the label it declares. An auth's group and the two kinds its delete
+// takes go by what a person calls them: a group, its members and its roles.
 func (c *client) deleteWords(res *resourceInfo) (one, many string) {
+	if inst := res.identity; inst != nil {
+		switch res.Name() {
+		case inst.auth + "Group":
+			return "group", "groups"
+		case inst.auth + "GroupMember":
+			return "member", "members"
+		case inst.auth + "GroupRole":
+			return "role", "roles"
+		}
+	}
 	name := res.Name()
 	if res.IsTenant && res.TenantLabel != "" {
 		name = res.TenantLabel
@@ -313,35 +322,13 @@ func cascadingLinks(links map[string][]deleteLink) map[string][]deleteLink {
 	return cascading
 }
 
-// removedWith is the tables whose row's delete makes the database remove rows of the
-// table: every table up from it by steps the database follows on a delete, the table
-// itself among them where a row goes with the row of its own kind it is under. In name
-// order.
-func removedWith(cascading, self map[string][]deleteLink, table string) []string {
-	reached := make(map[string]bool)
-	var walk func(from string)
-	walk = func(from string) {
-		for _, link := range slices.Concat(cascading[from], self[from]) {
-			if !link.Cascades || reached[link.Table] {
-				continue
-			}
-			reached[link.Table] = true
-			walk(link.Table)
-		}
-	}
-	walk(table)
-
-	return slices.Sorted(maps.Keys(reached))
-}
-
 // kindsUnder is the kinds whose rows refuse a plain delete of the record, by table
 // name: each kind with a step straight up to the record that the database does not
 // follow, and no way up to the record that the database follows all along, since the
 // database removes that kind's rows with the record. The record's own kind is one
 // where a row names another row of its kind and no such link is followed by the
-// database. Each kind carries those steps alone, one path each, and the tables its rows
-// go with at the database (removedWith). A table no resource declares has no words and
-// no grant to ask of, and is left to the database's refusal.
+// database. Each kind carries those steps alone, one path each. A table no resource
+// declares has no words and no grant to ask of, and is left to the database's refusal.
 func (c *client) kindsUnder(res *resourceInfo, byTable map[string]*resourceInfo, links, self, cascading map[string][]deleteLink) []*deleteKind {
 	record := c.pluralize(res.Name())
 	swept := pathsUnder(cascading, record, nil)
@@ -364,17 +351,13 @@ func (c *client) kindsUnder(res *resourceInfo, byTable map[string]*resourceInfo,
 		if len(paths) == 0 || len(swept[table]) > 0 || !ok {
 			continue
 		}
-		under := c.deleteKindOf(kind, paths)
-		under.RemovedWith = removedWith(cascading, self, table)
-		kinds = append(kinds, under)
+		kinds = append(kinds, c.deleteKindOf(kind, paths))
 	}
 	followed := slices.ContainsFunc(self[record], func(link deleteLink) bool {
 		return link.Cascades
 	})
 	if paths := straight(self[record]); len(paths) > 0 && !followed {
-		under := c.deleteKindOf(res, paths)
-		under.RemovedWith = removedWith(cascading, self, record)
-		kinds = append(kinds, under)
+		kinds = append(kinds, c.deleteKindOf(res, paths))
 	}
 	slices.SortFunc(kinds, func(a, b *deleteKind) int {
 		return cmp.Compare(a.Table, b.Table)
@@ -573,6 +556,10 @@ func (c *client) declaredDeleteTree(res *resourceInfo, byTable, byName map[strin
 		}
 		kind := c.deleteKindOf(byName[name], paths)
 		kind.Deletes, kind.Rule = true, byName[name].HasValidateDeleteType()
+		// A kind of an auth's own declarations that a record of the same auth takes is
+		// the library's to vouch for: the method that deletes the record asks the
+		// caller's grants, and the delete takes the rows trusted.
+		kind.Trusted = res.identity != nil && byName[name].identity == res.identity
 		if table == record {
 			own = kind
 
@@ -640,7 +627,11 @@ func (c *client) namedDeleteKinds(res *resourceInfo, byName map[string]*resource
 
 // unlistedDeleteKind refuses a record's @deleteCascade that leaves out a kind with rows
 // under the record: reached holds each table with a way up to the record that passes no
-// refusing kind, and every one of them is taken or refuses the delete.
+// refusing kind, and every one of them is taken or refuses the delete. A record of an
+// auth's own declarations is held to the kinds of its own package: a table under it that
+// no resource of the package declares is an application's, which cannot be listed on a
+// record the library declares, and is left to the database's refusal, as kindsUnder
+// leaves it.
 func unlistedDeleteKind(res *resourceInfo, byTable map[string]*resourceInfo, reached map[string][][]deleteLink, taken, refusing map[string]bool) error {
 	tables := make([]string, 0, len(reached))
 	for table := range reached {
@@ -651,8 +642,11 @@ func unlistedDeleteKind(res *resourceInfo, byTable map[string]*resourceInfo, rea
 		if taken[table] || refusing[table] {
 			continue
 		}
-		way := pathWords(table, reached[table][0])
 		kind, ok := byTable[table]
+		if !ok && res.identity != nil {
+			continue
+		}
+		way := pathWords(table, reached[table][0])
 		if !ok {
 			return errors.Newf("@%s on %s: the table %s is under a %s (%s), and no resource of this package declares it, so a delete in code could not remove its rows. Declare a resource for %s and list it.",
 				deleteCascadeKeyword, res.Name(), table, res.Name(), way, table)
@@ -732,10 +726,11 @@ func (c *client) tenantDeleteTree(tenant *resourceInfo, resources []*resourceInf
 }
 
 // sortDeepestFirst puts kinds in delete order: the deepest first, and kinds of one
-// depth by name.
+// depth in reverse order of their names, so a question, which reads the order backward
+// and lists the kinds nearest the record first, lists kinds of one depth by name.
 func sortDeepestFirst(kinds []*deleteKind) {
 	slices.SortFunc(kinds, func(a, b *deleteKind) int {
-		return cmp.Or(cmp.Compare(b.depth(), a.depth()), cmp.Compare(a.Table, b.Table))
+		return cmp.Or(cmp.Compare(b.depth(), a.depth()), cmp.Compare(b.Table, a.Table))
 	})
 }
 
@@ -779,12 +774,13 @@ func (r *resourceInfo) DeclaresDeleteCascade() bool {
 	return r.deleteCascade != nil
 }
 
-// TakesRowsUnder reports whether a delete of the record takes rows under it when it is
-// told to: the record declares its cascade, which always lists a kind as taken, or it
-// is the tenant record and the application has a kind of row under a tenant. Its
-// delete patch then carries WithEverythingUnder.
+// TakesRowsUnder reports whether a delete of the record takes rows with it when it is
+// told to: the record declares its cascade, which always lists a kind as taken, or it is
+// the tenant record, whose delete takes the kinds handed to it (DeleteAlso) whether or
+// not the application has a kind of row under a tenant. Its delete patch then carries
+// WithEverythingUnder, Left and DeleteAlso, and its handlers keep what a delete left.
 func (r *resourceInfo) TakesRowsUnder() bool {
-	return (r.deleteCascade != nil || r.IsTenant) && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
+	return r.IsTenant || r.deleteCascade != nil && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
 }
 
 // DeleteTreeLiteral is the record's description as the Go value its file returns
@@ -831,15 +827,15 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 			b.WriteString("},\n")
 		}
 		b.WriteString("},\n")
-		if len(kind.RemovedWith) > 0 {
-			fmt.Fprintf(b, "RemovedWith: %s,\n", stringsLiteral(kind.RemovedWith))
-		}
 		if len(kind.Within) > 0 {
 			b.WriteString("Within: []resource.DeleteLink{\n")
 			for _, link := range kind.Within {
 				b.WriteString(linkLiteral(link))
 			}
 			b.WriteString("},\n")
+		}
+		if kind.Trusted {
+			b.WriteString("Trusted: true,\n")
 		}
 		if kind.Deletes {
 			writeTakenRows(b, kind)

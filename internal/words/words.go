@@ -3,6 +3,7 @@
 package words
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/ettle/strcase"
@@ -52,6 +53,57 @@ func RoleInWords(role string) string {
 	}
 
 	return strings.ToUpper(spelled[:1]) + spelled[1:]
+}
+
+// The opening letters of a word written with a vowel and said with a consonant ("a user",
+// "a one-time code"), of a word written with an h nobody says ("an hour"), and the letters
+// whose names open with a vowel sound, for a word said letter by letter ("an HQ unit", "a
+// URL"): articleFor's, in the browser package.
+var (
+	saidWithConsonant  = regexp.MustCompile(`^(uni([^nm]|$)|us[aeu]|uti|ute|eu|one|once)`)
+	saidWithVowel      = regexp.MustCompile(`^(hour|honest|honor|heir)`)
+	saidLetterByLetter = regexp.MustCompile(`^[A-Z]{2,}$`)
+)
+
+const (
+	lettersSaidWithVowel = "AEFHILMNORSX"
+	articleA             = "a"
+	articleAn            = "an"
+)
+
+// WithArticle is the word with "a" or "an" before it, as a sentence names one of them, by
+// how the word is said aloud: "a sector", "an office", "a unit", "an hour", and a first
+// word in capitals letter by letter ("an HQ unit", "a URL"). It is the rule the browser
+// package picks an article by (articleFor), so a sentence the server writes and one a page
+// writes agree.
+func WithArticle(word string) string {
+	return article(word) + " " + word
+}
+
+// article is "a" or "an" for the word that follows, read off its first word.
+func article(word string) string {
+	first := ""
+	if fields := strings.Fields(word); len(fields) > 0 {
+		first = fields[0]
+	}
+	if saidLetterByLetter.MatchString(first) {
+		if strings.ContainsRune(lettersSaidWithVowel, rune(first[0])) {
+			return articleAn
+		}
+
+		return articleA
+	}
+	lower := strings.ToLower(first)
+	switch {
+	case saidWithVowel.MatchString(lower):
+		return articleAn
+	case saidWithConsonant.MatchString(lower):
+		return articleA
+	case lower != "" && strings.ContainsRune("aeiou", rune(lower[0])):
+		return articleAn
+	default:
+		return articleA
+	}
 }
 
 // pluralAcronymAt reports whether a plural acronym starts at name[i], and where it ends:

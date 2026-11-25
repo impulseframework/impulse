@@ -47,7 +47,7 @@ import {
   writeResource,
 } from '@impulseframework/resource-angular/types';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
-import { ApiError, RemoveOptions } from '@impulseframework/resource';
+import { ApiError, DeleteLeft, RemoveOptions } from '@impulseframework/resource';
 import { tap } from 'rxjs';
 import {
   ActionAccessControlWrapperComponent,
@@ -59,11 +59,12 @@ import {
   DeleteResourceConfirmationModalComponent,
 } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { refusedSentence } from '../refused-fields';
-import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
+import { methodDoneMessage, openDeleteMethodDialog, openMethodDialog } from '../method-dialog/open-method-dialog';
 import { filledMethods, inNamedOrder, OfferedMethod, rowMethods } from '../row-methods/row-methods';
 import { civildateCoercion, flattenElements } from '../gui-constants';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
 import { ResourceLayoutComponent } from '../resource-layout/resource-layout.component';
+import { deleteLeftOf } from '../delete-left';
 import { ResourceStore } from '../resource-store.service';
 import { backFromRowPage } from '../row-page-back';
 import { patchFromForm } from '@impulseframework/resource-angular/resource-client';
@@ -328,10 +329,16 @@ export class ResourceViewComponent implements OnInit {
   /**
    * Runs a method against the page's row through its dialog. Once it has run the page
    * says so and reads the row and its child lists again; a row the method removed takes
-   * the page away, as any read that finds the row gone does (see the constructor).
+   * the page away, as any read that finds the row gone does (see the constructor). A
+   * method that deletes its row (`deletes`) runs through the delete dialog instead.
    */
   runMethod(method: OfferedMethod): void {
-    openMethodDialog(this.dialog, method, this.store.viewData()).subscribe((result) => {
+    const row = this.store.viewData();
+    const opened =
+      method.presentation?.deletes && row
+        ? openDeleteMethodDialog(this.dialog, this.store.methodHandle(method.method), method, row)
+        : openMethodDialog(this.dialog, method, row);
+    opened.subscribe((result) => {
       if (!result) {
         return;
       }
@@ -738,17 +745,25 @@ export class ResourceViewComponent implements OnInit {
    * its create form in the row's place. A delete the server refuses rejects with the
    * client's `ApiError`, for whoever asked to show, and so does the delete of a row with
    * records under it that its delete takes, until the options say it takes them
-   * (`everythingUnder`).
+   * (`everythingUnder`). A delete too large for one request resolves with what it left
+   * (`DeleteLeft`), and the page stays on the row, which still stands, until a delete
+   * resolves with nothing.
    */
-  deleteResource(options?: RemoveOptions): Promise<void> {
+  deleteResource(options?: RemoveOptions): Promise<DeleteLeft | undefined> {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(this.store.viewData()), options);
 
-    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then(() => {
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then((answer) => {
+      const left = deleteLeftOf(answer);
+      if (left !== undefined) {
+        return left;
+      }
       this.leaveGoneRow();
       if (this.compoundResourceView() && this.navAfterDelete() === false) {
         this.showCreateForm.set(true);
       }
+
+      return undefined;
     });
   }
 

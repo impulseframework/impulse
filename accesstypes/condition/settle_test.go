@@ -1,6 +1,7 @@
 package condition
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -173,6 +174,54 @@ func TestAllOf(t *testing.T) {
 
 			if got := AllOf(tt.operands).String(); got != tt.want {
 				t.Errorf("AllOf() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPostImageAsRow pins how a grant's condition on one method's request is read over
+// the row another method names: every reference under new. reads the row's attribute
+// of the same name instead, in a comparison, a membership test and a null test alike;
+// a term on now or on the caller is left as it is, the logic keeps its shape, and a
+// condition that reads nothing under new. comes back as it was.
+func TestPostImageAsRow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "a comparison", source: "new.role != 'A'", want: "role != 'A'"},
+		{name: "a membership test", source: "new.role IN ('A', 'B')", want: "role IN ('A', 'B')"},
+		{name: "a membership test that is negated", source: "new.role NOT IN ('A', 'B')", want: "role NOT IN ('A', 'B')"},
+		{name: "a null test", source: "new.note IS NULL", want: "note IS NULL"},
+		{
+			name:   "only the request's term changes beside now and the caller",
+			source: "new.role != 'A' AND now < '2027-01-01T00:00:00Z' AND owner = subject",
+			want:   "role != 'A' AND now < '2027-01-01T00:00:00Z' AND owner = subject",
+		},
+		{name: "a negation and a disjunction keep their shape", source: "NOT (new.role = 'A') OR (new.level <= 3 AND state = 'open')", want: "NOT (role = 'A') OR (level <= 3 AND state = 'open')"},
+		{name: "a condition that reads nothing under new.", source: "state = 'open' OR owner = subject", want: "state = 'open' OR owner = subject"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			expr, err := Parse(tt.source)
+			if err != nil {
+				t.Fatalf("Parse(%q) error = %v", tt.source, err)
+			}
+			want, err := Parse(tt.want)
+			if err != nil {
+				t.Fatalf("Parse(%q) error = %v", tt.want, err)
+			}
+			got := PostImageAsRow(expr)
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("PostImageAsRow(%s) = %s (%#v), want %s (%#v)", tt.source, got, got, want, want)
+			}
+			if again, err := Parse(tt.source); err != nil || !reflect.DeepEqual(expr, again) {
+				t.Errorf("PostImageAsRow changed the expression it was handed: %s, want %s", expr, tt.source)
 			}
 		})
 	}

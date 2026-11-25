@@ -20,12 +20,13 @@ import (
 
 func (a *App) Commendations() http.HandlerFunc {
 	type commendation struct {
-		ID              impulse.UUID `json:"id"              index:"true" perm:"-"`
+		ID              impulse.UUID `json:"id"              index:"true"     perm:"-"`
 		PilotID         impulse.UUID `json:"pilotId"         index:"true"`
 		Citation        string       `json:"citation"`
 		AwardedByUserID string       `json:"awardedByUserId"`
 		AwardedByName   string       `json:"awardedByName"`
 		AwardedAt       time.Time    `json:"awardedAt"`
+		PilotName       *string      `json:"pilotName"       nameof:"PilotID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -64,7 +65,7 @@ func (a *App) Commendations() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*commendation)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -94,6 +95,11 @@ func (a *App) Commendations() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -115,12 +121,13 @@ func (a *App) Commendations() http.HandlerFunc {
 
 func (a *App) Commendation() http.HandlerFunc {
 	type response struct {
-		ID              impulse.UUID `json:"id"              index:"true" perm:"-"`
+		ID              impulse.UUID `json:"id"              index:"true"     perm:"-"`
 		PilotID         impulse.UUID `json:"pilotId"`
 		Citation        string       `json:"citation"`
 		AwardedByUserID string       `json:"awardedByUserId"`
 		AwardedByName   string       `json:"awardedByName"`
 		AwardedAt       time.Time    `json:"awardedAt"`
+		PilotName       *string      `json:"pilotName"       nameof:"PilotID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Commendation, response](a, accesstypes.Read)
@@ -147,7 +154,7 @@ func (a *App) Commendation() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -177,6 +184,11 @@ func (a *App) Commendation() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
@@ -189,12 +201,13 @@ func (a *App) Commendation() http.HandlerFunc {
 // CommendationChangeHistory answers a page of one commendation's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
 func (a *App) CommendationChangeHistory() http.HandlerFunc {
 	type response struct {
-		ID              impulse.UUID `json:"id"              index:"true" perm:"-"`
+		ID              impulse.UUID `json:"id"              index:"true"     perm:"-"`
 		PilotID         impulse.UUID `json:"pilotId"`
 		Citation        string       `json:"citation"`
 		AwardedByUserID string       `json:"awardedByUserId"`
 		AwardedByName   string       `json:"awardedByName"`
 		AwardedAt       time.Time    `json:"awardedAt"`
+		PilotName       *string      `json:"pilotName"       nameof:"PilotID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Commendation, response](a, accesstypes.Read)

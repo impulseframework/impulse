@@ -23,6 +23,7 @@ func (a *App) ClientContacts() http.HandlerFunc {
 		UserID      string       `json:"userId"      index:"true"`
 		ClientID    impulse.UUID `json:"clientId"    index:"true"`
 		DisplayName string       `json:"displayName" search:"token=DisplayName_Search;index=ClientContactsSearch;role=text;contains"`
+		ClientName  *string      `json:"clientName"  nameof:"ClientID"                                                               index:"true" search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
 	}
 
 	type response []map[string]any
@@ -61,7 +62,7 @@ func (a *App) ClientContacts() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*clientContact)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -81,6 +82,11 @@ func (a *App) ClientContacts() http.HandlerFunc {
 					if !row.Masked("displayName") {
 						rmap["displayName"] = rec.DisplayName
 					}
+				}
+			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -108,6 +114,7 @@ func (a *App) ClientContact() http.HandlerFunc {
 		UserID      string       `json:"userId"      index:"true"`
 		ClientID    impulse.UUID `json:"clientId"`
 		DisplayName string       `json:"displayName" search:"token=DisplayName_Search;index=ClientContactsSearch;role=text;contains"`
+		ClientName  *string      `json:"clientName"  nameof:"ClientID"`
 	}
 
 	decoder := NewQueryDecoder[resources.ClientContact, response](a, accesstypes.Read)
@@ -134,7 +141,7 @@ func (a *App) ClientContact() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -156,6 +163,11 @@ func (a *App) ClientContact() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
@@ -172,6 +184,7 @@ func (a *App) ClientContactChangeHistory() http.HandlerFunc {
 		UserID      string       `json:"userId"      index:"true"`
 		ClientID    impulse.UUID `json:"clientId"`
 		DisplayName string       `json:"displayName" search:"token=DisplayName_Search;index=ClientContactsSearch;role=text;contains"`
+		ClientName  *string      `json:"clientName"  nameof:"ClientID"`
 	}
 
 	decoder := NewQueryDecoder[resources.ClientContact, response](a, accesstypes.Read)

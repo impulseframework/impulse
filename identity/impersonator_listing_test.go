@@ -32,6 +32,7 @@ const (
 	reads     = "it reads, and the rule is for changes: the person's own row is still listed and read"
 	atSignIn  = "it answers a hook the session library runs as a person signs in, which no impersonated session does"
 	ofAGroup  = "it names a group and no person; a role that reaches the real person through a group they are in is what the rule cannot see, and what a mask that refuses the class access refuses"
+	groupGoes = "it names a group and no person; each member the group's delete takes whose place has not ended is asked what removing them from the group asks, the guard among them"
 	ofAMethod = "it sets what a sign-in method of the auth offers everyone, and names no person"
 	withdrawn = "it takes back what an invitation would have given, and gives the real person nothing"
 	ofSignIn  = "it sets what every sign-in of the auth asks for, and names no person"
@@ -84,13 +85,14 @@ var guardedMethods = map[string]subjectRule{
 	// A person reached by another key: the account a sign-in identity or a token
 	// belongs to, a session of theirs, the name their failed sign-ins are counted
 	// under, and the address an invitation is mailed to.
-	"Manager.UnlinkIdentity": {by: "refuseImpersonatorAsSubject"},
-	"Manager.RevokeToken":    {by: "refuseImpersonatorAsSubject"},
-	"Manager.EndSession":     {by: "refuseImpersonatorsSession"},
-	"Manager.UnlockSignIn":   {by: "refuseImpersonatorsName"},
-	"Manager.Invite":         {by: "refuseImpersonatorsAddress"},
-	"Manager.InviteTenant":   {by: "refuseImpersonatorsAddress"},
-	"Tenant.Invite":          {by: "Manager.Invite"},
+	"Manager.UnlinkIdentity":   {by: "refuseImpersonatorAsSubject"},
+	"Manager.RevokeToken":      {by: "refuseImpersonatorAsSubject"},
+	"Manager.EndSession":       {by: "refuseImpersonatorsSession"},
+	"Manager.UnlockSignIn":     {by: "refuseImpersonatorsName"},
+	"Manager.Invite":           {by: "refuseImpersonatorsAddress"},
+	"Manager.InviteTenant":     {by: "refuseImpersonatorsAddress"},
+	"Manager.ResendInvitation": {by: "refuseImpersonatorsAddress"},
+	"Tenant.Invite":            {by: "Manager.Invite"},
 
 	// A person named, and nothing asked.
 	"Manager.RequireUser": {person: true, none: "it reads whether the account exists, and changes nothing"},
@@ -117,13 +119,13 @@ var guardedMethods = map[string]subjectRule{
 	},
 	"Manager.CreateGroup":              {none: ofAGroup},
 	"Manager.DescribeGroup":            {none: ofAGroup},
-	"Manager.DeleteGroup":              {none: ofAGroup},
+	"Manager.DeleteGroup":              {none: groupGoes},
 	"Manager.GiveGroupRole":            {none: ofAGroup},
 	"Manager.GiveGroupRoleFor":         {none: ofAGroup},
 	"Manager.TakeGroupRole":            {none: ofAGroup},
 	"Tenant.CreateGroup":               {none: ofAGroup},
 	"Tenant.DescribeGroup":             {none: ofAGroup},
-	"Tenant.DeleteGroup":               {none: ofAGroup},
+	"Tenant.DeleteGroup":               {none: groupGoes},
 	"Tenant.GiveGroupRole":             {none: ofAGroup},
 	"Tenant.GiveGroupRoleFor":          {none: ofAGroup},
 	"Tenant.TakeGroupRole":             {none: ofAGroup},
@@ -134,7 +136,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.MakeInviteOnly":           {none: ofAMethod},
 	"Manager.SetSelfServiceReset":      {none: ofAMethod},
 	"Manager.DirectoryRole":            {none: "it sets the role a tenant's directory gives everyone who arrives through it, and names a tenant and no person"},
-	"Manager.ClearTenant":              {none: "it names a tenant: its roles and the people it alone held go with the tenant's record, whose removal is the act"},
+	"Manager.TenantKinds":              {none: "it names a tenant and changes nothing itself: the kinds it answers ask the guard of every account the tenant's delete would take before any is taken, and the rest goes with the tenant's record, whose removal is the act"},
 	"Manager.SignedIn":                 {none: atSignIn},
 	"Manager.SignedUp":                 {none: atSignIn},
 	"Manager.InvitationAccepted":       {none: atSignIn},
@@ -167,12 +169,15 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.CheckInvitedTenant":              {none: reads},
 	"Manager.InvitedTenants":                  {none: reads},
 	"Manager.SignInMethods":                   {none: reads},
-	"Manager.AnyMethodOpen":                   {none: reads},
+	"Manager.SessionMethodOpen":               {none: reads},
+	"Manager.OneTenantPerPerson":              {none: reads},
 	"Manager.SignInSettings":                  {none: reads},
 	"Manager.SignUpRoles":                     {none: reads},
 	"Manager.StartingRoles":                   {none: reads},
 	"Manager.SkippedStoredGrants":             {none: reads},
 	"Tenant.Domain":                           {none: reads},
+	"Tenant.SeatedAgainNote":                  {none: reads},
+	"Tenant.DeletionWarning":                  {none: reads},
 }
 
 // subjectGuards are the two forms of the rule a method asks about a person named by the
@@ -470,7 +475,7 @@ func asksFirst(fn *ast.FuncDecl, accepted func(call *ast.CallExpr) bool) bool {
 // are the Manager's own steps that write or send.
 var (
 	writeVerbs = []string{"Insert", "Update", "Delete", "Set", "Remove", "Revoke", "End", "Clear", "Consume", "Rename"}
-	writeSteps = []string{"mailAfterCommit", "noticeAfterCommit", "resetLinksEndAtCommit", "endUserSessions", "endSession", "endSessionAndRecord", "removeMembership", "deleteAccount", "deleteWithLastRole"}
+	writeSteps = []string{"mailAfterCommit", "noticeAfterCommit", "resetLinksEndAtCommit", "endUserSessions", "endSession", "endSessionAndRecord", "removeMembership", "deleteAccount"}
 )
 
 // writesSomething reports whether the node calls a write: a method of the store whose

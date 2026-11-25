@@ -167,9 +167,12 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
               ]
             },
@@ -297,9 +300,12 @@
                 "name",
                 "roleNames",
                 "invitedByUserId",
+                "sentBy",
                 "createdAt",
                 "expiresAt",
                 "consumedAt",
+                "withdrawnAt",
+                "state",
                 "pending"
               ]
             },

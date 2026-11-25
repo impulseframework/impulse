@@ -21,7 +21,7 @@ import (
 // @answers(204)
 // @class(access)
 type WithdrawStaffInvitation struct {
-	// @target(StaffSessionMailLink)
+	// @target(StaffListedMailLink)
 	InvitationID impulse.UUID
 }
 

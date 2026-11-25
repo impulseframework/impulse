@@ -84,6 +84,7 @@ func (Refit) DeleteTree() *resource.DeleteTree {
 // looked up in the pointed-to table by the id; it is no column of this resource.
 func (Refit) NameFields() []resource.NameField {
 	return []resource.NameField{
+		{Field: "ShipName", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
 		{Field: "StatusName", Key: "StatusID", Resource: "", Tag: "", Table: "RefitStatuses", KeyColumn: "Id", NameColumn: "Description", TenantColumn: ""},
 	}
 }
@@ -867,11 +868,30 @@ func NewRefitDeletePatch(id impulse.UUID) *RefitDeletePatch {
 
 // WithEverythingUnder says the delete takes the rows under the Refit with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
-// delete would delete it. Without it, a delete of a Refit that has such rows
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a Refit that has such rows
 // deletes nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired).
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left says what is left: buffer the delete
+// again, in a transaction of its own, until Left answers nil.
 func (p *RefitDeletePatch) WithEverythingUnder() *RefitDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// Left is what the delete left under the Refit once it is buffered
+// (resource.DeleteLeft): nil where the delete finished, the Refit with it.
+func (p *RefitDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Refit that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Refit.
+func (p *RefitDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *RefitDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
 
 	return p
 }

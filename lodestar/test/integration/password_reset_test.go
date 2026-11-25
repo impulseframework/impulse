@@ -432,9 +432,9 @@ func TestPasswordResetLink_closingWaitsForIt(t *testing.T) {
 // ones that send none. A new address changes nothing until its mailbox confirms: the
 // link goes to the new address alone, the account keeps the old one, and once the link
 // is followed, by a person who is not signed in, the new address is the account's,
-// confirmed, and the old one is told. A reset of the second factor tells the person;
-// the last role taken from a person in a sector tells them where they were removed
-// from; disabling and enabling an account tell nobody.
+// confirmed, and the old one is told. A reset of the second factor tells the person.
+// Disabling and enabling an account tell nobody, and neither do taking a person's roles
+// in a sector away, the last of them included, and deleting a group they are in.
 //
 // Demonstrates: auth.email-address.
 func TestAccountMail(t *testing.T) {
@@ -519,9 +519,17 @@ func TestAccountMail(t *testing.T) {
 		t.Errorf("disabling and enabling the account mailed %q, want nothing", subjects(sent))
 	}
 
-	// The roles in Anvil: taking one of two tells nobody, taking the last tells the
-	// person where they were removed from. The account, which holds roles for the
-	// whole fleet, stays.
+	// A group of Anvil the cadet is in gives her a role there.
+	status, body = hq.do(ctx, http.MethodPost, sectorPath(anvil, "create-crew-sector-group"), jsonBody(t, map[string]string{"name": "Dawn watch", "description": "Keeps Anvil's deck at dawn."}))
+	assertStatus(t, status, http.StatusOK, body)
+	group := cell[string](t, decodeRow(t, body), "id")
+	status, body = hq.do(ctx, http.MethodPost, sectorPath(anvil, "add-crew-sector-group-member"), jsonBody(t, map[string]string{"groupId": group, "userId": cadetID}))
+	assertStatus(t, status, http.StatusNoContent, body)
+	status, body = hq.do(ctx, http.MethodPost, sectorPath(anvil, "give-crew-sector-group-role"), jsonBody(t, map[string]string{"groupId": group, "role": "Engineer"}))
+	assertStatus(t, status, http.StatusNoContent, body)
+
+	// The roles in Anvil: taking one of two tells nobody, and taking the last of her own
+	// tells nobody either.
 	remove := func(role string) {
 		t.Helper()
 		status, body := hq.do(ctx, http.MethodPost, crewMethod("remove-crew-role"), jsonBody(t, map[string]string{"userId": cadetID, "role": role, "domain": anvil}))
@@ -533,8 +541,16 @@ func TestAccountMail(t *testing.T) {
 		t.Errorf("taking one of the cadet's two roles in Anvil mailed %q, want nothing", subjects(sent))
 	}
 	remove("SectorCrew")
-	removed := oneMailedSince(t, s, sentBefore, newAddress)
-	if removed.Subject != "You were removed from Anvil" || strings.Contains(removed.Text, "deleted") {
-		t.Errorf("the removal mailed %q: %s, want the notice of a removal from Anvil with the account kept", removed.Subject, removed.Text)
+	if to := mailedSince(s, sentBefore, newAddress); len(to) != 0 {
+		t.Errorf("taking the cadet's last role in Anvil mailed her %q, want nothing", subjects(to))
+	}
+
+	// The group is deleted with her place in it, the last thing she held in Anvil, and
+	// that tells nobody either.
+	sentBefore = len(s.mail.Messages())
+	status, body = hq.do(ctx, http.MethodPost, sectorPath(anvil, "delete-crew-sector-group"), jsonBody(t, map[string]any{"groupId": group, "everythingUnder": true}))
+	assertStatus(t, status, http.StatusNoContent, body)
+	if sent := s.mail.Messages()[sentBefore:]; len(sent) != 0 {
+		t.Errorf("deleting a group the cadet was in mailed %q, want nothing", subjects(sent))
 	}
 }

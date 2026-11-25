@@ -435,8 +435,9 @@ type AuthStore[Tx any] interface {
 	// ConsumeMailLink consumes the live mail link holding tokenHash by a conditional
 	// update, so it is consumed once; a link that is not live is NotFound.
 	ConsumeMailLink(ctx context.Context, tokenHash []byte) error
-	// RevokeMailLink consumes the live mail link id: an invitation withdrawn by hand.
-	// A link that is not live is NotFound.
+	// RevokeMailLink marks the live mail link id consumed and withdrawn, both at the
+	// database's time: a link taken back before anyone followed it. A link that is not
+	// live is NotFound.
 	RevokeMailLink(ctx context.Context, id impulse.UUID) error
 	// FailMailLink ends the live mail link id whose message could not be mailed. The
 	// link is consumed, as a withdrawn one is, and its row says the mail failed, so a
@@ -681,8 +682,8 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 // sign-in policy (nil for none), the invitation acceptor (nil for none), the hook that
 // gives a person who signed up through an open method its default role (nil for none),
 // and a tenanted application's reader of the tenants' directory declarations with the
-// hook that seats a person at their first sign-in through a tenant's directory (both
-// nil for none). They carry the proof of the password the sign-in rests on too (nil for
+// hook that seats a person who signs in through a tenant's directory and holds nothing
+// in the tenant (both nil for none). They carry the proof of the password the sign-in rests on too (nil for
 // none), which the session's insert is held to.
 type SignInRules[Tx any] struct {
 	Account signin.AccountRule[Tx]

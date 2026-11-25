@@ -53,9 +53,9 @@ export interface PermissionsSnapshot {
   readonly names?: ReadonlyMap<Domain, string>;
   /**
    * The domains the person holds a seat in and this session cannot enter, each with the
-   * server's reason; absent until loadDomains has run, and empty when none is closed.
+   * server's reason; absent until loadDomains has run, and empty when there are none.
    */
-  readonly closed?: ReadonlyMap<Domain, string>;
+  readonly unavailable?: ReadonlyMap<Domain, string>;
   /**
    * Set when the last read of the list of domains failed. A list read before is kept as it
    * was, so this alone does not say the list is unknown: `domainsUnread` does.
@@ -82,19 +82,19 @@ export function domainsUnread(snapshot: PermissionsSnapshot): boolean {
 
 /**
  * One tenant of the user-domains answer: the domain and its name (the domain itself
- * where the record holds none). `closed` marks a tenant the person holds a seat in and
- * this session cannot enter, with the reason in a sentence the server writes ("Acme
+ * where the record holds none). `unavailable` marks a tenant the person holds a seat in
+ * and this session cannot enter, with the reason in a sentence the server writes ("Acme
  * admits only people who sign in through its own directory. You signed in with a
- * password."); it is absent for a tenant the session reaches.
+ * password.", "Acme is disabled."); it is absent for a tenant the session reaches.
  */
 export interface UserDomain {
   readonly domain: Domain;
   readonly name: string;
-  readonly closed?: string;
+  readonly unavailable?: string;
 }
 
-/** No domain is closed: what closedDomains answers before the list has loaded. */
-const noneClosed: ReadonlyMap<Domain, string> = new Map();
+/** No domain is unavailable: what unavailableDomains answers before the list has loaded. */
+const noneUnavailable: ReadonlyMap<Domain, string> = new Map();
 
 /** The digest cache key for a scope: the domain, or '' for the global scope. */
 export function digestKey(domain?: Domain): string {
@@ -238,12 +238,13 @@ export class PermissionStore {
   /**
    * The domains the person holds a seat in and this session cannot enter, each with the
    * server's reason, once loadDomains has run: a tenant that admits only people who sign
-   * in through its own directory, when the person signed in another way. They are never
-   * among domains(): the tenant's routes answer the session as a tenant that does not
-   * exist, and a picker shows them marked, not as places to open.
+   * in through its own directory, when the person signed in another way, or a tenant that
+   * is disabled. They are never among domains(): the tenant's routes answer the session as
+   * a tenant that does not exist, and a picker shows them under "Not available", with the
+   * reason, and never as places to open.
    */
-  closedDomains(): ReadonlyMap<Domain, string> {
-    return this.snapshot.get().closed ?? noneClosed;
+  unavailableDomains(): ReadonlyMap<Domain, string> {
+    return this.snapshot.get().unavailable ?? noneUnavailable;
   }
 
   /**
@@ -369,13 +370,13 @@ export class PermissionStore {
       this.snapshot.update((snapshot) => ({ ...snapshot, domainsFailed: true }));
       throw error;
     }
-    const domains = listed.filter((entry) => !entry.closed).map((entry) => entry.domain);
+    const domains = listed.filter((entry) => !entry.unavailable).map((entry) => entry.domain);
     const names = new Map(listed.map((entry) => [entry.domain, entry.name] as const));
-    const closed = new Map(
-      listed.filter((entry) => entry.closed).map((entry) => [entry.domain, entry.closed ?? ''] as const),
+    const unavailable = new Map(
+      listed.filter((entry) => entry.unavailable).map((entry) => [entry.domain, entry.unavailable ?? ''] as const),
     );
     // A list that answers takes the place of the last one, and of a failure before it.
-    this.snapshot.update(({ digests }) => ({ digests, domains, names, closed }));
+    this.snapshot.update(({ digests }) => ({ digests, domains, names, unavailable }));
     return domains;
   }
 

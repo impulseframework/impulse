@@ -17,8 +17,8 @@ import (
 // must enter before a method is offered on one of its rows. A method declared with
 // @callerEnters, one that names the row (@target, @transition) or one that names no row and
 // lists the struct (@callerEnters(Row)), is offered by the row, under capabilities=Execute,
-// only to a caller whose session enters every tenant the row's query names
-// (UserPermissions.Reaches); the method's own code refuses the call, and the declaration
+// only to a caller whose session the sign-in settings of every tenant the row's query
+// names admit (AdmitsSession); the method's own code refuses the call, and the declaration
 // refuses nothing. The struct declares it as a method of its own:
 //
 //	func (User) TenantsToEnter() resource.TenantsToEnter

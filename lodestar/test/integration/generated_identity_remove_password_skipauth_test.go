@@ -20,17 +20,22 @@ import (
 
 // TestGeneratedIdentityRemovePassword holds the removal of a person's password on the
 // served stack, with the real session manager and the fleet's simulated directory, both
-// ways it is asked: by headquarters through the generated method, and by the person at
-// the route beside their password change. Either way the password stays while the
-// person holds no identity, since nothing else signs them in. Once the person has
-// signed in through the directory, the removal goes through: the password no longer
-// signs them in, refused as a wrong password is; the directory does, by the link; the
-// sessions the person holds stand, the one the password established among them; and
-// the requirement to change the password and the count of failed sign-ins go with it.
-// A role with no grant on the method is refused, and the person's own removal asks for
-// the password as proof. Headquarters reads how the person signs in from the list the
-// generated management serves beside the method (CrewSignInWays), held in each state
-// the pilot passes through: the page offers the removal from it.
+// ways it is asked: by the party that manages the account, through the generated method,
+// and by the person at the route beside their password change. Either way the password
+// stays while the person holds no identity, since nothing else signs them in:
+// headquarters is refused the removal while the password is the pilot's only way in. The
+// pilot's sign-in through the fleet's directory, which is Cinder's, makes the account
+// Cinder's to manage, so from then on headquarters is neither offered the removal nor let
+// through, and Cinder's marshal is offered it on the pilot's row among Cinder's people
+// and removes the password: the password no longer signs the pilot in, refused as a wrong
+// password is; the directory does, by the link; the sessions the person holds stand, the
+// one the password established among them; and the requirement to change the password
+// and the count of failed sign-ins go with it. A role with no grant on the method is
+// refused, and the person's own removal asks for the password as proof. Headquarters
+// reads how the person signs in from the list the generated management serves beside the
+// method (CrewSignInWays), held in each state the pilot passes through: the page offers
+// the removal from it. The governor asks each of these: he holds Headquarters, and he is
+// a marshal of Cinder as of every sector.
 //
 // The person's account page offers the removal only where it can happen, from the read
 // the methods answer names beside it: what the person signs in with. It is held here
@@ -52,6 +57,11 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	cadet.signIn(ctx, "cadet")
 	remove := func(b *browser, userID string) (int, []byte) {
 		return b.do(ctx, http.MethodPost, consoleAPI+"/remove-crew-password", []byte(`{"userId":"`+userID+`"}`))
+	}
+	// atCinder calls a method of Cinder's management of its people as the governor, a
+	// marshal of Cinder.
+	atCinder := func(method string, body []byte) (int, []byte) {
+		return hq.do(ctx, http.MethodPost, sectorPath(cinder, method), body)
 	}
 	hash := func(userID string) spanner.NullString {
 		return readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionUsers", spanner.Key{userID}, "PasswordHash")
@@ -115,17 +125,37 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	}
 	signsInThrough("a password alone", "Password")
 
-	// The pilot signs in through the directory, which links it. The cadet's role carries
-	// no grant on the method: refused, with nothing but the grant in the way.
+	// The pilot signs in through the directory, which links it. The fleet's directory is
+	// Cinder's, so Cinder manages the account from now on. The cadet's role carries no
+	// grant on the method: refused, with nothing but the grant in the way.
 	sso := linkThroughDirectory("pilot")
-	// The answer for the pilot's row lists the method for headquarters: what the
-	// person's page draws its Remove password button from.
+	// The pilot's row of the whole application's list says so, and its answer does not
+	// list the method for headquarters: what the person's page draws its Remove password
+	// button from.
 	status, body = hq.do(ctx, http.MethodGet, consoleAPI+"/"+crewListedAccountsPath+"/"+pilotID+"?capabilities=Execute", nil)
 	assertStatus(t, status, http.StatusOK, body)
-	capabilities, _ := decodeRow(t, body)["zzCapabilities"].(map[string]any)
+	row := decodeRow(t, body)
+	if managed, managing := cell[bool](t, row, "managedByTenant"), text(row, "managingTenant"); !managed || managing != cinder {
+		t.Errorf("the pilot's row after the sign-in through the fleet's directory: managedByTenant = %v, managingTenant = %q, want true, %q", managed, managing, cinder)
+	}
+	capabilities, _ := row["zzCapabilities"].(map[string]any)
 	offered, _ := capabilities["Execute"].([]any)
-	if !slices.Contains(offered, any("RemoveCrewPassword")) {
-		t.Errorf("the Execute answer for the pilot's row = %v, want it to list RemoveCrewPassword for headquarters", offered)
+	if slices.Contains(offered, any("RemoveCrewPassword")) {
+		t.Errorf("the Execute answer for the pilot's row = %v, and it lists RemoveCrewPassword for headquarters on an account Cinder manages", offered)
+	}
+	// Nor does headquarters' removal go through.
+	if status, body := remove(hq, pilotID); status != http.StatusForbidden {
+		t.Errorf("headquarters' remove-crew-password of an account Cinder manages: status %d, want 403: %s", status, body)
+	}
+	if !hash(pilotID).Valid {
+		t.Fatal("the pilot's password is gone after headquarters' refused removal")
+	}
+	// The pilot's row among Cinder's people offers it to Cinder's marshal.
+	status, body = hq.do(ctx, http.MethodGet, sectorPath(cinder, sectorPeoplePath+"/"+pilotID+"?capabilities=Execute"), nil)
+	assertStatus(t, status, http.StatusOK, body)
+	atCinderCapabilities, _ := decodeRow(t, body)["zzCapabilities"].(map[string]any)
+	if offered, _ := atCinderCapabilities["Execute"].([]any); !slices.Contains(offered, any("RemoveCrewSectorPassword")) {
+		t.Errorf("the Execute answer for the pilot's row among Cinder's people = %v, want it to list RemoveCrewSectorPassword for Cinder's marshal", offered)
 	}
 	// The list says the same: the password, and the identity the directory linked, by
 	// the words of the fleet's Google sign-in, the one of the login page's two that
@@ -141,12 +171,12 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 		t.Fatal("the pilot's password is gone after the cadet's refused removal")
 	}
 
-	// A change of the password is required of the pilot, and one failed sign-in is
-	// counted under the name, when the password goes.
-	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/require-crew-password-change", []byte(`{"userId":"`+pilotID+`"}`))
+	// Cinder's marshal requires a change of the password of the pilot, and one failed
+	// sign-in is counted under the name, when the password goes.
+	status, body = atCinder("require-crew-sector-password-change", []byte(`{"userId":"`+pilotID+`"}`))
 	assertStatus(t, status, http.StatusNoContent, body)
 	if status, body := pilot.do(ctx, http.MethodGet, userDomains, nil); status != http.StatusForbidden || !strings.Contains(string(body), string(sessioninfo.RefusedPasswordChangeRequired)) {
-		t.Fatalf("the pilot's next request after require-crew-password-change: status %d, want 403 naming %s: %s", status, sessioninfo.RefusedPasswordChangeRequired, body)
+		t.Fatalf("the pilot's next request after require-crew-sector-password-change: status %d, want 403 naming %s: %s", status, sessioninfo.RefusedPasswordChangeRequired, body)
 	}
 	if status, body := stranger.login(ctx, "pilot", "not the password"); status != http.StatusUnauthorized {
 		t.Fatalf("a wrong password: status %d, want 401: %s", status, body)
@@ -155,11 +185,11 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 		t.Fatalf("the pilot's failed sign-ins = %d, want 1", got)
 	}
 
-	// Headquarters removes the password.
-	status, body = remove(hq, pilotID)
+	// Cinder's marshal removes the password.
+	status, body = atCinder("remove-crew-sector-password", []byte(`{"userId":"`+pilotID+`"}`))
 	assertStatus(t, status, http.StatusNoContent, body)
 	if got := hash(pilotID); got.Valid {
-		t.Errorf("the pilot's password after remove-crew-password = %v, want none", got)
+		t.Errorf("the pilot's password after remove-crew-sector-password = %v, want none", got)
 	}
 	if readColumn[bool](ctx, t, s.db, "CrewSessionUsers", spanner.Key{pilotID}, "PasswordChangeRequired") {
 		t.Error("the pilot is still marked to change a password they no longer hold")
@@ -189,9 +219,10 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 		t.Errorf("session through the directory after the removal = %v, want authenticated as pilot", sess)
 	}
 
-	// Nothing is left to remove, and the identity is now the pilot's last way in.
-	if status, body := remove(hq, pilotID); status != http.StatusBadRequest {
-		t.Errorf("remove-crew-password of a person with no password: status %d, want 400: %s", status, body)
+	// Nothing is left to remove, and the identity is now the pilot's last way in: Cinder's
+	// marshal is answered so.
+	if status, body := atCinder("remove-crew-sector-password", []byte(`{"userId":"`+pilotID+`"}`)); status != http.StatusBadRequest {
+		t.Errorf("remove-crew-sector-password of a person with no password: status %d, want 400: %s", status, body)
 	}
 	status, body = hq.do(ctx, http.MethodGet, consoleAPI+"/crew-session-identities?limit=200&filter=userId:eq:"+pilotID, nil)
 	assertStatus(t, status, http.StatusOK, body)
@@ -200,7 +231,7 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 		t.Fatalf("the pilot's identities = %v, want the one the directory sign-in linked", identities)
 	}
 	unlink := []byte(`{"identityId":"` + cell[string](t, identities[0], "id") + `"}`)
-	if status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/unlink-crew-session-identity", unlink); status != http.StatusConflict {
+	if status, body := atCinder("unlink-crew-sector-session-identity", unlink); status != http.StatusConflict {
 		t.Errorf("unlinking the identity left after the removal: status %d, want 409: %s", status, body)
 	}
 

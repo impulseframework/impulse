@@ -408,3 +408,87 @@ func TestManager_DirectoryName(t *testing.T) {
 		})
 	}
 }
+
+// TestTenant_SeatedAgainNote pins the note a removal's warning carries where the tenant is
+// open to its directory and the person signs in through it, in the application's word for
+// a tenant: the person is given the starting role again at their next sign-in, and
+// disabling their account is the way to keep them out.
+func TestTenant_SeatedAgainNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts []Option
+		want resource.WarningNote
+	}{
+		{
+			name: "the default word",
+			want: resource.WarningNote{Says: "This tenant is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. To keep them out, disable their account instead."},
+		},
+		{
+			name: "the application's word",
+			opts: []Option{WithTenantWord("sector")},
+			want: resource.WarningNote{Says: "This sector is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. To keep them out, disable their account instead."},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m, _ := newManager(t, groupStore(), wardenRoles, tt.opts...)
+			tenant := &Tenant{manager: m, domain: "alpha"}
+			if diff := cmp.Diff(tt.want, tenant.SeatedAgainNote()); diff != "" {
+				t.Errorf("SeatedAgainNote() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestTenant_DeletionWarning pins the warning the tenant's method that deletes a person
+// gives before it runs, in the application's word for a tenant: the account goes from
+// every tenant, Disable keeps it, and, where the tenant is open to its directory and the
+// person signs in through it, a note that they can sign in again and will get a new
+// account with the starting role.
+func TestTenant_DeletionWarning(t *testing.T) {
+	t.Parallel()
+
+	const again = "They can sign in through the directory again and will get a new account with the starting role."
+	tests := []struct {
+		name        string
+		opts        []Option
+		seatedAgain bool
+		want        *resource.Warning
+	}{
+		{
+			name: "the default word, not seated again",
+			want: &resource.Warning{Consequence: "The account is removed from every tenant, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.", Confirm: "Delete"},
+		},
+		{
+			name:        "the default word, seated again",
+			seatedAgain: true,
+			want:        &resource.Warning{Consequence: "The account is removed from every tenant, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.", Confirm: "Delete", Also: []resource.WarningNote{{Says: again}}},
+		},
+		{
+			name: "the application's word, not seated again",
+			opts: []Option{WithTenantWord("cost center")},
+			want: &resource.Warning{Consequence: "The account is removed from every cost center, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.", Confirm: "Delete"},
+		},
+		{
+			name:        "the application's word, seated again",
+			opts:        []Option{WithTenantWord("cost center")},
+			seatedAgain: true,
+			want:        &resource.Warning{Consequence: "The account is removed from every cost center, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.", Confirm: "Delete", Also: []resource.WarningNote{{Says: again}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m, _ := newManager(t, groupStore(), wardenRoles, tt.opts...)
+			tenant := &Tenant{manager: m, domain: "alpha"}
+			if diff := cmp.Diff(tt.want, tenant.DeletionWarning(tt.seatedAgain)); diff != "" {
+				t.Errorf("DeletionWarning() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

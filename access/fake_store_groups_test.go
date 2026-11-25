@@ -23,7 +23,7 @@ type fakeGroupRole struct {
 
 // fakeGroups is the fake store's group tables, honoring the stores' contract:
 // a name held to one group where it is kept, members and roles that need the
-// group's row, and a delete refused until the group is emptied. A member's row
+// group's row, and a delete that takes the group's members and roles. A member's row
 // and a role's each hold the period the assignment counts in. The zero value
 // is ready.
 type fakeGroups struct {
@@ -119,17 +119,7 @@ func (f *fakeStore) SetGroupDescription(_ context.Context, group accesstypes.Gro
 func (f *fakeStore) DeleteGroup(_ context.Context, group accesstypes.Group) (bool, error) {
 	var deleted bool
 	err := f.locked(func() error {
-		for m, period := range f.groups.members {
-			if m.group == group && !period.Ended(f.now()) {
-				return errors.Wrapf(policy.ErrStillAssigned, "group %s still has members", group)
-			}
-		}
-		for r, period := range f.groups.held {
-			if r.group == group && !period.Ended(f.now()) {
-				return errors.Wrapf(policy.ErrStillAssigned, "group %s still has roles", group)
-			}
-		}
-		// The members and the roles that have ended go with the group.
+		// The members and the roles go with the group, whatever their periods.
 		for m := range f.groups.members {
 			if m.group == group {
 				delete(f.groups.members, m)

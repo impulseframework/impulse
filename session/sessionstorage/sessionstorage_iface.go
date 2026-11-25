@@ -257,7 +257,9 @@ type db interface {
 	LiveMailLinks(ctx context.Context, kind dbtype.MailLinkKind, now time.Time) ([]*dbtype.MailLink, error)
 	// ConsumeMailLink marks the live mail link holding tokenHash consumed at now by a conditional update; NotFound when it is not live.
 	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
-	// RevokeMailLink marks the live mail link id consumed at now; NotFound when it is not live.
+	// RevokeMailLink marks the live mail link id consumed and withdrawn, both at the
+	// database's time: a link taken back before anyone followed it. A link that is not
+	// live is NotFound.
 	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
 	// FailMailLink marks the live mail link id consumed at now, and as one whose message could not be mailed; NotFound when it is not live.
 	FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error

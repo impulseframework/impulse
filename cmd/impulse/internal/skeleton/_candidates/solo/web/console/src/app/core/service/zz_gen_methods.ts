@@ -53,12 +53,24 @@ export interface CreateStaffGroupResult {
 
 export interface DeleteStaffGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteStaffGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteStaffGroup answers with. */
+export interface DeleteStaffGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteStaffGroup declares; the method chooses one per response. */
-export type DeleteStaffGroupStatus = 204;
+export type DeleteStaffGroupStatus = 202 | 204;
+/** The answer DeleteStaffGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffGroupAnswer {
+  status: DeleteStaffGroupStatus;
+  result: DeleteStaffGroupResult;
+}
 
 export interface DeleteStaffUserConfig {
   userId: string | FieldPointer;
@@ -222,6 +234,18 @@ export interface RequireStaffSecondFactorConfig {}
 export interface RequireStaffSecondFactor {}
 /** The statuses RequireStaffSecondFactor declares; the method chooses one per response. */
 export type RequireStaffSecondFactorStatus = 204;
+
+export interface ResendStaffInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendStaffInvitation {
+  invitationId: string;
+}
+/** The result ResendStaffInvitation answers with. */
+export interface ResendStaffInvitationResult {
+  id: string;
+  sent: boolean;
+}
 
 export interface RevokeStaffSessionTokenConfig {
   tokenId: string | FieldPointer;
@@ -506,10 +530,12 @@ const methodMap: MethodMap = {
   [Methods.DeleteStaffGroup]: {
     route: 'delete-staff-group',
     target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteStaffUser]: {
@@ -551,9 +577,10 @@ const methodMap: MethodMap = {
   },
   [Methods.EndStaffSession]: {
     route: 'end-staff-session',
-    target: { resource: Resources.StaffSessions, key: { sessionId: 'id' } },
+    target: { resource: Resources.StaffListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -662,6 +689,15 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [],
   },
+  [Methods.ResendStaffInvitation]: {
+    route: 'resend-staff-invitation',
+    target: { resource: Resources.StaffListedMailLinks, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
   [Methods.RevokeStaffSessionToken]: {
     route: 'revoke-staff-session-token',
     target: { resource: Resources.StaffSessionTokens, key: { tokenId: 'id' } },
@@ -762,7 +798,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockStaffSignIn]: {
     route: 'unlock-staff-sign-in',
-    target: { resource: Resources.StaffSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.StaffListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -771,7 +807,7 @@ const methodMap: MethodMap = {
   },
   [Methods.WithdrawStaffInvitation]: {
     route: 'withdraw-staff-invitation',
-    target: { resource: Resources.StaffSessionMailLinks, key: { invitationId: 'id' } },
+    target: { resource: Resources.StaffListedMailLinks, key: { invitationId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [

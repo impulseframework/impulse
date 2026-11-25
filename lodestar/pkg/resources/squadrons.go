@@ -26,9 +26,8 @@ type (
 	// memberships, the hangar passes it holds and the missions assigned to it refuse its
 	// delete before the commit, in a sentence that counts what is in the way ("This
 	// squadron has 8 missions. Move or delete them first." where only missions are: a
-	// mission may be assigned to no squadron, so the missions can be moved). The rows and
-	// the squadron deleted in one request go through, in either order. A wing's delete
-	// takes its squadrons with their memberships and passes (Wing declares it).
+	// mission may be assigned to no squadron, so the missions can be moved). A wing's
+	// delete takes its squadrons with their memberships and passes (Wing declares it).
 	//
 	// Demonstrates: @domain.join-path, @attribute, decode.nullable-slice, delete.rows-under-refusal.
 	//
@@ -40,8 +39,9 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @domain(via: SectorID)
 		// @attribute(wing)
-		WingID    impulse.UUID `spanner:"WingId"`
-		Name      string       `spanner:"Name"`
-		Callsigns []string     `spanner:"Callsigns"`
+		WingID impulse.UUID `spanner:"WingId"`
+		// @name
+		Name      string   `spanner:"Name"`
+		Callsigns []string `spanner:"Callsigns"`
 	}
 )

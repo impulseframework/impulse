@@ -20,10 +20,11 @@ import (
 
 func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 	type crewSectorUser struct {
-		ID                        impulse.UUID `json:"id"                        index:"true" perm:"-"`
+		ID                        impulse.UUID `json:"id"                        index:"true"        perm:"-"`
 		DomainID                  string       `json:"domainId"                  index:"true"`
 		Username                  string       `json:"username"                  index:"true"`
 		Name                      *string      `json:"name"`
+		DisplayName               string       `json:"displayName"               allow_filter:"true"`
 		Email                     *string      `json:"email"`
 		EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
 		Disabled                  bool         `json:"disabled"`
@@ -99,6 +100,10 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 				case "Name":
 					if !row.Masked("name") {
 						rmap["name"] = rec.Name
+					}
+				case "DisplayName":
+					if !row.Masked("displayName") {
+						rmap["displayName"] = rec.DisplayName
 					}
 				case "Email":
 					if !row.Masked("email") {
@@ -195,6 +200,7 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 		DomainID                  string       `json:"domainId"`
 		Username                  string       `json:"username"`
 		Name                      *string      `json:"name"`
+		DisplayName               string       `json:"displayName"`
 		Email                     *string      `json:"email"`
 		EmailVerifiedAt           *time.Time   `json:"emailVerifiedAt"`
 		Disabled                  bool         `json:"disabled"`
@@ -258,6 +264,10 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 			case "Name":
 				if !row.Masked("name") {
 					rmap["name"] = rec.Name
+				}
+			case "DisplayName":
+				if !row.Masked("displayName") {
+					rmap["displayName"] = rec.DisplayName
 				}
 			case "Email":
 				if !row.Masked("email") {

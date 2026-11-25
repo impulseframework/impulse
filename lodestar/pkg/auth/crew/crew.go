@@ -268,8 +268,8 @@ type Settings struct {
 	TenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]
 	// TenantDirectories reads every sector's declaration of one directory with the
 	// default seat its row carries, in the sign-in's transaction: the generated reader
-	// (app.NewSectorDirectoryReader), which the directory admission decides a stranger's
-	// first sign-in with. Required; New refuses nil.
+	// (app.NewSectorDirectoryReader), which the directory admission decides every
+	// sign-in through a sector's directory with. Required; New refuses nil.
 	TenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]
 	// TenantMaker makes a sector from an accepted invitation: the generated maker over
 	// the Sector record's create patch (app.NewSectorMaker), which the crew's identity
@@ -838,7 +838,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Which sectors the session then reaches is decided again, sector by sector, where
 	// its chart is computed (app.UserPermissions): every sector that seats the person,
 	// but a directory-only sector whose directory they did not sign in through, which
-	// stays on the chart marked closed, with the reason. The memberships are read
+	// stays on the chart, listed as not available, with the reason. The memberships are read
 	// outside the sign-in's transaction (resource.SignInRoles): the Spanner client
 	// refuses the engine's read under the transaction's context as a nested transaction.
 	// Whether a session then carries a second factor is the auth's sign-in setting (the
@@ -888,18 +888,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// and hands that transaction, so the role is written with the step or not at all.
 	// They are set here, where the auth is built, so no crew auth is open without them.
 	//
-	// The directory admission: what a fleet member gets at their first sign-in through
-	// a sector's directory, before the registration's account rule is reached. The row
-	// of the sector whose directory the identity came through decides: a row with a
-	// default seat creates a stranger and seats them with it in one transaction (Cinder
-	// seats them SectorCrew), and the sign-in rule then finds the membership; a row with
-	// none refuses a stranger (invitation_only), and no account is created, unless they
-	// followed an invitation link, which is the way in. A person whose account stood
-	// before is given the default seat too, at the sign-in that links the account to
-	// the directory, where they hold no role in the sector: a persona who signs in
-	// through the fleet's directory for the first time and confirms with their password
-	// is seated at Cinder then. It is given once for a link, so a role a marshal removes
-	// afterwards is not given back by signing in. A directory no sector has falls to
+	// The directory admission: what a fleet member gets when they sign in through a
+	// sector's directory and hold nothing in the sector, at every sign-in, before the
+	// registration's account rule is reached. The row of the sector whose directory the
+	// identity came through decides: a row with a default seat creates a stranger and
+	// seats them with it in one transaction (Cinder seats them SectorCrew), and the
+	// sign-in rule then finds the membership; a row with none refuses a stranger
+	// (invitation_only), and no account is created, unless they followed an invitation
+	// link, which is the way in. A person whose account stood before is given the default
+	// seat too, at their next sign-in through the directory, where they hold nothing in
+	// the sector: a persona who signs in through the fleet's directory for the first time
+	// and confirms with their password is seated at Cinder then. A role a marshal removes
+	// is given again at the person's next sign-in through the directory, and disabling
+	// the account keeps a person out. A directory no sector has falls to
 	// the registration's rule as before (the pioneer's sign-up, a personal account,
 	// which is no sector's directory). The crew's roles are the application's, so the
 	// admission is set on this auth; an auth whose directory writes the roles (the
@@ -939,7 +940,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// identity client which tenants the person holds something in, with the roles held
 	// in each, and has it take the person out of one at their own word (OwnTenants).
 	// The rules are the identity package's: a tenant's last administrator does not
-	// leave it, and an account left holding nothing is deleted with its sessions.
+	// leave it, and an account left holding nothing stays.
 	crewSession.SetOwnTenants(identityClient.OwnTenants(resource.NewSpannerClient(db)))
 
 	// The machine outlet the auth issues tokens for, registered before the first

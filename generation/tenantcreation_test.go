@@ -51,10 +51,11 @@ func generatedIdentityOf(importPaths ...string) []*identityInstance {
 	return instances
 }
 
-// Test_tenantClears pins what the tenant record's delete clears a tenant through: the
-// application's accessor of every generated identity client, in declaration order, and
-// nothing for any other resource or for a program that generates no auth's management.
-func Test_tenantClears(t *testing.T) {
+// Test_tenantKindSources pins the identity clients whose kinds the tenant record's delete
+// is handed: the application's accessor of every generated identity client, in
+// declaration order, and nothing for any other resource or for a program that generates
+// no auth's management.
+func Test_tenantKindSources(t *testing.T) {
 	t.Parallel()
 
 	two := generatedIdentityOf("example.com/app/pkg/auth/staff", "example.com/app/pkg/auth/members")
@@ -75,8 +76,8 @@ func Test_tenantClears(t *testing.T) {
 
 			r := &resourceGenerator{client: &client{}}
 			r.identity = tt.identity
-			if diff := cmp.Diff(tt.want, r.tenantClears(&resourceInfo{IsTenant: tt.tenant})); diff != "" {
-				t.Errorf("tenantClears() mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tt.want, r.tenantKindSources(&resourceInfo{IsTenant: tt.tenant})); diff != "" {
+				t.Errorf("tenantKindSources() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -307,6 +308,18 @@ func Test_tenantCreationFields(t *testing.T) {
 	if diff := cmp.Diff([]string{"Name", "Motto", "Opened"}, setters); diff != "" {
 		t.Errorf("tenantCreationFields() setters mismatch (-want +got):\n%s", diff)
 	}
+
+	// A new tenant is made enabled, by the column's default: the request does not take
+	// whether it is disabled.
+	haven := tenantCreationFixtureGenerator(t, "Haven", nil)
+	_, fields, setters = tenantCreationFields(haven.resources[0])
+	wantFields = []*tenantCreationField{{Name: "Name", Type: "string", Wire: "name", Tags: `json:"name" validate:"required"`}}
+	if diff := cmp.Diff(wantFields, fields); diff != "" {
+		t.Errorf("tenantCreationFields() of a record that marks the column saying a tenant is disabled, fields mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"Name"}, setters); diff != "" {
+		t.Errorf("tenantCreationFields() of a record that marks the column saying a tenant is disabled, setters mismatch (-want +got):\n%s", diff)
+	}
 }
 
 // Test_tenantCreationData_typeImports pins the payload's import scope: the packages the
@@ -487,10 +500,12 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		// And it is judged again in the transaction that writes the row, from the auth's
 		// tables, in the same words: two creations by one person at once write one tenant.
 		"holds, err := identityClient.HoldsTenant(ctx, txn, userPermissions.User())\n\t\t\tif err != nil {\n\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().HoldsTenant()\")\n\t\t\t}\n\t\t\tif holds {\n\t\t\t\treturn httpio.NewForbiddenMessage(\"You already hold a role in a station, so you cannot create a station of your own.\")\n\t\t\t}",
-		// Whether sign-up is open is read in the transaction that writes the row, and a
-		// person is refused in plain words while no sign-in method is open.
-		"open, err := identityClient.AnySignInMethodOpen(ctx, txn)",
-		`return httpio.NewForbiddenMessage("Sign-up is not open, so you cannot create a station of your own. Ask an administrator of the application to create one for you, or to invite you to one.")`,
+		// Whether the session's own sign-in method is open is read in the transaction
+		// that writes the row, and a person is refused in plain words when it is not:
+		// that another method is open admits nobody.
+		"open, err := identityClient.SessionSignInMethodOpen(ctx, txn)",
+		`return errors.Wrap(err, "StaffIdentity().SessionSignInMethodOpen()")`,
+		`return httpio.NewForbiddenMessage("Sign-up is not open for the way you signed in, so you cannot create a station of your own. Ask an administrator of the application to create one for you, or to invite you to one.")`,
 		// The create generates the id, the id's text is the tenant's domain, and the
 		// membership is written under it.
 		"var id impulse.UUID",
@@ -515,10 +530,15 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"if creator, ok := identity.UserID(userPermissions.User()); ok && identity.ImpersonatorIs(ctx, creator) {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
 		// And in the GET, which offers what the POST would serve.
 		"held, err := userPermissions.HeldDomains(ctx)\n\t\tif err != nil {\n\t\t\treturn httpio.NewEncoder(w).ClientMessage(ctx, err)\n\t\t}\n\t\tif len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
-		"open, err := identityClient.AnySignInMethodOpen(ctx, a.ResourceClient())",
+		"open, err := identityClient.SessionSignInMethodOpen(ctx, a.ResourceClient())",
 		"return httpio.NewEncoder(w).Ok(offer{Offered: open})",
 	}, []string{
 		"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy",
+		// A record that declares no directories takes none at creation: the GET answers
+		// no statement.
+		"TakeDirectoryWarning", "json:\"warning", "rules :=",
+		// Some other method being open admits nobody: neither handler asks it.
+		"AnySignInMethodOpen",
 		// Nothing is removed after the commit: the row and the administrator's
 		// membership are one transaction.
 		"DeletePatch", "SeatFirstAdministrator", "UserSurface",
@@ -735,7 +755,8 @@ func Test_authzTestTemplate_noGrant(t *testing.T) {
 // Test_apiClientData_tenantCreation pins the client's block: the route constant, the
 // request's interface, which carries no key since the route generates it, and the
 // answer's interface, which carries the generated id, on an outlet serving the route,
-// nothing elsewhere.
+// nothing elsewhere; and the route in the description, with the record's resource, the
+// answer's key and the body's fields, each with whether the route requires it.
 func Test_apiClientData_tenantCreation(t *testing.T) {
 	t.Parallel()
 
@@ -760,6 +781,7 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 				"export interface CreateColonyAnswer {\n  id: string;\n}",
 				// What the page reads before it offers the route.
 				"export interface CreateColonyOffered {\n  offered: boolean;\n}",
+				"  tenantCreation: { route: 'create-colony', resource: 'Colonies', key: 'id', fields: [{ name: 'name', required: true }] },",
 			},
 		},
 		{
@@ -771,20 +793,21 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 				"export interface CreateStation {\n  name: string;\n  motto?: string | null;\n  opened: string;\n}",
 				"export interface CreateStationAnswer {\n  id: string;\n}",
 				"export interface CreateStationOffered {\n  offered: boolean;\n}",
+				"  tenantCreation: { route: 'create-station', resource: 'Stations', key: 'id', fields: [{ name: 'name', required: true }, { name: 'motto', required: false }, { name: 'opened', required: true }] },",
 			},
 			wantNotContains: []string{"derived"},
 		},
 		{
 			name:            "a record no session auth serves has no block",
 			record:          "Sector",
-			wantNotContains: []string{"createSectorRoute", "CreateSector"},
+			wantNotContains: []string{"createSectorRoute", "CreateSector", "tenantCreation:"},
 		},
 		{
 			name:            "a client for an outlet the record is off has no block",
 			record:          "Station",
 			served:          true,
 			outlet:          "members",
-			wantNotContains: []string{"createStationRoute", "CreateStation"},
+			wantNotContains: []string{"createStationRoute", "CreateStation", "tenantCreation:"},
 		},
 	}
 	for _, tt := range tests {

@@ -22,7 +22,7 @@ var passwordTenantsWritten = []string{
 
 // What the base's other tests share with its tests of sign-up, which the harness an
 // application with tenants is given carries once those tests are gone.
-var sharedWithSignUp = []string{"prime", "signInMethod", "signInMethods", "mailedToken", "factorIfHeld", "invited"}
+var sharedWithSignUp = []string{"prime", "signInMethod", "passwordMethod", "mailedToken", "factorIfHeld", "invited"}
 
 // tenantedAfter applies tenancy to a new base that prepare changed first, and returns the
 // application with the change.
@@ -109,13 +109,13 @@ func functionText(t *testing.T, rel string, src []byte, name string) string {
 
 // TestTenancy_sharedHelpersAreTheBases holds what the harness of an application with
 // tenants takes over from the base's tests of sign-up to the base's own text: the
-// browser's first request, the list of the sign-in methods, the token of a mailed link,
-// the second factor's step and the invited person, each as the base's test of sign-up
-// declares it. The base's other tests read them, so a change to one in the base (the
-// form of a mailed link, say) that is not brought to the harness leaves an application
-// made with tenants failing tests the one made without passes. The row of the list
-// (signInMethod) is not held: the harness's names no default role, which an application
-// with tenants does not have.
+// browser's first request, the password method's row of the list of the sign-in methods,
+// the token of a mailed link, the second factor's step and the invited person, each as
+// the base's test of sign-up declares it. The base's other tests read them, so a change
+// to one in the base (the form of a mailed link, say) that is not brought to the harness
+// leaves an application made with tenants failing tests the one made without passes. The
+// row of the list (signInMethod) is not held: the harness's names no default role, which
+// an application with tenants does not have.
 func TestTenancy_sharedHelpersAreTheBases(t *testing.T) {
 	t.Parallel()
 
@@ -245,7 +245,7 @@ func TestTenancy_Apply_writesTheTests(t *testing.T) {
 			}
 
 			reset := read(t, a, passwordResetSuite)
-			for _, want := range []string{"[]byte(`{\"name\":\"password\"}`)", "application with\n// tenants, how", "len(got) != 1 || !got[0].OpenSignUp {"} {
+			for _, want := range []string{"[]byte(`{\"name\":\"password\"}`)", "application with\n// tenants, how", "got := passwordMethod(ctx, t, admin); !got.OpenSignUp {"} {
 				if !strings.Contains(reset, want) {
 					t.Errorf("%s does not contain %q", passwordResetSuite, want)
 				}

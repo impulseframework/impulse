@@ -81,6 +81,56 @@ export interface StaffListedGroupRoles {
   losing?: number;
 }
 
+export interface StaffListedMailLinks {
+  id: string;
+  kind?: string;
+  state?: string;
+  email?: string;
+  name?: string;
+  userId?: string;
+  tenantId?: string;
+  everyTenant?: boolean;
+  roleNames?: string[];
+  invitedByUserId?: string;
+  sentBy?: string;
+  makesTenant?: boolean;
+  createdAt?: Date;
+  expiresAt?: Date;
+  consumedAt?: Date;
+  mailFailedAt?: Date;
+  withdrawnAt?: Date;
+}
+
+export interface StaffListedSessions {
+  id: string;
+  userId?: string;
+  username?: string;
+  name?: string;
+  expired?: boolean;
+  live?: boolean;
+  state?: string;
+  signedInWith?: string;
+  browser?: string;
+  authenticatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface StaffListedSignInAttempts {
+  name: string;
+  kind?: string;
+  subject?: string;
+  userId?: string;
+  account?: string;
+  failures?: number;
+  failureLimit?: number;
+  state?: string;
+  locked?: boolean;
+  lockedUntil?: Date;
+  windowEndsAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface StaffListedUsers {
   id: string;
   username?: string;
@@ -93,6 +143,7 @@ export interface StaffListedUsers {
   lastSignInAt?: Date;
   roles?: string[];
   lockedUntil?: Date;
+  trustedDevices?: number;
 }
 
 export interface StaffRoles {
@@ -149,6 +200,7 @@ export interface StaffSessionMailLinks {
   expiresAt?: Date;
   consumedAt?: Date;
   mailFailedAt?: Date;
+  withdrawnAt?: Date;
 }
 
 export interface StaffSessionSignInAttempts {
@@ -450,6 +502,69 @@ const resourceMap = defineResourceMap({
       { fieldName: 'losing', displayType: 'number', required: true, isIndex: false },
     ],
   },
+  [Resources.StaffListedMailLinks]: {
+    route: 'staff-listed-mail-links',
+    live: true,
+    rowWords: { one: 'mailed link', many: 'mailed links' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'everyTenant', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator"] },
+      { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'sentBy', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'makesTenant', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffListedSessions]: {
+    route: 'staff-listed-sessions',
+    live: true,
+    rowWords: { one: 'session', many: 'sessions' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffListedUsers },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'live', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'signedInWith', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'browser', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.StaffListedSignInAttempts]: {
+    route: 'staff-listed-sign-in-attempts',
+    readDisabled: true,
+    live: true,
+    rowWords: { one: 'failed sign-in', many: 'failed sign-ins' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffListedUsers },
+      { fieldName: 'account', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'failures', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'failureLimit', displayType: 'number', required: false, isIndex: false },
+      { fieldName: 'state', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'locked', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'windowEndsAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
   [Resources.StaffListedUsers]: {
     route: 'staff-listed-users',
     live: true,
@@ -466,6 +581,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator"] },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
     ],
   },
   [Resources.StaffRoles]: {
@@ -494,7 +610,7 @@ const resourceMap = defineResourceMap({
     rowWords: { one: 'session', many: 'sessions' },
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessionUsers },
+      { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
@@ -559,6 +675,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.StaffSessionSignInAttempts]: {
@@ -877,6 +994,9 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffHeldRoles]: PermissionScopes.global,
   [Resources.StaffListedGroups]: PermissionScopes.global,
   [Resources.StaffListedGroupRoles]: PermissionScopes.global,
+  [Resources.StaffListedMailLinks]: PermissionScopes.global,
+  [Resources.StaffListedSessions]: PermissionScopes.global,
+  [Resources.StaffListedSignInAttempts]: PermissionScopes.global,
   [Resources.StaffListedUsers]: PermissionScopes.global,
   [Resources.StaffRoles]: PermissionScopes.global,
   [Resources.StaffSessions]: PermissionScopes.global,

@@ -862,19 +862,41 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the application's that is the {{ .Resource.Name }}'s own or leads to one that
 // is, each deleted through its kind's delete, with its delete rule asked, its change
-// record written and its files released. The grant to delete the {{ .Resource.Name }} answers
-// for them all. Without it, a delete of a {{ .Resource.Name }} that has such rows deletes
+// record written and its files released. It takes the kinds handed to the delete as well
+// (DeleteAlso). The grant to delete the {{ .Resource.Name }} answers for them all. Without it, a delete of a {{ .Resource.Name }} that has such rows deletes
 // nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired).
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left says what is left: buffer the delete
+// again, in a transaction of its own, until Left answers nil.
 {{- else }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
-// delete would delete it. Without it, a delete of a {{ .Resource.Name }} that has such rows
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a {{ .Resource.Name }} that has such rows
 // deletes nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired).
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left says what is left: buffer the delete
+// again, in a transaction of its own, until Left answers nil.
 {{- end }}
 func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Name }}DeletePatch {
 	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// Left is what the delete left under the {{ .Resource.Name }} once it is buffered
+// (resource.DeleteLeft): nil where the delete finished, the {{ .Resource.Name }} with it.
+func (p *{{ .Resource.Name }}DeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+{{ end }}
+{{- if .Resource.TakesRowsUnder }}
+// DeleteAlso hands the delete kinds of row it takes with the {{ .Resource.Name }} that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the {{ .Resource.Name }}.
+func (p *{{ .Resource.Name }}DeletePatch) DeleteAlso(kinds ...resource.TakenKind) *{{ .Resource.Name }}DeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
 
 	return p
 }
@@ -981,44 +1003,58 @@ const (
 			}
 		}`
 
-	// tenantCleared is spliced into the tenant record's delete, after the row's removal
-	// is buffered under its id (id, which the splice's place sets): what each auth holds
-	// for the tenant goes in the same transaction, through the generated identity client
-	// of every auth whose management the program generates (identity.Manager.ClearTenant).
-	// The id's text is the tenant's domain. The application's rows under the tenant, its
-	// directory among them, went with the row's removal (the record's DeleteTree).
-	tenantCleared = `// A tenant that goes takes what each auth holds for it, in this transaction:
-					// the roles people hold in it, the custom roles made in it and the
-					// invitations into it that still stand.
-					{{- range $clear := .Clears }}
-					if err := {{ $.ReceiverName }}.{{ $clear }}().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
-						return errors.Wrap(err, "{{ $clear }}().ClearTenant()")
-					}
+	// deleteLeftKept is spliced into the delete of a record that takes rows, after the
+	// delete patch (patch, which the splice's place sets) is buffered: what the delete left
+	// under its record (DeletePatch.Left) is added to what the request's other deletes
+	// left (left, declared before the transaction), which the handler answers 202 with.
+	deleteLeftKept = `if taken := patch.Left(); taken != nil {
+						if left == nil {
+							left = &resource.DeleteLeft{}
+						}
+						left.Deleted += taken.Deleted
+						left.Left += taken.Left
+					}`
+
+	// deleteLeftAnswered is spliced into a handler's answer once the commit has landed and
+	// open pages are told: a request with a delete that left rows under its record
+	// answers 202 with what its deletes left (deleteLeftKept).
+	deleteLeftAnswered = `if left != nil {
+			// A delete that took what fits one save says what is left: the same request,
+			// sent again, goes on.
+			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
+		}`
+
+	// tenantKindsHanded is spliced into the tenant record's delete, after its delete patch
+	// is made (patch, under the tenant's id, id, which the splice's place sets) and before
+	// it is buffered: the patch is handed what each auth holds for the tenant as kinds of
+	// the delete, through the generated identity client of every auth whose management the
+	// program generates (identity.Manager.TenantKinds), so the delete counts them in its
+	// question and takes them in its rounds after the application's rows under the tenant.
+	// The id's text is the tenant's domain.
+	tenantKindsHanded = `// A tenant's delete takes what each auth holds for it: the accounts that were its alone,
+					// the roles held in it, its groups, its custom roles and its invitations.
+					{{- range $source := .KindsFrom }}
+					patch.DeleteAlso({{ $.ReceiverName }}.{{ $source }}().TenantKinds(accesstypes.Domain(id.String()))...)
 					{{- end }}`
 
-	// directoryStamped is spliced into the directories record's create, once the create
-	// patch is built and before it is buffered (patchSet, patch and domain, which the
-	// splice's place sets): a directory is never typed in, so the wire carries neither
-	// its method nor its connection, and the create stamps both from the directory the
-	// caller is signed in through, held to the rules of a tenant's directory
-	// (resource.TenantDirectoryRules.FromSession). A caller who came by password, or
-	// through a directory the tenant cannot take, is refused there and nothing is
-	// buffered. The caller's grants are asked before the rules
-	// (resource.PatchSet.Permitted), so a caller who may not create the record is
-	// refused as on any record, and learns nothing a rule's sentence says. The splice
-	// reads the resource as its dot.
-	directoryStamped = `// A directory is never typed in: the row takes the directory the caller is
-					// signed in through, held to the rules of a {{ .DirectoryTenantWord }}'s directory. The
-					// caller's grants answer first, so a caller they refuse learns nothing
-					// from a rule.
+	// directoryCreateRefused is spliced into the directories record's create in place of
+	// the row's create patch (patchSet, which the splice's place sets): a tenant takes its
+	// directory with the tenant's own method, Take<Record>Directory, which says what
+	// taking it does before anything is written and stamps the directory the caller is
+	// signed in through (tenantDirectoryTakeTemplate), so the record's create builds and
+	// stamps nothing and is refused (400) with a sentence that names the method
+	// (resourceInfo.DirectoryCreateRefusal). The caller's grants are asked first
+	// (resource.PatchSet.Permitted), so a caller who may not create the record is refused
+	// as on any record. The splice reads the resource as its dot.
+	directoryCreateRefused = `// A {{ .DirectoryTenantWord }}'s directory is taken with the {{ .DirectoryTenantWord }}'s own
+					// method, behind the statement that the caller is authorized to act
+					// for the organization: the record's create writes nothing. The
+					// caller's grants answer first.
 					if err := patchSet.Permitted(ctx, txn); err != nil {
 						return errors.Wrap(err, "resource.PatchSet.Permitted()")
 					}
-					directory, err := {{ .DirectoryRules }}.FromSession(ctx, txn, domain)
-					if err != nil {
-						return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
-					}
-					patch.Set{{ .DirectoryMethodField.Name }}(string(directory.Method)).Set{{ .DirectoryConnectionField.Name }}(directory.Connection)`
+
+					return httpio.NewBadRequestMessage({{ printf "%q" .DirectoryCreateRefusal }})`
 
 	// directoryKept is spliced into the directories record's delete, before the row's
 	// removal is buffered (patchSet and domain, which the splice's place sets): the
@@ -1033,6 +1069,22 @@ const (
 					}
 					if err := {{ .DirectoryRules }}.Remove(ctx, txn, domain); err != nil {
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
+					}`
+
+	// tenantDisabledRequired is spliced into the tenant record's delete, before the row's
+	// removal is buffered (patchSet and id, which the splice's place sets), where the
+	// record marks the column saying a tenant is disabled: a tenant is disabled before it
+	// is deleted (resource.RequireTenantDisabled), which reads what the database held
+	// before the transaction. The caller's grants are asked before the rule, as
+	// directoryKept asks them. The splice reads the requirement as its dot
+	// (tenantDisabledRequirement).
+	tenantDisabledRequired = `// A {{ .Word }} is disabled before it is deleted, so nobody of it is at work in it
+					// while its records go. The caller's grants answer first.
+					if err := patchSet.Permitted(ctx, txn); err != nil {
+						return errors.Wrap(err, "resource.PatchSet.Permitted()")
+					}
+					if err := resource.RequireTenantDisabled(ctx, txn, {{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, {{ printf "%q" .Column }}, accesstypes.Domain(id.String()), {{ printf "%q" .Word }}); err != nil {
+						return errors.Wrap(err, "resource.RequireTenantDisabled()")
 					}`
 
 	// subjectGuarded is spliced into the generated write of a record that decides what
@@ -1683,8 +1735,8 @@ import (
 // domain-scoped route: it resolves the route's domain and answers 404 before the
 // handler runs when the application's tenant roster (Tenants) does not hold it, and
 // the same 404 when the session does not reach the tenant (resource.UserPermissions.Reaches:
-// the tenant's declaration does not admit the way the session was established), so a
-// tenant the session may not enter is, for that session, not there.
+// the tenant is disabled, or its declaration does not admit the way the session was
+// established), so a tenant the session may not enter is, for that session, not there.
 // Domains are concealed (generation.WithConcealedDomains), so a domain the caller holds
 // no grant in answers exactly like a domain that does not exist, and tenant existence
 // cannot be probed from the rejection shape. A caller with any foothold in the domain
@@ -1696,8 +1748,8 @@ import (
 // domain-scoped route: it resolves the route's domain and answers 404 before the
 // handler runs when the application's tenant roster (Tenants) does not hold it, and
 // the same 404 when the session does not reach the tenant (resource.UserPermissions.Reaches:
-// the tenant's declaration does not admit the way the session was established), so a
-// tenant the session may not enter is, for that session, not there.
+// the tenant is disabled, or its declaration does not admit the way the session was
+// established), so a tenant the session may not enter is, for that session, not there.
 // Each 404 says the one sentence, "This {{ .Word }} does not exist.", with nothing of what was
 // asked for; what the guard found is the cause, which the server logs.
 {{- end }}
@@ -1788,11 +1840,12 @@ import (
 {{- if .Declaration }}
 
 // {{ GoCamel .Name }}Declaration names where the {{ .Name }} record keeps its declaration of who
-// may enter a {{ .RecordLower }} (@directoryOnly on the record, the {{ .Directories }} record's columns): what
+// may enter a {{ .RecordLower }} (@directoryOnly and @tenantDisabled on the record, the {{ .Directories }} record's columns): what
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 	DirectoryOnly:    {{ printf "%q" .Declaration.DirectoryOnly }},
+	Disabled:         {{ printf "%q" .Declaration.Disabled }},
 	DirectoriesTable: {{ printf "%q" .Declaration.DirectoriesTable }},
 	TenantColumn:     {{ printf "%q" .Declaration.TenantColumn }},
 	MethodColumn:     {{ printf "%q" .Declaration.MethodColumn }},
@@ -1806,6 +1859,14 @@ var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 	{{- if .Declaration.SecondFactorColumn }}
 	SecondFactorColumn: {{ printf "%q" .Declaration.SecondFactorColumn }},
 	{{- end }}
+}
+{{- else }}
+
+// {{ GoCamel .Name }}Declaration names the {{ .Name }} record's column that says a {{ .RecordLower }} is disabled
+// (@tenantDisabled): what the roster reads beside the keys and the sign-in's reader
+// reads in its own transaction.
+var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
+	Disabled: {{ printf "%q" .Disabled }},
 }
 {{- end }}
 
@@ -1821,15 +1882,18 @@ var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 // ({{ .Name }}.DirectoryOnly and the {{ .Directories }} rows), so its Declarations is what the
 // application hands resource.SessionPermissions as the tenant declarations, and the
 // generated {{ .Directories }} write paths reload it too.
+{{- else }}
+// The roster reads whether each {{ .RecordLower }} is disabled beside its key ({{ .Name }}.{{ .DisabledField }}), so
+// its Declarations is what the application hands resource.SessionPermissions as the
+// tenant declarations: a disabled {{ .RecordLower }} is entered by nobody but a super
+// administrator.
 {{- end }}
 {{- if .NameColumn }}
 // It reads each {{ .RecordLower }}'s name ({{ .Name }}.{{ .NameField }}) beside its key, so the session's
 // tenant list names each tenant from the copy (resource.WithDomainNames).
 {{- end }}
 func New{{ .Name }}Roster(client resource.Client, opts ...resource.TenantRosterOption) *resource.TenantRoster {
-	{{- if .Declaration }}
 	opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&{{ GoCamel .Name }}Declaration)}, opts...)
-	{{- end }}
 	{{- if .NameColumn }}
 	opts = append([]resource.TenantRosterOption{resource.WithTenantNames({{ printf "%q" .NameColumn }})}, opts...)
 	{{- end }}
@@ -1838,16 +1902,16 @@ func New{{ .Name }}Roster(client resource.Client, opts ...resource.TenantRosterO
 }
 {{- if .NoDirectories }}
 
-// New{{ .Name }}DeclarationReader builds the sign-in policy's reader of what a {{ .RecordLower }} declares
-// about who may enter it (signin.TenantPolicy, through signin.DeclarationReader). The
-// {{ .Name }} record declares no directories (no record is annotated @tenantDirectory), so no
-// {{ .RecordLower }} declares anything: the reader answers nothing for every one and makes no
-// read, and the policy admits everyone a {{ .RecordLower }} seats, however they signed in. The
+// New{{ .Name }}DeclarationReader builds the sign-in policy's reader of what a {{ .RecordLower }}
+// declares (signin.TenantPolicy, through signin.DeclarationReader). The {{ .Name }} record
+// declares no directories (no record is annotated @tenantDirectory), so a {{ .RecordLower }}
+// declares one thing, whether it is disabled, which the reader reads from the {{ .Name }}
+// row in the sign-in's own transaction: the policy admits everyone a {{ .RecordLower }} that is
+// not disabled seats, however they signed in, and passes a disabled one over. The
 // application hands it to each auth through the auth's settings, as an application
-// whose {{ .RecordLower }}s have directories does, so the sign-in rule is set the same way
-// in both.
+// whose {{ .RecordLower }}s have directories does.
 func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTransaction] {
-	return resource.NewTenantDeclarationReader({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, nil)
+	return resource.NewTenantDeclarationReader({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, &{{ GoCamel .Name }}Declaration)
 }
 {{- end }}
 {{- if .Declaration }}
@@ -1865,9 +1929,10 @@ func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWri
 // one directory (session.Auth.SetDirectoryAdmission, through signin.DirectoryReader):
 // the {{ .Directories }} rows naming the directory's method and connection, each as its {{ .RecordLower }}
 {{- if .DefaultSeat }}
-// with the default seat the row carries ({{ .Directories }}.{{ .DefaultSeat }}: the role a stranger the
-// directory vouches for is seated with at their first sign-in, none for a NULL, and the
-// {{ .RecordLower }} admits them by invitation only),
+// with the default seat the row carries ({{ .Directories }}.{{ .DefaultSeat }}: the role a person the
+// directory vouches for is seated with when they sign in through it and hold nothing in
+// the {{ .RecordLower }}, at every sign-in, none for a NULL, and the {{ .RecordLower }} admits them by
+// invitation only),
 {{- else }}
 // with no default seat (the record carries no @directoryDefaultSeat column, so every
 // {{ .RecordLower }} admits a stranger its directory vouches for by invitation only),
@@ -1887,9 +1952,10 @@ func New{{ .Name }}DirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTr
 // (resource.TenantDirectoryRules) over the {{ .Name }} record's table and its declaration's
 // columns: a {{ .Word }} has one directory, a directory is one {{ .Word }}'s, a personal account
 // is no directory, and the directory of a {{ .Word }} that is directory only is not removed.
-// Every write of the {{ .Directories }} record a request asks for is held to them. The generated
-// {{ .Directories }} write paths ask them: the create stamps the directory the caller is signed in
-// through, which no request types, and the delete asks before it removes. The one
+// Every write of the {{ .Directories }} record a request asks for is held to them. The {{ .Word }}'s
+// own method that takes a directory (Take{{ .Name }}Directory) asks them for the directory the
+// caller is signed in through, which no request types, the record's own create being
+// refused, and the delete asks before it removes. The one
 // removal they are not asked is the delete of the {{ .Word }} itself, which takes its
 // directory with it like every other row under the {{ .Word }} ({{ .Name }}.DeleteTree): the
 // rule keeps a {{ .Word }} that stays from being left with no way in, and that {{ .Word }}
@@ -2127,8 +2193,9 @@ var _ interface {
 } = (*{{ .ApplicationName }})(nil)
 
 // {{ .HandlerFunc }} serves the create-your-{{ .RecordLower }} route, POST {{ .RoutePath }}: a signed-in person
-// who holds no {{ .RecordLower }} creates one and becomes its administrator, while an administrator has
-// a sign-in method of the {{ .Auth }} auth open to sign-up. No grant admits the call. The session
+// who holds no {{ .RecordLower }} creates one and becomes its administrator, when the session
+// signed in through a method of the {{ .Auth }} auth that an administrator has open to sign-up.
+// No grant admits the call. The session
 // must be established, which the router's session group holds it to, and must hold a
 // grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }}, and the member or administrator of
 // one is refused (403). The rule is asked twice. The request's permissions answer it
@@ -2144,10 +2211,10 @@ var _ interface {
 // acts with no mask creates the {{ .RecordLower }} as the person would. Nobody is the subject of what
 // they do while they act as someone else: in a session that acts as a role the person
 // who would become the administrator is the real person behind it, who is refused
-// whatever the mask keeps (403, identity.RefuseImpersonatorAsSubject). Whether sign-up
-// is open is read in the transaction that writes the row, from the auth's sign-in
-// methods table: while every method is invite only the call is refused (403) and
-// nothing is written. The row is written first, in
+// whatever the mask keeps (403, identity.RefuseImpersonatorAsSubject). Whether the
+// session's own sign-in method is open to sign-up is read in the transaction that writes
+// the row, from the auth's sign-in methods table: a session that came through an
+// invite-only method is refused (403) and nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
@@ -2157,14 +2224,15 @@ var _ interface {
 // in the {{ .RecordLower }}; the tenants kind is signaled last, so every instance serves it at
 // once.
 {{- if .Directory }}
-// The {{ .RecordLower }}'s directory is the one its creator came through: a person who
-// signed in through an organization's directory (a Google Workspace, a Microsoft Entra
-// tenant) has it set on the new {{ .RecordLower }} in the row's transaction
-// (Set{{ .Record }}Directory, which writes the {{ .Directory.Record }} row), so the {{ .RecordLower }} admits
-// them at once. A directory belongs to one {{ .RecordLower }}: a person whose organization has a
-// {{ .RecordLower }} already is refused (409) and nothing is written. A person who signed in by
-// password, or with a personal account, which is no organization's directory, sets
-// none, and the {{ .RecordLower }} admits both as every {{ .RecordLower }} with no directory does.
+// The {{ .RecordLower }} takes no directory from its creator: a person who signed up creates a
+// {{ .RecordLower }} that has none, and its administrator takes the organization's directory
+// afterwards, as a step of its own. The exception is an application that holds a person
+// to one tenant (identity.WithOneTenantPerPerson, asked while the application runs): there
+// a creator who signed in through an organization's directory has it set on the new
+// {{ .RecordLower }} in the row's transaction (Set{{ .Record }}Directory), and a person whose
+// organization has a {{ .RecordLower }} already is refused (409) with nothing written. A
+// creator who signed in by password, or with a personal account, sets none in either
+// kind of application.
 // The roster must list the {{ .RecordLower }} and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a {{ .RecordLower }} the roster does
 // not know admits nobody who came through a directory.
@@ -2247,13 +2315,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			if holds {
 				return httpio.NewForbiddenMessage("{{ .Refusal }}")
 			}
-			// Who is admitted: a person who signed up, which is a person with no {{ .RecordLower }}
-			// while an administrator has a sign-in method open to sign-up. A person who
-			// holds an invitation to create a {{ .RecordLower }} is the next admission, and is
-			// decided here, before the refusal, when that invitation exists.
-			open, err := identityClient.AnySignInMethodOpen(ctx, txn)
+			// Who is admitted: a person with no {{ .RecordLower }} whose session signed in through
+			// a method an administrator has open to sign-up now. That another method is
+			// open admits nobody. A person invited to create a {{ .RecordLower }} never comes
+			// here: the invitation's acceptance makes it.
+			open, err := identityClient.SessionSignInMethodOpen(ctx, txn)
 			if err != nil {
-				return errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()")
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().SessionSignInMethodOpen()")
 			}
 			if !open {
 				return httpio.NewForbiddenMessage("{{ .ClosedRefusal }}")
@@ -2271,15 +2339,19 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Record }}CreatePatch.Buffer()")
 			}
 			{{- if .Directory }}
-			// The creator's directory, written with the row: the organization's directory
-			// the creator is signed in through, held to the rules of a {{ .RecordLower }}'s
-			// directory, so a directory another {{ .RecordLower }} has refuses the creation and
-			// nothing is written. None for a creator who came by password or with a
-			// personal account, which is no organization's directory.
-			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
-				if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
-					if err := Set{{ .Record }}Directory(ctx, txn, {{ .Directory.TenantValue }}, directory, eventSource); err != nil {
-						return errors.Wrap(err, "Set{{ .Record }}Directory()")
+			// The creator's directory, written with the row only where the application
+			// holds a person to one tenant: the organization's directory the creator is
+			// signed in through, held to the rules of a {{ .RecordLower }}'s directory, so a
+			// directory another {{ .RecordLower }} has refuses the creation and nothing is
+			// written. None for a creator who came by password or with a personal account,
+			// which is no organization's directory. Elsewhere a {{ .RecordLower }} made by
+			// sign-up takes no directory: its administrator takes it afterwards.
+			if identityClient.OneTenantPerPerson() {
+				if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+					if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
+						if err := Set{{ .Record }}Directory(ctx, txn, {{ .Directory.TenantValue }}, directory, eventSource); err != nil {
+							return errors.Wrap(err, "Set{{ .Record }}Directory()")
+						}
 					}
 				}
 			}
@@ -2329,17 +2401,32 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 // same four facts: the session's permission mask does not refuse the action {{ .Action }}
 // (resource.MaskRefusesAction), the creator would not be the real person behind a
 // session that acts as someone else (identity.ImpersonatorIs), the session holds a
-// grant in no {{ .RecordLower }}, and an administrator has a sign-in method of the {{ .Auth }} auth open to
-// sign-up, read as committed. No grant admits the call, which any signed-in person
+// grant in no {{ .RecordLower }}, and the session signed in through a method of the {{ .Auth }} auth
+// that an administrator has open to sign-up, read as committed. No grant admits the call,
+// which any signed-in person
 // makes, and nothing is written or logged. The POST decides again in its own
 // transaction: what is offered here may be refused there a moment later.
+{{- if .Directory }}
+// Where a creation by this session would take a directory (an application that holds a
+// person to one tenant, a session signed in through an organization's directory), the
+// answer carries the statement the person reads and types under before they create
+// (resource.TenantDirectoryRules.TakeDirectoryWarning).
+{{- end }}
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() http.HandlerFunc {
 	type offer struct {
 		Offered bool ` + "`json:\"offered\"`" + `
+		{{- if .Directory }}
+		// Warning is the statement in front of a creation that takes the directory the
+		// session signed in through; absent where the creation takes none.
+		Warning *resource.Warning ` + "`json:\"warning,omitempty\"`" + `
+		{{- end }}
 	}
 
 	identityClient := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
 	collection := {{ .RouterPackage }}.Collection()
+	{{- if .Directory }}
+	rules := {{ .Directory.Rules }}
+	{{- end }}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -2365,10 +2452,23 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() h
 		if len(held) > 0 {
 			return httpio.NewEncoder(w).Ok(offer{Offered: false})
 		}
-		open, err := identityClient.AnySignInMethodOpen(ctx, {{ .ReceiverName }}.ResourceClient())
+		open, err := identityClient.SessionSignInMethodOpen(ctx, {{ .ReceiverName }}.ResourceClient())
 		if err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()"))
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "{{ .IdentityAccessor }}().SessionSignInMethodOpen()"))
 		}
+		{{- if .Directory }}
+		// The statement, where the POST would set the directory on the new {{ .RecordLower }}:
+		// the creation is offered, the application holds a person to one tenant, and the
+		// session signed in through an organization's directory. The person reads it and
+		// types the phrase under it before they create; the POST checks no phrase.
+		if open && identityClient.OneTenantPerPerson() {
+			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+				if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
+					return httpio.NewEncoder(w).Ok(offer{Offered: true, Warning: rules.TakeDirectoryWarning(directory, true)})
+				}
+			}
+		}
+		{{- end }}
 
 		return httpio.NewEncoder(w).Ok(offer{Offered: open})
 	})
@@ -2599,8 +2699,8 @@ import (
 // {{ .Open.Name }} serves the method that opens a {{ .Word }} to its directory's people,
 // POST <prefix>/{{ .DomainRoute }}/{{ .Open.Route }} with {"role": ...}, on every outlet that serves
 // sessions and the {{ .Directories }} record: from the commit on, a person the {{ .Word }}'s directory
-// vouches for enters the {{ .Word }} with no invitation, and is given the role at their first
-// sign-in through the directory ({{ .Directories }}.{{ .Field }}). The choice is the {{ .Word }}'s own:
+// vouches for enters the {{ .Word }} with no invitation, and is given the role whenever they sign in through the directory and
+// hold nothing in the {{ .Word }} ({{ .Directories }}.{{ .Field }}). The choice is the {{ .Word }}'s own:
 // the method runs in the {{ .Word }}'s scope, to an Execute grant on {{ .Open.Name }} there, and
 // the {{ .Directories }} record's own update shows the role and never writes it.
 //
@@ -2618,7 +2718,9 @@ import (
 // running the call, what it would do (resource.TenantDirectoryRules.OpenToDirectoryWarning):
 // who will be able to enter and the role each of them gets, or, while no role is picked
 // yet, that one is to be chosen; or the refusal the call itself would answer, in the
-// same words. The role is written through the record's update patch, so its change event
+// same words. Where the application holds a person to one tenant, the warning also says
+// that the directory's people who belong to another {{ .Word }} are moved to this one when
+// they sign in (resource.TenantDirectoryRules.OpenTakesPeopleNote). The role is written through the record's update patch, so its change event
 // is written with it; the sign-in reads it in its own transaction, so the next sign-in
 // is decided by it. A dry run (X-Dry-Run: true) runs the whole frame and rolls back.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.HandlerFunc {
@@ -2679,6 +2781,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 			}
 			if asksWarning {
 				said := rules.OpenToDirectoryWarning(directory, role)
+				// Where a person belongs to one tenant, the directory's people who belong
+				// to another are moved to this one at their next sign-in: the warning says so.
+				if {{ .ReceiverName }}.{{ .IdentityAccessor }}().OneTenantPerPerson() {
+					said.Also = append(said.Also, rules.OpenTakesPeopleNote(directory))
+				}
 				if err := resource.CheckWarning({{ printf "%q" .Open.Name }}, said); err != nil {
 					return errors.Wrap(err, "resource.CheckWarning()")
 				}
@@ -3576,6 +3683,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		tenantsWritten := false
 		{{- end }}
 
+		{{- if .Resource.TakesRowsUnder }}
+
+		// What the request's deletes left under their records, summed: the answer is a 202
+		// with it where one left any.
+		var left *resource.DeleteLeft
+		{{- end }}
+
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer.
 		ctx, touched := resource.CollectTouchedRows(ctx)
@@ -3585,6 +3699,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 			{{- end }}
 			{{- if .Resource.SignalsTenants }}
 			tenantsWritten = false
+			{{- end }}
+			{{- if .Resource.TakesRowsUnder }}
+			left = nil
 			{{- end }}
 			r, err := resource.CloneRequest(r)
 			if err != nil {
@@ -3653,16 +3770,15 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 
 				switch op.Type {
 				case resource.OperationCreate:
-				{{- if $PrimaryKeyIsGeneratedUUID }}
+				{{- if and $PrimaryKeyIsGeneratedUUID .Resource.IsTenantDirectory }}
+					{{- with .Resource }}
+					` + directoryCreateRefused + `
+					{{- end }}
+				{{- else if $PrimaryKeyIsGeneratedUUID }}
 					patch, err := {{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet(patchSet)
 					if err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet()")
 					}
-					{{- if .Resource.IsTenantDirectory }}
-					{{- with .Resource }}
-					` + directoryStamped + `
-					{{- end }}
-					{{- end }}
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
@@ -3707,9 +3823,17 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					{{- range $i, $field := .Resource.PrimaryKeys }}
 						id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](op.Req, "id{{ Add $i 1 }}")
 					{{- end }}
+					{{- if .Resource.TakesRowsUnder }}
+					patch := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet({{- range $i := .Resource.PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet)
+					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
+					}
+					` + deleteLeftKept + `
+					{{- else }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet({{- range $i := .Resource.PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
+					{{- end }}
 				{{- else }}
 					id := httpio.Param[{{ $PrimaryKeyType }}](op.Req, "id")
 					{{- if .Resource.IsTenantDirectory }}
@@ -3717,11 +3841,22 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					` + directoryKept + `
 					{{- end }}
 					{{- end }}
+					{{- with .RequiresDisabled }}
+					` + tenantDisabledRequired + `
+					{{- end }}
+					{{- if .Resource.TakesRowsUnder }}
+					patch := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet)
+					{{- if .KindsFrom }}
+					` + tenantKindsHanded + `
+					{{- end }}
+					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
+					}
+					` + deleteLeftKept + `
+					{{- else }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
-					{{- if .Clears }}
-					` + tenantCleared + `
 					{{- end }}
 				{{- end }}
 				}
@@ -3737,6 +3872,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		{{- end }}
 		{{- if .Resource.SignalsTenants }}
 		` + tenantsSignaled + `
+		{{- end }}
+		{{- if .Resource.TakesRowsUnder }}
+		` + deleteLeftAnswered + `
 		{{- end }}
 
 		{{ if $PrimaryKeyIsGeneratedUUID  }}
@@ -3797,6 +3935,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		tenantsWritten := false
 		{{- end }}
 
+		{{- if .TakesRowsUnder }}
+
+		// What the request's deletes left under their records, summed: the answer is a 202
+		// with it where one left any.
+		var left *resource.DeleteLeft
+		{{- end }}
+
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
@@ -3805,6 +3950,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 			resp = response{}
 			{{- if .HasTenant }}
 			tenantsWritten = false
+			{{- end }}
+			{{- if .TakesRowsUnder }}
+			left = nil
 			{{- end }}
 			r, err := resource.CloneRequest(r)
 			if err != nil {
@@ -3874,6 +4022,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		{{- end }}
 		{{- if .HasTenant }}
 		` + tenantsSignaled + `
+		{{- end }}
+		{{- if .TakesRowsUnder }}
+		` + deleteLeftAnswered + `
 		{{- end }}
 
 		return httpio.NewEncoder(w).Ok(resp)
@@ -3956,14 +4107,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 
 						switch op.Type {
 						case resource.OperationCreate:
-						{{- if .PrimaryKeyIsGeneratedUUID }}
+						{{- if and .PrimaryKeyIsGeneratedUUID .IsTenantDirectory }}
+							` + directoryCreateRefused + `
+						{{- else if .PrimaryKeyIsGeneratedUUID }}
 							patch, err := {{ .ResourcePackage }}.New{{ .Name }}CreatePatchFromPatchSet(patchSet)
 							if err != nil {
 								return errors.Wrap(err, "{{ GoCamel .Name}}CreatePatchFromPatchSet()")
 							}
-							{{- if .IsTenantDirectory }}
-							` + directoryStamped + `
-							{{- end }}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
@@ -4008,19 +4158,38 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- range $i, $field := .PrimaryKeys }}
 							id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](req, "id{{ Add $i 1 }}")
 							{{- end }}
+							{{- if .TakesRowsUnder }}
+							patch := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet({{- range $i := .PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
+							}
+							` + deleteLeftKept + `
+							{{- else }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet({{- range $i := .PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
+							{{- end }}
 							{{- else }}
 							id := httpio.Param[{{ $primaryKeyType }}](req, "id")
 							{{- if .IsTenantDirectory }}
 							` + directoryKept + `
 							{{- end }}
+							{{- with .RequiresDisabled }}
+							` + tenantDisabledRequired + `
+							{{- end }}
+							{{- if .TakesRowsUnder }}
+							patch := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet)
+							{{- if .KindsFrom }}
+							` + tenantKindsHanded + `
+							{{- end }}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
+							}
+							` + deleteLeftKept + `
+							{{- else }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
-							{{- if .Clears }}
-							` + tenantCleared + `
 							{{- end }}
 							{{- end }}
 						}
@@ -4723,7 +4892,7 @@ export function methodMeta(method: Method): Meta {
 `
 
 	typescriptAPITemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
-import { ApiDescriptor, Client, ClientOptions, createClient{{ if .Methods }}, MethodHandle{{ end }}{{ if .HasNullBoolean }}, NullBoolean{{ end }}{{ if .Resources }}, ResourceHandle{{ end }}{{ if .HasUpload }}, UploadMethodHandle{{ end }} } from '@impulseframework/resource';
+import { ApiDescriptor, Client, ClientOptions, createClient{{ if .Methods }}, MethodHandle{{ end }}{{ if and .TenantCreation .TenantCreation.Typed }}, MethodWarning{{ end }}{{ if .HasNullBoolean }}, NullBoolean{{ end }}{{ if .Resources }}, ResourceHandle{{ end }}{{ if .HasUpload }}, UploadMethodHandle{{ end }} } from '@impulseframework/resource';
 {{- if .HasAcrossTenants }}
 import { AcrossTenantsHandle } from '@impulseframework/resource';
 {{- end }}
@@ -4795,6 +4964,9 @@ export const apiDescriptor = defineApiDescriptor({
 {{- if .HasDomainScoped }}
   domainRoute: { segment: '{{ .DomainRouteSegment }}', param: '{{ .DomainRouteParam }}'{{ if .DomainWord.One }}, word: { one: '{{ .DomainWord.One }}', many: '{{ .DomainWord.Many }}' }{{ end }} },
 {{- end }}
+{{- with .TenantCreation }}
+  tenantCreation: { route: '{{ .Route }}', resource: '{{ .Resource }}', key: '{{ .KeyWire }}', fields: [{{ range $i, $f := .Fields }}{{ if $i }}, {{ end }}{ name: '{{ $f.Name }}', required: {{ $f.Required }} }{{ end }}]{{ if .Typed }}, warning: { typed: '{{ .Typed }}' }{{ end }} },
+{{- end }}
 {{- if .ConsolidatedRoute }}
   consolidatedRoute: '{{ .ConsolidatedRoute }}',
 {{- end }}
@@ -4854,6 +5026,9 @@ export const apiDescriptor = defineApiDescriptor({
       {{- if $a.TenantDirectoryOnlyField }}
       tenantDirectoryOnlyField: '{{ $a.TenantDirectoryOnlyField }}',
       {{- end }}
+      {{- if $a.TenantSinceField }}
+      tenantSinceField: '{{ $a.TenantSinceField }}',
+      {{- end }}
       {{- if $a.RolesFrom }}
       rolesFrom: '{{ $a.RolesFrom }}',
       {{- end }}
@@ -4887,7 +5062,7 @@ export const apiDescriptor = defineApiDescriptor({
  * The create-your-{{ .RecordLower }} route: POST {{ .Route }} under the API
  * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
  * no {{ .RecordLower }} creates one and becomes its administrator; a person who already holds one is
- * refused (403), and so is everyone while no sign-in method is open to sign-up.
+ * refused (403), and so is a person whose session did not sign in through a method open to sign-up.
  * The route generates the new {{ .RecordLower }}'s id and answers it. A GET of the same route answers
  * whether the person may create one now ({{ .RequestType }}Offered), which a page reads before it
  * offers the route: a page offers only what the person may do.
@@ -4910,6 +5085,14 @@ export interface {{ .RequestType }}Answer {
  */
 export interface {{ .RequestType }}Offered {
   offered: boolean;
+{{- if .Typed }}
+  /**
+   * The statement the person reads and types '{{ .Typed }}' under before they create, where the
+   * creation would take the organization's directory they signed in through: in an application
+   * that holds a person to one {{ .RecordLower }}. Absent where it takes none.
+   */
+  warning?: MethodWarning;
+{{- end }}
 }
 {{- end }}
 
@@ -5080,6 +5263,9 @@ func Collection() *resource.GeneratedCollection {
 				{{- end }}
 				{{- with .NotOnOwnAccount }}
 				NotOnOwnAccount: "{{ . }}",
+				{{- end }}
+				{{- with .JudgedBy }}
+				JudgedBy: "{{ . }}",
 				{{- end }}
 				{{- with .OfferedOn }}
 				OfferedOn: []accesstypes.Resource{ {{- range $i, $r := . }}{{ if $i }}, {{ end }}"{{ $r }}"{{ end -}} },

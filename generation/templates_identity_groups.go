@@ -31,12 +31,16 @@ type (
 	// The id is read by a grant's condition (group), so a role file can hold a grant to
 	// the groups its holder is in (group IN subject.{{ .GroupSet }}).
 	//
+	// A group's delete takes its members and the roles it holds with it, after a
+	// question that counts them.
+	//
 	// @resource
 	// @suppress(patchHandler)
 	// @outlet({{ .Outlets }})
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	// @rowWord(group)
+	// @deleteCascade({{ .GroupMember }}, {{ .GroupRole }})
 	{{ .Group }} struct {
 		// @attribute(group)
 		ID          impulse.UUID ` + "`spanner:\"Id\"`" + `
@@ -230,12 +234,19 @@ func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransactio
 	return nil
 }
 
-func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := {{ .ResourcesPackage }}.New{{ .Group }}DeletePatch(id).Buffer(ctx, txn); err != nil {
-		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Group }}DeletePatch.Buffer()")
+func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The group's delete takes its members and its roles (its @deleteCascade). The
+	// patch is not armed against a caller: the method that deletes the group has asked
+	// the caller's grants, and the rows are taken trusted.
+	patch := {{ .ResourcesPackage }}.New{{ .Group }}DeletePatch(id)
+	if everythingUnder {
+		patch = patch.WithEverythingUnder()
+	}
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Group }}DeletePatch.Buffer()")
 	}
 
-	return nil
+	return patch.Left(), nil
 }
 
 func (store) TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
@@ -506,8 +517,8 @@ func (store) DescribeGroup(context.Context, resource.ReadWriteTransaction, impul
 	return errNoGroups
 }
 
-func (store) DeleteGroup(context.Context, resource.ReadWriteTransaction, impulse.UUID) error {
-	return errNoGroups
+func (store) DeleteGroup(context.Context, resource.ReadWriteTransaction, impulse.UUID, bool) (*resource.DeleteLeft, error) {
+	return nil, errNoGroups
 }
 
 func (store) TenantGroups(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
@@ -844,7 +855,8 @@ type (
 	// the tenant, holds roles there alone, and counts in a grant's condition
 	// (subject.{{ .GroupSet }}) in the tenant's own requests and in no other tenant's. The
 	// id is read by a condition itself (group), so a role file can show a person the
-	// groups they are in (group IN subject.{{ .GroupSet }}).
+	// groups they are in (group IN subject.{{ .GroupSet }}). Name is what a list that
+	// points to a group shows it by (@name).
 	//
 	// People is how many people are in the group, and Roles the roles it holds, a line
 	// each, by name. Both are what has not ended, a place or a role whose period has not
@@ -862,7 +874,8 @@ type (
 		// @attribute(group)
 		ID impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `
 		// @domain
-		DomainID    string    ` + "`spanner:\"DomainId\" index:\"true\"`" + `
+		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
+		// @name
 		Name        string    ` + "`spanner:\"Name\" index:\"true\"`" + `
 		Description string    ` + "`spanner:\"Description\"`" + `
 		UpdatedAt   time.Time ` + "`spanner:\"UpdatedAt\"`" + `
@@ -1058,6 +1071,9 @@ type (
 		// @primarykey
 		Axis string ` + "`spanner:\"Axis\"`" + `
 		// @primarykey
+		{{- if .TenantPicker }}
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		DomainID string ` + "`spanner:\"DomainId\" index:\"true\"`" + `
 		// @primarykey
 		// @roleOf({{ .Auth }})
@@ -1307,43 +1323,179 @@ package {{ .Package }}
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	{{ .LocalPackageImports }}
 )
 
-// Delete{{ .Subject }}Group deletes a group of the {{ .Auth }} auth. A group that still
-// has a member or holds a role is refused until it is emptied: nobody loses a role
-// because a group was deleted, each person is removed and each role taken away by an
-// act of its own.` + identityTenantGroupNote + `
+// Delete{{ .Subject }}Group deletes a group of the {{ .Auth }} auth with its members and the
+// roles it holds. Asked without EverythingUnder of a group that has either, it deletes
+// nothing and answers the question a person is asked first, with their counts; asked with
+// it, it takes them. Each member and each role whose period has not ended is asked what
+// its own removal asks, so nobody deletes a group that gives them the last administrator's
+// role of a tenant.` + identityTenantGroupNote + `
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
-// @answers(204)` + identityAccessClass + `
+// @answers(202, 204)` + identityAccessClass + `
 type Delete{{ .Subject }}Group struct {
 	// @target({{ .SubjectGroup }})
 	GroupID impulse.UUID
+	// EverythingUnder says the person was asked what the group's delete takes and confirmed
+	// it, so the delete takes the group's members and roles.
+	EverythingUnder bool
 }
 
-// Execute buffers the removal into the caller's transaction.
-func (m *Delete{{ .Subject }}Group) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+// Delete{{ .Subject }}GroupResult is what a delete of a group with more under it than one
+// save holds left (resource.DeleteLeft): the records this request deleted and the
+// records still under the group, which stands until a request takes the last of them.
+type Delete{{ .Subject }}GroupResult struct {
+	Deleted int64 ` + "`json:\"deleted\"`" + `
+	Left    int64 ` + "`json:\"left\"`" + `
+}
+
+// HTTPStatus answers 202: the group still stands, and the same delete, sent again, goes on.
+func (*Delete{{ .Subject }}GroupResult) HTTPStatus() int {
+	return http.StatusAccepted
+}
+
+// Execute asks the caller's grants of taking each member out of the group and each role
+// from it (mayEmpty), then buffers the delete into the caller's transaction. It answers
+// nothing (204) once the group is gone, and what one save left (202) while it stands.
+func (m *Delete{{ .Subject }}Group) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Delete{{ .Subject }}GroupResult, error) {
+	if err := m.mayEmpty(ctx, txn); err != nil {
+		return nil, err
+	}
 	{{- if .ForTenant }}
 	tenant, err := client.manager.Tenant(ctx)
 	if err != nil {
-		return errors.Wrap(err, "identity.Manager.Tenant()")
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := tenant.DeleteGroup(ctx, txn, m.GroupID); err != nil {
-		return errors.Wrap(err, "identity.Tenant.DeleteGroup()")
+	left, err := tenant.DeleteGroup(ctx, txn, m.GroupID, m.EverythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Tenant.DeleteGroup()")
 	}
 	{{- else }}
-	if err := client.manager.DeleteGroup(ctx, txn, m.GroupID); err != nil {
-		return errors.Wrap(err, "identity.Manager.DeleteGroup()")
+	left, err := client.manager.DeleteGroup(ctx, txn, m.GroupID, m.EverythingUnder)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.DeleteGroup()")
 	}
 	{{- end }}
+	if left == nil {
+		return nil, nil
+	}
+
+	return &Delete{{ .Subject }}GroupResult{Deleted: left.Deleted, Left: left.Left}, nil
+}
+
+// mayEmpty asks, in a request, what the caller needs to take each member out of the
+// group and each role from it: the Execute grants of Remove{{ .Subject }}GroupMember and
+// Take{{ .Subject }}GroupRole, each asked of the request's own check
+// (resource.Caller.ExecuteGate) with the group and the member or the role, and judged
+// against the row that method names where its fields do not settle it, as the method's
+// own frame judges it. A grant not held refuses the delete. A member or a role whose
+// period has ended gives nobody anything and is asked nothing: the delete takes it with
+// the rest. Outside a request nothing is asked.
+func (m *Delete{{ .Subject }}Group) mayEmpty(ctx context.Context, txn resource.ReadWriteTransaction) error {
+	caller := resource.CallerFrom(ctx)
+	if caller.IsZero() {
+		return nil
+	}
+	periods, err := store{}.GroupPeriods(ctx, txn, m.GroupID)
+	if err != nil {
+		return errors.Wrap(err, "store.GroupPeriods()")
+	}
+	now := time.Now()
+	members, err := store{}.GroupMembers(ctx, txn, m.GroupID)
+	if err != nil {
+		return errors.Wrap(err, "store.GroupMembers()")
+	}
+	people := resource.ExecuteTarget{Resource: "{{ Pluralize .SubjectGroupUser }}", Label: "{{ .SubjectGroupUser }}", PKColumns: []string{"GroupId", "UserId"}, View: {{ .ResourcesPackage }}.{{ .SubjectGroupUser }}{}}
+	for _, member := range members {
+		if periods.Members[member].Ended(now) {
+			continue
+		}
+		userID, err := impulse.UUIDFromString(string(member))
+		if err != nil {
+			return errors.Wrap(err, "impulse.UUIDFromString()")
+		}
+		gate, err := caller.ExecuteGate(ctx, Remove{{ .Subject }}GroupMember{}.Method(), &Remove{{ .Subject }}GroupMember{GroupID: m.GroupID, UserID: userID})
+		may, err := judgedOnRow(gate, err, func() error {
+			return gate.EnforceView(ctx, txn, people, m.GroupID, userID)
+		})
+		if err != nil {
+			return err
+		}
+		if !may {
+			return httpio.NewForbiddenMessage("This group has members, and you can't remove people from a group, so it can't be deleted.")
+		}
+	}
+	roles, err := store{}.GroupRoles(ctx, txn, m.GroupID)
+	if err != nil {
+		return errors.Wrap(err, "store.GroupRoles()")
+	}
+	{{- if .ForTenant }}
+	held := resource.ExecuteTarget{Resource: "{{ Pluralize .SubjectGroupRole }}", Label: "{{ .SubjectGroupRole }}", PKColumns: []string{"GroupId", "Role"}, View: {{ .ResourcesPackage }}.{{ .SubjectGroupRole }}{}}
+	{{- end }}
+	for _, key := range roles {
+		if periods.Roles[key].Ended(now) {
+			continue
+		}
+		{{- if .ForTenant }}
+		gate, err := caller.ExecuteGate(ctx, Take{{ .Subject }}GroupRole{}.Method(), &Take{{ .Subject }}GroupRole{GroupID: m.GroupID, Role: string(key.Role)})
+		may, err := judgedOnRow(gate, err, func() error {
+			return gate.EnforceView(ctx, txn, held, m.GroupID, string(key.Role))
+		})
+		{{- else }}
+		{{- if .HasTenant }}
+		scope, err := key.Scope()
+		if err != nil {
+			return errors.Wrap(err, "access.GroupRoleKey.Scope()")
+		}
+		domain, everyDomain := scopeFields(scope)
+		gate, err := caller.ExecuteGate(ctx, Take{{ .Subject }}GroupRole{}.Method(), &Take{{ .Subject }}GroupRole{GroupID: m.GroupID, Role: string(key.Role), Domain: domain, EveryDomain: everyDomain})
+		{{- else }}
+		gate, err := caller.ExecuteGate(ctx, Take{{ .Subject }}GroupRole{}.Method(), &Take{{ .Subject }}GroupRole{GroupID: m.GroupID, Role: string(key.Role)})
+		{{- end }}
+		// The method names no row: its fields settle its grant.
+		may, err := judgedOnRow(gate, err, func() error {
+			_, err := settled(gate, "Take{{ .Subject }}GroupRole")
+
+			return err
+		})
+		{{- end }}
+		if err != nil {
+			return err
+		}
+		if !may {
+			return httpio.NewForbiddenMessage("This group holds roles, and you can't take a role from a group, so it can't be deleted.")
+		}
+	}
 
 	return nil
 }
+{{- if not .ForTenant }}
+
+// judgedOnRow reads the answer of the Execute grant of a method the group's delete does
+// the work of: a refusal of the grant is a no, a grant the method's fields settle is
+// their answer, and one they do not is judged against the method's row (enforce), as
+// the method's own frame judges it. Anything else is the error it is.
+func judgedOnRow(gate *resource.ExecuteGate, err error, enforce func() error) (bool, error) {
+	if err != nil {
+		return granted(err)
+	}
+	if may, settled := gate.Settled(); settled {
+		return may, nil
+	}
+
+	return granted(enforce())
+}
+{{- end }}
 `
 
 	// identityJudgedNote is the paragraph every method that changes who is in a group,
@@ -1713,18 +1865,12 @@ import (
 // other way. It names a row of {{ .SubjectGroupUser }}, the people of {{ if .ForTenant }}the tenant's groups{{ else }}every group{{ end }}, by
 // the row's two key columns (the group's id and the person's).
 //
-// A place in a group keeps an account as a role of its own does: a person left with no
-// role anywhere and no place in a group is deleted with their identity links and
-// sessions, in the same transaction, since an account nothing admits is not kept. An
-// account that signs in through a tenant's directory is that tenant's to delete: it goes
-// this way only with the last thing it holds in that tenant itself, and otherwise stays,
-// holding nothing, in that tenant's list of its people. A person who takes themselves
-// out keeps a place that makes them the last administrator of a tenant, as they keep the
-// role itself.` + identityJudgedNote + identityGroupCallerEntersNote + `
+// Where the place is the last thing the person holds, the account stays, holding nothing.
+// A person who takes themselves out keeps a place that makes them the last administrator
+// of a tenant, as they keep the role itself.` + identityJudgedNote + identityGroupCallerEntersNote + `
 //
 // The method declares a warning with no word to type: asked first, the server says who
-// leaves which group, and, where the place is the last thing the person holds, that the
-// account is deleted with it.
+// leaves which group.
 //
 // @rpc` + identityTenantScope + identityGroupCallerEnters + `
 // @outlet({{ .Outlets }})
@@ -1737,8 +1883,7 @@ type Remove{{ .Subject }}GroupMember struct {
 	UserID impulse.UUID
 }
 
-// Warning says who would leave which group, and whether the account goes with it. It
-// writes nothing.
+// Warning says who would leave which group. It writes nothing.
 func (m *Remove{{ .Subject }}GroupMember) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
 	{{- if .ForTenant }}
 	tenant, err := client.manager.Tenant(ctx)

@@ -25,9 +25,7 @@ const (
 	removalSays                 = "dana is removed from this sector: every role they hold in it is taken away."
 	removalWithGroupsSays       = "dana is removed from this sector: every role they hold in it is taken away, and they are taken out of its groups."
 	removalConfirmSays          = "Remove from this sector"
-	removalDeletesSays          = "They hold nothing anywhere else, so their account is deleted with its sign-in identities and sessions."
-	removalStaysSays            = "Their account stays, and they remain one of this sector's people through a role held outside it, which this does not take away."
-	removalKeepsSays            = "Their account stays, because they hold something outside this sector."
+	removalStaysSays            = "They remain one of this sector's people through a role held outside it, which this does not take away."
 	wardenKeptFromOutsidersSays = "Warden is a role that administers a sector, and this sector admits only people who sign in through its own directory, which your sign-in does not enter. Who holds the role there is changed by one of its administrators, or by a super administrator."
 	removalTakesReaderSays      = "Removing this person from the sector takes away the role Reader, which you may not take from them."
 )
@@ -72,18 +70,12 @@ func asErinIn(ctx context.Context) context.Context {
 }
 
 // removeDana has dana removed from the tenant by the request the context makes.
-func removeDana(t *testing.T, m *Manager, request func(context.Context) context.Context, domain accesstypes.Domain) (bool, error) {
+func removeDana(t *testing.T, m *Manager, request func(context.Context) context.Context, domain accesstypes.Domain) error {
 	t.Helper()
 
-	var deleted bool
-	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		deleted, err = m.RemoveFromTenant(request(ctx), txn, userID, domain)
-
-		return err
+	return inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return m.RemoveFromTenant(request(ctx), txn, userID, domain)
 	})
-
-	return deleted, err
 }
 
 // judgeDana judges dana's removal from the tenant by the request the context makes.
@@ -101,18 +93,11 @@ func judgeDana(t *testing.T, m *Manager, request func(context.Context) context.C
 	return judged, err
 }
 
-// removalNotice is what the fake session library records of the notice of a removal
-// from the tenant, mailed to dana's confirmed address.
-func removalNotice(tenant string, deleted bool) string {
-	return "removal notice to " + danaAddress + " from " + tenant + " deleted=" + boolText(deleted)
-}
-
 // TestManager_RemoveFromTenant_rows pins what a removal takes: every row the person has in
 // the tenant, a membership whose period has ended among them, and each place in a group
 // of the tenant, and no row anywhere else, the person's own in another tenant or the whole
 // application, a place in a whole-application group or another tenant's, or another
-// person's. The engine is told once, and the person is mailed one notice at the address
-// they confirmed, which says the account stays.
+// person's. The engine is told once, and nobody is mailed.
 func TestManager_RemoveFromTenant_rows(t *testing.T) {
 	t.Parallel()
 
@@ -126,12 +111,8 @@ func TestManager_RemoveFromTenant_rows(t *testing.T) {
 	store.groupRoles[nightReader] = true
 	m, engine, mail := removalManager(t, store, &fakeGrants{}, false)
 
-	deleted, err := removeDana(t, m, asErinIn, "alpha")
-	if err != nil {
+	if err := removeDana(t, m, asErinIn, "alpha"); err != nil {
 		t.Fatalf("RemoveFromTenant() error = %v", err)
-	}
-	if deleted {
-		t.Error("RemoveFromTenant() deleted = true, want the account kept by what dana holds elsewhere")
 	}
 	want := []string{
 		"delete membership " + membershipText(&danaAlphaLead),
@@ -144,105 +125,16 @@ func TestManager_RemoveFromTenant_rows(t *testing.T) {
 	if engine.changed != 1 {
 		t.Errorf("the engine was told the policy changed %d time(s), want once", engine.changed)
 	}
-	if diff := cmp.Diff([]string{removalNotice("alpha", false)}, mail.asked); diff != "" {
-		t.Errorf("notices asked for (-want +got):\n%s", diff)
+	if len(mail.asked)+len(mail.sent) != 0 {
+		t.Errorf("mailed %v and asked for %v, want nothing", mail.sent, mail.asked)
 	}
 }
 
-// TestManager_RemoveFromTenant_account pins when the account goes with a removal: when the
-// person then holds nothing that has not ended, with its sign-in identities and sessions
-// and every row that had ended elsewhere, in the same transaction, and the notice says it
-// went. Anything held elsewhere that has not ended keeps it, and a row elsewhere the
-// server's clock reads as ended and the database's does not keeps it too, and stays.
-func TestManager_RemoveFromTenant_account(t *testing.T) {
-	t.Parallel()
-
-	ended := accesstypes.Period{End: time.Now().Add(-time.Hour)}
-	for name, tt := range map[string]struct {
-		elsewhere   func(store *fakeStore)
-		wantDeleted bool
-		// wantGone are the rows outside the tenant that go with the account.
-		wantGone []string
-	}{
-		"nothing else: the account goes": {
-			elsewhere: func(*fakeStore) {}, wantDeleted: true,
-		},
-		"a role in another tenant keeps it": {
-			elsewhere: func(store *fakeStore) { store.memberships[danaBetaReader] = true },
-		},
-		"a role in another tenant that has ended goes with the account": {
-			elsewhere: func(store *fakeStore) {
-				store.memberships[danaBetaReader] = true
-				store.membershipPeriods[danaBetaReader] = ended
-			},
-			wantDeleted: true,
-			wantGone:    []string{"delete membership " + membershipText(&danaBetaReader)},
-		},
-		"a place in another tenant's group that has ended goes with the account": {
-			elsewhere: func(store *fakeStore) {
-				store.groupMembers[memberKey(dayID, userID)] = true
-				store.placePeriods[memberKey(dayID, userID)] = ended
-			},
-			wantDeleted: true,
-			wantGone:    []string{"delete group member " + dayID.String() + " " + string(dana)},
-		},
-		"a role in another tenant ended by the server's clock and not the database's keeps it": {
-			elsewhere: func(store *fakeStore) {
-				store.memberships[danaBetaReader] = true
-				store.membershipPeriods[danaBetaReader] = ended
-				store.databaseNow = func() time.Time { return time.Now().Add(-2 * time.Hour) }
-			},
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			store := removalStore()
-			store.memberships[danaAlphaReader] = true
-			tt.elsewhere(store)
-			m, engine, mail := removalManager(t, store, &fakeGrants{}, false)
-
-			judged, err := judgeDana(t, m, asErinIn, "alpha")
-			if err != nil {
-				t.Fatalf("JudgeTenantRemoval() error = %v", err)
-			}
-			if judged.DeletesAccount != tt.wantDeleted {
-				t.Errorf("JudgeTenantRemoval() DeletesAccount = %v, want %v", judged.DeletesAccount, tt.wantDeleted)
-			}
-			deleted, err := removeDana(t, m, asErinIn, "alpha")
-			if err != nil {
-				t.Fatalf("RemoveFromTenant() error = %v", err)
-			}
-			if deleted != tt.wantDeleted {
-				t.Errorf("RemoveFromTenant() deleted = %v, want %v", deleted, tt.wantDeleted)
-			}
-			want := []string{"delete membership " + membershipText(&danaAlphaReader)}
-			if tt.wantDeleted {
-				want = append([]string{
-					"end session " + danaSession.String(),
-					"delete identity " + identityA.String(),
-					"delete user " + userID.String(),
-					"delete membership " + membershipText(&danaAlphaReader),
-				}, tt.wantGone...)
-			}
-			if diff := cmp.Diff(want, store.writes); diff != "" {
-				t.Errorf("buffered writes (-want +got):\n%s", diff)
-			}
-			if engine.changed != 1 {
-				t.Errorf("the engine was told the policy changed %d time(s), want once", engine.changed)
-			}
-			if diff := cmp.Diff([]string{removalNotice("alpha", tt.wantDeleted)}, mail.asked); diff != "" {
-				t.Errorf("notices asked for (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestManager_RemoveFromTenant_noNotice pins when no notice is mailed: the person stays
+// TestManager_RemoveFromTenant_noNotice pins that nobody is mailed where the person stays
 // one of the tenant's people another way, by a role of their own held in every tenant or
 // through a group kept for the whole application that holds a role in the tenant or in
-// every tenant for them; or they confirmed no address. Their rows in the tenant go all
-// the same.
+// every tenant for them, or where they confirmed no address. Their rows in the tenant go
+// all the same.
 func TestManager_RemoveFromTenant_noNotice(t *testing.T) {
 	t.Parallel()
 
@@ -270,12 +162,8 @@ func TestManager_RemoveFromTenant_noNotice(t *testing.T) {
 			held(store)
 			m, _, mail := removalManager(t, store, &fakeGrants{}, false)
 
-			deleted, err := removeDana(t, m, asErinIn, "alpha")
-			if err != nil {
+			if err := removeDana(t, m, asErinIn, "alpha"); err != nil {
 				t.Fatalf("RemoveFromTenant() error = %v", err)
-			}
-			if deleted {
-				t.Error("RemoveFromTenant() deleted = true, want the account kept")
 			}
 			if diff := cmp.Diff([]string{"delete membership " + membershipText(&danaAlphaReader)}, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
@@ -290,9 +178,8 @@ func TestManager_RemoveFromTenant_noNotice(t *testing.T) {
 // TestManager_RemoveFromTenant_staysNow pins that a person stays one of the tenant's people
 // only by what reaches it now: a role of their own held in every tenant, a place in a
 // group kept for the whole application, or that group's role, whose period has not begun
-// keeps nobody among the tenant's people. The warning says the account stays and nothing
-// more, the person is mailed that they were removed, and the account stands, since what
-// has not begun is still held.
+// keeps nobody among the tenant's people. The warning carries no note, nobody is mailed,
+// and the account stands.
 func TestManager_RemoveFromTenant_staysNow(t *testing.T) {
 	t.Parallel()
 
@@ -326,8 +213,8 @@ func TestManager_RemoveFromTenant_staysNow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("JudgeTenantRemoval() error = %v", err)
 			}
-			if judged.Stays || judged.DeletesAccount {
-				t.Errorf("JudgeTenantRemoval() Stays = %v and DeletesAccount = %v, want neither", judged.Stays, judged.DeletesAccount)
+			if judged.Stays {
+				t.Error("JudgeTenantRemoval() Stays = true, want false")
 			}
 			var warning *resource.Warning
 			err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
@@ -343,18 +230,14 @@ func TestManager_RemoveFromTenant_staysNow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RemovalWarning() error = %v", err)
 			}
-			if diff := cmp.Diff([]resource.WarningNote{{Says: removalKeepsSays, Names: nil}}, warning.Also); diff != "" {
-				t.Errorf("RemovalWarning() notes (-want +got):\n%s", diff)
+			if len(warning.Also) != 0 {
+				t.Errorf("RemovalWarning() notes = %v, want none", warning.Also)
 			}
-			deleted, err := removeDana(t, m, asErinIn, "alpha")
-			if err != nil {
+			if err := removeDana(t, m, asErinIn, "alpha"); err != nil {
 				t.Fatalf("RemoveFromTenant() error = %v", err)
 			}
-			if deleted {
-				t.Error("RemoveFromTenant() deleted = true, want the account kept by what has not begun")
-			}
-			if diff := cmp.Diff([]string{removalNotice("alpha", false)}, mail.asked); diff != "" {
-				t.Errorf("notices asked for (-want +got):\n%s", diff)
+			if len(mail.asked)+len(mail.sent) != 0 {
+				t.Errorf("mailed %v and asked for %v, want nothing", mail.sent, mail.asked)
 			}
 		})
 	}
@@ -443,8 +326,6 @@ func TestManager_RemoveFromTenant_refused(t *testing.T) {
 			t.Parallel()
 
 			store := removalStore()
-			// A role of the whole application keeps the account, so each case is judged on
-			// its rule alone.
 			store.memberships[danaAlphaReader], store.memberships[danaGlobal] = true, true
 			if tt.held != nil {
 				tt.held(store)
@@ -469,7 +350,7 @@ func TestManager_RemoveFromTenant_refused(t *testing.T) {
 
 			_, err := judgeDana(t, m, tt.request, tt.domain)
 			refused("JudgeTenantRemoval()", err)
-			_, err = removeDana(t, m, tt.request, tt.domain)
+			err = removeDana(t, m, tt.request, tt.domain)
 			refused("RemoveFromTenant()", err)
 			if len(store.writes) != 0 || engine.changed != 0 {
 				t.Errorf("buffered writes = %v and the engine told %d time(s), want nothing", store.writes, engine.changed)
@@ -509,7 +390,7 @@ func TestManager_RemoveFromTenant_takingRoles(t *testing.T) {
 			t.Errorf("the grants asked by the judgment (-want +got):\n%s", diff)
 		}
 		grants.asked = nil
-		if _, err := removeDana(t, m, asErinIn, "alpha"); err != nil {
+		if err := removeDana(t, m, asErinIn, "alpha"); err != nil {
 			t.Fatalf("RemoveFromTenant() error = %v", err)
 		}
 		if diff := cmp.Diff([]string{"take " + membershipText(&danaAlphaReader)}, grants.asked); diff != "" {
@@ -534,7 +415,7 @@ func TestManager_RemoveFromTenant_takingRoles(t *testing.T) {
 		store.membershipPeriods[danaAlphaLead] = ended
 		m, _, _ := removalManager(t, store, &fakeGrants{noTake: []accesstypes.Role{"NightShiftLead"}}, false)
 
-		if _, err := removeDana(t, m, asErinIn, "alpha"); err != nil {
+		if err := removeDana(t, m, asErinIn, "alpha"); err != nil {
 			t.Fatalf("RemoveFromTenant() error = %v, want the ended role taken with the rest", err)
 		}
 		if len(store.writes) != 2 {
@@ -551,7 +432,7 @@ func TestManager_RemoveFromTenant_takingRoles(t *testing.T) {
 		m, _, _ := removalManager(t, store, grants, false)
 
 		outside := func(ctx context.Context) context.Context { return ctx }
-		if _, err := removeDana(t, m, outside, "alpha"); err != nil {
+		if err := removeDana(t, m, outside, "alpha"); err != nil {
 			t.Fatalf("RemoveFromTenant() error = %v, want the application's own act unjudged", err)
 		}
 		if len(grants.asked) != 0 {
@@ -577,7 +458,7 @@ func TestManager_RemoveFromTenant_takingRoles(t *testing.T) {
 		if _, err := judgeDana(t, m, asErinIn, "alpha"); err == nil || !strings.Contains(err.Error(), says) {
 			t.Errorf("JudgeTenantRemoval() error = %v, want it to say %q", err, says)
 		}
-		if _, err := removeDana(t, m, asErinIn, "alpha"); err == nil || !strings.Contains(err.Error(), says) {
+		if err := removeDana(t, m, asErinIn, "alpha"); err == nil || !strings.Contains(err.Error(), says) {
 			t.Errorf("RemoveFromTenant() error = %v, want it to say %q", err, says)
 		}
 		if len(store.writes) != 0 || engine.changed != 0 {
@@ -596,7 +477,7 @@ func TestManager_RemoveFromTenant_lastAdministrator(t *testing.T) {
 	store.memberships[danaAlphaWarden], store.memberships[danaGlobal] = true, true
 	m, _, _ := removalManager(t, store, &fakeGrants{}, false)
 
-	if _, err := removeDana(t, m, asErinIn, "alpha"); err != nil {
+	if err := removeDana(t, m, asErinIn, "alpha"); err != nil {
 		t.Fatalf("RemoveFromTenant() error = %v, want the last administrator removed by another caller", err)
 	}
 	if diff := cmp.Diff([]string{"delete membership " + membershipText(&danaAlphaWarden)}, store.writes); diff != "" {
@@ -607,10 +488,9 @@ func TestManager_RemoveFromTenant_lastAdministrator(t *testing.T) {
 // TestTenant_RemovalWarning pins what a tenant's administrator is told before a removal,
 // from the judgment the act runs: the consequence names the person and says whether they
 // are taken out of the tenant's groups, the roles they hold there are named, the button
-// says what it does, and one note says what becomes of the account: it goes, it stays
-// and the person remains one of the tenant's people through a role held outside it, or it
-// stays. Each warning is one a dialog can draw (resource.CheckWarning), and reading it
-// writes nothing.
+// says what it does, and a note says the person remains one of the tenant's people through
+// a role held outside it where they do, and nothing is said of the account. Each warning
+// is one a dialog can draw (resource.CheckWarning), and reading it writes nothing.
 func TestTenant_RemovalWarning(t *testing.T) {
 	t.Parallel()
 
@@ -619,14 +499,13 @@ func TestTenant_RemovalWarning(t *testing.T) {
 		wantJudged  *TenantRemoval
 		wantWarning *resource.Warning
 	}{
-		"roles alone, and nothing elsewhere: the account goes": {
+		"roles alone, and nothing elsewhere: no note": {
 			held: func(*fakeStore) {},
 			wantJudged: &TenantRemoval{
-				Username: "dana", Roles: []string{"Night shift lead", "Reader"}, InGroups: false, DeletesAccount: true, Stays: false,
+				Username: "dana", Roles: []string{"Night shift lead", "Reader"}, InGroups: false, Stays: false,
 			},
 			wantWarning: &resource.Warning{
-				Consequence: removalSays, Names: []string{"Night shift lead", "Reader"}, Confirm: removalConfirmSays,
-				Also: []resource.WarningNote{{Says: removalDeletesSays, Names: nil}},
+				Consequence: removalSays, Names: []string{"Night shift lead", "Reader"}, Confirm: removalConfirmSays, Also: nil,
 			},
 		},
 		"a place in a group of the tenant, and a role in every tenant: the person stays one of its people": {
@@ -635,21 +514,20 @@ func TestTenant_RemovalWarning(t *testing.T) {
 				store.groupMembers[memberKey(nightID, userID)] = true
 			},
 			wantJudged: &TenantRemoval{
-				Username: "dana", Roles: []string{"Night shift lead", "Reader"}, InGroups: true, DeletesAccount: false, Stays: true,
+				Username: "dana", Roles: []string{"Night shift lead", "Reader"}, InGroups: true, Stays: true,
 			},
 			wantWarning: &resource.Warning{
 				Consequence: removalWithGroupsSays, Names: []string{"Night shift lead", "Reader"}, Confirm: removalConfirmSays,
 				Also: []resource.WarningNote{{Says: removalStaysSays, Names: nil}},
 			},
 		},
-		"a role in another tenant: the account stays": {
+		"a role in another tenant: no note": {
 			held: func(store *fakeStore) { store.memberships[danaBetaReader] = true },
 			wantJudged: &TenantRemoval{
-				Username: "dana", Roles: []string{"Night shift lead", "Reader"}, InGroups: false, DeletesAccount: false, Stays: false,
+				Username: "dana", Roles: []string{"Night shift lead", "Reader"}, InGroups: false, Stays: false,
 			},
 			wantWarning: &resource.Warning{
-				Consequence: removalSays, Names: []string{"Night shift lead", "Reader"}, Confirm: removalConfirmSays,
-				Also: []resource.WarningNote{{Says: removalKeepsSays, Names: nil}},
+				Consequence: removalSays, Names: []string{"Night shift lead", "Reader"}, Confirm: removalConfirmSays, Also: nil,
 			},
 		},
 	} {
@@ -716,10 +594,7 @@ func TestTenant_RemovalWarning(t *testing.T) {
 		if err != nil {
 			t.Fatalf("RemovalWarning() error = %v", err)
 		}
-		want := &resource.Warning{
-			Consequence: removalWithGroupsSays, Names: nil, Confirm: removalConfirmSays,
-			Also: []resource.WarningNote{{Says: removalKeepsSays, Names: nil}},
-		}
+		want := &resource.Warning{Consequence: removalWithGroupsSays, Names: nil, Confirm: removalConfirmSays, Also: nil}
 		if diff := cmp.Diff(want, warning); diff != "" {
 			t.Errorf("RemovalWarning() (-want +got):\n%s", diff)
 		}

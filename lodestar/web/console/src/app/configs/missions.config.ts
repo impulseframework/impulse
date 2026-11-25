@@ -106,8 +106,13 @@ export function openMissionHistory(row: RecordData, injector: Injector): void {
 // (title, client, squadron, status, deadline) filter always, and days left, computed in
 // the SQL and indexed by nothing but declared allow_filter, filters only beside one of
 // them — its control waits, with a hint, until an indexed filter is in the request, and
-// clearing the last indexed filter clears it too. A page size over the view's maximum,
-// or a filter the server refuses, is shown in the server's words.
+// clearing the last indexed filter clears it too. The Briefing column is on an id whose
+// resource declares no name, so it shows the stored key, sorts by it, and filters by it
+// as days left does, beside an indexed filter. It is drawn for a role that lists the
+// key on the board, the sector marshal alone: the dispatcher reads a mission's template
+// until the mission is completed, failed or stood down, and the board lists those
+// missions too, so the dispatcher's board carries no Briefing column. A page size over
+// the view's maximum, or a filter the server refuses, is shown in the server's words.
 //
 // The two pickers read on their sources' maximums, from the generated descriptor. The
 // client roster declares one, so the client picker pages the roster one server page at
@@ -118,9 +123,10 @@ export function openMissionHistory(row: RecordData, injector: Injector): void {
 //
 // The board's box sits above the grid, beside the column filters, and both narrow one
 // request: the page sends the complete column filters and the box as conjuncts of one
-// AND, `(statusId:eq:open),*:search:"survey"`, so the key set the box gathers over the
-// two indexes and the filters' residual narrow the same page, with its count and its
-// declared order. The box counts as the indexed touch the days-left control waits for, so
+// AND, `(statusId:eq:open),*:search:"survey"`, so the box, which searches the mission's
+// title, and the filters narrow the same page, with its count and its declared order. A
+// client is found by the Client column's own filter, which matches the client's name or
+// part of it. The box counts as the indexed touch the days-left control waits for, so
 // a days-left filter rides beside the box alone and leaves when the last indexed touch,
 // the box or a status filter, is cleared. The deadline's menu takes a date as a person
 // writes it, 2026-12-15 or 12/15/2026, a month or a minute, and the server reads the
@@ -136,9 +142,10 @@ export const missionsConfig = rootConfig({
     primaryResource: Resources.MissionBoards,
     listColumns: [
       { id: MissionBoards.fieldName.title },
-      { id: MissionBoards.fieldName.clientName, header: 'Client' },
-      { id: MissionBoards.fieldName.squadronName, header: 'Squadron' },
+      { id: MissionBoards.fieldName.clientId, header: 'Client' },
+      { id: MissionBoards.fieldName.squadronId, header: 'Squadron' },
       { id: MissionBoards.fieldName.statusId, header: 'Status' },
+      { id: MissionBoards.fieldName.briefingTemplateId, header: 'Briefing' },
       { id: MissionBoards.fieldName.deadline },
       { id: MissionBoards.fieldName.daysLeft, header: 'Days left' },
     ],

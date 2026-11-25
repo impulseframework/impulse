@@ -21,11 +21,8 @@ import (
 // A person who removes a role from themselves in a domain keeps an administrator role
 // nobody else would hold there (identity.WithAdministratorRoles names them). The Super
 // Administrator role is taken away by a super administrator alone, and never from the
-// last one who can sign in. A person left with no role anywhere is deleted with their
-// identity links and sessions, in the same transaction: an account nothing admits is
-// not kept. An account that signs in through a tenant's directory is that tenant's to
-// delete: it goes this way only with the last thing it holds in that tenant itself, and
-// otherwise stays, holding nothing, in that tenant's list of its people.
+// last one who can sign in. Where the role is the last thing the person holds, the
+// account stays, holding nothing.
 //
 // It names no row: a page runs it from a row of the roles people hold, filling the
 // request from the row. Where the role is one of a tenant's administrator roles held
@@ -33,8 +30,7 @@ import (
 // the tenant (@callerEnters); the method refuses anyone else.
 //
 // The method declares a warning with no word to type: asked first, the server says whose
-// role goes and where it is held, and, where it is the last thing the person holds, that
-// the account is deleted with it.
+// role goes and where it is held.
 //
 // @rpc
 // @callerEnters(StaffHeldRole, StaffTakenRole)
@@ -49,8 +45,7 @@ type RemoveStaffRole struct {
 	EveryDomain bool
 }
 
-// Warning says whose role would go and where it is held, and whether the account goes
-// with it. It writes nothing.
+// Warning says whose role would go and where it is held. It writes nothing.
 func (m *RemoveStaffRole) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
 	scope, err := identity.Scope(m.Domain, m.EveryDomain)
 	if err != nil {

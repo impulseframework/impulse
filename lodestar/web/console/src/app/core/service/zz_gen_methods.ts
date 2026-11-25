@@ -199,21 +199,45 @@ export interface CreateCrewSectorGroupResult {
 
 export interface DeleteCrewGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteCrewGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteCrewGroup answers with. */
+export interface DeleteCrewGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteCrewGroup declares; the method chooses one per response. */
-export type DeleteCrewGroupStatus = 204;
+export type DeleteCrewGroupStatus = 202 | 204;
+/** The answer DeleteCrewGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteCrewGroupAnswer {
+  status: DeleteCrewGroupStatus;
+  result: DeleteCrewGroupResult;
+}
 
 export interface DeleteCrewSectorGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteCrewSectorGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteCrewSectorGroup answers with. */
+export interface DeleteCrewSectorGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteCrewSectorGroup declares; the method chooses one per response. */
-export type DeleteCrewSectorGroupStatus = 204;
+export type DeleteCrewSectorGroupStatus = 202 | 204;
+/** The answer DeleteCrewSectorGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteCrewSectorGroupAnswer {
+  status: DeleteCrewSectorGroupStatus;
+  result: DeleteCrewSectorGroupResult;
+}
 
 export interface DeleteCrewSectorUserConfig {
   userId: string | FieldPointer;
@@ -773,6 +797,30 @@ export interface RequireMembersSecondFactor {}
 /** The statuses RequireMembersSecondFactor declares; the method chooses one per response. */
 export type RequireMembersSecondFactorStatus = 204;
 
+export interface ResendCrewInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendCrewInvitation {
+  invitationId: string;
+}
+/** The result ResendCrewInvitation answers with. */
+export interface ResendCrewInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
+export interface ResendCrewSectorInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface ResendCrewSectorInvitation {
+  invitationId: string;
+}
+/** The result ResendCrewSectorInvitation answers with. */
+export interface ResendCrewSectorInvitationResult {
+  id: string;
+  sent: boolean;
+}
+
 export interface ResumeMissionConfig {
   missionId: string | FieldPointer;
 }
@@ -1156,6 +1204,10 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
+/** The body TakeSectorDirectory takes. The method takes the directory you are signed in through as the sector's own, after the statement that you are authorized to act for the organization. */
+export interface TakeSectorDirectoryConfig {}
+export interface TakeSectorDirectory {}
+
 /** The body MakeSectorDirectoryOnly takes. The method turns the sector's directory-only switch on, which closes the sector to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the sector has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on. */
 export interface MakeSectorDirectoryOnlyConfig {}
 export interface MakeSectorDirectoryOnly {}
@@ -1164,7 +1216,7 @@ export interface MakeSectorDirectoryOnly {}
 export interface EndSectorDirectoryOnlyConfig {}
 export interface EndSectorDirectoryOnly {}
 
-/** The body OpenSectorToDirectory takes. The method opens the sector to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation. */
+/** The body OpenSectorToDirectory takes. The method opens the sector to its directory's people: each of them who holds nothing in the sector is given the role when they sign in through the directory, with no invitation. */
 export interface OpenSectorToDirectoryConfig {
   role: string | FieldPointer;
 }
@@ -1418,19 +1470,23 @@ const methodMap: MethodMap = {
   [Methods.DeleteCrewGroup]: {
     route: 'delete-crew-group',
     target: { resource: Resources.CrewListedGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteCrewSectorGroup]: {
     route: 'delete-crew-sector-group',
     target: { resource: Resources.CrewSectorGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteCrewSectorUser]: {
@@ -1438,6 +1494,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],
@@ -1572,9 +1629,10 @@ const methodMap: MethodMap = {
   },
   [Methods.EndCrewSession]: {
     route: 'end-crew-session',
-    target: { resource: Resources.CrewSessions, key: { sessionId: 'id' } },
+    target: { resource: Resources.CrewListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -1608,9 +1666,10 @@ const methodMap: MethodMap = {
   },
   [Methods.EndMembersSession]: {
     route: 'end-members-session',
-    target: { resource: Resources.MembersSessions, key: { sessionId: 'id' } },
+    target: { resource: Resources.MembersListedSessions, key: { sessionId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'sessionId', displayType: 'uuid' },
     ],
@@ -1940,6 +1999,24 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [],
   },
+  [Methods.ResendCrewInvitation]: {
+    route: 'resend-crew-invitation',
+    target: { resource: Resources.CrewListedMailLinks, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.ResendCrewSectorInvitation]: {
+    route: 'resend-crew-sector-invitation',
+    target: { resource: Resources.CrewSectorInvitations, key: { invitationId: 'id' } },
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
   [Methods.ResumeMission]: {
     route: 'resume-mission',
     transition: { target: Resources.Missions, from: ['on_hold'], to: 'underway' },
@@ -2211,7 +2288,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkCrewSessionIdentity]: {
     route: 'unlink-crew-session-identity',
-    target: { resource: Resources.CrewSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.CrewListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2229,7 +2306,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlinkMembersSessionIdentity]: {
     route: 'unlink-members-session-identity',
-    target: { resource: Resources.MembersSessionIdentities, key: { identityId: 'id' } },
+    target: { resource: Resources.MembersListedIdentities, key: { identityId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2238,7 +2315,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockCrewSignIn]: {
     route: 'unlock-crew-sign-in',
-    target: { resource: Resources.CrewSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.CrewListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2247,7 +2324,7 @@ const methodMap: MethodMap = {
   },
   [Methods.UnlockMembersSignIn]: {
     route: 'unlock-members-sign-in',
-    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    target: { resource: Resources.MembersListedSignInAttempts, key: { name: 'name' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2256,7 +2333,7 @@ const methodMap: MethodMap = {
   },
   [Methods.WithdrawCrewInvitation]: {
     route: 'withdraw-crew-invitation',
-    target: { resource: Resources.CrewSessionMailLinks, key: { invitationId: 'id' } },
+    target: { resource: Resources.CrewListedMailLinks, key: { invitationId: 'id' } },
     statuses: [204],
     dryRun: true,
     fields: [
@@ -2287,6 +2364,12 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string' },
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
+  },
+  [Methods.TakeSectorDirectory]: {
+    route: 'take-sector-directory',
+    dryRun: true,
+    warning: { typed: 'I am authorized' },
+    fields: [],
   },
   [Methods.MakeSectorDirectoryOnly]: {
     route: 'make-sector-directory-only',

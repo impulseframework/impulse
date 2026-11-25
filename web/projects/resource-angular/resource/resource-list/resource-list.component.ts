@@ -10,7 +10,6 @@ import {
   linkedSignal,
   OnInit,
   output,
-  ResourceRef,
   runInInjectionContext,
   signal,
   Type,
@@ -36,7 +35,6 @@ import {
   UrlTree,
 } from '@angular/router';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
 import {
   AppGridComponent,
   ColumnFilter,
@@ -48,10 +46,10 @@ import {
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute, rowPageRoute } from '@impulseframework/resource-angular/resource-nav';
 import {
-  ApiError,
   Domain,
   ListPermission,
   PermissionDigestState,
+  DeleteLeft,
   RemoveOptions,
   TenantProperty,
 } from '@impulseframework/resource';
@@ -67,11 +65,9 @@ import {
   iconCellKey,
   keyFields,
   linkCellKey,
-  ListConcatFn,
   ListViewConfig,
   ReadPermission,
   RecordData,
-  Resource,
   RESOURCE_META,
   RootConfig,
   RowAction,
@@ -86,21 +82,14 @@ import {
   ActionAccessControlWrapperComponent,
   ActionButtonContext,
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
-import {
-  hyphenConcatWithoutResource,
-  hyphenSpaceConcatWithoutResource,
-  noSpaceConcatWithoutResource,
-  spaceConcatWithoutResource,
-  spaceHyphenConcatWithoutResource,
-} from '../concat-fns';
-import { applyFormatting, formatDateString, formatFieldValue } from '../format-fns';
+import { applyFormatting, formatFieldValue } from '../format-fns';
 import { addRowLabel, rowMessage, rowWordsOf } from '../row-words';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import {
   DeleteConfirmation,
   DeleteResourceConfirmationModalComponent,
 } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
-import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
+import { methodDoneMessage, openDeleteMethodDialog, openMethodDialog } from '../method-dialog/open-method-dialog';
 import {
   filledMethods,
   inNamedOrder,
@@ -109,6 +98,7 @@ import {
   parentOffers,
   rowMethods,
 } from '../row-methods/row-methods';
+import { deleteLeftOf } from '../delete-left';
 import { ResourceStore } from '../resource-store.service';
 import { SearchBoxComponent } from '../search-box/search-box.component';
 import {
@@ -124,16 +114,18 @@ import {
   searchRefusedNotice,
 } from '../search-box/search-fields';
 import {
+  configuredFilterChoices,
   filterChoiceLists,
   filterEligibility,
   filterInputKinds,
   foundRolesLimit,
   listEmptyMessage,
   listSorts,
+  noRecordsFound,
   queryableMeta,
   refuseKeylessConfig,
+  refuseNameColumns,
   refuseWriteOnlyColumns,
-  relatedUnreadMessage,
   roleQuestionField,
   rolesQuestion,
   sameSorts,
@@ -141,11 +133,30 @@ import {
   unorderedFields,
 } from './list-request';
 import { listableColumns, sameColumns } from './listable-columns';
-import { filterParam, readAddressFilter, sameFilters, standingFilters, writeAddressFilter } from './address-filters';
+import {
+  askedNames,
+  cellText,
+  listableNames,
+  listedColumns,
+  namesListableOf,
+  requestSorts,
+  tableSorts,
+} from './name-columns';
+import {
+  addressWrittenState,
+  filterParam,
+  readAddressFilter,
+  sameFilters,
+  standingFilters,
+  writeAddressFilter,
+} from './address-filters';
 import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord } from './across-tenants';
 
-/** A column's heading where the page gives none: its field's name in words, as the table draws it. */
-const headingTitle = new CamelCaseToTitlePipe();
+/**
+ * The query parameter that names a method above the list a link opens the page to run:
+ * the list the page is built on opens its dialog and takes the parameter off.
+ */
+const runParam = 'run';
 
 @Component({
   standalone: true,
@@ -256,6 +267,29 @@ export class ResourceListComponent implements OnInit {
   /** Whether a write of the address waits for the navigation in flight to end, which it would cancel. */
   private addressWriteWaiting = false;
 
+  /**
+   * The method the page's address named (the query parameter `run`) that the list has not
+   * acted on yet: it acts once it knows which methods it offers the person (methodsKnown).
+   */
+  private readonly runAsked = signal<string | undefined>(undefined);
+
+  /**
+   * The column filters the page opens with where its address names none (opensWith),
+   * each read as a filter in an address is read, so one the grid holds no such filter for
+   * is dropped.
+   */
+  private readonly openingFilters = computed(() =>
+    (this.config().opensWith ?? [])
+      .map((filter) =>
+        readAddressFilter(
+          filter.value === ''
+            ? `${filter.field}:${filter.operator}`
+            : `${filter.field}:${filter.operator}:${filter.value}`,
+        ),
+      )
+      .filter((filter): filter is ColumnFilter => filter !== undefined),
+  );
+
   expansionConfig = computed(() => {
     const config = this.config().rowExpansionConfig;
     if (config.type !== 'Component' && config.type !== 'Array') {
@@ -305,57 +339,6 @@ export class ResourceListComponent implements OnInit {
    * page gives none, or where its rows give it nothing to say.
    */
   notice = computed(() => this.config()?.notice?.(this.store.page().rows) ?? '');
-
-  /**
-   * The related reads the server refused or that failed, each by its key with what the
-   * read ended in. A read asked again stays here while it is on its way: a page turn, a
-   * sort or a filter brings other rows, so other keys to read, and the read that could not
-   * be made a moment ago is the same read, most often with the same answer. It leaves when
-   * it answers. A read the server refused is not asked again for the same keys while the
-   * list stands (the store's reader keeps the refusal): it comes back here as the same
-   * error, so nothing more is written of it.
-   */
-  private unanswered = linkedSignal<{ refKey: string; status: string; error: unknown }[], Map<string, unknown>>({
-    source: () =>
-      [...this.resourceRefMap()].map(([refKey, ref]) => ({
-        refKey,
-        status: ref.status(),
-        error: ref.status() === 'error' ? ref.error() : undefined,
-      })),
-    computation: (reads, previous) => {
-      const unanswered = new Map<string, unknown>();
-      for (const read of reads) {
-        if (read.status === 'error') {
-          unanswered.set(read.refKey, read.error);
-        } else if ((read.status === 'loading' || read.status === 'reloading') && previous?.value.has(read.refKey)) {
-          unanswered.set(read.refKey, previous.value.get(read.refKey));
-        }
-      }
-      return unanswered;
-    },
-  });
-
-  /**
-   * What the list could not read of the records its columns name: a sentence for each
-   * related read the server refused or that failed, naming the shown columns it fills by
-   * their headings. Such a read is over, so the list is drawn with the rows it has, and
-   * its sentence stands above them, standing still while the read is asked again, until
-   * the read answers. Two reads that come to the same sentence (two columns under one
-   * heading, each naming another record) say it once. A column over a tenant's key that
-   * says in its own words what a row shows when the tenant may not be seen (`tenantKey`
-   * with a `fallback`) is not named for a read the server refused: its cells already say
-   * it. Where no other column is over that read, nothing is said of it.
-   */
-  unread = computed<string[]>(() => {
-    const sentences = new Set<string>();
-    for (const [refKey, error] of this.unanswered()) {
-      const headings = this.headingsOver(refKey, error instanceof ApiError && error.status === 403);
-      if (headings.length > 0) {
-        sentences.add(relatedUnreadMessage(error, headings));
-      }
-    }
-    return [...sentences];
-  });
 
   /**
    * Whether the page's address named a filter the list cannot show the person, so the
@@ -513,9 +496,21 @@ export class ResourceListComponent implements OnInit {
       .map((presentation) => offeredAs(presentation.method, this.store.methodMeta(presentation.method), presentation));
   });
 
+  /**
+   * Whether the list knows which of the methods the page names above it it offers the
+   * person: once the digest that answers for each one that names no row has been read.
+   * One that names a row is offered from the row the list sits under, read with it.
+   */
+  private methodsKnown = computed(() =>
+    (this.config().listMethods ?? []).every(
+      (presentation) =>
+        this.store.methodMeta(presentation.method)?.target !== undefined ||
+        this.auth.hasDigestFor({ resource: presentation.method, permission: ExecutePermission }),
+    ),
+  );
+
   /** The row field an expanded row is opened by: the listed resource's single key, none on a key-less resource. */
   expansionKey = computed(() => keyFields(this.meta())[0]?.fieldName as FieldName | undefined);
-  resourceRefMap = signal(new Map<string, ResourceRef<RecordData[]>>());
   primaryKeys = computed(() => keyFields(this.meta()));
   /**
    * Whether the listed resource has no primary key (a `@computed` or `@virtual` struct
@@ -562,14 +557,18 @@ export class ResourceListComponent implements OnInit {
   private readonly listableOf = listableFieldsOf(this.auth);
 
   /**
+   * The digest's List field set for a resource an id points to, as its name is judged
+   * (namesListableOf): the empty set once a digest has answered and names no field.
+   */
+  private readonly namesOf = namesListableOf(this.auth);
+
+  /**
    * The configured columns the caller may list: every column when nothing narrows,
    * otherwise those whose fields the digest grants. Key fields are structural, never
-   * grant-bearing, and always pass; a concatenated column passes when its own field and
-   * every field it reads off this resource pass (fields of a referenced resource are
-   * read through that resource's own request). Equal while the same columns: every digest
-   * load re-evaluates this, and one that changes the answer for none of them (another
-   * scope's digest landing after sign-in, a reload) leaves the columns as they are, so the
-   * store's request, which they are part of, is not asked again.
+   * grant-bearing, and always pass. Equal while the same columns: every digest load
+   * re-evaluates this, and one that changes the answer for none of them (another scope's
+   * digest landing after sign-in, a reload) leaves the columns as they are, so the store's
+   * request, which they are part of, is not asked again.
    */
   listColumns = computed<ColumnConfig[]>(
     () =>
@@ -677,22 +676,67 @@ export class ResourceListComponent implements OnInit {
   );
 
   /**
+   * Whether the page the list holds comes after its first. Such a page with no row is not a
+   * list that holds nothing: its rows went while the pages before it hold theirs, and the
+   * pager is the way back to them.
+   */
+  afterFirstPage = computed(() => this.store.page().offset > 0 || this.store.page().hasPrev);
+
+  /**
    * What the empty table says: the refusal when the digest leaves no column; in the page's
    * own words, that the person may not see the list, that it could not be loaded the way
    * it was asked for (a filter, a sort or a page size) or that it could not be loaded, when the
    * request was refused or failed; otherwise the page's own sentence for a list that holds
-   * nothing (the config's `emptyMessage`), said only while neither a column filter nor the
-   * search box narrows the list, else the plain empty-list text. A refusal must never read
-   * as an empty list, and what the server said of it is written to the console, never to
-   * the screen.
+   * nothing (the config's `emptyMessage`), said only on the list's first page and while
+   * neither a column filter nor the search box narrows the list, else the plain empty-list
+   * text. A refusal must never read as an empty list, and what the server said of it is
+   * written to the console, never to the screen.
    */
   emptyMessage = computed(() =>
     listEmptyMessage(
       this.store.pageError(),
       this.noListableColumns(),
-      this.boxActive() || this.store.columnFilters().length > 0 ? undefined : this.config().emptyMessage,
+      this.boxActive() || this.store.columnFilters().length > 0 || this.afterFirstPage()
+        ? undefined
+        : this.config().emptyMessage,
     ),
   );
+
+  /**
+   * What a list under a record says in place of its table when it holds nothing: the page's
+   * own sentence (the config's emptyMessage), else "No hangar passes." from the word its rows
+   * go by. Empty wherever the table is drawn: for the list a page is built on, before the first
+   * answer, on a page after the first, for a refusal or a failed request, where the person may
+   * see no column, and while a column filter or the search box narrows the list, whose table
+   * then says what it always did.
+   */
+  emptyLine = computed(() => {
+    const underRecord = this.isRootList() === false && !!this.config().parentRelation?.childKey;
+    if (!underRecord || !this.store.firstPageAnswered() || this.store.page().rows.length > 0) {
+      return '';
+    }
+    if (this.afterFirstPage() || this.store.pageError() !== undefined || this.noListableColumns()) {
+      return '';
+    }
+    if (this.boxActive() || this.store.columnFilters().length > 0) {
+      return '';
+    }
+    const many = this.rowWords()?.many.trim() ?? '';
+    return this.config().emptyMessage || (many !== '' ? `No ${many}.` : noRecordsFound);
+  });
+
+  /**
+   * The link the list draws under its rows (ListViewConfigOptions.more), asked with the row
+   * the list is under: its words, the page it opens with the tenant put in as a row's link
+   * has it, and its query parameters. Nothing where the page names none or it answers none.
+   */
+  moreLink = computed(() => {
+    const link = this.config().more?.(this.relatedData());
+    if (!link) {
+      return undefined;
+    }
+    return { label: link.label, route: '/' + this.resolvePageRoute(link.route), queryParams: link.queryParams ?? {} };
+  });
 
   /**
    * The digest's List state of each field of the page's resource, by field name: what
@@ -721,7 +765,14 @@ export class ResourceListComponent implements OnInit {
     (): FieldSort[] => {
       const resource = this.config().primaryResource;
       const descriptor = resource ? this.store.client.descriptor.resources[resource] : undefined;
-      return listSorts(this.wantedSorts(), this.meta(), this.listStates(), descriptor, this.listableFields());
+      return listSorts(
+        this.wantedSorts(),
+        this.meta(),
+        this.listStates(),
+        descriptor,
+        this.listableFields(),
+        listableNames(this.meta(), this.namesOf, this.resourceMeta),
+      );
     },
     { equal: sameSorts },
   );
@@ -737,8 +788,11 @@ export class ResourceListComponent implements OnInit {
   /**
    * Which columns the server filters, from the listed resource's metadata: the grid draws
    * a filter control only on these, and a companion-only column waits for an indexed filter.
+   * The fields of the page's own filter are answered too, the key of the record a list is
+   * under among them, so a column does not wait where the request already carries an
+   * indexed filter the list shows no column for.
    */
-  filterability = computed(() => filterEligibility(this.queryMeta(), this.columns()));
+  filterability = computed(() => filterEligibility(this.queryMeta(), this.columns(), this.configFilterFields()));
 
   /** The fields the page's own filter names, so the grid knows when an indexed filter is already in the request. */
   configFilterFields = computed(() => filterFields(this.filters()));
@@ -751,10 +805,14 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * The values each column filters by where they are known, from the listed resource's
-   * metadata and, on a role column, the roles the list was found to hold beyond it: the
+   * metadata and, on a role column, the roles the list was found to hold beyond it, with
+   * the values a column of the page's config names in their place (filterChoices): the
    * grid's menu offers their names.
    */
-  filterChoices = computed(() => filterChoiceLists(this.meta(), this.columns(), this.foundRoles()));
+  filterChoices = computed(() => ({
+    ...filterChoiceLists(this.meta(), this.columns(), this.foundRoles()),
+    ...configuredFilterChoices(this.columns()),
+  }));
 
   /**
    * The values a filter from the page's address may take on each column (takeAddress): the
@@ -933,9 +991,13 @@ export class ResourceListComponent implements OnInit {
     }
   }
 
-  /** A header click: the sorts to request next; the store drops the cursor and asks for a first page. */
+  /**
+   * A header click: the sorts to request next, a press on a fixed set's column by the
+   * names beside its field (requestSorts); the store drops the cursor and asks for a first
+   * page.
+   */
   onSortChange(sorts: SortRule[]): void {
-    this.wantedSorts.set(sorts as FieldSort[]);
+    this.wantedSorts.set(requestSorts(this.listed(), sorts) as FieldSort[]);
     this.store.sorts.set(this.askedSorts());
   }
 
@@ -993,19 +1055,56 @@ export class ResourceListComponent implements OnInit {
   /**
    * Takes the column filters from the page's address: on the page's opening, and after
    * each navigation while the list stands (Back and Forward, a link to the page it is on,
-   * the menu entry of its own page). An address that already says the filters the list
-   * holds changes nothing, the notice of a filter left out among it. Otherwise the list
-   * holds the filters of the address it can show the person (standingFilters); where one
-   * was left out, it says so above its rows and writes the address it does show.
+   * the menu entry of its own page). An address that names no filter opens the list on
+   * the page's own filters (opensWith), unless it is the address the list wrote itself
+   * (written), which says the person cleared every filter (takeOpening). An address that
+   * already says the filters the list holds changes nothing, the notice of a filter left
+   * out among it. Otherwise the list holds the filters of the address it can show the
+   * person (standingFilters); where one was left out, it says so above its rows and writes
+   * the address it does show.
    */
-  private takeAddress(): void {
+  private takeAddress(written = false): void {
     const values = this.addressFilterValues();
+    const opening = values.length === 0 && !written ? this.openingFilters() : [];
+    if (opening.length > 0) {
+      this.takeOpening(opening);
+      return;
+    }
     const held = this.store.columnFilters();
     if (sameTexts(values, held.map(writeAddressFilter))) {
       return;
     }
     const read = values.map(readAddressFilter).filter((filter): filter is ColumnFilter => filter !== undefined);
-    const standing = standingFilters(read, {
+    const standing = this.standing(read);
+    if (!sameFilters(standing, held)) {
+      this.store.columnFilters.set(standing);
+    }
+    this.filtersLeftOut.set(read.length !== values.length || !sameFilters(standing, read));
+    if (!sameTexts(values, standing.map(writeAddressFilter))) {
+      this.writeAddress();
+    }
+  }
+
+  /**
+   * Opens the list on the page's own filters (opensWith), those of them it can show the
+   * person (standingFilters), and writes them into the address in place. One it leaves
+   * out is left out silently: the notice of a filter left out is for an address a person
+   * followed.
+   */
+  private takeOpening(opening: readonly ColumnFilter[]): void {
+    const standing = this.standing(opening);
+    if (!sameFilters(standing, this.store.columnFilters())) {
+      this.store.columnFilters.set(standing);
+    }
+    this.filtersLeftOut.set(false);
+    if (standing.length > 0) {
+      this.writeAddress();
+    }
+  }
+
+  /** Of the filters asked, those the list can show the person (standingFilters), in the order asked. */
+  private standing(asked: readonly ColumnFilter[]): ColumnFilter[] {
+    return standingFilters(asked, {
       columns: this.columns(),
       filterability: this.filterability(),
       externalFields: this.configFilterFields(),
@@ -1014,13 +1113,6 @@ export class ResourceListComponent implements OnInit {
       choices: this.addressChoices(),
       boxActive: this.boxActive(),
     });
-    if (!sameFilters(standing, held)) {
-      this.store.columnFilters.set(standing);
-    }
-    this.filtersLeftOut.set(read.length !== values.length || !sameFilters(standing, read));
-    if (!sameTexts(values, standing.map(writeAddressFilter))) {
-      this.writeAddress();
-    }
   }
 
   /**
@@ -1040,25 +1132,46 @@ export class ResourceListComponent implements OnInit {
 
   /**
    * Replaces the page's address with one whose `filter` values are the list's column
-   * filters as written, the parameter absent when there are none, every other query
-   * parameter and the fragment kept. An address that already says them is left as it is.
+   * filters as written, the parameter absent when there are none, and with no `run`, which
+   * the list took when the address came (takeRun); every other query parameter and the
+   * fragment kept; and marks the navigation as the list's own write (addressWrittenState),
+   * so the end of it is not taken for an address that names no filter. An address that
+   * already says them is left as it is.
    */
   private navigateToFilters(): void {
     const tree = this.router.parseUrl(this.router.url);
     const values = this.store.columnFilters().map(writeAddressFilter);
-    if (sameTexts(tree.queryParamMap.getAll(filterParam), values)) {
+    if (sameTexts(tree.queryParamMap.getAll(filterParam), values) && !tree.queryParamMap.has(runParam)) {
       return;
     }
-    const params = Object.fromEntries(Object.entries(tree.queryParams).filter(([name]) => name !== filterParam));
+    const params = Object.fromEntries(
+      Object.entries(tree.queryParams).filter(([name]) => name !== filterParam && name !== runParam),
+    );
     if (values.length > 0) {
       params[filterParam] = values;
     }
-    void this.router.navigateByUrl(new UrlTree(tree.root, params, tree.fragment), { replaceUrl: true });
+    void this.router.navigateByUrl(new UrlTree(tree.root, params, tree.fragment), {
+      replaceUrl: true,
+      state: { [addressWrittenState]: true },
+    });
   }
 
   /**
-   * A navigation is over: a write of the address that waited for it is made now, from the
-   * filters as they stand; where none waited, the address of one that ended is taken. A
+   * Takes the method the page's address names (`run`), for the list to act on once it
+   * knows which methods it offers (see ngOnInit). The parameter leaves the address with
+   * the list's next write of it.
+   */
+  private takeRun(): void {
+    const asked = this.router.parseUrl(this.router.url).queryParamMap.get(runParam);
+    if (asked !== null) {
+      this.runAsked.set(asked);
+    }
+  }
+
+  /**
+   * A navigation is over: the method its address names is taken (takeRun), and a write of
+   * the address that waited for it is made now, from the filters as they stand; where
+   * none waited, the address of one that ended is taken. A
    * navigation canceled because another superseded it ends nothing: that other is on its
    * way, and a write made now would cancel it, so the write waits for that one to be over.
    *
@@ -1066,18 +1179,38 @@ export class ResourceListComponent implements OnInit {
    * router still holds the navigation that ended as its current one while it announces the
    * end, so that write is set waiting like any other; the navigation is over, and the write
    * is made here, not left for the end of the next one.
+   *
+   * A navigation the router skips, since it brings the address the page is at, is taken
+   * too where the page opens with filters of its own: the page's own menu entry after the
+   * person cleared every filter opens the list on them again.
    */
   private navigationOver(event: RouterEvent): void {
     if (event instanceof NavigationCancel && event.code === NavigationCancellationCode.SupersededByNewNavigation) {
       return;
     }
+    if (event instanceof NavigationEnd) {
+      this.takeRun();
+    }
     if (!this.addressWriteWaiting && event instanceof NavigationEnd) {
+      this.takeAddress(this.listWroteAddress());
+    }
+    if (!this.addressWriteWaiting && event instanceof NavigationSkipped && this.openingFilters().length > 0) {
       this.takeAddress();
     }
     if (this.addressWriteWaiting) {
       this.addressWriteWaiting = false;
       this.navigateToFilters();
     }
+  }
+
+  /**
+   * Whether the navigation that just ended is the list's own write of the address
+   * (navigateToFilters): one the code asked for with the list's mark, not Back or Forward,
+   * which bring back the mark of the entry they return to.
+   */
+  private listWroteAddress(): boolean {
+    const navigation = this.router.lastSuccessfulNavigation();
+    return navigation?.trigger === 'imperative' && navigation.extras.state?.[addressWrittenState] === true;
   }
 
   /** A pager click: the store follows the server's relation. */
@@ -1100,22 +1233,42 @@ export class ResourceListComponent implements OnInit {
         hidden: true,
       });
     }
-    for (const col of listColumns) {
-      if (!('additionalIds' in col)) continue;
-      for (const additionalCol of col.additionalIds) {
-        if (additionalCol.resource !== undefined) continue;
-        idCols.push({
-          id: additionalCol.id as FieldName,
-          hidden: true,
-        });
-      }
-    }
-
     return [...new Set([...idCols, ...listColumns])];
   });
+
+  /**
+   * How the list draws each of its columns (listedColumns): on its field's stored value,
+   * or, on a field that holds another row's id, by the name the server answers beside the
+   * id, where the pointed-to resource declares one and the person may list it. Across
+   * tenants the names a list carries point outside every tenant, and the whole
+   * application's digest speaks for them.
+   */
+  private readonly listed = computed(() =>
+    listedColumns(this.rootColumns(), this.meta(), this.namesOf, this.resourceMeta),
+  );
+
+  /**
+   * The columns the list's request asks for (the store's): the columns the caller may list
+   * and, for each column drawn by a name, a hidden column on the name field (askedNames),
+   * so every row carries the name beside its id. Equal while the same fields, so the
+   * store's request is not asked again for the same columns.
+   */
+  private readonly requestColumns = computed<ColumnConfig[]>(
+    () => {
+      const names = askedNames(this.listed());
+      const columns = this.listColumns();
+      return names.length === 0 ? columns : [...columns, ...names.map((id) => ({ id, hidden: true }))];
+    },
+    { equal: (a, b) => a.length === b.length && a.every((column, i) => column.id === b[i].id) },
+  );
+
+  /**
+   * The sorts the table draws on its headings: a sort by the names beside a fixed set's
+   * field stands on that field's column (tableSorts).
+   */
+  drawnSorts = computed(() => tableSorts(this.listed(), this.store.sorts()));
+
   columns = computed(() => {
-    const refmap = this.resourceRefMap();
-    const cols = this.rootColumns();
     const columns: ColumnConfig[] = [];
     const usedIds = new Set<string>();
     // A column over a field the server does not order is drawn with no sort button, as one
@@ -1128,122 +1281,70 @@ export class ResourceListComponent implements OnInit {
       usedIds.add(TenantProperty);
     }
 
-    for (const col of cols) {
-      const indexId = this.getUniqueId(col.id, usedIds) as FieldName;
+    for (const listed of this.listed()) {
+      const col = listed.column;
+      // A column drawn by the name beside its id is the table's column under the name
+      // field's id, so a header click sorts by the name and its filter names it.
+      const indexId = this.getUniqueId(listed.tableId, usedIds) as FieldName;
       usedIds.add(indexId);
 
       if (col.hidden) {
         continue;
       }
 
-      if ('additionalIds' in col) {
-        columns.push({
-          id: indexId,
-          header: col.header,
-          width: col.width,
-          resizable: col.resizable,
-          // A column that opts out of its filter control says so to the table, and so
-          // does one that opts out of sorting.
-          ...(col.filterable === false ? { filterable: false } : {}),
-          ...(col.sortable === false || unordered.has(col.id) ? { sortable: false } : {}),
-          valueGetter: (data) => {
-            const concatArray: string[] = [];
-            let reading = false;
-
-            col.additionalIds.forEach((additionalCol) => {
-              if (!additionalCol.resource) {
-                concatArray.push(data[additionalCol.id]);
-              } else {
-                const refKey = this.resourceRefKey(additionalCol.resource, additionalCol.id as FieldName);
-                const resourceRef = refmap.get(refKey);
-                // A related read the server refused (the caller holds no List on the related
-                // record), or one that failed, holds no rows (reading its value would throw):
-                // the cell says what the page gives for a row whose record is not read, and the
-                // list says above its rows what it could not read.
-                const resData = resourceRef?.hasValue() ? resourceRef.value() : undefined;
-                // The read starts from an empty list and holds it while it loads: a row
-                // that finds nothing in it then is not yet known to be missing.
-                reading ||= resourceRef?.isLoading() === true;
-                if (!resData) {
-                  return;
-                }
-                for (const res of resData) {
-                  if (res[additionalCol.id] === data[col.id] && additionalCol.field) {
-                    const value = res[additionalCol.field];
-                    if (col.formatType && typeof value === 'string') {
-                      concatArray.push(formatDateString(col.formatType, value));
-                    } else if (value) {
-                      concatArray.push(value as string);
-                    }
-                  }
-                }
-              }
-            });
-
-            if (concatArray.length === 0 && col.tenantKey) {
-              // The tenant's record was not read: the person's own list of tenants may
-              // still name it.
-              const held = this.ownTenantName(data[col.id]);
-              if (held !== undefined) {
-                concatArray.push(held);
-              } else if (reading && data[col.id]) {
-                // The record is still being read: the cell says nothing yet, and never
-                // that the reader cannot see a tenant the read is about to name.
-                return '';
-              }
-            }
-            if (concatArray.length === 0) {
-              return col.fallback ? col.fallback(data) : (col.emptyDataValue as string);
-            }
-
-            const value = concatenated(col.concatFn, concatArray);
-            return col.said ? col.said(value, data) : value;
-          },
-        });
-      } else {
-        // A cell without a configured format is written by the field: the name of the
-        // value where the field takes one of a fixed set, a role's name in words where it
-        // holds one, and otherwise by the display type: a size for bytes, the elements for
-        // an array, a place in words or one-line JSON for an object, a calendar date for a
-        // date, the value's text for the rest.
-        // A yes-or-no value is not written at all: the table draws it as a mark
-        // (processedRowData).
-        const fieldMeta = this.meta()?.fields?.find((field) => field.fieldName === col.id);
-        const valueFormatter = (params: DataType | null): string => {
-          if (col.formatType) {
-            const retValue = applyFormatting(col.formatType, params as string);
-            return retValue || (col.emptyDataValue as string);
-          }
-          return formatFieldValue(fieldMeta, params) || (col.emptyDataValue as string);
-        };
-        // A column that says how its cell is read off the row (valueGetter) is read
-        // that way, then formatted like any other.
-        const shared = {
-          id: indexId,
-          header: col.header,
-          width: col.width,
-          resizable: col.resizable,
-          valueFormatter,
-          // A configured format stays with the column, so the display row knows the
-          // author chose how the cell is written.
-          ...(col.formatType ? { formatType: col.formatType } : {}),
-          ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
-          // A column that opts out of its filter control says so to the table, and so
-          // does one that opts out of sorting.
-          ...(col.filterable === false ? { filterable: false } : {}),
-          // A column whose list is drawn a line each says so to the table.
-          ...(col.lines ? { lines: true } : {}),
-          ...(col.sortable === false || unordered.has(col.id) ? { sortable: false } : {}),
-          // A column of words that opens its row says so while a row opens, and its link
-          // rides the display row (processedRowData); otherwise its cell is words alone.
-          ...(col.opensRow && !col.iconConfig && rowOpens ? { opensRow: true } : {}),
-        };
-        // An icon column keeps its map and tooltip position for the grid; the cell itself is
-        // resolved with the display row (processedRowData), never at render time.
-        columns.push(
-          col.iconConfig ? { ...shared, iconConfig: col.iconConfig, tooltipPosition: col.tooltipPosition } : shared,
-        );
-      }
+      // A cell without a configured format is written by the field: the name of the
+      // value where the field takes one of a fixed set, a role's name in words where it
+      // holds one, and otherwise by the display type: a size for bytes, the elements for
+      // an array, a place in words or one-line JSON for an object, a calendar date for a
+      // date, the value's text for the rest.
+      // A yes-or-no value is not written at all: the table draws it as a mark
+      // (processedRowData).
+      const fieldMeta = this.meta()?.fields?.find((field) => field.fieldName === col.id);
+      const valueFormatter = (params: DataType | null): string => {
+        if (col.formatType) {
+          const retValue = applyFormatting(col.formatType, params as string);
+          return retValue || (col.emptyDataValue as string);
+        }
+        return formatFieldValue(fieldMeta, params) || (col.emptyDataValue as string);
+      };
+      // A column that says how its cell is read off the row (valueGetter) is read
+      // that way, then formatted like any other. A name column, and a column which
+      // shows no name (the list carries none beside its id, or the person may not list
+      // it) but has the page's words for a tenant or a row, are read off the row by
+      // cellText: the name beside the id, else the page's words, else the stored value.
+      // The second says no stored value, so it offers neither sort nor filter.
+      const named = listed.kind === 'name' || listed.kind === 'worded';
+      const worded = listed.kind === 'worded';
+      const shared = {
+        id: indexId,
+        header: listed.header ?? col.header,
+        width: col.width,
+        resizable: col.resizable,
+        ...(named
+          ? { valueGetter: (data: RecordData): string => cellText(listed, data, (key) => this.ownTenantName(key)) }
+          : { valueFormatter }),
+        // A configured format stays with the column, so the display row knows the
+        // author chose how the cell is written.
+        ...(col.formatType ? { formatType: col.formatType } : {}),
+        ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
+        // A column that opts out of its filter control says so to the table, and so
+        // does one that opts out of sorting.
+        ...(col.filterable === false || worded ? { filterable: false } : {}),
+        // A column whose list is drawn a line each says so to the table.
+        ...(col.lines ? { lines: true } : {}),
+        // A column that names the values it filters by keeps them, for its menu
+        // (filterChoices).
+        ...(col.filterChoices ? { filterChoices: col.filterChoices } : {}),
+        ...(col.sortable === false || worded || unordered.has(col.id) ? { sortable: false } : {}),
+        // A column of words that opens its row says so while a row opens, and its link
+        // rides the display row (processedRowData); otherwise its cell is words alone.
+        ...(col.opensRow && !col.iconConfig && rowOpens ? { opensRow: true } : {}),
+      };
+      // An icon column keeps its map and tooltip position for the grid; the cell itself is
+      // resolved with the display row (processedRowData), never at render time.
+      columns.push(
+        col.iconConfig ? { ...shared, iconConfig: col.iconConfig, tooltipPosition: col.tooltipPosition } : shared,
+      );
     }
 
     if (this.across()) {
@@ -1364,14 +1465,20 @@ export class ResourceListComponent implements OnInit {
    * list's page is read again once the row is gone. A delete the server refuses rejects
    * with the client's `ApiError`, for whoever asked to show, and so does the delete of a
    * row with records under it that its delete takes, until the options say it takes them
-   * (`everythingUnder`).
+   * (`everythingUnder`). A delete too large for one request resolves with what it left
+   * (`DeleteLeft`), and the page is read again once a delete resolves with nothing.
    */
-  deleteRow(row: RecordData, options?: RemoveOptions): Promise<void> {
+  deleteRow(row: RecordData, options?: RemoveOptions): Promise<DeleteLeft | undefined> {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(row), options);
 
-    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then(() => {
-      this.store.reloadPage();
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then((answer) => {
+      const left = deleteLeftOf(answer);
+      if (left === undefined) {
+        this.store.reloadPage();
+      }
+
+      return left;
     });
   }
 
@@ -1404,6 +1511,9 @@ export class ResourceListComponent implements OnInit {
     const roleFields = new Set(
       (this.meta()?.fields ?? []).filter((field) => field.roles !== undefined).map((field) => field.fieldName),
     );
+    // A column's getter is handed the session read beside the row, so a cell can say
+    // which row is the reader's own; read here, the rows are drawn again when it changes.
+    const reader = this.auth.sessionInfo();
 
     return data.map((row) => {
       const updatedRow = { ...row };
@@ -1421,7 +1531,7 @@ export class ResourceListComponent implements OnInit {
       }
       for (const col of columns) {
         if (col.valueGetter) {
-          updatedRow[col.id] = col.valueGetter(row);
+          updatedRow[col.id] = col.valueGetter(row, reader);
         } else {
           updatedRow[col.id] = row[col.id];
         }
@@ -1526,10 +1636,15 @@ export class ResourceListComponent implements OnInit {
    * method took away the row the list sits under, the page may have left before the
    * dialog answers here (a live page reads its row again as soon as the write lands):
    * what ran is still said, and the list, which nobody sees any more, reads no rows and
-   * tells no page.
+   * tells no page. A method that deletes its row (`deletes`) runs through the delete
+   * dialog instead.
    */
   runMethod(method: OfferedMethod, row?: RecordData): void {
-    openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows).subscribe((result) => {
+    const opened =
+      method.presentation?.deletes && row
+        ? openDeleteMethodDialog(this.dialog, this.store.methodHandle(method.method), method, row)
+        : openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows);
+    opened.subscribe((result) => {
       if (!result) {
         return;
       }
@@ -1612,44 +1727,17 @@ export class ResourceListComponent implements OnInit {
   }
 
   /**
-   * Whether a name some column shows is still on its way: a related resource read for
-   * the first time, or asked for keys it has not answered for. A related resource read
-   * again keeps the names it had, so it is not waited for.
-   */
-  private namesAwaited = computed(() => {
-    for (const ref of this.resourceRefMap().values()) {
-      if (ref.status() === 'loading') {
-        return true;
-      }
-    }
-    return false;
-  });
-
-  /**
-   * The rows the table draws: the page's rows, once every name their columns show is
-   * known, and on a list across tenants once the digest of every tenant on the page has
-   * answered or failed. While a related resource or a digest is being read the table keeps
-   * the rows it had (none, on a list just opened), so a row is never drawn with a key, or
-   * with the words for a row that has no related record, where its name is drawn a moment
-   * later, and never without a link that is drawn a moment later.
+   * The rows the table draws: the page's rows, and on a list across tenants once the
+   * digest of every tenant on the page has answered or failed. While a digest is being
+   * read the table keeps the rows it had (none, on a list just opened), so a row is never
+   * drawn without a link that is drawn a moment later.
    */
   tableRowData = linkedSignal<{ rows: RecordData[]; awaited: boolean }, RecordData[]>({
-    source: () => ({ rows: this.processedRowData(), awaited: this.namesAwaited() || this.linksAwaited() }),
+    source: () => ({ rows: this.processedRowData(), awaited: this.linksAwaited() }),
     computation: (now, previous) => (now.awaited ? (previous?.value ?? []) : now.rows),
   });
 
-  loadingRowData = computed(() => {
-    if (this.store.pageStatus() === 'loading' || this.linksAwaited()) {
-      return true;
-    }
-    for (const ref of this.resourceRefMap().values()) {
-      const refStatus = ref.status();
-      if (refStatus === 'loading' || refStatus === 'reloading') {
-        return true;
-      }
-    }
-    return false;
-  });
+  loadingRowData = computed(() => this.store.pageStatus() === 'loading' || this.linksAwaited());
 
   filters = computed(() => {
     const configFilter = this.config().filter?.(this.relatedData()) || '';
@@ -1683,14 +1771,9 @@ export class ResourceListComponent implements OnInit {
     return this.config().parentRelation?.childKey as string;
   });
 
-  private resourceRefKey(resource: Resource, keyField: FieldName): string {
-    return `${resource}::${keyField}`;
-  }
-
   /**
    * A tenant's name as the person's own list of tenants holds it, for a column over a
-   * tenant's key whose record could not be read; undefined for a key the list does not
-   * name, which the list answers with the key itself.
+   * tenant's key whose row shows no name; undefined for a key the list does not name.
    */
   private ownTenantName(key: unknown): string | undefined {
     if (typeof key !== 'string' || key === '') {
@@ -1710,32 +1793,6 @@ export class ResourceListComponent implements OnInit {
     }
     this.logged.add(error);
     return true;
-  }
-
-  /**
-   * The headings, as the table draws them, of the shown columns that name a record of the
-   * related read under the key. Where the server refused the read, a column over a tenant's
-   * key with words of its own for a tenant the person may not see is left out.
-   */
-  private headingsOver(refKey: string, refused: boolean): string[] {
-    const headings: string[] = [];
-    for (const col of this.listColumns()) {
-      if (col.hidden || !('additionalIds' in col)) {
-        continue;
-      }
-      if (refused && col.tenantKey && col.fallback) {
-        continue;
-      }
-      const reads = col.additionalIds.some(
-        (additional) =>
-          additional.resource !== undefined &&
-          this.resourceRefKey(additional.resource, additional.id as FieldName) === refKey,
-      );
-      if (reads) {
-        headings.push(headingTitle.transform(col.header || col.id));
-      }
-    }
-    return headings;
   }
 
   private getUniqueId(baseId: string, usedIds: Set<string>): string {
@@ -1787,6 +1844,9 @@ export class ResourceListComponent implements OnInit {
     // A column over a write-only field would be a 400 from the server and an empty cell
     // otherwise: a configuration error, raised here naming the resource and the field.
     refuseWriteOnlyColumns(this.config().primaryResource, this.config().listColumns ?? [], this.meta());
+    // A column on a name field names nothing a grant lists: the column belongs on the id
+    // beside it, which the refusal names.
+    refuseNameColumns(this.config().primaryResource, this.config().listColumns ?? [], this.meta());
     // A list across tenants needs the resource declared for it, and reads alone: a
     // page asking for what it cannot do is refused here, naming the resource.
     refuseAcrossTenantsConfig(this.config().primaryResource, this.config(), this.store.client);
@@ -1795,7 +1855,7 @@ export class ResourceListComponent implements OnInit {
       // The store reads the listed resource and writes the write resource.
       this.store.resourceName.set(this.writeResourceName());
       this.store.resourceMeta.set(this.meta());
-      this.store.listColumns.set(this.listColumns());
+      this.store.listColumns.set(this.requestColumns());
       this.store.pageCapabilities.set(
         this.rowMethodNames().length > 0 || this.offeredMethodNames().length > 0 ? ['Execute'] : [],
       );
@@ -1819,69 +1879,34 @@ export class ResourceListComponent implements OnInit {
           this.navigationOver(event);
         }
       });
+      // A method the address names is taken once: at the end of the navigation in flight
+      // where there is one, else now.
+      if (this.router.currentNavigation() === null) {
+        this.takeRun();
+      }
       this.takeAddress();
+      runInInjectionContext(this.injector, () => {
+        // A method the address named: once the list knows which methods it offers, it opens
+        // the named one's dialog as a press of its button would, where it offers it, and in
+        // every case takes the parameter off the address.
+        effect(() => {
+          const asked = this.runAsked();
+          if (asked === undefined || !this.methodsKnown()) {
+            return;
+          }
+          untracked(() => {
+            this.runAsked.set(undefined);
+            this.writeAddress();
+            const offered = this.listMethods().find((candidate) => candidate.method === asked);
+            if (offered) {
+              this.runMethod(offered);
+            }
+          });
+        });
+      });
     }
 
     runInInjectionContext(this.injector, () => {
-      const referenced = new Map<
-        string,
-        { route: string; keyField: FieldName; fkColumns: Set<FieldName>; columns: Set<FieldName> }
-      >();
-      this.config().listColumns.forEach((element) => {
-        if (!('additionalIds' in element)) {
-          return;
-        }
-        element.additionalIds.forEach((additionalCol) => {
-          if (additionalCol.resource === undefined) {
-            return;
-          }
-          const meta = this.resourceMeta(additionalCol.resource);
-          if (meta === undefined) {
-            return;
-          }
-          const keyField = additionalCol.id as FieldName;
-          const refKey = this.resourceRefKey(additionalCol.resource, keyField);
-          const entry = referenced.get(refKey) ?? {
-            route: meta.route,
-            keyField,
-            fkColumns: new Set<FieldName>(),
-            columns: new Set<FieldName>(),
-          };
-          entry.fkColumns.add(element.id as FieldName);
-          entry.columns.add(keyField);
-          if (additionalCol.field) {
-            entry.columns.add(additionalCol.field as FieldName);
-          }
-          referenced.set(refKey, entry);
-        });
-      });
-
-      referenced.forEach((entry, refKey) => {
-        if (this.resourceRefMap().has(refKey)) {
-          return;
-        }
-        const keys = computed(() => {
-          const data = this.store.page().rows;
-          const values = new Set<string>();
-          for (const row of data) {
-            for (const fkColumn of entry.fkColumns) {
-              const value = row[fkColumn];
-              if (value !== undefined && value !== null && value !== '') {
-                values.add(String(value));
-              }
-            }
-          }
-          return [...values];
-        });
-        const ref = this.store.resourceListByKeys(
-          signal(entry.route),
-          signal(entry.keyField),
-          keys,
-          signal([...entry.columns]),
-        );
-        this.resourceRefMap.update((map) => new Map(map).set(refKey, ref));
-      });
-
       effect(() => {
         // A row of a list across tenants links to its own page where its tenant's digest
         // lets the person read it: the digests of the tenants on a page are read before
@@ -1899,20 +1924,15 @@ export class ResourceListComponent implements OnInit {
       });
 
       effect(() => {
-        // What the server said of a list or of a related read it refused, or how the read
-        // failed, is for whoever looks into it: it is written to the console, once, with
-        // the resource and the read it belongs to. The screen says it in the page's words.
+        // What the server said of a list it refused, or how the read failed, is for
+        // whoever looks into it: it is written to the console, once, with the resource it
+        // belongs to. The screen says it in the page's words.
         // Each line's words are a constant, and the console puts the names where they keep
         // a place (%s): a name is never itself read as words to print.
         const resource = this.config().primaryResource;
         const pageError: unknown = this.store.pageError();
         if (pageError && this.firstSeen(pageError)) {
           console.error('%s: the list could not be loaded:', resource, pageError);
-        }
-        for (const [refKey, error] of this.unanswered()) {
-          if (this.firstSeen(error)) {
-            console.error('%s: the records read for %s could not be loaded:', resource, refKey, error);
-          }
         }
       });
 
@@ -1924,7 +1944,7 @@ export class ResourceListComponent implements OnInit {
       effect(() => {
         this.filter();
         this.relatedData();
-        const columns = this.listColumns();
+        const columns = this.requestColumns();
         this.store.filter.set(this.filters());
         this.store.disableCacheForFilterPii.set(this.config().disableCacheForFilterPii);
         this.store.searchPII.set(this.searchPII());
@@ -1952,20 +1972,4 @@ export class ResourceListComponent implements OnInit {
 /** Whether two lists of texts are the same texts in the same order. */
 function sameTexts(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((text, i) => text === b[i]);
-}
-
-/** The values a related-record column found, joined as the column asks; a hyphen where it does not say. */
-function concatenated(concatFn: ListConcatFn | undefined, values: string[]): string {
-  switch (concatFn) {
-    case 'space-concat':
-      return spaceConcatWithoutResource(values);
-    case 'space-hyphen-concat':
-      return spaceHyphenConcatWithoutResource(values);
-    case 'hyphen-space-concat':
-      return hyphenSpaceConcatWithoutResource(values);
-    case 'no-space-concat':
-      return noSpaceConcatWithoutResource(values);
-    default:
-      return hyphenConcatWithoutResource(values);
-  }
 }

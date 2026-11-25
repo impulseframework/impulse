@@ -186,3 +186,84 @@ describe('ResourceArrayViewComponent, sorting its children by a field the digest
     expect(await firstSort(false)).toBe('name:asc');
   });
 });
+
+describe('ResourceArrayViewComponent, sorting its children by the name beside an id', () => {
+  // The config sorts the children by their wing's name, the name field beside the wing's
+  // id. The digest lists the id; whether it lists the wings' name decides whether the
+  // children are asked in that order or, the squadrons declaring none, by the key.
+  const squadrons: ResourceMeta = {
+    route: 'squadrons',
+    fields: [
+      { fieldName: 'id', required: true, primaryKey: { ordinalPosition: 1 }, displayType: 'string', isIndex: true },
+      {
+        fieldName: 'wingId',
+        required: true,
+        displayType: 'enumerated',
+        isIndex: true,
+        enumeratedResource: 'Wings' as Resource,
+      },
+    ],
+    nameFields: [{ fieldName: 'wingName', of: 'wingId' }],
+  };
+  const wings: ResourceMeta = {
+    route: 'wings',
+    nameField: 'name',
+    fields: [
+      { fieldName: 'id', required: true, primaryKey: { ordinalPosition: 1 }, displayType: 'string', isIndex: true },
+      { fieldName: 'name', required: true, displayType: 'string', isIndex: false },
+      { fieldName: 'callSign', required: true, displayType: 'string', isIndex: false },
+    ],
+  };
+  /** The sort of the view's first request for the children, the digest listing the wings' given field. */
+  const firstSort = async (wingField: string): Promise<string | null> => {
+    const digest: PermissionDigest = {
+      Squadrons: { List: 'granted' },
+      'Squadrons.wingId': { List: 'granted' },
+      Wings: { List: 'granted' },
+      [`Wings.${wingField}`]: { List: 'granted' },
+    };
+    const transport = scriptedTransport((request: TransportRequest): TransportResponse =>
+      request.url.startsWith('/api/permission-digest') ? { status: 200, body: digest } : { status: 200, body: [] },
+    );
+    await TestBed.configureTestingModule({
+      imports: [ResourceArrayViewComponent],
+      providers: [
+        provideResourceTesting({ transport }),
+        {
+          provide: RESOURCE_META,
+          useValue: (resource: Resource): ResourceMeta => (resource === 'Wings' ? wings : squadrons),
+        },
+      ],
+    }).compileComponents();
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest();
+    const fixture = TestBed.createComponent(ResourceArrayViewComponent);
+    fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+    fixture.componentRef.setInput(
+      'resourceConfig',
+      arrayConfig({
+        primaryResource: 'Squadrons' as Resource,
+        iteratedConfig: viewConfig({ primaryResource: 'Squadrons' as Resource, elements: [] }),
+        listFilter: (row: { id: string }): string => `id:ne:${row.id}`,
+        sorts: [{ field: 'wingName' as FieldName, direction: 'asc' }],
+      }),
+    );
+    fixture.componentRef.setInput('parentData', { id: 'sq-1' });
+    fixture.detectChanges();
+    const children = (): TransportRequest[] =>
+      transport.requests.filter((request) => request.url.split('?')[0] === '/api/squadrons');
+    for (let i = 0; i < 50 && children().length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+    }
+    const first = children()[0];
+    return first ? new URL(first.url, 'http://view.test').searchParams.get('sort') : null;
+  };
+
+  it("where the digest lists the id and not the wings' name, no sort by the name: the key ascending", async () => {
+    expect(await firstSort('callSign')).toBe('id:asc');
+  });
+
+  it("where the digest lists the wings' name too, the sort by the name", async () => {
+    expect(await firstSort('name')).toBe('wingName:asc');
+  });
+});

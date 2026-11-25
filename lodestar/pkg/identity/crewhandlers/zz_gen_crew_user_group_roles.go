@@ -20,17 +20,18 @@ import (
 
 func (h *Handlers) CrewUserGroupRoles() http.HandlerFunc {
 	type crewUserGroupRole struct {
-		UserID    impulse.UUID `json:"userId"    index:"true" perm:"-"`
-		Username  string       `json:"username"  index:"true"`
-		GroupID   impulse.UUID `json:"groupId"   index:"true" perm:"-"`
-		GroupName string       `json:"groupName" index:"true"`
-		Kind      string       `json:"kind"      index:"true" perm:"-"`
-		Axis      string       `json:"axis"      perm:"-"`
-		DomainID  string       `json:"domainId"  index:"true" perm:"-"`
-		Role      string       `json:"role"      index:"true" perm:"-"`
-		CreatedAt time.Time    `json:"createdAt"`
-		StartsAt  *time.Time   `json:"startsAt"`
-		EndsAt    *time.Time   `json:"endsAt"`
+		UserID     impulse.UUID `json:"userId"     index:"true"      perm:"-"`
+		Username   string       `json:"username"   index:"true"`
+		GroupID    impulse.UUID `json:"groupId"    index:"true"      perm:"-"`
+		GroupName  string       `json:"groupName"  index:"true"`
+		Kind       string       `json:"kind"       index:"true"      perm:"-"`
+		Axis       string       `json:"axis"       perm:"-"`
+		DomainID   string       `json:"domainId"   index:"true"      perm:"-"`
+		Role       string       `json:"role"       index:"true"      perm:"-"`
+		CreatedAt  time.Time    `json:"createdAt"`
+		StartsAt   *time.Time   `json:"startsAt"`
+		EndsAt     *time.Time   `json:"endsAt"`
+		DomainName *string      `json:"domainName" nameof:"DomainID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -69,7 +70,7 @@ func (h *Handlers) CrewUserGroupRoles() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*crewUserGroupRole)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -119,6 +120,11 @@ func (h *Handlers) CrewUserGroupRoles() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -140,17 +146,18 @@ func (h *Handlers) CrewUserGroupRoles() http.HandlerFunc {
 
 func (h *Handlers) CrewUserGroupRole() http.HandlerFunc {
 	type response struct {
-		UserID    impulse.UUID `json:"userId"    index:"true" perm:"-"`
-		Username  string       `json:"username"`
-		GroupID   impulse.UUID `json:"groupId"   index:"true" perm:"-"`
-		GroupName string       `json:"groupName"`
-		Kind      string       `json:"kind"      index:"true" perm:"-"`
-		Axis      string       `json:"axis"      index:"true" perm:"-"`
-		DomainID  string       `json:"domainId"  index:"true" perm:"-"`
-		Role      string       `json:"role"      index:"true" perm:"-"`
-		CreatedAt time.Time    `json:"createdAt"`
-		StartsAt  *time.Time   `json:"startsAt"`
-		EndsAt    *time.Time   `json:"endsAt"`
+		UserID     impulse.UUID `json:"userId"     index:"true"      perm:"-"`
+		Username   string       `json:"username"`
+		GroupID    impulse.UUID `json:"groupId"    index:"true"      perm:"-"`
+		GroupName  string       `json:"groupName"`
+		Kind       string       `json:"kind"       index:"true"      perm:"-"`
+		Axis       string       `json:"axis"       index:"true"      perm:"-"`
+		DomainID   string       `json:"domainId"   index:"true"      perm:"-"`
+		Role       string       `json:"role"       index:"true"      perm:"-"`
+		CreatedAt  time.Time    `json:"createdAt"`
+		StartsAt   *time.Time   `json:"startsAt"`
+		EndsAt     *time.Time   `json:"endsAt"`
+		DomainName *string      `json:"domainName" nameof:"DomainID"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewUserGroupRole, response](h, accesstypes.Read)
@@ -182,7 +189,7 @@ func (h *Handlers) CrewUserGroupRole() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -230,6 +237,11 @@ func (h *Handlers) CrewUserGroupRole() http.HandlerFunc {
 				if !row.Masked("endsAt") {
 					rmap["endsAt"] = rec.EndsAt
 				}
+			}
+		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
 			}
 		}
 		if capabilities := row.Capabilities(); capabilities != nil {

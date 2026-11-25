@@ -692,7 +692,7 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 	a.acceptInvitation = hook
 }
 
-// Authenticated answers {"authenticated", "username", "name", "look",
+// Authenticated answers {"authenticated", "sessionId", "username", "name", "look",
 // "passwordChangeRequired", "email", "emailVerified", "emailHint", "invitedTenant", "impersonation"}. A session whose user is
 // missing or disabled is reported as not authenticated. passwordChangeRequired is set
 // while an administrator's required password change stands (see "Users and the forced
@@ -714,14 +714,20 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // in, by this sign-in or by hand since, the tenant the invitation names or the one its
 // acceptance made: present on the first session read after the acceptance and on no
 // later one, and never on an impersonated session. It is where the application opens
-// for the person, whatever else they hold.
+// for the person, whatever else they hold. sessionId is the id of the session the
+// request arrived on: what a list of sessions marks as the reader's own. It is no
+// secret: the cookie that carries a session is sealed with the server's key, and the
+// id alone opens nothing.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type directory struct {
 		Method     sessioninfo.AuthMethod `json:"method"`
 		Connection string                 `json:"connection"`
 	}
 	type response struct {
-		Authenticated          bool                               `json:"authenticated"`
+		Authenticated bool `json:"authenticated"`
+		// SessionID is the id of the session the request arrived on, absent from the
+		// answer of a request that is not signed in.
+		SessionID              string                             `json:"sessionId,omitempty"`
 		Username               string                             `json:"username"`
 		Name                   *string                            `json:"name,omitempty"`
 		Look                   *sessioninfo.Look                  `json:"look,omitempty"`
@@ -770,6 +776,7 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
+			SessionID:              sessioninfo.IDFromCtx(ctx).String(),
 			Username:               sessioninfo.FromCtx(ctx).Username,
 			Name:                   user.Name,
 			Look:                   lookOf(user),
@@ -847,18 +854,20 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 // DirectorySeatedHook is the application's half of a tenant directory's admission: what
 // it alone can read and write of a person's roles, in two functions.
 //
-// Seat seats the user at their first sign-in through a tenant's directory, named by id
-// (the key an application's memberships are held under) and by username (what a log
-// line reads), with seats, the default seat of the tenant whose directory the identity
-// came through, inside the transaction that links the identity to the user, which it is
-// handed: the link is made and the person seated together, or neither. The first
-// sign-in through a directory is the one that makes the link, whether it makes the
-// account too or the account stood before, and whether the link is made at once or once
-// the user's password has confirmed it. The library calls it once for a link: a later
-// sign-in finds the link and gives nothing, so a seat an administrator removed is not
-// given back, and a link that was deleted and is made again is a first sign-in again.
-// It gives a seat only where the person holds no role in the tenant: a person who holds
-// one keeps what they hold. A seat the invitation this sign-in consumes names too (the
+// Seat seats the user at their sign-in through a tenant's directory, named by id (the
+// key an application's memberships are held under) and by username (what a log line
+// reads), with seats, the default seat of the tenant whose directory the identity came
+// through, inside the sign-in's transaction, which it is handed: where that transaction
+// links the identity to the user, the link is made and the person seated together, or
+// neither, whether it makes the account too or the account stood before, and whether
+// the link is made at once or once the user's password has confirmed it. The library
+// calls it at every sign-in through the directory by an account that is not disabled,
+// whether the link is made then or stood before. It gives a seat only where the person
+// holds nothing in the tenant: a person who holds anything there keeps what they hold.
+// So a person an administrator removed from the tenant is given the default seat again
+// the next time they sign in through the directory; disabling their account keeps one
+// person out while the tenant is open, and making the tenant invite only keeps everyone
+// out who is not invited. A seat the invitation this sign-in consumes names too (the
 // same role in the same tenant) is not among seats: InvitationAcceptedHook gives it, in
 // the same transaction, and the two hooks never write one membership twice. It is not
 // called for no seats. It is held to what InvitationAcceptedHook is: tx alone for its
@@ -884,17 +893,19 @@ type DirectorySeatedHook[Tx any] struct {
 	OnlyIn func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
 }
 
-// SetDirectoryAdmission sets what a tenanted application gives a person's first
-// sign-in through a tenant's directory: reader, which reads the declaration of the
-// directory the identity came through (signin.DirectoryReader: the tenant whose
-// directory it is, since a directory belongs to one tenant), and hook, which seats the
-// person with the default seat the declaration names. With them the standard rule asks
+// SetDirectoryAdmission sets what a tenanted application gives a person's sign-in
+// through a tenant's directory: reader, which reads the declaration of the directory
+// the identity came through (signin.DirectoryReader: the tenant whose directory it is,
+// since a directory belongs to one tenant), and hook, which seats the person with the
+// default seat the declaration names, at every sign-in through the directory, where the
+// person holds nothing in the tenant. With them the standard rule asks
 // the tenant first: its declaration decides before the sign-in method's own choice,
 // open or invite only. A default seat admits a stranger with it, and a declaration naming none
 // refuses a stranger by invitation only (invitation_only, unless the sign-in carries
 // an invitation), with no account created. A person who has an account is no stranger.
 // One with a password confirms the link with it, and the default seat is given with the
-// link when they hold no role in the tenant. One with no password who has never signed
+// link when they hold nothing in the tenant, as at every later sign-in through the
+// directory. One with no password who has never signed
 // in (an account the application created ahead) is tied to the sign-in by nothing but
 // the name the directory asserts, so the identity is linked only when the directory is
 // that of the one tenant the person belongs to, holding a role there and nothing

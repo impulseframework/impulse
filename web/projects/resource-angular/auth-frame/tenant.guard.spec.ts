@@ -114,7 +114,7 @@ describe('tenantGuard', () => {
     transport = specTransport({
       domains: [
         ...tenants.map((domain) => ({ domain, name: domain })),
-        ...closed.map((domain) => ({ domain, name: domain, closed: `${domain} admits only its own directory.` })),
+        ...closed.map((domain) => ({ domain, name: domain, unavailable: `${domain} admits only its own directory.` })),
       ],
       digests: Object.fromEntries(tenants.map((domain) => [domain, { Users: { List: 'granted' } }])),
     });

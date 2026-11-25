@@ -1,28 +1,23 @@
 import { Hangars, Resources, ShipClasses, Ships } from '@app/service/zz_gen_constants';
 import { DomainRoutePath } from '@app/service/zz_gen_resources';
-import {
-  enumeratedConfig,
-  field,
-  listViewConfig,
-  multiColumnConfig,
-  rootConfig,
-  section,
-} from '@impulseframework/resource-angular/types';
+import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@impulseframework/resource-angular/types';
 
 // Ships is the fleet page in the open sector: the library's two picker read modes
-// side by side on one form, and the two ways a list column shows a referenced resource,
-// every one decided by the maximum page size the generated descriptor carries and never
-// by a literal here. The hangar picker lists Hangars, which declares a maximum (@page
-// max 200): the picker pages the hangars one server page at a time, Previous and Next
-// inside the panel following the server's cursors, in the hangars' own @order, and reads
-// the chosen hangar by key, so a ship berthed in a hangar on another page still shows
-// its name. The class picker lists ShipClasses, the hull catalog, which declares no
-// maximum: the picker reads the catalog whole with limit=all and resolves the chosen
-// hull from that list, so the catalog needs no read route for it. The list's Hangar
-// column resolves each page's hangar names with one filter=id:in:(...) request over the
-// page's hangar keys, served by the key's index, where its Class column reads the
-// catalog whole once and maps it for every page. Nothing on this page reads a bounded
-// resource whole.
+// side by side on one form, each decided by the maximum page size the generated
+// descriptor carries and never by a literal here. The hangar picker lists Hangars, which
+// declares a maximum (@page max 200): the picker pages the hangars one server page at a
+// time, Previous and Next inside the panel following the server's cursors, in the
+// hangars' own @order, and reads the chosen hangar by key, so a ship berthed in a hangar
+// on another page still shows its name. The class picker lists ShipClasses, the hull
+// catalog, which declares no maximum: the picker reads the catalog whole with limit=all
+// and resolves the chosen hull from that list, so the catalog needs no read route for it.
+// Nothing on this page reads a bounded resource whole.
+//
+// The list's Hangar and Class columns are on the ship's two ids, and show the hangar's
+// name and the hull's designation: the hangars and the hull catalog say what their rows
+// are known by (@name), so the list asks the server for the name beside each id, which
+// it reads with the page of ships, and a header click or a column filter sorts or
+// narrows the ships by the name. Nothing on the page reads a second list.
 //
 // CargoBays is an ARRAY<INT64> column typed []int64, number[] in the metadata: the list's
 // Cargo bays cell writes the elements joined (60, 60, 30), the row page shows them as
@@ -42,7 +37,7 @@ import {
 // pickers and the edit form on the same page stay plain: live is a page-level matter,
 // not a request's.
 //
-// Demonstrates: picker.paged, picker.whole, column.referenced-in, field.array, live.pages.
+// Demonstrates: picker.paged, picker.whole, column.name-field, field.array, live.pages.
 export const shipsConfig = rootConfig({
   page: { label: 'Ships', icon: 'rocket_launch' },
   routeData: { route: `${DomainRoutePath}/ships` },
@@ -53,20 +48,8 @@ export const shipsConfig = rootConfig({
     listColumns: [
       { id: Ships.fieldName.name },
       { id: Ships.fieldName.registry },
-      multiColumnConfig({
-        id: Ships.fieldName.hangarId,
-        header: 'Hangar',
-        additionalIds: [{ id: Hangars.fieldName.id, resource: Resources.Hangars, field: Hangars.fieldName.name }],
-        concatFn: 'hyphen-concat',
-      }),
-      multiColumnConfig({
-        id: Ships.fieldName.classId,
-        header: 'Class',
-        additionalIds: [
-          { id: ShipClasses.fieldName.id, resource: Resources.ShipClasses, field: ShipClasses.fieldName.designation },
-        ],
-        concatFn: 'hyphen-concat',
-      }),
+      { id: Ships.fieldName.hangarId, header: 'Hangar' },
+      { id: Ships.fieldName.classId, header: 'Class' },
       { id: Ships.fieldName.lastRefitAt, header: 'Last refit' },
       { id: Ships.fieldName.cargoBays, header: 'Cargo bays' },
     ],

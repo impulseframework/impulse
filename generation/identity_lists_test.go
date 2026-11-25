@@ -388,13 +388,13 @@ func Test_identityInstance_tenantMethodSources(t *testing.T) {
 			inst:   identityInstance{tenant: ship, password: true},
 			tables: every,
 			want: slices.Concat(account, []string{"require_crew_ship_password_change", "send_crew_ship_user_password_reset_link"}, named,
-				[]string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation"}),
+				[]string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation", "resend_crew_ship_invitation"}),
 		},
 		{
 			name:   "a directory that admits its own: no password is changed or reset",
 			inst:   identityInstance{tenant: ship},
 			tables: every,
-			want:   slices.Concat(account, named, []string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation"}),
+			want:   slices.Concat(account, named, []string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation", "resend_crew_ship_invitation"}),
 		},
 		{
 			name:   "a directory that writes the roles: a tenant gives, takes and invites nothing",
@@ -407,7 +407,7 @@ func Test_identityInstance_tenantMethodSources(t *testing.T) {
 			inst:   identityInstance{tenant: ship, password: true, usernameIsEmail: true},
 			tables: every,
 			want: slices.Concat(account, []string{"require_crew_ship_password_change", "send_crew_ship_user_password_reset_link"},
-				[]string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation"}),
+				[]string{"assign_crew_ship_role", "remove_crew_ship_user", "remove_crew_ship_role", "invite_crew_ship_user", "withdraw_crew_ship_invitation", "resend_crew_ship_invitation"}),
 		},
 		{
 			name:   "no mail links: nothing is invited or withdrawn",
@@ -473,7 +473,7 @@ func Test_identityTenantUsersTemplate_accountColumns(t *testing.T) {
 	if len(account) == 0 {
 		t.Fatal("no field found in identityUsersTemplate: the pattern no longer reads the template")
 	}
-	listed := columns(identityTenantUsersTemplate, "DomainID", "Roles", "LockedUntil", "HeldElsewhere", "HeldGlobally", "HeldHere", "HeldInEveryTenant", "ManagedHere", "ManagedByAnotherDirectory", "OutsideDirectory", "CannotEnter", "AdministratorWithPassword")
+	listed := columns(identityTenantUsersTemplate, "DomainID", "DisplayName", "Roles", "LockedUntil", "HeldElsewhere", "HeldGlobally", "HeldHere", "HeldInEveryTenant", "ManagedHere", "ManagedByAnotherDirectory", "OutsideDirectory", "CannotEnter", "AdministratorWithPassword")
 	if diff := cmp.Diff(account, listed); diff != "" {
 		t.Errorf("the people's list against the users declaration (-declaration +list):\n%s", diff)
 	}

@@ -108,6 +108,8 @@ type fakeStore struct {
 	invitations map[accesstypes.Domain][]impulse.UUID
 	// invited are the unconsumed invitations that make a tenant.
 	invited []InvitedTenantRow
+	// sentInvitations are the invitations as their rows keep them, by id (SentInvitation).
+	sentInvitations map[impulse.UUID]*SentInvitation
 	// passwords are the users that exist for the password rule, true where one holds a
 	// password; identities the user each identity links to; tokens the tokens by id,
 	// and families the unrevoked tokens of each family.
@@ -120,8 +122,12 @@ type fakeStore struct {
 	// account (ManagingTenants), and managingAsked how many times that was read.
 	managing      map[impulse.UUID][]accesstypes.Domain
 	managingAsked int
-	tokens        map[impulse.UUID]*Token
-	families      map[impulse.UUID][]impulse.UUID
+	// costs are what DeleteCosts answers, and withUser what RowsWithUser answers for
+	// each user (none for the others).
+	costs    TenantDeleteCosts
+	withUser map[impulse.UUID]int
+	tokens   map[impulse.UUID]*Token
+	families map[impulse.UUID][]impulse.UUID
 	// methodRows are the rows of the sign-in methods table, by the method's name, and
 	// openedFor the audience the last row written was opened for, nil for none.
 	methodRows map[string]SignInMethodRow
@@ -239,6 +245,23 @@ func (f *fakeStore) ManagingTenants(_ context.Context, _ resource.ReadWriteTrans
 	return f.managing[userID], nil
 }
 
+// DirectoryUsers answers the users whose tenants that manage them (managing) hold the
+// tenant, in key order.
+func (f *fakeStore) DirectoryUsers(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
+	if err := f.fail("DirectoryUsers"); err != nil {
+		return nil, err
+	}
+	var ids []impulse.UUID
+	for id, tenants := range f.managing {
+		if slices.Contains(tenants, domain) {
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
+
+	return ids, nil
+}
+
 func (f *fakeStore) DeleteIdentity(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
 	if err := f.fail("DeleteIdentity"); err != nil {
 		return err
@@ -334,6 +357,18 @@ func (f *fakeStore) DeleteUser(_ context.Context, _ resource.ReadWriteTransactio
 	f.writes = append(f.writes, "delete user "+id.String())
 
 	return nil
+}
+
+func (f *fakeStore) RowsWithUser(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
+	if err := f.fail("RowsWithUser"); err != nil {
+		return 0, err
+	}
+
+	return f.withUser[userID], nil
+}
+
+func (f *fakeStore) DeleteCosts() TenantDeleteCosts {
+	return f.costs
 }
 
 func (f *fakeStore) SessionExpired(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (expired, found bool, err error) {
@@ -443,6 +478,15 @@ func (f *fakeStore) ConsumeMailLink(_ context.Context, _ resource.ReadWriteTrans
 	f.writes = append(f.writes, "consume mail link "+id.String())
 
 	return nil
+}
+
+func (f *fakeStore) SentInvitation(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (invitation *SentInvitation, found bool, err error) {
+	if err := f.fail("SentInvitation"); err != nil {
+		return nil, false, err
+	}
+	invitation, found = f.sentInvitations[id]
+
+	return invitation, found, nil
 }
 
 func (f *fakeStore) SignInMethodRows(context.Context, resource.ReadOnlyTransaction) ([]SignInMethodRow, error) {
@@ -618,8 +662,24 @@ func (f *fakeStore) TenantMemberships(_ context.Context, _ resource.ReadWriteTra
 	return keys, nil
 }
 
-// DeleteTenantRoles logs one write for the tenant's custom roles and their grants, and
-// answers how many rows of the roles table the tenant holds.
+// TenantRoles answers how many rows of the roles table the tenant holds.
+func (f *fakeStore) TenantRoles(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	if err := f.fail("TenantRoles"); err != nil {
+		return 0, err
+	}
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	roles := 0
+	for key, held := range f.roles {
+		if held && key.Kind == at.Kind && key.Axis == at.Axis && key.Domain == at.Domain {
+			roles++
+		}
+	}
+
+	return roles, nil
+}
+
+// DeleteTenantRoles logs one write for the tenant's custom roles, and answers how many
+// rows of the roles table the tenant holds.
 func (f *fakeStore) DeleteTenantRoles(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
 	if err := f.fail("DeleteTenantRoles"); err != nil {
 		return 0, err
@@ -751,12 +811,19 @@ type fakeSessions struct {
 	// method.
 	unoffered map[sessioninfo.AuthMethod]bool
 	untaken   map[string]bool
+	// through are the registrations an identity of a connection signs in through, where
+	// the fake is given them: two registrations of one method may take one connection.
+	through map[string][]string
 	// named are the names the registrations give a connection, and labels the labels of
 	// the buttons a person signs in to a method's directories with.
 	named  map[string]string
 	labels map[sessioninfo.AuthMethod]string
 	// tenantNames are what the application calls its tenants, by key.
 	tenantNames map[accesstypes.Domain]string
+	// sessionTimeout is how long the Auth lets a session sit idle.
+	sessionTimeout time.Duration
+	// signInFailureLimit is how many failed sign-ins lock a name.
+	signInFailureLimit int
 }
 
 func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
@@ -765,6 +832,14 @@ func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection st
 
 func (s fakeSessions) TenantName(tenant accesstypes.Domain) string {
 	return s.tenantNames[tenant]
+}
+
+func (s fakeSessions) SessionTimeout() time.Duration {
+	return s.sessionTimeout
+}
+
+func (s fakeSessions) SignInFailureLimit() int {
+	return s.signInFailureLimit
 }
 
 // asked records a message the rules asked the session library to mail, and answers the
@@ -809,10 +884,6 @@ func (s fakeSessions) NoticeFactorReset(_ context.Context, userID impulse.UUID) 
 	return s.asked("factor reset notice to " + userID.String())
 }
 
-func (s fakeSessions) NoticeRemovedFromTenant(_ context.Context, to, tenant string, accountDeleted bool) error {
-	return s.asked("removal notice to " + to + " from " + tenant + " deleted=" + boolText(accountDeleted))
-}
-
 func (s fakeSessions) SignInMethods() []session.RegisteredMethod {
 	return s.methods
 }
@@ -820,6 +891,9 @@ func (s fakeSessions) SignInMethods() []session.RegisteredMethod {
 func (s fakeSessions) SignsInThrough(method sessioninfo.AuthMethod, connection string) []string {
 	if s.unoffered[method] || s.untaken[connection] {
 		return nil
+	}
+	if names, ok := s.through[connection]; ok {
+		return names
 	}
 
 	return []string{string(method)}

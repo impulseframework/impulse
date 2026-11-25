@@ -1,7 +1,7 @@
 import { ApplicationRef, Injector, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialogRef } from '@angular/material/dialog';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   ApiDescriptor,
   ClientBase,
@@ -21,6 +21,7 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
   FieldName,
+  ListLink,
   listViewConfig,
   ListViewConfigOptions,
   METHOD_META,
@@ -52,6 +53,7 @@ const field = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
 const people = 'SectorPeople' as Resource;
 const ships = 'Ships' as Resource;
 const berths = 'Berths' as Resource;
+const passes = 'HangarPasses' as Resource;
 
 const metas: Record<string, ResourceMeta> = {
   [people]: {
@@ -69,6 +71,12 @@ const metas: Record<string, ResourceMeta> = {
   [berths]: {
     route: 'berths',
     fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('name')],
+  } as ResourceMeta,
+  // A resource whose metadata carries the word its rows go by.
+  [passes]: {
+    route: 'hangar-passes',
+    fields: [field('id', { primaryKey: { ordinalPosition: 0 } }), field('username')],
+    rowWords: { one: 'hangar pass', many: 'hangar passes' },
   } as ResourceMeta,
 };
 
@@ -109,6 +117,16 @@ const descriptor: ApiDescriptor = {
       resource: berths,
       property: 'berths',
       route: 'berths',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+    },
+    [passes]: {
+      resource: passes,
+      property: 'hangarPasses',
+      route: 'hangar-passes',
       scope: 'domain',
       consolidated: false,
       keys: ['id'],
@@ -197,8 +215,11 @@ function declared(of: Element, names: string[], without: string[] = []): string 
 describe('ResourceListComponent row methods', () => {
   /** The rows the list is served; a test of an empty list says so before it creates the list. */
   let served: typeof rows;
+  /** What the server answers for the people in place of their rows, where a test says. */
+  let refusal: TransportResponse | undefined;
   beforeEach(() => {
     served = rows;
+    refusal = undefined;
   });
   let fixture: ComponentFixture<ResourceListComponent>;
   let transport: ScriptedTransport;
@@ -213,6 +234,7 @@ describe('ResourceListComponent row methods', () => {
     options: Omit<ListViewConfigOptions, 'elements' | 'listColumns'>,
     granted: PermissionDigest = {},
     parent?: RecordData,
+    isRootList?: boolean,
   ): Promise<void> => {
     const digest: PermissionDigest = { ...listsPeople, ...granted };
     const config = listViewConfig({ elements: [], listColumns: [{ id: 'username' as FieldName }], ...options });
@@ -222,7 +244,10 @@ describe('ResourceListComponent row methods', () => {
         return { status: 200, body: digest };
       }
       if (url.pathname === '/api/sectors/anvil/sector-people') {
-        return { status: 200, body: served, headers: { 'total-count': String(served.length) } };
+        return refusal ?? { status: 200, body: served, headers: { 'total-count': String(served.length) } };
+      }
+      if (url.pathname === '/api/sectors/anvil/hangar-passes') {
+        return { status: 200, body: [], headers: { 'total-count': '0' } };
       }
       if (url.pathname === '/api/ships') {
         return { status: 200, body: [{ id: 's-1', name: 'Kestrel' }], headers: { 'total-count': '1' } };
@@ -257,6 +282,9 @@ describe('ResourceListComponent row methods', () => {
     if (parent) {
       // The row a child list sits under.
       fixture.componentRef.setInput('relatedData', parent);
+    }
+    if (isRootList !== undefined) {
+      fixture.componentRef.setInput('isRootList', isRootList);
     }
     // The dialog is the method dialog's own spec; here it records what it is opened with
     // and closes with what the test says.
@@ -830,6 +858,221 @@ describe('ResourceListComponent row methods', () => {
     expect(fixture.componentInstance.emptyMessage()).toBe('No records found');
   });
 
+  // A list under a record: drawn on a row's page from the row, by its parentRelation, and
+  // handed false for isRootList, as a row's page hands each list under it.
+  const underPerson: Pick<ListViewConfigOptions, 'parentRelation'> = {
+    parentRelation: { parentKey: 'id' as FieldName, childKey: 'personId' as FieldName },
+  };
+  const person: RecordData = { id: 'u-9', username: 'cy' };
+  const addPerson: MethodPresentation = { method: 'CreatePerson' as Method, label: 'Add a person' };
+  const listsPasses: PermissionDigest = { [passes]: { List: 'granted' }, [`${passes}.username`]: { List: 'granted' } };
+  const emptyLine = (): HTMLElement | null => element().querySelector('p.impulse-resource-list-empty');
+
+  it("says of a list under a record that holds nothing the page's own sentence in one line, in place of its table and its pager, under its title and its buttons", async () => {
+    served = [];
+    await create(
+      {
+        primaryResource: people,
+        ...underPerson,
+        title: 'People',
+        emptyMessage: 'Nobody serves here.',
+        listMethods: [addPerson],
+      },
+      { CreatePerson: { Execute: 'granted' } },
+      person,
+      false,
+    );
+
+    expect(fixture.componentInstance.emptyLine()).toBe('Nobody serves here.');
+    const line = emptyLine();
+    expect(line?.textContent?.trim()).toBe('Nobody serves here.');
+    expect(line?.classList.contains('impulse-resource-list-indent')).toBe(true);
+    // No table: no heading row, no "No records found", no pager.
+    expect(element().querySelector('impulse-grid')).toBeNull();
+    expect(element().querySelector('.impulse-resource-list-resource-container')).toBeNull();
+    expect(element().textContent).not.toContain('No records found');
+    // What stands above the list is drawn as it is.
+    expect(element().querySelector('h1.impulse-resource-list-title')?.textContent).toBe('People');
+    expect(element().querySelectorAll('button.impulse-resource-list-method')).toHaveLength(1);
+    // Body text in the secondary words' color, with no box around it.
+    const style = declared(line as Element, ['.impulse-resource-list-empty']);
+    expect(style).toContain('margin: 8px 0 0');
+    expect(style).toContain('font-size: 14px');
+    expect(style).toContain('line-height: 20px');
+    expect(style).toContain('color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6))');
+    expect(style).not.toContain('border');
+    expect(style).not.toContain('background');
+  });
+
+  for (const tt of [
+    { name: 'from the word its rows go by', resource: passes, want: 'No hangar passes.' },
+    { name: 'as the plain text where its metadata carries no word', resource: people, want: 'No records found' },
+  ]) {
+    it(`says of a list under a record that holds nothing and gives no sentence of its own that it is empty, ${tt.name}`, async () => {
+      served = [];
+      await create({ primaryResource: tt.resource, ...underPerson }, listsPasses, person, false);
+
+      expect(emptyLine()?.textContent?.trim()).toBe(tt.want);
+      expect(element().querySelector('impulse-grid')).toBeNull();
+    });
+  }
+
+  for (const tt of [
+    {
+      name: 'a column filter',
+      narrow: (list: ResourceListComponent) =>
+        list.store.columnFilters.set([{ field: 'username', operator: 'eq', value: 'zed' }]),
+    },
+    { name: 'the search box', narrow: (list: ResourceListComponent) => list.store.searchText.set('zed') },
+  ]) {
+    it(`draws the table of a list under a record that ${tt.name} narrows to no row, which says the plain text`, async () => {
+      served = [];
+      await create({ primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.' }, {}, person, false);
+      tt.narrow(fixture.componentInstance);
+      await settle();
+
+      expect(fixture.componentInstance.emptyLine()).toBe('');
+      expect(emptyLine()).toBeNull();
+      expect(element().querySelector('impulse-grid')).not.toBeNull();
+      expect(fixture.componentInstance.emptyMessage()).toBe('No records found');
+    });
+  }
+
+  it('draws the table of a list under a record whose request the server refused, with the refusal in its words', async () => {
+    refusal = { status: 403, body: { message: 'the caller may not list the people' } };
+    await create({ primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.' }, {}, person, false);
+
+    expect(emptyLine()).toBeNull();
+    expect(element().querySelector('impulse-grid')).not.toBeNull();
+    expect(element().textContent).toContain('You do not have permission to see this list.');
+  });
+
+  it('draws the table of a list under a record on a page after the first that holds no row, with its pager, which says the plain text', async () => {
+    // The people are answered in two pages, and the second holds no row by the time it is asked for.
+    const second = '/api/sectors/anvil/sector-people?cursor=two';
+    refusal = { status: 200, body: rows, headers: { 'total-count': '3', link: `<${second}>; rel="next"` } };
+    await create({ primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.' }, {}, person, false);
+    refusal = { status: 200, body: [], headers: { link: '</api/sectors/anvil/sector-people>; rel="prev"' } };
+    fixture.componentInstance.store.turnPage('next');
+    await settle();
+
+    expect(fixture.componentInstance.store.page().offset).toBe(2);
+    expect(fixture.componentInstance.emptyLine()).toBe('');
+    expect(emptyLine()).toBeNull();
+    expect(element().querySelector('impulse-grid')).not.toBeNull();
+    expect(fixture.componentInstance.emptyMessage()).toBe('No records found');
+  });
+
+  for (const tt of [
+    { name: 'the list a page is built on', isRootList: undefined },
+    { name: "a list above or under the page's own, which names no parent row", isRootList: false },
+  ]) {
+    it(`draws the table of ${tt.name} that holds nothing, which says the page's own sentence`, async () => {
+      served = [];
+      await create({ primaryResource: people, emptyMessage: 'Nobody serves here.' }, {}, undefined, tt.isRootList);
+
+      expect(emptyLine()).toBeNull();
+      expect(element().querySelector('impulse-grid')).not.toBeNull();
+      expect(element().textContent).toContain('Nobody serves here.');
+    });
+  }
+
+  it('keeps the one line of a list under a record while it is read again after a method ran above it, and draws the table when a row arrives', async () => {
+    served = [];
+    await create(
+      { primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.', listMethods: [addPerson] },
+      { CreatePerson: { Execute: 'granted' } },
+      person,
+      false,
+    );
+    expect(emptyLine()).not.toBeNull();
+
+    served = rows;
+    (element().querySelector('button.impulse-resource-list-method') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    // Read again: the page it holds is the one without rows until the answer lands.
+    expect(fixture.componentInstance.store.pageStatus()).toBe('loading');
+    expect(emptyLine()).not.toBeNull();
+    await settle();
+
+    expect(emptyLine()).toBeNull();
+    expect(element().querySelector('impulse-grid')).not.toBeNull();
+    expect(element().querySelectorAll('tr.impulse-row')).toHaveLength(2);
+  });
+
+  // A link under a list to the page that lists the rest of what it shows: here the
+  // sessions of the person the list is under, on a page whose route names the tenant.
+  const allSessionsOf = (parent: RecordData | undefined): ListLink | undefined =>
+    typeof parent?.['username'] === 'string'
+      ? {
+          label: `All of ${parent['username']}'s sessions`,
+          route: 'sectors/:sectorID/sessions',
+          queryParams: { filter: [`username:eq:${parent['username']}`] },
+        }
+      : undefined;
+  const moreLinks = (): HTMLAnchorElement[] => Array.from(element().querySelectorAll('a.impulse-resource-list-more'));
+
+  it('draws under its rows the link the page names, asked with the row the list is under, to the route resolved as a row link is, with its query parameters', async () => {
+    const handed: (RecordData | undefined)[] = [];
+    const more = (parent: RecordData | undefined): ListLink | undefined => {
+      handed.push(parent);
+      return allSessionsOf(parent);
+    };
+    await create({ primaryResource: people, ...underPerson, more }, {}, person, false);
+
+    expect(handed.at(-1)).toEqual(person);
+    const links = moreLinks();
+    expect(links).toHaveLength(1);
+    expect(links[0].textContent?.trim()).toBe("All of cy's sessions");
+    expect(links[0].getAttribute('href')).toBe('/sectors/anvil/sessions?filter=username:eq:cy');
+    expect(links[0].classList.contains('impulse-resource-list-indent')).toBe(true);
+    // After the table, on a line of its own.
+    const table = element().querySelector('.impulse-resource-list-resource-container') as Element;
+    expect(table.compareDocumentPosition(links[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const style = declared(links[0], ['.impulse-resource-list-more'], ['.impulse-resource-list-indent']);
+    expect(style).toContain('display: inline-block');
+    expect(style).toContain('margin-top: 8px');
+    expect(style).toContain('font-size: 14px');
+    expect(style).toContain('line-height: 20px');
+    expect(style).toContain('color: var(--mat-sys-primary, #1976d2)');
+    expect(style).toContain('overflow-wrap: anywhere');
+    // Its indent moves the link in, so the room before its words is not pressed.
+    const indent = declared(links[0], ['.impulse-resource-list-more', '.impulse-resource-list-indent']);
+    expect(indent).toContain('margin-left: 20px');
+    expect(indent).toContain('padding-left: 0');
+
+    // Asked again when the row the list is under changes.
+    fixture.componentRef.setInput('relatedData', { id: 'u-8', username: 'di' });
+    fixture.detectChanges();
+    expect(handed.at(-1)).toEqual({ id: 'u-8', username: 'di' });
+    expect(moreLinks().map((link) => link.textContent?.trim())).toEqual(["All of di's sessions"]);
+  });
+
+  it('draws the link under the one line of a list under a record that holds nothing', async () => {
+    served = [];
+    await create(
+      { primaryResource: people, ...underPerson, emptyMessage: 'Nobody serves here.', more: allSessionsOf },
+      {},
+      person,
+      false,
+    );
+
+    const links = moreLinks();
+    expect(links.map((link) => link.textContent?.trim())).toEqual(["All of cy's sessions"]);
+    expect(emptyLine()?.compareDocumentPosition(links[0]) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  for (const tt of [
+    { name: 'whose link answers nothing for the row it is under', more: allSessionsOf, parent: { id: 'u-9' } },
+    { name: 'that names no link', more: undefined, parent: person },
+  ]) {
+    it(`draws no link under a list ${tt.name}`, async () => {
+      await create({ primaryResource: people, ...underPerson, more: tt.more }, {}, tt.parent, false);
+
+      expect(moreLinks()).toEqual([]);
+    });
+  }
+
   it('does not offer a filled method the digest does not grant', async () => {
     await create({
       primaryResource: people,
@@ -949,4 +1192,161 @@ describe('ResourceListComponent row methods', () => {
       expect(element().querySelector('button.impulse-resource-list-method')).toBeNull();
     });
   }
+});
+
+// A link to a list page can open one of the methods above its list: the query parameter
+// `run` names the method. The list the page is built on, once it knows which methods it
+// offers the person, opens the named one's dialog as a press of its button would, and in
+// every case takes the parameter off the address, in place, the others kept.
+describe('ResourceListComponent, a method named in the address', () => {
+  let fixture: ComponentFixture<ResourceListComponent>;
+  let opened: MethodDialogData[];
+
+  const offered: MethodPresentation[] = [
+    { method: 'CreatePerson' as Method, label: 'Add a person', icon: 'person_add' },
+    { method: 'InvitePerson' as Method, label: 'Invite' },
+  ];
+  // The caller may add a person and may not invite one.
+  const digest: PermissionDigest = {
+    [people]: { List: 'granted' },
+    [`${people}.username`]: { List: 'granted' },
+    CreatePerson: { Execute: 'granted' },
+  };
+
+  /**
+   * Opens the list at an address, as the router opens a page it has navigated to. The
+   * tenant's digest is read first unless the test reads it later.
+   */
+  const open = async (url: string, isRootList?: boolean, readDigest = true): Promise<void> => {
+    const config = listViewConfig({
+      elements: [],
+      listColumns: [{ id: 'username' as FieldName }],
+      primaryResource: people,
+      listMethods: offered,
+    });
+    const transport = scriptedTransport((request: TransportRequest): TransportResponse => {
+      const path = new URL(request.url, 'http://lists.test').pathname;
+      if (path === '/api/permission-digest') {
+        return { status: 200, body: digest };
+      }
+      if (path === '/api/sectors/anvil/sector-people') {
+        return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+      }
+      return { status: 404, body: { message: `unscripted ${request.url}` } };
+    });
+    await TestBed.configureTestingModule({
+      imports: [ResourceListComponent],
+      providers: [
+        provideResourceTesting({
+          transport,
+          client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }),
+        }),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
+        { provide: METHOD_META, useValue: (name: string): MethodMeta => methodMetas[name] },
+        { provide: RESOURCE_DOMAIN, useValue: signal<Domain | undefined>('anvil' as Domain) },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: { data: { config: rootConfig({ parentConfig: config }) }, params: {}, queryParams: {} },
+          },
+        },
+      ],
+    }).compileComponents();
+    if (readDigest) {
+      await readTheDigest();
+    }
+    await TestBed.inject(Router).navigateByUrl(url);
+    fixture = TestBed.createComponent(ResourceListComponent);
+    fixture.componentRef.setInput('compoundResourceComponent', CompoundResourceComponent);
+    fixture.componentRef.setInput('resourceConfig', config);
+    if (isRootList !== undefined) {
+      fixture.componentRef.setInput('isRootList', isRootList);
+    }
+    opened = [];
+    fixture.componentInstance.dialog.open = ((_: unknown, dialog: { data: MethodDialogData }) => {
+      opened.push(dialog.data);
+      return { afterClosed: () => of(undefined) } as unknown as MatDialogRef<unknown>;
+    }) as never;
+    fixture.detectChanges();
+    await settle();
+  };
+
+  const readTheDigest = async (): Promise<void> => {
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest('anvil' as Domain);
+  };
+
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) {
+      await TestBed.inject(ApplicationRef).whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  };
+
+  const address = (): ReturnType<Router['parseUrl']> => {
+    const router = TestBed.inject(Router);
+    return router.parseUrl(router.url);
+  };
+  const methodsOpened = (): string[] => opened.map((data) => String(data.method));
+
+  it("opens the dialog of a method it offers named in the address, once, and takes the parameter off in place, the address's others kept", async () => {
+    await open('/?run=CreatePerson&tab=2');
+
+    expect(methodsOpened()).toEqual(['CreatePerson']);
+    expect(opened[0]).toEqual({ method: 'CreatePerson', label: 'Add a person', preset: {}, confirm: undefined });
+    expect(address().queryParamMap.has('run')).toBe(false);
+    expect(address().queryParamMap.get('tab')).toBe('2');
+    expect(TestBed.inject(Router).lastSuccessfulNavigation()?.extras.replaceUrl).toBe(true);
+
+    await settle();
+    expect(methodsOpened()).toEqual(['CreatePerson']);
+  });
+
+  for (const tt of [
+    { name: 'a method the page names and the person is not offered', run: 'InvitePerson' },
+    { name: 'a name the list offers no method by', run: 'LaunchShip' },
+  ]) {
+    it(`opens nothing for ${tt.name}, and takes the parameter off`, async () => {
+      await open(`/?run=${tt.run}&tab=2`);
+
+      expect(methodsOpened()).toEqual([]);
+      expect(address().queryParamMap.has('run')).toBe(false);
+      expect(address().queryParamMap.get('tab')).toBe('2');
+    });
+  }
+
+  it('acts once the digest that says which methods it offers is read, and not before', async () => {
+    await open('/?run=CreatePerson', undefined, false);
+    expect(methodsOpened()).toEqual([]);
+    expect(address().queryParamMap.get('run')).toBe('CreatePerson');
+
+    await readTheDigest();
+    await settle();
+
+    expect(methodsOpened()).toEqual(['CreatePerson']);
+    expect(address().queryParamMap.has('run')).toBe(false);
+  });
+
+  it('ignores the parameter where it is not the list its page is built on: a list above, below or under a row', async () => {
+    await open('/?run=CreatePerson', false);
+
+    expect(methodsOpened()).toEqual([]);
+    expect(address().queryParamMap.get('run')).toBe('CreatePerson');
+  });
+
+  it('opens the dialog again at each navigation to the page it is on that brings the parameter', async () => {
+    await open('/');
+    expect(methodsOpened()).toEqual([]);
+    const router = TestBed.inject(Router);
+
+    await router.navigateByUrl('/?run=CreatePerson');
+    await settle();
+    expect(methodsOpened()).toEqual(['CreatePerson']);
+    expect(address().queryParamMap.has('run')).toBe(false);
+
+    await router.navigateByUrl('/?run=CreatePerson');
+    await settle();
+    expect(methodsOpened()).toEqual(['CreatePerson', 'CreatePerson']);
+    expect(address().queryParamMap.has('run')).toBe(false);
+  });
 });

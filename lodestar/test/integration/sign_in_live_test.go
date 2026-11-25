@@ -105,7 +105,7 @@ func TestSignInLive_personaSignIn(t *testing.T) {
 	}
 	sessions, account, people := signInWatcher(crew.Name, "sessions"), signInWatcher(crew.Name, "account"), signInWatcher(crew.Name, "people")
 	watching(ctx, t, s,
-		live.Subscription{Principal: sessions, Resource: "CrewSessions"},
+		live.Subscription{Principal: sessions, Resource: "CrewListedSessions"},
 		live.Subscription{Principal: account, Resource: "CrewSessionUsers", Key: id.String()},
 		live.Subscription{Principal: people, Resource: crewSectorPeople, Domain: bastion},
 	)
@@ -116,7 +116,7 @@ func TestSignInLive_personaSignIn(t *testing.T) {
 		t.Fatalf("the marshal's session after her sign-in = %v, want authenticated", sess)
 	}
 
-	wantTold(t, s, sessions, "CrewSessions", "", "the page listing the crew's sessions")
+	wantTold(t, s, sessions, "CrewListedSessions", "", "the page listing the crew's sessions")
 	wantTold(t, s, account, "CrewSessionUsers", id.String(), "the page showing the marshal's account")
 	wantTold(t, s, people, crewSectorPeople, "", "Bastion's People list")
 }
@@ -149,7 +149,7 @@ func TestSignInLive_invitationAcceptedBeforeTheSecondFactor(t *testing.T) {
 		live.Subscription{Principal: accounts, Resource: "CrewSessionUsers"},
 		live.Subscription{Principal: people, Resource: crewSectorPeople, Domain: anvil},
 		live.Subscription{Principal: held, Resource: "CrewHeldRoles"},
-		live.Subscription{Principal: links, Resource: "CrewSessionMailLinks"},
+		live.Subscription{Principal: links, Resource: "CrewListedMailLinks"},
 		live.Subscription{Principal: identities, Resource: "CrewSessionIdentities"},
 		live.Subscription{Principal: ways, Resource: "CrewSignInWays"},
 		live.Subscription{Principal: sectorWays, Resource: "CrewSectorSignInWays", Domain: anvil},
@@ -166,7 +166,7 @@ func TestSignInLive_invitationAcceptedBeforeTheSecondFactor(t *testing.T) {
 	wantTold(t, s, accounts, "CrewSessionUsers", "", "the Accounts list")
 	wantTold(t, s, people, crewSectorPeople, "", "Anvil's People list")
 	wantTold(t, s, held, "CrewHeldRoles", "", "the stranger's held-roles list")
-	wantTold(t, s, links, "CrewSessionMailLinks", "", "the mailed links list")
+	wantTold(t, s, links, "CrewListedMailLinks", "", "the mailed links list")
 	wantTold(t, s, identities, "CrewSessionIdentities", "", "the sign-in identities list")
 	wantTold(t, s, ways, "CrewSignInWays", "", "the stranger's ways to sign in")
 	wantTold(t, s, sectorWays, "CrewSectorSignInWays", "", "the stranger's ways to sign in in Anvil")
@@ -238,8 +238,8 @@ func TestSignInLive_aPersonLeavesASector(t *testing.T) {
 	people := signInWatcher(crew.Name, "people")
 	watching(ctx, t, s, live.Subscription{Principal: people, Resource: crewSectorPeople, Domain: cinder})
 
-	if got := leaveTenant(ctx, t, hazards, consoleAPI+"/user/tenants/leave", cinder, false, http.StatusOK); got != `{"accountDeleted":false}` {
-		t.Fatalf("leaving Cinder answered %s, want the account kept", got)
+	if got := leaveTenant(ctx, t, hazards, consoleAPI+"/user/tenants/leave", cinder, http.StatusOK); got != "" {
+		t.Fatalf("leaving Cinder answered %s, want no body", got)
 	}
 
 	wantTold(t, s, people, crewSectorPeople, "", "Cinder's People list")
@@ -258,11 +258,11 @@ func TestSignInLive_portalSignIn(t *testing.T) {
 	}
 
 	sessions := signInWatcher(members.Name, "sessions")
-	watching(ctx, t, s, live.Subscription{Principal: sessions, Resource: "MembersSessions"})
+	watching(ctx, t, s, live.Subscription{Principal: sessions, Resource: "MembersListedSessions"})
 
 	if status, location := b.loginPortal(ctx, clientUser, "ClientPortal"); status != http.StatusFound || location != portalPage {
 		t.Fatalf("portal login: status %d to %q, want %d to %q", status, location, http.StatusFound, portalPage)
 	}
 
-	wantTold(t, s, sessions, "MembersSessions", "", "the page listing the members' sessions")
+	wantTold(t, s, sessions, "MembersListedSessions", "", "the page listing the members' sessions")
 }

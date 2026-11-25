@@ -11,7 +11,9 @@ import (
 
 type Resourcer interface {
 	resource.Resourcer
-	membersresources.MembersHeldRole | membersresources.MembersListedUser |
+	membersresources.MembersHeldRole | membersresources.MembersListedIdentity |
+		membersresources.MembersListedMailLink | membersresources.MembersListedSession |
+		membersresources.MembersListedSignInAttempt | membersresources.MembersListedUser |
 		membersresources.MembersRole | membersresources.MembersRoleGrant |
 		membersresources.MembersSectorHeldRole | membersresources.MembersSectorIdentity |
 		membersresources.MembersSectorInvitation | membersresources.MembersSectorUser |

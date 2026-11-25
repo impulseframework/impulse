@@ -55,7 +55,7 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 		return fmt.Appendf(nil, `{"invitationId":%q}`, invitation)
 	case "OpenSectorToDirectory":
 		return []byte(`{"role":"Cadet"}`)
-	case "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor":
+	case "TakeSectorDirectory", "MakeSectorInviteOnly", "MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor":
 		return []byte(`{}`)
 	case "CreateSector":
 		return []byte(chartEmber)
@@ -82,7 +82,7 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 		return fmt.Appendf(nil, `{"groupId":%q,"role":"Cadet"}`, group)
 	case "InviteUser":
 		return []byte(`{"email":"invited-under-a-mask@example.com","roles":["Cadet"]}`)
-	case "WithdrawInvitation":
+	case "WithdrawInvitation", "ResendInvitation":
 		return fmt.Appendf(nil, `{"invitationId":%q}`, invitation)
 	case "OpenSignUp", "MakeInviteOnly":
 		return []byte(`{"name":"password"}`)
@@ -112,7 +112,9 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 // pilot. The marshal, given the grant to act as a person, starts three sessions as the
 // governor, and each is refused every one: a session whose mask keeps no Execute, a
 // read-only view, and a session that acts as the governor, whose mask keeps every kind
-// and refuses the class, which the log names.
+// and refuses the class, which the log names. A method no role is given, which another
+// method's grant judges (sending an invitation again, judged by the invitation's), is
+// refused as that method is, and the log names that method.
 //
 // The test runs on its own, never in parallel: the console exporter writes through the
 // standard logger, which the test redirects to read each denial.
@@ -127,7 +129,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		"AssignCrewRole", "RemoveCrewRole", "AssignCrewSectorRole", "RemoveCrewSectorRole", "TakeCrewRole",
 		"AddCrewGroupMember", "RemoveCrewGroupMember", "GiveCrewGroupRole", "TakeCrewGroupRole", "GiveCrewSectorGroupRole",
 		"CreateCrewGroup", "DeleteCrewGroup", "InviteCrewUser", "InviteCrewSectorUser", "InviteCrewSector",
-		"OpenCrewSignUp", "MakeCrewInviteOnly", "OpenSectorToDirectory", "MakeSectorInviteOnly",
+		"OpenCrewSignUp", "MakeCrewInviteOnly", "TakeSectorDirectory", "OpenSectorToDirectory", "MakeSectorInviteOnly",
 		"MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 		"SetCrewSelfServiceReset", "CreateSector", "SetSectorPilotClearance",
 	} {
@@ -152,9 +154,10 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		name    string
 		browser *browser
 		// says is what the refusal's answer says, and logged what the log carries for
-		// the refusal of one action.
+		// the refusal of one action, the engine having been asked about asked: the
+		// action itself, or the method whose grant judges it.
 		says   string
-		logged func(action accesstypes.Resource) []string
+		logged func(action, asked accesstypes.Resource) []string
 	}
 	start := func(name, body, wantMask string) *browser {
 		t.Helper()
@@ -171,24 +174,24 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 			name: "a session whose mask keeps no Execute",
 			browser: start("no Execute", actAs(t, "governor", "no Execute", `,"mask":["List","Read","Create","Update","Delete"]`),
 				"Create, Delete, List, Read and Update only, except "+actMaskRefusalWords),
-			logged: func(action accesstypes.Resource) []string {
-				return []string{"impersonation: Execute denied by mask (Create,Delete,List,Read,Update;" + actMaskRefusalText + ") for " + string(account(t, "governor")), string(action)}
+			logged: func(_, asked accesstypes.Resource) []string {
+				return []string{"impersonation: Execute denied by mask (Create,Delete,List,Read,Update;" + actMaskRefusalText + ") for " + string(account(t, "governor")), string(asked)}
 			},
 		},
 		{
 			name:    "a read-only view",
 			browser: start("read-only", viewAs(t, "governor", "read-only"), "reading only"),
 			says:    "You are acting as someone else, and this session cannot change anything.",
-			logged: func(action accesstypes.Resource) []string {
+			logged: func(action, _ accesstypes.Resource) []string {
 				return []string{"impersonation: POST " + methodRoute(action) + " refused for", "impersonation.event=WriteBlocked", "impersonation.mask=List,Read"}
 			},
 		},
 		{
 			name:    "a session whose mask refuses the class access",
 			browser: start("no access", actAs(t, "governor", "no access", ""), actMaskWords),
-			logged: func(action accesstypes.Resource) []string {
+			logged: func(_, asked accesstypes.Resource) []string {
 				return []string{
-					"impersonation: Execute denied by mask (" + actMaskText + ") for " + string(account(t, "governor")) + " on " + string(action) + ": the mask refuses the class access",
+					"impersonation: Execute denied by mask (" + actMaskText + ") for " + string(account(t, "governor")) + " on " + string(asked) + ": the mask refuses the class access",
 				}
 			},
 		},
@@ -206,6 +209,12 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 	letThrough := make(map[accesstypes.Resource]bool)
 	for _, action := range access {
 		route, payload := methodRoute(action), accessBody(t, action, target)
+		// The engine is asked about the method whose grant judges an action no role is
+		// given, and the mask's denial names that method.
+		asked := action
+		if by, judged := router.Collection().JudgedBy(action); judged {
+			asked = by
+		}
 
 		// The governor in a session of his own, as a dry run: whatever the method
 		// answers, no mask is named in the log.
@@ -224,7 +233,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 				t.Errorf("%s in %s: status %d, want 403 saying %q: %s", action, session.name, status, session.says, answer)
 			}
 			logged := output.String()
-			for _, want := range session.logged(action) {
+			for _, want := range session.logged(action, asked) {
 				if !strings.Contains(logged, want) {
 					t.Errorf("%s in %s: the log does not carry %q, the denial as the mask's:\n%s", action, session.name, want, logged)
 				}

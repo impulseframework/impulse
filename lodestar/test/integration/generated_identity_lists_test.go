@@ -488,6 +488,269 @@ func TestGeneratedIdentitySectorPeople(t *testing.T) {
 	}
 }
 
+// TestGeneratedIdentityWhoManagesEachAccount holds what the whole fleet's lists say of
+// who manages each account: each person's row of the accounts answers managedByTenant and
+// managingTenant in agreement with the sectors' rows, the sector whose row says
+// managedHere, and nobody's where no sector's does; a person's sign-in identities say the
+// same two facts; a filter on the fact answers the accounts no sector manages; and a
+// person whose only role, in one sector, has not begun is in no sector's list, so no
+// sector manages the account until the role begins. Each row carries the name of the
+// sector that manages the account for a reader who lists the sectors' names, whatever
+// the reader holds in that sector, and the list filters and sorts by it.
+func TestGeneratedIdentityWhoManagesEachAccount(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newTenantListsWorld(t)
+	w.managedPeople(ctx, t)
+	// mo is a Cadet at Anvil from an hour from now, and holds nothing else.
+	w.seat(ctx, t, "mo", "Cadet", anvil)
+	if _, err := w.db.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap("CrewUserRoles", map[string]any{
+		"Kind": "domain", "Axis": "", "DomainId": anvil, "Role": "Cadet", "UserId": w.ids["mo"], "StartsAt": time.Now().UTC().Add(time.Hour),
+	})}); err != nil {
+		t.Fatalf("writing mo's role to begin later: %v", err)
+	}
+
+	// The sectors whose list says it manages each person's account, by username.
+	managedAt := make(map[string][]string)
+	listedIn := make(map[string][]string)
+	for _, sector := range []string{anvil, bastion, cinder} {
+		for _, row := range sectorList(t, w.h, "governor", sector, sectorPeoplePath) {
+			name := cell[string](t, row, "username")
+			listedIn[name] = append(listedIn[name], sector)
+			if cell[bool](t, row, "managedHere") {
+				managedAt[name] = append(managedAt[name], sector)
+			}
+		}
+	}
+	// Anvil manages the account of the person it holds alone and of the one who signs in
+	// under the fleet connection, no sector's directory; Cinder manages everyone who signs
+	// in through its directory, whatever they hold. Everyone else is the fleet's own
+	// administrators' to manage: a person of two sectors (bo), a role in every sector or
+	// for the whole fleet beside a sector's, a role that has ended (lu) and one that has
+	// not begun (mo).
+	want := map[string]string{"ada": anvil, "kit": anvil, "gil": cinder, "hal": cinder, "ivy": cinder, "jo": cinder}
+	accounts := listedAccounts(t, w.h, "governor", "")
+	for name := range w.ids {
+		row := accounts[name]
+		if row == nil {
+			t.Errorf("%s is missing from the accounts", name)
+
+			continue
+		}
+		managing, managed := text(row, "managingTenant"), cell[bool](t, row, "managedByTenant")
+		if managing != want[name] || managed != (want[name] != "") {
+			t.Errorf("%s: managedByTenant = %v, managingTenant = %q; want %v, %q", name, managed, managing, want[name] != "", want[name])
+		}
+		agreed := ""
+		if sectors := managedAt[name]; len(sectors) > 0 {
+			agreed = slices.Min(sectors)
+		}
+		if managing != agreed {
+			t.Errorf("%s: managingTenant = %q, and the sectors' rows say managedHere at %v", name, managing, managedAt[name])
+		}
+	}
+	if sectors := listedIn["mo"]; len(sectors) != 0 {
+		t.Errorf("mo, whose only role has not begun, is listed by %v, want by no sector", sectors)
+	}
+
+	t.Run("a person's sign-in identities say who manages the account", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-identities?limit=200&filter=userId:eq:"+w.ids["hal"], "")
+		assertStatus(t, status, http.StatusOK, body)
+		rows := decodeRows(t, body)
+		if len(rows) != 1 {
+			t.Fatalf("hal's identities = %d rows, want 1: %s", len(rows), body)
+		}
+		if managed, managing := cell[bool](t, rows[0], "managedByTenant"), text(rows[0], "managingTenant"); !managed || managing != cinder {
+			t.Errorf("hal's identity says managedByTenant = %v, managingTenant = %q; want true and Cinder's key, as hal's account does: %v", managed, managing, rows[0])
+		}
+	})
+
+	t.Run("the accounts filter on who manages them", func(t *testing.T) {
+		t.Parallel()
+
+		unmanaged := listedAccounts(t, w.h, "governor", "managedByTenant:eq:false")
+		for name, row := range unmanaged {
+			if cell[bool](t, row, "managedByTenant") {
+				t.Errorf("the filter managedByTenant:eq:false answered %s, whose account a sector manages", name)
+			}
+		}
+		for name := range w.ids {
+			if _, answered := unmanaged[name]; answered != (want[name] == "") {
+				t.Errorf("%s: answered by managedByTenant:eq:false = %v, want %v", name, answered, want[name] == "")
+			}
+		}
+	})
+
+	// quill holds Headquarters for the whole fleet and nothing else: the accounts with who
+	// manages each, and no sector's name. The account is written before the parallel
+	// subtests run, so each of them reads the same accounts.
+	quill := string(makeCrewAccount(ctx, t, w.db, "quill"))
+	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return w.app.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), accesstypes.User(quill), "Headquarters")
+	}); err != nil {
+		t.Fatalf("giving quill Headquarters: %v", err)
+	}
+
+	t.Run("a reader who holds no role in a sector reads the name of the sector that manages an account", func(t *testing.T) {
+		t.Parallel()
+
+		// The marshal lists the accounts and the sectors' names for the whole fleet, and
+		// holds a role at Anvil alone.
+		accounts := listedAccounts(t, w.h, "marshal", "")
+		for name := range w.ids {
+			row := accounts[name]
+			if row == nil {
+				t.Errorf("%s is missing from the marshal's accounts", name)
+
+				continue
+			}
+			named, carried := row["managingTenantName"]
+			switch {
+			case want[name] == "" && carried:
+				t.Errorf("%s, whose account no sector manages, carries the name %v", name, named)
+			case want[name] != "" && text(row, "managingTenantName") != sectorNames[want[name]]:
+				t.Errorf("%s: managingTenantName = %v, want %q, the name of the sector that manages the account", name, named, sectorNames[want[name]])
+			}
+		}
+	})
+
+	t.Run("a reader not granted the sectors' names reads the key alone", func(t *testing.T) {
+		t.Parallel()
+
+		accounts := listedAccounts(t, w.h, "quill", "")
+		for name := range w.ids {
+			row := accounts[name]
+			if row == nil {
+				t.Errorf("%s is missing from quill's accounts", name)
+
+				continue
+			}
+			if got := text(row, "managingTenant"); got != want[name] {
+				t.Errorf("%s: quill reads managingTenant = %q, want %q", name, got, want[name])
+			}
+			if named, carried := row["managingTenantName"]; carried {
+				t.Errorf("%s: quill, who lists no sector's name, reads managingTenantName = %v", name, named)
+			}
+		}
+	})
+
+	t.Run("the accounts filter by the name of the sector that manages them", func(t *testing.T) {
+		t.Parallel()
+
+		every := listedAccounts(t, w.h, "governor", "")
+		cinders := listedAccounts(t, w.h, "marshal", "managingTenantName:eq:Cinder")
+		for name, row := range cinders {
+			if got := text(row, "managingTenant"); got != cinder {
+				t.Errorf("the filter managingTenantName:eq:Cinder answered %s, whose managingTenant is %q", name, got)
+			}
+		}
+		for name, row := range every {
+			if _, answered := cinders[name]; answered != (text(row, "managingTenant") == cinder) {
+				t.Errorf("%s: answered by managingTenantName:eq:Cinder = %v, and managingTenant is %q", name, answered, text(row, "managingTenant"))
+			}
+		}
+		for name := range w.ids {
+			if _, answered := cinders[name]; answered != (want[name] == cinder) {
+				t.Errorf("%s: answered by managingTenantName:eq:Cinder = %v, want %v", name, answered, want[name] == cinder)
+			}
+		}
+	})
+
+	t.Run("the accounts sort by the name of the sector that manages them, a page at a time", func(t *testing.T) {
+		t.Parallel()
+
+		usernames := func(t *testing.T, body []byte) []string {
+			t.Helper()
+
+			var names []string
+			for _, row := range decodeRows(t, body) {
+				names = append(names, cell[string](t, row, "username"))
+			}
+
+			return names
+		}
+		forward, backward, pages := walkBothWays(t, w.h, "marshal", consoleAPI+"/"+crewListedAccountsPath+"?sort=managingTenantName:asc&limit=3", usernames)
+		if pages < 2 {
+			t.Errorf("the walk turned %d pages, want more than one", pages)
+		}
+		if !slices.Equal(forward, backward) {
+			t.Errorf("the walk forward %v and the walk back %v differ", forward, backward)
+		}
+		seen := make(map[string]bool, len(forward))
+		lastAnvil, firstCinder, anvils, cinders := -1, len(forward), 0, 0
+		for i, name := range forward {
+			if seen[name] {
+				t.Errorf("%s is answered twice in the walk %v", name, forward)
+			}
+			seen[name] = true
+			switch want[name] {
+			case anvil:
+				lastAnvil, anvils = i, anvils+1
+			case cinder:
+				firstCinder, cinders = min(firstCinder, i), cinders+1
+			}
+		}
+		if anvils != 2 || cinders != 4 || lastAnvil > firstCinder {
+			t.Errorf("the walk %v holds %d accounts Anvil manages and %d Cinder manages, want 2 then 4, every Anvil one before every Cinder one", forward, anvils, cinders)
+		}
+	})
+}
+
+// TestGeneratedIdentityUnlinkNamesTheListedIdentity holds the whole application's unlink
+// of a sign-in identity on the list of the identities that says who manages each account:
+// the row offers the unlink to a caller whose role gives it, the unlink answers as it did
+// on the identities table's row, and the row is then gone from the list.
+func TestGeneratedIdentityUnlinkNamesTheListedIdentity(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newTenantListsWorld(t)
+	// rae holds a password, so the identity is not her last way in, and Crew common for the
+	// whole application; her identity is under the fleet's connection, which no sector's
+	// directory takes. So no sector manages her account, and the fleet's unlink reaches it.
+	w.ids["rae"] = string(makeCrewAccountAt(ctx, t, w.db, "rae", "rae@example.com"))
+	id, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID: %v", err)
+	}
+	link := id.String()
+	if _, err := w.db.Apply(ctx, []*spanner.Mutation{
+		spanner.UpdateMap("CrewSessionUsers", map[string]any{"Id": w.ids["rae"], "PasswordHash": "the-hash-of-rae"}),
+		spanner.InsertMap("CrewSessionIdentities", map[string]any{
+			"Id": link, "UserId": w.ids["rae"], "Method": "google", "Connection": "fleet", "Subject": "subject-of-rae",
+			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		}),
+	}); err != nil {
+		t.Fatalf("writing rae's password and identity: %v", err)
+	}
+	w.giveCrewRole(ctx, t, "rae", "CrewCommon", accesstypes.GlobalPolicyScope())
+	listed := func() map[string]map[string]any {
+		t.Helper()
+
+		status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-identities?limit=200&filter=userId:eq:"+w.ids["rae"], "")
+		assertStatus(t, status, http.StatusOK, body)
+
+		return rowsByID(t, decodeRows(t, body), "id")
+	}
+	if _, ok := listed()[link]; !ok {
+		t.Fatalf("rae's identities = %v, want the one written for her (%s)", listed(), link)
+	}
+
+	status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-listed-identities/"+link+"?capabilities=Execute", "")
+	assertStatus(t, status, http.StatusOK, body)
+	capabilities, _ := decodeRow(t, body)["zzCapabilities"].(map[string]any)
+	if offered, _ := capabilities["Execute"].([]any); !slices.Contains(offered, any("UnlinkCrewSessionIdentity")) {
+		t.Errorf("the Execute answer for rae's identity = %v, want it to list UnlinkCrewSessionIdentity for headquarters", offered)
+	}
+
+	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/unlink-crew-session-identity", fmt.Sprintf(`{"identityId":%q}`, link))
+	assertStatus(t, status, http.StatusNoContent, body)
+	if left := listed(); len(left) != 0 {
+		t.Errorf("rae's identities after the unlink = %v, want none", left)
+	}
+}
+
 // TestGeneratedIdentitySectorUserRoles holds the roles held in a sector: one row per role a
 // person holds there, keyed by the account's id and the role, the fact everyDomain true
 // where the role is held through a membership in every sector alone, and the

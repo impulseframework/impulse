@@ -274,7 +274,9 @@ func (m *signInMethods[Tx]) dummyHash() (*securehash.Hash, error) {
 }
 
 // registered returns the Auth's sign-in methods and closes registration. Every read
-// goes through here, so a read never races a registration.
+// goes through here, so a read never races a registration, but for signInFailureLimit,
+// which is asked while the application is still wiring the Auth and takes the lock
+// instead.
 func (a *Auth[S, U, Tx]) registered() *signInMethods[Tx] {
 	if !a.methods.inUse.Load() {
 		a.methods.mu.Lock()
@@ -283,6 +285,16 @@ func (a *Auth[S, U, Tx]) registered() *signInMethods[Tx] {
 	}
 
 	return &a.methods
+}
+
+// signInFailureLimit is SignInFailureLimit: the failures of the limit the attempts are
+// counted by as the registrations stand, read under the methods' lock so the read never
+// races a registration. It leaves registration open.
+func (a *Auth[S, U, Tx]) signInFailureLimit() int {
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	return a.methods.attempts.Limit().Failures
 }
 
 // serving wraps every handler and middleware the Auth hands out, so the first request

@@ -16,8 +16,8 @@ import (
 )
 
 // noDeleteCascade verifies that the database deletes none of an application's rows. A
-// foreign key that references a table of the application's records, or an interleave in
-// one, declared ON DELETE CASCADE has the database remove rows when the row they name is
+// foreign key or an interleave of a table of the application's records declared ON
+// DELETE CASCADE has the database remove the table's rows when the row they name is
 // deleted, past the grants of the person who asked, with no change record, no word to
 // open pages and no release of the files the rows stored. Rows are deleted in code: a
 // record declares what its delete takes (@deleteCascade), and a tenant's delete takes
@@ -25,9 +25,12 @@ import (
 //
 // The check reads the up migrations of each site's file:// sources as they leave the
 // schema, and a table is one of the application's records when a struct of the site's
-// resource package declares it. A rule on a link to any other table (an auth's sessions
-// under its users, role grants under their roles) is counted, not judged, and a source
-// it cannot read is named, never passed.
+// resource package declares it. It judges each rule by the table that carries it, whose
+// rows the database would delete: a rule on a table of the application's records is
+// refused wherever its link points, a table of the library's included. A rule on any
+// other table (an auth's sign-in identities under its users, role grants under their
+// roles) is the library's own and is counted, not judged. A source it cannot read is
+// named, never passed.
 type noDeleteCascade struct{}
 
 // noDeleteCascadeName is the check's name.
@@ -36,12 +39,12 @@ const noDeleteCascadeName = "no-delete-cascade"
 func (noDeleteCascade) Name() string { return noDeleteCascadeName }
 
 func (noDeleteCascade) Describe() string {
-	return "no foreign key and no interleave has the database delete rows with one of the application's records: none says ON DELETE CASCADE where the table it references, or the parent it is interleaved in, is a table a struct of the resource package declares"
+	return "no foreign key and no interleave has the database delete rows of the application's records: none says ON DELETE CASCADE on an application's table (one a struct of the resource package declares), wherever it points"
 }
 
 // Meaning explains the invariant for the brief.
 func (noDeleteCascade) Meaning() string {
-	return "Rows are deleted in code only, never by the database. A foreign key or an interleave declared `ON DELETE CASCADE` has the database remove rows when the row they name is deleted. A row removed that way is not checked against the grants of the person who asked, leaves no change record, is not announced to open pages and keeps the files it stored, and it still counts toward the commit's mutation limit. So no foreign key that references a table of the application's records, and no interleave in one, says `ON DELETE CASCADE`. A delete that should take rows with it is declared on the record (`// @deleteCascade(Kind, ..., refusedBy: Kind, ...)`), and the library deletes those rows in code, each as its own delete would. A tenant's delete takes every row of the tenant the same way with no declaration. A record with rows under it and no declaration is refused in words that say what to delete first. The check reads the up migrations of each site's `file://` sources and compares each rule's target with the tables the structs of the site's resource package declare. A rule on a link to any other table (an auth's sessions under its users, role grants under their roles) is counted in the result and not judged."
+	return "Rows are deleted in code only, never by the database. A foreign key or an interleave declared `ON DELETE CASCADE` has the database remove rows when the row they name is deleted. A row removed that way is not checked against the grants of the person who asked, leaves no change record, is not announced to open pages and keeps the files it stored, and it still counts toward the commit's mutation limit. So no foreign key and no interleave of an application's table says `ON DELETE CASCADE`, wherever it points, a table of the library's included. A delete that should take rows with it is declared on the record (`// @deleteCascade(Kind, ..., refusedBy: Kind, ...)`), and the library deletes those rows in code, each as its own delete would. A tenant's delete takes every row of the tenant the same way with no declaration. A record with rows under it and no declaration is refused in words that say what to delete first. The check reads the up migrations of each site's `file://` sources and judges each rule by the table that carries it, whose rows the database would delete: an application's table is one a struct of the site's resource package declares. A rule on any other table (an auth's sign-in identities under its users, role grants under their roles) is the library's own and is counted in the result, not judged."
 }
 
 // deletedInCode is what every finding says after naming the rule: why the rule goes, and
@@ -125,7 +128,7 @@ func (c noDeleteCascade) Run(_ context.Context, env *Env) Result {
 	}
 	summary := "no foreign key or interleave has the database delete rows with one of the application's records"
 	if left > 0 {
-		summary += fmt.Sprintf("; %d ON DELETE CASCADE rule(s) on a link to a table the application declares no record for were not judged", left)
+		summary += fmt.Sprintf("; %d ON DELETE CASCADE rule(s) on a table the application declares no record for were not judged", left)
 	}
 	if len(unread) > 0 {
 		return warn(c.Name(), summary+fmt.Sprintf("; %d migration source(s) could not be read", len(unread)), unread...)
@@ -174,8 +177,9 @@ func siteRecords(a *app.App, sites []*app.Site) (map[string]bool, error) {
 
 // cascadesTo judges every ON DELETE CASCADE rule of the tables, in table name order and
 // in each table its interleave first, then its foreign keys in the order declared. A
-// rule whose target is one of the records is a finding; one whose target is not is
-// counted as left.
+// rule is judged by the table that carries it, whose rows the database would delete (the
+// interleaved table, the table that declares the foreign key): on one of the records it
+// is a finding wherever it points; on any other table it is counted as left.
 func cascadesTo(tables map[string]*schemaTable, records map[string]bool) (findings []string, left int) {
 	names := make([]string, 0, len(tables))
 	for name := range tables {
@@ -184,8 +188,9 @@ func cascadesTo(tables map[string]*schemaTable, records map[string]bool) (findin
 	sort.Strings(names)
 	for _, name := range names {
 		table := tables[name]
+		record := records[strings.ToLower(name)]
 		if table.parent != "" && table.parentCascade {
-			if !records[strings.ToLower(table.parent)] {
+			if !record {
 				left++
 			} else {
 				findings = append(findings, fmt.Sprintf("%s: %s is interleaved in %s with ON DELETE CASCADE, so the database deletes the rows of %s with the row of %s they are under. "+deletedInCode,
@@ -197,7 +202,7 @@ func cascadesTo(tables map[string]*schemaTable, records map[string]bool) (findin
 			if !key.cascade {
 				continue
 			}
-			if !records[strings.ToLower(key.references)] {
+			if !record {
 				left++
 
 				continue

@@ -430,7 +430,7 @@ func TestAuth_ownSessionHandlers_refuse(t *testing.T) {
 		{name: "OwnTenants", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).OwnTenants), method: http.MethodGet, body: func(impulse.UUID) string { return "" }},
 		{
 			name: "LeaveTenant", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant), method: http.MethodPost,
-			body: func(impulse.UUID) string { return `{"domain":"t-acme","deletesAccount":false}` },
+			body: func(impulse.UUID) string { return `{"domain":"t-acme"}` },
 		},
 	}
 	for _, h := range handlers {
@@ -492,7 +492,7 @@ func TestAuth_ownAccountHandlers_refuseAToken(t *testing.T) {
 		{name: "ChangeUsername", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).ChangeUsername, method: http.MethodPost, body: `{"username":"patricia"}`},
 		{name: "UsernameFree", handler: (*Auth[NoCustomData, NoCustomData, mockTx]).UsernameFree, method: http.MethodPost, body: `{"username":"patricia"}`},
 		{name: "OwnTenants", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).OwnTenants), method: http.MethodGet},
-		{name: "LeaveTenant", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant), method: http.MethodPost, body: `{"domain":"t-acme","deletesAccount":false}`},
+		{name: "LeaveTenant", handler: ownTenantsHandlerOf((*Auth[NoCustomData, NoCustomData, mockTx]).LeaveTenant), method: http.MethodPost, body: `{"domain":"t-acme"}`},
 	}
 	for _, h := range handlers {
 		t.Run(h.name, func(t *testing.T) {
@@ -513,4 +513,74 @@ func TestAuth_ownAccountHandlers_refuseAToken(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAuth_Authenticated_sessionID proves the session read says which session the
+// browser is signed in with: a signed-in read answers the id of its session, the one the
+// list of the person's own sessions marks current; an impersonated session answers its
+// own id; and a read with no session answers none.
+func TestAuth_Authenticated_sessionID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a signed-in read answers its session's id, the one the person's own sessions mark current", func(t *testing.T) {
+		t.Parallel()
+		c := newOwnSessionsCase(t)
+		c.signedIn()
+		c.signedIn()
+		now := time.Now()
+		c.listed(row(impulse.Must(impulse.NewUUID()), "Firefox on Windows", now.Add(-time.Hour), now), row(c.sessionID, "Chrome on Linux", now.Add(-time.Hour), now.Add(-time.Minute)))
+		c.f.store.EXPECT().TrustedDeviceCount(gomock.Any(), c.userID).Return(0, nil)
+
+		own := c.serve(c.f.auth.OwnSessions(), c.ctx(), http.MethodGet, "")
+		var listed struct {
+			Sessions []struct {
+				ID      string `json:"id"`
+				Current bool   `json:"current"`
+			} `json:"sessions"`
+		}
+		if err := json.Unmarshal(own.Body.Bytes(), &listed); err != nil || own.Code != http.StatusOK {
+			t.Fatalf("OwnSessions() = %d %s (%v), want 200", own.Code, own.Body.String(), err)
+		}
+		var current []string
+		for _, s := range listed.Sessions {
+			if s.Current {
+				current = append(current, s.ID)
+			}
+		}
+		read := decoded(t, c.serve(c.f.auth.Authenticated(), c.ctx(), http.MethodGet, ""))
+		if len(current) != 1 || read["sessionId"] != current[0] || current[0] != c.sessionID.String() {
+			t.Errorf("Authenticated() sessionId = %v, OwnSessions() current = %v; want both %s", read["sessionId"], current, c.sessionID)
+		}
+	})
+
+	t.Run("an impersonated session answers its own id", func(t *testing.T) {
+		t.Parallel()
+		f := newAuthFixture(t, gomock.NewController(t))
+		userID, sessionID := newIDs()
+		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(&sessioninfo.SessionData{
+			SessionInfo:   &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()},
+			UserID:        impulse.NullUUIDFromUUID(userID),
+			Impersonation: &sessioninfo.Impersonation{Actor: "sam", ExpiresAt: time.Now().Add(time.Hour)},
+		}, nil)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).AnyTimes()
+
+		read := decoded(t, f.asUser(f.auth.Authenticated(), sessionID, nil, nil))
+		if read["impersonation"] == nil || read["sessionId"] != sessionID.String() {
+			t.Errorf("the impersonated session read = %v, want it acting for someone with sessionId %s", read, sessionID)
+		}
+	})
+
+	t.Run("a read with no session answers no id", func(t *testing.T) {
+		t.Parallel()
+		c := newOwnSessionsCase(t)
+		c.f.store.EXPECT().Session(gomock.Any(), c.sessionID).Return(nil, httpio.NewNotFoundMessage("no session"))
+
+		read := decoded(t, c.serve(c.f.auth.Authenticated(), c.ctx(), http.MethodGet, ""))
+		if read["authenticated"] != false {
+			t.Fatalf("the read with no session = %v, want not authenticated", read)
+		}
+		if got, told := read["sessionId"]; told {
+			t.Errorf("the read with no session answers sessionId = %v, want none", got)
+		}
+	})
 }

@@ -1,6 +1,12 @@
 import { MatDialog } from '@angular/material/dialog';
+import { DeleteLeft, MethodHandle, RemoveOptions } from '@impulseframework/resource';
 import { RecordData } from '@impulseframework/resource-angular/types';
-import { Observable } from 'rxjs';
+import { map, Observable } from 'rxjs';
+import { deleteLeftOf } from '../delete-left';
+import {
+  DeleteConfirmation,
+  DeleteResourceConfirmationModalComponent,
+} from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { filledBody, OfferedMethod, targetBody } from '../row-methods/row-methods';
 import { MethodDialogComponent, MethodDialogData, MethodDialogResult } from './method-dialog.component';
 
@@ -12,7 +18,9 @@ import { MethodDialogComponent, MethodDialogData, MethodDialogResult } from './m
  * that names a row and is offered above a list runs against `parent`, whose key fills
  * the request as a row's does. The page's question for the method, where it gives one,
  * is asked of the same row, and for a method above a list it is told `listed`, the rows
- * the list shows. The answer is the dialog's: the method's result once it has run,
+ * the list shows. It is also told the method's metadata, so it can ask less where the
+ * method warns and the server's words follow. The answer is the dialog's: the method's
+ * result once it has run,
  * nothing when the dialog was dismissed.
  */
 export function openMethodDialog(
@@ -29,7 +37,7 @@ export function openMethodDialog(
     method: method.method,
     label: method.label,
     preset: { ...(target ? targetBody(method.method, method.meta, target) : {}), ...filledBody(method, from) },
-    confirm: typeof confirm === 'function' ? confirm(from ?? {}, row ? undefined : listed) : confirm,
+    confirm: typeof confirm === 'function' ? confirm(from ?? {}, row ? undefined : listed, method.meta) : confirm,
     ...(method.presentation?.labels ? { labels: method.presentation.labels } : {}),
     ...(method.presentation?.says ? { says: method.presentation.says } : {}),
     ...(method.presentation?.shows ? { shows: method.presentation.shows } : {}),
@@ -42,6 +50,48 @@ export function openMethodDialog(
       delayFocusTrap: false,
     })
     .afterClosed();
+}
+
+/**
+ * Opens the delete dialog for a method that deletes the row it is offered on
+ * (`MethodPresentation.deletes`), in place of the method's own dialog. The dialog asks
+ * the page's question for the method, then the server's where the delete takes records
+ * with it, and runs the method through `handle` with the row's key: with
+ * `everythingUnder` at the press after the server's question, and again for as long as
+ * it answers what is left (a 202, `DeleteLeft`). It answers as openMethodDialog does:
+ * the method's answer, nothing, once the row is gone, and nothing at all when the person
+ * canceled.
+ */
+export function openDeleteMethodDialog(
+  dialog: MatDialog,
+  handle: Pick<MethodHandle<Record<string, unknown>, unknown>, 'execute'>,
+  method: OfferedMethod,
+  row: RecordData,
+): Observable<MethodDialogResult | undefined> {
+  const confirm = method.presentation?.confirm;
+  const body = { ...targetBody(method.method, method.meta, row), ...filledBody(method, row) };
+  const data: DeleteConfirmation = {
+    question: typeof confirm === 'function' ? confirm(row, undefined, method.meta) : confirm,
+    inList: true,
+    delete: async (options?: RemoveOptions): Promise<DeleteLeft | undefined> => {
+      const answer = await handle.execute(options?.everythingUnder ? { ...body, everythingUnder: true } : body);
+      // A method that declares its statuses answers { status, result }: what is left
+      // rides a 202's result.
+      return deleteLeftOf(
+        answer && typeof answer === 'object' && 'status' in answer ? (answer as { result?: unknown }).result : answer,
+      );
+    },
+  };
+  return dialog
+    .open<DeleteResourceConfirmationModalComponent, DeleteConfirmation, boolean>(
+      DeleteResourceConfirmationModalComponent,
+      {
+        data,
+        delayFocusTrap: false,
+      },
+    )
+    .afterClosed()
+    .pipe(map((deleted) => (deleted ? { answer: undefined } : undefined)));
 }
 
 /**

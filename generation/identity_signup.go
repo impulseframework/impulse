@@ -339,17 +339,24 @@ func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransacti
 	return c.manager.SignedUp("{{ .Auth }}")
 }
 
-// AnySignInMethodOpen reports whether an administrator has a sign-in method of the
-// {{ .Auth }} auth open to sign-up now, read through reader: the caller's transaction,
-// or the application's client (identity.Manager.AnyMethodOpen). The generated
+// SessionSignInMethodOpen reports whether the sign-in method the session came through is
+// open to sign-up now, read through reader: the caller's transaction, or the
+// application's client (identity.Manager.SessionMethodOpen). The generated
 // create-your-tenant route asks it in the transaction that writes the tenant's row.
-func (c *Client) AnySignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
-	open, err := c.manager.AnyMethodOpen(ctx, reader)
+func (c *Client) SessionSignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+	open, err := c.manager.SessionMethodOpen(ctx, reader)
 	if err != nil {
-		return false, errors.Wrap(err, "identity.Manager.AnyMethodOpen()")
+		return false, errors.Wrap(err, "identity.Manager.SessionMethodOpen()")
 	}
 
 	return open, nil
+}
+
+// OneTenantPerPerson reports whether the {{ .Auth }} auth's people belong to one tenant
+// each (identity.Manager.OneTenantPerPerson). The generated create-your-tenant route sets
+// its creator's directory on the new tenant only there.
+func (c *Client) OneTenantPerPerson() bool {
+	return c.manager.OneTenantPerPerson()
 }
 {{- end }}
 `

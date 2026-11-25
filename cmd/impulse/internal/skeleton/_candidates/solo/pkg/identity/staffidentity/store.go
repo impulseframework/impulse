@@ -467,22 +467,32 @@ func (store) TenantMemberships(ctx context.Context, txn resource.ReadWriteTransa
 	return keys, nil
 }
 
-// DeleteTenantRoles removes the custom roles made in one tenant with their grants: the
-// one write here to the roles and grants tables, whose rows are otherwise the
-// permission engine's to write, made because the tenant itself goes.
+// TenantRoles counts the custom roles made in one tenant: the rows of the roles table
+// under the tenant's own scope, read in the caller's transaction
+// (identity.Store.TenantRoles).
+func (store) TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	query := staffresources.NewStaffRoleQuery().
+		AddColumns(staffresources.NewStaffRoleColumns().Kind().Axis().DomainID().Role()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	roles := 0
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "staffresources.StaffRoleQuery.List()")
+		}
+		roles++
+	}
+
+	return roles, nil
+}
+
+// DeleteTenantRoles removes the custom roles made in one tenant: the one write here to
+// the roles table, whose rows are otherwise the permission engine's to write, made
+// because the tenant itself goes. Each role's grants go with it by the database's rule,
+// the grants table being interleaved in the roles table ON DELETE CASCADE, as the
+// permission engine's own delete of a role takes them.
 func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
 	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
-	grants := staffresources.NewStaffRoleGrantQuery().
-		AddColumns(staffresources.NewStaffRoleGrantColumns().Kind().Axis().DomainID().Role().Permission().ResourceName().Field().Condition()).
-		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
-	var grantPatches []*staffresources.StaffRoleGrantDeletePatch
-	for row, err := range grants.List(ctx, txn) {
-		if err != nil {
-			return 0, errors.Wrap(err, "staffresources.StaffRoleGrantQuery.List()")
-		}
-		grant := row.Data
-		grantPatches = append(grantPatches, staffresources.NewStaffRoleGrantDeletePatch(grant.Kind, grant.Axis, grant.DomainID, grant.Role, grant.Permission, grant.ResourceName, grant.Field, grant.Condition))
-	}
 	roles := staffresources.NewStaffRoleQuery().
 		AddColumns(staffresources.NewStaffRoleColumns().Kind().Axis().DomainID().Role()).
 		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
@@ -493,11 +503,6 @@ func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransa
 		}
 		role := row.Data
 		rolePatches = append(rolePatches, staffresources.NewStaffRoleDeletePatch(role.Kind, role.Axis, role.DomainID, role.Role))
-	}
-	for _, patch := range grantPatches {
-		if err := patch.Buffer(ctx, txn); err != nil {
-			return 0, errors.Wrap(err, "staffresources.StaffRoleGrantDeletePatch.Buffer()")
-		}
 	}
 	for _, patch := range rolePatches {
 		if err := patch.Buffer(ctx, txn); err != nil {
@@ -586,11 +591,48 @@ func (store) MailLink(ctx context.Context, txn resource.ReadWriteTransaction, id
 
 func (store) ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
 	consumedAt := spanner.CommitTimestamp
-	if err := staffresources.NewStaffSessionMailLinkUpdatePatch(id).SetConsumedAt(&consumedAt).Buffer(ctx, txn); err != nil {
+	if err := staffresources.NewStaffSessionMailLinkUpdatePatch(id).SetConsumedAt(&consumedAt).SetWithdrawnAt(&consumedAt).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "staffresources.StaffSessionMailLinkUpdatePatch.Buffer()")
 	}
 
 	return nil
+}
+
+func (store) SentInvitation(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (invitation *identity.SentInvitation, found bool, err error) {
+	// A read that goes past the declarations, as UserID's does: whether an invitation
+	// makes a tenant is its NewTenant document, which is no field of the declaration.
+	// A link of another kind is not found.
+	stmt := spanner.Statement{
+		SQL: "SELECT Email, Name, TenantId, EveryTenant, RoleNames, NewTenant IS NOT NULL, ConsumedAt IS NOT NULL AND WithdrawnAt IS NULL AND MailFailedAt IS NULL, WithdrawnAt IS NOT NULL, MailFailedAt IS NOT NULL, ExpiresAt" +
+			" FROM StaffSessionMailLinks WHERE Id = @id AND Kind = @kind",
+		Params: map[string]any{"id": id.String(), "kind": string(sessionstorage.MailLinkInvitation)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var (
+			sent         identity.SentInvitation
+			name, tenant spanner.NullString
+			roles        []string
+		)
+		if err := row.Columns(&sent.Invitation.Email, &name, &tenant, &sent.Invitation.EveryDomain, &roles, &sent.MakesTenant, &sent.Accepted, &sent.Withdrawn, &sent.NotMailed, &sent.ExpiresAt); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		if name.Valid {
+			sent.Invitation.Name = &name.StringVal
+		}
+		if tenant.Valid {
+			sent.Invitation.Domain = &tenant.StringVal
+		}
+		for _, role := range roles {
+			sent.Invitation.Roles = append(sent.Invitation.Roles, accesstypes.Role(role))
+		}
+		invitation, found = &sent, true
+
+		return nil
+	}); err != nil {
+		return nil, false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return invitation, found, nil
 }
 
 func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
@@ -833,6 +875,67 @@ func (store) ManagingTenants(context.Context, resource.ReadWriteTransaction, imp
 	return nil, nil
 }
 
+// DirectoryUsers answers no account, as ManagingTenants answers no tenant
+// (identity.Store.DirectoryUsers).
+func (store) DirectoryUsers(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
+	return nil, nil
+}
+
+// DeleteCosts answers what the delete of one row of each of the Staff auth's tables
+// a tenant's delete takes costs in a commit, as the schema read at generation tells it:
+// the delete and an entry out of each of the table's indexes besides its key, with no
+// change record, since the declarations write none. The withdrawal of an invitation costs
+// the columns ConsumeMailLink writes and an entry of each index that holds one of them. A
+// table the schema does not hold costs nothing (identity.Store.DeleteCosts).
+func (store) DeleteCosts() identity.TenantDeleteCosts {
+	return identity.TenantDeleteCosts{
+		Membership:  resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		Group:       resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		GroupMember: resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		GroupRole:   resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		Role:        resource.DeleteCost{IndexEntries: 0}.Mutations(false),
+		Identity:    resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		User:        resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		Invitation:  4,
+		SessionEnd:  3,
+	}
+}
+
+// RowsWithUser counts what the database's own rules add to the delete of the user's row,
+// in mutations: each row of each table that hangs on the user by a foreign key declared
+// ON DELETE CASCADE, as the schema read at generation holds them, with an entry out of
+// each of that table's indexes, counted in the caller's transaction
+// (identity.Store.RowsWithUser). The tables: StaffSessionDeviceCodes, StaffSessionIdentities, StaffSessionMailLinks, StaffSessionTokens, StaffSessionTrustedDevices.
+func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {
+	stmt := spanner.Statement{
+		SQL:    "SELECT (SELECT COUNT(*) FROM StaffSessionDeviceCodes c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM StaffSessionIdentities c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM StaffSessionMailLinks c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM StaffSessionTokens c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM StaffSessionTrustedDevices c0 WHERE c0.UserId = @userId)",
+		Params: map[string]any{"userId": userID.String()},
+	}
+	costs := []int{
+		resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(false),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(false),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+	}
+	rows := 0
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		for i, cost := range costs {
+			var count int64
+			if err := row.Column(i, &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.Column()")
+			}
+			rows += int(count) * cost
+		}
+
+		return nil
+	}); err != nil {
+		return 0, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return rows, nil
+}
+
 // groupID answers a group's id as the declarations hold it, from the text the permission
 // store names a group by.
 func groupID(group accesstypes.Group) (impulse.UUID, error) {
@@ -899,12 +1002,19 @@ func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransactio
 	return nil
 }
 
-func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
-	if err := staffresources.NewStaffGroupDeletePatch(id).Buffer(ctx, txn); err != nil {
-		return errors.Wrap(err, "staffresources.StaffGroupDeletePatch.Buffer()")
+func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
+	// The group's delete takes its members and its roles (its @deleteCascade). The
+	// patch is not armed against a caller: the method that deletes the group has asked
+	// the caller's grants, and the rows are taken trusted.
+	patch := staffresources.NewStaffGroupDeletePatch(id)
+	if everythingUnder {
+		patch = patch.WithEverythingUnder()
+	}
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return nil, errors.Wrap(err, "staffresources.StaffGroupDeletePatch.Buffer()")
 	}
 
-	return nil
+	return patch.Left(), nil
 }
 
 func (store) TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {

@@ -139,6 +139,67 @@ const (
 	// person holds roles.
 	identityTenantHeldAlone = `HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally`
 
+	// identityTenantDisplayName is the name a person of a tenant's list is shown by, over
+	// the account u: their name, or their username where they have none. The list's query
+	// and its name query both write it, so a person's name on the list and beside an id
+	// that points to them cannot differ.
+	identityTenantDisplayName = `COALESCE(NULLIF(u.Name, ''), u.Username)`
+
+	// identityManagingTenant is who manages an account as the whole application's lists
+	// say it, as one column of a select over the account read under u: ManagingTenant, the
+	// key of the tenant whose list of its people says ManagedHere on the person's row, the
+	// lower key where two lists say it, and NULL where none does. ManagedHere is read as
+	// the tenant's list reads it, by the same constants over the same columns, so the two
+	// always agree; each list that carries the column says ManagedByTenant beside it, as
+	// ManagingTenant IS NOT NULL.
+	//
+	// The tenants asked about are the ones in whose list the person is a row by something
+	// they hold there themselves now (a membership in the tenant, a place in one of its
+	// own groups, each inside its period: identitySourceData.Counting, as the list reads
+	// who its people are) and the ones whose directory the person signs in through. A row
+	// a tenant's list holds only through a role held in every tenant, or through a group
+	// kept for the whole application, says ManagedHere through the tenant's directory
+	// alone, so those tenants are found by the directory. Each is found through an index
+	// by user (the memberships', the group members', the identities'): no row reads the
+	// tenant record's table or the memberships table as a whole. A group's tenant and a
+	// directory's are read as an array unnested beside the place's or the identity's row,
+	// which Spanner counts as no join (identityTenantDirectoryPeople): the column adds to
+	// the joins of the statement only the two of identityGroupPersonElsewhere and
+	// identityGroupPersonGlobally, where the auth keeps groups.
+	identityManagingTenant = `  (SELECT MIN(mt.DomainId) FROM (
+    SELECT DomainId, ` + identityTenantManagedFacts + `
+    FROM (
+      SELECT
+        t.DomainId AS DomainId,
+` + identityTenantPersonFacts + identityTenantPersonHeldHere + identityTenantThroughFacts + `
+      FROM (
+        SELECT mm.DomainId AS DomainId
+        FROM {{ .Policy.UserRoles }} mm
+        WHERE mm.UserId = u.Id AND mm.Kind = {{ .KindDomain }} AND mm.Axis = {{ .ScopeAxis }}
+          AND {{ .Counting "mm" }}
+{{- if .KeepsGroups }}
+        UNION DISTINCT
+        SELECT mg AS DomainId
+        FROM {{ .Policy.GroupMembers }} mp, UNNEST(ARRAY(
+          SELECT g.DomainId FROM {{ .Policy.Groups }} g
+          WHERE g.Id = mp.GroupId AND g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }}
+        )) AS mg
+        WHERE mp.UserId = u.Id AND {{ .Counting "mp" }}
+{{- end }}
+{{- if and .TenantDirectory .HasIdentities }}
+        UNION DISTINCT
+        SELECT md AS DomainId
+        FROM {{ .Tables.Identities }} mi, UNNEST(ARRAY(
+          SELECT d.{{ .TenantDirectory.TenantColumn }} FROM {{ .TenantDirectory.Table }} d
+          WHERE d.{{ .TenantDirectory.MethodColumn }} = mi.Method AND d.{{ .TenantDirectory.ConnectionColumn }} = mi.Connection
+        )) AS md
+        WHERE mi.UserId = u.Id
+{{- end }}
+      ) t
+    )
+  ) mt
+  WHERE mt.ManagedHere) AS ManagingTenant`
+
 	// identityTenantPeopleFrom selects the people of every tenant, t the tenant and the
 	// name and u the account: who holds a role in a tenant (one tenant's memberships, and
 	// the memberships held in every tenant once per row of the tenant record's table),
@@ -300,9 +361,7 @@ import (
 	{{- if .AdministratorsEnter }}
 	"github.com/impulseframework/impulse/accesstypes"
 	{{- end }}
-	{{- if .OffersToEntering }}
 	"github.com/impulseframework/impulse/resource"
-	{{- end }}
 )
 
 type (
@@ -336,7 +395,10 @@ type (
 	// uses the facts to say what a tenant may see and do of a person whose account it
 	// does not manage. The list filters and sorts by the username and by the six facts;
 	// the account's other columns are no filter keys, so a role file may grant any of
-	// them under a condition at no cost to a page.
+	// them under a condition at no cost to a page. DisplayName is what a list that points
+	// to a person shows them by: their name, or their username when they have none. It is
+	// the view's name (@name), so a field of another resource that holds a person's id
+	// gets a name field read from it.
 	//
 	// Roles (roles) is what the person holds in this tenant itself: the name of each role
 	// once, in alphabetical order, of the roles {{ .TenantHeldRole }} lists for the person
@@ -387,9 +449,11 @@ type (
 		// @primarykey
 		ID impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `
 		// @domain
-		DomainID               string     ` + "`spanner:\"DomainId\" index:\"true\"`" + `
-		Username               string     ` + "`spanner:\"Username\" index:\"true\"`" + `
-		Name                   *string    ` + "`spanner:\"Name\"`" + `
+		DomainID string  ` + "`spanner:\"DomainId\" index:\"true\"`" + `
+		Username string  ` + "`spanner:\"Username\" index:\"true\"`" + `
+		Name     *string ` + "`spanner:\"Name\"`" + `
+		// @name
+		DisplayName            string     ` + "`spanner:\"DisplayName\" allow_filter:\"true\"`" + `
 		Email                  *string    ` + "`spanner:\"Email\"`" + `
 		EmailVerifiedAt        *time.Time ` + "`spanner:\"EmailVerifiedAt\"`" + `
 		Disabled               bool       ` + "`spanner:\"Disabled\"`" + `
@@ -439,6 +503,7 @@ SELECT
   t.DomainId AS DomainId,
   u.Username AS Username,
   u.Name AS Name,
+  ` + identityTenantDisplayName + ` AS DisplayName,
   u.Email AS Email,
   u.EmailVerifiedAt AS EmailVerifiedAt,
   u.Disabled AS Disabled,
@@ -450,6 +515,20 @@ SELECT
 ` + identityTenantPersonFacts + identityTenantPersonHeldHere + identityTenantPersonInEveryTenant + identityTenantThroughFacts + `{{ if .TenantDirectory }}` + identityTenantDirectoryFacts + `{{ end }}
 ` + identityTenantPeopleFrom + `{{ if .TenantDirectory }}` + identityTenantDirectoryJoins + `{{ end }}
 ) p
+` + "`" + `
+
+// {{ GoCamel .TenantUser }}NameQuery selects, for every {{ .TenantWord }}, its people's ids and the name each is
+// shown by: the rows of {{ GoCamel .TenantUser }}Query, one for one, from the same people and their
+// accounts, without the facts of where a person holds roles and who manages the account. A list
+// that shows a person by name reads the name from it (NameSubquery): a name's query is written
+// into the statement of the list that shows it, the facts' joins are the larger part of the
+// list's own query, and Spanner refuses a statement of more than twenty joins.
+const {{ GoCamel .TenantUser }}NameQuery = ` + "`" + `
+SELECT
+  u.Id AS Id,
+  t.DomainId AS DomainId,
+  ` + identityTenantDisplayName + ` AS DisplayName
+` + identityTenantPeopleFrom + `
 ` + "`" + `
 
 {{- if .AdministratorsEnter }}
@@ -488,6 +567,14 @@ func ({{ .TenantUser }}) Subquery() (query string, params map[string]any) {
 	return {{ GoCamel .TenantUser }}Query, nil
 	{{- end }}
 }
+
+// NameSubquery is the query a list that points to a person reads the person's name from
+// (resource.NameSubqueryer): the person's id, the {{ .TenantWord }} and DisplayName.
+func ({{ .TenantUser }}) NameSubquery() (query string, params map[string]any) {
+	return {{ GoCamel .TenantUser }}NameQuery, nil
+}
+
+var _ resource.NameSubqueryer = {{ .TenantUser }}{}
 {{- if .OffersToEntering }}
 
 ` + identityTenantsToEnterDoc + `
@@ -620,8 +707,11 @@ type (
 	// {{ .TenantName }}: a row of {{ .Tables.MailLinks }} of the invitation kind that names
 	// the tenant, with the columns {{ .MailLink }} serves of it. DomainId is the tenant the
 	// invitation seats a person in (the link's TenantId), and RoleNames the roles it gives
-	// there, and Name the name its sender gave the person, where they gave one. The
-	// link itself is in the message alone and its hash is not a column.
+	// there, and Name the name its sender gave the person, where they gave one. State
+	// says what became of the invitation (open, accepted, withdrawn, expired,
+	// notMailed), and SentBy who sent it. An invitation that makes a tenant names no
+	// tenant, so it is never a row of this list. The link itself is in the message alone
+	// and its hash is not a column.
 	//
 	// Pending is a fact about the row, under the name a grant's condition reads
 	// (pending): the invitation stands, neither accepted nor withdrawn (both consume it)
@@ -647,9 +737,12 @@ type (
 		// @roleOf({{ .Auth }})
 		RoleNames  []string      ` + "`spanner:\"RoleNames\"`" + `
 		InvitedByUserID  *impulse.UUID ` + "`spanner:\"InvitedByUserId\"`" + `
+		SentBy     *string       ` + "`spanner:\"SentBy\"`" + `
 		CreatedAt  time.Time     ` + "`spanner:\"CreatedAt\" index:\"true\"`" + `
 		ExpiresAt  time.Time     ` + "`spanner:\"ExpiresAt\"`" + `
 		ConsumedAt *time.Time    ` + "`spanner:\"ConsumedAt\"`" + `
+		WithdrawnAt *time.Time   ` + "`spanner:\"WithdrawnAt\"`" + `
+		State      string        ` + "`spanner:\"State\" index:\"true\"`" + `
 		// @attribute(pending)
 		Pending bool ` + "`spanner:\"Pending\" index:\"true\"`" + `
 	}
@@ -657,8 +750,9 @@ type (
 
 // {{ GoCamel .TenantMailLink }}Query selects the invitations of every tenant: the mail
 // links of the invitation kind that name one. The table's index by tenant holds them
-// newest first, with the columns the list shows, so a page reads its own rows from the
-// index and nothing else.
+// newest first, with every column of the table the list reads, so a page reads its own
+// rows from the index and no row of the table; the sender's name is read from the users
+// table, by the sender's id.
 const {{ GoCamel .TenantMailLink }}Query = ` + "`" + `
 SELECT
   l.Id AS Id,
@@ -667,11 +761,21 @@ SELECT
   l.Name AS Name,
   l.RoleNames AS RoleNames,
   l.InvitedByUserId AS InvitedByUserId,
+{{- if .Has "users" }}
+  COALESCE(NULLIF(iu.Name, ''), iu.Username) AS SentBy,
+{{- else }}
+  CAST(NULL AS STRING) AS SentBy,
+{{- end }}
   l.CreatedAt AS CreatedAt,
   l.ExpiresAt AS ExpiresAt,
   l.ConsumedAt AS ConsumedAt,
+  l.WithdrawnAt AS WithdrawnAt,
+{{ .MailLinkState "l" }},
   (l.ConsumedAt IS NULL AND l.ExpiresAt > CURRENT_TIMESTAMP()) AS Pending
 FROM {{ .Tables.MailLinks }} l
+{{- if .Has "users" }}
+LEFT JOIN {{ .Tables.Users }} iu ON iu.Id = l.InvitedByUserId
+{{- end }}
 WHERE l.Kind = {{ .InvitationKind }} AND l.TenantId IS NOT NULL
 ` + "`" + `
 

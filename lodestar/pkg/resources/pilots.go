@@ -20,6 +20,9 @@ type (
 	// The roster declares a default page but no maximum, so limit=all is legal on it and
 	// the client's all() has a home.
 	//
+	// DisplayName is indexed (PilotsByDisplayName), so a list that shows a pilot by name
+	// is filtered by that name alone.
+	//
 	// Demonstrates: @subjectValue, @subjectValue.two-per-anchor, paging.limit-all.
 	//
 	// @resource
@@ -30,7 +33,8 @@ type (
 		// @subjectValue(clearance, value: Clearance)
 		// @subjectValue(feeLimit, value: FeeLimit)
 		// @enumerate(CrewSessionUsers)
-		UserID      string          `spanner:"UserId"`
+		UserID string `spanner:"UserId"`
+		// @name
 		DisplayName string          `spanner:"DisplayName"`
 		Clearance   int64           `spanner:"Clearance"`
 		FeeLimit    decimal.Decimal `spanner:"FeeLimit"`

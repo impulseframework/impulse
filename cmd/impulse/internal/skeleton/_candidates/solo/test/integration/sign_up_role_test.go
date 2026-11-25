@@ -102,7 +102,7 @@ func TestSignUp_theDefaultRoleIsOneTheOpenerMayGive(t *testing.T) {
 	if status, body := greeter.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(request)); status != http.StatusNoContent {
 		t.Fatalf("opening with the role the greeter may give: status %d: %s", status, body)
 	}
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || !got[0].OpenSignUp || got[0].DefaultRole != "FeatureAdministrator" {
+	if got := passwordMethod(ctx, t, admin); !got.OpenSignUp || got.DefaultRole != "FeatureAdministrator" {
 		t.Errorf("the sign-in methods once the greeter opened the password method = %+v, want it open with the role", got)
 	}
 }
@@ -144,7 +144,7 @@ func TestSignUp_anOpenRowCountsForTheAudienceItWasOpenedFor(t *testing.T) {
 	before := signin.Audience{Organizations: []string{"lakeside.example"}, Accounts: "", Identities: []string{"google-workspace-domain:lakeside.example"}}.Key()
 	setOpenedFor(ctx, t, s, &before)
 	wantSays := "Invite only: the people this method admits have changed since it was opened, and it admits anyone with an email address now. Open it again to admit them."
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || got[0].OpenSignUp || got[0].DefaultRole != "" || got[0].Says != wantSays {
+	if got := passwordMethod(ctx, t, admin); got.OpenSignUp || got.DefaultRole != "" || got.Says != wantSays {
 		t.Errorf("the sign-in methods with a row opened for another audience = %+v, want invite only, saying %q", got, wantSays)
 	}
 	stranger := newBrowser(t, s)
@@ -164,7 +164,7 @@ func TestSignUp_anOpenRowCountsForTheAudienceItWasOpenedFor(t *testing.T) {
 	if got := openedFor(ctx, t, s); got == nil || *got != registered {
 		t.Fatalf("the audience the row keeps once the method is opened again = %v, want %s", got, registered)
 	}
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || !got[0].OpenSignUp || got[0].DefaultRole != "FeatureAdministrator" {
+	if got := passwordMethod(ctx, t, admin); !got.OpenSignUp || got.DefaultRole != "FeatureAdministrator" {
 		t.Errorf("the sign-in methods once the method is opened again = %+v, want it open with the role", got)
 	}
 	signedUp(ctx, t, s, "pat@mail.example", "pat")
@@ -172,7 +172,7 @@ func TestSignUp_anOpenRowCountsForTheAudienceItWasOpenedFor(t *testing.T) {
 	// A row that names no audience opens nothing.
 	setOpenedFor(ctx, t, s, nil)
 	wantSays = "Invite only: this method was opened before its audience was kept, and it admits anyone with an email address now. Open it again to admit them."
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || got[0].OpenSignUp || got[0].Says != wantSays {
+	if got := passwordMethod(ctx, t, admin); got.OpenSignUp || got.Says != wantSays {
 		t.Errorf("the sign-in methods with a row that names no audience = %+v, want invite only, saying %q", got, wantSays)
 	}
 	if status, body := stranger.do(ctx, http.MethodPost, "/api/user/sign-up", []byte(`{"email":"quinn@mail.example"}`)); status != http.StatusNotFound {
@@ -184,7 +184,7 @@ func TestSignUp_anOpenRowCountsForTheAudienceItWasOpenedFor(t *testing.T) {
 	// admits, so it reads as a row opened before its audience was kept.
 	earlier := `{"organizations":[],"accounts":"an email address"}`
 	setOpenedFor(ctx, t, s, &earlier)
-	if got := signInMethods(ctx, t, admin); len(got) != 1 || got[0].OpenSignUp || got[0].DefaultRole != "" || got[0].Says != wantSays {
+	if got := passwordMethod(ctx, t, admin); got.OpenSignUp || got.DefaultRole != "" || got.Says != wantSays {
 		t.Errorf("the sign-in methods with a row that kept its audience by words = %+v, want invite only, saying %q", got, wantSays)
 	}
 	accounts = countRows(ctx, t, s, "StaffSessionUsers")

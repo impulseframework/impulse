@@ -45,7 +45,7 @@ The `access.Store` interface the two subpackages implement is sealed: only this 
 - `DeleteRole` refuses while memberships held in that scope that have not ended still name the role, checked in the same transaction as the delete, and takes the ended ones with the role. A custom role given at the same moment takes its turn with the delete, by Spanner's serializable transactions and on PostgreSQL by the role's row, which the giver locks shared while it writes and the delete locks before it looks for who holds the role: either the delete sees the new row and refuses, or the giver finds the role gone and writes nothing. A role held in every domain is also refused while a membership or a group's role held in one domain names it and that domain has no custom role of the name itself, and the ended ones of those go with the role.
 - A membership, a place in a group and a group's role each carry the period they count in, in two nullable columns, `StartsAt` and `EndsAt` (see Periods). An insert gives the row its period: it writes the row where the key is free, and where it is taken it replaces the period and leaves the rest of the row as it was. A membership carries the reason it was given for too, in a nullable column `Reason` (see What is held and why): its insert writes the reason with the period and replaces both where the key is taken, so the reason kept is the one the role was last given with. No row is written when a period begins or ends. The listings of what a person or a group holds return the rows that count at the database's present; `ReadPolicy` returns every row with its period.
 - `Groups` holds the groups of people, each under an id the access package generates, with where it is kept (`Kind` is `global` or `domain`, checked in the database: no group is kept in every domain), its name and its description. A unique index (`{Prefix}{Store}GroupsByName`) holds a name to one group where the group is kept.
-- `GroupMembers` holds the people in each group and `GroupRoles` the roles each group holds, a role named by name alone as a membership names it (`InsertCustomGroupRole` reads a custom role's row as `InsertCustomUserRole` does). Both reference their group (a foreign key in both stores), so `DeleteGroup` refuses a group that still has a member or holds a role that has not ended, checked in the same transaction as the delete, takes the ended ones with the group, and the database stands behind the check. A grant written to a role, or a person or a role given to a group, that was deleted at that moment is not written, and the caller is told the role or the group does not exist. An index led by the user (`{Prefix}{Store}GroupMembersByUserId`) serves the groups a person is in, and one led by where a role is held (`{Prefix}{Store}GroupRolesByScope`) serves the group roles held in one tenant.
+- `GroupMembers` holds the people in each group and `GroupRoles` the roles each group holds, a role named by name alone as a membership names it (`InsertCustomGroupRole` reads a custom role's row as `InsertCustomUserRole` does). Both reference their group (a foreign key in both stores), and `DeleteGroup` deletes a group with its members and the roles it holds, in one transaction. A grant written to a role, or a person or a role given to a group, that was deleted at that moment is not written, and the caller is told the role or the group does not exist. An index led by the user (`{Prefix}{Store}GroupMembersByUserId`) serves the groups a person is in, and one led by where a role is held (`{Prefix}{Store}GroupRolesByScope`) serves the group roles held in one tenant.
 - `ReadPolicy` reads the custom roles, their grants, the memberships, and the groups with their members and roles, with one consistent view of the store, for the snapshot to compile.
 - Inserting an existing row and deleting an absent one are no-ops, and list results are sorted.
 
@@ -583,9 +583,11 @@ mgr.AddGroupRoles(ctx, watch, accesstypes.DomainPolicyScope("tenant1"), "Editor"
 mgr.AddGroupRoles(ctx, auditors, accesstypes.EveryDomainPolicyScope(), "Viewer")
 mgr.AddGroupUsers(ctx, watch, "john.doe", "jane.roe")
 
-// Emptied, a group is deleted.
-mgr.DeleteGroupUsers(ctx, watch, "john.doe", "jane.roe")
-mgr.DeleteGroupRoles(ctx, watch, accesstypes.DomainPolicyScope("tenant1"), "Editor")
+// A person leaves a group, and a group loses a role, each by an act of its own.
+mgr.DeleteGroupUsers(ctx, watch, "jane.roe")
+mgr.DeleteGroupRoles(ctx, auditors, accesstypes.EveryDomainPolicyScope(), "Viewer")
+
+// A group is deleted with its members and the roles it holds.
 mgr.DeleteGroup(ctx, watch)
 ```
 
@@ -597,9 +599,7 @@ mgr.DeleteGroup(ctx, watch)
   whole application holds roles in the global partition, in one domain or in every domain
 - No group holds the Super Administrator role, so a group is no way around the rule that
   only a super administrator makes another: the writes refuse it
-- `DeleteGroup` refuses a group that still has a member or holds a role. Nobody loses a
-  role because a group was deleted: each person is removed and each role taken by an act
-  of its own
+- `DeleteGroup` deletes a group with its members and the roles it holds.
 - `DeleteRole` refuses a custom role a group holds, as it refuses one a person holds: a
   role deleted from under a group would leave the group's row behind, and a role of the
   name made again would at once be held by everyone in the group. Take the role away
@@ -699,8 +699,7 @@ losers, err := mgr.GroupRoleLosers(ctx, watch, tenant1, "Editor") // who loses E
   not ended, one whose period has not begun among them; the ones through a group are the
   ones `UserRoles` counts now
 - `GroupContents` counts what has not ended, an assignment whose period has not begun
-  among it, which is what `DeleteGroup` refuses a group for: a group listed with no
-  people and no roles is one `DeleteGroup` removes
+  among it
 - `GroupRoleLosers` lists the people in the group now who hold the role there through
   this group and in no other way. A person who also holds it themselves, through another
   group, or in every tenant when the scope is one tenant, keeps it and is not listed.
@@ -864,7 +863,12 @@ release whose default roles are wrong does not start.
 A collection may mark an action as one no role is given, as the generator marks the
 action of the create-your-tenant route (`NoRole: true` in the generated collection).
 Nothing asks for a grant of such an action: it is registered only so that a permission
-mask can refuse it to a session that acts as someone. A role file that grants one is
+mask can refuse it to a session that acts as someone. A method that another method's
+grant judges is marked the same way, for another reason (`JudgedBy` beside
+`NoRole: true`, as the generator marks sending an invitation again, judged by the grant
+on the invitation): whoever may run the other method may run it, so nothing asks for a
+grant of it either, and a permission mask is asked about the other method, so a mask
+that names the action itself refuses nothing. A role file that grants one is
 refused, in a sentence that names the role and the action and says to remove the grant,
 and a grant of one that the store already holds for a custom role is skipped at the load
 and reported by `CheckPolicy`, as a grant on a name this release does not declare. The

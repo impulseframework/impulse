@@ -39,6 +39,15 @@ func (MissionDocument) TenantBinding() resource.TenantBinding {
 	return resource.TenantBinding{Field: "MissionID", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (MissionDocument) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "MissionName", Key: "MissionID", Resource: "Missions", Tag: "title", Table: "Missions", KeyColumn: "Id", NameColumn: "Title", TenantColumn: "SectorId"},
+	}
+}
+
 // missionDocumentRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; missionDocumentReadSets holds one Set per read operation.

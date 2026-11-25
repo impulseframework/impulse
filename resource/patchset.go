@@ -57,9 +57,17 @@ type PatchSet[Resource Resourcer] struct {
 	everythingUnder bool
 	// underAnswered marks a delete whose rows under the record were answered for when it
 	// was buffered, so nothing is counted under it before the commit: a record whose rows
-	// to take were walked (deleteTaken), and a row a record's delete takes with it
-	// (bufferTaken).
+	// to take were counted and checked (deleteTaken), and a row a record's delete takes
+	// with it (bufferTaken).
 	underAnswered bool
+	// deleteLeft is what the delete the patch buffered left under its record (DeleteLeft).
+	deleteLeft *DeleteLeft
+	// deleteSaveSize is the most mutations one save of a delete that takes rows holds,
+	// DeleteMutationLimit where it is zero: a test makes it small.
+	deleteSaveSize int
+	// alsoTaken are the kinds code hands the delete to take beside the description's
+	// (DeleteAlso).
+	alsoTaken []TakenKind
 	// fork is set on an update-or-create (OrCreate) and on a create-unless-there
 	// (OrSkip) patch, and nil on every other (patch_fork.go).
 	fork *patchFork[Resource]
@@ -606,7 +614,6 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 	if err := txn.BufferMap(p, patch); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
 	}
-	p.recordWrittenRow(txn)
 
 	if p.querySet.rMeta.trackChanges {
 		if err := p.bufferUpdateWithDataChangeEvent(ctx, txn, event, before); err != nil {
@@ -652,7 +659,6 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 	if err := txn.BufferMap(p, patch); err != nil {
 		return errors.Wrap(err, "ReadWriteTransaction.Buffer()")
 	}
-	p.recordWrittenRow(txn)
 
 	if p.querySet.rMeta.trackChanges {
 		if err := p.bufferInsertOrUpdateWithDataChangeEvent(ctx, txn, event, before); err != nil {
@@ -670,11 +676,12 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 // the tenancy check, and then the resource's delete rule (RegisterValidateDeleteFunc).
 // The rule is asked last, so a caller the grants refuse gets their Forbidden whatever
 // the rule would have said, and learns nothing from its sentence. It writes nothing. A
-// delete of one row runs it (bufferDelete), and so does whatever must know that a row
-// may go before it removes any, so the two never disagree about a row: a delete that
-// takes the row with a record it is under (deleteTaken). byRule says a refusal is the
-// row's own reason, the registered question's or the rule's, whose sentence is passed
-// on, and not the grants'. What the generated code asks comes ahead of the conditions,
+// delete of one row runs it (bufferDelete), and whatever must know that a row may go
+// before it removes any asks the same in the same order, so the two never disagree
+// about a row: a delete that takes the row with a record it is under (deleteTaken)
+// asks the grants once for the row's kind and the rest of each row (checkTaken). byRule
+// says a refusal is the row's own reason, the registered question's or the rule's,
+// whose sentence is passed on, and not the grants'. What the generated code asks comes ahead of the conditions,
 // as on the resource's own route, which asks it once the operation is decoded: a caller
 // who holds the grant, and whose condition would refuse the row, reads that question's
 // sentence where it refuses, by either way to the row.
@@ -715,18 +722,46 @@ func (p *PatchSet[Resource]) DeleteEverythingUnder() *PatchSet[Resource] {
 	return p
 }
 
+// DeleteAlso hands the delete the patch carries kinds of row it takes with the record
+// that the record's description does not list (TakenKind): the question counts them
+// after the description's kinds, the check before the delete asks them, and each round
+// takes what fits of them after the description's kinds and before the record. A delete
+// handed kinds takes rows though its description lists none.
+func (p *PatchSet[Resource]) DeleteAlso(kinds ...TakenKind) *PatchSet[Resource] {
+	p.alsoTaken = append(p.alsoTaken, kinds...)
+
+	return p
+}
+
+// DeleteLeft is what the delete the patch carries left under its record once it is
+// buffered: nil for a delete that finished, the record's row with it; otherwise the rows
+// this save deleted, none where the save only made room for a later one, and the rows
+// still under the record, whose own row stands until a save takes the last of them.
+func (p *PatchSet[Resource]) DeleteLeft() *DeleteLeft {
+	return p.deleteLeft
+}
+
 // bufferDelete buffers the delete of the patch's row: the row's check, then the rows
-// the record's delete takes with it (deleteTaken), then the row itself.
+// the record's delete takes with it (deleteTaken), then the row itself, once a save
+// takes the last row under it.
 func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+	p.deleteLeft = nil
 	if _, err := p.checkDelete(ctx, txn); err != nil {
 		return err
 	}
 
-	answered, err := p.deleteTaken(ctx, txn, eventSource...)
+	round, err := p.deleteTaken(ctx, txn, eventSource...)
 	if err != nil {
 		return err
 	}
-	p.underAnswered = p.underAnswered || answered
+	if round != nil {
+		p.underAnswered = true
+		if !round.finished {
+			p.deleteLeft = round.left()
+
+			return nil
+		}
+	}
 
 	return p.bufferCheckedDelete(ctx, txn, eventSource...)
 }

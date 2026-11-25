@@ -24,6 +24,7 @@ import (
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	"google.golang.org/grpc/codes"
 )
 
@@ -177,14 +178,16 @@ func TestGeneratedIdentityDigest(t *testing.T) {
 				"CrewSessionUsers": {"List": accesstypes.DigestGranted, "Read": accesstypes.DigestGranted},
 				"CrewSessions":     {"List": accesstypes.DigestGranted, "Read": accesstypes.DigestGranted},
 				"CrewUserRoles":    {"List": accesstypes.DigestGranted},
-				"DisableCrewUser":  {"Execute": accesstypes.DigestGranted},
-				"EnableCrewUser":   {"Execute": accesstypes.DigestGranted},
-				"AssignCrewRole":   {"Execute": accesstypes.DigestGranted},
-				"RemoveCrewRole":   {"Execute": accesstypes.DigestGranted},
+				// The acts on an account are Headquarters' on the accounts no sector manages
+				// (managedByTenant = false), so the digest says they depend on the row.
+				"DisableCrewUser": {"Execute": accesstypes.DigestConditional},
+				"EnableCrewUser":  {"Execute": accesstypes.DigestConditional},
+				"AssignCrewRole":  {"Execute": accesstypes.DigestGranted},
+				"RemoveCrewRole":  {"Execute": accesstypes.DigestGranted},
 				// The account actions, the lockout, the invitations and the members' own.
-				"RenameCrewUser":                  {"Execute": accesstypes.DigestGranted},
-				"DeleteCrewUser":                  {"Execute": accesstypes.DigestGranted},
-				"RevokeCrewUserTrustedDevices":    {"Execute": accesstypes.DigestGranted},
+				"RenameCrewUser":                  {"Execute": accesstypes.DigestConditional},
+				"DeleteCrewUser":                  {"Execute": accesstypes.DigestConditional},
+				"RevokeCrewUserTrustedDevices":    {"Execute": accesstypes.DigestConditional},
 				"UnlockCrewSignIn":                {"Execute": accesstypes.DigestGranted},
 				"InviteCrewUser":                  {"Execute": accesstypes.DigestGranted},
 				"WithdrawCrewInvitation":          {"Execute": accesstypes.DigestGranted},
@@ -589,8 +592,8 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 // administrator keeps the role; a person who removes a role from themselves in a sector
 // keeps an administrator role nobody else would hold there (the marshal's, which a
 // marshal of every sector does not stand in for: they are no marshal of the sector's
-// own); and the removal of a person's last role anywhere deletes the account in the
-// same transaction.
+// own); and the removal of a person's last role anywhere leaves the account standing,
+// holding nothing.
 func TestGeneratedIdentityRules(t *testing.T) {
 	t.Parallel()
 	w := newIdentityWorld(t)
@@ -666,8 +669,8 @@ func TestGeneratedIdentityRules(t *testing.T) {
 		t.Errorf("hana's marshal membership once another marshal stands: err = %v, want not found", err)
 	}
 
-	// The last role anywhere: ivan holds two; the first removal leaves the account,
-	// the second deletes it with the membership, in one transaction.
+	// The last role anywhere: ivan holds two; after either removal the account stands,
+	// and after the second it holds nothing.
 	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", marshal(ivanUser))
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, "governor", http.MethodGet, consoleAPI+"/crew-session-users/"+ivanID, "")
@@ -675,20 +678,23 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", `{"userId":"`+ivanID+`","role":"CrewCommon"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, "governor", http.MethodGet, consoleAPI+"/crew-session-users/"+ivanID, "")
-	if status != http.StatusNotFound {
-		t.Errorf("ivan's account after his last role went: status %d, want 404: %s", status, body)
+	if status != http.StatusOK {
+		t.Errorf("ivan's account after his last role went: status %d, want 200, the account kept: %s", status, body)
 	}
-	if _, err := w.db.Single().ReadRow(ctx, "CrewUserRoles", crewMembershipKey("CrewCommon", ivanUser), []string{"UserId"}); spanner.ErrCode(err) != codes.NotFound {
-		t.Errorf("ivan's last membership: err = %v, want not found", err)
+	if got := crewHeldBy(t, w.db, ivanID); len(got) != 0 {
+		t.Errorf("ivan holds %v after his last role went, want nothing", got)
 	}
 
 	// Hana's own last role: she gives up headquarters, which the governor holds too,
-	// and the account goes with it, as anyone's does.
+	// and the account stays, holding nothing, as anyone's does.
 	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", `{"userId":"`+hanaID+`","role":"Headquarters"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, "governor", http.MethodGet, consoleAPI+"/crew-session-users/"+hanaID, "")
-	if status != http.StatusNotFound {
-		t.Errorf("hana's account after her last role went: status %d, want 404: %s", status, body)
+	if status != http.StatusOK {
+		t.Errorf("hana's account after her last role went: status %d, want 200, the account kept: %s", status, body)
+	}
+	if got := crewHeldBy(t, w.db, hanaID); len(got) != 0 {
+		t.Errorf("hana holds %v after her last role went, want nothing", got)
 	}
 }
 
@@ -1067,9 +1073,11 @@ func TestGeneratedIdentityCredentials(t *testing.T) {
 		t.Errorf("require-crew-password-change of a person with no password: status %d, want 400: %s", status, body)
 	}
 
-	// Identities, written as a sign-in through the fleet's directory writes them, under
-	// the connection the crew's Google sign-in takes, so each is a way in: two for the
-	// person with no password, one for the marshal, who holds a password.
+	// Identities, written as the crew's open Google sign-up writes one for a personal
+	// Google account, under the connection of any Google account, which that sign-in
+	// takes, so each is a way in: two for the person with no password, one for the
+	// marshal, who holds a password. No sector's directory can be that connection, so no
+	// sector manages either person's account, and the fleet's unlink reaches each.
 	marshalID := crewAccountID(ctx, t, hq, "marshal")
 	link := func(userID, subject string) string {
 		id, err := impulse.NewUUID()
@@ -1077,7 +1085,7 @@ func TestGeneratedIdentityCredentials(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionIdentities", map[string]any{
-			"Id": id.String(), "UserId": userID, "Method": "google", "Connection": "example", "Subject": subject,
+			"Id": id.String(), "UserId": userID, "Method": "google", "Connection": signin.GoogleAnyAccountConnection, "Subject": subject,
 			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
 		})}); err != nil {
 			t.Fatalf("writing an identity of %s: %v", userID, err)

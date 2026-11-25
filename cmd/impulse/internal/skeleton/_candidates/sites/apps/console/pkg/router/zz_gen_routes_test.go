@@ -181,6 +181,10 @@ func generatedRouteParameters() []string {
 		"staffGroupUserGroupID",
 		"staffGroupUserUserID",
 		"staffListedGroupID",
+		"staffListedIdentityID",
+		"staffListedMailLinkID",
+		"staffListedSessionID",
+		"staffListedTenantID",
 		"staffListedUserID",
 		"staffSessionID",
 		"staffSessionIdentityID",
@@ -368,6 +372,96 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/api/staff-listed-group-roles", method: http.MethodPost,
 			handlerFunc: "StaffListedGroupRoles",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-identities", method: http.MethodGet,
+			handlerFunc: "StaffListedIdentities",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-identities", method: http.MethodPost,
+			handlerFunc: "StaffListedIdentities",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-identities/testStaffListedIdentityID", method: http.MethodGet,
+			handlerFunc: "StaffListedIdentity",
+			parameters:  map[string]string{"staffListedIdentityID": "testStaffListedIdentityID"},
+		},
+		{
+			url: "/api/staff-listed-identities/testStaffListedIdentityID", method: http.MethodPost,
+			handlerFunc: "StaffListedIdentity",
+			parameters:  map[string]string{"staffListedIdentityID": "testStaffListedIdentityID"},
+		},
+		{
+			url: "/api/staff-listed-mail-links", method: http.MethodGet,
+			handlerFunc: "StaffListedMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-mail-links", method: http.MethodPost,
+			handlerFunc: "StaffListedMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodGet,
+			handlerFunc: "StaffListedMailLink",
+			parameters:  map[string]string{"staffListedMailLinkID": "testStaffListedMailLinkID"},
+		},
+		{
+			url: "/api/staff-listed-mail-links/testStaffListedMailLinkID", method: http.MethodPost,
+			handlerFunc: "StaffListedMailLink",
+			parameters:  map[string]string{"staffListedMailLinkID": "testStaffListedMailLinkID"},
+		},
+		{
+			url: "/api/staff-listed-sessions", method: http.MethodGet,
+			handlerFunc: "StaffListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-sessions", method: http.MethodPost,
+			handlerFunc: "StaffListedSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodGet,
+			handlerFunc: "StaffListedSession",
+			parameters:  map[string]string{"staffListedSessionID": "testStaffListedSessionID"},
+		},
+		{
+			url: "/api/staff-listed-sessions/testStaffListedSessionID", method: http.MethodPost,
+			handlerFunc: "StaffListedSession",
+			parameters:  map[string]string{"staffListedSessionID": "testStaffListedSessionID"},
+		},
+		{
+			url: "/api/staff-listed-sign-in-attempts", method: http.MethodGet,
+			handlerFunc: "StaffListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-sign-in-attempts", method: http.MethodPost,
+			handlerFunc: "StaffListedSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-tenants", method: http.MethodGet,
+			handlerFunc: "StaffListedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-tenants", method: http.MethodPost,
+			handlerFunc: "StaffListedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-tenants/testStaffListedTenantID", method: http.MethodGet,
+			handlerFunc: "StaffListedTenant",
+			parameters:  map[string]string{"staffListedTenantID": "testStaffListedTenantID"},
+		},
+		{
+			url: "/api/staff-listed-tenants/testStaffListedTenantID", method: http.MethodPost,
+			handlerFunc: "StaffListedTenant",
+			parameters:  map[string]string{"staffListedTenantID": "testStaffListedTenantID"},
 		},
 		{
 			url: "/api/staff-listed-users", method: http.MethodGet,
@@ -1010,6 +1104,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/take-tenant-directory", method: http.MethodPost,
+			handlerFunc: "TakeTenantDirectory", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-directory-only", method: http.MethodPost,
 			handlerFunc: "MakeTenantDirectoryOnly", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
@@ -1157,6 +1256,10 @@ func (s *generatedHandlersStub) TenantSignInSettings() http.HandlerFunc {
 	return s.record("TenantSignInSettings")
 }
 
+func (s *generatedHandlersStub) TakeTenantDirectory() http.HandlerFunc {
+	return s.record("TakeTenantDirectory")
+}
+
 func (s *generatedHandlersStub) MakeTenantDirectoryOnly() http.HandlerFunc {
 	return s.record("MakeTenantDirectoryOnly")
 }
@@ -1301,6 +1404,14 @@ func (s *generatedHandlersStub) RequireStaffTenantPasswordChange() http.HandlerF
 	return s.record("RequireStaffTenantPasswordChange")
 }
 
+func (s *generatedHandlersStub) ResendStaffInvitation() http.HandlerFunc {
+	return s.record("ResendStaffInvitation")
+}
+
+func (s *generatedHandlersStub) ResendStaffTenantInvitation() http.HandlerFunc {
+	return s.record("ResendStaffTenantInvitation")
+}
+
 func (s *generatedHandlersStub) RevokeStaffSessionToken() http.HandlerFunc {
 	return s.record("RevokeStaffSessionToken")
 }
@@ -1405,8 +1516,44 @@ func (s *generatedHandlersStub) StaffListedGroupRoles() http.HandlerFunc {
 	return s.record("StaffListedGroupRoles")
 }
 
+func (s *generatedHandlersStub) StaffListedIdentities() http.HandlerFunc {
+	return s.record("StaffListedIdentities")
+}
+
+func (s *generatedHandlersStub) StaffListedIdentity() http.HandlerFunc {
+	return s.record("StaffListedIdentity")
+}
+
+func (s *generatedHandlersStub) StaffListedMailLinks() http.HandlerFunc {
+	return s.record("StaffListedMailLinks")
+}
+
+func (s *generatedHandlersStub) StaffListedMailLink() http.HandlerFunc {
+	return s.record("StaffListedMailLink")
+}
+
 func (s *generatedHandlersStub) StaffListedRoleGrants() http.HandlerFunc {
 	return s.record("StaffListedRoleGrants")
+}
+
+func (s *generatedHandlersStub) StaffListedSessions() http.HandlerFunc {
+	return s.record("StaffListedSessions")
+}
+
+func (s *generatedHandlersStub) StaffListedSession() http.HandlerFunc {
+	return s.record("StaffListedSession")
+}
+
+func (s *generatedHandlersStub) StaffListedSignInAttempts() http.HandlerFunc {
+	return s.record("StaffListedSignInAttempts")
+}
+
+func (s *generatedHandlersStub) StaffListedTenants() http.HandlerFunc {
+	return s.record("StaffListedTenants")
+}
+
+func (s *generatedHandlersStub) StaffListedTenant() http.HandlerFunc {
+	return s.record("StaffListedTenant")
 }
 
 func (s *generatedHandlersStub) StaffListedUsers() http.HandlerFunc {

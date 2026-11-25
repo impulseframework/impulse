@@ -22,6 +22,8 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @tenantName
 		Title string `spanner:"Title"`
+		// @tenantDisabled
+		Disabled bool `spanner:"Disabled"`
 	}
 
 	// Wing is a tenant's resource known by its call sign.
@@ -105,7 +107,7 @@ type (
 	}
 
 	// Beacon is a global view known by an indexed signal that also carries a table's
-	// search fact, which a name read from the view does not answer.
+	// search fact, which a name read from the view answers as a table's name does.
 	//
 	// @virtual
 	Beacon struct {

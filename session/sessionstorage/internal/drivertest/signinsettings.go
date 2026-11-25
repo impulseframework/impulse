@@ -321,7 +321,9 @@ func testSecondFactorVouchedByTenant(_ context.Context, t *testing.T, h *AuthHar
 		password  bool
 		roleNames []string
 		// wantEvents are the session's events, nil for a sign-in that is held for
-		// wantFactors; wantUnread says the directory reader is not asked.
+		// wantFactors; wantUnread says the word is not read: the directory reader is
+		// asked by nothing but the resolution of a sign-in through the directory, for
+		// the directory's default seat.
 		wantEvents  []sessioninfo.AuthEvent
 		wantFactors []sessioninfo.AuthMethod
 		wantUnread  bool
@@ -367,7 +369,7 @@ func testSecondFactorVouchedByTenant(_ context.Context, t *testing.T, h *AuthHar
 			ctx := t.Context()
 
 			var asked atomic.Int32
-			declared := signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member", SecondFactor: tt.vouches}
+			declared := signin.DeclaredDirectory{Tenant: "lakeside", SecondFactor: tt.vouches}
 			cfg := AuthConfig{
 				Auth: true, AuthEvents: true, Settings: tt.row,
 				Admission: &DirectoryAdmission{Directories: counted(&asked, declaringOnly(t, lakesideDirectory, declared))},
@@ -410,8 +412,15 @@ func testSecondFactorVouchedByTenant(_ context.Context, t *testing.T, h *AuthHar
 					t.Errorf("Session().AuthEvents mismatch (-want +got):\n%s", diff)
 				}
 			}
-			if n := asked.Load(); tt.wantUnread && n != 0 {
-				t.Errorf("the directory reader was asked %d times, want none", n)
+			// A sign-in through the directory is resolved with one read of its
+			// declaration, for the default seat it offers at every sign-in; a password
+			// sign-in is resolved with none.
+			resolutionReads := int32(1)
+			if tt.password {
+				resolutionReads = 0
+			}
+			if n := asked.Load(); tt.wantUnread && n != resolutionReads {
+				t.Errorf("the directory reader was asked %d times, want %d: the resolution's read alone", n, resolutionReads)
 			}
 		})
 	}
@@ -429,7 +438,7 @@ func testSecondFactorVouchedByTenant(_ context.Context, t *testing.T, h *AuthHar
 				return nil, nil
 			}
 
-			return []signin.DeclaredDirectory{{Tenant: "lakeside", DefaultSeat: "Member", SecondFactor: vouches.Load()}}, nil
+			return []signin.DeclaredDirectory{{Tenant: "lakeside", SecondFactor: vouches.Load()}}, nil
 		}
 		in := h.New(ctx, t, Auth, AuthConfig{Auth: true, AuthEvents: true, Settings: RequiredRow, Admission: &DirectoryAdmission{Directories: read}})
 		user := createUser(ctx, t, in.Driver, "jane@lakeside.edu")

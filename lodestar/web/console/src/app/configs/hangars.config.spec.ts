@@ -23,23 +23,35 @@ import {
 import { environment } from '@env';
 import { hangarsConfig } from './hangars.config';
 
-// A hangar's passes name a person as people know them: the name first and the login
-// they sign in under beside it, and the login alone for an account that carries no
-// name. The list and the form's picker read the same two fields of the sector's people.
+// A hangar's passes name a person as the sector's people list shows them: by the name,
+// and by the login they sign in under for an account that carries no name, which the
+// server reads beside the id with the page of passes. The form's picker shows the name
+// first and the login beside it.
 
 const anvilID = '10000000-0000-4000-8000-000000000001';
 const sector = `${environment.apiUrl}/sectors/${anvilID}`;
 const dock = { id: 'h-1', name: 'Anvil Dock One', zone: 'north' };
 
 const passes = [
-  { id: 'p-1', hangarId: dock.id, userId: 'u-armorer', squadronId: null, groupId: null, levelId: 'run' },
-  { id: 'p-2', hangarId: dock.id, userId: 'u-droid', squadronId: null, groupId: null, levelId: 'visit' },
-];
-
-const people = [
-  { id: 'u-armorer', name: 'Armorer Arlo', username: 'armorer' },
-  // A machine account carries no name: it is read by its login.
-  { id: 'u-droid', name: null, username: 'droid-r7' },
+  {
+    id: 'p-1',
+    hangarId: dock.id,
+    userId: 'u-armorer',
+    userName: 'Armorer Arlo',
+    squadronId: null,
+    groupId: null,
+    levelId: 'run',
+  },
+  // A machine account carries no name: the sector's people list shows it by its login.
+  {
+    id: 'p-2',
+    hangarId: dock.id,
+    userId: 'u-droid',
+    userName: 'droid-r7',
+    squadronId: null,
+    groupId: null,
+    levelId: 'visit',
+  },
 ];
 
 function server(request: TransportRequest): TransportResponse {
@@ -49,20 +61,25 @@ function server(request: TransportRequest): TransportResponse {
     case `${environment.apiUrl}/permission-digest`:
       return {
         status: 200,
+        // The sector's digest names each pointed-to resource's name under List: the list asks
+        // for a name only where the digest names it.
         body:
           url.searchParams.get('domain') === anvilID
-            ? { HangarPasses: listed, CrewSectorUsers: listed, Squadrons: listed, CrewSectorGroups: listed }
+            ? {
+                HangarPasses: listed,
+                CrewSectorUsers: listed,
+                'CrewSectorUsers.displayName': { List: 'granted' },
+                Squadrons: listed,
+                'Squadrons.name': { List: 'granted' },
+                CrewSectorGroups: listed,
+                'CrewSectorGroups.name': { List: 'granted' },
+              }
             : {},
       };
     case `${environment.apiUrl}/user-domains`:
       return { status: 200, body: [{ domain: anvilID, name: 'Anvil' }] };
     case `${sector}/hangar-passes`:
       return { status: 200, body: passes, headers: { 'total-count': '2' } };
-    case `${sector}/crew-sector-users`:
-      return { status: 200, body: people };
-    case `${sector}/squadrons`:
-    case `${sector}/crew-sector-groups`:
-      return { status: 200, body: [] };
     default:
       return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
   }
@@ -115,23 +132,28 @@ describe("a hangar's passes", () => {
     fixture.componentRef.setInput('relatedData', dock);
     fixture.detectChanges();
     await TestBed.inject(ApplicationRef).whenStable();
-    // The page's rows land first, then the names its Person column reads for them.
-    const drawn = (): boolean => column('Person').some((cell) => cell.includes('armorer'));
+    // The page's rows land with the names its Person column shows.
+    const drawn = (): boolean => column('Person').some((cell) => cell.includes('Arlo'));
     for (let i = 0; i < 200 && !drawn(); i++) {
       await new Promise((resolve) => setTimeout(resolve, 0));
       fixture.detectChanges();
     }
   });
 
-  it('names a person by name and login, and by the login alone where the account has no name', () => {
-    expect(column('Person')).toEqual(['Armorer Arlo - armorer', 'droid-r7']);
+  it('names a person by name, and by the login where the account has no name', () => {
+    expect(column('Person')).toEqual(['Armorer Arlo', 'droid-r7']);
   });
 
-  it("reads the page's people with one request, for the name and the login", () => {
-    const reads = transport.requests.filter((request) => request.url.startsWith(`${sector}/crew-sector-users?`));
-    expect(reads.length).toBe(1);
-    const asked = new URL(reads[0]?.url ?? '', 'http://lodestar.test').searchParams;
-    expect(asked.get('columns')?.split(',').sort()).toEqual(['id', 'name', 'username']);
+  it('asks for the names beside the ids with the page of passes, and reads no other list', () => {
+    const lists = transport.requests.filter((request) => request.url.startsWith(`${sector}/hangar-passes?`));
+    expect(lists.length).toBe(1);
+    const asked = new URL(lists[0]?.url ?? '', 'http://lodestar.test').searchParams;
+    expect(asked.get('columns')?.split(',')).toEqual(
+      expect.arrayContaining(['userId', 'userName', 'squadronId', 'squadronName', 'groupId', 'groupName']),
+    );
+    for (const other of ['crew-sector-users', 'squadrons', 'crew-sector-groups']) {
+      expect(transport.requests.some((request) => request.url.startsWith(`${sector}/${other}`))).toBe(false);
+    }
   });
 
   it('offers each person in the picker the same way', () => {

@@ -32,9 +32,12 @@ type staffTenantInvitationRead struct {
 	Name            *string       `json:"name"`
 	RoleNames       []string      `json:"roleNames"`
 	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+	SentBy          *string       `json:"sentBy"`
 	CreatedAt       time.Time     `json:"createdAt"`
 	ExpiresAt       time.Time     `json:"expiresAt"`
 	ConsumedAt      *time.Time    `json:"consumedAt"`
+	WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+	State           string        `json:"state"`
 	Pending         bool          `json:"pending"`
 }
 
@@ -150,9 +153,12 @@ func (c *StaffTenantInvitationColumns) All() *StaffTenantInvitationColumns {
 		"Name",
 		"RoleNames",
 		"InvitedByUserID",
+		"SentBy",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
+		"WithdrawnAt",
+		"State",
 		"Pending",
 	}
 
@@ -195,6 +201,12 @@ func (c *StaffTenantInvitationColumns) InvitedByUserID() *StaffTenantInvitationC
 	return c
 }
 
+func (c *StaffTenantInvitationColumns) SentBy() *StaffTenantInvitationColumns {
+	c.fields = append(c.fields, "SentBy")
+
+	return c
+}
+
 func (c *StaffTenantInvitationColumns) CreatedAt() *StaffTenantInvitationColumns {
 	c.fields = append(c.fields, "CreatedAt")
 
@@ -209,6 +221,18 @@ func (c *StaffTenantInvitationColumns) ExpiresAt() *StaffTenantInvitationColumns
 
 func (c *StaffTenantInvitationColumns) ConsumedAt() *StaffTenantInvitationColumns {
 	c.fields = append(c.fields, "ConsumedAt")
+
+	return c
+}
+
+func (c *StaffTenantInvitationColumns) WithdrawnAt() *StaffTenantInvitationColumns {
+	c.fields = append(c.fields, "WithdrawnAt")
+
+	return c
+}
+
+func (c *StaffTenantInvitationColumns) State() *StaffTenantInvitationColumns {
+	c.fields = append(c.fields, "State")
 
 	return c
 }
@@ -245,6 +269,10 @@ func (p StaffTenantInvitationQueryPartialClause) Email() StaffTenantInvitationQu
 
 func (p StaffTenantInvitationQueryPartialClause) CreatedAt() StaffTenantInvitationQueryIdent[time.Time] {
 	return StaffTenantInvitationQueryIdent[time.Time]{Ident: resource.NewIdent[time.Time]("CreatedAt", p.partialClause, true)}
+}
+
+func (p StaffTenantInvitationQueryPartialClause) State() StaffTenantInvitationQueryIdent[string] {
+	return StaffTenantInvitationQueryIdent[string]{Ident: resource.NewIdent[string]("State", p.partialClause, true)}
 }
 
 func (p StaffTenantInvitationQueryPartialClause) Pending() StaffTenantInvitationQueryIdent[bool] {
@@ -341,6 +369,10 @@ func (c *staffTenantInvitationSort) InvitedByUserID() *StaffTenantInvitationSort
 	return c.addField("InvitedByUserID")
 }
 
+func (c *staffTenantInvitationSort) SentBy() *StaffTenantInvitationSort {
+	return c.addField("SentBy")
+}
+
 func (c *staffTenantInvitationSort) CreatedAt() *StaffTenantInvitationSort {
 	return c.addField("CreatedAt")
 }
@@ -351,6 +383,14 @@ func (c *staffTenantInvitationSort) ExpiresAt() *StaffTenantInvitationSort {
 
 func (c *staffTenantInvitationSort) ConsumedAt() *StaffTenantInvitationSort {
 	return c.addField("ConsumedAt")
+}
+
+func (c *staffTenantInvitationSort) WithdrawnAt() *StaffTenantInvitationSort {
+	return c.addField("WithdrawnAt")
+}
+
+func (c *staffTenantInvitationSort) State() *StaffTenantInvitationSort {
+	return c.addField("State")
 }
 
 func (c *staffTenantInvitationSort) Pending() *StaffTenantInvitationSort {

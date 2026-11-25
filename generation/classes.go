@@ -85,14 +85,15 @@ type accessWrite struct {
 // its delete, or go with it through their own delete where a record declares that
 // (@deleteCascade), which carries their own class.
 //
-// The tenant record (@tenant), its delete alone: a tenant that goes takes with it the
-// roles every person holds in it, its groups, the custom roles made in it and the
-// invitations into it, and each account that is left with nothing
-// (identity.Manager.ClearTenant, which the generated delete calls for every auth whose
-// management the program generates). Each of those done one at a time is an action of
-// the class, so the delete that does them all carries it, whether the library removes
-// the rows or the application does. The record's change carries none: a tenant renamed
-// holds what it held.
+// The tenant record (@tenant), its delete alone: the delete takes what each auth holds
+// for the tenant, the roles every person holds in it, its groups, the custom roles made
+// in it, the invitations into it and the accounts that were its alone
+// (identity.Manager.TenantKinds, whose kinds the generated delete is handed for every
+// auth whose management the program generates). Each of those done one at a time is an
+// action of the class, so the delete that does them all carries it, whether the library
+// removes the rows or the application does. The record's change carries none: a tenant
+// renamed holds what it held, and a tenant disabled or enabled is the work a person who
+// stands in for an administrator is there to do, as an account disabled or enabled is.
 //
 // Nobody lists these by hand: an application's mask refuses the class, and a record that
 // gains a subject value, or a value that takes a new path, is covered when the

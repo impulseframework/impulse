@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -115,6 +116,25 @@ func (p *AuthAPI[S, U, Tx]) DirectoryName(method sessioninfo.AuthMethod, connect
 // the key, which is an id. It reads nothing.
 func (p *AuthAPI[S, U, Tx]) TenantName(tenant accesstypes.Domain) string {
 	return p.auth.tenantName(string(tenant))
+}
+
+// SessionTimeout answers how long a session of the Auth may sit idle before it times out:
+// what the application set (WithSessionTimeout), and ten minutes where it set none. A list
+// that says which sessions are live reads it, so the list and a request are judged by one
+// length. It reads nothing.
+func (p *AuthAPI[S, U, Tx]) SessionTimeout() time.Duration {
+	return p.auth.baseSession.SessionTimeout
+}
+
+// SignInFailureLimit answers how many failed sign-ins within the window lock a name: the
+// limit the Auth's password method counts by, and the library's default where no
+// password method set one. The generated list of the failed sign-ins shows a name's
+// count beside it and asks at each query, since the limit is fixed when the password
+// method is registered, which an application may do after it builds its identity
+// client. It reads nothing, and unlike every other read of the Auth's methods it does
+// not close registration: it is asked while the application is still wiring the Auth.
+func (p *AuthAPI[S, U, Tx]) SignInFailureLimit() int {
+	return p.auth.signInFailureLimit()
 }
 
 // directoryName is DirectoryName: the registrations of the login page first, in its

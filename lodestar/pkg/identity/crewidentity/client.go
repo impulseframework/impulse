@@ -103,6 +103,15 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, tenan
 	// administrator signs in only to a caller who enters the sectors the person
 	// administers, read by the engine's own names, the ones the methods refuse by.
 	crewresources.SetCrewSessionUserAdministratorRoles(manager.TenantAdministratorRoles())
+	// The whole application's list of sectors names each one's administrators by the
+	// engine's own names.
+	crewresources.SetCrewListedSectorAdministratorRoles(manager.TenantAdministratorRoles())
+	// The list of the auth's sessions says which are live by the timeout the Auth judges a
+	// request by.
+	crewresources.SetCrewListedSessionTimeout(sessions.SessionTimeout())
+	// The list of the failed sign-ins says the limit that locks a name by asking the Auth
+	// at each query: the limit is fixed when the password method is registered.
+	crewresources.SetCrewListedSignInAttemptLimit(sessions.SignInFailureLimit)
 
 	return &Client{manager: manager}, nil
 }
@@ -165,20 +174,15 @@ func (c *Client) HoldsTenant(ctx context.Context, txn resource.ReadWriteTransact
 	return holds, nil
 }
 
-// ClearTenant buffers the removal of everything the Crew auth holds for a tenant, in
-// the transaction that deletes the tenant's row (identity.Manager.ClearTenant): every
-// membership held in it, the custom roles made in it with their grants, and the
-// withdrawal of every invitation into it that still stands. A person the tenant's
-// memberships were the only ones of is deleted with their identity links and sessions,
-// by the rule on an account nothing admits. The generated delete of the tenant record
-// calls it; an application that deletes a tenant in a transaction of its own calls it
-// there.
-func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) error {
-	if err := c.manager.ClearTenant(ctx, txn, domain); err != nil {
-		return errors.Wrap(err, "identity.Manager.ClearTenant()")
-	}
-
-	return nil
+// TenantKinds answers what the Crew auth holds for a tenant as kinds of the
+// tenant's delete (identity.Manager.TenantKinds): the accounts that are the tenant's
+// alone, the roles held in it, its groups, its custom roles and its invitations that
+// still stand. The generated delete of the tenant record hands them to the delete
+// (resource.PatchSet.DeleteAlso), which counts them in its question and takes them in
+// its rounds; an application that deletes a tenant in code of its own hands them to its
+// delete there.
+func (c *Client) TenantKinds(domain accesstypes.Domain) []resource.TakenKind {
+	return c.manager.TenantKinds(domain)
 }
 
 // DirectoryName answers what the Crew auth's sign-in registrations call a
@@ -277,9 +281,10 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 
 // DirectorySeated answers the session library's hook for a tenant directory's default
 // role (session.Auth.SetDirectoryAdmission) over the Crew auth's tables: the role
-// is given in the transaction that creates the person at their first sign-in, so no
-// account is left holding nothing (identity.Manager.DirectorySeated). The auth's package
-// sets it where it sets the invitation's.
+// is given in the sign-in's transaction to a person who signs in through the directory
+// and holds nothing in the tenant, at every sign-in, so no account is left holding
+// nothing (identity.Manager.DirectorySeated). The auth's package sets it where it sets
+// the invitation's.
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("Crew")
 }
@@ -303,8 +308,8 @@ func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransa
 // tenants they hold something in, with the roles held in each, and takes them out of one
 // at their own word (identity.Manager.OwnTenants), each in a transaction of the hook's
 // own on db, the application's database. A tenant's last administrator does not leave
-// it, and an account left holding nothing is deleted with its sessions. The auth's
-// package sets it where it sets the after-sign-in hook.
+// it, and an account left holding nothing stays. The auth's package sets it where it sets
+// the after-sign-in hook.
 func (c *Client) OwnTenants(db resource.Client) session.OwnTenantsHook {
 	return c.manager.OwnTenants("Crew", db)
 }
@@ -318,15 +323,22 @@ func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransacti
 	return c.manager.SignedUp("Crew")
 }
 
-// AnySignInMethodOpen reports whether an administrator has a sign-in method of the
-// Crew auth open to sign-up now, read through reader: the caller's transaction,
-// or the application's client (identity.Manager.AnyMethodOpen). The generated
+// SessionSignInMethodOpen reports whether the sign-in method the session came through is
+// open to sign-up now, read through reader: the caller's transaction, or the
+// application's client (identity.Manager.SessionMethodOpen). The generated
 // create-your-tenant route asks it in the transaction that writes the tenant's row.
-func (c *Client) AnySignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
-	open, err := c.manager.AnyMethodOpen(ctx, reader)
+func (c *Client) SessionSignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+	open, err := c.manager.SessionMethodOpen(ctx, reader)
 	if err != nil {
-		return false, errors.Wrap(err, "identity.Manager.AnyMethodOpen()")
+		return false, errors.Wrap(err, "identity.Manager.SessionMethodOpen()")
 	}
 
 	return open, nil
+}
+
+// OneTenantPerPerson reports whether the Crew auth's people belong to one tenant
+// each (identity.Manager.OneTenantPerPerson). The generated create-your-tenant route sets
+// its creator's directory on the new tenant only there.
+func (c *Client) OneTenantPerPerson() bool {
+	return c.manager.OneTenantPerPerson()
 }

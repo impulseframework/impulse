@@ -30,7 +30,7 @@ nobody a power that giving the role directly would not: who is in a group, and w
 holds, is changed by someone who may give or take those roles directly, and a tenant puts
 its own people in its groups, while an account from outside the tenant is put there from
 the whole application's accounts. The list of groups says how many people each group has and the roles it
-holds, and offers Delete only on a group that holds nothing; a person's page lists their
+holds, and offers Delete on every group, asking first with a count of its people and roles; a person's page lists their
 roles in one list that says "Their own" or names the group each comes through. On the
 Break glass page (`/staff-break-glass`) a person takes a role in a tenant for a set time
 and says why, when they hold the page's grant and could give themselves that role there:
@@ -41,7 +41,7 @@ own tenant, holds no grant of the page and takes none for a set time. The librar
 draws them from the API description (`identityRoutes` in the console's `app.routes.ts`,
 placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
 the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
-shows Tenants (All tenants) and System (the staff's accounts, the Invited tenants page and
+shows Tenants (All tenants and Invite a tenant…) and System (the staff's accounts and
 Feature flags) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
 portal has no pages of its own yet, so its bar holds Help alone. In both, the person's own
 menu holds Your account, Appearance and Sign out, and Help ends with About, a pop-up that carries
@@ -49,8 +49,8 @@ the release and, outside production, the environment's name (the server's `APP_E
 
 How a tenant comes to exist is apart from who may enter one. Nobody creates a tenant
 directly: the record's create is refused, with a sentence that says so. An administrator
-brings an organization in by inviting one person, on the console's Invited tenants page
-(System), which the library draws from the staff auth's generated `InviteStaffTenant`,
+brings an organization in by inviting one person, on the console's tenants page (All
+tenants), which lists the invitations still waiting above the tenants, and which the library draws from the staff auth's generated `InviteStaffTenant`,
 `StaffInvitedTenants` and `WithdrawStaffInvitedTenant`. Sending the invitation takes the
 `Administrator` role's Create grant on the record, and a name a tenant holds is refused
 there. No tenant exists while the invitation waits; the invited person's first sign-in
@@ -61,7 +61,8 @@ page. The staff auth is handed what makes the tenant by the data level
 (`staff.Settings.TenantMaker`, the generated `consoleapp.NewTenantMaker` over the roster, built before the
 auth), and refuses to start without it. A person who signed up and holds no tenant
 creates their own through the generated create-your-tenant route, which the dashboard
-offers while an administrator has a sign-in method open to sign-up.
+offers to a person who signed in through a sign-in method an administrator has open to
+sign-up.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the tenant's directory, the organization its people sign in
@@ -96,7 +97,7 @@ enters a tenant only where its declaration admits their session, and a person ho
 tenant is refused.
 Which tenants the session then reaches is decided again per tenant where its tenant list
 is computed, on either site, and a tenant that seats the person and is closed to their
-session stays in the list marked closed, with the reason: the shared roster keeps every tenant's declaration beside
+session stays in the list as not available, with the reason: the shared roster keeps every tenant's declaration beside
 its key (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions` by
 both Apps), the console's write paths reload it after their commit and signal the other
 instances, so a declaration decides the next request on both sites, and the records'
@@ -106,8 +107,8 @@ tenant's directory there and removes it, and changes everything else with the te
 methods, which `TenantAdministrator` holds and the page runs through the library's
 method dialog: `OpenTenantToDirectory`
 (`POST /api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of
-the directory's people is given at their first sign-in through it, a role the caller
-could give directly, picked from the list of the roles they may give
+the directory's people is given when they sign in through it and hold nothing in the
+tenant, a role the caller could give directly, picked from the list of the roles they may give
 (`StaffTenantDirectoryRoles`), and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
 (`POST /api/tenants/{tenantID}/make-tenant-directory-only`) and
 `EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
@@ -235,7 +236,9 @@ turned on, since that takes a person who is signed in through the tenant's direc
   every tenant is not one tenant's to take
   (`everyDomain = false`), and an invitation is withdrawn while it stands
   (`pending = true`); `test/integration/tenant_people_test.go` proves each of them on the
-  console. Every grant in
+  console. The application's `Administrator` changes an account only where no tenant
+  manages it (`managedByTenant = false`), and `test/integration/grants_test.go` proves that
+  too. Every grant in
   it is proven live by `test/integration/grants_test.go`, which opens the auth the way
   the deployment does and asks the engine about each unconditional grant; a conditional
   grant is proven by a test case that names it through `provesGrant`, and

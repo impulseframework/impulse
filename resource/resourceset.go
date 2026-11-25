@@ -64,9 +64,26 @@ type deleteTreer interface {
 
 // View is a view (a @virtual resource): a query of the application's, not a database
 // object, with the parameters the query binds. Every statement over the view reads the
-// query in a table's place, and so does every name read from it (NameField.View).
+// query in a table's place, and so does every name read from it (NameField.View),
+// unless the view gives its names through a query of their own (NameSubqueryer).
 type View interface {
 	Subquery() (query string, params map[string]any)
+}
+
+// NameSubqueryer is a view that gives the names of its rows through a query of their
+// own, lighter than the one its rows are read from. The query gives the view's key
+// column, its name column and, where the view belongs to a tenant, its tenant column,
+// under the view's own column names, one row for each row of the view, with the
+// parameters it binds. A statement that reads a name from the view reads it from this
+// query, except where the person holds the name's grant under a condition: the
+// condition reads the view's own fields, so the statement reads the view's whole query
+// (Subquery). A statement writes the query once to read the name and once more for
+// each condition of its filter on the name, and Spanner refuses a statement of more
+// than twenty joins: a view whose own query holds many gives its names through one
+// that holds few.
+type NameSubqueryer interface {
+	View
+	NameSubquery() (query string, params map[string]any)
 }
 
 // Set holds metadata about a resource, including its permissions and field-to-tag mappings.

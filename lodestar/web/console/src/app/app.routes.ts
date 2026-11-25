@@ -10,7 +10,7 @@ import {
   refusedRoute,
 } from '@impulseframework/resource-angular/auth-frame';
 import { featureFlagsRoute } from '@impulseframework/resource-angular/feature-flags';
-import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
+import { identityRoutes, tenantsRoute } from '@impulseframework/resource-angular/identity-pages';
 import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import { sectorRoute } from '@components/sector/sector.routes';
 import { clientsConfig } from './configs/clients.config';
@@ -20,13 +20,13 @@ import { crewSessionImpersonationsConfig } from './configs/crewSessionImpersonat
 import { distressCallsConfig } from './configs/distressCalls.config';
 import { expenseManifestsConfig } from './configs/expenseManifests.config';
 import { hangarsConfig } from './configs/hangars.config';
+import { sectorsPage } from './configs/issue-bulletin.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
 import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
 import { squadronsConfig } from './configs/squadrons.config';
 import { pilotsConfig, sectorPilotsConfig } from './configs/pilots.config';
 import { sectorHazardBoardsConfig } from './configs/sectorHazardBoards.config';
-import { sectorsConfig } from './configs/sectors.config';
 import { shipClassesConfig } from './configs/shipClasses.config';
 import { shipsConfig } from './configs/ships.config';
 import { standingOrdersConfig } from './configs/standingOrders.config';
@@ -111,7 +111,10 @@ export const routes: Routes = [
           //
           // Demonstrates: @feature.
           resourceRoutes(commendationsConfig, resourceMeta),
-          resourceRoutes(sectorsConfig, resourceMeta),
+          // The library's tenants page over the crew's list of sectors, at the record's own
+          // address (`sectors`, a sector at `sectors/<id>`), with the options the menu file
+          // passes (sectorsPage).
+          tenantsRoute(apiDescriptor, resourceMeta, sectorsPage),
           // The missions of every sector the person reaches, on one page: Missions declares
           // @listAcrossTenants, so its list is also served without the sector's segment, and
           // the config says acrossTenants. resourceRoutes mounts the list alone, with no row

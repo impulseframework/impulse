@@ -125,13 +125,13 @@ describe('PlaceService', () => {
     const reason = 'Aardvark admits only people who sign in through its own directory. You signed in with a password.';
     const transport = specTransport({
       digests: { '': holdsNothing },
-      domains: [...domains, { domain: 'c-id', name: 'Aardvark', closed: reason }],
+      domains: [...domains, { domain: 'c-id', name: 'Aardvark', unavailable: reason }],
     });
     TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, { menus }, routes)] });
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     const places = TestBed.inject(PlaceService);
     expect(places.places().map((place) => place.label)).toEqual(['Acme', 'Zenith']);
-    expect(places.closed()).toEqual([{ id: 'c-id', label: 'Aardvark', reason }]);
+    expect(places.unavailable()).toEqual([{ id: 'c-id', label: 'Aardvark', reason }]);
   });
 
   it('lists only the tenants for a person whose grant outside them no menu entry answers to', async () => {

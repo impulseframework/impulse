@@ -256,13 +256,12 @@ func TestTenancyApply(t *testing.T) {
 			files: tenancyFiles(),
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 				"schema/devseed/000001_dev_tenants.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before the logins",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with its declaration's flag (DirectoryOnly) and change tracking",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
-				"web/console/src/app/components/ui/new-tenant/ and web/console/src/app/configs/tenants.config.ts: the dialog a person who signed up creates their own tenant through (the create-your-own route) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher, and the library draws the tenant's Sign-in settings page, which the routes and the menu file place",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
 			wantSkipped: []string{noSignals, noAuth, noSeatAuth, noPermissions, noMenus},
@@ -277,18 +276,41 @@ func TestTenancyApply(t *testing.T) {
 				for rel, want := range map[string]string{
 					"schema/migrations/000003_Tenants.up.sql":   "CREATE TABLE TenantDirectories (",
 					"schema/migrations/000003_Tenants.down.sql": "DROP INDEX TenantDirectoriesByMethodConnection;\nDROP INDEX TenantDirectoriesByTenantId;\nDROP TABLE TenantDirectories;\nDROP INDEX TenantsByName;\nDROP TABLE Tenants;",
-					"schema/devseed/000001_dev_tenants.up.sql":  "INSERT INTO Tenants (Id, Name) VALUES ('11111111-1111-4111-8111-111111111111', 'North');",
-					"pkg/resources/tenants.go":                  "package resources\n\nimport (\n\t\"github.com/impulseframework/impulse\"\n\t\"github.com/impulseframework/impulse/resource\"\n)\n\ntype (\n\t// Tenant is the tenant record (@tenant)",
+					"schema/devseed/000001_dev_tenants.up.sql":  "INSERT INTO Tenants (Id, Name, CreatedAt) VALUES ('11111111-1111-4111-8111-111111111111', 'North', PENDING_COMMIT_TIMESTAMP());",
+					"pkg/resources/tenants.go":                  "package resources\n\nimport (\n\t\"time\"\n\n\t\"github.com/impulseframework/impulse\"\n\t\"github.com/impulseframework/impulse/resource\"\n)\n\ntype (\n\t// Tenant is the tenant record (@tenant)",
 					"pkg/resources/tenant_directories.go":       "\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\t// @order(Method asc, Connection asc)\n\tTenantDirectory struct {\n\t\tID impulse.UUID `spanner:\"Id\"`\n\t\t// @domain\n\t\tTenantID impulse.UUID `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t\t// @directoryDefaultSeat\n\t\tDefaultSeat *string `spanner:\"DefaultSeat\"`\n\t\t// @directorySecondFactor\n\t\tAsksSecondFactor bool `spanner:\"AsksSecondFactor\"`\n\t}",
 					"pkg/config/tenancy.go":                     "package config\n",
 					"app/tenancy.go":                            "package app\n",
-					"web/console/src/app/components/ui/new-tenant/new-tenant-dialog.component.ts": "export function openNewTenantDialog(",
-					"web/console/src/app/configs/tenants.config.ts":                               "export const tenantsConfig = rootConfig({",
 				} {
 					if got := read(t, a, rel); !strings.Contains(got, want) {
 						t.Errorf("%s lacks %q:\n%s", rel, want, got)
 					}
 				}
+				// A directory's role is given at every sign-in, and again after a removal: the
+				// table's comment and the record's say so, and neither says it is given once.
+				for rel, wants := range map[string][]string{
+					"schema/migrations/000003_Tenants.up.sql": {
+						"-- DefaultSeat names the role the tenant gives a person who signs in through the\n-- directory and holds nothing in the tenant, at every sign-in,",
+						"tied to the directory before the tenant took it, and\n-- whatever they hold in other tenants; a person an administrator removes from the\n-- tenant is given it again the next time they sign in through the directory.",
+					},
+					"pkg/resources/tenant_directories.go": {
+						"\t// DefaultSeat is the role the tenant gives a person who signs in through the\n\t// directory and holds nothing in the tenant, at every sign-in:",
+						"A person an administrator\n\t// removes from the tenant is given the role again the next time they sign in\n\t// through the directory: disabling their account keeps one person out while\n\t// the tenant is open, and making the tenant invite only keeps everyone out who\n\t// is not invited.",
+					},
+				} {
+					got := read(t, a, rel)
+					for _, want := range wants {
+						if !strings.Contains(got, want) {
+							t.Errorf("%s lacks %q:\n%s", rel, want, got)
+						}
+					}
+					for _, old := range []string{"at their first sign-in", "given once"} {
+						if strings.Contains(got, old) {
+							t.Errorf("%s still says %q of the directory's role", rel, old)
+						}
+					}
+				}
+				wantNoTenantPageFiles(t, a)
 				config := read(t, a, "pkg/config/tenancy.go")
 				for _, want := range []string{"c.tenants = app.NewTenantRoster(resource.NewSpannerClient(c.spannerClient))", "// No live service field was found on DataConfiguration", "c.tenants.Start(ctx)", "func (c *DataConfiguration) TenantRoster() *resource.TenantRoster"} {
 					if !strings.Contains(config, want) {
@@ -320,14 +342,13 @@ func TestTenancyApply(t *testing.T) {
 			}(),
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 				"schema/devseed/000001_dev_tenants.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before the logins",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with its declaration's flag (DirectoryOnly) and change tracking",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
 				"app/app.go: UserPermissions passes the roster's Domains and the declarations to resource.SessionPermissions",
-				"web/console/src/app/components/ui/new-tenant/ and web/console/src/app/configs/tenants.config.ts: the dialog a person who signed up creates their own tenant through (the create-your-own route) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher, and the library draws the tenant's Sign-in settings page, which the routes and the menu file place",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
 			wantSkipped: []string{noAuth, noSeatAuth, noMenus},
@@ -360,8 +381,8 @@ func TestTenancyApply(t *testing.T) {
 			},
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000002_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with its declaration's flag (DirectoryOnly) and change tracking",
+				"schema/migrations/000002_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
@@ -370,7 +391,7 @@ func TestTenancyApply(t *testing.T) {
 				"no file declares a DataConfiguration struct, so the tenant roster was not added to the data level; build it where the database is opened with app.NewTenantRoster(client, resource.WithTenantSignals(<the live service>)), start it (Start) and fail the start on its error, and expose it as TenantRoster()",
 				noAuth,
 				"no file declares a Configurer interface, so the tenant roster was not exposed on the app; the generated code needs TenantRoster() *resource.TenantRoster on the handlers, answering the roster the data level built",
-				"web/angular.json has no project rooted over console/src/app/core/service, so the browser was left as it was: the tenant pages (the All tenants page's configuration and the dialog a person who signed up creates their own tenant through), the tenant menus and the tenant segment in the routes",
+				"web/angular.json has no project rooted over console/src/app/core/service, so the browser was left as it was: the tenant menus and the tenant segment in the routes",
 			},
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
@@ -439,9 +460,19 @@ func TestTenancyApply(t *testing.T) {
 				"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
 				"\t\"github.com/impulseframework/impulse/session/signin\"\n",
 				"\t\"github.com/impulseframework/impulse/resource\"\n",
+				// The directory's default seat is given at every sign-in through it, and
+				// again after a removal.
+				"\t// The directory admission: what a person gets when they sign in through a\n\t// tenant's directory and hold nothing in the tenant, at every sign-in,",
+				"A person an administrator removes from\n\t// the tenant is given it again the next time they sign in through the\n\t// directory: disabling their account keeps one person out while the tenant is\n\t// open, and making the tenant invite only keeps everyone out who is not\n\t// invited.",
+				"which the directory\n\t// admission decides every sign-in through a tenant's directory with: the generated\n\t// reader (app.NewTenantDirectoryReader).",
 			} {
 				if !strings.Contains(staff, want) {
 					t.Errorf("staff.go lacks %q:\n%s", want, staff)
+				}
+			}
+			for _, old := range []string{"at their first sign-in", "is not given back", "a stranger's first sign-in"} {
+				if strings.Contains(staff, old) {
+					t.Errorf("staff.go still says %q of the directory's default seat", old)
 				}
 			}
 		},
@@ -567,6 +598,31 @@ func TestClientExpression(t *testing.T) {
 	}
 }
 
+// TestTenancyApply_theRecordThereAlready pins what the command says where the tenant
+// record's file is there already: it writes no record and leaves the file as it is, and
+// says what the record must hold for the table the migration writes, the time the
+// database writes when a tenant is made among it.
+func TestTenancyApply_theRecordThereAlready(t *testing.T) {
+	t.Parallel()
+
+	a := newBase(t, "staff")
+	const rel, mine = "pkg/resources/tenants.go", "package resources\n"
+	if err := os.WriteFile(a.Abs(rel), []byte(mine), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	ch := &Change{}
+	if err := (Tenancy{Table: "Tenants"}).writeRecord(a, "pkg/resources", ch); err != nil {
+		t.Fatalf("Tenancy.writeRecord() error = %v", err)
+	}
+	want := rel + " already exists, so the Tenant resource struct was not written; make sure it is a global @resource annotated @tenant and @order, keyed by a generated id (ID impulse.UUID), with a Name marked @tenantName and a CreatedAt marked @tenantSince (time.Time, conditions:\"output_only\", default_create_fn:\"resource.CommitTimestamp\"), which the tenant table's migration makes a column the database writes"
+	if !slices.Equal(ch.Skipped, []string{want}) || len(ch.Did) != 0 {
+		t.Errorf("Tenancy.writeRecord() did %q and skipped %q, want nothing done and the skip %q", ch.Did, ch.Skipped, want)
+	}
+	if got := read(t, a, rel); got != mine {
+		t.Errorf("%s was changed:\n%s", rel, got)
+	}
+}
+
 // TestTenancyMeaningSaysToFormat holds the brief to the one step the command cannot take:
 // it writes browser files under the record's and the auth's names without wrapping them
 // again, so the brief says to format them once the web root's packages are installed.
@@ -577,6 +633,40 @@ func TestTenancyMeaningSaysToFormat(t *testing.T) {
 	for _, want := range []string{"after the install, run `impulse check --only prettier --fix` once", "which wraps again any line those names made longer or shorter and changes nothing where they left every line as it was", "a file that needs it fails the `prettier` check until then"} {
 		if !strings.Contains(meaning, want) {
 			t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
+		}
+	}
+}
+
+// TestTenancyMeaning_tenantPagesAreTheLibrarys holds the brief's browser item to the
+// tenant pages being the browser package's: the routes carry its tenants page, the menu
+// file places its list of tenants and its invitation, which it names with the article
+// the record's word takes, and the dashboard opens its dialog. Nothing is said of a file
+// copied for them.
+func TestTenancyMeaning_tenantPagesAreTheLibrarys(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		table, invite string
+	}{
+		{table: "Tenants", invite: "Invite a tenant…, `inviteTenantAction`"},
+		{table: "Offices", invite: "Invite an office…, `inviteTenantAction`"},
+		{table: "Units", invite: "Invite a unit…, `inviteTenantAction`"},
+	} {
+		meaning := Tenancy{Table: tt.table}.Meaning()
+		for _, want := range []string{
+			"among them (`tenantsRoute(apiDescriptor, resourceMeta, { auth })`, the library's page)",
+			"`tenantsPage(apiDescriptor, resourceMeta, { auth })`, the library's page, which lists each ",
+			tt.invite + ", which opens the invitation from the menu; the list draws no Create button,",
+			"the library's dialog (`openCreateTenantDialog(dialog, apiDescriptor)`)",
+		} {
+			if !strings.Contains(meaning, want) {
+				t.Errorf("%s: Meaning() lacks %q:\n%s", tt.table, want, meaning)
+			}
+		}
+		for _, old := range []string{"tenantsConfig", "openNewTenantDialog", "copied dialog"} {
+			if strings.Contains(meaning, old) {
+				t.Errorf("%s: Meaning() still says %q", tt.table, old)
+			}
 		}
 	}
 }

@@ -160,7 +160,7 @@ func (tn Tenancy) derivePasswordReset(a *app.App, ch *Change, settled map[string
 
 // derivedPasswordResetTest is the base's test of the way back in to an account as an
 // application with tenants takes it: the method is opened to sign-up with no role, and
-// the list of the sign-in methods is read back for the method being open alone.
+// the password method's row is read back for the method being open alone.
 func derivedPasswordResetTest(src []byte) ([]byte, error) {
 	text := string(src)
 	edits := []struct{ old, new string }{
@@ -173,8 +173,8 @@ func derivedPasswordResetTest(src []byte) ([]byte, error) {
 			"[]byte(`{\"name\":\"password\"}`)",
 		},
 		{
-			"len(got) != 1 || !got[0].OpenSignUp || got[0].DefaultRole != \"FeatureAdministrator\" {",
-			"len(got) != 1 || !got[0].OpenSignUp {",
+			"!got.OpenSignUp || got.DefaultRole != \"FeatureAdministrator\" {",
+			"!got.OpenSignUp {",
 		},
 		{
 			"want the password method still open with its role\"",

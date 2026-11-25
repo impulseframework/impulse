@@ -39,9 +39,9 @@ type (
 	// it counts: a place outside its period (StartsAt, EndsAt) gives nothing, and a person
 	// taken out of the group loses the hangar at their next request. Whoever writes a pass
 	// picks the group from the sector's own (@enumerate of CrewSectorGroups), beside the
-	// picker of the sector's people. A group that is deleted takes its passes with it (the
-	// foreign key to CrewGroups, ON DELETE CASCADE). A pass that names two holders, or
-	// none, is refused: by the create validator in words the person filling the form can
+	// picker of the sector's people. A group that a pass names is not deleted while the
+	// pass stands: the foreign key to CrewGroups refuses it. A pass that names two holders,
+	// or none, is refused: by the create validator in words the person filling the form can
 	// act on, and by the table's holder check for every other writer. An empty userId
 	// names nobody and is not a holder, in the validator and in the table's check alike.
 	//

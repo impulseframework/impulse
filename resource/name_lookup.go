@@ -483,6 +483,10 @@ func (q *QuerySet[Resource]) readNames() []accesstypes.Field {
 // denied, or the name is closed by its id (closeDeclaredOrder), which only a name
 // the declared order names reaches, there is no lookup: the name is NULL on
 // every row (noName), so the list comes in the order of the order's other terms.
+// A name read from a view that the statement orders by is read once: its lookup
+// is an item of the row of names the statement's FROM carries (zzNames), and the
+// select item, the order and the cursor name that item, so the view's query is in
+// the statement once however many terms read the name.
 func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedReadConditions, registry *paramRegistry) (*renderedReadConditions, error) {
 	fields := slices.Clone(q.shownNames)
 	for _, field := range q.orderedNames() {
@@ -503,6 +507,7 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 	}
 	rendered.nameLookups = make(map[accesstypes.Field]string, len(fields))
 	dbFields := q.rMeta.dbFieldMap(dbType)
+	ordered := q.orderedNames()
 	for _, field := range fields {
 		name, ok := q.requestName(field)
 		if !ok {
@@ -523,28 +528,27 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 			return nil, errors.Newf("name field %s: its id field %s not found in db struct", field, name.Key)
 		}
 
-		query, err := q.nameViewQuery(&name.NameField, registry)
+		query, err := q.nameViewQuery(&name.NameField, registry, grant.IsConditional())
 		if err != nil {
 			return nil, err
 		}
 		alias := registry.alias()
-		var where ExpressionNode = &loweredComparisonNode{
-			left:  columnComparand(alias, name.KeyColumn),
-			op:    "=",
-			right: columnComparand(string(q.Resource()), key.ColumnName),
-		}
-		if tenant := nameTenantTest(&name.NameField, alias, registry); tenant != nil {
-			where = &LogicalOpNode{Left: where, Operator: OperatorAnd, Right: tenant}
-		}
-		if grant.IsConditional() {
-			if where, err = q.nameGrantCondition(name, grant, alias, where, registry); err != nil {
-				return nil, err
-			}
+		where, err := q.nameLookupWhere(name, grant, alias, key.ColumnName, registry)
+		if err != nil {
+			return nil, err
 		}
 		lookup := subqueryComparand(&scalarSubqueryNode{table: name.Table, query: query, alias: alias, column: name.NameColumn, where: where})
 		sql, err := gen.generateLoweredComparand(&lookup, registry)
 		if err != nil {
 			return nil, errors.Wrapf(err, "name field %s", field)
+		}
+		if name.View && slices.Contains(ordered, field) {
+			item, reference, err := namesRowItem(dbType, field, sql)
+			if err != nil {
+				return nil, err
+			}
+			rendered.namesRow = append(rendered.namesRow, item)
+			sql = reference
 		}
 		if shown := rendered.nameConditions[name.Key]; shown != "" {
 			sql = fmt.Sprintf("CASE WHEN %s THEN %s END", shown, sql)
@@ -555,17 +559,82 @@ func (q *QuerySet[Resource]) withNameLookups(dbType DBType, rendered *renderedRe
 	return rendered, nil
 }
 
+// nameLookupWhere is the WHERE of a name's lookup under alias: the pointed-to row's key
+// is the list row's id (keyColumn), in the list row's tenant where the name belongs to
+// one, and under the condition of the name's grant where the grant is held under one.
+func (q *QuerySet[Resource]) nameLookupWhere(name *requestName, grant accesstypes.Decision, alias, keyColumn string, registry *paramRegistry) (ExpressionNode, error) {
+	var where ExpressionNode = &loweredComparisonNode{
+		left:  columnComparand(alias, name.KeyColumn),
+		op:    "=",
+		right: columnComparand(string(q.Resource()), keyColumn),
+	}
+	if tenant := nameTenantTest(&name.NameField, alias, registry); tenant != nil {
+		where = &LogicalOpNode{Left: where, Operator: OperatorAnd, Right: tenant}
+	}
+	if !grant.IsConditional() {
+		return where, nil
+	}
+
+	return q.nameGrantCondition(name, grant, alias, where, registry)
+}
+
+// namesRowName is the alias of the statement's row of names (withNameLookups): no
+// name field's alias is it, since each ends in Name.
+const namesRowName = "zzNames"
+
+// namesRowItem renders a name's lookup as an item of the statement's row of names,
+// under the alias the select list reads a name by (nameItems), and the reference the
+// statement writes in the lookup's place.
+func namesRowItem(dbType DBType, field accesstypes.Field, lookup string) (item, reference string, err error) {
+	alias := nameColumnPrefix + string(field)
+	switch dbType {
+	case SpannerDBType:
+		return fmt.Sprintf("%s AS %s", lookup, alias), namesRowName + "." + alias, nil
+	case PostgresDBType:
+		quoted := `"` + alias + `"`
+
+		return lookup + " AS " + quoted, `"` + namesRowName + `".` + quoted, nil
+	default:
+		return "", "", errors.Newf("unsupported dbType: %s", dbType)
+	}
+}
+
+// namesRowFrom appends the statement's row of names to its FROM item, where the
+// rendering holds any: one row beside each row of the list, the select of the row
+// reading no table, so no row of the list is dropped or doubled and a name a
+// lookup finds no row for is NULL. On Spanner the row is an array of one struct
+// unnested beside the row, which the database counts as no join; on PostgreSQL a
+// lateral select.
+func (r *renderedReadConditions) namesRowFrom(dbType DBType, from string) (string, error) {
+	if r == nil || len(r.namesRow) == 0 {
+		return from, nil
+	}
+	items := strings.Join(r.namesRow, ", ")
+	switch dbType {
+	case SpannerDBType:
+		return fmt.Sprintf("%s, UNNEST(ARRAY(SELECT AS STRUCT %s)) AS %s", from, items, namesRowName), nil
+	case PostgresDBType:
+		return fmt.Sprintf("%s CROSS JOIN LATERAL (SELECT %s) AS ", from, items) + `"` + namesRowName + `"`, nil
+	default:
+		return "", errors.Newf("unsupported dbType: %s", dbType)
+	}
+}
+
 // nameViewQuery returns the query of the view a name is read from, "" where the
-// name is read from a table. In the query it returns, each parameter the view binds
-// is written as a placeholder of the statement's own, bound under the view and the
-// parameter's name (bindShared): a view read twice in one statement binds each of its
-// parameters once, and two views that bind a parameter of one name never meet. A
+// name is read from a table: the view's name query where it gives one
+// (NameSubqueryer) and whole is false, its whole query (Subquery) otherwise. A
+// caller asks for the whole query where the name's grant is held under a condition,
+// which reads the view's own fields. In the query it returns, each parameter the view
+// binds is written as a placeholder of the statement's own, bound under the view, the
+// query and the parameter's name (bindShared): a view read twice in one statement
+// binds each of its parameters once, the two queries of one view never share a
+// placeholder, and two views that bind a parameter of one name never meet. A
 // parameter the view binds and its query never names is not bound. A name read from a
 // view the decoder was not handed is not read; a parameter of the view's whose name
 // starts with an underscore is refused as a list's own view's is (viewFromItem); and
 // a query that binds a parameter and cannot be read to its end is refused, since its
 // parameters cannot all be found.
-func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegistry) (string, error) {
+func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegistry, whole bool) (string, error) {
 	if !name.View {
 		return "", nil
 	}
@@ -574,9 +643,14 @@ func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegis
 		return "", errors.New(noNameView(name, q.Resource()))
 	}
 	query, params := view.Subquery()
+	method, bound, words := "Subquery", "views", viewQueryWords
+	if named, ok := view.(NameSubqueryer); ok && !whole {
+		query, params = named.NameSubquery()
+		method, bound, words = "NameSubquery", "names", nameQueryWords
+	}
 	for _, param := range slices.Sorted(maps.Keys(params)) {
 		if strings.HasPrefix(param, "_") {
-			return "", errors.Newf("Subquery params for %s can not start with an _", name.Resource)
+			return "", errors.Newf("%s params for %s can not start with an _", method, name.Resource)
 		}
 	}
 	if len(params) == 0 {
@@ -584,13 +658,13 @@ func (q *QuerySet[Resource]) nameViewQuery(name *NameField, registry *paramRegis
 	}
 	toks, err := viewParamTokens(query, params)
 	if err != nil {
-		return "", errors.New(unreadableViewQuery(name, q.Resource(), err))
+		return "", errors.New(unreadableViewQuery(name, q.Resource(), words, err))
 	}
 	var b strings.Builder
 	last := 0
 	for _, tok := range toks {
 		b.WriteString(query[last:tok.Pos])
-		b.WriteString(registry.bindShared(fmt.Sprintf("views/%s/%s", name.Resource, tok.AsString), params[tok.AsString]))
+		b.WriteString(registry.bindShared(fmt.Sprintf("%s/%s/%s", bound, name.Resource, tok.AsString), params[tok.AsString]))
 		last = int(tok.End)
 	}
 	b.WriteString(query[last:])
@@ -619,10 +693,17 @@ func viewParamTokens(query string, params map[string]any) ([]token.Token, error)
 	}
 }
 
+// The words a refusal names a view's query by: the query its rows are read from
+// (Subquery), and the one it gives its names through (NameSubqueryer).
+const (
+	viewQueryWords = "query"
+	nameQueryWords = "name query (NameSubquery)"
+)
+
 // unreadableViewQuery says the query of the view a name is read from binds a
-// parameter and cannot be read to its end.
-func unreadableViewQuery(name *NameField, res accesstypes.Resource, err error) string {
-	return fmt.Sprintf("name field %s of %s is read from the view %s, and the view's query cannot be read to its end (%v): the statement that reads the name writes each parameter of the view under a name of its own, and so reads the whole query. Correct the query at that place.", name.Field, res, name.Resource, err)
+// parameter and cannot be read to its end, naming the query by its words.
+func unreadableViewQuery(name *NameField, res accesstypes.Resource, words string, err error) string {
+	return fmt.Sprintf("name field %s of %s is read from the view %s, and the view's %s cannot be read to its end (%v): the statement that reads the name writes each parameter of the view under a name of its own, and so reads the whole %s. Correct the %s at that place.", name.Field, res, name.Resource, words, err, words, words)
 }
 
 // noNameView says a name is read from a view the decoder holds no entry for.

@@ -175,6 +175,8 @@ describe('ResourceViewComponent row methods', () => {
   let deleteHeld: Promise<void> | undefined;
   /** While set, the row's own Delete is refused in these words, and the row stays. */
   let deleteRefused: string | undefined;
+  /** While set, the row's own Delete answers 202 with what it left, and the row stays. */
+  let deleteLeft: { deleted: number; left: number } | undefined;
 
   const server = (request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
     const url = new URL(request.url, 'http://rows.test');
@@ -188,6 +190,9 @@ describe('ResourceViewComponent row methods', () => {
     if (request.method === 'PATCH' && url.pathname === '/api/accounts') {
       if (deleteRefused !== undefined) {
         return { status: 409, body: { message: deleteRefused } };
+      }
+      if (deleteLeft !== undefined) {
+        return { status: 202, body: deleteLeft };
       }
       row = undefined;
       return deleteHeld ? deleteHeld.then(() => ({ status: 200, body: {} })) : { status: 200, body: {} };
@@ -304,6 +309,7 @@ describe('ResourceViewComponent row methods', () => {
     };
     deleteHeld = undefined;
     deleteRefused = undefined;
+    deleteLeft = undefined;
   });
 
   it("asks for the row's Execute answer beside Update and Delete, and offers in one menu the methods the answer lists", async () => {
@@ -563,6 +569,25 @@ describe('ResourceViewComponent row methods', () => {
     expect(gone).toEqual([true]);
     expect(notices).toEqual(['ada no longer holds a role here.']);
     expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
+  });
+
+  it("stays on the row's page while its Delete answers that records are left, and says nothing of the row until a delete finishes", async () => {
+    await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
+    const router = TestBed.inject(Router);
+    const notices: string[] = [];
+    component.notifications.addGlobalNotification = ((notice: { message: string }) =>
+      notices.push(notice.message)) as never;
+    const gone: boolean[] = [];
+    component.deleted.subscribe((value) => gone.push(value));
+    deleteLeft = { deleted: 6800, left: 31200 };
+
+    const left = await component.deleteResource({ everythingUnder: true });
+    await settle(() => false);
+
+    expect(left).toEqual({ deleted: 6800, left: 31200 });
+    expect(router.url).toBe('/accounts/a-1');
+    expect(gone).toEqual([]);
+    expect(notices).toEqual([]);
   });
 
   it("leaves the page of a row route for its list after the row's own Delete, in its own place in the history, and the list says what the config has to say of the row", async () => {

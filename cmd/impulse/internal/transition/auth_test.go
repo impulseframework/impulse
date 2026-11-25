@@ -642,7 +642,7 @@ func TestAuthApply(t *testing.T) {
 				pkg := read(t, a, "pkg/auth/partners/partners.go")
 				for _, want := range []string{
 					"\tTenantDeclarations signin.DeclarationReader[*cloudspanner.ReadWriteTransaction]\n",
-					"\t// (app.NewTenantDeclarationReader), which answers nothing for every tenant, since\n\t// the application has no tenant directories. Required; New refuses nil.\n",
+					"\t// (app.NewTenantDeclarationReader), which reads whether each tenant is disabled and\n\t// nothing else, since the application has no tenant directories. Required; New\n\t// refuses nil.\n",
 					"\tTenantMaker identity.TenantMaker\n}",
 					"\tif settings.TenantDeclarations == nil {\n",
 					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))\n" + passwordDisabledCheck + "\n\t// The auth's identity client (pkg/identity, generated)",

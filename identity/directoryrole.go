@@ -28,8 +28,8 @@ const (
 
 // DirectoryRole holds the role a tenant is opened to its directory's people with to its
 // rules, in the caller's transaction, and writes nothing. The role is given to every
-// person the directory vouches for at their first sign-in through it
-// (DirectorySeated), to people nobody named, so the person who names it is held to what
+// person the directory vouches for when they sign in through it and hold nothing in the
+// tenant (DirectorySeated), to people nobody named, so the person who names it is held to what
 // giving it by hand needs:
 //
 //   - the role exists in the tenant, by the rule a membership's role is held to: a role
@@ -211,4 +211,45 @@ func rolesOffered(roles []access.RoleInfo, may func(accesstypes.Role) (bool, err
 // say "Lakeside" or "your organization's Microsoft directory" and never a tenant id.
 func (m *Manager) DirectoryName(directory signin.Directory) (name, label string) {
 	return m.sessions.DirectoryName(directory.Method, directory.Connection)
+}
+
+// SeatedAgainNote is the note a removal's warning carries where the tenant is open to its
+// directory and the person signs in through it: the directory gives a person who holds
+// nothing in the tenant its starting role at every sign-in, so the removal holds until
+// their next one. It speaks of the tenant in the application's word for one, and reads
+// nothing; whether the tenant is open and the person signs in through its directory is
+// the generated identity client's to answer (SeatedAgainBySignIn).
+func (t *Tenant) SeatedAgainNote() resource.WarningNote {
+	return resource.WarningNote{
+		Says: fmt.Sprintf(
+			"This %s is open to its directory and this person signs in through it, so they are given the starting role again the next time they sign in. To keep them out, disable their account instead.",
+			t.manager.tenantWord,
+		),
+		Names: nil,
+	}
+}
+
+// DeletionWarning is the warning the tenant's method that deletes a person gives before it
+// runs: the account goes from every tenant with its sign-ins and its sessions, and Disable
+// is the way to keep it. Where seatedAgain, the tenant is open to its directory and the
+// person signs in through it (SeatedAgainBySignIn), and a note says they can sign in again
+// and will get a new account with the starting role. It speaks of tenants in the
+// application's word for one, and reads nothing.
+func (t *Tenant) DeletionWarning(seatedAgain bool) *resource.Warning {
+	warning := &resource.Warning{
+		Consequence: fmt.Sprintf(
+			"The account is removed from every %s, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.",
+			t.manager.tenantWord,
+		),
+		Names:   nil,
+		Confirm: "Delete",
+		Also:    nil,
+	}
+	if seatedAgain {
+		warning.Also = []resource.WarningNote{
+			{Says: "They can sign in through the directory again and will get a new account with the starting role.", Names: nil},
+		}
+	}
+
+	return warning
 }

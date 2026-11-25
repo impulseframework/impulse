@@ -27,7 +27,23 @@ type (
 	// under its id (session.AccountAttemptKeys with no address). It is no filter key
 	// either.
 	//
-	// The list filters by the username, the name and the email address.
+	// TrustedDevices (trustedDevices) is how many browsers are remembered for the account
+	// and skip the second factor right now: the ones not forgotten, not past their time,
+	// and remembered within the days the auth's sign-in settings say, none where browsers
+	// are not remembered. It is what the session library counts for the person's own
+	// account page (sessionstorage.AuthStore.TrustedDeviceCount). It is no filter key.
+	//
+	// One party manages each account: the tenant whose directory the person signs in
+	// through; otherwise the one tenant the person holds something in, where they hold
+	// nothing anywhere else; otherwise the application's own administrators.
+	// ManagedByTenant (managedByTenant) says a tenant manages the account, and
+	// ManagingTenant (managingTenant) is that tenant's key, empty where none does.
+	// They are read as each tenant's own list reads ManagedHere (MembersTenantUser), so
+	// the two always agree. A role file uses them to give the application's administrators
+	// the accounts no tenant manages (managedByTenant = false).
+	//
+	// The list filters by the username, the name and the email address, and by the two
+	// facts of who manages the account.
 	//
 	// @virtual
 	// @outlet(portal)
@@ -46,14 +62,24 @@ type (
 		CreatedAt              time.Time    `spanner:"CreatedAt"`
 		LastSignInAt           *time.Time   `spanner:"LastSignInAt"`
 		// @roleOf(Members)
-		Roles       []string   `spanner:"Roles"`
-		LockedUntil *time.Time `spanner:"LockedUntil"`
+		Roles          []string   `spanner:"Roles"`
+		LockedUntil    *time.Time `spanner:"LockedUntil"`
+		TrustedDevices int64      `spanner:"TrustedDevices"`
+		// @attribute(managedByTenant)
+		ManagedByTenant bool `spanner:"ManagedByTenant" index:"true"`
+		// @attribute(managingTenant)
+		ManagingTenant *string `spanner:"ManagingTenant" index:"true"`
 	}
 )
 
 // membersListedUserQuery selects the accounts, each with the lines of the roles
-// it holds and until when its sign-in is locked.
+// it holds and until when its sign-in is locked, and
+// who manages it.
 const membersListedUserQuery = `
+SELECT
+  *,
+  ManagingTenant IS NOT NULL AS ManagedByTenant
+FROM (
 SELECT
   u.Id AS Id,
   u.Username AS Username,
@@ -73,8 +99,90 @@ SELECT
   ) AS Roles,
   (SELECT MAX(la.LockedUntil) FROM MembersSessionSignInAttempts la
    WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))
-     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil
+     AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,
+  (SELECT COUNT(*) FROM MembersSessionTrustedDevices td
+   WHERE td.UserId = u.Id AND td.RevokedAt IS NULL
+     AND td.ExpiresAt > CURRENT_TIMESTAMP()
+     AND td.CreatedAt > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL IFNULL((SELECT ss.RememberBrowserDays FROM MembersSessionSignInSettings ss), 30) DAY)) AS TrustedDevices,
+  (SELECT MIN(mt.DomainId) FROM (
+    SELECT DomainId, (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,
+  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory
+    FROM (
+      SELECT
+        t.DomainId AS DomainId,
+  (EXISTS (
+    SELECT 1 FROM MembersUserRoles o
+    WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM MembersUserRoles o
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM MembersGroupMembers gm JOIN MembersGroups og ON og.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
+      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  )) AS HeldElsewhere,
+  (EXISTS (
+    SELECT 1 FROM MembersUserRoles g
+    WHERE g.UserId = u.Id AND g.Kind = 'global'
+      AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM MembersGroupMembers gm JOIN MembersGroups gg ON gg.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND gg.Kind = 'global'
+      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  )) AS HeldGlobally,
+  (EXISTS (
+    SELECT 1 FROM MembersUserRoles o
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM MembersGroupMembers gm
+    WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+      AND EXISTS (
+        SELECT 1 FROM MembersGroups hg
+        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId
+      )
+  )) AS HeldHere,
+  EXISTS (
+    SELECT 1 FROM MembersSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId = t.DomainId
+    )
+  ) AS ThroughHere,
+  EXISTS (
+    SELECT 1 FROM MembersSessionIdentities li
+    WHERE li.UserId = u.Id AND EXISTS (
+      SELECT 1 FROM TenantDirectories ld
+      WHERE ld.Method = li.Method AND ld.Connection = li.Connection AND ld.TenantId != t.DomainId
+    )
+  ) AS ThroughAnother
+      FROM (
+        SELECT mm.DomainId AS DomainId
+        FROM MembersUserRoles mm
+        WHERE mm.UserId = u.Id AND mm.Kind = 'domain' AND mm.Axis = ''
+          AND (mm.StartsAt IS NULL OR mm.StartsAt <= CURRENT_TIMESTAMP()) AND (mm.EndsAt IS NULL OR mm.EndsAt > CURRENT_TIMESTAMP())
+        UNION DISTINCT
+        SELECT mg AS DomainId
+        FROM MembersGroupMembers mp, UNNEST(ARRAY(
+          SELECT g.DomainId FROM MembersGroups g
+          WHERE g.Id = mp.GroupId AND g.Kind = 'domain' AND g.Axis = ''
+        )) AS mg
+        WHERE mp.UserId = u.Id AND (mp.StartsAt IS NULL OR mp.StartsAt <= CURRENT_TIMESTAMP()) AND (mp.EndsAt IS NULL OR mp.EndsAt > CURRENT_TIMESTAMP())
+        UNION DISTINCT
+        SELECT md AS DomainId
+        FROM MembersSessionIdentities mi, UNNEST(ARRAY(
+          SELECT d.TenantId FROM TenantDirectories d
+          WHERE d.Method = mi.Method AND d.Connection = mi.Connection
+        )) AS md
+        WHERE mi.UserId = u.Id
+      ) t
+    )
+  ) mt
+  WHERE mt.ManagedHere) AS ManagingTenant
 FROM MembersSessionUsers u
+) p
 `
 
 // Subquery is the query the rows are read from.

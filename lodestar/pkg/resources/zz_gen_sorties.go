@@ -79,6 +79,16 @@ func (Sortie) DeleteTree() *resource.DeleteTree {
 	}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Sortie) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "MissionName", Key: "MissionID", Resource: "Missions", Tag: "title", Table: "Missions", KeyColumn: "Id", NameColumn: "Title", TenantColumn: "SectorId"},
+		{Field: "ShipName", Key: "ShipID", Resource: "Ships", Tag: "name", Table: "Ships", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "HangarId", TenantPath: []resource.BindingHop{{Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
 // sortieRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; sortieReadSets holds one Set per read operation.
@@ -799,11 +809,30 @@ func NewSortieDeletePatch(id impulse.UUID) *SortieDeletePatch {
 
 // WithEverythingUnder says the delete takes the rows under the Sortie with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
-// delete would delete it. Without it, a delete of a Sortie that has such rows
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a Sortie that has such rows
 // deletes nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired).
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left says what is left: buffer the delete
+// again, in a transaction of its own, until Left answers nil.
 func (p *SortieDeletePatch) WithEverythingUnder() *SortieDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// Left is what the delete left under the Sortie once it is buffered
+// (resource.DeleteLeft): nil where the delete finished, the Sortie with it.
+func (p *SortieDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Sortie that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Sortie.
+func (p *SortieDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *SortieDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
 
 	return p
 }

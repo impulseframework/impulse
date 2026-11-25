@@ -42,12 +42,6 @@
       <p class="impulse-resource-list-notice-words">{{ notice() }}</p>
     </div>
   }
-  @for (sentence of unread(); track sentence) {
-    <div class="impulse-resource-list-notice" role="status" [class.impulse-resource-list-indent]="indentTitle()">
-      <mat-icon class="impulse-resource-list-notice-icon" aria-hidden="true">warning</mat-icon>
-      <p class="impulse-resource-list-notice-words">{{ sentence }}</p>
-    </div>
-  }
   @if (filtersLeftOut()) {
     <div
       class="impulse-resource-list-notice impulse-resource-list-filters-left-out"
@@ -77,45 +71,58 @@
       </button>
     </div>
   }
-  @if (showSearchBox()) {
-    <div class="impulse-resource-list-search-container" [class.impulse-resource-list-indent]="indentTitle()">
-      <impulse-search-box
-        [placeholder]="searchPlaceholder()"
-        [hint]="searchHint()"
-        [value]="store.searchText()"
-        [total]="store.page().total"
-        (textChange)="onSearchChange($event)" />
-    </div>
-  } @else if (searchNotice()) {
-    <div class="impulse-resource-list-search-container" [class.impulse-resource-list-indent]="indentTitle()">
-      <p class="impulse-resource-list-search-refused">{{ searchNotice() }}</p>
+  @if (emptyLine()) {
+    <p class="impulse-resource-list-empty" [class.impulse-resource-list-indent]="indentTitle()">{{ emptyLine() }}</p>
+  } @else {
+    @if (showSearchBox()) {
+      <div class="impulse-resource-list-search-container" [class.impulse-resource-list-indent]="indentTitle()">
+        <impulse-search-box
+          [placeholder]="searchPlaceholder()"
+          [hint]="searchHint()"
+          [value]="store.searchText()"
+          [total]="store.page().total"
+          (textChange)="onSearchChange($event)" />
+      </div>
+    } @else if (searchNotice()) {
+      <div class="impulse-resource-list-search-container" [class.impulse-resource-list-indent]="indentTitle()">
+        <p class="impulse-resource-list-search-refused">{{ searchNotice() }}</p>
+      </div>
+    }
+    <div class="impulse-resource-list-resource-container">
+      <impulse-grid
+        [rowData]="tableRowData()"
+        [columnDefs]="columns()"
+        [rowKey]="rowKey()"
+        [enableRowExpansion]="config().enableRowExpansion"
+        [enableVirtualScroll]="config().enableVirtualScroll"
+        [detailTemplate]="expandedRowTemplate"
+        [loading]="loadingRowData()"
+        [emptyMessage]="emptyMessage()"
+        [sorts]="drawnSorts()"
+        [filters]="store.columnFilters()"
+        [filterability]="filterability()"
+        [externalFilterFields]="configFilterFields()"
+        [searches]="searches()"
+        [filterInputs]="filterInputs()"
+        [filterChoices]="filterChoices()"
+        [boxActive]="boxActive()"
+        [page]="store.page()"
+        (sortChange)="onSortChange($event)"
+        (filterChange)="onFilterChange($event)"
+        (filterMenuOpened)="onFilterMenuOpened($event)"
+        (pageTurn)="onPageTurn($event)">
+      </impulse-grid>
     </div>
   }
-  <div class="impulse-resource-list-resource-container">
-    <impulse-grid
-      [rowData]="tableRowData()"
-      [columnDefs]="columns()"
-      [rowKey]="rowKey()"
-      [enableRowExpansion]="config().enableRowExpansion"
-      [enableVirtualScroll]="config().enableVirtualScroll"
-      [detailTemplate]="expandedRowTemplate"
-      [loading]="loadingRowData()"
-      [emptyMessage]="emptyMessage()"
-      [sorts]="store.sorts()"
-      [filters]="store.columnFilters()"
-      [filterability]="filterability()"
-      [externalFilterFields]="configFilterFields()"
-      [searches]="searches()"
-      [filterInputs]="filterInputs()"
-      [filterChoices]="filterChoices()"
-      [boxActive]="boxActive()"
-      [page]="store.page()"
-      (sortChange)="onSortChange($event)"
-      (filterChange)="onFilterChange($event)"
-      (filterMenuOpened)="onFilterMenuOpened($event)"
-      (pageTurn)="onPageTurn($event)">
-    </impulse-grid>
-  </div>
+  @if (moreLink(); as more) {
+    <a
+      class="impulse-resource-list-more"
+      [class.impulse-resource-list-indent]="indentTitle()"
+      [routerLink]="more.route"
+      [queryParams]="more.queryParams"
+      >{{ more.label }}</a
+    >
+  }
 </div>
 
 <ng-template #expandedRowTemplate let-rowData>

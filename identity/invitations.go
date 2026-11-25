@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -37,6 +38,25 @@ type Invitation struct {
 	Roles []accesstypes.Role
 }
 
+// SentInvitation is an invitation as its row keeps it: what it gives and to whom, and
+// what became of it.
+type SentInvitation struct {
+	// Invitation is what the invitation gives and to whom, as the row holds it: the
+	// address, the name, the tenant, the mark for every tenant and the roles.
+	Invitation Invitation
+	// MakesTenant says the row carries a tenant to make.
+	MakesTenant bool
+	// Accepted says the invitation was consumed, neither withdrawn nor ended by a
+	// failed mail.
+	Accepted bool
+	// Withdrawn says the invitation was taken back.
+	Withdrawn bool
+	// NotMailed says the invitation's message could not be mailed.
+	NotMailed bool
+	// ExpiresAt is when the invitation's link stops working.
+	ExpiresAt time.Time
+}
+
 // Invite buffers an invitation in the caller's transaction and has its link mailed once
 // the transaction has committed. It answers the invitation's id. The session library
 // prepares the invitation (the address check, the token, the time the link stands for)
@@ -52,12 +72,11 @@ type Invitation struct {
 // holds, and the caller invites again. A transaction that does not commit sends nothing and
 // never calls sent. sent may be nil.
 //
-// An invitation gives a role, at least one: a person an invitation admits holding no
-// role is deleted by the rule on an account nothing admits. An invitation says where
-// its roles go, as a role given by hand does (Scope), and every role must exist there:
-// in the tenant for an invitation into one, in every tenant for one that says so
-// (EveryDomain), and in the global scope for one that names neither, which is an
-// invitation into the whole application. A role that exists only in the tenants is
+// An invitation gives a role, at least one. An invitation says where its roles go, as a
+// role given by hand does (Scope), and every role must exist there: in the tenant for an
+// invitation into one, in every tenant for one that says so (EveryDomain), and in the
+// global scope for one that names neither, which is an invitation into the whole
+// application. A role that exists only in the tenants is
 // refused there with what to choose: nobody is seated in every tenant who was not
 // invited there in so many words. The row keeps the place (the tenant, the mark for
 // every tenant, or neither), and the acceptance gives each role there and nowhere else
@@ -285,6 +304,54 @@ func (m *Manager) WithdrawInvitation(ctx context.Context, txn resource.ReadWrite
 	}
 
 	return nil
+}
+
+// ResendInvitation sends an invitation again, in the caller's transaction: a new
+// invitation with the old one's address, name, tenant, mark for every tenant and roles,
+// mailed once the transaction has committed as Invite mails one, and answers the new
+// invitation's id. The new invitation is Invite's, so every rule of an invitation is
+// asked again of the caller who sends it again, and the caller is recorded as its
+// sender; a refusal is Invite's own, and nothing is withdrawn. An invitation that
+// still stands is withdrawn in the same transaction, so the link mailed before stops
+// working; one that has expired or whose message could not be mailed is left as it
+// is. An invitation that was accepted or withdrawn is refused (409), and a link of
+// another kind, an invitation that makes a tenant and an id no link holds are not
+// found: an invitation that makes a tenant has its own method (InviteTenant).
+//
+// Shared rule: Invite, which writes and mails the new invitation.
+func (m *Manager) ResendInvitation(ctx context.Context, txn resource.ReadWriteTransaction, invitationID impulse.UUID, sent func(sent bool)) (impulse.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	old, found, err := m.store.SentInvitation(ctx, txn, invitationID)
+	if err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "identity.Store.SentInvitation()")
+	}
+	if !found || old.MakesTenant {
+		return impulse.NilUUID, invitationNotFound(invitationID)
+	}
+	if old.Accepted {
+		return impulse.NilUUID, httpio.NewConflictMessageWithError(errors.Newf("invitation %q was accepted", invitationID), "This invitation was accepted. There is nothing to send again.")
+	}
+	if old.Withdrawn {
+		return impulse.NilUUID, httpio.NewConflictMessageWithError(errors.Newf("invitation %q was withdrawn", invitationID), "This invitation was withdrawn. Invite the person again to bring them in.")
+	}
+	// The person is reached by the invitation's address, as Invite reaches them, and
+	// asked about before anything is written.
+	if err := m.refuseImpersonatorsAddress(ctx, txn, old.Invitation.Email); err != nil {
+		return impulse.NilUUID, err
+	}
+	id, err := m.Invite(ctx, txn, &old.Invitation, sent)
+	if err != nil {
+		return impulse.NilUUID, err
+	}
+	if !old.NotMailed && m.now().Before(old.ExpiresAt) {
+		if err := m.store.ConsumeMailLink(ctx, txn, invitationID); err != nil {
+			return impulse.NilUUID, errors.Wrap(err, "identity.Store.ConsumeMailLink()")
+		}
+	}
+
+	return id, nil
 }
 
 // makesTenant reports whether the standing invitation of the id is one that makes a
