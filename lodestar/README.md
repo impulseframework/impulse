@@ -972,13 +972,15 @@ directory, and closes no other sector). A sector has one directory and a
 directory belongs to one sector: the schema holds each with a unique index
 (`SectorDirectoriesBySectorId`, `SectorDirectoriesByMethodConnection`), and the record's
 write paths ask the generated rules first (`app.NewSectorDirectoryRules`), so a refusal
-is a sentence a marshal can act on. Nobody types a directory in: the row's method and
-connection are stamped from the session of the marshal who makes the directory he is
-signed in through the sector's (the session read's `directory` names it), so a marshal
-signed in with a password is refused with how a directory is set, a request that names a
-method and a connection is refused as naming fields the record does not take, and a
-personal account (any Google account, which is how the pioneer signs up) is refused as
-no organization's directory. The directory of a sector that is directory only is not
+is a sentence a marshal can act on. Nobody types a directory in: a marshal makes the
+directory he is signed in through the sector's (the session read's `directory` names it)
+with the sector's own method, `TakeSectorDirectory`
+(`POST /console/api/sectors/{sectorID}/take-sector-directory`, an empty body, to the
+Execute grant `SectorMarshal` holds), after a statement that he is authorized to act on
+behalf of the organization, under which he types `I am authorized`; the record's own
+create is refused. So a marshal signed in with a password is refused with how a
+directory is set, and a personal account (any Google account, which is how the pioneer
+signs up) is refused as no organization's directory. The directory of a sector that is directory only is not
 removed until its marshal turns directory only off. Both auths' sign-in rule is
 the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewSectorDeclarationReader`, which reads the declaration in the sign-in's own

@@ -363,6 +363,7 @@ func (r *resourceGenerator) validateTenantDeclaration() error {
 	record.declaration = &tenantDeclaration{Directories: directories}
 	directories.directoryOf = record
 	directories.directoryRules = r.namedDirectoryRules(record)
+	directories.directoryCreateRefusal = directoryCreateRefusal(r.directoryTenantWord(record), record.Name())
 
 	return nil
 }
@@ -588,6 +589,13 @@ func tagsLiteral(fields []string) string {
 // as naming a package. Empty on every other resource.
 func (r *resourceInfo) DirectoryRules() string {
 	return r.directoryRules
+}
+
+// DirectoryCreateRefusal is the sentence the directories record's create is refused with:
+// a tenant takes its directory with the tenant's own method (Take<Record>Directory),
+// never by a create of the record. Empty on every other resource.
+func (r *resourceInfo) DirectoryCreateRefusal() string {
+	return r.directoryCreateRefusal
 }
 
 // DirectoryTenantWord is the word for one tenant in the comments the directories

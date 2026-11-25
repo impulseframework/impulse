@@ -98,8 +98,7 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 
 	// The Workspace is Ember's, so south is refused it; and north has a directory of its
 	// own, written as a row, which the delete of Ember must leave alone.
-	makeSouths := `[{"op":"add","path":"/tenants/` + south + `/tenant-directories","value":{}}]`
-	if status, body := commuter.do(ctx, http.MethodPatch, "/api/resources", []byte(makeSouths)); status != http.StatusConflict || !strings.Contains(string(body), "already has a tenant here, and a directory belongs to one tenant") {
+	if status, body := commuter.do(ctx, http.MethodPost, "/api/tenants/"+south+"/take-tenant-directory", []byte(`{}`)); status != http.StatusConflict || !strings.Contains(string(body), "already has a tenant here, and a directory belongs to one tenant") {
 		t.Fatalf("making the Workspace south's directory while Ember has it: status %d, want 409 saying the organization has a tenant: %s", status, body)
 	}
 	northsDirectory, err := impulse.NewUUID()
@@ -167,7 +166,7 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 	}
 
 	// The Workspace is free for another tenant.
-	if status, body := commuter.do(ctx, http.MethodPatch, "/api/resources", []byte(makeSouths)); status != http.StatusOK {
+	if status, body := commuter.do(ctx, http.MethodPost, "/api/tenants/"+south+"/take-tenant-directory", []byte(`{}`)); status != http.StatusOK {
 		t.Fatalf("making the Workspace south's directory once Ember is deleted: status %d, want 200: %s", status, body)
 	}
 	if rows := directories(ctx, t, admin, south); len(rows) != 1 || rows[0] != *workspace {

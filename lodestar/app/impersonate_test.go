@@ -101,6 +101,7 @@ var accessActions = []accesstypes.Resource{
 	"TakeCrewGroupRole",
 	"TakeCrewRole",
 	"TakeCrewSectorGroupRole",
+	"TakeSectorDirectory",
 	"VouchForSectorDirectorySecondFactor",
 	"WithdrawCrewInvitation",
 	"WithdrawCrewInvitedSector",

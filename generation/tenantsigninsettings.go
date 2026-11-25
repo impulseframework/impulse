@@ -13,7 +13,8 @@ import (
 )
 
 // A tenant's sign-in settings are what its Sign-in settings page shows a person who may
-// change any of them: the tenant's directory, the role its people get, whether it is
+// change any of them: the tenant's directory, which the tenant takes with a method of its
+// own, the role its people get, whether it is
 // directory only and whom that keeps out, and whether it vouches for its directory's
 // second factor, each with what the change takes of the caller
 // (resource.TenantDirectoryRules.SignInSettings). The read is the tenant's own, so the
@@ -29,12 +30,16 @@ import (
 const tenantSignInSettingsHandlerFunc = "TenantSignInSettings"
 
 // signInSettingsMethods are the tenant's own sign-in methods the outlet serves, in the
-// order the read names them: the two of the switch (directoryOnlyOutlets), the two of
-// the default role (directoryRole) and the two of the word for the directory's second
-// factor (directoryFactor). None where the outlet serves none of them, and the outlet
-// then serves no read.
+// order the read names them: the one that takes the tenant's directory (directoryTake),
+// the two of the switch (directoryOnlyOutlets), the two of the default role
+// (directoryRole) and the two of the word for the directory's second factor
+// (directoryFactor). None where the outlet serves none of them, and the outlet then
+// serves no read.
 func (r *resourceGenerator) signInSettingsMethods(outlet string) []tenantOwnMethod {
 	var methods []tenantOwnMethod
+	if take := r.directoryTake(); take.servedOn(outlet) {
+		methods = append(methods, take.methods()...)
+	}
 	switched := slices.ContainsFunc(r.directoryOnlyOutlets(), func(on *routerOutlet) bool {
 		return on.name == outlet
 	})
@@ -56,7 +61,7 @@ func (r *resourceGenerator) signInSettingsMethods(outlet string) []tenantOwnMeth
 // signInSettingsMethods names them. The application has one handler of the read for all
 // its outlets, and a grant is the application's, not an outlet's.
 func (r *resourceGenerator) signInSettingsGrants() []tenantOwnMethod {
-	return slices.Concat(r.directoryOnlyMethods(), r.directoryRole().methods(), r.directoryFactor().methods())
+	return slices.Concat(r.directoryTake().methods(), r.directoryOnlyMethods(), r.directoryRole().methods(), r.directoryFactor().methods())
 }
 
 // signInSettingsRoute is the read's route under an outlet's prefix, under the tenant's

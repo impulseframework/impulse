@@ -366,6 +366,15 @@ or one per domain), loaded on demand and cached for the session.
   `.stopVouchingFor<Record>DirectorySecondFactor`, which is plain: a person who
   signs in through a directory its tenant vouches for is not asked for the
   application's mailed code.
+- A tenant takes its organization's directory with a generated method of its own,
+  `api.domain(tenant).take<Record>Directory({})`, where the tenant record declares a
+  directories record. The directory is the one the caller is signed in through, and the
+  request names none. It warns first (`warning: { typed: 'I am authorized' }`): the
+  server's statement that the caller is authorized to act on behalf of the organization,
+  named as its directory gives it, then what taking the directory does, and the words for
+  the button. Its refusals (a session that came by password, a personal account, a
+  tenant that has a directory, a directory another tenant has) throw from `warning` in
+  the server's words. The directories record's own `add` is refused.
 - How a tenant admits its directory's people is the tenant's own too, said with two
   generated methods where the directories record carries a default role:
   `api.domain(tenant).open<Record>ToDirectory({ role })` opens the tenant to them, each

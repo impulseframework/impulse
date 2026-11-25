@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/generation/parser"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // declarationResources extracts the named tenantfixture structs and resolves the
@@ -748,10 +749,10 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 
 // Test_directoriesRecord_writes pins the write paths of the directories record, in its
 // own handler and in the consolidated one: a directory is never typed in, so the wire
-// writes neither the method nor the connection, the create stamps both from the
-// directory the caller is signed in through, held to the rules of a tenant's
-// directory, before the row is buffered, and the delete asks the rules before the
-// row's removal is buffered.
+// writes neither the method nor the connection; the create answers the caller's grants
+// and is then refused, naming the tenant's own method that takes a directory
+// (Take<Record>Directory), and builds and stamps nothing; and the delete asks the rules
+// before the row's removal is buffered.
 func Test_directoriesRecord_writes(t *testing.T) {
 	t.Parallel()
 
@@ -812,20 +813,21 @@ func Test_directoriesRecord_writes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			// The caller's grants answer before the rules do, on the create and on the
-			// delete: a caller the grants refuse learns nothing from a rule's sentence.
+			// The caller's grants answer first, on the create and on the delete: a
+			// caller the grants refuse learns nothing from the refusal or a rule's
+			// sentence. The create is then refused, and the delete asks its rule.
 			assertInOrder(t, out,
-				".NewHarborDirectoryCreatePatchFromPatchSet(patchSet)",
+				"case resource.OperationCreate:",
 				"if err := patchSet.Permitted(ctx, txn); err != nil {",
-				"directory, err := NewHarborDirectoryRules().FromSession(ctx, txn, domain)",
-				`return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")`,
-				"patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)",
-				"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+				`return httpio.NewBadRequestMessage("A harbor's directory is not created directly. Take it with TakeHarborDirectory, which says what taking it does before anything is written.")`,
 				"if err := patchSet.Permitted(ctx, txn); err != nil {",
 				"if err := NewHarborDirectoryRules().Remove(ctx, txn, domain); err != nil {",
 				`return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")`,
 				".NewHarborDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
 			)
+			// The create builds no row and stamps no directory: the tenant's own method
+			// takes it.
+			assertContains(t, name, out, nil, []string{"NewHarborDirectoryCreatePatchFromPatchSet", "FromSession(", "patch.SetMethod("})
 			// A write of a directory changes who may enter a tenant, so the roster is
 			// reloaded and the tenants kind signaled, as for the record itself.
 			assertContains(t, name, out, []string{"tenantsWritten = true", "a.TenantRoster().Reload(ctx)", "resource.KindTenants"}, nil)
@@ -964,7 +966,10 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 // which holds it to the rules of a tenant's directory, when the session was established
 // through an organization's directory, under the id the create generated: the id itself
 // where the directories record's tenant column is an id, its text where the column is a
-// string. A creator who came by password or with a personal account sets none.
+// string. A creator who came by password or with a personal account sets none. The
+// route's GET answers, where a creation by the session would set the directory, the
+// statement the person reads and types under before they create, said by the rules the
+// directories record's write paths ask.
 func Test_tenantCreationTemplate_declaration(t *testing.T) {
 	t.Parallel()
 
@@ -977,13 +982,13 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 		{
 			name:          "a directories record whose tenant column is an id takes the generated id",
 			directories:   "HarborDirectory",
-			wantDirectory: &tenantCreationDirectory{Record: "HarborDirectory", TenantValue: "id"},
+			wantDirectory: &tenantCreationDirectory{Record: "HarborDirectory", TenantValue: "id", Rules: "NewHarborDirectoryRules()"},
 			wantWritten:   "if err := SetHarborDirectory(ctx, txn, id, directory, eventSource); err != nil {",
 		},
 		{
 			name:          "a directories record whose tenant column is a string takes the generated id's text",
 			directories:   "Marina",
-			wantDirectory: &tenantCreationDirectory{Record: "Marina", TenantValue: "id.String()"},
+			wantDirectory: &tenantCreationDirectory{Record: "Marina", TenantValue: "id.String()", Rules: "NewHarborDirectoryRules()"},
 			wantWritten:   "if err := SetHarborDirectory(ctx, txn, id.String(), directory, eventSource); err != nil {",
 		},
 	}
@@ -1063,6 +1068,13 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 				"return httpio.NewEncoder(w).Ok(response{ID: id})",
+				// The GET answers the statement where the POST would set the directory: an
+				// offered creation, in an application that holds a person to one tenant, by
+				// a session signed in through an organization's directory.
+				"Warning *resource.Warning `json:\"warning,omitempty\"`",
+				"rules := NewHarborDirectoryRules()",
+				"if open && identityClient.OneTenantPerPerson() {\n\t\t\tif established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {\n\t\t\t\tif directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {\n\t\t\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: true, Warning: rules.TakeDirectoryWarning(directory, true)})\n\t\t\t\t}\n\t\t\t}\n\t\t}",
+				"answer carries the statement the person reads and types under before they create\n// (resource.TenantDirectoryRules.TakeDirectoryWarning).",
 			}, []string{
 				"DirectoryOnly", "SetDirectoryOnly",
 				// Nothing is removed after the commit: the row, the directory and the
@@ -1091,13 +1103,24 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 			if generated < 0 || generated >= row || row >= written || written >= given || given >= commit || commit >= roster || roster >= wait {
 				t.Errorf("order: generated id %d, row %d, directory %d, membership %d, commit %d, roster %d, wait %d; want ascending:\n%s", generated, row, written, given, commit, roster, wait, out)
 			}
+			// In the GET the statement follows every fact the POST refuses on: it is
+			// answered only where the creation is offered.
+			offered := strings.Index(s, "func (a *App) CreateHarborOffered() http.HandlerFunc {")
+			opened := strings.Index(s[offered:], "open, err := identityClient.SessionSignInMethodOpen(ctx, a.ResourceClient())")
+			stated := strings.Index(s[offered:], "rules.TakeDirectoryWarning(directory, true)")
+			plain := strings.Index(s[offered:], "return httpio.NewEncoder(w).Ok(offer{Offered: open})")
+			if offered < 0 || opened < 0 || opened >= stated || stated >= plain {
+				t.Errorf("order in the GET: whether sign-up is open %d, the statement %d, the plain answer %d; want ascending:\n%s", opened, stated, plain, out)
+			}
 		})
 	}
 }
 
 // Test_apiClientData_tenantCreation_declaration pins the generated client's create
 // body: neither the key, which the route generates and its answer carries, nor the
-// directory-only flag is among its fields.
+// directory-only flag is among its fields. A record that declares directories carries
+// the phrase a person types under the statement in front of a creation that takes one
+// (resource.TakeDirectoryPhrase), and the offer's answer the statement.
 func Test_apiClientData_tenantCreation_declaration(t *testing.T) {
 	t.Parallel()
 
@@ -1122,6 +1145,36 @@ func Test_apiClientData_tenantCreation_declaration(t *testing.T) {
 	if got.KeyWire != "id" {
 		t.Errorf("KeyWire = %q, want the generated id's name in the answer, id", got.KeyWire)
 	}
+	if got.Typed != resource.TakeDirectoryPhrase {
+		t.Errorf("Typed = %q, want the phrase typed under the statement, %q", got.Typed, resource.TakeDirectoryPhrase)
+	}
+	// An outlet that serves the record and not its directories record carries the phrase
+	// too, once the outlet filter has noted that the package declares one.
+	alone, err := declarationResources(t, "Sector")
+	if err != nil {
+		t.Fatalf("declarationResources() error = %v", err)
+	}
+	for noted, want := range map[bool]string{false: "", true: resource.TakeDirectoryPhrase} {
+		off := &typescriptGenerator{client: alone.client, tenantCreation: tenantCreationBoth, tenantDirectories: noted}
+		if carried := off.tenantCreationClientData(); carried == nil || carried.Typed != want {
+			t.Errorf("the directories record off the outlet, noted %t: tenantCreationClientData() = %+v, want Typed %q", noted, carried, want)
+		}
+	}
+	for _, res := range tsg.resources {
+		for _, f := range res.Fields {
+			f.typescriptType = "string"
+		}
+	}
+	out, err := tsg.generateTemplateOutput("typescriptAPITemplate", typescriptAPITemplate, tsg.apiClientData())
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	assertContains(t, "typescriptAPITemplate", string(out), []string{
+		", MethodWarning",
+		"  tenantCreation: { route: 'create-harbor', resource: 'Harbors', key: 'id', fields: [{ name: 'name', required: true }], warning: { typed: 'I am authorized' } },",
+		"export interface CreateHarborOffered {\n  offered: boolean;\n",
+		"  warning?: MethodWarning;\n}",
+	}, nil)
 }
 
 // Test_declaresNoDirectories pins which tenant record's package gets the reader that

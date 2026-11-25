@@ -4,7 +4,9 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -23,6 +25,39 @@ const (
 	// where a person belongs to one sector.
 	openTakesPeople = "A person belongs to one sector here. People who sign in through example and belong to another sector are moved to this one the next time they sign in, and lose everything they hold in the other."
 )
+
+// createTheSectorWithTheWorkspace is the statement a person reads before creating a sector
+// takes the fleet's Workspace, where a person belongs to one sector, in its creating forms.
+var createTheSectorWithTheWorkspace = resource.Warning{
+	Consequence: "You are stating that you are authorized to act on behalf of example.",
+	Also: []resource.WarningNote{{
+		Says: "From now on, people at example who sign in through it and have no account here are sent to the sector you are creating. They get in by your invitation, or with a starting role if you open the sector to them. No other sector can use example.",
+	}},
+	Confirm: "Create the sector with example as its directory",
+}
+
+// sectorOffer is what the create-sector route's GET answers the browser: whether it may
+// create a sector, and the statement it reads first where the creation takes a directory.
+type sectorOffer struct {
+	Offered bool              `json:"offered"`
+	Warning *resource.Warning `json:"warning"`
+}
+
+// offerOf reads the create-sector route's offer as the browser.
+func offerOf(ctx context.Context, t *testing.T, b *browser) sectorOffer {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, createSectorRoute, nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s: status %d: %s", createSectorRoute, status, body)
+	}
+	var offer sectorOffer
+	if err := json.Unmarshal(body, &offer); err != nil {
+		t.Fatalf("json.Unmarshal(%s): %v", body, err)
+	}
+
+	return offer
+}
 
 // freeTheFleetWorkspace takes the fleet's Workspace off Cinder as the governor, marshal in
 // every sector, so it is no sector's directory: a stranger the Workspace vouches for is
@@ -63,8 +98,9 @@ func signedUpThroughWorkspace(ctx context.Context, t *testing.T, s *served, user
 // TestSelfServiceSector_signUpTakesNoDirectory proves that a sector made by sign-up takes
 // no directory in an application that lets a person hold several sectors: two colleagues
 // who signed in through their organization's Workspace each chart a sector, both are
-// created and both stand, and neither has a directory. The warning of opening a sector to
-// its directory says nothing of moving people here.
+// created and both stand, and neither has a directory; the offer each reads first carries
+// no statement. The warning of opening a sector to its directory says nothing of moving
+// people here.
 func TestSelfServiceSector_signUpTakesNoDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -87,6 +123,11 @@ func TestSelfServiceSector_signUpTakesNoDirectory(t *testing.T) {
 		"bea": `{"name":"Bea's Reach","region":"Near frontier","established":"2226-10-21"}`,
 	} {
 		b := signedUpThroughWorkspace(ctx, t, s, user)
+		// A person may hold several sectors, so creating one takes no directory, and
+		// the offer carries no statement.
+		if offer := offerOf(ctx, t, b); !offer.Offered || offer.Warning != nil {
+			t.Errorf("%s's offer through the Workspace = %+v, want offered with no statement", user, offer)
+		}
 		status, body := b.do(ctx, http.MethodPost, createSectorRoute, []byte(chart))
 		if status != http.StatusOK {
 			t.Fatalf("%s charts a sector through the Workspace: status %d, want 200: %s", user, status, body)
@@ -114,8 +155,11 @@ func TestSelfServiceSector_signUpTakesNoDirectory(t *testing.T) {
 // Workspace as its directory in the row's transaction; a colleague who signed in through
 // the same Workspace is then refused a sector of their own (409, saying to ask for an
 // invitation) and nothing is written; a person who signed up with a personal Google
-// account charts a sector with no directory. The warning of opening the new sector to its
-// directory says that its people who belong to another sector are moved here.
+// account charts a sector with no directory. The offer of a creation that takes the
+// Workspace carries the statement the person reads first, in its creating forms; a
+// personal account's and a password session's carry none. The warning of opening the new
+// sector to its directory says that its people who belong to another sector are moved
+// here.
 //
 // Demonstrates: tenancy.creator-directory.
 func TestSelfServiceSector_oneTenantPerPerson(t *testing.T) {
@@ -132,6 +176,16 @@ func TestSelfServiceSector_oneTenantPerPerson(t *testing.T) {
 	// Both colleagues sign in through the Workspace while it is no sector's directory.
 	ada := signedUpThroughWorkspace(ctx, t, s, "ada")
 	bea := signedUpThroughWorkspace(ctx, t, s, "bea")
+
+	// Ada's creation would take the Workspace, so the offer carries the statement she
+	// reads first, in its creating forms. The governor came by password, which is no
+	// organization's directory: his offer carries none.
+	if offer := offerOf(ctx, t, ada); !offer.Offered || offer.Warning == nil || !reflect.DeepEqual(*offer.Warning, createTheSectorWithTheWorkspace) {
+		t.Errorf("Ada's offer through the Workspace = %+v, want offered with %+v", offer, createTheSectorWithTheWorkspace)
+	}
+	if offer := offerOf(ctx, t, governor); offer.Warning != nil {
+		t.Errorf("the governor's offer by password carries the statement %+v, want none", offer.Warning)
+	}
 
 	status, body := ada.do(ctx, http.MethodPost, createSectorRoute, []byte(`{"name":"Ada's Reach","region":"Near frontier","established":"2226-10-20"}`))
 	if status != http.StatusOK {
@@ -168,6 +222,9 @@ func TestSelfServiceSector_oneTenantPerPerson(t *testing.T) {
 		t.Fatalf("Cal's sign-up with a personal account: status %d to %q, want %d to the second factor's wait", status, location, http.StatusFound)
 	}
 	cal.secondFactor(ctx, "cal")
+	if offer := offerOf(ctx, t, cal); !offer.Offered || offer.Warning != nil {
+		t.Errorf("Cal's offer through a personal account = %+v, want offered with no statement", offer)
+	}
 	status, body = cal.do(ctx, http.MethodPost, createSectorRoute, []byte(`{"name":"Cal's Reach","region":"Near frontier","established":"2226-10-22"}`))
 	if status != http.StatusOK {
 		t.Fatalf("Cal charts a sector with a personal account: status %d, want 200: %s", status, body)

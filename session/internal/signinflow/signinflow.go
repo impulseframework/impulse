@@ -1500,8 +1500,9 @@ func organizationLinked(links []*dbtype.SessionIdentity) bool {
 // the tenant whose directory the identity came through, when directories reads one
 // (nil for none): the confirmed link is the person's first sign-in through the
 // directory, as a link the resolution makes is, so the seat is given with it or the
-// link is not made (seatDeclared). What seat asks to have run after the commit runs
-// once it has landed, before the caller establishes the session. An identity that was
+// link is not made (seatDeclared). A disabled user is given no seat. What seat asks to
+// have run after the commit runs once it has landed, before the caller establishes the
+// session. An identity that was
 // linked meanwhile is a Conflict with nothing written, which the caller reads the link
 // by; a seater's error is the seater's, whatever it is, with nothing written either.
 //
@@ -1544,6 +1545,10 @@ func LinkConfirmed[Tx any](
 		}
 		if err := d.LinkIdentityIn(ctx, tx, userID, identity, tenant); err != nil {
 			return errors.Wrap(err, "Driver.LinkIdentityIn()")
+		}
+		// A disabled user is given no seat.
+		if user.Disabled {
+			return nil
 		}
 		declared, err := declaredDirectory(ctx, tx, identity, directories)
 		if err != nil {
@@ -1809,9 +1814,19 @@ func resolveUnlinked[Tx any](
 	}
 	resolved = unlinkedUser{source: source, tenant: tenant, live: live}
 	// The seats follow the link: given where it is made, to a new user and to one who
-	// stood before alike.
-	if source == sessioninfo.UserProvisioned || source == sessioninfo.UserNewLink {
+	// stood before alike, and none to one who stood before and is disabled, who is refused
+	// once the sign-in is decided, as a linked identity's is (resolveLinked).
+	if source == sessioninfo.UserProvisioned {
 		resolved.seats = decided.res.Seats()
+	}
+	if source == sessioninfo.UserNewLink {
+		user, err := d.UserIn(ctx, tx, req.UserID)
+		if err != nil {
+			return unlinkedUser{}, nil, errors.Wrap(err, "Driver.UserIn()")
+		}
+		if !user.Disabled {
+			resolved.seats = decided.res.Seats()
+		}
 	}
 	// The default role follows the account: given to the person the open method made
 	// one for, never to one whose account stood before.

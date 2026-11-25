@@ -107,8 +107,7 @@ func TestSelfServiceSignUp_signInFirstThenChart(t *testing.T) {
 	}
 	// She is Ember's marshal, and making her personal account Ember's directory is
 	// refused with what to do; nothing is written.
-	makeEmbers := `[{"op":"add","path":"/sectors/` + ember + `/sector-directories","value":{}}]`
-	status, body = b.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(makeEmbers))
+	status, body = b.do(ctx, http.MethodPost, sectorPath(ember, "take-sector-directory"), []byte(`{}`))
 	if want := "A personal Google account is not an organization's directory, so it cannot be a sector's directory. Sign in with your organization's account (Google Workspace or Microsoft Entra) and try again."; status != http.StatusConflict || !strings.Contains(string(body), want) {
 		t.Errorf("making a personal Google account Ember's directory: status %d, want 409 saying %q: %s", status, want, body)
 	}

@@ -1373,6 +1373,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "CrewSectorGroupRoles",
 			},
 			{
+				Name:        "TakeSectorDirectory",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:         "UnlinkCrewSectorSessionIdentity",
 				Scope:        accesstypes.DomainPermissionScope,
 				Permissions:  []accesstypes.Permission{accesstypes.Execute},

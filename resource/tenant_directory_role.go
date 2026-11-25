@@ -38,9 +38,9 @@ type TenantDirectory struct {
 	Key string
 	// Directory is the organization the tenant's people sign in through.
 	Directory signin.Directory
-	// DefaultRole is the role a person is given in the tenant at their first sign-in
-	// through the directory, "" where the tenant admits the directory's people by
-	// invitation only.
+	// DefaultRole is the role a person is given in the tenant when they sign in through
+	// the directory and hold nothing in the tenant, at every sign-in, "" where the tenant
+	// admits the directory's people by invitation only.
 	DefaultRole accesstypes.Role
 	// SecondFactor says the tenant says the directory asks its people for a second
 	// factor of its own (@directorySecondFactor); false where the record carries no such

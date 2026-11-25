@@ -521,6 +521,9 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"return httpio.NewEncoder(w).Ok(offer{Offered: open})",
 	}, []string{
 		"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy",
+		// A record that declares no directories takes none at creation: the GET answers
+		// no statement.
+		"TakeDirectoryWarning", "json:\"warning", "rules :=",
 		// Some other method being open admits nobody: neither handler asks it.
 		"AnySignInMethodOpen",
 		// Nothing is removed after the commit: the row and the administrator's

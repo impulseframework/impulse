@@ -25,14 +25,17 @@ type (
 	// with (a sector its creator charts takes none, unless the application holds a
 	// person to one sector, where the create-sector route sets the one its creator came
 	// through); and afterwards the sector's marshal, signed in through their organization's directory,
-	// makes it the sector's on the Sign-in page, under the record's Create grant
-	// (SectorMarshal; the governor holds it in every sector). The create takes no method
-	// and no connection from the request; the server reads both from the session. A
-	// personal account (the pioneer's Google account, a Microsoft personal account) is
-	// no organization's directory and is refused, as is a session that came by
-	// password. The marshal removes the directory under the Delete grant, which is
-	// refused while the sector is directory only; the roles it gave stand, and the
-	// directory is free for another sector. The change events are the audit.
+	// makes it the sector's on the Sign-in page with the sector's own method
+	// TakeSectorDirectory, under its Execute grant (SectorMarshal; the governor holds it
+	// in every sector), after a statement that they are authorized to act on behalf of
+	// the organization, under which they type a phrase; the record's own create is
+	// refused. The method takes nothing from the request; the server reads the method
+	// and the connection from the session. A personal account (the pioneer's Google
+	// account, a Microsoft personal account) is no organization's directory and is
+	// refused, as is a session that came by password. The marshal removes the directory
+	// under the Delete grant, which is refused while the sector is directory only; the
+	// roles it gave stand, and the directory is free for another sector. The change
+	// events are the audit.
 	//
 	// DefaultSeat is the role a fleet member is given in the sector when they sign in
 	// through the directory and hold nothing in the sector, at every sign-in, whether
