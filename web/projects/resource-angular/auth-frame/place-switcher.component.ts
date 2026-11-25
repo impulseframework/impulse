@@ -17,11 +17,11 @@ export const findFrom = 8;
  * outside every tenant) names no place: the button asks them to choose one of theirs. A
  * long list opens with a box that narrows it as they type; Enter opens the first match.
  *
- * A tenant the person holds a seat in and cannot enter with this sign-in is listed too,
- * under their places and apart from them: its name with a lock and the server's reason
- * ("Acme admits only people who sign in through its own directory. You signed in with a
- * password."), and nothing to open. The list opens for it even when the person has one
- * place, so a seat is never missing without a word.
+ * A tenant the person holds a seat in and cannot enter is listed too, under their places
+ * and apart from them, headed "Not available": its name with a lock and the server's
+ * reason ("Acme admits only people who sign in through its own directory. You signed in
+ * with a password."), and nothing to open. The list opens for it even when the person has
+ * one place, so a seat is never missing without a word.
  *
  * Nothing is drawn until the person's places are known (PlaceService.known): a list of
  * tenants that has not been read, or could not be, is never shown as a person with one
@@ -91,8 +91,8 @@ export const findFrom = 8;
           }
         }
         @if (closed().length) {
-          <div menuListEnd class="impulse-place-switcher-closed" role="group" aria-label="Closed to this sign-in">
-            <div class="impulse-place-switcher-closed-heading">Closed to this sign-in</div>
+          <div menuListEnd class="impulse-place-switcher-closed" role="group" aria-label="Not available">
+            <div class="impulse-place-switcher-closed-heading">Not available</div>
             @for (place of closed(); track place.id) {
               <div class="impulse-place-switcher-closed-place">
                 <mat-icon class="impulse-place-switcher-closed-icon">lock</mat-icon>

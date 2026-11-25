@@ -153,7 +153,7 @@ describe('PlaceSwitcherComponent', () => {
     fixture.detectChanges();
     await TestBed.inject(ApplicationRef).whenStable();
     const closed = document.querySelector('.impulse-place-switcher-closed');
-    expect(closed?.querySelector('.impulse-place-switcher-closed-heading')?.textContent).toBe('Closed to this sign-in');
+    expect(closed?.querySelector('.impulse-place-switcher-closed-heading')?.textContent).toBe('Not available');
     expect(closed?.querySelector('.impulse-place-switcher-closed-name')?.textContent).toBe('Bastion');
     expect(closed?.querySelector('.impulse-place-switcher-closed-reason')?.textContent).toBe(reason);
     expect(closed?.querySelector('button')).toBeNull();

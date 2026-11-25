@@ -627,7 +627,7 @@ views the application as someone else, and one that acts as a role, are refused 
 tenant and are listed none closed. The browser library keeps a closed tenant out of the
 session's domains (`PermissionStore.domains`, so the tenant guard refuses it as it
 refuses any tenant the session does not reach) and lists it apart in the place switcher,
-under "Closed to this sign-in", with the reason (`PermissionStore.closedDomains`,
+under "Not available", with the reason (`PermissionStore.closedDomains`,
 `AuthService.closedDomains`, `PlaceService.closed`). `resource.ClosedDomains(ctx, perms)`
 is the list on the server. The name is the tenant roster's copy of the
 record's name column, the field the record marks `@tenantName` (section 1): the generated
