@@ -1816,10 +1816,10 @@ func resolveUnlinked[Tx any](
 	// The seats follow the link: given where it is made, to a new user and to one who
 	// stood before alike, and none to a disabled user, who is refused once the sign-in
 	// is decided, as a linked identity's is (resolveLinked).
-	switch source {
-	case sessioninfo.UserProvisioned:
+	if source == sessioninfo.UserProvisioned {
 		resolved.seats = decided.res.Seats()
-	case sessioninfo.UserNewLink:
+	}
+	if source == sessioninfo.UserNewLink {
 		user, err := d.UserIn(ctx, tx, req.UserID)
 		if err != nil {
 			return unlinkedUser{}, nil, errors.Wrap(err, "Driver.UserIn()")

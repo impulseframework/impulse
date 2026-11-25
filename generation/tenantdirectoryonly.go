@@ -445,16 +445,7 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 		return t.rc != nil && t.rc.HasPermission(accesstypes.DomainPermissionScope, accesstypes.Execute, accesstypes.Resource(method))
 	}
 
-	var methods []*tsTenantOwnMethod
-	if directories != nil && directories.OnOutlet(t.targetOutlet()) {
-		for _, method := range directoryTakeMethodsOf(record.Name()) {
-			if !served(method.Name) {
-				continue
-			}
-			doc := fmt.Sprintf("takes the directory you are signed in through as the %s's own, after the statement that you are authorized to act for the organization", word)
-			methods = append(methods, &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Doc: doc, Fields: nil})
-		}
-	}
+	methods := t.directoryTakeClientData(record, directories, word, served)
 	if record.declaresDirectoryOnly() && record.OnOutlet(t.targetOutlet()) {
 		for _, method := range directoryOnlyMethodsOf(record.Name()) {
 			if !served(method.Name) {
@@ -491,6 +482,25 @@ func (t *typescriptGenerator) tenantOwnClientData() []*tsTenantOwnMethod {
 			}
 			methods = append(methods, &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Doc: doc, Fields: nil})
 		}
+	}
+
+	return methods
+}
+
+// directoryTakeClientData is the method that takes the record's directory, on a client
+// generated for an outlet that serves the directories record, where the collection
+// serves it (served); none otherwise. word is what a sentence calls one tenant.
+func (t *typescriptGenerator) directoryTakeClientData(record, directories *resourceInfo, word string, served func(method string) bool) []*tsTenantOwnMethod {
+	if directories == nil || !directories.OnOutlet(t.targetOutlet()) {
+		return nil
+	}
+	var methods []*tsTenantOwnMethod
+	for _, method := range directoryTakeMethodsOf(record.Name()) {
+		if !served(method.Name) {
+			continue
+		}
+		doc := fmt.Sprintf("takes the directory you are signed in through as the %s's own, after the statement that you are authorized to act for the organization", word)
+		methods = append(methods, &tsTenantOwnMethod{Name: method.Name, Typed: method.Typed, Doc: doc, Fields: nil})
 	}
 
 	return methods
