@@ -54,11 +54,13 @@ type cascadeRun struct {
 
 // handedKind is a kind of row a test hands the delete (TakenKind): rows of it under the
 // record, each costing cost mutations, and what its check answers. It notes its check
-// with the rows asked about and what it took with the rows deleted.
+// with the rows asked about and what it took with the rows deleted. A kind that drains
+// has fewer rows once it has taken some, as a committed save leaves it.
 type handedKind struct {
 	words   DeleteWords
 	rows    int64
 	cost    int
+	drains  bool
 	refused error
 	asked   *[]string
 	made    *[]string
@@ -81,8 +83,12 @@ func (k *handedKind) Check(context.Context, ReadWriteTransaction) error {
 func (k *handedKind) Take(_ context.Context, _ ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
 	rows = min(k.rows, int64(budget/k.cost))
 	*k.made = append(*k.made, fmt.Sprintf("%d %s of %d mutations", rows, k.words.Many, budget))
+	more = rows < k.rows
+	if k.drains {
+		k.rows -= rows
+	}
 
-	return rows, int(rows) * k.cost, rows < k.rows, nil
+	return rows, int(rows) * k.cost, more, nil
 }
 
 // runTaking runs the delete of the record with the key as deleteTaken runs it, over
@@ -818,27 +824,31 @@ func (bareForkRow) DeleteTree() *DeleteTree {
 // TestPatchSet_DeleteAlso holds, over the emulator, a record whose description lists
 // nothing under it and that code hands a kind with rows: its delete asks first, naming
 // the kind, and deletes nothing; told to take what is under it, it takes the kind's rows
-// and the record.
+// and the record. Where the kind's rows cost more than one save takes, the record
+// stands, the delete says what the kind took and what is left, and sent again it goes on
+// until the kind has nothing left, and the record goes.
 func TestPatchSet_DeleteAlso(t *testing.T) {
 	t.Parallel()
 
 	db := forkDatabase(t, "delete-also")
 	if _, err := db.Apply(t.Context(), []*spanner.Mutation{
 		spanner.InsertMap("ForkRows", map[string]any{"Id": "r1", "Title": "record"}),
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "r2", "Title": "record"}),
 	}); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
 	var asked, made []string
 	notes := &handedKind{words: DeleteWords{One: "note", Many: "notes"}, rows: 2, cost: 1, asked: &asked, made: &made}
-	deleteRecord := func(everythingUnder bool) (*DeleteLeft, error) {
+	deleteRecordOf := func(id string, kind *handedKind, everythingUnder bool, size int) (*DeleteLeft, error) {
 		var left *DeleteLeft
 		err := NewSpannerClient(db).ExecuteFunc(t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
 			asked, made = nil, nil
-			record := NewPatchSet(NewMetadata[bareForkRow]()).SetPatchType(DeletePatchType).DeleteAlso(notes)
+			record := NewPatchSet(NewMetadata[bareForkRow]()).SetPatchType(DeletePatchType).DeleteAlso(kind)
 			if everythingUnder {
 				record.DeleteEverythingUnder()
 			}
-			record.SetKey("ID", "r1")
+			record.SetKey("ID", id)
+			record.deleteSaveSize = size
 			if err := record.Buffer(ctx, txn, "test"); err != nil {
 				return err
 			}
@@ -848,6 +858,9 @@ func TestPatchSet_DeleteAlso(t *testing.T) {
 		})
 
 		return left, err
+	}
+	deleteRecord := func(everythingUnder bool) (*DeleteLeft, error) {
+		return deleteRecordOf("r1", notes, everythingUnder, 0)
 	}
 
 	_, err := deleteRecord(false)
@@ -873,5 +886,20 @@ func TestPatchSet_DeleteAlso(t *testing.T) {
 	}
 	if row := readForkRow(t, db, "r1"); row != nil {
 		t.Errorf("the record is still there: %+v", row)
+	}
+
+	// The record and two notes a save.
+	many := &handedKind{words: DeleteWords{One: "note", Many: "notes"}, rows: 5, cost: 1, drains: true, asked: &asked, made: &made}
+	for i, want := range []*DeleteLeft{{Deleted: 2, Left: 3}, {Deleted: 2, Left: 1}, nil} {
+		left, err := deleteRecordOf("r2", many, true, 1+2)
+		if err != nil {
+			t.Fatalf("round %d: the delete error = %v", i+1, err)
+		}
+		if diff := cmp.Diff(want, left); diff != "" {
+			t.Errorf("round %d: DeleteLeft() (-want +got):\n%s", i+1, diff)
+		}
+		if standing := readForkRow(t, db, "r2") != nil; standing != (want != nil) {
+			t.Errorf("round %d: the record is there = %t, want %t", i+1, standing, want != nil)
+		}
 	}
 }

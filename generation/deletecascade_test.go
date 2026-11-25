@@ -160,26 +160,65 @@ func Test_deleteCascade_description(t *testing.T) {
 		t.Errorf("rendered Client lists its taken kinds out of delete order: TaskComments at %d, Tasks at %d, Projects at %d", comment, task, project)
 	}
 
-	// Code hands kinds to the delete of a record that takes rows, and to the tenant
-	// record's whatever is under a tenant; a record that takes nothing is handed none.
-	for _, tt := range []struct {
-		name   string
-		res    *resourceInfo
-		tenant bool
-		want   bool
-	}{
-		{name: "Client", res: client, want: true},
-		{name: "Supplier", res: byName["Supplier"]},
-		{name: "Supplier", res: byName["Supplier"], tenant: true, want: true},
-	} {
-		tt.res.IsTenant = tt.tenant
-		output, err := r.generateTemplateOutput("resourceFileTemplate", resourceFileTemplate, &resourceFileData{Source: "fixture", Package: "resources", Resource: tt.res})
-		tt.res.IsTenant = false
+	// Code hands kinds to the delete of a record that takes rows; a record that takes
+	// nothing is handed none.
+	for name, want := range map[string]bool{"Client": true, "Supplier": false} {
+		output, err := r.generateTemplateOutput("resourceFileTemplate", resourceFileTemplate, &resourceFileData{Source: "fixture", Package: "resources", Resource: byName[name]})
 		if err != nil {
-			t.Fatalf("generateTemplateOutput(%s) error = %v", tt.name, err)
+			t.Fatalf("generateTemplateOutput(%s) error = %v", name, err)
 		}
-		if got := strings.Contains(string(output), "func (p *"+tt.name+"DeletePatch) DeleteAlso(kinds ...resource.TakenKind) *"+tt.name+"DeletePatch {"); got != tt.want {
-			t.Errorf("rendered %s (the tenant record: %t) carries DeleteAlso = %t, want %t", tt.name, tt.tenant, got, tt.want)
+		if got := strings.Contains(string(output), "func (p *"+name+"DeletePatch) DeleteAlso(kinds ...resource.TakenKind) *"+name+"DeletePatch {"); got != want {
+			t.Errorf("rendered %s carries DeleteAlso = %t, want %t", name, got, want)
+		}
+	}
+}
+
+// bareTenant is the delete fixture with Supplier as the tenant record: no resource holds
+// a supplier's key or leads to one, so no kind of row is under a tenant.
+func bareTenant(t *testing.T) (c *client, byName map[string]*resourceInfo) {
+	t.Helper()
+
+	c, byName = deleteFixtureResources(t)
+	byName["Supplier"].IsTenant = true
+	for _, res := range byName {
+		res.DeleteTree = nil
+	}
+	if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
+		t.Fatalf("resolveDeleteTrees() error = %v", err)
+	}
+
+	return c, byName
+}
+
+// Test_deleteCascade_bareTenant pins the tenant record of an application with no kind of
+// row under a tenant: its description lists no taken kind, and its delete takes rows all
+// the same, the kinds handed to it, so its delete patch carries WithEverythingUnder, Left
+// and DeleteAlso.
+func Test_deleteCascade_bareTenant(t *testing.T) {
+	t.Parallel()
+
+	c, byName := bareTenant(t)
+	supplier := byName["Supplier"]
+	if supplier.DeleteTree == nil || len(supplier.DeleteTree.Taken) != 0 {
+		t.Fatalf("the tenant record's description = %+v, want one that lists no taken kind", supplier.DeleteTree)
+	}
+	if !supplier.TakesRowsUnder() {
+		t.Error("TakesRowsUnder() = false for the tenant record with nothing under a tenant, want true")
+	}
+
+	r := &resourceGenerator{client: c}
+	output, err := r.generateTemplateOutput("resourceFileTemplate", resourceFileTemplate, &resourceFileData{Source: "fixture", Package: "resources", Resource: supplier})
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	for _, want := range []string{
+		"func (p *SupplierDeletePatch) WithEverythingUnder() *SupplierDeletePatch {",
+		"// (DeleteAlso). The grant to delete the Supplier answers for them all.",
+		"func (p *SupplierDeletePatch) Left() *resource.DeleteLeft {",
+		"func (p *SupplierDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *SupplierDeletePatch {",
+	} {
+		if !strings.Contains(string(output), want) {
+			t.Errorf("rendered Supplier, the tenant record, lacks %q", want)
 		}
 	}
 }
@@ -193,6 +232,7 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 	t.Parallel()
 
 	c, byName := deleteFixtureResources(t)
+	_, bare := bareTenant(t)
 	render := func(t *testing.T, res *resourceInfo) map[string]string {
 		t.Helper()
 
@@ -222,25 +262,29 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 		return map[string]string{"the dispatcher": string(consolidated), "the resource's own handler": string(own)}
 	}
 
-	for handler, rendered := range render(t, byName["Client"]) {
-		flat := strings.Join(strings.Fields(rendered), " ")
-		for _, want := range []string{
-			"var left *resource.DeleteLeft",
-			"left = nil",
-			"patch := resources.NewClientDeletePatchFromPatchSet(id, patchSet) if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
-			"if taken := patch.Left(); taken != nil { if left == nil { left = &resource.DeleteLeft{} } left.Deleted += taken.Deleted left.Left += taken.Left }",
-			"if left != nil {",
-			"return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)",
-		} {
-			if !strings.Contains(flat, want) {
-				t.Errorf("%s lacks %q:\n%s", handler, want, rendered)
+	// A record that declares its cascade, and the tenant record of an application with
+	// no kind of row under a tenant, whose delete takes the kinds handed to it.
+	for name, res := range map[string]*resourceInfo{"Client": byName["Client"], "Supplier": bare["Supplier"]} {
+		for handler, rendered := range render(t, res) {
+			flat := strings.Join(strings.Fields(rendered), " ")
+			for _, want := range []string{
+				"var left *resource.DeleteLeft",
+				"left = nil",
+				"patch := resources.New" + name + "DeletePatchFromPatchSet(id, patchSet) if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+				"if taken := patch.Left(); taken != nil { if left == nil { left = &resource.DeleteLeft{} } left.Deleted += taken.Deleted left.Left += taken.Left }",
+				"if left != nil {",
+				"return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)",
+			} {
+				if !strings.Contains(flat, want) {
+					t.Errorf("%s of %s lacks %q:\n%s", handler, name, want, rendered)
+				}
 			}
-		}
-		published := strings.Index(rendered, "live.Publish(")
-		accepted := strings.Index(rendered, "StatusCodeWithBody(http.StatusAccepted, left)")
-		answered := strings.LastIndex(rendered, "return httpio.NewEncoder(w).Ok(")
-		if published < 0 || accepted < published || answered < accepted {
-			t.Errorf("%s answers out of order: open pages told at %d, the 202 at %d, the plain answer at %d:\n%s", handler, published, accepted, answered, rendered)
+			published := strings.Index(rendered, "live.Publish(")
+			accepted := strings.Index(rendered, "StatusCodeWithBody(http.StatusAccepted, left)")
+			answered := strings.LastIndex(rendered, "return httpio.NewEncoder(w).Ok(")
+			if published < 0 || accepted < published || answered < accepted {
+				t.Errorf("%s of %s answers out of order: open pages told at %d, the 202 at %d, the plain answer at %d:\n%s", handler, name, published, accepted, answered, rendered)
+			}
 		}
 	}
 	for handler, rendered := range render(t, byName["Invoice"]) {

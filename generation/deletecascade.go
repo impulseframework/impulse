@@ -749,12 +749,13 @@ func (r *resourceInfo) DeclaresDeleteCascade() bool {
 	return r.deleteCascade != nil
 }
 
-// TakesRowsUnder reports whether a delete of the record takes rows under it when it is
-// told to: the record declares its cascade, which always lists a kind as taken, or it
-// is the tenant record and the application has a kind of row under a tenant. Its
-// delete patch then carries WithEverythingUnder.
+// TakesRowsUnder reports whether a delete of the record takes rows with it when it is
+// told to: the record declares its cascade, which always lists a kind as taken, or it is
+// the tenant record, whose delete takes the kinds handed to it (DeleteAlso) whether or
+// not the application has a kind of row under a tenant. Its delete patch then carries
+// WithEverythingUnder, Left and DeleteAlso, and its handlers keep what a delete left.
 func (r *resourceInfo) TakesRowsUnder() bool {
-	return (r.deleteCascade != nil || r.IsTenant) && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
+	return r.IsTenant || r.deleteCascade != nil && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
 }
 
 // DeleteTreeLiteral is the record's description as the Go value its file returns
