@@ -127,41 +127,46 @@ ALTER TABLE SessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, IN
 ALTER TABLE SessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 ```
 
-PostgreSQL has no such policy, so the `Auth` store removes the rows as it writes: a
-sign-in removes the sessions that are due, a failed attempt removes the sign-in attempts
-rows that are due, a link's insert removes the mail links that are due, and a write that
-inserts a token, a trusted device, a device code or a pending sign-in removes the rows
-of its own table that are due. Three writes insert tokens: a token's own insert, a
-refresh, and the poll that redeems an approved device code. Each write removes at most
-100 rows, oldest first, and passes over a row another transaction holds; nothing sweeps
-the tables. The removal is never the write's failure: one that fails is logged as an
-error, and the write that carried it stands. A request that ends while its sign-in's
-removal runs is another matter: the sign-in fails with the request, as in any statement
-of its transaction, and a removal a deadline cut short is logged. Sessions are counted
-by the UTC day of their last activity (`UpdatedOn`, a column the database works out from
-`UpdatedAt`): a session goes once that day is more than 30 days back, so 30 to 31 days
-after its last activity and never sooner. The store reads the sessions that are due by
-an index on `UpdatedOn`, which changes once a day for a session in use, so the activity
-update most requests make writes no index while its row's page has room. Only a sign-in
-removes sessions. A session a `Preauth` store makes, one the application starts and an
-impersonated session remove nothing, so on PostgreSQL an application that only ever
-makes such sessions keeps every session row.
+PostgreSQL has no such policy, so the store removes the rows as it writes: a write that
+inserts a session removes the sessions that are due (a sign-in, a `Preauth` store's
+`Login`, a session the application starts and an impersonated session), a failed attempt
+removes the sign-in attempts rows that are due, a link's insert removes the mail links
+that are due, and a write that inserts a token, a trusted device, a device code or a
+pending sign-in removes the rows of its own table that are due. Three writes insert
+tokens: a token's own insert, a refresh, and the poll that redeems an approved device
+code. Each write removes at most 100 rows, oldest first, and passes over a row another
+transaction holds; nothing sweeps the tables. The removal is never the write's failure:
+one that fails is logged as an error, and the write that carried it stands. A request
+that ends while its sign-in's removal runs is another matter: the sign-in fails with the
+request, as in any statement of its transaction, and a removal a deadline cut short is
+logged. Sessions are counted by the UTC day of their last activity (`UpdatedOn`, a
+column the database works out from `UpdatedAt`): a session goes once that day is more
+than 30 days back, so 30 to 31 days after its last activity and never sooner. The store
+reads the sessions that are due by an index on `UpdatedOn`, which changes once a day for
+a session in use, so the activity update most requests make writes no index while its
+row's page has room.
 
-The shipped sets carry all of this: `SessionRowRemoval` for the first three tables (on
-Spanner in the base set and in the auth set, on PostgreSQL in the auth set), and
-`SessionExpiredRowRemoval` for the other four, in the auth set of each store (on Spanner
-their policies, on PostgreSQL the indexes on `ExpiresAt` the store reads the due rows
-by). A table named per group, or kept in the application's own migrations, needs the
-same statements under its name. On PostgreSQL the store reads `EndsAt` and `UpdatedOn`:
-without the column it removes no row of that table and logs an error at each write. The
-other four removals read `ExpiresAt`, which each of those tables has; without its index
-on `ExpiresAt`, each write that carries the removal reads the table whole. A table of
-the application's that references one of these tables needs `ON DELETE CASCADE` on that
-foreign key, as the custom session data table has: on PostgreSQL a foreign key without
-it stops the removal from that table while a row it holds is due, logged at each write.
-On PostgreSQL the referencing column also needs an index, which the database does not
-make for a foreign key: without one, each row the removal deletes reads that table
-whole.
+The shipped sets carry all of this: `SessionRowRemoval` for the first three tables (in
+the base set and in the auth set of each store), and `SessionExpiredRowRemoval` for the
+other four, in the auth set of each store (on Spanner their policies, on PostgreSQL the
+indexes on `ExpiresAt` the store reads the due rows by). A table named per group, or
+kept in the application's own migrations, needs the same statements under its name. On
+PostgreSQL the sessions table's are:
+
+```sql
+ALTER TABLE "Sessions" ADD COLUMN "UpdatedOn" date GENERATED ALWAYS AS (("UpdatedAt" AT TIME ZONE 'UTC')::date) STORED;
+CREATE INDEX "Sessions_UpdatedOn_idx" ON "Sessions" USING btree ("UpdatedOn");
+```
+
+On PostgreSQL the store reads `EndsAt` and `UpdatedOn`: without the column it removes no
+row of that table and logs an error at each write. The other four removals read
+`ExpiresAt`, which each of those tables has; without its index on `ExpiresAt`, each
+write that carries the removal reads the table whole. A table of the application's that
+references one of these tables needs `ON DELETE CASCADE` on that foreign key, as the
+custom session data table has: on PostgreSQL a foreign key without it stops the removal
+from that table while a row it holds is due, logged at each write. On PostgreSQL the
+referencing column also needs an index, which the database does not make for a foreign
+key: without one, each row the removal deletes reads that table whole.
 
 ## Auth sessions (multiple sign-in methods)
 

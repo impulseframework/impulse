@@ -39,10 +39,11 @@ type removal struct {
 var (
 	// sessionsRemoval finds the sessions that are due by the UTC day of their last
 	// activity (UpdatedOn, which the database works out from UpdatedAt) and holds each to
-	// UpdatedAt itself. Every session in the index's range is due, so a sign-in reads the
-	// rows it removes and no others, and UpdatedOn changes once a day for a session in
-	// use, where an index on UpdatedAt would be written by every activity update. A
-	// session goes 30 to 31 days after its last activity, never sooner.
+	// UpdatedAt itself. Every session in the index's range is due, so the write that
+	// carries the removal reads the rows it removes and no others, and UpdatedOn changes
+	// once a day for a session in use, where an index on UpdatedAt would be written by
+	// every activity update. A session goes 30 to 31 days after its last activity, never
+	// sooner.
 	sessionsRemoval = removal{
 		what:  "sessions idle more than 30 days",
 		key:   idKey,

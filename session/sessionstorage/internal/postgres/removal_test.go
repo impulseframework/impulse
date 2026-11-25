@@ -18,12 +18,131 @@ import (
 )
 
 // PostgreSQL has no row deletion policy, so the store removes the rows that are over as
-// it writes: a sign-in removes the sessions idle more than 30 days, a recorded failure
-// the sign-in attempts rows that stopped counting more than a day before, a link's insert
-// the mail links that expired more than 30 days before, and a write that inserts a token,
-// a trusted device, a device code or a pending sign-in the rows of its own table that
-// expired more than 30 days before (the first two) or a day before (the last two). These
-// tests stage a row's age with SQL through the pool.
+// it writes: a write that inserts a session removes the sessions idle more than 30 days, a
+// recorded failure the sign-in attempts rows that stopped counting more than a day before,
+// a link's insert the mail links that expired more than 30 days before, and a write that
+// inserts a token, a trusted device, a device code or a pending sign-in the rows of its
+// own table that expired more than 30 days before (the first two) or a day before (the
+// last two). These tests stage a row's age with SQL through the pool.
+
+// TestSessions_InsertRemovesIdleSessions proves that a store on the base set alone, which
+// signs nobody in (a Preauth store's Login), removes the sessions idle more than 30 days
+// as it inserts a session.
+func TestSessions_InsertRemovesIdleSessions(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newImpersonationInstance(ctx, t, drivertest.Sessions, drivertest.Config{})
+	idle31 := insertSessionAs(ctx, t, in.Driver, "pat")
+	active29 := insertSessionAs(ctx, t, in.Driver, "sam")
+	live := insertSessionAs(ctx, t, in.Driver, "kim")
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, idle31)
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '696 hours' WHERE "Id" = $1`, active29)
+
+	fresh := insertSessionAs(ctx, t, in.Driver, "lee")
+
+	for _, tt := range []struct {
+		name string
+		id   impulse.UUID
+		want bool
+	}{
+		{name: "a session made and last active 31 days ago", id: idle31, want: false},
+		{name: "a session made 31 days ago and active 29 days ago", id: active29, want: true},
+		{name: "a session in use", id: live, want: true},
+		{name: "the new session", id: fresh, want: true},
+	} {
+		if got := exists(ctx, t, in.Raw, `"Sessions"`, tt.id); got != tt.want {
+			t.Errorf("%s is there after another session's insert = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+// TestSessions_ImpersonatedInsertRemovesIdleSessions proves that an impersonated session's
+// insert removes the sessions idle more than 30 days, as any other session's does.
+func TestSessions_ImpersonatedInsertRemovesIdleSessions(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newImpersonationInstance(ctx, t, drivertest.Sessions, drivertest.Config{Impersonation: true})
+	idle := insertSessionAs(ctx, t, in.Driver, "pat")
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, idle)
+
+	role := "PartnerViewer"
+	id, err := in.Driver.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: "alice@example.com"},
+		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "alice@example.com"},
+		&dbtype.InsertImpersonation{ActorUsername: "alice@example.com", PrincipalKind: dbtype.PrincipalKindRole, PrincipalRole: &role, ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("InsertImpersonatedSession() error = %v", err)
+	}
+	if !exists(ctx, t, in.Raw, `"Sessions"`, id) {
+		t.Error("the impersonated session is not there")
+	}
+	if exists(ctx, t, in.Raw, `"Sessions"`, idle) {
+		t.Error("a session made and last active 31 days ago is there after an impersonated session's insert, want it removed")
+	}
+}
+
+// TestAuth_InsertedSessionRemovesIdleSessions proves that a session an Auth store inserts
+// without a sign-in (one the application starts) removes the sessions idle more than 30
+// days, with their auth events.
+func TestAuth_InsertedSessionRemovesIdleSessions(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newAuthInstance(ctx, t, drivertest.Auth, drivertest.AuthConfig{Auth: true, AuthEvents: true})
+	idle := signInAs(ctx, t, in, "pat@lakeside.edu")
+	if got := countAuthEvents(ctx, t, in.Raw, idle); got != 1 {
+		t.Fatalf("auth events of the session to be removed = %d, want its sign-in's 1", got)
+	}
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, idle)
+
+	user := createTestUser(ctx, t, in.Driver, "sam@lakeside.edu")
+	id, err := in.Driver.InsertSession(ctx, &dbtype.InsertSession{Username: "sam@lakeside.edu"}, &sessioninfo.NewSessionRequest{
+		Reason: sessioninfo.ReasonLogin, Username: "sam@lakeside.edu", UserID: user.ID,
+		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()},
+	})
+	if err != nil {
+		t.Fatalf("InsertSession() error = %v", err)
+	}
+	if !exists(ctx, t, in.Raw, `"Sessions"`, id) {
+		t.Error("the inserted session is not there")
+	}
+	if exists(ctx, t, in.Raw, `"Sessions"`, idle) {
+		t.Error("a session made and last active 31 days ago is there after a session's insert with no sign-in, want it removed")
+	}
+	if got := countAuthEvents(ctx, t, in.Raw, idle); got != 0 {
+		t.Errorf("auth events of the removed session = %d, want 0: they go with it", got)
+	}
+}
+
+// TestSessions_InsertStandsWhenItsRemovalFails holds a due session by a foreign key with
+// no cascade, which the removal cannot delete through: the insert that carries the
+// removal still inserts its session, and the due session stays until the holding row
+// goes.
+func TestSessions_InsertStandsWhenItsRemovalFails(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	in := newImpersonationInstance(ctx, t, drivertest.Sessions, drivertest.Config{})
+	due := insertSessionAs(ctx, t, in.Driver, "pat")
+	age(ctx, t, in.Raw, `UPDATE "Sessions" SET "CreatedAt" = now() - interval '744 hours', "UpdatedAt" = now() - interval '744 hours' WHERE "Id" = $1`, due)
+	age(ctx, t, in.Raw, `CREATE TABLE "SessionNotes" ("SessionId" uuid NOT NULL REFERENCES "Sessions" ("Id"))`)
+	age(ctx, t, in.Raw, `INSERT INTO "SessionNotes" ("SessionId") VALUES ($1)`, due)
+
+	held := insertSessionAs(ctx, t, in.Driver, "sam")
+	if !exists(ctx, t, in.Raw, `"Sessions"`, held) {
+		t.Error("the session whose insert's removal failed is not there, want it inserted")
+	}
+	if !exists(ctx, t, in.Raw, `"Sessions"`, due) {
+		t.Error("the due session a foreign key with no cascade holds is gone, want it kept")
+	}
+
+	age(ctx, t, in.Raw, `DELETE FROM "SessionNotes"`)
+	insertSessionAs(ctx, t, in.Driver, "kim")
+	if exists(ctx, t, in.Raw, `"Sessions"`, due) {
+		t.Error("the due session is there after the insert that follows the holding row's delete, want it removed")
+	}
+}
 
 // hundredYears is the window and the lock the library keeps its counts under that no
 // time resets.
@@ -605,18 +724,50 @@ func TestAuth_RemovalsReadTheirIndexes(t *testing.T) {
 		{table: `"SessionDeviceCodes"`, removal: deviceCodesRemoval, index: "SessionDeviceCodes_ExpiresAt_idx"},
 		{table: `"SessionPendingSignIns"`, removal: pendingSignInsRemoval, index: "SessionPendingSignIns_ExpiresAt_idx"},
 	} {
-		rows, err := tx.Query(ctx, "EXPLAIN (COSTS OFF) "+tt.removal.statement(tt.table), tt.args...)
-		if err != nil {
-			t.Fatalf("EXPLAIN of the removal from %s error = %v", tt.table, err)
-		}
-		lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
-		if err != nil {
-			t.Fatalf("pgx.CollectRows() error = %v", err)
-		}
-		if plan := strings.Join(lines, "\n"); !strings.Contains(plan, tt.index) {
+		if plan := removalPlan(ctx, t, tx, tt.removal, tt.table, tt.args...); !strings.Contains(plan, tt.index) {
 			t.Errorf("the removal from %s does not read the index %s; the plan:\n%s", tt.table, tt.index, plan)
 		}
 	}
+
+	// The sessions' day and its index are the base set's: a store on the base set alone,
+	// a Preauth store's, reads the due sessions by the index too.
+	t.Run("the sessions over the base set alone", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		base, err := prepareDatabase(ctx, t, "file://../../../schema/postgresql/migrations")
+		if err != nil {
+			t.Fatalf("prepareDatabase() of the base set alone error = %v", err)
+		}
+		baseTx, err := base.Begin(ctx)
+		if err != nil {
+			t.Fatalf("Begin() error = %v", err)
+		}
+		// Rolled back on every path: the transaction only reads plans.
+		defer func() { _ = baseTx.Rollback(ctx) }()
+		if _, err := baseTx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
+			t.Fatalf("SET LOCAL enable_seqscan error = %v", err)
+		}
+		if plan := removalPlan(ctx, t, baseTx, sessionsRemoval, `"Sessions"`); !strings.Contains(plan, "Sessions_UpdatedOn_idx") {
+			t.Errorf("the removal from \"Sessions\" over the base set alone does not read the index Sessions_UpdatedOn_idx; the plan:\n%s", plan)
+		}
+	})
+}
+
+// removalPlan is the plan the removal's statement over table has in tx.
+func removalPlan(ctx context.Context, t *testing.T, tx pgx.Tx, r removal, table string, args ...any) string {
+	t.Helper()
+
+	rows, err := tx.Query(ctx, "EXPLAIN (COSTS OFF) "+r.statement(table), args...)
+	if err != nil {
+		t.Fatalf("EXPLAIN of the removal from %s error = %v", table, err)
+	}
+	lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("pgx.CollectRows() error = %v", err)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // signInAs makes an account for username and signs it in, as a person signs in by
@@ -634,6 +785,19 @@ func signInAs(ctx context.Context, t *testing.T, in *drivertest.AuthInstance, us
 	})
 	if err != nil {
 		t.Fatalf("SignIn(%q) error = %v", username, err)
+	}
+
+	return id
+}
+
+// insertSessionAs inserts a session of username through d, as a Preauth store's Login
+// does, and returns its id.
+func insertSessionAs(ctx context.Context, t *testing.T, d drivertest.Driver, username string) impulse.UUID {
+	t.Helper()
+
+	id, err := d.InsertSession(ctx, &dbtype.InsertSession{Username: username}, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: username})
+	if err != nil {
+		t.Fatalf("InsertSession(%q) error = %v", username, err)
 	}
 
 	return id
