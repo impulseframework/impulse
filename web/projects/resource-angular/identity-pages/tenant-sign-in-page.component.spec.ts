@@ -776,13 +776,13 @@ describe('TenantSignInPageComponent', () => {
     expect(sent('open-team-to-directory')[0]).toEqual({ kind: 'warning', body: { role: '' } });
     expect(calls('open-team-to-directory')).toEqual([]);
     expect(dialogText('[mat-dialog-title]')).toBe('Choose the role');
+    // The dialog says what the role is for on a line of its own, whole at every width.
+    expect(dialogText('.says')).toBe('The role a person gets when they sign in through it and hold nothing here');
     expect(dialogText('.typed-word mat-label')).toBe('Type open to confirm');
     expect(runButton().disabled).toBe(true);
     const dialog = TestBed.inject(MatDialog).openDialogs[0]?.componentInstance as MethodDialogComponent;
-    // The role's input says what it sets, and lists each role by its name and description.
-    expect(dialog.elements.map((e) => e.label)).toEqual([
-      'The role a person gets when they sign in through it and hold nothing here',
-    ]);
+    // The role's input is labeled Role, and lists each role by its name and description.
+    expect(dialog.elements.map((e) => e.label)).toEqual(['Role']);
     expect(dialog.elements[0]?.enumeratedConfig.listDisplay).toEqual(['name', 'description']);
 
     // The role is picked: the dialog asks the server what that choice will do and shows its words.

@@ -448,7 +448,7 @@ export class TenantSignInPageComponent {
       'openToDirectory',
       'Choose the role',
       {
-        labels: { role: 'The role a person gets when they sign in through it and hold nothing here' },
+        says: 'The role a person gets when they sign in through it and hold nothing here',
         shows: { role: ['name', 'description'] },
       },
       { role: '' },
