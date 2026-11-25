@@ -118,22 +118,60 @@ type takenRows struct {
 // the role a group of the whole application holds there, its group, its custom role and
 // its invitation that stands. cara, who holds a role in beta, and evan, whom beta's
 // directory manages, keep their accounts; another tenant's rows are not counted.
+//
+// Six more hold a role in alpha, which is counted with the roles held, and keep their
+// accounts, each for one thing more: fay holds a role for the whole application, gus one
+// in every tenant, hal a place in the staff group of the whole application, ida a place in
+// beta's group, and jo a role in beta whose period has not begun. The sixth membership
+// names an id that is no account's, and no account is counted for it.
 func TestManager_TenantKinds_counts(t *testing.T) {
 	t.Parallel()
 
-	m, _ := newManager(t, alphaStore(), engineRoles)
+	_, upcoming, _ := periodFixtures()
+	fayID := mustUUID("0190c000-0000-7000-8000-000000000006")
+	gusID := mustUUID("0190c000-0000-7000-8000-000000000007")
+	halID := mustUUID("0190c000-0000-7000-8000-000000000008")
+	idaID := mustUUID("0190c000-0000-7000-8000-000000000009")
+	joID := mustUUID("0190c000-0000-7000-8000-00000000000a")
+	nobodyID := mustUUID("0190c000-0000-7000-8000-00000000000b")
+	joBeta := access.NewMembershipKey(accesstypes.DomainPolicyScope("beta"), User(joID), "Reader")
+
+	store := alphaStore()
+	for _, id := range []impulse.UUID{fayID, gusID, halID, idaID, joID, nobodyID} {
+		store.memberships[access.NewMembershipKey(alphaScope, User(id), "Reader")] = true
+	}
+	store.memberships[access.NewMembershipKey(globalScope, User(fayID), "Steward")] = true
+	store.memberships[access.NewMembershipKey(everyScope, User(gusID), "Reader")] = true
+	store.memberships[joBeta] = true
+	store.membershipPeriods = map[access.MembershipKey]accesstypes.Period{joBeta: upcoming}
+	store.groups[dayID] = &Group{Kind: "domain", Domain: "beta", Name: "Day shift"}
+	store.groupMembers[memberKey(staffID, halID)], store.groupMembers[memberKey(dayID, idaID)] = true, true
+	store.usernames[fayID], store.usernames[gusID], store.usernames[halID] = "fay", "gus", "hal"
+	store.usernames[idaID], store.usernames[joID] = "ida", "jo"
+
+	m, _ := newManager(t, store, engineRoles)
 	var got map[string]int64
+	var accounts []string
 	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		var err error
-		got, err = kindCounts(ctx, txn, m.TenantKinds("alpha"))
+		if got, err = kindCounts(ctx, txn, m.TenantKinds("alpha")); err != nil {
+			return err
+		}
+		alone, err := (&tenantHeld{manager: m, domain: "alpha"}).accounts(ctx, txn)
+		for i := range alone {
+			accounts = append(accounts, alone[i].username)
+		}
 
 		return err
 	}); err != nil {
 		t.Fatalf("inTransaction() error = %v", err)
 	}
-	want := map[string]int64{"accounts": 3, "roles held": 5, "groups": 1, "custom roles": 1, "invitations": 1}
+	want := map[string]int64{"accounts": 3, "roles held": 11, "groups": 1, "custom roles": 1, "invitations": 1}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("counts (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"anna", "ben", "dora"}, accounts); diff != "" {
+		t.Errorf("the accounts the delete takes (-want +got):\n%s", diff)
 	}
 
 	var words []resource.DeleteWords

@@ -243,7 +243,8 @@ func TestManager_AssignRoleFor(t *testing.T) {
 // against the periods: a member and a role that have ended are taken with the group as
 // any are, by the group's own delete, and nothing their removal asks is asked of them,
 // so dana, acting as someone else, deletes a group whose place of hers has ended and is
-// refused one whose place of hers counts.
+// refused one whose place of hers counts or has not begun. A role that has not begun is
+// asked what taking it from the group asks, as one that counts is.
 func TestManager_groupPeriods(t *testing.T) {
 	t.Parallel()
 
@@ -332,13 +333,34 @@ func TestManager_groupPeriods(t *testing.T) {
 		}
 	})
 
+	// Each delete is asked as dana acting as someone else, or as erin, who may take
+	// Reader from nobody.
+	asDana := func(ctx context.Context) context.Context {
+		return viewedBy(asErin(ctx, managedAuth, false), userID)
+	}
+	asErinTakingNoReader := func(ctx context.Context) context.Context {
+		return asCallerThrough(ctx, managedAuth, erin)
+	}
 	deletes := []struct {
-		name    string
-		place   accesstypes.Period
-		wantErr bool
+		name     string
+		place    accesstypes.Period
+		role     accesstypes.Period
+		caller   func(context.Context) context.Context
+		wantSays string
 	}{
-		{name: "a member and a role that have ended go with the group, and are not asked about", place: ended},
-		{name: "a member whose place counts is asked what removing them asks", wantErr: true},
+		{name: "a member and a role that have ended go with the group, and are not asked about", place: ended, role: ended, caller: asDana},
+		{
+			name: "a member whose place counts is asked what removing them asks", role: ended, caller: asDana,
+			wantSays: actingAsSomeoneElse + "take yourself out of a group.",
+		},
+		{
+			name: "a member whose place has not begun is asked what removing them asks", place: upcoming, role: ended, caller: asDana,
+			wantSays: actingAsSomeoneElse + "take yourself out of a group.",
+		},
+		{
+			name: "a role whose period has not begun is asked what taking it from the group asks", role: upcoming, caller: asErinTakingNoReader,
+			wantSays: "Taking a role from the group Night shift takes away from everyone in it the role Reader, which you may not take from them.",
+		},
 	}
 	for _, tt := range deletes {
 		t.Run(tt.name, func(t *testing.T) {
@@ -346,18 +368,17 @@ func TestManager_groupPeriods(t *testing.T) {
 			store := groupStore()
 			store.groupMembers[place], store.groupRoles[role] = true, true
 			store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{place: tt.place}
-			store.rolePeriods = map[access.GroupRoleKey]accesstypes.Period{role: ended}
-			m, _ := newManager(t, store, engineRoles)
+			store.rolePeriods = map[access.GroupRoleKey]accesstypes.Period{role: tt.role}
+			m, _ := newManager(t, store, engineRoles, WithRoleGrants(&fakeGrants{noTake: []accesstypes.Role{"Reader"}}))
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				_, err := m.DeleteGroup(viewedBy(asErin(ctx, managedAuth, false), userID), txn, nightID, true)
+				_, err := m.DeleteGroup(tt.caller(ctx), txn, nightID, true)
 
 				return err
 			})
-			if tt.wantErr {
-				says := actingAsSomeoneElse + "take yourself out of a group."
-				if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), says) || len(store.writes) != 0 {
-					t.Fatalf("DeleteGroup() = %v with writes %v, want the refusal %q and nothing written", err, store.writes, says)
+			if tt.wantSays != "" {
+				if err == nil || !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), tt.wantSays) || len(store.writes) != 0 {
+					t.Fatalf("DeleteGroup() = %v with writes %v, want the refusal %q and nothing written", err, store.writes, tt.wantSays)
 				}
 
 				return
