@@ -106,7 +106,7 @@ func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 		{"EndOtherSessions()", http.MethodPost, "/user/sessions/end-others", `{}`},
 		{"ForgetBrowsers()", http.MethodPost, "/user/browser/forget-all", ``},
 		{"OwnTenants()", http.MethodGet, "/user/tenants", ``},
-		{"LeaveTenant()", http.MethodPost, "/user/tenants/leave", `{"domain":"a1111111-1111-4111-8111-111111111111","deletesAccount":false}`},
+		{"LeaveTenant()", http.MethodPost, "/user/tenants/leave", `{"domain":"a1111111-1111-4111-8111-111111111111"}`},
 	} {
 		for _, asker := range []struct {
 			who string

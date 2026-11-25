@@ -409,9 +409,9 @@ func TestGroupShare_levels(t *testing.T) {
 
 // TestGroupShare_places holds the pass to the person's place in the group: a place that
 // has not begun, or that has ended, gives nothing; a person taken out of the group loses
-// the hangar at their next request; and a group that is deleted leaves no pass that
-// names it. It runs on the cast's own share, the Bay keepers' pass to run the Quarantine
-// Bay.
+// the hangar at their next request; and a group that a pass names is not deleted while
+// the pass stands: the foreign key to CrewGroups refuses it. It runs on the cast's own
+// share, the Bay keepers' pass to run the Quarantine Bay.
 func TestGroupShare_places(t *testing.T) {
 	t.Parallel()
 
@@ -479,13 +479,30 @@ func TestGroupShare_places(t *testing.T) {
 	open("the sentry is out of the group", sentry)
 	runs("the sentry is out of the group", sentry, "isolation", http.StatusForbidden)
 
-	// The group is deleted, and its pass goes with it: no pass is left that names a group
-	// nobody keeps. Nobody whose place counts is left in it; the novice's ended place does
-	// not stand in the way, and goes with the group.
+	// The pass names the group, so the group's delete, confirmed, is refused at the
+	// commit, and nothing goes: the group, the novice's ended place and the pass stand.
 	if got := w.passes(t, "GroupId = @group", map[string]any{"group": group}); got != 1 {
 		t.Fatalf("the passes that name the Bay keepers = %d before the group is deleted, want 1", got)
 	}
-	status, body = w.post(t, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, group))
+	deleteGroup := fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, group)
+	status, body = w.post(t, "delete-crew-sector-group", deleteGroup)
+	assertStatus(t, status, http.StatusConflict, body)
+	if got, want := refusalMessage(t, body), "One of the crew group members or crew groups this request deletes cannot be deleted while other records still refer to it."; got != want {
+		t.Errorf("the refused delete answered %q, want the commit refusal's sentence %q", got, want)
+	}
+	if got := w.passes(t, "Id = @pass", map[string]any{"pass": passBayKeepersQuarantineID}); got != 1 {
+		t.Errorf("the Bay keepers' pass after the refused delete = %d, want it standing", got)
+	}
+	if got := w.passes(t, "GroupId = @group AND EXISTS (SELECT 1 FROM CrewGroups g WHERE g.Id = @group)", map[string]any{"group": group}); got != 1 {
+		t.Errorf("the Bay keepers after the refused delete: %d passes name the group kept, want the group standing with its pass", got)
+	}
+
+	// With the pass deleted first, the group is deleted, and the novice's ended place
+	// goes with it: no pass is left that names a group nobody keeps.
+	status, body = doRequestAs(t, w.h, "marshal", http.MethodPatch, consoleAPI+"/resources",
+		fmt.Sprintf(`[{"op":"remove","path":%q}]`, opPath(anvil, "hangar-passes/"+passBayKeepersQuarantineID)))
+	assertStatus(t, status, http.StatusOK, body)
+	status, body = w.post(t, "delete-crew-sector-group", deleteGroup)
 	assertStatus(t, status, http.StatusNoContent, body)
 	if got := w.passes(t, "GroupId = @group OR Id = @pass", map[string]any{"group": group, "pass": passBayKeepersQuarantineID}); got != 0 {
 		t.Errorf("the passes that name the Bay keepers = %d after the group is deleted, want none", got)

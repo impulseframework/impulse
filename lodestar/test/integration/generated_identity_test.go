@@ -592,8 +592,8 @@ func TestGeneratedIdentityMembershipInTransaction(t *testing.T) {
 // administrator keeps the role; a person who removes a role from themselves in a sector
 // keeps an administrator role nobody else would hold there (the marshal's, which a
 // marshal of every sector does not stand in for: they are no marshal of the sector's
-// own); and the removal of a person's last role anywhere deletes the account in the
-// same transaction.
+// own); and the removal of a person's last role anywhere leaves the account standing,
+// holding nothing.
 func TestGeneratedIdentityRules(t *testing.T) {
 	t.Parallel()
 	w := newIdentityWorld(t)
@@ -669,8 +669,8 @@ func TestGeneratedIdentityRules(t *testing.T) {
 		t.Errorf("hana's marshal membership once another marshal stands: err = %v, want not found", err)
 	}
 
-	// The last role anywhere: ivan holds two; the first removal leaves the account,
-	// the second deletes it with the membership, in one transaction.
+	// The last role anywhere: ivan holds two; after either removal the account stands,
+	// and after the second it holds nothing.
 	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", marshal(ivanUser))
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, "governor", http.MethodGet, consoleAPI+"/crew-session-users/"+ivanID, "")
@@ -678,20 +678,23 @@ func TestGeneratedIdentityRules(t *testing.T) {
 	status, body = doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/remove-crew-role", `{"userId":"`+ivanID+`","role":"CrewCommon"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, "governor", http.MethodGet, consoleAPI+"/crew-session-users/"+ivanID, "")
-	if status != http.StatusNotFound {
-		t.Errorf("ivan's account after his last role went: status %d, want 404: %s", status, body)
+	if status != http.StatusOK {
+		t.Errorf("ivan's account after his last role went: status %d, want 200, the account kept: %s", status, body)
 	}
-	if _, err := w.db.Single().ReadRow(ctx, "CrewUserRoles", crewMembershipKey("CrewCommon", ivanUser), []string{"UserId"}); spanner.ErrCode(err) != codes.NotFound {
-		t.Errorf("ivan's last membership: err = %v, want not found", err)
+	if got := crewHeldBy(t, w.db, ivanID); len(got) != 0 {
+		t.Errorf("ivan holds %v after his last role went, want nothing", got)
 	}
 
 	// Hana's own last role: she gives up headquarters, which the governor holds too,
-	// and the account goes with it, as anyone's does.
+	// and the account stays, holding nothing, as anyone's does.
 	status, body = doRequestAs(t, h, hana, http.MethodPost, consoleAPI+"/remove-crew-role", `{"userId":"`+hanaID+`","role":"Headquarters"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = doRequestAs(t, h, "governor", http.MethodGet, consoleAPI+"/crew-session-users/"+hanaID, "")
-	if status != http.StatusNotFound {
-		t.Errorf("hana's account after her last role went: status %d, want 404: %s", status, body)
+	if status != http.StatusOK {
+		t.Errorf("hana's account after her last role went: status %d, want 200, the account kept: %s", status, body)
+	}
+	if got := crewHeldBy(t, w.db, hanaID); len(got) != 0 {
+		t.Errorf("hana holds %v after her last role went, want nothing", got)
 	}
 }
 
