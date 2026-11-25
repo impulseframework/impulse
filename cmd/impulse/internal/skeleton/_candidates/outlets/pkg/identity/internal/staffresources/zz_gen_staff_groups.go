@@ -23,20 +23,49 @@ func (StaffGroup) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
-// DeleteTree describes what keeps a StaffGroup from being deleted: the kinds with a
-// row directly under a StaffGroup that the database does not remove with it, each
-// with the columns that name the StaffGroup. A delete of a StaffGroup with
-// such a row is refused in a sentence that says what is in the way.
+// DeleteTree describes what a delete of a StaffGroup takes with it and what refuses
+// it (@deleteCascade). The kinds taken are in the order their rows are deleted, deepest
+// first, each with its ways up to the StaffGroup and what the delete of one of its
+// rows costs. The kinds under Under are the ones with a row directly under a StaffGroup
+// that the database does not remove with it.
 func (StaffGroup) DeleteTree() *resource.DeleteTree {
 	return &resource.DeleteTree{
 		Record: "StaffGroups",
-		Words:  resource.DeleteWords{One: "staff group", Many: "staff groups"},
+		Words:  resource.DeleteWords{One: "group", Many: "groups"},
 		Key:    []string{"Id"},
 		Cost:   resource.DeleteCost{IndexEntries: 1, Files: 0},
+		Taken: []resource.DeleteKind{
+			{
+				Resource: "StaffGroupRoles",
+				Words:    resource.DeleteWords{One: "role", Many: "roles"},
+				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "StaffGroups", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[StaffGroupRole], *resource.Caller) {}),
+			},
+			{
+				Resource: "StaffGroupMembers",
+				Words:    resource.DeleteWords{One: "member", Many: "members"},
+				Key:      []string{"GroupId", "UserId"},
+				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "StaffGroups", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[StaffGroupMember], *resource.Caller) {}),
+			},
+		},
 		Under: []resource.DeleteKind{
 			{
 				Resource: "StaffGroupMembers",
-				Words:    resource.DeleteWords{One: "staff group member", Many: "staff group members"},
+				Words:    resource.DeleteWords{One: "member", Many: "members"},
 				Key:      []string{"GroupId", "UserId"},
 				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
 				Paths: []resource.DeletePath{
@@ -47,7 +76,7 @@ func (StaffGroup) DeleteTree() *resource.DeleteTree {
 			},
 			{
 				Resource: "StaffGroupRoles",
-				Words:    resource.DeleteWords{One: "staff group role", Many: "staff group roles"},
+				Words:    resource.DeleteWords{One: "role", Many: "roles"},
 				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
 				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
 				Paths: []resource.DeletePath{
@@ -768,6 +797,36 @@ func NewStaffGroupDeletePatch(id impulse.UUID) *StaffGroupDeletePatch {
 		SetPatchType(resource.DeletePatchType)
 
 	return &StaffGroupDeletePatch{patchSet: patchSet}
+}
+
+// WithEverythingUnder says the delete takes the rows under the StaffGroup with it:
+// every row of the kinds its @deleteCascade lists as taken, each deleted as its own
+// delete would delete it. It takes the kinds handed to the delete as well (DeleteAlso).
+// Without it, a delete of a StaffGroup that has such rows
+// deletes nothing and is answered with the question a person is asked first
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left says what is left: buffer the delete
+// again, in a transaction of its own, until Left answers nil.
+func (p *StaffGroupDeletePatch) WithEverythingUnder() *StaffGroupDeletePatch {
+	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// Left is what the delete left under the StaffGroup once it is buffered
+// (resource.DeleteLeft): nil where the delete finished, the StaffGroup with it.
+func (p *StaffGroupDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the StaffGroup that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the StaffGroup.
+func (p *StaffGroupDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *StaffGroupDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
 }
 
 func (p *StaffGroupDeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {

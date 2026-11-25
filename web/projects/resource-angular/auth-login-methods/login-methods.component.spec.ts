@@ -1789,7 +1789,7 @@ describe('LoginMethodsComponent changes a password when an administrator require
     });
   }
 
-  it('cancelling the change ends the session, shows the list again and emits cancelled', async () => {
+  it('canceling the change ends the session, shows the list again and emits cancelled', async () => {
     const page = await pageOver(server({ passwordChangeRequired: true }));
     await signIn(page);
     await page.component.cancelChange();
@@ -2239,7 +2239,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
   });
 
-  it('cancelling the account form shows the list with the invitation still standing, and emits cancelled', async () => {
+  it('canceling the account form shows the list with the invitation still standing, and emits cancelled', async () => {
     const page = await pageOver(server({ methods: mailingList }), { invitation: 'tok-1' });
     page.component.openAccountForm();
     page.component.cancelAccount();

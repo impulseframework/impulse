@@ -43,17 +43,18 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 		Tenant: &resource.DomainBindingData{Column: "Id"},
 		Taken: []resource.DeleteKind{
 			{
-				Resource: "Announcements",
-				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
+				Resource: "TenantDirectories",
+				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
 				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
 					},
 				},
-				Rows: resource.NewTakenRows(func(*resource.PatchSet[Announcement], *resource.Caller) {}),
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[TenantDirectory], *resource.Caller) {}),
 			},
 			{
 				Resource: "Readings",
@@ -66,20 +67,22 @@ func (Tenant) DeleteTree() *resource.DeleteTree {
 						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
 					},
 				},
-				Rows: resource.NewTakenRows(func(*resource.PatchSet[Reading], *resource.Caller) {}),
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Reading], *resource.Caller) {}),
 			},
 			{
-				Resource: "TenantDirectories",
-				Words:    resource.DeleteWords{One: "tenant directory", Many: "tenant directories"},
+				Resource: "Announcements",
+				Words:    resource.DeleteWords{One: "announcement", Many: "announcements"},
 				Key:      []string{"Id"},
-				Cost:     resource.DeleteCost{IndexEntries: 3, Files: 0},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
 				Tenant:   &resource.DomainBindingData{Column: "TenantId"},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"TenantId"}, Table: "Tenants", References: []string{"Id"}},
 					},
 				},
-				Rows: resource.NewTakenRows(func(*resource.PatchSet[TenantDirectory], *resource.Caller) {}),
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[Announcement], *resource.Caller) {}),
 			},
 		},
 		Under: []resource.DeleteKind{
@@ -131,6 +134,7 @@ type tenantRead struct {
 	Name          string       `json:"name"`
 	CreatedAt     time.Time    `json:"createdAt"`
 	DirectoryOnly bool         `json:"directoryOnly"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var tenantReadSets resource.SetCache[Tenant, tenantRead]
@@ -143,6 +147,7 @@ type tenantWrite struct {
 	Name          string       `json:"name"`
 	CreatedAt     time.Time    `json:"-"`
 	DirectoryOnly bool         `json:"-"`
+	Disabled      bool         `json:"disabled"`
 }
 
 var tenantWriteSets resource.SetCache[Tenant, tenantWrite]
@@ -267,6 +272,7 @@ func (c *TenantColumns) All() *TenantColumns {
 		"Name",
 		"CreatedAt",
 		"DirectoryOnly",
+		"Disabled",
 	}
 
 	return c
@@ -292,6 +298,12 @@ func (c *TenantColumns) CreatedAt() *TenantColumns {
 
 func (c *TenantColumns) DirectoryOnly() *TenantColumns {
 	c.fields = append(c.fields, "DirectoryOnly")
+
+	return c
+}
+
+func (c *TenantColumns) Disabled() *TenantColumns {
+	c.fields = append(c.fields, "Disabled")
 
 	return c
 }
@@ -396,6 +408,10 @@ func (c *tenantSort) CreatedAt() *TenantSort {
 
 func (c *tenantSort) DirectoryOnly() *TenantSort {
 	return c.addField("DirectoryOnly")
+}
+
+func (c *tenantSort) Disabled() *TenantSort {
+	return c.addField("Disabled")
 }
 
 type TenantSort struct {
@@ -532,6 +548,22 @@ func (p *TenantCreatePatch) DirectoryOnly() bool {
 
 func (p *TenantCreatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
+}
+
+func (p *TenantCreatePatch) SetDisabled(v bool) *TenantCreatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *TenantCreatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *TenantCreatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -674,6 +706,22 @@ func (p *TenantUpdatePatch) DirectoryOnlyIsSet() bool {
 	return p.patchSet.IsSet("DirectoryOnly")
 }
 
+func (p *TenantUpdatePatch) SetDisabled(v bool) *TenantUpdatePatch {
+	p.patchSet.Set("Disabled", v)
+
+	return p
+}
+
+func (p *TenantUpdatePatch) Disabled() bool {
+	v, _ := p.patchSet.Get("Disabled").(bool)
+
+	return v
+}
+
+func (p *TenantUpdatePatch) DisabledIsSet() bool {
+	return p.patchSet.IsSet("Disabled")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *TenantUpdatePatch) Diff(got *TenantUpdatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -702,12 +750,30 @@ func NewTenantDeletePatch(id impulse.UUID) *TenantDeletePatch {
 // WithEverythingUnder says the delete takes the rows under the Tenant with it:
 // every row of the application's that is the Tenant's own or leads to one that
 // is, each deleted through its kind's delete, with its delete rule asked, its change
-// record written and its files released. The grant to delete the Tenant answers
-// for them all. Without it, a delete of a Tenant that has such rows deletes
+// record written and its files released. It takes the kinds handed to the delete as well
+// (DeleteAlso). The grant to delete the Tenant answers for them all. Without it, a delete of a Tenant that has such rows deletes
 // nothing and is answered with the question a person is asked first
-// (httpio.HasPreconditionRequired).
+// (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
+// delete takes what fits, deepest first, and Left says what is left: buffer the delete
+// again, in a transaction of its own, until Left answers nil.
 func (p *TenantDeletePatch) WithEverythingUnder() *TenantDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// Left is what the delete left under the Tenant once it is buffered
+// (resource.DeleteLeft): nil where the delete finished, the Tenant with it.
+func (p *TenantDeletePatch) Left() *resource.DeleteLeft {
+	return p.patchSet.DeleteLeft()
+}
+
+// DeleteAlso hands the delete kinds of row it takes with the Tenant that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the Tenant.
+func (p *TenantDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *TenantDeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
 
 	return p
 }

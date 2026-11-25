@@ -99,20 +99,20 @@ func TestDirectoryOnly_aSectorsOwnMarshalEntersWithAPassword(t *testing.T) {
 	)
 	// stands fails the test unless the browser's chart, the reason its chart gives for
 	// Bastion, the answer of Bastion's routes and the rigger's row in Bastion's list of
-	// its people are as given: closed is the reason for a session Bastion keeps out and
-	// empty for one it admits, and listed is what the row says of the person, whichever
-	// session of hers asks.
-	stands := func(what string, b *browser, chart []string, closed, listed string) {
+	// its people are as given: unavailable is the reason for a session Bastion keeps out
+	// and empty for one it admits, and listed is what the row says of the person,
+	// whichever session of hers asks.
+	stands := func(what string, b *browser, chart []string, unavailable, listed string) {
 		t.Helper()
 
 		if got := b.domains(ctx); !slices.Equal(got, chart) {
 			t.Errorf("%s: the chart = %v, want %v", what, got, chart)
 		}
-		if got := b.closed(ctx)[bastion]; got != closed {
-			t.Errorf("%s: the chart names Bastion closed saying %q, want %q", what, got, closed)
+		if got := b.unavailable(ctx)[bastion]; got != unavailable {
+			t.Errorf("%s: the chart lists Bastion as not available saying %q, want %q", what, got, unavailable)
 		}
 		want := http.StatusNotFound
-		if closed == "" {
+		if unavailable == "" {
 			want = http.StatusOK
 		}
 		if status, body := b.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != want {

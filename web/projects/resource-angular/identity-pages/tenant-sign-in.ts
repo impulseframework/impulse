@@ -97,6 +97,7 @@ function buildSignIn(descriptor: ApiDescriptor, options: TenantSignInOptions): B
     );
   }
   const {
+    takeDirectory,
     openToDirectory,
     makeDirectoryInviteOnly,
     makeDirectoryOnly,
@@ -124,6 +125,7 @@ function buildSignIn(descriptor: ApiDescriptor, options: TenantSignInOptions): B
           }
         : {}),
       methods: {
+        ...(takeDirectory ? { takeDirectory: takeDirectory as Method } : {}),
         ...(openToDirectory ? { openToDirectory: openToDirectory as Method } : {}),
         ...(makeDirectoryInviteOnly ? { makeDirectoryInviteOnly: makeDirectoryInviteOnly as Method } : {}),
         ...(makeDirectoryOnly ? { makeDirectoryOnly: makeDirectoryOnly as Method } : {}),

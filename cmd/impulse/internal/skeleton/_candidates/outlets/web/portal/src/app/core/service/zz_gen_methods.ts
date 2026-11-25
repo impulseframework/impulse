@@ -104,21 +104,45 @@ export interface CreateMembersTenantGroupResult {
 
 export interface DeleteMembersGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteMembersGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteMembersGroup answers with. */
+export interface DeleteMembersGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteMembersGroup declares; the method chooses one per response. */
-export type DeleteMembersGroupStatus = 204;
+export type DeleteMembersGroupStatus = 202 | 204;
+/** The answer DeleteMembersGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersGroupAnswer {
+  status: DeleteMembersGroupStatus;
+  result: DeleteMembersGroupResult;
+}
 
 export interface DeleteMembersTenantGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteMembersTenantGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteMembersTenantGroup answers with. */
+export interface DeleteMembersTenantGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteMembersTenantGroup declares; the method chooses one per response. */
-export type DeleteMembersTenantGroupStatus = 204;
+export type DeleteMembersTenantGroupStatus = 202 | 204;
+/** The answer DeleteMembersTenantGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteMembersTenantGroupAnswer {
+  status: DeleteMembersTenantGroupStatus;
+  result: DeleteMembersTenantGroupResult;
+}
 
 export interface DeleteMembersTenantUserConfig {
   userId: string | FieldPointer;
@@ -771,19 +795,23 @@ const methodMap: MethodMap = {
   [Methods.DeleteMembersGroup]: {
     route: 'delete-members-group',
     target: { resource: Resources.MembersListedGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteMembersTenantGroup]: {
     route: 'delete-members-tenant-group',
     target: { resource: Resources.MembersTenantGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteMembersTenantUser]: {
@@ -791,6 +819,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],

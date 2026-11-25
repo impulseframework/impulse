@@ -238,7 +238,7 @@ func TestManager_DeleteUser(t *testing.T) {
 		wantWrites  []string
 		wantChanged int
 	}{
-		{name: "another person's account goes with everything that names it", caller: erin, wantWrites: whole, wantChanged: 1},
+		{name: "another person's account and everything that names it are deleted", caller: erin, wantWrites: whole, wantChanged: 1},
 		{name: "a call outside any request is the application's act", wantWrites: whole, wantChanged: 1},
 		{name: "a person who holds no role: the engine is not told", caller: erin, noRoles: true, wantWrites: whole[:3]},
 		{name: "the caller's own account is refused: the caller carries the account's id", caller: dana, wantErr: httpio.HasForbidden},

@@ -117,8 +117,8 @@ func TestUserDomainsHandler(t *testing.T) {
 // TestUserDomainsHandler_admission pins the endpoint over the composed session
 // permissions: the picker lists the tenants the session holds a grant in, and a
 // tenant whose declaration does not admit the way the session was established
-// is listed closed, with the reason in a sentence that names the tenant and says
-// how the person signed in; a super administrator sees every tenant they hold a
+// is listed as not available, with the reason in a sentence that names the tenant
+// and says how the person signed in; a super administrator sees every tenant they hold a
 // grant in open, and a person holding another global role does not. A tenant's own
 // administrator whose password session carries no second factor is told the way in
 // they hold, and nobody else is.
@@ -138,6 +138,15 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 		return []accesstypes.Domain{anvil, bastion}, nil
 	}
 
+	disabled := map[accesstypes.Domain]*signin.TenantDeclaration{
+		anvil:   {Disabled: true},
+		bastion: {Directories: []signin.Directory{workspace}},
+	}
+	disabledDirectoryOnly := map[accesstypes.Domain]*signin.TenantDeclaration{
+		anvil:   {Directories: []signin.Directory{workspace}, DirectoryOnly: true, Disabled: true},
+		bastion: {Directories: []signin.Directory{workspace}},
+	}
+
 	tests := []struct {
 		name   string
 		ctx    context.Context
@@ -146,14 +155,16 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 		// administers are the tenants the person administers.
 		administers []accesstypes.Domain
 		// namers say what the application's registrations call a directory.
-		namers   []DirectoryNamer
+		namers []DirectoryNamer
+		// declared are the tenants' declarations, the ones above when nil.
+		declared map[accesstypes.Domain]*signin.TenantDeclaration
 		wantBody string
 	}{
 		{
 			name:        "the tenant's own administrator, in a password session without the code, is told the code is what is missing",
 			ctx:         sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
 			administers: []accesstypes.Domain{anvil},
-			wantBody:    `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in with a password. As one of its administrators you can still enter it: sign out, then sign in again with your password and the code we email you."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody:    `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. You signed in with a password. As one of its administrators you can still enter it: sign out, then sign in again with your password and the code we email you."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:        "the tenant's own administrator with the password and the code enters, and is told nothing",
@@ -165,18 +176,18 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			name:        "the tenant's own administrator who came through another directory is not told of a code: the way in is the password",
 			ctx:         sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodAzure, Connection: "tenant-id"}),
 			administers: []accesstypes.Domain{anvil},
-			wantBody:    `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in through your organization's Microsoft directory."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody:    `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. You signed in through your organization's Microsoft directory."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:        "a person who administers another tenant is told of no code in this one",
 			ctx:         sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
 			administers: []accesstypes.Domain{bastion},
-			wantBody:    `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in with a password."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody:    `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. You signed in with a password."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
-			name:     "a password session lists the directory-only tenant closed, with the reason, beside the tenant it enters",
+			name:     "a password session lists the directory-only tenant as not available, with the reason, beside the tenant it enters",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
-			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in with a password."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. You signed in with a password."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:     "a session through the directory-only tenant's directory lists both open",
@@ -193,46 +204,73 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 
 				return "", ""
 			}},
-			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in through Microsoft Entra tenant Lakeside."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. You signed in through Microsoft Entra tenant Lakeside."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:     "a directory no registration names is said by the label of its button, never by its id",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodAzure, Connection: "tenant-id"}),
 			namers:   []DirectoryNamer{func(signin.Directory) (string, string) { return "", "Staff sign-in" }},
-			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in through your organization's Staff sign-in directory."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. You signed in through your organization's Staff sign-in directory."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:     "with nobody to ask, a tenant's directory is said by its kind, never by its id",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodAzure, Connection: "tenant-id"}),
-			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in through your organization's Microsoft directory."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. You signed in through your organization's Microsoft directory."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:     "a personal account is named as one",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: signin.GoogleAnyAccountConnection}),
-			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in with a personal Google account."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. You signed in with a personal Google account."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
-			name:     "a session that views the application as someone else lists the tenants it reaches and none closed: the word is for a person's own sign-in",
+			name:     "a session that views the application as someone else lists the tenants it reaches and none as not available: the word is for a person's own sign-in",
 			ctx:      sessionCtx("dana", &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("dana")}, sessioninfo.AuthEvent{Method: sessioninfo.MethodImpersonation, Connection: "alice"}),
 			wantBody: `[{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:     "a session that records no sign-in is told it did not come through the directory",
 			ctx:      sessionCtx("dana", nil),
-			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. This session was not signed in through it."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. This session was not signed in through it."},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
-			name:     "a super administrator lists every tenant they hold a grant in, none closed",
+			name:     "a super administrator lists every tenant they hold a grant in, none as not available",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
 			global:   true,
 			super:    true,
 			wantBody: `[{"domain":"anvil","name":"Anvil Works"},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
+			name:     "a member of a disabled tenant is told it is disabled",
+			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
+			declared: disabled,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works is disabled."},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
+			name:        "the administrator of a disabled directory-only tenant, in a password session without the code, is told it is disabled and no word of the code",
+			ctx:         sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
+			administers: []accesstypes.Domain{anvil},
+			declared:    disabledDirectoryOnly,
+			wantBody:    `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works is disabled."},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
+			name:     "a person who came through a disabled directory-only tenant's directory is told it is disabled",
+			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "acme"}),
+			declared: disabledDirectoryOnly,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works is disabled."},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
+			name:     "a super administrator lists a disabled tenant they hold a grant in plainly",
+			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
+			global:   true,
+			super:    true,
+			declared: disabled,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works"},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
 			name:     "a person holding another global role is held to the tenant's switch like anyone",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
 			global:   true,
-			wantBody: `[{"domain":"anvil","name":"Anvil Works","closed":"Anvil Works admits only people who sign in through its own directory. You signed in with a password."},{"domain":"bastion","name":"bastion"}]`,
+			wantBody: `[{"domain":"anvil","name":"Anvil Works","unavailable":"Anvil Works admits only people who sign in through its own directory. You signed in with a password."},{"domain":"bastion","name":"bastion"}]`,
 		},
 	}
 	for _, tt := range tests {
@@ -242,7 +280,11 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			forUser := func(user accesstypes.User) *stubPermissions {
 				return &stubPermissions{user: user, domains: []accesstypes.Domain{anvil, bastion}, global: tt.global, super: tt.super, administers: tt.administers}
 			}
-			reader := &declarationReader{declarations: declarations}
+			declared := tt.declared
+			if declared == nil {
+				declared = declarations
+			}
+			reader := &declarationReader{declarations: declared}
 			handler := UserDomainsHandler(func(r *http.Request) UserPermissions {
 				return SessionPermissions(r.Context(), forUser, RolePrincipalsUnsupported, roster, reader.read, nil)
 			}, WithDomainNames(stubNames{anvil: "Anvil Works"}), WithDirectoryNames(tt.namers...))

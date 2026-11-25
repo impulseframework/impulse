@@ -315,6 +315,14 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if diff := cmp.Diff(recordGrants(roleNamed(reference.Roles.Global, "Administrator")), recordGrants(administrator)); diff != "" {
 			t.Errorf("the application's administrator does not hold the reference's grants on tenants (-reference +written):\n%s", diff)
 		}
+		// The application's own administrator deletes a tenant, so it is the one who
+		// disables it first: its Update on the record names the field, as the reference's
+		// does, and its List and Read read it.
+		for _, permission := range []string{"List", "Read", "Update"} {
+			if got := grantOn(administrator, permission, "Tenants").Fields; !slices.Contains(got, "disabled") {
+				t.Errorf("%s on Tenants for the application's administrator names the fields %q, want disabled among them, as the reference's", permission, got)
+			}
+		}
 		// The application's own administrator changes an account from the whole
 		// application's side only where no tenant manages it, as the reference's does: each
 		// of those grants took the condition, and no other grant of the role holds under one.
@@ -428,6 +436,30 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		}
 		if got := fields("List", "CrewSectorIdentities"); !slices.Contains(got, "tenant") {
 			t.Errorf("List on CrewSectorIdentities names the fields %q, want the identity's tenant among them", got)
+		}
+		// The directory is taken with the tenant's own method, which says what taking it
+		// does first, under no condition; the record's own create is refused, so the role
+		// holds no Create on it, and keeps Delete, List and Read.
+		granted := func(permission, resource string) []access.Grant {
+			var found []access.Grant
+			for _, grant := range role.Permissions.grants(permission) {
+				if string(grant.Resource) == resource {
+					found = append(found, grant)
+				}
+			}
+
+			return found
+		}
+		if got := granted("Execute", "TakeSectorDirectory"); len(got) != 1 || got[0].Condition != "" {
+			t.Errorf("Execute on TakeSectorDirectory is granted as %+v, want once under no condition", got)
+		}
+		if got := granted("Create", "SectorDirectories"); len(got) != 0 {
+			t.Errorf("the role is granted Create on SectorDirectories, whose create is refused: %+v", got)
+		}
+		for _, permission := range []string{"Delete", "List", "Read"} {
+			if got := granted(permission, "SectorDirectories"); len(got) != 1 {
+				t.Errorf("%s on SectorDirectories is granted %d time(s), want once", permission, len(got))
+			}
 		}
 		// A grant the reference holds under a condition is written under it, in this
 		// application's names, and the test proves each in the same names: its role, its

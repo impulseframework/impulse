@@ -23,6 +23,7 @@ const side = (scope: 'global' | 'domain', lists: Record<string, string>, methods
 });
 
 const methods = {
+  takeDirectory: 'TakeTeamDirectory',
   openToDirectory: 'OpenTeamToDirectory',
   makeDirectoryInviteOnly: 'MakeTeamInviteOnly',
   makeDirectoryOnly: 'MakeTeamDirectoryOnly',
@@ -74,6 +75,7 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
       directories: 'TeamDirectories' as Resource,
       people: 'StaffTeamUsers' as Resource,
       methods: {
+        takeDirectory: 'TakeTeamDirectory' as Method,
         openToDirectory: 'OpenTeamToDirectory' as Method,
         makeDirectoryInviteOnly: 'MakeTeamInviteOnly' as Method,
         makeDirectoryOnly: 'MakeTeamDirectoryOnly' as Method,
@@ -114,6 +116,27 @@ describe('tenantSignInPage and tenantSignInRoute', () => {
     const plain = tenantSignInRoute(descriptor, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
     expect(Object.keys(plain.methods)).not.toContain('vouchForDirectorySecondFactor');
     expect(Object.keys(plain.methods)).not.toContain('stopVouchingForDirectorySecondFactor');
+  });
+
+  it('the route carries the method that takes the directory where the side names it, and none where a description from before it names none', () => {
+    const older = Object.fromEntries(Object.entries(methods).filter(([kind]) => kind !== 'takeDirectory'));
+    const before: ApiDescriptor = {
+      ...descriptor,
+      identity: [
+        {
+          auth: 'Staff',
+          label: 'Staff',
+          tenant: 'Team',
+          tenantResource: 'Teams',
+          sides: [side('global', {}), side('domain', { directories: 'TeamDirectories' }, older)],
+        },
+      ],
+    };
+
+    const carried = tenantSignInRoute(descriptor, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
+    expect(carried.methods.takeDirectory).toBe('TakeTeamDirectory');
+    const plain = tenantSignInRoute(before, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
+    expect(Object.keys(plain.methods)).not.toContain('takeDirectory');
   });
 
   it('the route carries the tenant record and its directory-only field where the description names both, and neither where it names one', () => {

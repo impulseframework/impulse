@@ -1,8 +1,14 @@
-import { ApiDescriptor, IdentityDescriptor, Resource } from '@impulseframework/resource';
+import { TestBed } from '@angular/core/testing';
+import { MatDialog } from '@angular/material/dialog';
+import { provideNoopAnimations } from '@angular/platform-browser/animations';
+import { ApiDescriptor, ApiError, IdentityDescriptor, Resource } from '@impulseframework/resource';
+import { OfferedMethod, openDeleteMethodDialog, rowMethods } from '@impulseframework/resource-angular/resource';
 import {
   ColumnConfig,
   FieldMeta,
   ListViewConfig,
+  Method,
+  MethodMeta,
   MethodPresentation,
   RecordData,
   ResourceMeta,
@@ -1304,6 +1310,29 @@ describe("identityPages, a tenant's side", () => {
     expect(hiddenColumns(list(unsharedPeople))).toEqual(['heldElsewhere']);
   });
 
+  it('asks before disabling a person whose State says another sector also holds them that they cannot sign in to any sector', () => {
+    const disable = presentation(list(people).rowMethods, 'DisableCrewSectorUser');
+    const asks = disable.confirm as (row: RecordData) => string;
+    const ada: RecordData = { username: 'ada', disabled: false, heldElsewhere: true };
+    expect(asks(ada)).toBe('Disable ada? They cannot sign in to any sector until the account is enabled again.');
+    // A row that says the person holds a role in every sector, and one another sector does not hold, are asked as before.
+    expect(asks({ ...ada, heldInEveryTenant: true })).toBe(
+      'Disable ada? They cannot sign in until the account is enabled again.',
+    );
+    expect(asks({ username: 'ada', disabled: false })).toBe(
+      'Disable ada? They cannot sign in until the account is enabled again.',
+    );
+    // The tenant's word is the description's.
+    const costCenters = { ...descriptor, identity: [{ ...crew, tenant: 'CostCenter' }] } as ApiDescriptor;
+    const [costCenterPeople] = identityPages(costCenters, resourceMeta, { auth: 'Crew', scope: 'domain' });
+    const asksThere = presentation(list(costCenterPeople).rowMethods, 'DisableCrewSectorUser').confirm as (
+      row: RecordData,
+    ) => string;
+    expect(asksThere(ada)).toBe(
+      'Disable ada? They cannot sign in to any cost center until the account is enabled again.',
+    );
+  });
+
   it("heads a person's page by the person, and says there that another sector also holds them", () => {
     expect(personSection(people).label).toBe('Person');
     expect((list(people).rowTitle as (row: RecordData) => string)({})).toBe('Person');
@@ -1417,7 +1446,7 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       : resourceMeta(resource);
   const [people] = identityPages(removing, removingMetas, { auth: 'Crew', scope: 'domain' });
 
-  it('offers Remove from the sector after Enable, warned by the server, and Delete on a row that does not offer it', () => {
+  it('offers Remove from the sector after Enable, warned by the server, and Delete', () => {
     expect(methodsOf(list(people).rowMethods)).toEqual([
       ['AssignCrewSectorRole', 'Give a role'],
       ['SetCrewSectorUserName', 'Change the name'],
@@ -1432,18 +1461,9 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       undefined,
       'The person was removed.',
     ]);
-    // Delete is drawn on a row whose answer does not list the removal, and not on one whose
-    // answer does and that says nothing of who manages the account.
-    const answered = (capabilities: { Execute?: string[] }): RecordData =>
-      ({ zzCapabilities: capabilities }) as unknown as RecordData;
+    // Delete is the server's to offer on a row: the page draws it wherever the row's answer lists it.
     const deleteEntry = presentation(list(people).rowMethods, 'DeleteCrewSectorUser');
-    expect(deleteEntry.hidden).toBeUndefined();
-    expect([
-      deleteEntry.when?.(answered({ Execute: ['DeleteCrewSectorUser', 'RemoveCrewSectorUser'] })),
-      deleteEntry.when?.(answered({ Execute: ['DeleteCrewSectorUser'] })),
-      deleteEntry.when?.(answered({})),
-      deleteEntry.when?.({}),
-    ]).toEqual([false, true, true, true]);
+    expect([deleteEntry.hidden, deleteEntry.when]).toEqual([undefined, undefined]);
     // A tenant's side without the removal keeps Delete on every row.
     const [without] = identityPages({ ...descriptor }, resourceMeta, { auth: 'Crew', scope: 'domain' });
     const kept = presentation(list(without).rowMethods, 'DeleteCrewSectorUser');
@@ -1468,43 +1488,20 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(presentation(children(people)[0].listMethods, 'AssignCrewSectorRole').group).toBeUndefined();
   });
 
-  it('draws Delete beside the removal, or alone, where the row says the sector manages the account through its directory and the removal would leave the account standing', () => {
-    const remove = presentation(list(people).rowMethods, 'RemoveCrewSectorUser').when;
-    const del = presentation(list(people).rowMethods, 'DeleteCrewSectorUser').when;
-    const offering = (execute: string[], facts: Record<string, unknown>): RecordData =>
-      ({ zzCapabilities: { Execute: execute }, ...facts }) as unknown as RecordData;
-    const both = ['DeleteCrewSectorUser', 'RemoveCrewSectorUser'];
-    // The removal is not offered on the row: Delete as the server offers it.
-    expect(del?.(offering(['DeleteCrewSectorUser'], { heldHere: true, managedHere: false }))).toBe(true);
-    // The removal is offered: [Remove from the sector, Delete] by what the row says.
-    const drawn = (facts: Record<string, unknown>): [boolean | undefined, boolean | undefined] => [
-      remove?.(offering(both, facts)),
-      del?.(offering(both, facts)),
-    ];
-    expect([
-      // The person holds nothing in the sector itself, and the sector does not manage the account.
-      drawn({ heldHere: false, managedHere: false }),
-      drawn({ heldHere: false }),
-      // A person of the sector's directory who holds nothing in the sector itself.
-      drawn({ heldHere: false, managedHere: true }),
-      // A person of the sector's directory who holds roles elsewhere too.
-      drawn({ heldHere: true, managedHere: true, heldElsewhere: true, heldGlobally: false }),
-      drawn({ heldHere: true, managedHere: true, heldElsewhere: false, heldGlobally: true }),
-      // The sector holds the person alone: the removal takes the account.
-      drawn({ heldHere: true, managedHere: true, heldElsewhere: false, heldGlobally: false }),
-      // The sector does not manage the account, or the row does not say.
-      drawn({ heldHere: true, managedHere: false, heldElsewhere: true, heldGlobally: false }),
-      drawn({ heldHere: true, heldElsewhere: true }),
-    ]).toEqual([
-      [false, false],
-      [false, false],
-      [false, true],
-      [true, true],
-      [true, true],
-      [true, false],
-      [true, false],
-      [true, false],
+  it("draws Delete wherever the row's answer lists it, beside the removal, and no Delete where the answer lists the removal alone", () => {
+    const targeting = ['RemoveCrewSectorUser', 'DeleteCrewSectorUser'];
+    const drawn = (execute: string[]): string[] =>
+      rowMethods(
+        { zzCapabilities: { Execute: execute }, heldHere: true } as unknown as RecordData,
+        targeting,
+        () => ({}) as MethodMeta,
+        list(people).rowMethods || undefined,
+      ).map((offer) => offer.method);
+    expect(drawn(['RemoveCrewSectorUser', 'DeleteCrewSectorUser'])).toEqual([
+      'RemoveCrewSectorUser',
+      'DeleteCrewSectorUser',
     ]);
+    expect(drawn(['RemoveCrewSectorUser'])).toEqual(['RemoveCrewSectorUser']);
   });
 
   it('asks before a delete, on both sides, that the account goes from every sector and that Disable keeps it', () => {
@@ -1517,6 +1514,25 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       ask(list(people).rowMethods, 'DeleteCrewSectorUser'),
       ask(list(accounts).rowMethods, 'DeleteCrewUser'),
     ]).toEqual([question, question]);
+  });
+
+  it("asks only whom a delete takes where the method's metadata says it warns, since the server's words follow", () => {
+    type Question = (row: RecordData, listed?: readonly RecordData[], meta?: MethodMeta) => string;
+    const ask = (rowMethods: ListViewConfig['rowMethods'], method: string): Question =>
+      presentation(rowMethods, method).confirm as Question;
+    const [accounts] = identityPages({ ...removing }, removingMetas, { auth: 'Crew', scope: 'global' });
+    const question =
+      'Delete ada? The account is removed from every sector, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.';
+    const warns = { warning: {} } as MethodMeta;
+    const warnsNot = {} as MethodMeta;
+    expect(ask(list(people).rowMethods, 'DeleteCrewSectorUser')({ username: 'ada' }, undefined, warns)).toBe(
+      'Delete ada?',
+    );
+    expect(ask(list(people).rowMethods, 'DeleteCrewSectorUser')({ username: 'ada' }, undefined, warnsNot)).toBe(
+      question,
+    );
+    expect(ask(list(people).rowMethods, 'DeleteCrewSectorUser')({ username: 'ada' })).toBe(question);
+    expect(ask(list(accounts).rowMethods, 'DeleteCrewUser')({ username: 'ada' }, undefined, warnsNot)).toBe(question);
   });
 
   it('offers the removal on every row but one that says the person holds nothing in the sector itself', () => {
@@ -1541,21 +1557,14 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
     expect(stateOf(list(accounts))({ heldInEveryTenant: true, heldElsewhere: true })).toEqual([]);
   });
 
-  it('reads with each person whether they hold something in the sector itself and whether the sector manages the account, and draws neither', () => {
-    expect(hiddenColumns(list(people))).toEqual([
-      'heldElsewhere',
-      'heldInEveryTenant',
-      'heldGlobally',
-      'heldHere',
-      'managedHere',
-    ]);
+  it('reads with each person whether they hold something in the sector itself, and does not draw it', () => {
+    expect(hiddenColumns(list(people))).toEqual(['heldElsewhere', 'heldInEveryTenant', 'heldGlobally', 'heldHere']);
     expect(pageFields(people).filter(([, , drawn]) => drawn === false)).toEqual([
       ['field', 'disabled', false],
       ['field', 'heldElsewhere', false],
       ['field', 'heldInEveryTenant', false],
       ['field', 'heldGlobally', false],
       ['field', 'heldHere', false],
-      ['field', 'managedHere', false],
     ]);
   });
 });
@@ -3108,11 +3117,55 @@ describe('identityPages, an Auth that keeps groups', () => {
       domain: 'Sector',
       everyDomain: 'In every sector',
     });
-    expect(
-      (presentation(groups.rowMethods, 'DeleteCrewGroup').confirm as (row: RecordData) => string)({
-        name: 'Deck crew',
-      }),
-    ).toBe('Delete Deck crew? A group that still has people in it or holds a role is not deleted: empty it first.');
+    const remove = presentation(groups.rowMethods, 'DeleteCrewGroup');
+    expect((remove.confirm as (row: RecordData) => string)({ name: 'Deck crew' })).toBe('Delete Deck crew?');
+    expect(remove.deletes).toBe(true);
+  });
+
+  it("asks a group's delete in the page's words, then in the server's, and sends everythingUnder at the second press", async () => {
+    const remove = presentation(list(global[1]).rowMethods, 'DeleteCrewGroup');
+    const offered: OfferedMethod = {
+      method: 'DeleteCrewGroup' as Method,
+      meta: { target: { resource: 'CrewListedGroups', key: { groupId: 'id' } } } as unknown as MethodMeta,
+      label: 'Delete',
+      presentation: remove,
+    };
+    const counted = "Delete this group and everything under it: 3 members, 2 roles. This can't be undone.";
+    const sent: Record<string, unknown>[] = [];
+    const handle = {
+      execute: (body: Record<string, unknown>): Promise<unknown> => {
+        sent.push(body);
+        return body['everythingUnder']
+          ? Promise.resolve({ status: 204, result: undefined })
+          : Promise.reject(new ApiError('POST', '/api/delete-crew-group', 428, { message: counted }));
+      },
+    };
+    TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
+    const answers: unknown[] = [];
+    openDeleteMethodDialog(TestBed.inject(MatDialog), handle, offered, { id: 'g-1', name: 'Deck crew' }).subscribe(
+      (answer) => answers.push(answer),
+    );
+    const rest = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+    const said = (): string =>
+      (document.querySelector('.cdk-overlay-container')?.textContent ?? '').replace(/\s+/g, ' ');
+    const press = async (): Promise<void> => {
+      await rest();
+      [...document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button')]
+        .find((button) => button.textContent?.trim() === 'Delete')
+        ?.click();
+      await rest();
+    };
+
+    await rest();
+    expect(said()).toContain('Delete Deck crew?');
+    await press();
+    expect(said()).toContain(counted);
+    expect(said()).not.toContain('Delete Deck crew?');
+    expect(answers).toEqual([]);
+    await press();
+    expect(sent.map((body) => body['everythingUnder'])).toEqual([undefined, true]);
+    expect(sent.every((body) => body['groupId'] === 'g-1')).toBe(true);
+    expect(answers).toEqual([{ answer: undefined }]);
   });
 
   it("draws a group's row page with the people in it and the roles it holds, each list under the group", () => {
@@ -3136,7 +3189,7 @@ describe('identityPages, an Auth that keeps groups', () => {
     expect(methodsOf(people.rowMethods)).toEqual([['RemoveCrewGroupMember', 'Remove from the group']]);
     expect(methodsOf(people.listMethods)).toEqual([['AddCrewGroupMember', 'Add a person']]);
     // The method's warning is the question before the person leaves the group, in the
-    // server's words, which name the group and say when the account goes with it.
+    // server's words, which name the group.
     expect(presentation(people.rowMethods, 'RemoveCrewGroupMember').confirm).toBeUndefined();
     expect(columns(roles)).toEqual([
       ['role', 'Role'],

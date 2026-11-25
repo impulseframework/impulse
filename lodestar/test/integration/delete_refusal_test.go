@@ -17,23 +17,20 @@ package integration
 // a client's contacts are deleted with the client, which asks first (TestDeleteCascade).
 // The count is made for the person who asked: a kind they may not list is never named or
 // counted, and where they may list none of the kinds in the way the sentence says only
-// that there are records they can't see. A row the same request deletes is not counted
-// where the record declares nothing (TestCommitRefusal deletes a squadron and its
-// mission in one request, in either order), and neither is a row that goes with another
-// record the request deletes: a ship goes in one request with the mission its one sortie
-// was flown on, ahead of it or after it (TestDeleteRefusal_leavesOutWhatTheRequestTook).
-// The count is the Spanner write path's; PostgreSQL has no write path to refuse on.
+// that there are records they can't see. The count reads what the database held before
+// the request, so a row the same request deletes is counted where the record declares
+// nothing (TestCommitRefusal refuses a squadron and its mission deleted in one request,
+// in either order): rows that are not declared to go with a record are deleted in an
+// earlier request. The count is the Spanner write path's; PostgreSQL has no write path to
+// refuse on.
 
 import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
-	"time"
 
 	"cloud.google.com/go/spanner"
-	"google.golang.org/grpc/codes"
 
 	"github.com/impulseframework/impulse/accesstypes"
 )
@@ -227,90 +224,6 @@ func TestDeleteRefusal(t *testing.T) {
 				t.Errorf("message = %q, want %q", got, tt.wantMessage)
 			}
 		})
-	}
-}
-
-// TestDeleteRefusal_leavesOutWhatTheRequestTook pins that the count never refuses a
-// delete over a row the same request deletes, or one that goes with another record of the
-// request. The Lantern and the Slow Boat, which the seed never flew, each have a refit and
-// are each given one sortie on the stood-down bullion run. Deleted alone the Lantern is
-// refused over its refit and its sortie. Deleted in one request with their refits and the
-// mission, the Lantern ahead of its refit and of the mission and the Slow Boat after them,
-// both ships go: a ship declares nothing of its delete, so its count runs once the
-// request's deletes are buffered, and leaves out the refits the request deletes and the
-// sorties the mission's delete takes (@deleteCascade).
-func TestDeleteRefusal_leavesOutWhatTheRequestTook(t *testing.T) {
-	t.Parallel()
-
-	ctx := t.Context()
-
-	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const (
-		sortieLanternID  = "90000000-0000-4000-8000-0000000000a1"
-		sortieSlowBoatID = "90000000-0000-4000-8000-0000000000a2"
-		refitSlowBoatID  = "a0000000-0000-4000-8000-000000000011"
-	)
-	sortie := func(sortieID, shipID string) *spanner.Mutation {
-		return spanner.InsertMap("Sorties", map[string]any{
-			"Id": sortieID, "MissionId": missionBullionID, "ShipId": shipID, "PilotUserId": "f0000000-0000-4000-8000-000000000004", "LaunchedAt": time.Now().UTC(),
-		})
-	}
-	if _, err := db.Apply(ctx, []*spanner.Mutation{sortie(sortieLanternID, shipLanternID), sortie(sortieSlowBoatID, shipSlowBoatID)}); err != nil {
-		t.Fatalf("spanner.Apply(Sorties): %v", err)
-	}
-	stands := func(table, id string) bool {
-		t.Helper()
-		_, err := db.Single().ReadRow(ctx, table, spanner.Key{id}, []string{"Id"})
-		switch {
-		case err == nil:
-			return true
-		case spanner.ErrCode(err) == codes.NotFound:
-			return false
-		default:
-			t.Fatalf("ReadRow(%s, %s): %v", table, id, err)
-
-			return false
-		}
-	}
-	remove := func(rest string) string {
-		return fmt.Sprintf(`{"op":"remove","path":%q}`, opPath(anvil, rest))
-	}
-	h := newTestApp(db, grants{
-		accesstypes.Delete: {"Ships", missionsResource, "Sorties", "Refits"},
-		accesstypes.List:   {"Sorties", "DroidReports", "Refits"},
-	})
-
-	status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources", "["+remove("ships/"+shipLanternID)+"]")
-	assertStatus(t, status, http.StatusConflict, body)
-	if got, want := refusalMessage(t, body), "This ship has 1 refit and 1 sortie. Delete them first."; got != want {
-		t.Errorf("message = %q, want %q", got, want)
-	}
-	if !stands("Ships", shipLanternID) {
-		t.Fatal("the Lantern is gone after its refused delete")
-	}
-
-	withItsSorties := fmt.Sprintf(`{"op":"remove","path":%q,"value":{"everythingUnder":true}}`, opPath(anvil, "missions/"+missionBullionID))
-	ops := []string{
-		remove("ships/" + shipLanternID), remove("refits/" + refitLanternID), withItsSorties,
-		remove("refits/" + refitSlowBoatID), remove("ships/" + shipSlowBoatID),
-	}
-	status, body = doRequest(t, h, http.MethodPatch, "/console/api/resources", "["+strings.Join(ops, ",")+"]")
-	assertStatus(t, status, http.StatusOK, body)
-	for _, row := range [][2]string{
-		{"Ships", shipLanternID},
-		{"Ships", shipSlowBoatID},
-		{"Refits", refitLanternID},
-		{"Refits", refitSlowBoatID},
-		{"Missions", missionBullionID},
-		{"Sorties", sortieLanternID},
-		{"Sorties", sortieSlowBoatID},
-	} {
-		if stands(row[0], row[1]) {
-			t.Errorf("%s %s stands after the ships, their refits and the mission were deleted together", row[0], row[1])
-		}
 	}
 }
 

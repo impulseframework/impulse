@@ -175,8 +175,7 @@ func Test_userManager_UserRolesHeld(t *testing.T) {
 
 // Test_userManager_GroupContents pins what a list of groups says of each: how many
 // people are in it and which roles it holds, counting what has not ended (a place or a
-// role whose period has not begun among it) and nothing that has, so the answer is what
-// DeleteGroup refuses a group for.
+// role whose period has not begun among it) and nothing that has.
 func Test_userManager_GroupContents(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -231,15 +230,6 @@ func Test_userManager_GroupContents(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantGlobal, got, cmp.AllowUnexported(accesstypes.PolicyScope{})); diff != "" {
 		t.Errorf("GroupContents() of the whole application (-want +got):\n%s", diff)
-	}
-
-	// The answer is what a deletion is refused for: a group listed with nothing goes,
-	// though rows of it that have ended still stand, and one listed with people does not.
-	if err := manager.DeleteGroup(ctx, night); err != nil {
-		t.Errorf("DeleteGroup() of a group listed with no people and no roles: error = %v, want it deleted", err)
-	}
-	if err := manager.DeleteGroup(ctx, day); !httpio.HasConflict(err) {
-		t.Errorf("DeleteGroup() of a group listed with three people and two roles: error = %v, want a Conflict", err)
 	}
 }
 

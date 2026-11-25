@@ -1480,7 +1480,7 @@ describe('what a row says of a list, a missing key and a method it does not offe
             { id: 'Describe', label: 'Change the description', run: (): void => void ran.push('describe') },
             {
               id: 'Delete',
-              label: '3 people and 2 roles: empty it first',
+              label: '3 people and 2 roles',
               run: (): void => void ran.push('delete'),
               disabled: true,
             },
@@ -1502,7 +1502,7 @@ describe('what a row says of a list, a missing key and a method it does not offe
     const entries = Array.from(document.querySelectorAll<HTMLButtonElement>('button.row-action'));
     expect(entries.map((entry) => [entry.textContent?.trim(), entry.disabled])).toEqual([
       ['Change the description', false],
-      ['3 people and 2 roles: empty it first', true],
+      ['3 people and 2 roles', true],
     ]);
     expect(entries[1].classList.contains('row-action-says')).toBe(true);
     entries[1].click();

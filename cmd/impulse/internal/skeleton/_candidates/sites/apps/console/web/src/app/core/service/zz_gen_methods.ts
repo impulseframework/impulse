@@ -104,21 +104,45 @@ export interface CreateStaffTenantGroupResult {
 
 export interface DeleteStaffGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteStaffGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteStaffGroup answers with. */
+export interface DeleteStaffGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteStaffGroup declares; the method chooses one per response. */
-export type DeleteStaffGroupStatus = 204;
+export type DeleteStaffGroupStatus = 202 | 204;
+/** The answer DeleteStaffGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffGroupAnswer {
+  status: DeleteStaffGroupStatus;
+  result: DeleteStaffGroupResult;
+}
 
 export interface DeleteStaffTenantGroupConfig {
   groupId: string | FieldPointer;
+  everythingUnder: boolean | FieldPointer;
 }
 export interface DeleteStaffTenantGroup {
   groupId: string;
+  everythingUnder: boolean;
+}
+/** The result DeleteStaffTenantGroup answers with. */
+export interface DeleteStaffTenantGroupResult {
+  deleted: number;
+  left: number;
 }
 /** The statuses DeleteStaffTenantGroup declares; the method chooses one per response. */
-export type DeleteStaffTenantGroupStatus = 204;
+export type DeleteStaffTenantGroupStatus = 202 | 204;
+/** The answer DeleteStaffTenantGroup resolves with: the status the method chose and its typed result. */
+export interface DeleteStaffTenantGroupAnswer {
+  status: DeleteStaffTenantGroupStatus;
+  result: DeleteStaffTenantGroupResult;
+}
 
 export interface DeleteStaffTenantUserConfig {
   userId: string | FieldPointer;
@@ -712,6 +736,10 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
+/** The body TakeTenantDirectory takes. The method takes the directory you are signed in through as the tenant's own, after the statement that you are authorized to act for the organization. */
+export interface TakeTenantDirectoryConfig {}
+export interface TakeTenantDirectory {}
+
 /** The body MakeTenantDirectoryOnly takes. The method turns the tenant's directory-only switch on, which closes the tenant to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the tenant has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on. */
 export interface MakeTenantDirectoryOnlyConfig {}
 export interface MakeTenantDirectoryOnly {}
@@ -720,7 +748,7 @@ export interface MakeTenantDirectoryOnly {}
 export interface EndTenantDirectoryOnlyConfig {}
 export interface EndTenantDirectoryOnly {}
 
-/** The body OpenTenantToDirectory takes. The method opens the tenant to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation. */
+/** The body OpenTenantToDirectory takes. The method opens the tenant to its directory's people: each of them who holds nothing in the tenant is given the role when they sign in through the directory, with no invitation. */
 export interface OpenTenantToDirectoryConfig {
   role: string | FieldPointer;
 }
@@ -915,19 +943,23 @@ const methodMap: MethodMap = {
   [Methods.DeleteStaffGroup]: {
     route: 'delete-staff-group',
     target: { resource: Resources.StaffListedGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteStaffTenantGroup]: {
     route: 'delete-staff-tenant-group',
     target: { resource: Resources.StaffTenantGroups, key: { groupId: 'id' } },
-    statuses: [204],
+    answers: true,
+    statuses: [202, 204],
     dryRun: true,
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'everythingUnder', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteStaffTenantUser]: {
@@ -935,6 +967,7 @@ const methodMap: MethodMap = {
     target: { resource: Resources.StaffTenantUsers, key: { userId: 'id' } },
     statuses: [204],
     dryRun: true,
+    warning: {},
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
     ],
@@ -1446,6 +1479,12 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string' },
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
+  },
+  [Methods.TakeTenantDirectory]: {
+    route: 'take-tenant-directory',
+    dryRun: true,
+    warning: { typed: 'I am authorized' },
+    fields: [],
   },
   [Methods.MakeTenantDirectoryOnly]: {
     route: 'make-tenant-directory-only',

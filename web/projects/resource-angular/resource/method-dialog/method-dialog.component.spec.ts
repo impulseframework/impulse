@@ -112,6 +112,13 @@ const descriptor: ApiDescriptor = {
       scope: 'global',
       statuses: [204],
     },
+    TakeDirectory: {
+      method: 'TakeDirectory' as Method,
+      property: 'takeDirectory',
+      route: 'take-directory',
+      scope: 'global',
+      statuses: [204],
+    },
     DeleteArchive: {
       method: 'DeleteArchive' as Method,
       property: 'deleteArchive',
@@ -239,6 +246,12 @@ const methodMeta: Record<string, MethodMeta> = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: 'CrewGivableRoles' as Resource },
     ],
+  },
+  // Warns before it runs, and the confirmation is a phrase with a capital in it.
+  TakeDirectory: {
+    route: 'take-directory',
+    warning: { typed: 'I am authorized' },
+    fields: [],
   },
   // Warns before it runs, and requires an input the row does not carry.
   DeleteArchive: {
@@ -1260,6 +1273,39 @@ describe('MethodDialogComponent running a method that warns', () => {
     expect(o.closed).toEqual([{ answer: undefined }]);
   });
 
+  it('holds the button until a declared phrase is typed, in any case and with spaces around it', async () => {
+    warning = () => ({
+      status: 200,
+      body: {
+        consequence: 'You are stating that you are authorized to act on behalf of lakeside.edu.',
+        confirm: "Make lakeside.edu this sector's directory",
+      },
+    });
+    const o = await open({ method: 'TakeDirectory', label: 'Take the directory', preset: {} }, server());
+    await settle(o);
+
+    expect(text(o, '.typed-word mat-label')).toBe('Type I am authorized to confirm');
+    for (const held of ['', 'i am', 'I am authorize']) {
+      o.component.typed.setValue(held);
+      o.fixture.detectChanges();
+      expect(runButton(o).disabled).toBe(true);
+    }
+    for (const freed of ['I am authorized', 'i am authorized', ' I AM AUTHORIZED ']) {
+      o.component.typed.setValue(freed);
+      o.fixture.detectChanges();
+      expect(runButton(o).disabled).toBe(false);
+    }
+  });
+
+  it('frees a word declared in lower case by the word as declared', async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+
+    o.component.typed.setValue('open');
+    o.fixture.detectChanges();
+    expect(runButton(o).disabled).toBe(false);
+  });
+
   it('asks again after a change, for the request as filled, and shows the newer answer', async () => {
     const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
     await settle(o);
@@ -1347,15 +1393,18 @@ describe('MethodDialogComponent running a method that warns', () => {
               consequence: 'ada loses the role Auditor.',
               names: ['ada'],
               also: [
-                { says: 'They hold nothing else, so their account is deleted with it.', names: ['ada (Ada Byron)'] },
+                {
+                  says: "They remain one of this customer's people through a role held outside it, which this does not take away.",
+                  names: ['ada (Ada Byron)'],
+                },
               ],
-              confirm: 'Take the role away and delete the account',
+              confirm: 'Take the role away',
             },
           }),
         );
       });
     const o = await open(
-      { method: 'TakeRoleAway', label: 'Take the role away', preset: { userId: 'u-1', role: 'Auditor' } },
+      { method: 'TakeRoleAway', label: 'Remove the role', preset: { userId: 'u-1', role: 'Auditor' } },
       server(),
     );
     const root = o.fixture.nativeElement as HTMLElement;
@@ -1371,7 +1420,7 @@ describe('MethodDialogComponent running a method that warns', () => {
     await settle(o);
 
     expect(runButton(o).disabled).toBe(false);
-    expect(runButton(o).textContent?.trim()).toBe('Take the role away and delete the account');
+    expect(runButton(o).textContent?.trim()).toBe('Take the role away');
     expect(runButton(o).classList.contains('warns')).toBe(false);
     expect(root.querySelector('.typed-word')).toBeNull();
     // The server's words are the question: no warning icon, no alert.
@@ -1383,7 +1432,9 @@ describe('MethodDialogComponent running a method that warns', () => {
     expect(
       Array.from(root.querySelectorAll('.warning.asks .warning-names li')).map((li) => li.textContent?.trim()),
     ).toEqual(['ada', 'ada (Ada Byron)']);
-    expect(text(o, '.warning.asks .warning-note')).toBe('They hold nothing else, so their account is deleted with it.');
+    expect(text(o, '.warning.asks .warning-note')).toBe(
+      "They remain one of this customer's people through a role held outside it, which this does not take away.",
+    );
     expect(text(o, '.question')).toBe('');
 
     await o.component.run();
@@ -1392,6 +1443,33 @@ describe('MethodDialogComponent running a method that warns', () => {
       ['real', { userId: 'u-1', role: 'Auditor' }],
     ]);
     expect(o.closed).toEqual([{ answer: undefined }]);
+  });
+
+  it("draws the page's question of a method that warns with no word to type, and the server's words after it", async () => {
+    warning = () => ({
+      status: 200,
+      body: { consequence: 'ada loses the role Auditor.', confirm: 'Take the role away' },
+    });
+    const o = await open(
+      {
+        method: 'TakeRoleAway',
+        label: 'Take the role away',
+        preset: { userId: 'u-1', role: 'Auditor' },
+        confirm: 'Take Auditor away from ada?',
+      },
+      server(),
+    );
+    await settle(o);
+    const root = o.fixture.nativeElement as HTMLElement;
+
+    expect(text(o, '.question')).toBe('Take Auditor away from ada?');
+    expect(text(o, '.warning.asks .warning-consequence')).toBe('ada loses the role Auditor.');
+    const question = root.querySelector('.question');
+    const consequence = root.querySelector('.warning.asks .warning-consequence');
+    expect(question && consequence && question.compareDocumentPosition(consequence)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(runButton(o).textContent?.trim()).toBe('Take the role away');
   });
 
   it('shows a refusal of a question with no word to type, and holds the button', async () => {

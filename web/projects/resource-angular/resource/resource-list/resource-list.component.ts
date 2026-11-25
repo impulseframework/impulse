@@ -49,6 +49,7 @@ import {
   Domain,
   ListPermission,
   PermissionDigestState,
+  DeleteLeft,
   RemoveOptions,
   TenantProperty,
 } from '@impulseframework/resource';
@@ -88,7 +89,7 @@ import {
   DeleteConfirmation,
   DeleteResourceConfirmationModalComponent,
 } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
-import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
+import { methodDoneMessage, openDeleteMethodDialog, openMethodDialog } from '../method-dialog/open-method-dialog';
 import {
   filledMethods,
   inNamedOrder,
@@ -97,6 +98,7 @@ import {
   parentOffers,
   rowMethods,
 } from '../row-methods/row-methods';
+import { deleteLeftOf } from '../delete-left';
 import { ResourceStore } from '../resource-store.service';
 import { SearchBoxComponent } from '../search-box/search-box.component';
 import {
@@ -1463,14 +1465,20 @@ export class ResourceListComponent implements OnInit {
    * list's page is read again once the row is gone. A delete the server refuses rejects
    * with the client's `ApiError`, for whoever asked to show, and so does the delete of a
    * row with records under it that its delete takes, until the options say it takes them
-   * (`everythingUnder`).
+   * (`everythingUnder`). A delete too large for one request resolves with what it left
+   * (`DeleteLeft`), and the page is read again once a delete resolves with nothing.
    */
-  deleteRow(row: RecordData, options?: RemoveOptions): Promise<void> {
+  deleteRow(row: RecordData, options?: RemoveOptions): Promise<DeleteLeft | undefined> {
     const handle = this.store.handle();
     const operation = handle.ops.remove(handle.keyOf(row), options);
 
-    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then(() => {
-      this.store.reloadPage();
+    return this.store.apply([operation], rowMessage(this.rowWords(), 'deleted')).then((answer) => {
+      const left = deleteLeftOf(answer);
+      if (left === undefined) {
+        this.store.reloadPage();
+      }
+
+      return left;
     });
   }
 
@@ -1628,10 +1636,15 @@ export class ResourceListComponent implements OnInit {
    * method took away the row the list sits under, the page may have left before the
    * dialog answers here (a live page reads its row again as soon as the write lands):
    * what ran is still said, and the list, which nobody sees any more, reads no rows and
-   * tells no page.
+   * tells no page. A method that deletes its row (`deletes`) runs through the delete
+   * dialog instead.
    */
   runMethod(method: OfferedMethod, row?: RecordData): void {
-    openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows).subscribe((result) => {
+    const opened =
+      method.presentation?.deletes && row
+        ? openDeleteMethodDialog(this.dialog, this.store.methodHandle(method.method), method, row)
+        : openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows);
+    opened.subscribe((result) => {
       if (!result) {
         return;
       }

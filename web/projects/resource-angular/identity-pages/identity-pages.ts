@@ -4,7 +4,6 @@ import {
   IdentityDescriptor,
   IdentitySideDescriptor,
   quoteFilterValue,
-  rowCapabilities,
   ScopeKind,
 } from '@impulseframework/resource';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
@@ -341,7 +340,7 @@ class SideBuilder {
         // people are those who hold a role in it and those who sign in through its directory:
         // the last role taken away takes a person off the list unless the tenant's directory
         // signs them in. An account that left the whole application's list was deleted: by
-        // its own Delete, or with the last thing it held.
+        // its own Delete, or with the tenant it belonged to alone.
         rowGone: this.tenant
           ? (row: RecordData): string => `${String(row['username'] ?? 'This person')} no longer holds a role here.`
           : (row: RecordData): string => {
@@ -420,10 +419,10 @@ class SideBuilder {
    * keeps no groups (directoryGroups says why, where a directory decides the roles).
    *
    * A row says what the group holds: how many people, and its roles, a line each, so
-   * nobody opens every group to learn what it is for. Delete is offered on a group that
-   * holds nothing; one that still has people or roles says what is left where Delete
-   * would be, and the server refuses a request that never saw the page. A group's page
-   * is headed by the group's name. Outside every tenant the list says where each group
+   * nobody opens every group to learn what it is for. Delete is offered on every group.
+   * A group that has people in it or holds roles is asked about first in the server's
+   * words, which count them, and they go with it. A group's page is headed by the
+   * group's name. Outside every tenant the list says where each group
    * is kept, in an application that has tenants.
    */
   groups(): RootConfig | undefined {
@@ -490,22 +489,9 @@ class SideBuilder {
           ],
           [
             methods.deleteGroup,
-            counted
-              ? {
-                  label: 'Delete',
-                  icon: 'delete',
-                  // Only a group that holds nothing is deleted: one that still has people
-                  // or roles says what is left, where Delete would be.
-                  when: (row) => whatIsLeft(row) === undefined,
-                  otherwise: (row) => emptyItFirst(row),
-                  confirm: (row) => `Delete ${named(row)}?`,
-                }
-              : {
-                  label: 'Delete',
-                  icon: 'delete',
-                  confirm: (row) =>
-                    `Delete ${named(row)}? A group that still has people in it or holds a role is not deleted: empty it first.`,
-                },
+            // The delete dialog asks the page's question, then the server's, which counts
+            // the people and the roles that go with the group.
+            { label: 'Delete', icon: 'delete', deletes: true, confirm: (row) => `Delete ${named(row)}?` },
           ],
         ]),
         listMethods: this.present([
@@ -1404,12 +1390,12 @@ class SideBuilder {
    * The roles a person holds, under the person's row: one list, each role saying where
    * it comes from. A role of the person's own says "Their own", carries the reason it
    * was given for beside when it ends, and is taken away here, after the server's own
-   * question (the method's warning): whose role goes, where it is held, and whether the
-   * account goes with it. A role that comes through a group names the group and links to
-   * the group's page, where it is changed: the group loses the role there, or the person
-   * leaves the group. Where the server's list holds a person's own roles alone (a
-   * description from before the one list), the roles held through a group are a second
-   * list under it (rolesThroughGroupsOf). Give a role is offered above the list as well
+   * question (the method's warning): whose role goes, and where it is held. A role that
+   * comes through a group names the group and links to the group's page, where it is
+   * changed: the group loses the role there, or the person leaves the group. Where the
+   * server's list holds a person's own roles alone (a description from before the one
+   * list), the roles held through a group are a second list under it
+   * (rolesThroughGroupsOf). Give a role is offered above the list as well
    * as in the person's menu (giveRole), the same dialog in both places.
    */
   private rolesOf(): ChildResourceConfig | undefined {
@@ -1565,7 +1551,7 @@ class SideBuilder {
     });
   }
 
-  /** The people in a group, under the group's row. Removing one asks first in the server's words (the method's warning): who leaves which group, and whether the account goes with it. */
+  /** The people in a group, under the group's row. Removing one asks first in the server's words (the method's warning): who leaves which group. */
   private peopleOfGroup(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
     if (!lists.groupUsers) {
@@ -1878,7 +1864,6 @@ class SideBuilder {
   private onPerson(): MethodPresentation[] {
     const { methods } = this.side;
     const named = (row: RecordData): string => String(row['username'] ?? 'this person');
-    const removal = this.tenant ? methods.removeFromTenant : undefined;
     return this.present([
       // The group is the menu entry's alone: giveRole() draws the button above the person's
       // roles too, which is in no menu.
@@ -1947,7 +1932,12 @@ class SideBuilder {
           icon: 'block',
           group: 'account',
           when: (row) => row['disabled'] === false,
-          confirm: (row) => `Disable ${named(row)}? They cannot sign in until the account is enabled again.`,
+          // A row whose State says another tenant also holds the person (statesOf's own
+          // test) is told the account is the whole application's.
+          confirm: (row) =>
+            this.tenant && row['heldElsewhere'] === true && row['heldInEveryTenant'] !== true
+              ? `Disable ${named(row)}? They cannot sign in to any ${this.tenantWord} until the account is enabled again.`
+              : `Disable ${named(row)}? They cannot sign in until the account is enabled again.`,
         },
       ],
       [
@@ -1972,24 +1962,26 @@ class SideBuilder {
           when: (row) => row['heldHere'] !== false,
         },
       ],
-      // On a tenant's side that has the removal from the tenant, the removal stands in
-      // Delete's place on a row whose answer lists it: taking a person the tenant holds
-      // alone out of it takes the account. Delete is drawn beside it, or alone, where the
-      // row says the tenant manages the account through its directory (managedHere) and the
-      // removal would leave the account standing: a person of the directory who holds
-      // nothing in the tenant itself, or who holds roles elsewhere too. A row whose answer
-      // does not list the removal keeps Delete.
+      // Delete is the account's own delete, drawn wherever the row's answer lists it; the
+      // removal from the tenant beside it takes what the person holds there and leaves the
+      // account standing. Where the method warns before it runs (on a tenant's side whose
+      // server says what the delete does, and whether the person can come back through the
+      // directory), the page asks only whom, and the server's words follow in the dialog.
+      // Where it does not, the page says all of it.
       [
         methods.delete,
         {
           label: 'Delete',
           icon: 'delete',
           group: 'account',
-          confirm: (row) =>
-            this.identity.tenant
+          confirm: (row, _listed, meta) => {
+            if (meta?.warning !== undefined) {
+              return `Delete ${named(row)}?`;
+            }
+            return this.identity.tenant
               ? `Delete ${named(row)}? The account is removed from every ${this.tenantWord}, with its sign-ins and its sessions. To keep the account and stop them signing in, choose Disable instead.`
-              : `Delete ${named(row)}? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.`,
-          ...(removal === undefined ? {} : { when: (row: RecordData) => deleteBesideRemoval(row, removal) }),
+              : `Delete ${named(row)}? The account, its sign-ins and its sessions are removed. To keep the account and stop them signing in, choose Disable instead.`;
+          },
         },
       ],
     ]);
@@ -2426,14 +2418,12 @@ class SideBuilder {
   }
 
   /**
-   * The fields a tenant's side reads with a person and does not draw besides the State's:
-   * whether the person holds something in the tenant itself, by which the removal from
-   * the tenant is offered, and whether the tenant manages the account (managedHere), by
-   * which Delete is drawn beside the removal (deleteBesideRemoval). Each only where the
-   * list has it.
+   * The field a tenant's side reads with a person and does not draw besides the State's:
+   * whether the person holds something in the tenant itself (heldHere), by which the
+   * removal from the tenant is offered. Only where the list has it.
    */
   private tenantFacts(resource: Resource): string[] {
-    return this.tenant ? ['heldHere', 'managedHere'].filter((name) => this.has(resource, name)) : [];
+    return this.tenant && this.has(resource, 'heldHere') ? ['heldHere'] : [];
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
@@ -2558,26 +2548,6 @@ function decidedElsewhere(row: RecordData): boolean {
   return row['directoryGivesRoles'] === true || row['ownRule'] === true;
 }
 
-/**
- * Whether a tenant's people page draws Delete on a person's row, where the tenant's side
- * has the removal from the tenant (removal, its method). A row whose answer does not list
- * the removal keeps Delete. A row whose answer lists it draws Delete only where the row
- * says the tenant manages the account (managedHere) and the removal would leave the
- * account standing: the person holds nothing in the tenant itself, or holds a role in
- * another tenant or for the whole application too. A row that carries no managedHere is
- * read as one the tenant does not manage. Whether Delete is offered at all is still the
- * server's answer for the row.
- */
-function deleteBesideRemoval(row: RecordData, removal: string): boolean {
-  if (!(rowCapabilities(row)?.Execute ?? []).includes(removal)) {
-    return true;
-  }
-  if (row['managedHere'] !== true) {
-    return false;
-  }
-  return row['heldHere'] === false || row['heldElsewhere'] === true || row['heldGlobally'] === true;
-}
-
 /** What a sign-in method's row says of sign-up: who decides, or what an administrator chose. */
 function signUpChoice(row: RecordData): string {
   if (row['directoryGivesRoles'] === true) {
@@ -2645,28 +2615,6 @@ function openToSignUp(rows: RecordData[]): string | undefined {
       return `${String(row['label'] ?? row['name'])} is open to sign-up. ${consequence}`.trim();
     })
     .join('\n');
-}
-
-/**
- * What a group still holds, as the row says it where Delete would be: "3 people and 2
- * roles", "1 person", "2 roles". Nothing for a group that holds nothing, which is the one
- * Delete is offered on. The counts are the server's, over what has not ended, which is
- * what it refuses a deletion for.
- */
-function whatIsLeft(row: RecordData): string | undefined {
-  const people = Number(row['people'] ?? 0);
-  const roles = Array.isArray(row['roles']) ? row['roles'].length : 0;
-  const left = [
-    ...(people > 0 ? [people === 1 ? '1 person' : `${people} people`] : []),
-    ...(roles > 0 ? [roles === 1 ? '1 role' : `${roles} roles`] : []),
-  ];
-  return left.length > 0 ? left.join(' and ') : undefined;
-}
-
-/** What a group that still holds something says where Delete would be; nothing for one that holds nothing. */
-function emptyItFirst(row: RecordData): string | undefined {
-  const left = whatIsLeft(row);
-  return left ? `${left}: empty it first` : undefined;
 }
 
 /**

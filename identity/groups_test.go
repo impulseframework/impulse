@@ -25,6 +25,9 @@ type fakeGroupTables struct {
 	groupRoles   map[access.GroupRoleKey]bool
 	// nextGroupID is the id InsertGroup answers.
 	nextGroupID impulse.UUID
+	// groupLeft is what DeleteGroup answers one save left, nil for a delete that
+	// took everything.
+	groupLeft *resource.DeleteLeft
 	// The periods of the committed rows that carry one (periods_test.go): a
 	// membership's, a place's in a group and a group's role's.
 	membershipPeriods map[access.MembershipKey]accesstypes.Period
@@ -85,13 +88,36 @@ func (f *fakeStore) DescribeGroup(_ context.Context, _ resource.ReadWriteTransac
 	return nil
 }
 
-func (f *fakeStore) DeleteGroup(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+// fakeGroupQuestion is the question the fake store's delete of a group answers where it
+// is not told to take what is under the group, as the delete patch does (428).
+const fakeGroupQuestion = "Delete this group and everything under it. This can't be undone."
+
+// DeleteGroup buffers the group's delete as the generated store does: told
+// everythingUnder, the delete takes the group's members and roles with it, and not told,
+// a group with either is asked about (428) and nothing is written. What one save left is
+// f.groupLeft.
+func (f *fakeStore) DeleteGroup(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	if err := f.fail("DeleteGroup"); err != nil {
-		return err
+		return nil, err
+	}
+	if everythingUnder {
+		f.writes = append(f.writes, "delete group "+id.String()+" with everything under it")
+
+		return f.groupLeft, nil
+	}
+	for key, in := range f.groupMembers {
+		if in && key.Group == GroupID(id) {
+			return nil, httpio.NewPreconditionRequiredMessage(fakeGroupQuestion)
+		}
+	}
+	for key, held := range f.groupRoles {
+		if held && key.Group == GroupID(id) {
+			return nil, httpio.NewPreconditionRequiredMessage(fakeGroupQuestion)
+		}
 	}
 	f.writes = append(f.writes, "delete group "+id.String())
 
-	return nil
+	return nil, nil
 }
 
 func (f *fakeStore) TenantGroups(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
@@ -370,57 +396,115 @@ func TestManager_CreateGroup(t *testing.T) {
 	}
 }
 
-// TestManager_DeleteGroup pins that a group goes once it is emptied: a group with a
-// member or a role is refused as a conflict that says what to do, and writes nothing;
-// an emptied one is deleted and the engine told once the transaction has committed.
+// TestManager_DeleteGroup pins a group's delete: one call of the store's delete, which
+// takes the group's members and roles where it is told to and otherwise asks first
+// (428), with no member or role deleted by hand, whatever their periods, and the engine
+// told once the transaction has committed. Each role and each member whose period has
+// not ended is asked what its own removal asks before the store is called, so a delete
+// that would take a tenant's last administrator is refused in the words of a role taken
+// from a group. What one save left is answered, and nobody is mailed.
 func TestManager_DeleteGroup(t *testing.T) {
 	t.Parallel()
 
+	ended, upcoming, _ := periodFixtures()
+	reader := access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")
+	warden := access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Warden")
+	danaSteward := access.NewMembershipKey(globalScope, dana, "Steward")
 	tests := []struct {
-		name        string
-		group       impulse.UUID
-		members     []access.GroupMemberKey
-		roles       []access.GroupRoleKey
-		wantErr     func(error) bool
-		wantWrites  []string
-		wantChanged int
+		name            string
+		group           impulse.UUID
+		everythingUnder bool
+		caller          accesstypes.User
+		held            []access.MembershipKey
+		places          map[access.GroupMemberKey]accesstypes.Period
+		roles           map[access.GroupRoleKey]accesstypes.Period
+		left            *resource.DeleteLeft
+		wantErr         func(error) bool
+		wantSays        string
+		wantWrites      []string
+		wantChanged     int
 	}{
-		{name: "an empty group is deleted", group: nightID, wantWrites: []string{"delete group " + nightID.String()}, wantChanged: 1},
-		{name: "a group with a member is refused", group: nightID, members: []access.GroupMemberKey{memberKey(nightID, userID)}, wantErr: httpio.HasConflict},
-		{name: "a group with a role is refused", group: nightID, roles: []access.GroupRoleKey{access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")}, wantErr: httpio.HasConflict},
-		{name: "another group's member does not hold this one", group: nightID, members: []access.GroupMemberKey{memberKey(staffID, userID)}, wantWrites: []string{"delete group " + nightID.String()}, wantChanged: 1},
-		{name: "a group that does not exist", group: newGroupID, wantErr: httpio.HasNotFound},
+		{
+			name:  "a group with two members and two roles, one place ended and one role not begun, goes in one delete that takes them",
+			group: nightID, everythingUnder: true,
+			places:     map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): ended, memberKey(nightID, otherUser): {}},
+			roles:      map[access.GroupRoleKey]accesstypes.Period{reader: upcoming, warden: {}},
+			wantWrites: []string{"delete group " + nightID.String() + " with everything under it"}, wantChanged: 1,
+		},
+		{
+			name:    "without everythingUnder the store's question passes through",
+			group:   nightID,
+			places:  map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}},
+			roles:   map[access.GroupRoleKey]accesstypes.Period{reader: {}},
+			wantErr: httpio.HasPreconditionRequired, wantSays: fakeGroupQuestion,
+		},
+		{name: "an empty group is deleted at once", group: nightID, wantWrites: []string{"delete group " + nightID.String()}, wantChanged: 1},
+		{
+			name:  "what one save left is answered",
+			group: nightID, everythingUnder: true, left: &resource.DeleteLeft{Deleted: 6800, Left: 31200},
+			places:     map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}},
+			wantWrites: []string{"delete group " + nightID.String() + " with everything under it"}, wantChanged: 1,
+		},
+		{
+			name:  "a delete that would take the tenant's last administrator is refused as taking the role from the group is",
+			group: nightID, everythingUnder: true, caller: dana, held: []access.MembershipKey{danaSteward},
+			places:  map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}, memberKey(nightID, otherUser): {}},
+			roles:   map[access.GroupRoleKey]accesstypes.Period{warden: {}},
+			wantErr: httpio.HasForbidden, wantSays: "You are the last administrator of this tenant. Give another person the role before you take it from the group that gives you yours.",
+		},
+		{name: "a group that does not exist", group: newGroupID, everythingUnder: true, wantErr: httpio.HasNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			store := groupStore()
-			for _, key := range tt.members {
-				store.groupMembers[key] = true
+			store.groupLeft = tt.left
+			for _, key := range tt.held {
+				store.memberships[key] = true
 			}
-			for _, key := range tt.roles {
-				store.groupRoles[key] = true
+			store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{}
+			for key, period := range tt.places {
+				store.groupMembers[key], store.placePeriods[key] = true, period
 			}
-			m, engine := newManager(t, store, engineRoles)
+			store.rolePeriods = map[access.GroupRoleKey]accesstypes.Period{}
+			for key, period := range tt.roles {
+				store.groupRoles[key], store.rolePeriods[key] = true, period
+			}
+			mail := &fakeMail{}
+			engine := &fakeEngine{roles: engineRoles}
+			m, err := New(managedAuth, store, engine, fakeSessions{mail: mail}, administrators, WithRoleGrants(&fakeGrants{}))
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
 
-			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.DeleteGroup(ctx, txn, tt.group)
+			var left *resource.DeleteLeft
+			err = inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				if tt.caller != "" {
+					ctx = asCallerThrough(ctx, managedAuth, tt.caller)
+				}
+				var err error
+				left, err = m.DeleteGroup(ctx, txn, tt.group, tt.everythingUnder)
+
+				return err
 			})
 			if tt.wantErr != nil {
-				if err == nil || !tt.wantErr(err) {
-					t.Fatalf("DeleteGroup() error = %v, want the refusal", err)
-				}
-				if httpio.HasConflict(err) && !strings.Contains(err.Error(), "remove its members and take its roles away") {
-					t.Errorf("DeleteGroup() error = %v, want it to say what to do", err)
+				if err == nil || !tt.wantErr(err) || !strings.Contains(err.Error(), tt.wantSays) {
+					t.Fatalf("DeleteGroup() error = %v, want the refusal saying %q", err, tt.wantSays)
 				}
 			} else if err != nil {
 				t.Fatalf("DeleteGroup() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.left, left); diff != "" {
+				t.Errorf("DeleteGroup() left (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
 			if engine.changed != tt.wantChanged {
 				t.Errorf("the engine was told %d time(s), want %d", engine.changed, tt.wantChanged)
+			}
+			if len(mail.asked) != 0 {
+				t.Errorf("mail asked %v, want nobody mailed", mail.asked)
 			}
 		})
 	}
@@ -477,9 +561,8 @@ func TestManager_AddGroupMember(t *testing.T) {
 	}
 }
 
-// TestManager_RemoveGroupMember pins a person's removal from a group, and the rule on an
-// account nothing admits: a person left with no role of their own and no place in a
-// group is deleted with the removal, and one who holds either stays.
+// TestManager_RemoveGroupMember pins a person's removal from a group: the place goes and
+// nothing else, the last thing the person holds among them.
 func TestManager_RemoveGroupMember(t *testing.T) {
 	t.Parallel()
 
@@ -493,9 +576,9 @@ func TestManager_RemoveGroupMember(t *testing.T) {
 	}{
 		{name: "a person who is not in the group is no error"},
 		{
-			name:        "the last thing a person held: the account goes with the removal",
+			name:        "the last thing a person held: the account stays",
 			in:          []access.GroupMemberKey{memberKey(nightID, userID)},
-			wantWrites:  []string{"delete user " + userID.String(), removal},
+			wantWrites:  []string{removal},
 			wantChanged: 1,
 		},
 		{
@@ -535,34 +618,6 @@ func TestManager_RemoveGroupMember(t *testing.T) {
 				t.Errorf("the engine was told %d time(s), want %d", engine.changed, tt.wantChanged)
 			}
 		})
-	}
-}
-
-// TestManager_RemoveRole_keepsAnAccountInAGroup pins that a place in a group keeps an
-// account as a role does: the person's last role of their own goes, and the account
-// stays while they are in a group.
-func TestManager_RemoveRole_keepsAnAccountInAGroup(t *testing.T) {
-	t.Parallel()
-
-	reader := access.NewMembershipKey(alphaScope, dana, "Reader")
-	for _, inGroup := range []bool{true, false} {
-		store := groupStore()
-		store.memberships[reader] = true
-		if inGroup {
-			store.groupMembers[memberKey(staffID, userID)] = true
-		}
-		m, _ := newManager(t, store, engineRoles)
-
-		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			return m.RemoveRole(ctx, txn, alphaScope, userID, "Reader")
-		})
-		if err != nil {
-			t.Fatalf("RemoveRole() error = %v", err)
-		}
-		deleted := slices.Contains(store.writes, "delete user "+userID.String())
-		if deleted == inGroup {
-			t.Errorf("in a group = %v: account deleted = %v, want an account kept exactly while its person is in a group (writes %v)", inGroup, deleted, store.writes)
-		}
 	}
 }
 
@@ -792,50 +847,6 @@ func TestManager_DeleteUser_removesGroupPlaces(t *testing.T) {
 	}
 }
 
-// TestManager_ClearTenant_groups pins what a tenant that goes takes of groups: its own
-// groups with their members and roles, and the roles a group of the whole application
-// holds in it. A person who held nothing but a place in the tenant's group goes with it,
-// and one who holds anything else stays.
-func TestManager_ClearTenant_groups(t *testing.T) {
-	t.Parallel()
-
-	night, staff := GroupID(nightID), GroupID(staffID)
-	nightReader := access.NewGroupRoleKey(night, alphaScope, "Reader")
-	staffInAlpha := access.NewGroupRoleKey(staff, alphaScope, "Reader")
-	staffInBeta := access.NewGroupRoleKey(staff, betaScope, "Reader")
-
-	store := groupStore()
-	// dana is in alpha's group alone; gale is in alpha's group and in the staff.
-	store.groupMembers[memberKey(nightID, userID)] = true
-	store.groupMembers[memberKey(nightID, otherUser)] = true
-	store.groupMembers[memberKey(staffID, otherUser)] = true
-	for _, key := range []access.GroupRoleKey{nightReader, staffInAlpha, staffInBeta} {
-		store.groupRoles[key] = true
-	}
-	m, engine := newManager(t, store, engineRoles)
-
-	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return m.ClearTenant(ctx, txn, "alpha")
-	})
-	if err != nil {
-		t.Fatalf("ClearTenant() error = %v", err)
-	}
-	want := []string{
-		"delete group role " + groupRoleText(&nightReader),
-		"delete group role " + groupRoleText(&staffInAlpha),
-		"delete group member " + nightID.String() + " " + userID.String(),
-		"delete group member " + nightID.String() + " " + otherUser.String(),
-		"delete group " + nightID.String(),
-		"delete user " + userID.String(),
-	}
-	if diff := cmp.Diff(want, store.writes); diff != "" {
-		t.Errorf("buffered writes (-want +got):\n%s", diff)
-	}
-	if engine.changed != 1 {
-		t.Errorf("the engine was told %d time(s), want once", engine.changed)
-	}
-}
-
 // TestTenant_groups pins what makes a group method a tenant's: it reaches the groups
 // kept in the tenant and no other, a group kept elsewhere being not found whoever asks,
 // and it gives a role in the tenant alone.
@@ -847,7 +858,9 @@ func TestTenant_groups(t *testing.T) {
 			return tenant.DescribeGroup(ctx, txn, group, "Who works after dark.")
 		},
 		"delete": func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant, group impulse.UUID) error {
-			return tenant.DeleteGroup(ctx, txn, group)
+			_, err := tenant.DeleteGroup(ctx, txn, group, true)
+
+			return err
 		},
 		"add a member": func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant, group impulse.UUID) error {
 			return tenant.AddGroupMember(ctx, txn, group, userID)
@@ -1004,214 +1017,5 @@ func TestManager_groups_noWayToTheSuperAdministratorRole(t *testing.T) {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
 		})
-	}
-}
-
-// TestManager_groups_removalNotice pins the notice of a removal from a tenant where an
-// administrator takes a person's last role in it through a group: by taking the person
-// out of the group, or by taking the role from the group. It is mailed after the
-// commit, to the address the person confirmed, and only when nothing else of theirs
-// reaches the tenant.
-func TestManager_groups_removalNotice(t *testing.T) {
-	t.Parallel()
-
-	reader := access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")
-	takeOut := func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-		return m.RemoveGroupMember(ctx, txn, nightID, userID)
-	}
-	takeRole := func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-		return m.TakeGroupRole(ctx, txn, nightID, alphaScope, "Reader")
-	}
-	// takeOwn takes the Clerk role the person holds of their own in the tenant.
-	takeOwn := func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-		return m.RemoveRole(ctx, txn, alphaScope, userID, "Clerk")
-	}
-	// A second group of the tenant, for the cases where the person stands in two.
-	eveningID := mustUUID("0190b000-0000-7000-8000-000000000004")
-	over := accesstypes.Period{Start: time.Time{}, End: time.Now().Add(-time.Hour)}
-	ownClerk := access.NewMembershipKey(alphaScope, dana, "Clerk")
-	everywhere := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), dana, "Clerk")
-	tests := []struct {
-		name   string
-		act    func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
-		caller accesstypes.User
-		// held are the person's own memberships, and roles the roles the group holds
-		// beside Reader in alpha.
-		held  []access.MembershipKey
-		roles []access.GroupRoleKey
-		// alsoIn is a second group the person stands in, the nil id for none, and its
-		// are the roles that group holds.
-		alsoIn impulse.UUID
-		its    []access.GroupRoleKey
-		// placeOver and roleOver say that the person's place in the group, or the
-		// group's Reader role, is of a period that is over.
-		placeOver, roleOver bool
-		// unconfirmed is a person who has confirmed no address, and both a group where
-		// the administrator who acts stands beside the person, with an address of their
-		// own.
-		unconfirmed, both bool
-		wantAsked         []string
-	}{
-		{
-			name: "taken out of the group that gave their one role in the tenant, with nothing else anywhere: the account goes too", act: takeOut, caller: erin,
-			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=true"},
-		},
-		{
-			name: "taken out of the group, with a role of their own in another tenant: the account stays", act: takeOut, caller: erin,
-			held:      []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Reader")},
-			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=false"},
-		},
-		{
-			name: "taken out of the group while a role of their own holds them in the tenant is no removal from it", act: takeOut, caller: erin,
-			held: []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Clerk")},
-		},
-		{name: "a person who takes themselves out of the group is told nothing", act: takeOut, caller: dana, held: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Reader")}},
-		{
-			name: "the group's one role in the tenant is taken: everyone in the group it held there is told", act: takeRole, caller: erin,
-			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=false"},
-		},
-		{
-			name: "the group keeps another role in the tenant: taking one is no removal from it", act: takeRole, caller: erin,
-			roles: []access.GroupRoleKey{access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Clerk")},
-		},
-		{
-			name: "the group's role is taken while a role of their own holds the person in the tenant", act: takeRole, caller: erin,
-			held: []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Clerk")},
-		},
-		{
-			name: "taken out of the group while another group holds them in the tenant is no removal from it", act: takeOut, caller: erin,
-			alsoIn: eveningID, its: []access.GroupRoleKey{access.NewGroupRoleKey(GroupID(eveningID), alphaScope, "Clerk")},
-		},
-		{
-			name: "the group's role is taken while another group holds the person in the tenant", act: takeRole, caller: erin,
-			alsoIn: eveningID, its: []access.GroupRoleKey{access.NewGroupRoleKey(GroupID(eveningID), alphaScope, "Clerk")},
-		},
-		{
-			name: "a group of another tenant that holds them there does not keep them in this one", act: takeOut, caller: erin,
-			alsoIn: dayID, its: []access.GroupRoleKey{access.NewGroupRoleKey(GroupID(dayID), betaScope, "Clerk")},
-			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=false"},
-		},
-		{
-			name: "taken out of the group while a role held in every tenant reaches this one", act: takeOut, caller: erin,
-			held: []access.MembershipKey{everywhere},
-		},
-		{
-			name: "the group's role is taken while a role held in every tenant reaches this one", act: takeRole, caller: erin,
-			held: []access.MembershipKey{everywhere},
-		},
-		{
-			name: "a place whose period is over gave the person nothing: taking it is no removal from the tenant", act: takeOut, caller: erin,
-			placeOver: true,
-		},
-		{
-			name: "a role of the group whose period is over gave nobody anything: taking it is no removal", act: takeRole, caller: erin,
-			roleOver: true,
-		},
-		{name: "taken out of the group with no confirmed address: nothing is mailed", act: takeOut, caller: erin, unconfirmed: true},
-		{name: "the group's role is taken from a person with no confirmed address: nothing is mailed", act: takeRole, caller: erin, unconfirmed: true},
-		{
-			name: "the administrator who takes the group's role stands in the group too: they are told nothing, the others are", act: takeRole, caller: erin,
-			both:      true,
-			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=false"},
-		},
-		{
-			name: "a role of their own is taken while the group holds them in the tenant: no removal from it", act: takeOwn, caller: erin,
-			held: []access.MembershipKey{ownClerk},
-		},
-		{
-			name: "a role of their own is taken and their place in the group is over: the group no longer holds them, and its row keeps the account", act: takeOwn, caller: erin,
-			held:      []access.MembershipKey{ownClerk},
-			placeOver: true,
-			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=false"},
-		},
-		{
-			name: "a role of their own is taken and the group's role is over: the group gives nothing in the tenant", act: takeOwn, caller: erin,
-			held:      []access.MembershipKey{ownClerk},
-			roleOver:  true,
-			wantAsked: []string{"removal notice to dana@example.com from alpha deleted=false"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			store := groupStore()
-			store.emails = map[string]impulse.UUID{"dana@example.com": userID}
-			store.groupMembers[memberKey(nightID, userID)] = true
-			store.groupRoles[reader] = true
-			for _, key := range tt.roles {
-				store.groupRoles[key] = true
-			}
-			for _, key := range tt.held {
-				store.memberships[key] = true
-			}
-			store.groups[eveningID] = &Group{Kind: "domain", Domain: "alpha", Name: "Evening shift"}
-			if tt.alsoIn != impulse.NilUUID {
-				store.groupMembers[memberKey(tt.alsoIn, userID)] = true
-				for _, key := range tt.its {
-					store.groupRoles[key] = true
-				}
-			}
-			if tt.placeOver {
-				store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): over}
-			}
-			if tt.roleOver {
-				store.rolePeriods = map[access.GroupRoleKey]accesstypes.Period{reader: over}
-			}
-			if tt.unconfirmed {
-				store.emails = nil
-			}
-			if tt.both {
-				store.emails["gale@example.com"] = otherUser
-				store.groupMembers[memberKey(nightID, otherUser)] = true
-			}
-			mail := &fakeMail{}
-			m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, fakeSessions{mail: mail}, administrators, WithRoleGrants(&fakeGrants{}))
-			if err != nil {
-				t.Fatalf("New() error = %v", err)
-			}
-
-			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				err := tt.act(asCaller(ctx, tt.caller), txn, m)
-				if len(mail.asked) != 0 {
-					t.Errorf("before the commit the session library was asked %v, want nothing", mail.asked)
-				}
-
-				return err
-			}); err != nil {
-				t.Fatalf("error = %v", err)
-			}
-			if diff := cmp.Diff(tt.wantAsked, mail.asked); diff != "" {
-				t.Errorf("notices after the commit (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestManager_TakeGroupRole_ofNoTenant pins what the notice of a removal costs where
-// none can be owed: a role a group holds for the whole application is no tenant's, so
-// taking it reads nobody in the group for a notice, and tells nobody.
-func TestManager_TakeGroupRole_ofNoTenant(t *testing.T) {
-	t.Parallel()
-
-	store := groupStore()
-	store.emails = map[string]impulse.UUID{"dana@example.com": userID}
-	store.groupMembers[memberKey(staffID, userID)] = true
-	store.groupRoles[access.NewGroupRoleKey(GroupID(staffID), globalScope, "Reader")] = true
-	// What a notice reads of each person in the group fails here: the removal passes
-	// only when nobody is read.
-	store.failOn = "UserPeriods"
-	mail := &fakeMail{}
-	m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, fakeSessions{mail: mail}, administrators, WithRoleGrants(&fakeGrants{}))
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return m.TakeGroupRole(asCaller(ctx, erin), txn, staffID, globalScope, "Reader")
-	}); err != nil {
-		t.Fatalf("TakeGroupRole() of a role held for the whole application error = %v, want nil with nobody read for a notice", err)
-	}
-	if len(mail.asked) != 0 {
-		t.Errorf("the session library was asked %v, want nothing: the role is no tenant's", mail.asked)
 	}
 }

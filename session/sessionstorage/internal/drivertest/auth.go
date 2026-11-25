@@ -204,8 +204,8 @@ type AuthConfig struct {
 	// inside the transaction that consumes the invitation, which the harness adapts to
 	// the driver's transaction; nil for none. See signinflow.InvitationAcceptor.
 	Accept func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
-	// Admission is what a tenanted application gives a person's first sign-in through
-	// a tenant's directory; nil for none.
+	// Admission is what a tenanted application gives a person who signs in through a
+	// tenant's directory; nil for none.
 	Admission *DirectoryAdmission
 	// Settings is the sign-in settings row the instance starts with, which the harness
 	// writes with SeedSignInSettings before the instance is used. The zero value asks
@@ -714,8 +714,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a pending sign-in is consumed once, by a conditional update", run: testPendingSignInConsumedOnce},
 		{name: "an expired pending sign-in is neither read nor consumed", run: testPendingSignInExpired},
 		{name: "concurrent completions of one pending sign-in consume it once", run: testPendingSignInConcurrentConsume},
-		{name: "deleting a user deletes its sessions, their auth events and its identity links by the schema's cascade", run: testDeleteUserCascades},
-		{name: "a session row names an existing user or no user: the schema refuses an unknown user id", run: testSessionUserForeignKey},
+		{name: "deleting a user ends its sessions and deletes its identity links, and the session rows stay with their auth events until the timed removal takes them", run: testDeleteUserKeepsSessionRows},
 		{name: "a sign-in records the provider's session id under its issuer, and a provider-initiated logout ends the sessions under that issuer and id and no other", run: testProviderSessionLogout},
 		{name: "a sign-in and everything written with it take the database's time, once", run: testDatabaseTimeOnSignIn},
 		{name: "a user is stored with the database's time and under no password change mark, reads back the mark an application writes, and is listed by username", run: testUserAccounts},
@@ -762,11 +761,15 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a verification link goes with its user", run: testMailLinkCascade},
 		{name: "a sign-in that carries an invitation accepts it in the resolution's transaction: consumed, the address set, the hook's writes committed with the user", run: testInvitationSignIn},
 		{name: "an invitation that died is skipped through an open method and refuses through an invite-only one, provisioning nothing", run: testInvitationDead},
-		{name: "a stranger from a directory a tenant declares with a default seat is provisioned and seated with it before the policy decides; a tenant declaring it without a seat gives nothing; a second sign-in seats nothing more", run: testDirectoryDefaultSeat},
-		{name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and nothing is written, whatever the registration's rule; a user created ahead in the tenant links; an invitation is the way past, and a dead one refuses with invitation_expired", run: testDirectoryInvitationOnly},
+		{name: "a stranger from a directory a tenant declares with a default seat is provisioned and seated with it before the policy decides; a tenant declaring it without a seat gives nothing; a second sign-in hands the hook the seat again", run: testDirectoryDefaultSeat},
+		{name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and nothing is written, whatever the registration's rule; a user created ahead in the tenant links, and signing in again through the link calls no seat hook; an invitation is the way past, and a dead one refuses with invitation_expired", run: testDirectoryInvitationOnly},
 		{name: "a directory no tenant declares falls to the registration's rule", run: testDirectoryUndeclared},
-		{name: "a person whose account stands and who follows another tenant's invitation is linked at their first sign-in through their own organization's directory, the invitation accepted and the directory's default seat given in one transaction, and is not linked without the invitation; a second sign-in seats nothing; a personal account reads no declaration", run: testDirectorySeatAtFirstLink},
-		{name: "a link a password confirms is a first sign-in through the directory and gives the default seat with the link; a later sign-in gives nothing back, so a removed seat stays removed; a link deleted and made again gives the seat again", run: testDirectorySeatAtConfirmedLink},
+		{name: "a person whose account stands and who follows another tenant's invitation is linked at their first sign-in through their own organization's directory, the invitation accepted and the directory's default seat given in one transaction, and is not linked without the invitation; the second sign-in and the third each hand the hook the seat again; a personal account reads no declaration", run: testDirectorySeatAtFirstLink},
+		{name: "a link a password confirms is a first sign-in through the directory and gives the default seat with the link; every later sign-in hands the hook the seat again, so a removed seat is given back; a link deleted and made again gives the seat again", run: testDirectorySeatAtConfirmedLink},
+		{name: "a linked identity of a disabled account is refused and its directory's default seat is not handed to the hook", run: testDirectorySeatNotForDisabledLink},
+		{name: "a disabled account whose identity the sign-in links for the first time through a directory whose tenant names a default seat is linked and refused, and the seat is not handed to the hook", run: testDirectorySeatNotForDisabledFirstLink},
+		{name: "a link a password confirms for a disabled account is made and does not hand the hook the directory's default seat", run: testDirectorySeatNotForDisabledConfirmedLink},
+		{name: "a linked sign-in that carries a live invitation naming the directory's default role in its tenant is given that role by the invitation and does not hand the hook the same seat", run: testDirectorySeatBeyondInvitationAtLink},
 		{name: "a sign-in through one tenant's directory that reaches an account which signs in through another tenant's is refused with second_directory before any password is asked for: nothing is linked and nothing seated", run: testSecondDirectoryRefusedBeforeConfirmation},
 		{name: "a confirmation asked for before the account signed in through another tenant's directory links nothing once it has: second_directory, nothing linked, nothing seated", run: testSecondDirectoryRefusedAtConfirmedLink},
 		{name: "a registration's own trusted link of an identity from one tenant's directory to an account that signs in through another tenant's is refused with second_directory, and nothing is linked", run: testSecondDirectoryRefusedForRegistrationRule},

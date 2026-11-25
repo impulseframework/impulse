@@ -1,0 +1,4 @@
+BEGIN;
+DROP INDEX IF EXISTS "Sessions_UpdatedOn_idx";
+ALTER TABLE "Sessions" DROP COLUMN IF EXISTS "UpdatedOn";
+COMMIT;

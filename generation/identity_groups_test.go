@@ -87,6 +87,8 @@ func Test_prepareIdentity_groups(t *testing.T) {
 	for file, lines := range map[string][]string{
 		"internal/crewresources/crew_groups.go": {
 			generationHeader, "// @resource", "// @suppress(patchHandler)", "// @outlet(default)", "// @order(Name asc)", "CrewGroup struct {",
+			// The group's delete takes the rows that name it.
+			"// @deleteCascade(CrewGroupMember, CrewGroupRole)\n\tCrewGroup struct {",
 			"// @attribute(group)\n\t\tID          impulse.UUID `spanner:\"Id\"`",
 			// The store finds a group by where it is kept and its name, the key of the
 			// table's unique index, whose leading column alone has a seek of its own.
@@ -117,7 +119,26 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"client.manager.CreateGroup(ctx, txn, accesstypes.GlobalPolicyScope(), m.Name, m.Description)", "return &CreateCrewGroupResult{ID: id}, nil",
 		},
 		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
-		"crewidentity/delete_crew_group.go":   {"type DeleteCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID\n}", "client.manager.DeleteGroup(ctx, txn, m.GroupID)"},
+		// A group's delete takes its members and roles, after the question, and answers
+		// what one save left; the caller needs the grants of removing each member and
+		// taking each role whose period has not ended, and nothing is asked of one that
+		// has ended.
+		"crewidentity/delete_crew_group.go": {
+			"// @answers(202, 204)\n// @class(access)\ntype DeleteCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID",
+			"\tEverythingUnder bool\n}",
+			"left, err := client.manager.DeleteGroup(ctx, txn, m.GroupID, m.EverythingUnder)",
+			"return &DeleteCrewGroupResult{Deleted: left.Deleted, Left: left.Left}, nil",
+			"type DeleteCrewGroupResult struct {\n\tDeleted int64 `json:\"deleted\"`\n\tLeft    int64 `json:\"left\"`\n}",
+			"func (*DeleteCrewGroupResult) HTTPStatus() int {\n\treturn http.StatusAccepted\n}",
+			"periods, err := store{}.GroupPeriods(ctx, txn, m.GroupID)",
+			"for _, member := range members {\n\t\tif periods.Members[member].Ended(now) {\n\t\t\tcontinue\n\t\t}",
+			"for _, key := range roles {\n\t\tif periods.Roles[key].Ended(now) {\n\t\t\tcontinue\n\t\t}",
+			"caller.ExecuteGate(ctx, RemoveCrewGroupMember{}.Method(), &RemoveCrewGroupMember{GroupID: m.GroupID, UserID: userID})",
+			"gate.EnforceView(ctx, txn, people, m.GroupID, userID)",
+			`httpio.NewForbiddenMessage("This group has members, and you can't remove people from a group, so it can't be deleted.")`,
+			"caller.ExecuteGate(ctx, TakeCrewGroupRole{}.Method(), &TakeCrewGroupRole{GroupID: m.GroupID, Role: string(key.Role)})",
+			`httpio.NewForbiddenMessage("This group holds roles, and you can't take a role from a group, so it can't be deleted.")`,
+		},
 		"crewidentity/add_crew_group_member.go": {
 			"type AddCrewGroupMember struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID", "// @enumerate(CrewSessionUsers)\n\tUserID impulse.UUID",
 			// The served method names a person someone picked, so the account is read.
@@ -126,7 +147,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		"crewidentity/remove_crew_group_member.go": {
 			"// @target(CrewGroupUser, key: GroupID)\n\tGroupID impulse.UUID\n\t// @target(CrewGroupUser, key: UserID)\n\tUserID impulse.UUID",
 			"client.manager.RemoveGroupMember(ctx, txn, m.GroupID, m.UserID)",
-			// Asked first, the server says who leaves which group, and whether the account goes.
+			// Asked first, the server says who leaves which group.
 			"// @answers(204)\n// @warning\n", "client.manager.GroupMemberRemovalWarning(ctx, txn, m.GroupID, m.UserID)",
 		},
 		"crewidentity/give_crew_group_role.go": {
@@ -142,6 +163,9 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		"crewidentity/store.go": {
 			"var _ identity.Store = store{}",
 			"func (store) InsertGroup(ctx context.Context, txn resource.ReadWriteTransaction, group *access.GroupRow) (impulse.UUID, error) {",
+			"func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {",
+			"patch := crewresources.NewCrewGroupDeletePatch(id)\n\tif everythingUnder {\n\t\tpatch = patch.WithEverythingUnder()\n\t}",
+			"return patch.Left(), nil",
 			"Where(clause.Kind().Equal(place.Kind).And().Axis().Equal(place.Axis).And().DomainID().Equal(place.Domain).And().Name().Equal(place.Name))",
 			"crewresources.NewCrewGroupMemberQueryClause().UserID().Equal(userID.String())",
 			"crewresources.NewCrewGroupMemberCreatePatch(id, string(key.User)).\n\t\tSetCreatedAt(spanner.CommitTimestamp).\n\t\tOrSkip()",
@@ -313,7 +337,16 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 			"// @rpc\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\t// @class(access)\n\tCreateCrewShipGroup struct {", "tenant.CreateGroup(ctx, txn, m.Name, m.Description)",
 		},
 		"crewidentity/describe_crew_ship_group.go": {"// @permissionScope(domain)", "// @target(CrewShipGroup)\n\tGroupID     impulse.UUID", "tenant.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
-		"crewidentity/delete_crew_ship_group.go":   {"// @permissionScope(domain)", "// @target(CrewShipGroup)\n\tGroupID impulse.UUID", "tenant.DeleteGroup(ctx, txn, m.GroupID)"},
+		"crewidentity/delete_crew_ship_group.go": {
+			"// @permissionScope(domain)", "// @answers(202, 204)", "// @target(CrewShipGroup)\n\tGroupID impulse.UUID",
+			"left, err := tenant.DeleteGroup(ctx, txn, m.GroupID, m.EverythingUnder)",
+			// The tenant's two methods each name a row of the tenant's own lists.
+			"caller.ExecuteGate(ctx, RemoveCrewShipGroupMember{}.Method(), &RemoveCrewShipGroupMember{GroupID: m.GroupID, UserID: userID})",
+			`resource.ExecuteTarget{Resource: "CrewShipGroupUsers", Label: "CrewShipGroupUser", PKColumns: []string{"GroupId", "UserId"}, View: crewresources.CrewShipGroupUser{}}`,
+			"for _, key := range roles {\n\t\tif periods.Roles[key].Ended(now) {\n\t\t\tcontinue\n\t\t}",
+			"caller.ExecuteGate(ctx, TakeCrewShipGroupRole{}.Method(), &TakeCrewShipGroupRole{GroupID: m.GroupID, Role: string(key.Role)})",
+			`resource.ExecuteTarget{Resource: "CrewShipGroupRoles", Label: "CrewShipGroupRole", PKColumns: []string{"GroupId", "Role"}, View: crewresources.CrewShipGroupRole{}}`,
+		},
 		"crewidentity/add_crew_ship_group_member.go": {
 			"// @permissionScope(domain)", "// @target(CrewShipGroup)\n\tGroupID impulse.UUID", "// @enumerate(CrewShipUsers)\n\tUserID impulse.UUID",
 			"tenant.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period)",

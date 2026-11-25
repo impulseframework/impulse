@@ -332,6 +332,7 @@ type GeneratedHandlers interface {
 	DescribeCrewSectorGroup() http.HandlerFunc
 
 	TenantSignInSettings() http.HandlerFunc
+	TakeSectorDirectory() http.HandlerFunc
 	MakeSectorDirectoryOnly() http.HandlerFunc
 	EndSectorDirectoryOnly() http.HandlerFunc
 	OpenSectorToDirectory() http.HandlerFunc
@@ -1083,6 +1084,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	asked.Post("/console/api/sectors/{sectorID}/describe-crew-sector-group", domainGuard(h.DescribeCrewSectorGroup()))
 
 	bounded.Get("/console/api/sectors/{sectorID}/sign-in-settings", domainGuard(h.TenantSignInSettings()))
+
+	asked.Post("/console/api/sectors/{sectorID}/take-sector-directory", domainGuard(h.TakeSectorDirectory()))
 
 	asked.Post("/console/api/sectors/{sectorID}/make-sector-directory-only", domainGuard(h.MakeSectorDirectoryOnly()))
 

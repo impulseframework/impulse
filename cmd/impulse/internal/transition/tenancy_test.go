@@ -256,9 +256,9 @@ func TestTenancyApply(t *testing.T) {
 			files: tenancyFiles(),
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 				"schema/devseed/000001_dev_tenants.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before the logins",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly) and change tracking",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
@@ -284,6 +284,30 @@ func TestTenancyApply(t *testing.T) {
 				} {
 					if got := read(t, a, rel); !strings.Contains(got, want) {
 						t.Errorf("%s lacks %q:\n%s", rel, want, got)
+					}
+				}
+				// A directory's role is given at every sign-in, and again after a removal: the
+				// table's comment and the record's say so, and neither says it is given once.
+				for rel, wants := range map[string][]string{
+					"schema/migrations/000003_Tenants.up.sql": {
+						"-- DefaultSeat names the role the tenant gives a person who signs in through the\n-- directory and holds nothing in the tenant, at every sign-in,",
+						"tied to the directory before the tenant took it, and\n-- whatever they hold in other tenants; a person an administrator removes from the\n-- tenant is given it again the next time they sign in through the directory.",
+					},
+					"pkg/resources/tenant_directories.go": {
+						"\t// DefaultSeat is the role the tenant gives a person who signs in through the\n\t// directory and holds nothing in the tenant, at every sign-in:",
+						"A person an administrator\n\t// removes from the tenant is given the role again the next time they sign in\n\t// through the directory: disabling their account keeps one person out while\n\t// the tenant is open, and making the tenant invite only keeps everyone out who\n\t// is not invited.",
+					},
+				} {
+					got := read(t, a, rel)
+					for _, want := range wants {
+						if !strings.Contains(got, want) {
+							t.Errorf("%s lacks %q:\n%s", rel, want, got)
+						}
+					}
+					for _, old := range []string{"at their first sign-in", "given once"} {
+						if strings.Contains(got, old) {
+							t.Errorf("%s still says %q of the directory's role", rel, old)
+						}
 					}
 				}
 				wantNoTenantPageFiles(t, a)
@@ -318,9 +342,9 @@ func TestTenancyApply(t *testing.T) {
 			}(),
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"schema/migrations/000003_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
 				"schema/devseed/000001_dev_tenants.up.sql and .down.sql: the development tenants North and South under fixed ids, a data migration for the bootstrap to apply before the logins",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly) and change tracking",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
@@ -357,8 +381,8 @@ func TestTenancyApply(t *testing.T) {
 			},
 			wantDid: []string{
 				"cmd/generate/resourcegenerator/main.go: added WithConcealedDomains(); the tenant segment /tenants derives from the Tenant record",
-				"schema/migrations/000002_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, and DirectoryOnly) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
-				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly) and change tracking",
+				"schema/migrations/000002_Tenants.up.sql and .down.sql: the Tenants table (a generated id as its primary key, a unique Name, CreatedAt, when the tenant was made, DirectoryOnly and Disabled) and the TenantDirectories table (a tenant's directory with its DefaultSeat and AsksSecondFactor, held to one for a tenant and to one tenant by its two unique indexes)",
+				"pkg/resources/tenants.go: the Tenant resource struct, global, keyed by a generated id, listed in name order (@order(Name asc)), with CreatedAt for when each tenant was made (@tenantSince), its declaration's flag (DirectoryOnly), the column that says a tenant is disabled (Disabled) and change tracking",
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
@@ -436,9 +460,19 @@ func TestTenancyApply(t *testing.T) {
 				"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\treturn &Auth{access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
 				"\t\"github.com/impulseframework/impulse/session/signin\"\n",
 				"\t\"github.com/impulseframework/impulse/resource\"\n",
+				// The directory's default seat is given at every sign-in through it, and
+				// again after a removal.
+				"\t// The directory admission: what a person gets when they sign in through a\n\t// tenant's directory and hold nothing in the tenant, at every sign-in,",
+				"A person an administrator removes from\n\t// the tenant is given it again the next time they sign in through the\n\t// directory: disabling their account keeps one person out while the tenant is\n\t// open, and making the tenant invite only keeps everyone out who is not\n\t// invited.",
+				"which the directory\n\t// admission decides every sign-in through a tenant's directory with: the generated\n\t// reader (app.NewTenantDirectoryReader).",
 			} {
 				if !strings.Contains(staff, want) {
 					t.Errorf("staff.go lacks %q:\n%s", want, staff)
+				}
+			}
+			for _, old := range []string{"at their first sign-in", "is not given back", "a stranger's first sign-in"} {
+				if strings.Contains(staff, old) {
+					t.Errorf("staff.go still says %q of the directory's default seat", old)
 				}
 			}
 		},

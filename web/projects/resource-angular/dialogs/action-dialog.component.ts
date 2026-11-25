@@ -83,7 +83,7 @@ const dialogWidth = { width: '480px', maxWidth: '95vw' };
 
 /**
  * Opens the action dialog over the application and answers what the person decided:
- * the field's value, true for a confirmation, undefined when they cancelled or pressed
+ * the field's value, true for a confirmation, undefined when they canceled or pressed
  * Escape. The caller's MatDialog is passed in, so this works from an event handler.
  */
 export function askInDialog(dialog: MatDialog, data: ActionDialogData): Promise<ActionDialogAnswer> {

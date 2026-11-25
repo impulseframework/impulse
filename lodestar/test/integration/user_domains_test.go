@@ -81,19 +81,19 @@ func TestUserDomainsNames(t *testing.T) {
 
 // unmarshalDomains reads the user-domains answer, each tenant listed with its domain and
 // its name, into the domains of the tenants the session reaches, in the order listed. A
-// tenant the answer marks closed to the session is left out: the person holds a seat in
-// it, and the session cannot enter it (closedDomains reads those).
+// tenant the answer marks unavailable to the session is left out: the person holds a seat
+// in it, and the session cannot enter it (unavailableDomains reads those).
 func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 	var listed []struct {
-		Domain string `json:"domain"`
-		Closed string `json:"closed"`
+		Domain      string `json:"domain"`
+		Unavailable string `json:"unavailable"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
 		return fmt.Errorf("json.Unmarshal(): %w", err)
 	}
 	out := make([]T, 0, len(listed))
 	for _, entry := range listed {
-		if entry.Closed != "" {
+		if entry.Unavailable != "" {
 			continue
 		}
 		out = append(out, T(entry.Domain))
@@ -103,23 +103,23 @@ func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 	return nil
 }
 
-// closedDomains reads the tenants the user-domains answer marks closed to the session:
-// each tenant's domain with the reason the server gives, a sentence. Empty, never nil,
-// when the answer marks none.
-func closedDomains(body []byte) (map[string]string, error) {
+// unavailableDomains reads the tenants the user-domains answer marks unavailable to the
+// session: each tenant's domain with the reason the server gives, a sentence. Empty,
+// never nil, when the answer marks none.
+func unavailableDomains(body []byte) (map[string]string, error) {
 	var listed []struct {
-		Domain string `json:"domain"`
-		Closed string `json:"closed"`
+		Domain      string `json:"domain"`
+		Unavailable string `json:"unavailable"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
 		return nil, fmt.Errorf("json.Unmarshal(): %w", err)
 	}
-	closed := map[string]string{}
+	unavailable := map[string]string{}
 	for _, entry := range listed {
-		if entry.Closed != "" {
-			closed[entry.Domain] = entry.Closed
+		if entry.Unavailable != "" {
+			unavailable[entry.Domain] = entry.Unavailable
 		}
 	}
 
-	return closed, nil
+	return unavailable, nil
 }

@@ -13,7 +13,24 @@ import (
 	"github.com/impulseframework/impulse/generation/parser/genlang"
 )
 
+// structsToResources extracts the table-backed resources of one package's structs and
+// runs the resolutions that read more than one of them (resolveAcrossResources).
 func (c *client) structsToResources(structs []*parser.Struct, validators ...structValidator) ([]*resourceInfo, error) {
+	resources, err := c.extractResources(structs, validators...)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.resolveAcrossResources(resources); err != nil {
+		return nil, err
+	}
+
+	return resources, nil
+}
+
+// extractResources extracts the table-backed resources of one package's structs, each
+// resolved alone: the resolutions that read more than one of them are the caller's to run
+// (resolveAcrossResources), once.
+func (c *client) extractResources(structs []*parser.Struct, validators ...structValidator) ([]*resourceInfo, error) {
 	// structsByTable resolves a binding path's remote hops: each hop names Go
 	// fields on the struct backing the table the hop lands on.
 	structsByTable := make(map[string]*parser.Struct, len(structs))
@@ -97,10 +114,6 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 
 	if len(resourceErrors) > 0 {
 		return nil, errors.Wrapf(errors.Join(resourceErrors...), "encountered %d errors converting structs to resources", len(resourceErrors))
-	}
-
-	if err := c.resolveAcrossResources(resources); err != nil {
-		return nil, err
 	}
 
 	return resources, nil

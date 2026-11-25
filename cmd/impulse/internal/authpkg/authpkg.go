@@ -85,8 +85,9 @@ type Spec struct {
 // TenantPolicy is the sign-in rule over the tenant record's declaration: who may enter
 // a tenant, as the record declares it (the directories it admits its people through,
 // and whether they are the only way in). In an application whose tenants have no
-// directories the record declares nothing, the generated reader answers nothing for
-// every tenant, and the rule admits everyone a tenant seats.
+// directories the record declares one thing, whether a tenant is disabled, which the
+// generated reader reads, and the rule admits everyone a tenant that is not disabled
+// seats.
 type TenantPolicy struct {
 	// Record is the tenant record's struct name (Tenant).
 	Record string

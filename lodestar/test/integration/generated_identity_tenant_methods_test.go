@@ -341,8 +341,8 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 // TestGeneratedIdentitySectorRoleMethods holds the methods a sector gives and takes
 // roles through: a role is held in the request's sector and no other, the Marshal hands
 // out and takes away every role but the Marshal's own, a role held in every sector is
-// not the sector's to take, and the last role a person holds anywhere takes the account
-// with it.
+// not the sector's to take, and the last role a person holds anywhere leaves the account
+// standing, holding nothing.
 func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -474,13 +474,16 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 		status, body = remove("marshal", anvil, "eve", "Pilot")
 		assertStatus(t, status, http.StatusForbidden, body)
 	})
-	t.Run("the last role a person holds anywhere takes the account with it", func(t *testing.T) {
+	t.Run("the last role a person holds anywhere leaves the account standing, holding nothing", func(t *testing.T) {
 		status, body := remove("marshal", anvil, "ada", "Cadet")
 		assertStatus(t, status, http.StatusNoContent, body)
-		if crewAccountExists(t, w.db, w.ids["ada"]) {
-			t.Error("ada's account stands with no role anywhere")
+		if !crewAccountExists(t, w.db, w.ids["ada"]) {
+			t.Error("ada's account is gone with her last role, want it kept")
 		}
-		// fay holds a role for the whole application too, so the account stays.
+		if got := crewHeldBy(t, w.db, w.ids["ada"]); len(got) != 0 {
+			t.Errorf("ada holds %v after her last role went, want nothing", got)
+		}
+		// fay holds a role for the whole application too, and the account stays.
 		status, body = remove("marshal", anvil, "fay", "Cadet")
 		assertStatus(t, status, http.StatusNoContent, body)
 		if !crewAccountExists(t, w.db, w.ids["fay"]) {

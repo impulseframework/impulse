@@ -2,7 +2,6 @@ package identity
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +21,6 @@ const (
 	lastAdministratorSays = "You are the last administrator of this sector. Give another person the role before you leave."
 	noAdministratorsSays  = "You cannot leave this sector yourself. Ask one of its administrators to remove you."
 	notInTenantSays       = "You hold no role in that sector."
-	changedSays           = "What you hold changed while this page was open. Look at the list again before you leave."
 	noTenantNamedSays     = "Name the sector to leave."
 )
 
@@ -100,18 +98,12 @@ func listTenants(t *testing.T, m *Manager) []PersonTenant {
 }
 
 // leave has dana leave the tenant as her own request does.
-func leave(t *testing.T, m *Manager, domain accesstypes.Domain, deletesAccount bool) (bool, error) {
+func leave(t *testing.T, m *Manager, domain accesstypes.Domain) error {
 	t.Helper()
 
-	var deleted bool
-	err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		deleted, err = m.LeaveTenant(asCaller(ctx, dana), txn, userID, domain, deletesAccount)
-
-		return err
+	return inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return m.LeaveTenant(asCaller(ctx, dana), txn, userID, domain)
 	})
-
-	return deleted, err
 }
 
 // readCountingStore is the fake store counting the reads a person's tenants are judged
@@ -162,8 +154,8 @@ func (s *readCountingStore) EndedAssignments(ctx context.Context, txn resource.R
 // TestManager_PersonTenants_reads pins what judging a person's tenants costs: the list
 // and the leaving each read what the person holds once, however many tenants they are
 // in, ask who administers a tenant only of a person who may be one of them, by an
-// administrator role of their own in the tenant or a place in one of its groups, and ask
-// the database what has ended only where the account would go with a row held elsewhere.
+// administrator role of their own in the tenant or a place in one of its groups, and never
+// ask the database what has ended.
 func TestManager_PersonTenants_reads(t *testing.T) {
 	t.Parallel()
 
@@ -174,12 +166,10 @@ func TestManager_PersonTenants_reads(t *testing.T) {
 		store.membershipPeriods[danaBetaReader] = accesstypes.Period{End: time.Now().Add(-time.Hour)}
 	}
 	for name, tt := range map[string]struct {
-		held  func(store *fakeStore)
-		leave bool
-		// deletesAccount is what the leaving is sent as told.
-		deletesAccount bool
-		wantSays       string
-		wantReads      map[string]int
+		held      func(store *fakeStore)
+		leave     bool
+		wantSays  string
+		wantReads map[string]int
 	}{
 		"three tenants, no administrator's role in any: the list reads what the person holds once and asks nobody who administers them": {
 			held: func(store *fakeStore) {
@@ -203,15 +193,14 @@ func TestManager_PersonTenants_reads(t *testing.T) {
 			wantSays:  lastAdministratorSays,
 			wantReads: map[string]int{"Memberships": 1, "UserGroups": 1, "UserPeriods": 1, "RoleHolders": 1, "GroupsHolding": 1},
 		},
-		"one tenant, and a role in another that has ended: the list asks the database once what has ended": {
+		"one tenant, and a role in another that has ended: the list asks the database nothing of what has ended": {
 			held:      endedElsewhere,
-			wantReads: map[string]int{"Memberships": 1, "UserGroups": 1, "UserPeriods": 1, "EndedAssignments": 1},
+			wantReads: once,
 		},
-		"one tenant, and a role in another that has ended: the leaving asks the database once what has ended": {
-			held:           endedElsewhere,
-			leave:          true,
-			deletesAccount: true,
-			wantReads:      map[string]int{"Memberships": 1, "UserGroups": 1, "UserPeriods": 1, "EndedAssignments": 1},
+		"one tenant, and a role in another that has ended: the leaving asks the database nothing of what has ended": {
+			held:      endedElsewhere,
+			leave:     true,
+			wantReads: once,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -222,7 +211,7 @@ func TestManager_PersonTenants_reads(t *testing.T) {
 			m, _, _ := leavingManager(t, store, false)
 
 			if tt.leave {
-				if _, err := leave(t, m, "alpha", tt.deletesAccount); err != nil {
+				if err := leave(t, m, "alpha"); err != nil {
 					t.Fatalf("LeaveTenant() error = %v", err)
 				}
 			} else {
@@ -265,7 +254,7 @@ func TestManager_PersonTenants(t *testing.T) {
 				store.groupMembers[memberKey(nightID, userID)] = true
 				store.groupRoles[nightWriter], store.groupRoles[nightReader] = true, true
 			},
-			want: []PersonTenant{{Domain: "alpha", Roles: []string{"Reader", "Writer"}, DeletesAccount: true}},
+			want: []PersonTenant{{Domain: "alpha", Roles: []string{"Reader", "Writer"}}},
 		},
 		"a role held both ways is said once": {
 			held: func(store *fakeStore) {
@@ -273,7 +262,7 @@ func TestManager_PersonTenants(t *testing.T) {
 				store.groupMembers[memberKey(nightID, userID)] = true
 				store.groupRoles[nightReader] = true
 			},
-			want: []PersonTenant{{Domain: "alpha", Roles: []string{"Reader"}, DeletesAccount: true}},
+			want: []PersonTenant{{Domain: "alpha", Roles: []string{"Reader"}}},
 		},
 		"a group's role that has ended is not said, and a place whose group holds nothing now lists the tenant with no role": {
 			held: func(store *fakeStore) {
@@ -281,7 +270,7 @@ func TestManager_PersonTenants(t *testing.T) {
 				store.groupRoles[nightWriter] = true
 				store.rolePeriods[nightWriter] = accesstypes.Period{End: time.Now().Add(-hour)}
 			},
-			want: []PersonTenant{{Domain: "alpha", Roles: []string{}, DeletesAccount: true}},
+			want: []PersonTenant{{Domain: "alpha", Roles: []string{}}},
 		},
 		"a role in every tenant, a role for the whole application and a place in a whole-application group list nothing": {
 			held: func(store *fakeStore) {
@@ -311,7 +300,7 @@ func TestManager_PersonTenants(t *testing.T) {
 				store.memberships[danaAlphaReader] = true
 				store.membershipPeriods[danaAlphaReader] = accesstypes.Period{Start: time.Now().Add(hour)}
 			},
-			want: []PersonTenant{{Domain: "alpha", Roles: []string{"Reader"}, DeletesAccount: true}},
+			want: []PersonTenant{{Domain: "alpha", Roles: []string{"Reader"}}},
 		},
 		"nothing held: an empty list": {
 			held: func(*fakeStore) {},
@@ -357,12 +346,8 @@ func TestManager_LeaveTenant_rows(t *testing.T) {
 	store.groupRoles[nightReader], store.groupRoles[staffAlphaRead] = true, true
 	m, engine, mail := leavingManager(t, store, false)
 
-	deleted, err := leave(t, m, "alpha", false)
-	if err != nil {
+	if err := leave(t, m, "alpha"); err != nil {
 		t.Fatalf("LeaveTenant() error = %v", err)
-	}
-	if deleted {
-		t.Error("LeaveTenant() deleted = true, want the account kept by what dana holds elsewhere")
 	}
 	want := []string{
 		"delete membership " + membershipText(&danaAlphaLead),
@@ -435,8 +420,6 @@ func TestManager_LeaveTenant_lastAdministrator(t *testing.T) {
 			t.Parallel()
 
 			store := leavingStore()
-			// A role of the whole application keeps the account, so the act is judged
-			// on the rule alone.
 			store.memberships[danaGlobal] = true
 			tt.held(store)
 			tt.other(store)
@@ -447,7 +430,7 @@ func TestManager_LeaveTenant_lastAdministrator(t *testing.T) {
 			if len(listed) != 1 || listed[0].Refusal != tt.wantSays {
 				t.Errorf("PersonTenants() = %+v, want alpha alone with the refusal %q", listed, tt.wantSays)
 			}
-			_, err := leave(t, m, "alpha", false)
+			err := leave(t, m, "alpha")
 			if tt.wantSays == "" {
 				if err != nil {
 					t.Fatalf("LeaveTenant() error = %v, want the person to leave", err)
@@ -485,214 +468,12 @@ func TestManager_LeaveTenant_noAdministratorRoles(t *testing.T) {
 	if diff := cmp.Diff(want, listTenants(t, m)); diff != "" {
 		t.Errorf("PersonTenants() (-want +got):\n%s", diff)
 	}
-	_, err := leave(t, m, "alpha", false)
+	err := leave(t, m, "alpha")
 	if !httpio.HasForbidden(err) || httpio.Message(err) != noAdministratorsSays {
 		t.Fatalf("LeaveTenant() error = %v, want the refusal %q", err, noAdministratorsSays)
 	}
 	if len(store.writes) != 0 {
 		t.Errorf("buffered writes after the refusal = %v, want none", store.writes)
-	}
-}
-
-// TestManager_LeaveTenant_account pins when the account goes with the leaving: when the
-// person then holds nothing that has not ended, with its sign-in identities and sessions,
-// in the same transaction. Anything held anywhere else that has not ended keeps it, one
-// whose period has not begun among them, and nothing elsewhere is touched; a row that has
-// ended elsewhere keeps nothing and goes with the account. What has ended is the
-// database's to say: a row the server's clock reads as ended and the database's does not
-// keeps the account, and neither it nor any other row elsewhere goes. The list's
-// DeletesAccount says the same in each case, and no notice is mailed either way.
-func TestManager_LeaveTenant_account(t *testing.T) {
-	t.Parallel()
-
-	ended := accesstypes.Period{End: time.Now().Add(-time.Hour)}
-	longEnded := accesstypes.Period{End: time.Now().Add(-3 * time.Hour)}
-	notBegun := accesstypes.Period{Start: time.Now().Add(time.Hour)}
-	// databaseBehind sets the database's clock two hours behind the server's, so a row
-	// that ended an hour ago by the server's clock has not ended by the database's, and one
-	// that ended three hours ago has by both.
-	databaseBehind := func(store *fakeStore) {
-		store.databaseNow = func() time.Time { return time.Now().Add(-2 * time.Hour) }
-	}
-	for name, tt := range map[string]struct {
-		elsewhere   func(store *fakeStore)
-		wantDeleted bool
-		// wantGone are the rows outside the tenant that go with the account.
-		wantGone []string
-	}{
-		"nothing else: the account goes": {
-			elsewhere: func(*fakeStore) {}, wantDeleted: true,
-		},
-		"a role for the whole application keeps it": {
-			elsewhere: func(store *fakeStore) { store.memberships[danaGlobal] = true },
-		},
-		"a role in every tenant keeps it": {
-			elsewhere: func(store *fakeStore) { store.memberships[danaEvery] = true },
-		},
-		"a role in another tenant keeps it": {
-			elsewhere: func(store *fakeStore) { store.memberships[danaBetaReader] = true },
-		},
-		"a place in a whole-application group keeps it": {
-			elsewhere: func(store *fakeStore) { store.groupMembers[memberKey(staffID, userID)] = true },
-		},
-		"a place in another tenant's group keeps it": {
-			elsewhere: func(store *fakeStore) { store.groupMembers[memberKey(dayID, userID)] = true },
-		},
-		"a role in another tenant that has not begun keeps it": {
-			elsewhere: func(store *fakeStore) {
-				store.memberships[danaBetaReader] = true
-				store.membershipPeriods[danaBetaReader] = notBegun
-			},
-		},
-		"a place in another tenant's group that has not begun keeps it": {
-			elsewhere: func(store *fakeStore) {
-				store.groupMembers[memberKey(dayID, userID)] = true
-				store.placePeriods[memberKey(dayID, userID)] = notBegun
-			},
-		},
-		"a role in another tenant that has ended goes with the account": {
-			elsewhere: func(store *fakeStore) {
-				store.memberships[danaBetaReader] = true
-				store.membershipPeriods[danaBetaReader] = ended
-			},
-			wantDeleted: true,
-			wantGone:    []string{"delete membership " + membershipText(&danaBetaReader)},
-		},
-		"a role for the whole application that has ended goes with the account": {
-			elsewhere: func(store *fakeStore) {
-				store.memberships[danaGlobal] = true
-				store.membershipPeriods[danaGlobal] = ended
-			},
-			wantDeleted: true,
-			wantGone:    []string{"delete membership " + membershipText(&danaGlobal)},
-		},
-		"a place in another tenant's group that has ended goes with the account": {
-			elsewhere: func(store *fakeStore) {
-				store.groupMembers[memberKey(dayID, userID)] = true
-				store.placePeriods[memberKey(dayID, userID)] = ended
-			},
-			wantDeleted: true,
-			wantGone:    []string{"delete group member " + dayID.String() + " " + string(dana)},
-		},
-		"a place in a whole-application group that has ended goes with the account": {
-			elsewhere: func(store *fakeStore) {
-				store.groupMembers[memberKey(staffID, userID)] = true
-				store.placePeriods[memberKey(staffID, userID)] = ended
-			},
-			wantDeleted: true,
-			wantGone:    []string{"delete group member " + staffID.String() + " " + string(dana)},
-		},
-		"a role in another tenant ended by the server's clock and not the database's keeps it": {
-			elsewhere: func(store *fakeStore) {
-				store.memberships[danaBetaReader] = true
-				store.membershipPeriods[danaBetaReader] = ended
-				databaseBehind(store)
-			},
-		},
-		"a place in another tenant's group ended by the server's clock and not the database's keeps it": {
-			elsewhere: func(store *fakeStore) {
-				store.groupMembers[memberKey(dayID, userID)] = true
-				store.placePeriods[memberKey(dayID, userID)] = ended
-				databaseBehind(store)
-			},
-		},
-		"two roles elsewhere ended by the server's clock, one of them by the database's: it keeps the account, and neither goes": {
-			elsewhere: func(store *fakeStore) {
-				store.memberships[danaBetaReader], store.memberships[danaGlobal] = true, true
-				store.membershipPeriods[danaBetaReader] = ended
-				store.membershipPeriods[danaGlobal] = longEnded
-				databaseBehind(store)
-			},
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			store := leavingStore()
-			store.memberships[danaAlphaReader] = true
-			tt.elsewhere(store)
-			m, engine, mail := leavingManager(t, store, false)
-
-			listed := listTenants(t, m)
-			if len(listed) == 0 || listed[0].Domain != "alpha" || listed[0].DeletesAccount != tt.wantDeleted {
-				t.Errorf("PersonTenants() = %+v, want alpha first with DeletesAccount %v", listed, tt.wantDeleted)
-			}
-			deleted, err := leave(t, m, "alpha", tt.wantDeleted)
-			if err != nil {
-				t.Fatalf("LeaveTenant() error = %v", err)
-			}
-			if deleted != tt.wantDeleted {
-				t.Errorf("LeaveTenant() deleted = %v, want %v", deleted, tt.wantDeleted)
-			}
-			want := []string{"delete membership " + membershipText(&danaAlphaReader)}
-			if tt.wantDeleted {
-				want = append([]string{
-					"end session " + danaSession.String(),
-					"delete identity " + identityA.String(),
-					"delete user " + userID.String(),
-					"delete membership " + membershipText(&danaAlphaReader),
-				}, tt.wantGone...)
-			}
-			if diff := cmp.Diff(want, store.writes); diff != "" {
-				t.Errorf("buffered writes (-want +got):\n%s", diff)
-			}
-			if engine.changed != 1 {
-				t.Errorf("the engine was told the policy changed %d time(s), want once", engine.changed)
-			}
-			if len(mail.asked)+len(mail.sent) != 0 {
-				t.Errorf("mailed %v and asked for %v, want nothing", mail.sent, mail.asked)
-			}
-		})
-	}
-}
-
-// TestManager_LeaveTenant_toldOtherwise pins that a leaving does what the list told the
-// person or nothing: a request that says the account stays where it would go, or goes
-// where it would stay, is refused as a Conflict and writes nothing.
-func TestManager_LeaveTenant_toldOtherwise(t *testing.T) {
-	t.Parallel()
-
-	for name, tt := range map[string]struct {
-		held []access.MembershipKey
-		// ended are the rows of held whose period has ended since the page was drawn.
-		ended []access.MembershipKey
-		// databaseBehind sets the database's clock two hours behind the server's, so what
-		// ended an hour ago by the server's clock has not ended by the database's.
-		databaseBehind bool
-		deletesAccount bool
-	}{
-		"told the account stays, where it would go":  {held: []access.MembershipKey{danaAlphaReader}, deletesAccount: false},
-		"told the account goes, where it would stay": {held: []access.MembershipKey{danaAlphaReader, danaBetaReader}, deletesAccount: true},
-		"told the account stays, where the role in the other tenant has since ended": {
-			held: []access.MembershipKey{danaAlphaReader, danaBetaReader}, ended: []access.MembershipKey{danaBetaReader}, deletesAccount: false,
-		},
-		"told the account goes, where the database does not say the role in the other tenant has ended": {
-			held: []access.MembershipKey{danaAlphaReader, danaBetaReader}, ended: []access.MembershipKey{danaBetaReader}, databaseBehind: true, deletesAccount: true,
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			store := leavingStore()
-			for _, key := range tt.held {
-				store.memberships[key] = true
-			}
-			for _, key := range tt.ended {
-				store.membershipPeriods[key] = accesstypes.Period{End: time.Now().Add(-time.Hour)}
-			}
-			if tt.databaseBehind {
-				store.databaseNow = func() time.Time { return time.Now().Add(-2 * time.Hour) }
-			}
-			m, engine, _ := leavingManager(t, store, false)
-
-			_, err := leave(t, m, "alpha", tt.deletesAccount)
-			if !httpio.HasConflict(err) || httpio.Message(err) != changedSays {
-				t.Fatalf("LeaveTenant() error = %v, want the refusal %q", err, changedSays)
-			}
-			if len(store.writes) != 0 || engine.changed != 0 {
-				t.Errorf("buffered writes = %v and the engine told %d time(s), want nothing", store.writes, engine.changed)
-			}
-		})
 	}
 }
 
@@ -724,7 +505,7 @@ func TestManager_LeaveTenant_notIn(t *testing.T) {
 			store.membershipPeriods[ended] = accesstypes.Period{End: time.Now().Add(-time.Hour)}
 			m, engine, _ := leavingManager(t, store, false)
 
-			_, err := leave(t, m, tt.domain, false)
+			err := leave(t, m, tt.domain)
 			if err == nil || !tt.wantErr(err) || httpio.Message(err) != tt.wantSays {
 				t.Fatalf("LeaveTenant() error = %v, want the refusal %q", err, tt.wantSays)
 			}
@@ -764,9 +545,7 @@ func TestManager_LeaveTenant_impersonator(t *testing.T) {
 			m, _, _ := leavingManager(t, store, false)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				_, err := m.LeaveTenant(session(ctx), txn, userID, "alpha", false)
-
-				return err
+				return m.LeaveTenant(session(ctx), txn, userID, "alpha")
 			})
 			want := actingAsSomeoneElse + "leave a sector."
 			if !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), want) {
@@ -799,10 +578,10 @@ func TestManager_OwnTenants(t *testing.T) {
 		if err != nil {
 			t.Fatalf("List() error = %v", err)
 		}
-		if len(want) != 1 || want[0].Refusal != lastAdministratorSays || !want[0].DeletesAccount || len(want[0].Roles) == 0 {
-			t.Fatalf("the fixture's list = %+v, want alpha alone, refused to its last administrator, leaving it deleting the account", want)
+		if len(want) != 1 || want[0].Refusal != lastAdministratorSays || len(want[0].Roles) == 0 {
+			t.Fatalf("the fixture's list = %+v, want alpha alone, refused to its last administrator", want)
 		}
-		if diff := cmp.Diff([]session.OwnTenant{{Domain: "alpha", Roles: want[0].Roles, Refusal: lastAdministratorSays, DeletesAccount: true}}, got); diff != "" {
+		if diff := cmp.Diff([]session.OwnTenant{{Domain: "alpha", Roles: want[0].Roles, Refusal: lastAdministratorSays}}, got); diff != "" {
 			t.Errorf("List() mismatch (-want +got):\n%s", diff)
 		}
 		if client.opened != 1 || len(store.writes) != 0 {
@@ -811,12 +590,10 @@ func TestManager_OwnTenants(t *testing.T) {
 	})
 
 	for name, tt := range map[string]struct {
-		held        []access.MembershipKey
-		deletes     bool
-		wantDeleted bool
+		held []access.MembershipKey
 	}{
-		"Leave takes the person out of the tenant and keeps the account":        {held: []access.MembershipKey{danaAlphaReader, danaBetaReader}},
-		"Leave takes the person out of the last tenant and deletes the account": {held: []access.MembershipKey{danaAlphaReader}, deletes: true, wantDeleted: true},
+		"Leave takes the person out of the tenant":                             {held: []access.MembershipKey{danaAlphaReader, danaBetaReader}},
+		"Leave takes the person out of the last tenant, and the account stays": {held: []access.MembershipKey{danaAlphaReader}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -828,12 +605,11 @@ func TestManager_OwnTenants(t *testing.T) {
 			m, engine, _ := leavingManager(t, store, false)
 			client := &countingClient{MockClient: resource.NewMockClient(stubTxn{}, nil, nil)}
 
-			deleted, err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, "alpha", tt.deletes)
-			if err != nil || deleted != tt.wantDeleted {
-				t.Fatalf("Leave() = (%v, %v), want (%v, nil)", deleted, err, tt.wantDeleted)
+			if err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, "alpha"); err != nil {
+				t.Fatalf("Leave() error = %v", err)
 			}
-			if !slices.Contains(store.writes, "delete membership "+membershipText(&danaAlphaReader)) {
-				t.Errorf("Leave() wrote %v, want dana's Reader role in alpha deleted", store.writes)
+			if diff := cmp.Diff([]string{"delete membership " + membershipText(&danaAlphaReader)}, store.writes); diff != "" {
+				t.Errorf("Leave() wrote (-want +got):\n%s", diff)
 			}
 			if client.opened != 1 || engine.changed != 1 {
 				t.Errorf("Leave() opened %d transaction(s) and told the engine %d time(s), want one of each", client.opened, engine.changed)
@@ -844,7 +620,6 @@ func TestManager_OwnTenants(t *testing.T) {
 	for name, tt := range map[string]struct {
 		held     []access.MembershipKey
 		domain   accesstypes.Domain
-		deletes  bool
 		wantErr  func(error) bool
 		wantSays string
 	}{
@@ -852,10 +627,7 @@ func TestManager_OwnTenants(t *testing.T) {
 			held: []access.MembershipKey{danaAlphaWarden, danaGlobal}, domain: "alpha", wantErr: httpio.HasForbidden, wantSays: lastAdministratorSays,
 		},
 		"a tenant the person holds nothing in: Not Found": {
-			held: []access.MembershipKey{danaAlphaReader}, domain: "beta", deletes: true, wantErr: httpio.HasNotFound, wantSays: notInTenantSays,
-		},
-		"an account the page said stays: Conflict": {
-			held: []access.MembershipKey{danaAlphaReader}, domain: "alpha", wantErr: httpio.HasConflict, wantSays: changedSays,
+			held: []access.MembershipKey{danaAlphaReader}, domain: "beta", wantErr: httpio.HasNotFound, wantSays: notInTenantSays,
 		},
 		"no tenant named: Bad Request": {
 			held: []access.MembershipKey{danaAlphaReader}, domain: "", wantErr: httpio.HasBadRequest, wantSays: noTenantNamedSays,
@@ -871,7 +643,7 @@ func TestManager_OwnTenants(t *testing.T) {
 			m, engine, _ := leavingManager(t, store, false)
 			client := &countingClient{MockClient: resource.NewMockClient(stubTxn{}, nil, nil)}
 
-			_, err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, tt.domain, tt.deletes)
+			err := m.OwnTenants(managedAuth, client).Leave(asCaller(t.Context(), dana), userID, tt.domain)
 			if err == nil || !tt.wantErr(err) || httpio.Message(err) != tt.wantSays || !strings.Contains(err.Error(), managedAuth+": ") {
 				t.Fatalf("Leave() error = %v, want the refusal %q under the auth's name", err, tt.wantSays)
 			}

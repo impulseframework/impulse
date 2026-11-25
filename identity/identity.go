@@ -70,12 +70,17 @@ type Store interface {
 	Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]Link, error)
 	// ManagingTenants lists the tenants whose own list of their people says they manage
 	// the user's account (managedHere on the user's row of the tenant's list), as the
-	// transaction reads it. A removal that would leave a person holding nothing asks it:
-	// an account another tenant manages is not deleted with what one tenant takes. A
-	// schema with no tenant record, a tenant record that declares no directory and an
-	// auth that keeps no identities answer none, since there no tenant manages an
-	// account that holds nothing in it.
+	// transaction reads it. A tenant's delete asks it of each account it considers: an
+	// account another tenant manages is not deleted with the tenant. A schema with no
+	// tenant record, a tenant record that declares no directory and an auth that keeps
+	// no identities answer none, since there no tenant manages an account that holds
+	// nothing in it.
 	ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error)
+	// DirectoryUsers lists the accounts one tenant's directory manages, read from the
+	// view ManagingTenants reads (managedHere on the user's row of the tenant's list), as
+	// the transaction reads it. A tenant's delete takes the ones that hold nothing
+	// elsewhere. Where ManagingTenants answers none it answers none.
+	DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
 	// DeleteIdentity buffers the removal of an identity.
 	DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 
@@ -110,6 +115,14 @@ type Store interface {
 	ConfirmedEmail(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (email string, found bool, err error)
 	// DeleteUser buffers the removal of a user row.
 	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// RowsWithUser counts what the database's own rules add to the delete of the user's
+	// row, in mutations: each row of each table that hangs on the user by a foreign key
+	// declared ON DELETE CASCADE, and that table's index entries for it, read in the
+	// transaction.
+	RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error)
+	// DeleteCosts answers what the delete of one row of each of the auth's tables costs
+	// in a commit, as the schema read at generation tells it (TenantDeleteCosts).
+	DeleteCosts() TenantDeleteCosts
 
 	// LiveSessions lists the sessions of the user that have not ended.
 	LiveSessions(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
@@ -156,9 +169,14 @@ type Store interface {
 	// the rows of the memberships table under the tenant's own scope. A membership
 	// held in every tenant is no row of one tenant and is not listed.
 	TenantMemberships(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.MembershipKey, error)
-	// DeleteTenantRoles buffers the removal of every custom role made in one tenant
-	// with its grants: the rows of the roles table and of the grants table under the
-	// tenant's own scope. It answers how many roles go.
+	// TenantRoles counts the custom roles made in one tenant: the rows of the roles
+	// table under the tenant's own scope, as the transaction reads them.
+	TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error)
+	// DeleteTenantRoles buffers the removal of every custom role made in one tenant:
+	// the rows of the roles table under the tenant's own scope. Each role's grants go
+	// with it by the database's rule, the grants table being interleaved in the roles
+	// table ON DELETE CASCADE, as the permission engine's own delete of a role takes
+	// them. It answers how many roles go.
 	DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (roles int, err error)
 
 	// InsertInvitation buffers the mail links row of a prepared invitation, as the
@@ -284,10 +302,6 @@ type SessionAPI interface {
 	// NoticeFactorReset tells the user, at the address they confirmed, that an
 	// administrator reset their second factor (session.AuthAPI.NoticeFactorReset).
 	NoticeFactorReset(ctx context.Context, userID impulse.UUID) error
-	// NoticeRemovedFromTenant tells a person, at the confirmed address read before the
-	// removal, that an administrator removed them from the tenant, and says so when
-	// their account went with it (session.AuthAPI.NoticeRemovedFromTenant).
-	NoticeRemovedFromTenant(ctx context.Context, to, tenant string, accountDeleted bool) error
 }
 
 // Link is one identity linked to a user, as the rules read it: its id, and the sign-in

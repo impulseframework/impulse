@@ -89,19 +89,39 @@ func (r *tenantRoles) onlyIn(user accesstypes.User, tenant accesstypes.Domain) b
 	return len(r.held[user][own]) > 0
 }
 
-// seat grants each seat as a membership in its tenant, held by the user's account, and
-// records what was granted under the name the scenarios read.
+// seat grants each seat as a membership in its tenant, held by the user's account,
+// where the account holds nothing in the tenant yet, as an application's hook gives a
+// seat it is handed at every sign-in through the directory, and records what was
+// granted under the name the scenarios read.
 func (r *tenantRoles) seat(userID impulse.UUID, username string, seats []signin.DirectorySeat) {
+	user := accesstypes.User(userID.String())
 	for _, s := range seats {
-		r.grant(accesstypes.User(userID.String()), accesstypes.DomainPolicyScope(s.Tenant), s.Role)
+		scope := accesstypes.DomainPolicyScope(s.Tenant)
+		if r.holdsIn(user, scope) {
+			continue
+		}
+		r.grant(user, scope, s.Role)
+		r.record(username, s)
 	}
+}
+
+// holdsIn reports whether user holds a role in scope.
+func (r *tenantRoles) holdsIn(user accesstypes.User, scope accesstypes.PolicyScope) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return len(r.held[user][scope]) > 0
+}
+
+// record records that the hook granted username seat.
+func (r *tenantRoles) record(username string, seat signin.DirectorySeat) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.seated == nil {
 		r.seated = make(map[string][]signin.DirectorySeat)
 	}
-	r.seated[username] = append(r.seated[username], seats...)
+	r.seated[username] = append(r.seated[username], seat)
 }
 
 // seatsOf reads the seats the hook granted username, nil for none.
@@ -382,7 +402,8 @@ func seamDirectoryDefaultSeat[Tx any](ctx context.Context, t *testing.T, be back
 		t.Errorf("seats granted to the Entra stranger = %v, want %v", got, want)
 	}
 
-	// A second sign-in finds the link and seats nothing more.
+	// A second sign-in finds the link and hands the hook the seat again, which gives
+	// nothing more: the person holds it.
 	again := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, again, googleClaims("sub-pat", "pat@lakeside.edu")), "/home", url.Values{})
 	if got := a.roles.seatsOf("pat@lakeside.edu"); !slices.Equal(got, want) {

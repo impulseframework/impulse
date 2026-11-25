@@ -1,12 +1,14 @@
 package drivertest
 
-// The declaration of a directory at a person's first sign-in through it, on both
-// drivers: a declared directory belongs to its tenant, whose declaration decides a
-// stranger before the registration's standard rule (signinflow's declaredRule), a
-// default seat admitting and seating the person, in the transaction that provisions
-// them, and none refusing them by invitation only; and a person who has an account is
-// given the default seat in the transaction that links them, at once or once their
-// password has confirmed the link, and nothing at any later sign-in.
+// The declaration of a directory at a person's sign-in through it, on both drivers: a
+// declared directory belongs to its tenant, whose declaration decides a stranger before
+// the registration's standard rule (signinflow's declaredRule), a default seat admitting
+// and seating the person, in the transaction that provisions them, and none refusing
+// them by invitation only; a person who has an account is handed to the seat hook in
+// the transaction that links them, at once or once their password has confirmed the
+// link; and every later sign-in through the directory by an account that is not
+// disabled hands the hook the default seat again, the hook alone deciding whether the
+// person holds anything in the tenant.
 
 import (
 	"context"
@@ -203,16 +205,23 @@ func testDirectorySeatAtFirstLink(ctx context.Context, t *testing.T, h *AuthHarn
 	}
 	assertRecorded(ctx, t, h, in.Raw, "seated:"+name, "lakeside=Member")
 
-	// The second sign-in finds the link and seats nothing: the hook is not called.
-	again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
-	if err := signInRequest(ctx, in, again); err != nil {
-		t.Fatalf("second sign-in error = %v", err)
-	}
-	if again.User == nil || again.User.Source != sessioninfo.UserExistingLink {
-		t.Errorf("second sign-in user = %+v, want the existing link", again.User)
-	}
-	if got := rec.times(name); got != 1 {
-		t.Errorf("the seat hook gave seats %d time(s), want once for the link", got)
+	// The second sign-in and the third find the link, and each hands the hook
+	// Lakeside's default seat again: the hook alone reads whether Pat holds anything in
+	// the tenant.
+	for n, ordinal := range []string{"second", "third"} {
+		again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
+		if err := signInRequest(ctx, in, again); err != nil {
+			t.Fatalf("%s sign-in error = %v", ordinal, err)
+		}
+		if again.User == nil || again.User.Source != sessioninfo.UserExistingLink {
+			t.Errorf("%s sign-in user = %+v, want the existing link", ordinal, again.User)
+		}
+		if got, wantTimes := rec.times(name), n+2; got != wantTimes {
+			t.Errorf("the seat hook was called %d time(s) after the %s sign-in, want %d: once at every sign-in", got, ordinal, wantTimes)
+		}
+		if diff := cmp.Diff(slices.Repeat(want, n+2), rec.of(name)); diff != "" {
+			t.Errorf("seats handed to the hook by the %s sign-in (-want +got):\n%s", ordinal, diff)
+		}
 	}
 
 	// A personal account is no directory: nothing is read for it (declaringOnly fails
@@ -267,21 +276,24 @@ func testDirectorySeatAtConfirmedLink(ctx context.Context, t *testing.T, h *Auth
 	}
 	assertRecorded(ctx, t, h, in.Raw, "seated:"+name, "lakeside=Member")
 
-	// An administrator removes the seat. Kim signs in again: the link is found, and
-	// signing in does not give the seat back.
-	rec.remove(name)
-	req, err := signInAs()
-	if err != nil {
-		t.Fatalf("sign-in through the link error = %v", err)
-	}
-	if req.User == nil || req.User.Source != sessioninfo.UserExistingLink {
-		t.Errorf("sign-in user = %+v, want the existing link", req.User)
-	}
-	if seats := rec.of(name); seats != nil {
-		t.Errorf("seats after the sign-in that followed the removal = %v, want none: a removed seat is not given back", seats)
-	}
-	if got := rec.times(name); got != 1 {
-		t.Errorf("the seat hook gave seats %d time(s), want once for the link", got)
+	// An administrator removes the seat. Kim signs in again, twice: each sign-in finds
+	// the link and hands the hook the default seat again, so the removed seat is given
+	// back.
+	for n, ordinal := range []string{"second", "third"} {
+		rec.remove(name)
+		req, err := signInAs()
+		if err != nil {
+			t.Fatalf("%s sign-in through the link error = %v", ordinal, err)
+		}
+		if req.User == nil || req.User.Source != sessioninfo.UserExistingLink {
+			t.Errorf("%s sign-in user = %+v, want the existing link", ordinal, req.User)
+		}
+		if diff := cmp.Diff(want, rec.of(name)); diff != "" {
+			t.Errorf("seats after the %s sign-in that followed the removal (-want +got):\n%s", ordinal, diff)
+		}
+		if got, wantTimes := rec.times(name), n+2; got != wantTimes {
+			t.Errorf("the seat hook was called %d time(s) after the %s sign-in, want %d: once at every sign-in", got, ordinal, wantTimes)
+		}
 	}
 
 	// The link is deleted. The next sign-in through the directory is a first one
@@ -295,22 +307,136 @@ func testDirectorySeatAtConfirmedLink(ctx context.Context, t *testing.T, h *Auth
 	}
 	_, err = signInAs()
 	assertConfirmationPending(ctx, t, in.Driver, err, identity, kim, "tenant-1")
+	rec.remove(name)
 	if err := in.LinkConfirmed(ctx, kim.ID, name, identity, "tenant-1"); err != nil {
 		t.Fatalf("LinkConfirmed() after the link was deleted error = %v", err)
 	}
 	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
 		t.Errorf("seats granted once the link is made again (-want +got):\n%s", diff)
 	}
-	if got := rec.times(name); got != 2 {
-		t.Errorf("the seat hook gave seats %d time(s), want twice: once for each link", got)
+	if got := rec.times(name); got != 4 {
+		t.Errorf("the seat hook was called %d time(s), want four: once for each link and once at each sign-in through one", got)
 	}
 
 	// An identity that is linked already is a Conflict, and gives nothing more.
 	if err := in.LinkConfirmed(ctx, kim.ID, name, identity, "tenant-1"); !httpio.HasConflict(err) {
 		t.Errorf("LinkConfirmed() of a linked identity error = %v, want a Conflict", err)
 	}
-	if got := rec.times(name); got != 2 {
-		t.Errorf("the seat hook gave seats %d time(s) after the refused link, want twice still", got)
+	if got := rec.times(name); got != 4 {
+		t.Errorf("the seat hook was called %d time(s) after the refused link, want four still", got)
+	}
+}
+
+func testDirectorySeatNotForDisabledLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open,
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
+	})
+
+	// Gus's identity is linked through Lakeside's directory, and his account is
+	// disabled: his sign-in is refused as before, and the hook is not called.
+	const name = "gus@lakeside.edu"
+	gus := createUser(ctx, t, in.Driver, name)
+	identity := entra("oid-gus", name)
+	mustLink(ctx, t, in.Driver, gus.ID, identity)
+	if err := in.Driver.DeactivateUser(ctx, gus.ID); err != nil {
+		t.Fatalf("DeactivateUser() error = %v", err)
+	}
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-gus", name)}
+	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled)
+	if got := rec.times(name); got != 0 {
+		t.Errorf("the seat hook was called %d time(s) for a disabled account, want never", got)
+	}
+	if value, found := h.Recorded(ctx, t, in.Raw, "seated:"+name); found {
+		t.Errorf("HookRecords[seated:%s] = %q after a disabled account's sign-in, want nothing", name, value)
+	}
+}
+
+func testDirectorySeatNotForDisabledFirstLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open,
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook, OnlyIn: rec.onlyIn},
+	})
+
+	// Gus's account was created ahead in Lakeside, with no password, so the sign-in
+	// through Lakeside's directory links his identity for the first time; his account is
+	// disabled. The link is written and the sign-in refused, as before, and the
+	// directory's default seat is not handed to the hook.
+	const name = "gus@lakeside.edu"
+	gus := createUser(ctx, t, in.Driver, name)
+	rec.roleAhead(gus.ID, "lakeside")
+	if err := in.Driver.DeactivateUser(ctx, gus.ID); err != nil {
+		t.Fatalf("DeactivateUser() error = %v", err)
+	}
+	identity := entra("oid-gus", name)
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
+	assertRefused(t, signInRequest(ctx, in, req), sessioninfo.RefusedUserDisabled, signin.ErrUserDisabled)
+	assertLinkedTo(ctx, t, in.Driver, identity, gus.ID, "tenant-1")
+	if got := rec.times(name); got != 0 {
+		t.Errorf("the seat hook was called %d time(s) for a disabled account at the sign-in that linked it, want never", got)
+	}
+	if value, found := h.Recorded(ctx, t, in.Raw, "seated:"+name); found {
+		t.Errorf("HookRecords[seated:%s] = %q after a disabled account's first sign-in through the directory, want nothing", name, value)
+	}
+}
+
+func testDirectorySeatNotForDisabledConfirmedLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open,
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
+	})
+
+	// Kim's account has a password and is disabled. The link her password confirms is
+	// made, as before, and the directory's default seat is not handed to the hook.
+	const name = "kim@lakeside.edu"
+	kim := passwordUser(ctx, t, in.Driver, name)
+	if err := in.Driver.DeactivateUser(ctx, kim.ID); err != nil {
+		t.Fatalf("DeactivateUser() error = %v", err)
+	}
+	identity := entra("oid-kim", name)
+	if err := in.LinkConfirmed(ctx, kim.ID, name, identity, "tenant-1"); err != nil {
+		t.Fatalf("LinkConfirmed() error = %v", err)
+	}
+	assertLinkedTo(ctx, t, in.Driver, identity, kim.ID, "tenant-1")
+	if got := rec.times(name); got != 0 {
+		t.Errorf("the seat hook was called %d time(s) for a disabled account's confirmed link, want never", got)
+	}
+	if value, found := h.Recorded(ctx, t, in.Raw, "seated:"+name); found {
+		t.Errorf("HookRecords[seated:%s] = %q after a disabled account's confirmed link, want nothing", name, value)
+	}
+}
+
+func testDirectorySeatBeyondInvitationAtLink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	rec := newSeatings()
+	acc := newAcceptances()
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: Open, Accept: acc.hook,
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
+	})
+
+	// Ada's identity is linked through Lakeside's directory. She follows an invitation
+	// into Lakeside that names its default role, Member: the invitation gives it, and
+	// the hook is not handed the same seat in the same transaction.
+	const name = "ada@lakeside.edu"
+	ada := createUser(ctx, t, in.Driver, name)
+	mustLink(ctx, t, in.Driver, ada.ID, entra("oid-ada", name))
+	invitation := insertInvitation(ctx, t, in.Driver, name, "lakeside", []string{"Member"}, tokenHash(1))
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-ada", name), Invitation: invitationOf(invitation)}
+	if err := signInRequest(ctx, in, req); err != nil {
+		t.Fatalf("sign-in with the invitation error = %v", err)
+	}
+	if req.User == nil || req.User.Source != sessioninfo.UserExistingLink {
+		t.Errorf("sign-in user = %+v, want the existing link", req.User)
+	}
+	if !req.Invitation.Accepted {
+		t.Error("Invitation.Accepted = false after the sign-in that carried it, want accepted")
+	}
+	assertAccepted(t, acc, "accepted:"+name, ada.ID.String()+" "+name+" lakeside Member")
+	if got := rec.times(name); got != 0 {
+		t.Errorf("the seat hook was called %d time(s) with the seat the invitation gives, want never", got)
 	}
 }
 
@@ -577,13 +703,14 @@ func testDirectoryDefaultSeat(ctx context.Context, t *testing.T, h *AuthHarness)
 	}
 	assertRecorded(ctx, t, h, in.Raw, "seated:"+name, "lakeside=Member")
 
-	// A second sign-in finds the link and seats nothing more.
+	// A second sign-in finds the link and hands the hook the default seat again, which
+	// alone reads whether the person holds anything in the tenant.
 	again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
 	if err := signInRequest(ctx, in, again); err != nil {
 		t.Fatalf("second sign-in error = %v", err)
 	}
-	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
-		t.Errorf("seats granted after the second sign-in (-want +got):\n%s", diff)
+	if diff := cmp.Diff(slices.Repeat(want, 2), rec.of(name)); diff != "" {
+		t.Errorf("seats handed to the hook by the two sign-ins (-want +got):\n%s", diff)
 	}
 }
 
@@ -616,6 +743,19 @@ func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarne
 	assertNewlyLinked(ctx, t, in.Driver, signInRequest(ctx, in, kimReq), kimReq, kimIdentity, kim, "tenant-1")
 	if seats := rec.of("kim@lakeside.edu"); seats != nil {
 		t.Errorf("seats granted to the user created ahead = %v, want none", seats)
+	}
+
+	// Kim signs in again through the link: the tenant names no default seat, so the
+	// hook is not called.
+	kimAgain := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "kim@lakeside.edu", Identity: entra("oid-kim", "kim@lakeside.edu")}
+	if err := signInRequest(ctx, in, kimAgain); err != nil {
+		t.Fatalf("Kim's sign-in through the link error = %v", err)
+	}
+	if kimAgain.User == nil || kimAgain.User.Source != sessioninfo.UserExistingLink {
+		t.Errorf("Kim's sign-in user = %+v, want the existing link", kimAgain.User)
+	}
+	if got := rec.times("kim@lakeside.edu"); got != 0 {
+		t.Errorf("the seat hook was called %d time(s) for a linked identity whose tenant names no default seat, want never", got)
 	}
 
 	// An invitation is the way past: the stranger who carries one is provisioned, the

@@ -11,11 +11,12 @@ INSERT INTO Sectors (Id, Name, Region, Established, ChartedAt) VALUES ('c3333333
 -- A sector has one directory and a directory belongs to one sector. The fleet's Google
 -- Workspace, named example by both auths' registrations (APP_CREW_OIDC_CONNECTION,
 -- APP_MEMBERS_OIDC_CONNECTION), is Cinder's: the frontier short of hands gives a fleet
--- member the SectorCrew role at their first sign-in through it. Bastion's is the persona
--- provider of the test environments (the crew auth's persona registration: an OpenID
--- Connect provider, whose identities carry the connection persona), so a sector that is
--- directory only has the directory it is only of; its row names no default seat, so
--- Bastion seats nobody a marshal did not. Anvil has no directory. In a deployment nobody
--- writes these rows by hand: a directory is set from a sign-in through it.
+-- member who holds nothing in Cinder the SectorCrew role when they sign in through it.
+-- Bastion's is the persona provider of the test environments (the crew auth's persona
+-- registration: an OpenID Connect provider, whose identities carry the connection
+-- persona), so a sector that is directory only has the directory it is only of; its row
+-- names no default seat, so Bastion seats nobody a marshal did not. Anvil has no
+-- directory. In a deployment nobody writes these rows by hand: a directory is set from a
+-- sign-in through it.
 INSERT INTO SectorDirectories (Id, SectorId, Method, Connection) VALUES ('e0000000-0000-4000-8000-000000000002', 'b2222222-2222-4222-8222-222222222222', 'oidc', 'persona');
 INSERT INTO SectorDirectories (Id, SectorId, Method, Connection, DefaultSeat) VALUES ('e0000000-0000-4000-8000-000000000003', 'c3333333-3333-4333-8333-333333333333', 'google', 'example', 'SectorCrew');

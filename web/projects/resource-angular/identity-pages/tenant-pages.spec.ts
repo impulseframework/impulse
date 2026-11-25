@@ -8,7 +8,7 @@ import {
   Resource,
   ResourceMeta,
 } from '@impulseframework/resource';
-import { ClosedPlace, pageDataKey, Place, PlaceService } from '@impulseframework/resource-angular/auth-frame';
+import { pageDataKey, Place, PlaceService, UnavailablePlace } from '@impulseframework/resource-angular/auth-frame';
 import {
   AlertType,
   ColumnConfig,
@@ -204,6 +204,33 @@ describe('tenantsPage and tenantsRoute', () => {
     // The record's own field for when a sector was charted is the list's Since, and no
     // column of its own.
     expect(list(config).listColumns.map((column) => column.id)).not.toContain('chartedAt');
+  });
+
+  it('list and form a field of the record that says a tenant is disabled as any field of its own, which the form changes', () => {
+    const disabled = field('disabled', { displayType: 'boolean' });
+    const disabledMetas: Record<string, ResourceMeta> = {
+      ...metas,
+      [sectors]: { ...metas[sectors], fields: [...metas[sectors].fields, disabled] } as ResourceMeta,
+      [listed]: {
+        ...metas[listed],
+        fields: [...metas[listed].fields.slice(0, 5), disabled, ...metas[listed].fields.slice(5)],
+      } as ResourceMeta,
+    };
+    const built = tenantsConfig(fullDescriptor(), (resource) => disabledMetas[resource], { auth: 'Crew' });
+    expect(shown(list(built).listColumns)).toEqual([
+      ['name', 'Name'],
+      ['region', 'Region'],
+      ['established', 'Established'],
+      ['disabled', 'Disabled'],
+      ['directory', 'Directory'],
+      ['directoryOnly', 'Directory only'],
+      ['people', 'People'],
+      ['since', 'Since'],
+    ]);
+    const formField = formOf(built).children.find((element) => (element as FieldElement).name === 'disabled') as
+      FieldElement | undefined;
+    expect(formField?.label).toBe('Disabled');
+    expect(formField?.readOnly).toBeFalsy();
   });
 
   it('draw no Since where the description names no field for when a tenant was made', () => {
@@ -450,13 +477,13 @@ describe('tenantsPage and tenantsRoute', () => {
     const driftmoor: Place = { id: 'a1', label: 'Driftmoor' };
     // A sector that seats the person and admits only people who sign in through its own
     // directory: closed to this sign-in, with the server's reason.
-    const bastion: ClosedPlace = {
+    const bastion: UnavailablePlace = {
       id: 'c3',
       label: 'Bastion Prime',
       reason: 'The bastion admits only people who sign in through its own directory. You signed in with a password.',
     };
-    const run = (row: RecordData, held: Place[], closed: ClosedPlace[] = []) => {
-      const places = { places: () => held, closed: () => closed, open: vi.fn(() => Promise.resolve(true)) };
+    const run = (row: RecordData, held: Place[], unavailable: UnavailablePlace[] = []) => {
+      const places = { places: () => held, unavailable: () => unavailable, open: vi.fn(() => Promise.resolve(true)) };
       const notices: CreateNotificationMessage[] = [];
       const notifications = {
         addGlobalNotification: (notice: CreateNotificationMessage) => notices.push(notice),

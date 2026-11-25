@@ -534,6 +534,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffTenantGroupRoles",
 			},
 			{
+				Name:        "TakeTenantDirectory",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
 				Name:        "TenantDirectories",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
@@ -1119,6 +1125,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "administrators", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "directory", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "directoryOnly", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "disabled", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "people", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
@@ -1475,6 +1482,7 @@ func Collection() *resource.GeneratedCollection {
 				Tags: []resource.TagData{
 					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "directoryOnly", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "disabled", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "id"},
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 				},

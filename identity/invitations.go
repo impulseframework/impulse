@@ -72,12 +72,11 @@ type SentInvitation struct {
 // holds, and the caller invites again. A transaction that does not commit sends nothing and
 // never calls sent. sent may be nil.
 //
-// An invitation gives a role, at least one: a person an invitation admits holding no
-// role is deleted by the rule on an account nothing admits. An invitation says where
-// its roles go, as a role given by hand does (Scope), and every role must exist there:
-// in the tenant for an invitation into one, in every tenant for one that says so
-// (EveryDomain), and in the global scope for one that names neither, which is an
-// invitation into the whole application. A role that exists only in the tenants is
+// An invitation gives a role, at least one. An invitation says where its roles go, as a
+// role given by hand does (Scope), and every role must exist there: in the tenant for an
+// invitation into one, in every tenant for one that says so (EveryDomain), and in the
+// global scope for one that names neither, which is an invitation into the whole
+// application. A role that exists only in the tenants is
 // refused there with what to choose: nobody is seated in every tenant who was not
 // invited there in so many words. The row keeps the place (the tenant, the mark for
 // every tenant, or neither), and the acceptance gives each role there and nowhere else

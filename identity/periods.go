@@ -365,6 +365,18 @@ func (h *heldRows) standingAt(now time.Time) ([]access.MembershipKey, []GroupPla
 	return own, places
 }
 
+// placingAt answers what of the rows places the person at now, as holds spells it: the
+// memberships of their own that stand, and a key for each group they are in that
+// stands, spelled as a membership held where the group is kept with no role named.
+func (h *heldRows) placingAt(now time.Time) []access.MembershipKey {
+	held, places := h.standingAt(now)
+	for _, place := range places {
+		held = append(held, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(h.userID)})
+	}
+
+	return held
+}
+
 // standing answers what a person holds that has not ended: the memberships of their
 // own and the groups they are in, less the ones whose period is over. An assignment
 // whose period has not begun stands.
@@ -376,27 +388,6 @@ func (m *Manager) standing(ctx context.Context, txn resource.ReadWriteTransactio
 	own, places := held.standingAt(time.Now())
 
 	return own, places, nil
-}
-
-// keeps answers everything that keeps a person's account: every membership of their
-// own and a key for each group they are in, as the tables hold them, whatever their
-// periods. The rule on an account nothing admits reads it: an assignment that has ended
-// counts for nothing and still keeps its account, which goes when nothing at all is left
-// of what was given to it, by an act of somebody's and never by a period ending.
-func (m *Manager) keeps(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {
-	kept, err := m.store.Memberships(ctx, txn, userID)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.Memberships()")
-	}
-	places, err := m.store.UserGroups(ctx, txn, userID)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.UserGroups()")
-	}
-	for _, place := range places {
-		kept = append(kept, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(userID)})
-	}
-
-	return kept, nil
 }
 
 // countingHolders lists who holds the role where the key says it is held and counts as

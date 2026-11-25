@@ -16,12 +16,9 @@ import (
 	"github.com/impulseframework/impulse/session"
 )
 
-// The sentences a person is told about leaving a sector themselves, as the identity
-// package words them for the crew's sectors.
-const (
-	lastMarshalLeaving = "You are the last administrator of this sector. Give another person the role before you leave."
-	leavingChanged     = "What you hold changed while this page was open. Look at the list again before you leave."
-)
+// The sentence a person is told about leaving a sector themselves, as the identity
+// package words it for the crew's sectors.
+const lastMarshalLeaving = "You are the last administrator of this sector. Give another person the role before you leave."
 
 // ownTenantsRoutes are the two routes of a person's own sectors as the methods answer
 // names them for the person's account page.
@@ -40,10 +37,9 @@ type ownTenantsRoutes struct {
 // hers. The marshal, Anvil's only administrator, is told why she cannot leave it before
 // she asks, and is refused in the same words when she does; nothing of hers goes.
 //
-// A person whose one sector is all their account holds is told leaving it deletes the
-// account. Asking to leave it as though it did not is refused, and nothing changes;
-// asking as the page said deletes the account in the same request, with its sign-in
-// identities, and the cookie the person still holds is then answered as nobody's.
+// A person whose one sector is all their account holds leaves it as anyone does, and is
+// told nothing more. The account stays, holding nothing, with its sign-in identities, and
+// the session the person left from stands: their account page lists no sector.
 func TestOwnTenants_aPersonLeavesASector(t *testing.T) {
 	t.Parallel()
 
@@ -67,8 +63,8 @@ func TestOwnTenants_aPersonLeavesASector(t *testing.T) {
 
 	// The hazard analyst's two sectors, by name, each with the roles she holds there.
 	const (
-		anvilCrew  = `{"domain":"` + anvil + `","name":"Anvil","roles":["Hazard analyst","Sector crew"],"deletesAccount":false}`
-		cinderCrew = `{"domain":"` + cinder + `","name":"Cinder","roles":["Hazard analyst","Sector crew"],"deletesAccount":false}`
+		anvilCrew  = `{"domain":"` + anvil + `","name":"Anvil","roles":["Hazard analyst","Sector crew"]}`
+		cinderCrew = `{"domain":"` + cinder + `","name":"Cinder","roles":["Hazard analyst","Sector crew"]}`
 	)
 	if got, want := ownTenantsAnswer(ctx, t, hazards, routes.List), `{"tenants":[`+anvilCrew+`,`+cinderCrew+`]}`; got != want {
 		t.Fatalf("the hazard analyst's sectors = %s, want %s", got, want)
@@ -81,8 +77,8 @@ func TestOwnTenants_aPersonLeavesASector(t *testing.T) {
 	}
 
 	// She leaves Cinder.
-	if got := leaveTenant(ctx, t, hazards, routes.Leave, cinder, false, http.StatusOK); got != `{"accountDeleted":false}` {
-		t.Fatalf("leaving Cinder answered %s, want the account kept", got)
+	if got := leaveTenant(ctx, t, hazards, routes.Leave, cinder, http.StatusOK); got != "" {
+		t.Fatalf("leaving Cinder answered %s, want no body", got)
 	}
 	cadet := newBrowser(t, s, consoleAPI)
 	cadet.signIn(ctx, "cadet")
@@ -112,11 +108,11 @@ func TestOwnTenants_aPersonLeavesASector(t *testing.T) {
 	// Anvil's only marshal is told before she asks, and refused when she does.
 	marshal := newBrowser(t, s, consoleAPI)
 	marshal.signIn(ctx, "marshal")
-	marshalsAnvil := `{"tenants":[{"domain":"` + anvil + `","name":"Anvil","roles":["Sector marshal"],"refusal":"` + lastMarshalLeaving + `","deletesAccount":false}]}`
+	marshalsAnvil := `{"tenants":[{"domain":"` + anvil + `","name":"Anvil","roles":["Sector marshal"],"refusal":"` + lastMarshalLeaving + `"}]}`
 	if got := ownTenantsAnswer(ctx, t, marshal, routes.List); got != marshalsAnvil {
 		t.Errorf("the marshal's sectors = %s, want %s", got, marshalsAnvil)
 	}
-	if got := leaveTenant(ctx, t, marshal, routes.Leave, anvil, false, http.StatusForbidden); !strings.Contains(got, lastMarshalLeaving) {
+	if got := leaveTenant(ctx, t, marshal, routes.Leave, anvil, http.StatusForbidden); !strings.Contains(got, lastMarshalLeaving) {
 		t.Errorf("the marshal leaving Anvil was refused saying %s, want %q", got, lastMarshalLeaving)
 	}
 	if got := ownTenantsAnswer(ctx, t, marshal, routes.List); got != marshalsAnvil {
@@ -138,30 +134,27 @@ func TestOwnTenants_aPersonLeavesASector(t *testing.T) {
 	}
 	lonerBrowser := newBrowser(t, s, consoleAPI)
 	lonerBrowser.signIn(ctx, loner)
-	lonersAnvil := `{"tenants":[{"domain":"` + anvil + `","name":"Anvil","roles":["Sector crew"],"deletesAccount":true}]}`
+	lonersAnvil := `{"tenants":[{"domain":"` + anvil + `","name":"Anvil","roles":["Sector crew"]}]}`
 	if got := ownTenantsAnswer(ctx, t, lonerBrowser, routes.List); got != lonersAnvil {
 		t.Fatalf("the loner's sectors = %s, want %s", got, lonersAnvil)
 	}
-	if got := leaveTenant(ctx, t, lonerBrowser, routes.Leave, anvil, false, http.StatusConflict); !strings.Contains(got, leavingChanged) {
-		t.Errorf("the loner leaving Anvil as though the account stayed was refused saying %s, want %q", got, leavingChanged)
-	}
-	if got := ownTenantsAnswer(ctx, t, lonerBrowser, routes.List); got != lonersAnvil {
-		t.Errorf("the loner's sectors after the refusal = %s, want %s", got, lonersAnvil)
+	if got := leaveTenant(ctx, t, lonerBrowser, routes.Leave, anvil, http.StatusOK); got != "" {
+		t.Fatalf("the loner leaving Anvil answered %s, want no body", got)
 	}
 	if got := rowsWhere(ctx, t, s, "CrewSessionUsers", "Id", lonerID.String()); got != 1 {
-		t.Errorf("the loner's account rows after the refusal = %d, want 1", got)
+		t.Errorf("the loner's account rows after leaving the last sector = %d, want 1", got)
 	}
-	if got := leaveTenant(ctx, t, lonerBrowser, routes.Leave, anvil, true, http.StatusOK); got != `{"accountDeleted":true}` {
-		t.Fatalf("the loner leaving Anvil as the page said answered %s, want the account deleted", got)
+	if got := rowsWhere(ctx, t, s, "CrewSessionIdentities", "UserId", lonerID.String()); got != 1 {
+		t.Errorf("the loner's sign-in identities after leaving the last sector = %d, want 1", got)
 	}
-	if got := rowsWhere(ctx, t, s, "CrewSessionUsers", "Id", lonerID.String()); got != 0 {
-		t.Errorf("the loner's account rows after leaving the last sector = %d, want 0", got)
+	if got := rowsWhere(ctx, t, s, "CrewUserRoles", "UserId", lonerID.String()); got != 0 {
+		t.Errorf("the loner's memberships after leaving the last sector = %d, want 0", got)
 	}
-	if got := rowsWhere(ctx, t, s, "CrewSessionIdentities", "UserId", lonerID.String()); got != 0 {
-		t.Errorf("the loner's sign-in identities after leaving the last sector = %d, want 0", got)
+	if got := lonerBrowser.session(ctx)["authenticated"]; got != true {
+		t.Errorf("the loner's session after leaving the last sector: authenticated = %v, want true", got)
 	}
-	if status, body := lonerBrowser.do(ctx, http.MethodGet, routes.List, nil); status != http.StatusUnauthorized {
-		t.Errorf("the loner's sectors, asked with the cookie of the deleted account: status %d, want 401: %s", status, body)
+	if got := ownTenantsAnswer(ctx, t, lonerBrowser, routes.List); got != `{"tenants":[]}` {
+		t.Errorf("the loner's sectors after leaving the last sector = %s, want none", got)
 	}
 }
 
@@ -176,13 +169,12 @@ func ownTenantsAnswer(ctx context.Context, t *testing.T, b *browser, list string
 	return strings.TrimSpace(string(body))
 }
 
-// leaveTenant asks to leave the sector as the browser's person, saying whether their page
-// told them it deletes their account, fails the test unless the answer has the status
-// wanted, and answers the answer as the server wrote it.
-func leaveTenant(ctx context.Context, t *testing.T, b *browser, leave, sector string, deletesAccount bool, want int) string {
+// leaveTenant asks to leave the sector as the browser's person, fails the test unless the
+// answer has the status wanted, and answers the answer as the server wrote it.
+func leaveTenant(ctx context.Context, t *testing.T, b *browser, leave, sector string, want int) string {
 	t.Helper()
 
-	request, err := json.Marshal(map[string]any{"domain": sector, "deletesAccount": deletesAccount})
+	request, err := json.Marshal(map[string]any{"domain": sector})
 	if err != nil {
 		t.Fatal(err)
 	}

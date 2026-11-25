@@ -131,19 +131,58 @@ func (m *Manager) SignInMethods(ctx context.Context, reader resource.ReadOnlyTra
 	return methods, nil
 }
 
-// AnyMethodOpen reports whether an administrator has some sign-in method of the auth
-// open to sign-up now, for the audience the method has. In an application with tenants
-// it is what lets a person who holds no tenant create one: a person who signed up
-// through an open method, and nobody while every method is invite only. A row of a
-// method the auth no longer registers opens nothing, and neither does one opened for
-// another audience than its registration has now.
-func (m *Manager) AnyMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+// SessionMethodOpen reports whether the sign-in method the session came through is open
+// to sign-up now, for the audience the method has. In an application with tenants it is
+// what lets a person who holds no tenant create one: a person who signed in through an
+// open method, and nobody who came through an invite-only one, whatever other methods
+// are open. The method is read from the session's first sign-in event; a session that
+// records none came through no method and is answered no. Where two registrations of one
+// kind both take the session's connection (one organization's Google Workspace beside
+// any Google account), the session came through either as far as its record says, and
+// one of them open is enough: the same account signs in through the open one.
+func (m *Manager) SessionMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	through := m.sessionRegistrations(ctx)
+	if len(through) == 0 {
+		return false, nil
+	}
 	methods, err := m.SignInMethods(ctx, reader)
 	if err != nil {
 		return false, err
 	}
 
-	return slices.ContainsFunc(methods, func(method SignInMethod) bool { return method.OpenSignUp }), nil
+	return slices.ContainsFunc(methods, func(method SignInMethod) bool {
+		return method.OpenSignUp && slices.Contains(through, method.Name)
+	}), nil
+}
+
+// sessionRegistrations names the registrations the session in ctx came through, by its
+// first sign-in event: each registration of the password method for a password, and
+// for any other method the registrations that take the event's connection
+// (SessionAPI.SignsInThrough). None for a context with no session, a session that
+// records no event, an impersonation, and a method the auth no longer offers.
+func (m *Manager) sessionRegistrations(ctx context.Context) []string {
+	sess, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok {
+		return nil
+	}
+	event, ok := sess.EstablishedBy()
+	if !ok {
+		return nil
+	}
+	if event.Method != sessioninfo.MethodPassword {
+		return m.sessions.SignsInThrough(event.Method, event.Connection)
+	}
+	var names []string
+	for _, method := range m.sessions.SignInMethods() {
+		if method.Method == sessioninfo.MethodPassword {
+			names = append(names, method.Name)
+		}
+	}
+
+	return names
 }
 
 // signInMethod is one registered method with its row, nil for a method that has none.

@@ -245,6 +245,7 @@ export const Methods = {
   OpenSectorToDirectory: 'OpenSectorToDirectory' as Method,
   SetFeature: 'SetFeature' as Method,
   StopVouchingForSectorDirectorySecondFactor: 'StopVouchingForSectorDirectorySecondFactor' as Method,
+  TakeSectorDirectory: 'TakeSectorDirectory' as Method,
   ViewAsUser: 'ViewAsUser' as Method,
   VouchForSectorDirectorySecondFactor: 'VouchForSectorDirectorySecondFactor' as Method,
 };
@@ -699,6 +700,7 @@ export namespace CrewListedSectors {
     administrators: 'administrators' as FieldName,
     directory: 'directory' as FieldName,
     directoryOnly: 'directoryOnly' as FieldName,
+    disabled: 'disabled' as FieldName,
     established: 'established' as FieldName,
     id: 'id' as FieldName,
     name: 'name' as FieldName,
@@ -710,6 +712,7 @@ export namespace CrewListedSectors {
     administrators: 'CrewListedSectors.administrators' as Resource,
     directory: 'CrewListedSectors.directory' as Resource,
     directoryOnly: 'CrewListedSectors.directoryOnly' as Resource,
+    disabled: 'CrewListedSectors.disabled' as Resource,
     established: 'CrewListedSectors.established' as Resource,
     id: 'CrewListedSectors.id' as Resource,
     name: 'CrewListedSectors.name' as Resource,
@@ -2682,6 +2685,7 @@ export namespace Sectors {
   export const fieldName = {
     chartedAt: 'chartedAt' as FieldName,
     directoryOnly: 'directoryOnly' as FieldName,
+    disabled: 'disabled' as FieldName,
     established: 'established' as FieldName,
     id: 'id' as FieldName,
     name: 'name' as FieldName,
@@ -2690,6 +2694,7 @@ export namespace Sectors {
   export const resourceName = {
     chartedAt: 'Sectors.chartedAt' as Resource,
     directoryOnly: 'Sectors.directoryOnly' as Resource,
+    disabled: 'Sectors.disabled' as Resource,
     established: 'Sectors.established' as Resource,
     id: 'Sectors.id' as Resource,
     name: 'Sectors.name' as Resource,
@@ -2973,12 +2978,14 @@ export namespace CreateCrewSectorGroup {
 export namespace DeleteCrewGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 
 export namespace DeleteCrewSectorGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
+    everythingUnder: 'everythingUnder' as FieldName,
   };
 }
 

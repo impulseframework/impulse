@@ -28,12 +28,13 @@ import (
 // the tenant's first administrator, in that order. Whether anyone may sign up is no
 // declaration: an administrator opens a sign-in method of the auth to sign-up in the
 // running application, and the route reads that choice in the transaction that writes
-// the row, so it refuses while every method is invite only. A page offers a person only
-// what they may do, so the same route answers a GET with whether the caller may create
-// a tenant now, by the three facts the POST refuses on (the session holds no tenant, a
-// method is open, and the caller is not the real person behind a session that acts as a
-// role, who would be seated as the administrator), and the page that offers the
-// create-your-tenant card asks it first. Both ways are generated wherever they can
+// the row, so it refuses a person whose session did not sign in through a method open to
+// sign-up. A page offers a person only what they may do, so the same route answers a GET
+// with whether the caller may create a tenant now, by the three facts the POST refuses on
+// (the session holds no tenant, the method the session signed in through is open, and the
+// caller is not the real person behind a session that acts as a role, who would be
+// seated as the administrator), and the page that offers the create-your-tenant card
+// asks it first. Both ways are generated wherever they can
 // serve: the record is on session outlets of one auth, whose management the program
 // generates and whose roles no directory writes. Nobody creates a tenant directly: the
 // record's patch handlers refuse a create op (resourceInfo.RefusesCreate), and an
@@ -123,7 +124,7 @@ func parseTenantArgs(name string, arg genlang.Arg) (tenantArgs, error) {
 
 		return tenantArgs{}, errors.Newf("struct %s: @%s(%s: %s) is no longer declared, and nobody creates %s directly. "+
 			"Staff holding the record's Create grant invite one person, with the %s's details, and that person's first sign-in makes the %s and seats them as its first administrator "+
-			"(the auth's generated Invite method). A person who signs up creates their own while an administrator has a sign-in method open to sign-up "+
+			"(the auth's generated Invite method). A person who signs up creates their own when they signed in through a sign-in method an administrator has open to sign-up "+
 			"(the auth's Sign-in page: Open sign-up, Make invite only). Remove the %s argument", name, tenantKeyword, tenantCreationArgKey, value, withArticle(word), word, word, tenantCreationArgKey)
 	}
 
@@ -253,13 +254,14 @@ func (r *resourceGenerator) tenantAuth(record *resourceInfo) (*outletAuth, error
 	return auth, nil
 }
 
-// tenantClears names what the tenant record's delete clears a tenant through: the
-// application's accessor of the generated identity client of every auth whose
-// management the program generates, in declaration order, since each auth keeps its own
-// memberships, custom roles and invitations. It is empty for every other resource, and
-// for a program that generates no auth's management, whose memberships are the
+// tenantKindSources names the identity clients whose kinds the tenant record's delete is
+// handed, what each auth holds for the tenant (identity.Manager.TenantKinds): the
+// application's accessor of the generated identity client of every auth whose management
+// the program generates, in declaration order, since each auth keeps its own accounts,
+// memberships, groups, custom roles and invitations. It is empty for every other resource,
+// and for a program that generates no auth's management, whose memberships are the
 // application's own to remove.
-func (r *resourceGenerator) tenantClears(record *resourceInfo) []string {
+func (r *resourceGenerator) tenantKindSources(record *resourceInfo) []string {
 	if !record.IsTenant {
 		return nil
 	}
@@ -396,14 +398,16 @@ type tenantCreationData struct {
 	Fields  []*tenantCreationField
 	Setters []string
 	// Refusal is the sentence a person who already holds a tenant is answered with, and
-	// ClosedRefusal the one everyone is answered with while no sign-in method is open
-	// to sign-up. OwnCreation is what the route does, as the end of "you cannot", for
-	// the refusal of the real person behind a session that acts as someone else.
+	// ClosedRefusal the one a person is answered with when the sign-in method their
+	// session came through is not open to sign-up. OwnCreation is what the route does,
+	// as the end of "you cannot", for the refusal of the real person behind a session
+	// that acts as someone else.
 	Refusal       string
 	ClosedRefusal string
 	OwnCreation   string
-	// Directory is the directories record the route sets the creator's directory on,
-	// nil where the package declares none.
+	// Directory is the directories record the route sets the creator's directory on
+	// where the application holds a person to one tenant, nil where the package
+	// declares none.
 	Directory *tenantCreationDirectory
 
 	// record is the tenant record the file is rendered from; it scopes import
@@ -412,14 +416,19 @@ type tenantCreationData struct {
 }
 
 // tenantCreationDirectory is the directories record as the create-your-tenant route
-// sets the creator's directory on the new tenant, through the generated
-// Set<Record>Directory: the record's struct name, and the new tenant's id as that
+// sets the creator's directory on the new tenant where the application holds a person
+// to one tenant, through the generated Set<Record>Directory: the record's struct name, and the new tenant's id as that
 // function takes it.
 type tenantCreationDirectory struct {
 	Record string
 	// TenantValue is the new tenant's id as the directories record's tenant column takes
 	// it: the id itself where the column is an id, its text where the column is a string.
 	TenantValue string
+	// Rules is the expression of the rules of a tenant's directory the route's GET says
+	// the statement by (resource.TenantDirectoryRules.TakeDirectoryWarning): the ones
+	// the directories record's write paths ask, named by the program's auths, so the
+	// statement names the directory as their refusals do.
+	Rules string
 }
 
 func (d *tenantCreationData) typeImports() []fixerImport {
@@ -437,16 +446,19 @@ type tenantCreationField struct {
 // tenantCreationFields are the record's fields as the create-your-tenant request
 // carries them: every field the wire may write at create, required where the column
 // is. The key is not among them: the create generates it, and the answer carries it.
-// Nor is the directory-only flag: a new tenant declares nothing beyond its creator's
-// directory, and the tenant's administrator turns the switch after, with the tenant's
-// own method (tenantdirectoryonly.go).
+// Nor is the directory-only flag: a new tenant declares nothing, and takes its
+// creator's directory only where the application holds a person to one tenant; the
+// tenant's administrator turns the switch after, with the tenant's own method
+// (tenantdirectoryonly.go). Nor is the column that says a tenant is disabled: a new
+// tenant is made enabled, by the column's default.
 func tenantCreationFields(record *resourceInfo) (key *tenantCreationField, fields []*tenantCreationField, setters []string) {
 	for _, field := range record.Fields {
 		switch {
 		case field.IsPrimaryKey:
 			key = &tenantCreationField{Name: field.Name(), Type: field.Type(), Wire: field.WireName(), Tags: field.JSONTag()}
-		case field.IsOutputOnly(), field == record.DirectoryOnlyField:
-			// Server-owned, or the declaration's flag: the wire cannot write it here.
+		case field.IsOutputOnly(), field == record.DirectoryOnlyField, field == record.TenantDisabledField:
+			// Server-owned, the declaration's flag, or whether the tenant is disabled: the
+			// wire cannot write it here.
 		default:
 			tags := []string{field.JSONTag()}
 			for _, tag := range []string{field.SqltypeTag(), field.NullableTag()} {
@@ -525,7 +537,8 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 }
 
 // tenantCreationDirectoryData is the directories record as the route sets the
-// creator's directory, nil where the record declares none.
+// creator's directory where the application holds a person to one tenant, nil where
+// the record declares none.
 func tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory {
 	if !record.HasDeclaration() {
 		return nil
@@ -535,6 +548,7 @@ func tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory 
 	return &tenantCreationDirectory{
 		Record:      directories.Name(),
 		TenantValue: tenantValueFor(directories.DomainBinding.Anchor),
+		Rules:       directories.DirectoryRules(),
 	}
 }
 
@@ -558,11 +572,12 @@ func tenantCreationOwnCreation(record string) string {
 	return fmt.Sprintf("create %s of your own", withArticle(lower))
 }
 
-// tenantCreationClosedRefusal is what a person is answered with while every sign-in
-// method is invite only: nobody signs up, so nobody creates a tenant of their own. Its
-// second sentence is the person's own next step.
+// tenantCreationClosedRefusal is what a person is answered with when the sign-in method
+// their session came through is invite only: they did not sign up through it, so they
+// create no tenant of their own, whatever other methods are open. Its second sentence is
+// the person's own next step.
 func tenantCreationClosedRefusal(record string) string {
-	return fmt.Sprintf("Sign-up is not open, so you cannot %s. Ask an administrator of the application to create one for you, or to invite you to one.", tenantCreationOwnCreation(record))
+	return fmt.Sprintf("Sign-up is not open for the way you signed in, so you cannot %s. Ask an administrator of the application to create one for you, or to invite you to one.", tenantCreationOwnCreation(record))
 }
 
 // withArticle is the word with its article, as a sentence names one of them: "a
@@ -662,6 +677,11 @@ type tsTenantCreation struct {
 	// Resource is the tenant record's resource, whose metadata says how a page draws each
 	// field of the body.
 	Resource string
+	// Typed is the phrase a person types under the statement in front of a creation that
+	// takes their organization's directory (resource.TakeDirectoryPhrase), where the
+	// package declares a tenant's directories; empty where it declares none, and the
+	// creation never takes one.
+	Typed string
 }
 
 // tenantCreationClientData is the create-your-tenant block of a client generated for
@@ -670,10 +690,13 @@ type tsTenantCreation struct {
 // builds it (buildUnifiedTypescriptGenerator): the record as this target parsed it
 // carries none.
 func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
-	var record *resourceInfo
+	var record, directories *resourceInfo
 	for _, res := range t.resources {
-		if res.IsTenant {
+		switch {
+		case res.IsTenant:
 			record = res
+		case res.IsTenantDirectory:
+			directories = res
 		}
 	}
 	if record == nil || !t.tenantCreation.SelfService() || !record.OnOutlet(t.targetOutlet()) {
@@ -692,11 +715,20 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 		case field.IsPrimaryKey:
 			// The route generates the key and answers it: no field of the body.
 			out.KeyWire = field.WireName()
-		case field.IsOutputOnly(), field == record.DirectoryOnlyField:
-			// Server-owned, or the declaration's flag: the wire cannot write it here.
+		case field.IsOutputOnly(), field == record.DirectoryOnlyField, field == record.TenantDisabledField:
+			// Server-owned, the declaration's flag, or whether the tenant is disabled: the
+			// wire cannot write it here.
 		default:
 			out.Fields = append(out.Fields, newTSAPIField(field, field.IsRequired()))
 		}
+	}
+	// A creation takes the directory its creator signed in through only where the
+	// package declares a tenant's directories, on whichever outlets: the route takes it
+	// wherever it is served, so the phrase is carried also where the outlet filter
+	// dropped the directories record (tenantDirectories). Whether this creation takes
+	// one is the offer's to answer, which the dialog asks where the phrase is carried.
+	if directories != nil || t.tenantDirectories {
+		out.Typed = resource.TakeDirectoryPhrase
 	}
 
 	return out

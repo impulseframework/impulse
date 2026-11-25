@@ -22,10 +22,11 @@ import (
 // TestDeclaration_whoMayEnterATenant proves the Tenant record's declaration end to end
 // on the served stack. A tenant has one directory and a directory belongs to one
 // tenant, and nobody types one in: an administrator of the tenant who is signed in
-// through a Workspace makes it the tenant's directory with a create that names no
-// directory, which the server sets from the session; one signed in with a password is
-// told by the session read that they came through no directory, and their call is
-// refused, as is a request that types a method and a connection. A second directory
+// through a Workspace makes it the tenant's directory with the tenant's own method
+// (TakeTenantDirectory), which names no directory, and the server sets it from the
+// session; one signed in with a password is told by the session read that they came
+// through no directory, and their call is refused, as is a create of the record that
+// types a method and a connection. A second directory
 // for the tenant, and the directory on another tenant, are each refused with a sentence
 // that says what to do. A tenant's sign-in settings restrict its own door alone: a
 // tenant that is not directory only admits everyone it seats, however they signed in,
@@ -37,7 +38,7 @@ import (
 // in when its directory has a problem; the support login, one of the application's own
 // team, who holds the same role in every tenant, is kept out, which is what the switch
 // is for. A tenant the person is seated in and cannot enter stays in their tenant list
-// marked closed, with the reason, and the tenant's list of its people says who it keeps
+// as not available, with the reason, and the tenant's list of its people says who it keeps
 // out. Turning directory only on is refused until the tenant has its directory, unless
 // the person is signed in through that directory themselves, and until the person has a
 // password of their own, on the method and on the warning it answers first, which says
@@ -46,11 +47,11 @@ import (
 // confirmed address; turning it off is plain and warns of nothing; its directory is not
 // removed while it is directory only.
 //
-// The directory's row carries a default role, given at a person's first sign-in through
-// the directory: with none, a stranger is refused by invitation only and no account is
-// created; with a role named, a stranger's next sign-in creates them seated with it,
-// and a person whose account stood before is given it at the sign-in that links the
-// account to the directory. The tenant is opened to its directory's people, with the
+// The directory's row carries a default role, given to a person who signs in through
+// the directory and holds nothing in the tenant, at every sign-in: with none, a
+// stranger is refused by invitation only and no account is created; with a role named,
+// a stranger's next sign-in creates them seated with it, and a person whose account
+// stood before is given it at their next sign-in through the directory. The tenant is opened to its directory's people, with the
 // role, and made invite only again by the tenant's own two methods, the first behind a
 // warning that says who will enter and with what role; the record's own update never
 // writes the role. A write through the API decides the next request,
@@ -99,11 +100,12 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Fatalf("the administrator's password session reports the directory %+v, want none", directory)
 	}
 
-	// A directory is never typed in. The administrator, signed in with a password, is
-	// refused with what to do instead, and a request that names a method and a
-	// connection is refused as naming fields the record does not take; neither writes.
-	makeSouths := `[{"op":"add","path":"/tenants/` + south + `/tenant-directories","value":{}}]`
-	status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(makeSouths))
+	// A directory is never typed in: the tenant takes it with its own method, which takes
+	// nothing from the request. The administrator, signed in with a password, is
+	// refused with what to do instead, and a create of the record that names a method
+	// and a connection is refused, as its every create is; neither writes.
+	takeSouths := "/api/tenants/" + south + "/take-tenant-directory"
+	status, body := admin.do(ctx, http.MethodPost, takeSouths, []byte(`{}`))
 	if status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
 		t.Fatalf("setting south's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}
@@ -117,22 +119,17 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// The organizer is signed in through the same Workspace and administers both
 	// tenants, which admit them as they admit anyone they seat: neither is directory
-	// only. They set south's directory under the tenant's own Create grant.
+	// only. They take the Workspace for south with the tenant's own method, under its
+	// Execute grant.
 	t.Setenv("APP_GOOGLE_USERNAME", "organizer")
 	organizer := signedInThroughGoogle(ctx, t, s)
 	seat(ctx, t, s, "organizer", north, south)
 	if domains := userDomains(ctx, t, organizer); !slices.Equal(domains, []string{north, south}) {
 		t.Fatalf("the organizer's chart = %v, want both tenants: neither is directory only", domains)
 	}
-	status, body = organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(makeSouths))
+	status, body = organizer.do(ctx, http.MethodPost, takeSouths, []byte(`{}`))
 	if status != http.StatusOK {
 		t.Fatalf("making the Workspace south's directory: status %d: %s", status, body)
-	}
-	var created struct {
-		TenantDirectories []string `json:"tenantDirectories"`
-	}
-	if err := json.Unmarshal(body, &created); err != nil || len(created.TenantDirectories) != 1 {
-		t.Fatalf("the answer = %s (err %v), want the new row's id", body, err)
 	}
 	// The row carries the directory the organizer's session came through, which the
 	// request never named. The directory closes south to nobody: the traveler's chart
@@ -150,11 +147,10 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// A tenant has one directory, and a directory belongs to one tenant: setting it
 	// again on south, and setting it on north, are each refused with the rule and
 	// what to do, and north is left with none.
-	if status, body := organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(makeSouths)); status != http.StatusConflict || !strings.Contains(string(body), "is already this tenant's directory") {
+	if status, body := organizer.do(ctx, http.MethodPost, takeSouths, []byte(`{}`)); status != http.StatusConflict || !strings.Contains(string(body), "is already this tenant's directory") {
 		t.Errorf("setting south's directory a second time: status %d, want 409 saying it is the tenant's already: %s", status, body)
 	}
-	makeNorths := `[{"op":"add","path":"/tenants/` + north + `/tenant-directories","value":{}}]`
-	if status, body := organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(makeNorths)); status != http.StatusConflict || !strings.Contains(string(body), "already has a tenant here, and a directory belongs to one tenant") {
+	if status, body := organizer.do(ctx, http.MethodPost, "/api/tenants/"+north+"/take-tenant-directory", []byte(`{}`)); status != http.StatusConflict || !strings.Contains(string(body), "already has a tenant here, and a directory belongs to one tenant") {
 		t.Errorf("setting south's directory on north: status %d, want 409 saying the organization has a tenant: %s", status, body)
 	}
 	if rows := directories(ctx, t, admin, north); len(rows) != 0 {
@@ -163,21 +159,18 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// Removed, the directory leaves south open as it was: the traveler's chart does
 	// not change. Set again, it is a new row.
-	row := "/tenants/" + south + "/tenant-directories/" + created.TenantDirectories[0]
+	row := "/tenants/" + south + "/tenant-directories/" + directoryRow(ctx, t, admin, south)
 	if status, body := organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"`+row+`"}]`)); status != http.StatusOK {
 		t.Fatalf("removing south's directory: status %d: %s", status, body)
 	}
 	if domains := userDomains(ctx, t, traveler); !slices.Equal(domains, []string{south}) {
 		t.Errorf("the traveler's chart once south's directory is removed = %v, want [%s]", domains, south)
 	}
-	status, body = organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(makeSouths))
+	status, body = organizer.do(ctx, http.MethodPost, takeSouths, []byte(`{}`))
 	if status != http.StatusOK {
 		t.Fatalf("making the Workspace south's directory again: status %d: %s", status, body)
 	}
-	if err := json.Unmarshal(body, &created); err != nil || len(created.TenantDirectories) != 1 {
-		t.Fatalf("the second answer = %s (err %v), want the new row's id", body, err)
-	}
-	row = "/tenants/" + south + "/tenant-directories/" + created.TenantDirectories[0]
+	row = "/tenants/" + south + "/tenant-directories/" + directoryRow(ctx, t, admin, south)
 	if domains := userDomains(ctx, t, traveler); !slices.Equal(domains, []string{south}) {
 		t.Errorf("the traveler's chart once the directory is set again = %v, want [%s]", domains, south)
 	}
@@ -306,14 +299,11 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if held := rolesHeld(ctx, t, s, newcomerID, accesstypes.DomainPolicyScope(south)); !slices.Equal(held, []accesstypes.Role{"TenantAdministrator"}) {
 		t.Errorf("the newcomer's roles in south once its directory is removed = %v, want the role it gave to stand", held)
 	}
-	status, body = organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(makeNorths))
+	status, body = organizer.do(ctx, http.MethodPost, "/api/tenants/"+north+"/take-tenant-directory", []byte(`{}`))
 	if status != http.StatusOK {
 		t.Fatalf("making the Workspace north's directory: status %d: %s", status, body)
 	}
-	if err := json.Unmarshal(body, &created); err != nil || len(created.TenantDirectories) != 1 {
-		t.Fatalf("the answer = %s (err %v), want the new row's id", body, err)
-	}
-	northRow := "/tenants/" + north + "/tenant-directories/" + created.TenantDirectories[0]
+	northRow := "/tenants/" + north + "/tenant-directories/" + directoryRow(ctx, t, admin, north)
 
 	// Directory only. The member, signed in by password, is seated in north alone, as
 	// its administrator. The support login is one of the application's own team: it
@@ -519,7 +509,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// The organizer turns it on, with the tenant's method. The support login loses north
 	// at once: it answers as a tenant that does not exist, and stays in their tenant
-	// list marked closed, with the reason, while south, which is not directory only,
+	// list as not available, with the reason, while south, which is not directory only,
 	// still admits them. The member keeps north: they hold the administrator's role in
 	// north itself and signed in with a password and the code, and a fresh password
 	// sign-in of theirs is held for the code, reaches nothing before it and enters north
@@ -535,8 +525,8 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("the support login's chart once north is directory only = %v, want [%s]: a role held in every tenant is no way into a directory-only one", domains, south)
 	}
 	byPassword := map[string]string{north: "North admits only people who sign in through its own directory. You signed in with a password."}
-	if closed := closedDomains(ctx, t, support, "/api/user-domains"); !maps.Equal(closed, byPassword) {
-		t.Errorf("the tenants the support login's list marks closed = %v, want %v", closed, byPassword)
+	if unavailable := unavailableDomains(ctx, t, support); !maps.Equal(unavailable, byPassword) {
+		t.Errorf("the tenants the support login's list keeps as not available = %v, want %v", unavailable, byPassword)
 	}
 	if status, body := support.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusNotFound {
 		t.Errorf("GET north announcements as the support login once north is directory only: status %d, want 404: %s", status, body)
@@ -544,8 +534,8 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Errorf("the member's chart once north is directory only = %v, want [%s]: north admits its own administrator by password and code", domains, north)
 	}
-	if closed := closedDomains(ctx, t, member, "/api/user-domains"); len(closed) != 0 {
-		t.Errorf("the tenants the member's list marks closed = %v, want none", closed)
+	if unavailable := unavailableDomains(ctx, t, member); len(unavailable) != 0 {
+		t.Errorf("the tenants the member's list keeps as not available = %v, want none", unavailable)
 	}
 	if status, body := member.do(ctx, http.MethodGet, "/api/tenants/"+north+"/announcements", nil); status != http.StatusOK {
 		t.Errorf("GET north announcements as the member once north is directory only: status %d, want 200: %s", status, body)
@@ -609,16 +599,16 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	}
 
 	// Turning it off is plain: the administrator does it by password. The support login
-	// enters north again at its next request, nothing in their list is closed, and no
-	// row of north's people says anything.
+	// enters north again at its next request, their list keeps nothing as not available,
+	// and no row of north's people says anything.
 	if status, body := turn(admin, north, false); status != http.StatusOK {
 		t.Fatalf("turning north's directory only off, signed in with a password: status %d: %s", status, body)
 	}
 	if domains := userDomains(ctx, t, support); !slices.Equal(domains, []string{north, south}) {
 		t.Errorf("the support login's chart once north is not directory only = %v, want both tenants", domains)
 	}
-	if closed := closedDomains(ctx, t, support, "/api/user-domains"); len(closed) != 0 {
-		t.Errorf("the tenants the support login's list marks closed once north is not directory only = %v, want none", closed)
+	if unavailable := unavailableDomains(ctx, t, support); len(unavailable) != 0 {
+		t.Errorf("the tenants the support login's list keeps as not available once north is not directory only = %v, want none", unavailable)
 	}
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Errorf("the member's chart once north is not directory only = %v, want [%s]", domains, north)
@@ -673,6 +663,25 @@ func directories(ctx context.Context, t *testing.T, b *browser, tenant string) [
 	}
 
 	return rows
+}
+
+// directoryRow reads the id of the tenant's one row of the directories record: the method
+// that takes a directory answers nothing, so a removal finds the row by the list.
+func directoryRow(ctx context.Context, t *testing.T, b *browser, tenant string) string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/tenant-directories", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s's directories: status %d: %s", tenant, status, body)
+	}
+	var rows []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil || len(rows) != 1 {
+		t.Fatalf("%s's directories = %s (err %v), want one row", tenant, body, err)
+	}
+
+	return rows[0].ID
 }
 
 // defaultSeats lists the tenant's declared directories' default seats, in the record's

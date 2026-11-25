@@ -35,6 +35,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		Name          string       `json:"name"`
 		CreatedAt     time.Time    `json:"-"`
 		DirectoryOnly bool         `json:"-"`
+		Disabled      bool         `json:"disabled"`
 	}
 	tenantDecoder := NewDecoder[resources.Tenant, tenantRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -64,6 +65,10 @@ func (a *App) PatchResources() http.HandlerFunc {
 		// writes reaches it once the commit lands, never inside the transaction.
 		tenantsWritten := false
 
+		// What the request's deletes left under their records, summed: the answer is a 202
+		// with it where one left any.
+		var left *resource.DeleteLeft
+
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
@@ -71,6 +76,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			tenantsWritten = false
+			left = nil
 			r, err := resource.CloneRequest(r)
 			if err != nil {
 				return errors.Wrap(err, "resource.CloneRequest()")
@@ -119,14 +125,27 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
-							if err := resources.NewTenantDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							// A tenant is disabled before it is deleted, so nobody of it is at work in it
+							// while its records go. The caller's grants answer first.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							if err := resource.RequireTenantDisabled(ctx, txn, "Tenants", "Id", "Disabled", accesstypes.Domain(id.String()), "tenant"); err != nil {
+								return errors.Wrap(err, "resource.RequireTenantDisabled()")
+							}
+							patch := resources.NewTenantDeletePatchFromPatchSet(id, patchSet)
+							// A tenant's delete takes what each auth holds for it: the accounts that were its alone,
+							// the roles held in it, its groups, its custom roles and its invitations.
+							patch.DeleteAlso(a.StaffIdentity().TenantKinds(accesstypes.Domain(id.String()))...)
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantDeletePatch.Buffer()")
 							}
-							// A tenant that goes takes what each auth holds for it, in this transaction:
-							// the roles people hold in it, the custom roles made in it and the
-							// invitations into it that still stand.
-							if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
-								return errors.Wrap(err, "StaffIdentity().ClearTenant()")
+							if taken := patch.Left(); taken != nil {
+								if left == nil {
+									left = &resource.DeleteLeft{}
+								}
+								left.Deleted += taken.Deleted
+								left.Left += taken.Left
 							}
 						}
 
@@ -199,26 +218,15 @@ func (a *App) PatchResources() http.HandlerFunc {
 
 						switch op.Type {
 						case resource.OperationCreate:
-							patch, err := resources.NewTenantDirectoryCreatePatchFromPatchSet(patchSet)
-							if err != nil {
-								return errors.Wrap(err, "tenantDirectoryCreatePatchFromPatchSet()")
-							}
-							// A directory is never typed in: the row takes the directory the caller is
-							// signed in through, held to the rules of a tenant's directory. The
-							// caller's grants answer first, so a caller they refuse learns nothing
-							// from a rule.
+							// A tenant's directory is taken with the tenant's own
+							// method, behind the statement that the caller is authorized to act
+							// for the organization: the record's create writes nothing. The
+							// caller's grants answer first.
 							if err := patchSet.Permitted(ctx, txn); err != nil {
 								return errors.Wrap(err, "resource.PatchSet.Permitted()")
 							}
-							directory, err := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).FromSession(ctx, txn, domain)
-							if err != nil {
-								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
-							}
-							patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)
-							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
-								return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
-							}
-							resp["tenantDirectories"] = append(resp["tenantDirectories"], patch.ID())
+
+							return httpio.NewBadRequestMessage("A tenant's directory is not created directly. Take it with TakeTenantDirectory, which says what taking it does before anything is written.")
 						case resource.OperationUpdate:
 							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewTenantDirectoryUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
@@ -260,6 +268,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 			if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {
 				logger.FromCtx(ctx).Errorf("tenants: signaling the tenants kind failed; the other instances reload at their backstop: %v", err)
 			}
+		}
+		if left != nil {
+			// A delete that took what fits one save says what is left: the same request,
+			// sent again, goes on.
+			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
 		}
 
 		return httpio.NewEncoder(w).Ok(resp)

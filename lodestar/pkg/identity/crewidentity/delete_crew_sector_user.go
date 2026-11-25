@@ -15,6 +15,10 @@ import (
 // every session they hold is ended, and their identity links and every role they hold
 // go with the account. Nobody deletes themselves: the caller's own account is refused.
 //
+// Before it runs on a tenant's side, the method says what it does (Warning): where the
+// tenant is open to its directory and the person signs in through it, that they can sign
+// in again and will get a new account.
+//
 // It is a tenant's method: served under the address of one Sector, it names a
 // row of CrewSectorUser, the tenant's own list of the auth's people. A person who is no
 // row of that list is not found there, and whether the tenant may do this to a person is
@@ -33,9 +37,27 @@ import (
 // @notOnOwnAccount(ID)
 // @outlet(default)
 // @answers(204)
+// @warning
 type DeleteCrewSectorUser struct {
 	// @target(CrewSectorUser)
 	UserID impulse.UUID
+}
+
+// Warning says what deleting the person does before it runs, and, where the tenant is open
+// to its directory and the person signs in through it, that they can sign in again and will
+// get a new account. It writes nothing.
+func (m *DeleteCrewSectorUser) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
+	// A tenant's method acts for a request made under the tenant's address.
+	tenant, err := client.manager.Tenant(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
+	}
+	again, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Client.SeatedAgainBySignIn()")
+	}
+
+	return tenant.DeletionWarning(again), nil
 }
 
 // Execute buffers the removal into the caller's transaction.

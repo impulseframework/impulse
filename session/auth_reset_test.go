@@ -715,29 +715,6 @@ func TestAuth_Notices(t *testing.T) {
 			t.Errorf("messages after the notice for an unconfirmed address = %d, want still 1", got)
 		}
 	})
-
-	t.Run("a removal from a tenant names the tenant, and says the account went with it when it did", func(t *testing.T) {
-		t.Parallel()
-		f, recorder, _ := newMailFixture(t, gomock.NewController(t))
-		f.auth.SetTenantNames(namedTenants{accesstypes.Domain("acme"): "Acme Freight"})
-
-		if err := f.auth.API().NoticeRemovedFromTenant(context.Background(), "pat@lakeside.edu", "acme", false); err != nil {
-			t.Fatalf("NoticeRemovedFromTenant() error = %v", err)
-		}
-		if err := f.auth.API().NoticeRemovedFromTenant(context.Background(), "pat@lakeside.edu", "acme", true); err != nil {
-			t.Fatalf("NoticeRemovedFromTenant() error = %v", err)
-		}
-		msgs := recorder.Messages()
-		if len(msgs) != 2 || msgs[0].Subject != "You were removed from Acme Freight" || msgs[0].To != "pat@lakeside.edu" {
-			t.Fatalf("messages = %+v, want the two notices naming the tenant", msgs)
-		}
-		if strings.Contains(msgs[0].Text, "deleted") {
-			t.Errorf("the notice of a removal that left the account says it was deleted:\n%s", msgs[0].Text)
-		}
-		if !strings.Contains(msgs[1].Text, "your Harbor account was deleted with it") {
-			t.Errorf("the notice of a removal that took the account does not say so:\n%s", msgs[1].Text)
-		}
-	})
 }
 
 func authResetCase8(t *testing.T) {

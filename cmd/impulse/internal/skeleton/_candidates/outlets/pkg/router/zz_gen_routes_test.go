@@ -2656,6 +2656,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/take-tenant-directory", method: http.MethodPost,
+			handlerFunc: "TakeTenantDirectory", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-directory-only", method: http.MethodPost,
 			handlerFunc: "MakeTenantDirectoryOnly", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
@@ -2828,6 +2833,10 @@ func (s *generatedHandlersStub) DescribeStaffTenantGroup() http.HandlerFunc {
 
 func (s *generatedHandlersStub) TenantSignInSettings() http.HandlerFunc {
 	return s.record("TenantSignInSettings")
+}
+
+func (s *generatedHandlersStub) TakeTenantDirectory() http.HandlerFunc {
+	return s.record("TakeTenantDirectory")
 }
 
 func (s *generatedHandlersStub) MakeTenantDirectoryOnly() http.HandlerFunc {

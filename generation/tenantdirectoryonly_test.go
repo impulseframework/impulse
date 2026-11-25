@@ -318,6 +318,9 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"if err := a.StaffIdentity().DirectoryRole(ctx, txn, domain, role); err != nil {",
 				"if asksWarning {",
 				"said := rules.OpenToDirectoryWarning(directory, role)",
+				// Where the application holds a person to one tenant, the warning says the
+				// directory's people who belong to another harbor are moved to this one.
+				"if a.StaffIdentity().OneTenantPerPerson() {\n\t\t\t\t\tsaid.Also = append(said.Also, rules.OpenTakesPeopleNote(directory))\n\t\t\t\t}",
 				`if err := resource.CheckWarning("OpenHarborToDirectory", said); err != nil {`,
 				"return resource.ErrWarningAsked",
 				"id, err := impulse.UUIDFromString(directory.Key)",
@@ -341,6 +344,8 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"POST <prefix>/harbors/{harborID}/make-harbor-invite-only",
 				`which a person types "open" under`,
 				"(StaffHarborDirectoryRoles)",
+				"and is given the role whenever they sign in through the directory and\n// hold nothing in the harbor",
+				"(resource.TenantDirectoryRules.OpenTakesPeopleNote)",
 			},
 		},
 		{
@@ -374,7 +379,9 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 // Test_directoryOnlyRoutes pins where the tenant's own methods are served and what
 // registers them. Each is under the tenant's own route, behind the domain guard, and
 // the read of the tenant's sign-in settings comes first on every outlet that serves
-// any of them. The switch's two methods are on every session outlet the tenant record
+// any of them. The method that takes the tenant's directory comes next, on every session
+// outlet that serves a directories record, whatever it carries and whatever the auths.
+// The switch's two methods are on every session outlet the tenant record
 // is on and on no API-key outlet. The two methods that say how the tenant admits its directory's
 // people are served where the session outlets that serve the directories record are
 // all of one Auth whose management the program generates and whose roles are given by
@@ -438,6 +445,9 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			{Method: "GET", Path: "/" + prefix + "/harbors/{harborID}/sign-in-settings", HandlerFunc: "TenantSignInSettings", DomainScoped: true, TestURL: "/" + prefix + "/harbors/" + domainTestValue + "/sign-in-settings"},
 		}
 	}
+	takeUnder := func(prefix string) []*generatedRoute {
+		return []*generatedRoute{post(prefix, "TakeHarborDirectory", "take-harbor-directory")}
+	}
 	switchUnder := func(prefix string) []*generatedRoute {
 		return []*generatedRoute{
 			post(prefix, "MakeHarborDirectoryOnly", "make-harbor-directory-only"),
@@ -468,6 +478,9 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 	readCase := func(prefix string) []string {
 		return []string{"GET /" + prefix + "/harbors/" + domainTestValue + "/sign-in-settings"}
 	}
+	takeCases := func(prefix string) []string {
+		return methodCases(prefix, "take-harbor-directory")
+	}
 	switchCases := func(prefix string) []string {
 		return methodCases(prefix, "make-harbor-directory-only", "end-harbor-directory-only")
 	}
@@ -478,15 +491,19 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 		return methodCases(prefix, "vouch-for-harbor-directory-second-factor", "stop-vouching-for-harbor-directory-second-factor")
 	}
 	// The fixture's HarborDirectory record carries the second-factor column, so every
-	// case on it serves the two methods of the word after the switch's and the role's,
-	// each outlet's after the read of the tenant's sign-in settings.
+	// case on it serves the method that takes the directory first and the two methods of
+	// the word after the switch's and the role's, each outlet's after the read of the
+	// tenant's sign-in settings.
 	switchAndFactor := func() map[string][]*generatedRoute {
 		return map[string][]*generatedRoute{
-			defaultOutletName: slices.Concat(readUnder("api"), switchUnder("api"), factorUnder("api")),
-			"members":         slices.Concat(readUnder("members"), switchUnder("members"), factorUnder("members")),
+			defaultOutletName: slices.Concat(readUnder("api"), takeUnder("api"), switchUnder("api"), factorUnder("api")),
+			"members":         slices.Concat(readUnder("members"), takeUnder("members"), switchUnder("members"), factorUnder("members")),
 		}
 	}
-	switchAndFactorCases := slices.Concat(readCase("api"), switchCases("api"), factorCases("api"), readCase("members"), switchCases("members"), factorCases("members"))
+	switchAndFactorCases := slices.Concat(
+		readCase("api"), takeCases("api"), switchCases("api"), factorCases("api"),
+		readCase("members"), takeCases("members"), switchCases("members"), factorCases("members"),
+	)
 	handlers := func(routes []*generatedRoute) []string {
 		var names []string
 		for _, route := range routes {
@@ -495,7 +512,8 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 
 		return names
 	}
-	// The two methods of the default role give and take away what a directory's people
+	// The method that takes the directory decides whose people the tenant admits, the
+	// two methods of the default role give and take away what a directory's people
 	// may do, the two of the switch decide who may sign in to the tenant at all, and the
 	// two of the word for the directory's second factor change what a sign-in asks of
 	// them, so the action of each carries the class access.
@@ -524,7 +542,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			structs:     []string{"Harbor", "HarborDirectory"},
 			wantRoutes:  switchAndFactor(),
 			wantCases:   switchAndFactorCases,
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "TakeHarborDirectory", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
 			name:     "session outlets of one auth whose management the program generates serve the default role's methods too",
@@ -532,25 +550,25 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			auths:    []string{staffAuth},
 			identity: []*identityInstance{staff(false)},
 			wantRoutes: map[string][]*generatedRoute{
-				defaultOutletName: slices.Concat(readUnder("api"), switchUnder("api"), roleUnder("api"), factorUnder("api")),
-				"members":         slices.Concat(readUnder("members"), switchUnder("members"), roleUnder("members"), factorUnder("members")),
+				defaultOutletName: slices.Concat(readUnder("api"), takeUnder("api"), switchUnder("api"), roleUnder("api"), factorUnder("api")),
+				"members":         slices.Concat(readUnder("members"), takeUnder("members"), switchUnder("members"), roleUnder("members"), factorUnder("members")),
 			},
 			wantCases: slices.Concat(
-				readCase("api"), switchCases("api"), roleCases("api"), factorCases("api"),
-				readCase("members"), switchCases("members"), roleCases("members"), factorCases("members"),
+				readCase("api"), takeCases("api"), switchCases("api"), roleCases("api"), factorCases("api"),
+				readCase("members"), takeCases("members"), switchCases("members"), roleCases("members"), factorCases("members"),
 			),
 			wantMethods: execute(
 				"EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "MakeHarborInviteOnly", "OpenHarborToDirectory",
-				"StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor",
+				"StopVouchingForHarborDirectorySecondFactor", "TakeHarborDirectory", "VouchForHarborDirectorySecondFactor",
 			),
 		},
 		{
-			name:        "a record with a directories record and no switch serves the default role's methods and the word for the second factor alone",
+			name:        "a record with a directories record and no switch serves the method that takes it, the default role's methods and the word for the second factor alone",
 			structs:     []string{"Sector", "HarborDirectory"},
 			auths:       []string{staffAuth},
 			identity:    []*identityInstance{{importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directorySeat: "DefaultSeat"}, tables: map[identityTable]bool{identityUsers: true, identityMemberships: true}}},
 			wantRoutes:  map[string][]*generatedRoute{},
-			wantMethods: execute("MakeSectorInviteOnly", "OpenSectorToDirectory", "StopVouchingForSectorDirectorySecondFactor", "VouchForSectorDirectorySecondFactor"),
+			wantMethods: execute("MakeSectorInviteOnly", "OpenSectorToDirectory", "StopVouchingForSectorDirectorySecondFactor", "TakeSectorDirectory", "VouchForSectorDirectorySecondFactor"),
 		},
 		{
 			name:    "session outlets of two auths serve no method of the default role: one identity client judges the role",
@@ -562,7 +580,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			}},
 			wantRoutes:  switchAndFactor(),
 			wantCases:   switchAndFactorCases,
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "TakeHarborDirectory", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
 			name:        "an auth whose management the program does not generate serves none",
@@ -570,7 +588,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			auths:       []string{staffAuth},
 			wantRoutes:  switchAndFactor(),
 			wantCases:   switchAndFactorCases,
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "TakeHarborDirectory", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
 			name:    "an auth whose own reading of the directories record carries no default seat serves none: its management judges no such role",
@@ -582,7 +600,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			}},
 			wantRoutes:  switchAndFactor(),
 			wantCases:   switchAndFactorCases,
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "TakeHarborDirectory", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
 			name:        "an auth whose roles a directory writes serves none: nobody gives a role by hand",
@@ -591,16 +609,19 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			identity:    []*identityInstance{staff(true)},
 			wantRoutes:  switchAndFactor(),
 			wantCases:   switchAndFactorCases,
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "VouchForHarborDirectorySecondFactor"),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "StopVouchingForHarborDirectorySecondFactor", "TakeHarborDirectory", "VouchForHarborDirectorySecondFactor"),
 		},
 		{
-			name:        "a directories record with no default seat and no second-factor column has no role to set and no word to say",
-			structs:     []string{"Harbor", "Breakwater"},
-			auths:       []string{staffAuth},
-			identity:    []*identityInstance{staff(false)},
-			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: slices.Concat(readUnder("api"), switchUnder("api")), "members": slices.Concat(readUnder("members"), switchUnder("members"))},
-			wantCases:   slices.Concat(readCase("api"), switchCases("api"), readCase("members"), switchCases("members")),
-			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+			name:     "a directories record with no default seat and no second-factor column has no role to set and no word to say, and is taken all the same",
+			structs:  []string{"Harbor", "Breakwater"},
+			auths:    []string{staffAuth},
+			identity: []*identityInstance{staff(false)},
+			wantRoutes: map[string][]*generatedRoute{
+				defaultOutletName: slices.Concat(readUnder("api"), takeUnder("api"), switchUnder("api")),
+				"members":         slices.Concat(readUnder("members"), takeUnder("members"), switchUnder("members")),
+			},
+			wantCases:   slices.Concat(readCase("api"), takeCases("api"), switchCases("api"), readCase("members"), takeCases("members"), switchCases("members")),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "TakeHarborDirectory"),
 		},
 	}
 	for _, tt := range tests {
@@ -618,7 +639,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 					if prefix == "api" {
 						name = defaultOutletName
 					}
-					routes := slices.Concat(readUnder(prefix), roleUnder(prefix), factorUnder(prefix))
+					routes := slices.Concat(readUnder(prefix), takeUnder(prefix), roleUnder(prefix), factorUnder(prefix))
 					for _, route := range routes {
 						route.HandlerFunc = strings.Replace(route.HandlerFunc, "Harbor", "Sector", 1)
 						route.Path = strings.NewReplacer("harbors/{harborID}", r.domainRouteSegment+"/{"+r.domainRouteParam+"}", "-harbor-", "-sector-").Replace(route.Path)
@@ -647,9 +668,9 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 					t.Errorf("registered routes mismatch (-want +got):\n%s", diff)
 				}
 			} else if got := handlers(gotRoutes[defaultOutletName]); len(gotRoutes) != 2 || !slices.Equal(got, []string{
-				"TenantSignInSettings", "OpenSectorToDirectory", "MakeSectorInviteOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
+				"TenantSignInSettings", "TakeSectorDirectory", "OpenSectorToDirectory", "MakeSectorInviteOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 			}) {
-				t.Errorf("registered routes = %v, want the read of the tenant's sign-in settings, the two methods of the default role and the two of the word for the second factor on both session outlets and nothing of a switch", got)
+				t.Errorf("registered routes = %v, want the read of the tenant's sign-in settings, the method that takes the directory, the two methods of the default role and the two of the word for the second factor on both session outlets and nothing of a switch", got)
 			}
 			if got := len(testRoutes); got != registered {
 				t.Errorf("the dispatch test takes %d routes, want every registered one, %d", got, registered)
@@ -674,8 +695,8 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 				if diff := cmp.Diff(tt.wantCases, gotCases); diff != "" {
 					t.Errorf("the matrix's cases mismatch (-want +got):\n%s", diff)
 				}
-			} else if len(gotCases) != 26 {
-				t.Errorf("the matrix carries %d cases, want 26: the read of the tenant's sign-in settings, and each of the four methods plain, on a dry run and on a request for its warning, on both session outlets: %v", len(gotCases), gotCases)
+			} else if len(gotCases) != 32 {
+				t.Errorf("the matrix carries %d cases, want 32: the read of the tenant's sign-in settings, and each of the five methods plain, on a dry run and on a request for its warning, on both session outlets: %v", len(gotCases), gotCases)
 			}
 
 			b := resource.NewCollectionBuilder()
@@ -701,6 +722,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			"OpenHarborToDirectory":  "OpenHarborToDirectory is a method of the HarborDirectory record's default role (@directoryDefaultSeat), which the generator writes",
 			"VouchForHarborDirectorySecondFactor": "VouchForHarborDirectorySecondFactor is a method of the HarborDirectory record's word for its directory's second factor (@directorySecondFactor), " +
 				"which the generator writes",
+			"TakeHarborDirectory": "TakeHarborDirectory is a method of the HarborDirectory record (@tenantDirectory), which the generator writes",
 		} {
 			r := generator(t, []string{staffAuth}, []*identityInstance{staff(false)}, "Harbor", "HarborDirectory")
 			r.manualRegistrations = []ManualRegistration{{Resource: accesstypes.Resource(name), Permission: accesstypes.Execute}}
@@ -826,7 +848,8 @@ func Test_directoryDefaultSeat_isOutputOnly(t *testing.T) {
 // The browser generator reads each struct on its own and resolves no declaration across
 // them, so it finds each method by the record's own fields and by the collection the
 // handler generator computed: on the client of an outlet that serves the record, in the
-// tenant's scope, the methods that warn with the word a person types and the one that
+// tenant's scope, the method that takes the tenant's directory behind its phrase, the
+// methods that warn with the word a person types and the one that
 // opens the tenant with its role, picked from the list the handler generator chose, and
 // the two of the tenant's word for its directory's second factor where the directories
 // record carries the column; on no client where the application serves no such method,
@@ -871,9 +894,10 @@ func Test_directoryOnlyClient(t *testing.T) {
 	}
 
 	const (
+		takeDoc   = "takes the directory you are signed in through as the harbor's own, after the statement that you are authorized to act for the organization"
 		makeDoc   = "turns the harbor's directory-only switch on, which closes the harbor to every sign-in but one through its directory and its own administrators' password with a code sent to their email; the server refuses it until the harbor has its directory, unless the caller is signed in through it, and until the caller has a password where their auth has passwords, in a sentence the person can act on"
 		endDoc    = "turns the harbor's directory-only switch off: every sign-in is admitted again"
-		openDoc   = "opens the harbor to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation"
+		openDoc   = "opens the harbor to its directory's people: each of them who holds nothing in the harbor is given the role when they sign in through the directory, with no invitation"
 		inviteDoc = "makes the harbor invite only for its directory's people: a person from the directory enters once they are invited"
 		vouchDoc  = "says the harbor's directory asks its people for a second factor of its own, so a person who signs in through it is not asked for the application's mailed code; " +
 			"the person calling is signed in through that directory, and the method warns first"
@@ -881,6 +905,7 @@ func Test_directoryOnlyClient(t *testing.T) {
 	)
 	all := func(picker string) []*tsTenantOwnMethod {
 		return []*tsTenantOwnMethod{
+			{Name: "TakeHarborDirectory", Typed: "I am authorized", Doc: takeDoc},
 			{Name: "MakeHarborDirectoryOnly", Typed: "close", Doc: makeDoc},
 			{Name: "EndHarborDirectoryOnly", Doc: endDoc},
 			{Name: "OpenHarborToDirectory", Typed: "open", Doc: openDoc, Fields: []tsTenantOwnField{{Name: "role", Enumerated: picker}}},
@@ -900,6 +925,8 @@ func Test_directoryOnlyClient(t *testing.T) {
 		{
 			name: "the client of the outlet that serves the record", collection: served.Data(), picker: "StaffHarborDirectoryRoles", want: all("StaffHarborDirectoryRoles"),
 			wantMeta: []string{
+				"export interface TakeHarborDirectoryConfig {}\nexport interface TakeHarborDirectory {}",
+				"[Methods.TakeHarborDirectory]: {\n    route: 'take-harbor-directory',\n    dryRun: true,\n    warning: { typed: 'I am authorized' },\n    fields: [],\n  },",
 				"export interface MakeHarborDirectoryOnlyConfig {}\nexport interface MakeHarborDirectoryOnly {}",
 				"export interface EndHarborDirectoryOnlyConfig {}\nexport interface EndHarborDirectoryOnly {}",
 				"export interface OpenHarborToDirectoryConfig {\n  role: string | FieldPointer;\n}",
@@ -938,12 +965,18 @@ func Test_directoryOnlyClient(t *testing.T) {
 				t.Fatalf("applyOutletFilter() error = %v", err)
 			}
 			gen.resources = filtered
+			// The filter notes the directories record the package declares before it drops
+			// what is off the outlet: the create-your-tenant route takes a directory wherever
+			// it is served, so every outlet's client carries the phrase of its statement.
+			if !gen.tenantDirectories {
+				t.Error("applyOutletFilter() did not note the package's directories record")
+			}
 			got := gen.tenantOwnClientData()
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Fatalf("tenantOwnClientData() mismatch (-want +got):\n%s", diff)
 			}
 			for _, method := range []string{
-				"MakeHarborDirectoryOnly", "EndHarborDirectoryOnly", "OpenHarborToDirectory", "MakeHarborInviteOnly",
+				"TakeHarborDirectory", "MakeHarborDirectoryOnly", "EndHarborDirectoryOnly", "OpenHarborToDirectory", "MakeHarborInviteOnly",
 				"VouchForHarborDirectorySecondFactor", "StopVouchingForHarborDirectorySecondFactor",
 			} {
 				excluded := slices.Contains(gen.outletExcluded, accesstypes.Resource(method))
@@ -972,7 +1005,10 @@ func Test_directoryOnlyClient(t *testing.T) {
 // directories record off a package's syntax, before the packages are loaded: the
 // columns behind the annotated fields, and nothing where the record declares no switch,
 // the package no directories record, or a column cannot be read; and the directories
-// record's default seat column, which is read with or without the switch.
+// record's default seat column, which is read with or without the switch, as is where
+// the record keeps its default seat with its table, tenant, method and connection
+// columns (nothing where the record declares no default seat or a column cannot be
+// read).
 func Test_tenantDirectoryIn(t *testing.T) {
 	t.Parallel()
 
@@ -1043,6 +1079,7 @@ func Test_tenantDirectoryIn(t *testing.T) {
 		Berth *string ` + "`spanner:\"DefaultSeat\"`" + `
 	}
 `
+	seated := &identityDirectorySeat{Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", SeatColumn: "DefaultSeat"}
 	tests := []struct {
 		name    string
 		structs []string
@@ -1050,6 +1087,9 @@ func Test_tenantDirectoryIn(t *testing.T) {
 		// wantSeat is the directories record's default seat column, which is read
 		// whether the record declares the switch or not.
 		wantSeat string
+		// wantSeated is where the directories record keeps its default seat, read
+		// whether the record declares the switch or not.
+		wantSeated *identityDirectorySeat
 		// wantOutlets are the outlets the directories record is served on, the default
 		// outlet where it names none and nil where the package declares no such record.
 		wantOutlets []string
@@ -1069,16 +1109,22 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			structs:     []string{record, strings.Replace(directoriesSeated, "// @tenantDirectory", "// @tenantDirectory\n\t// @outlet(console, portal)", 1)},
 			want:        &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 			wantSeat:    "DefaultSeat",
+			wantSeated:  seated,
 			wantOutlets: []string{"console", "portal"},
 			wantRecord:  "HarborDirectory",
 		},
 		{name: "a record that declares no switch", structs: []string{recordWithoutSwitch, directories}, wantOutlets: []string{defaultOutletName}, wantRecord: "HarborDirectory"},
 		{
 			name:    "a record that declares no switch keeps its directories record's default seat",
-			structs: []string{recordWithoutSwitch, directoriesSeated}, wantSeat: "DefaultSeat", wantOutlets: []string{defaultOutletName}, wantRecord: "HarborDirectory",
+			structs: []string{recordWithoutSwitch, directoriesSeated}, wantSeat: "DefaultSeat", wantSeated: seated, wantOutlets: []string{defaultOutletName}, wantRecord: "HarborDirectory",
 		},
 		{name: "a package with no directories record", structs: []string{record}},
 		{name: "a column the syntax does not name", structs: []string{record, directoriesUntagged}, wantOutlets: []string{defaultOutletName}, wantRecord: "HarborDirectory"},
+		{
+			name:     "a default seat whose directory's column the syntax does not name",
+			structs:  []string{record, strings.Replace(directoriesSeated, "Method string `spanner:\"Method\"`", "Method string", 1)},
+			wantSeat: "DefaultSeat", wantOutlets: []string{defaultOutletName}, wantRecord: "HarborDirectory",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1089,7 +1135,7 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "resources.go"), []byte(source), 0o600); err != nil {
 				t.Fatalf("os.WriteFile() error = %v", err)
 			}
-			got, directoriesRecord, seat, outlets, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
+			got, directories, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
 				return strings.TrimSuffix(name, "y") + "ies"
 			})
 			if err != nil {
@@ -1098,13 +1144,16 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("tenantDirectoryIn() mismatch (-want +got):\n%s", diff)
 			}
-			if seat != tt.wantSeat {
-				t.Errorf("tenantDirectoryIn() default seat column = %q, want %q", seat, tt.wantSeat)
+			if directories.seat != tt.wantSeat {
+				t.Errorf("tenantDirectoryIn() default seat column = %q, want %q", directories.seat, tt.wantSeat)
 			}
-			if directoriesRecord != tt.wantRecord {
-				t.Errorf("tenantDirectoryIn() directories record = %q, want %q", directoriesRecord, tt.wantRecord)
+			if diff := cmp.Diff(tt.wantSeated, directories.seated); diff != "" {
+				t.Errorf("tenantDirectoryIn() where the default seat is kept (-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tt.wantOutlets, outlets); diff != "" {
+			if directories.record != tt.wantRecord {
+				t.Errorf("tenantDirectoryIn() directories record = %q, want %q", directories.record, tt.wantRecord)
+			}
+			if diff := cmp.Diff(tt.wantOutlets, directories.outlets); diff != "" {
 				t.Errorf("tenantDirectoryIn() outlets of the directories record (-want +got):\n%s", diff)
 			}
 		})
@@ -1448,8 +1497,7 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 // manage an account (identity.Store.ManagingTenants): from the tenant's list of its
 // people, by the user's rows whose ManagedHere is true, where the tenant record declares
 // a directory and the auth keeps identities; every other store answers none and reads
-// nothing. And the four generated removals say an account another tenant's directory
-// signs in stays.
+// nothing.
 func Test_identityStoreTemplate_managingTenants(t *testing.T) {
 	t.Parallel()
 
@@ -1502,10 +1550,14 @@ func Test_identityStoreTemplate_managingTenants(t *testing.T) {
 			}
 		})
 	}
+}
 
-	// The comments of the generated removals, each a template's, say the rule in one
-	// sentence.
-	const stays = "An account that signs in through a tenant's directory is that tenant's to delete: it goes this way only with the last thing it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's list of its people."
+// Test_identityRemovalTemplates_keepTheAccount pins the comments of the four generated
+// removals: each says the account stays, holding nothing, and none says it is deleted.
+func Test_identityRemovalTemplates_keepTheAccount(t *testing.T) {
+	t.Parallel()
+
+	const stays = "the account stays, holding nothing."
 	flat := regexp.MustCompile(`\n// ?`)
 	for name, template := range map[string]string{
 		"identityRemoveRoleTemplate":        identityRemoveRoleTemplate,
@@ -1513,9 +1565,128 @@ func Test_identityStoreTemplate_managingTenants(t *testing.T) {
 		"identityTenantRemoveUserTemplate":  identityTenantRemoveUserTemplate,
 		"identityRemoveGroupMemberTemplate": identityRemoveGroupMemberTemplate,
 	} {
-		if !strings.Contains(flat.ReplaceAllString(template, " "), stays) {
+		said := flat.ReplaceAllString(template, " ")
+		if !strings.Contains(said, stays) {
 			t.Errorf("%s does not say %q", name, stays)
 		}
+		for _, gone := range []string{"is deleted with their", "whether the account goes", "the account is deleted with it"} {
+			if strings.Contains(said, gone) {
+				t.Errorf("%s says %q", name, gone)
+			}
+		}
+	}
+}
+
+// Test_identitySeatedAgainBySignIn pins the read of whether a person removed from a tenant
+// is given its starting role again at their next sign-in: the client answers it where the
+// tenant's directories record declares the default seat and the auth keeps identities,
+// with or without the tenant record's directory-only switch, by one statement over the
+// directories table and the identities table, where the auth's roles are given by hand;
+// and the warning of the method that removes a person from a tenant asks it and adds the
+// note on yes. Where the read is not written, the warning is the removal's own. The
+// tenant's method that deletes a person declares a warning where the read is written,
+// which asks it and answers the tenant's deletion warning; on the whole application's
+// side, and without the read, the method declares none.
+func Test_identitySeatedAgainBySignIn(t *testing.T) {
+	t.Parallel()
+
+	directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+	seat := &identityDirectorySeat{Table: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection", SeatColumn: "DefaultSeat"}
+	data := func(tenant *identityTenant, tables ...identityTable) *identitySourceData {
+		inst := &identityInstance{auth: "Crew", tenant: tenant, tables: map[identityTable]bool{}}
+		for _, kind := range tables {
+			inst.tables[kind] = true
+		}
+
+		return &identitySourceData{
+			Source: "Auth", Package: "crewidentity", identityInstance: inst, ResourcesPackage: "crewresources", Outlets: "default", ForTenant: true,
+			Tables: session.Tables{Users: "CrewSessionUsers", Identities: "CrewSessionIdentities"},
+			Policy: access.Tables{UserRoles: "CrewUserRoles"},
+		}
+	}
+	synced := func(d *identitySourceData) *identitySourceData {
+		d.rolesSynced = true
+
+		return d
+	}
+	sector := func(directory *identityTenantDirectory, seated *identityDirectorySeat) *identityTenant {
+		seatColumn := ""
+		if seated != nil {
+			seatColumn = seated.SeatColumn
+		}
+
+		return &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory, directorySeat: seatColumn, seated: seated}
+	}
+	const (
+		signature = "func (c *Client) SeatedAgainBySignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, userID impulse.UUID) (bool, error) {"
+		statement = `SQL:    "SELECT EXISTS (SELECT 1 FROM CrewSessionIdentities i JOIN SectorDirectories d ON d.Method = i.Method AND d.Connection = i.Connection WHERE i.UserId = @userId AND d.SectorId = @tenant AND d.DefaultSeat IS NOT NULL AND d.DefaultSeat != '')",`
+		params    = `Params: map[string]any{"userId": userID.String(), "tenant": string(tenant)},`
+		asks      = "\treturn nil, errors.Wrap(err, \"identity.Tenant.RemovalWarning()\")\n\t}\n\tagain, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"Client.SeatedAgainBySignIn()\")\n\t}\n\tif again {\n\t\twarning.Also = append(warning.Also, tenant.SeatedAgainNote())\n\t}\n\n\treturn warning, nil"
+		own       = "\treturn nil, errors.Wrap(err, \"identity.Tenant.RemovalWarning()\")\n\t}\n\n\treturn warning, nil"
+		said      = "// Where the tenant is open to its directory and the person signs in through it, the\n// warning says they are seated again at their next sign-in."
+		deletes   = "// @answers(204)\n// @warning\ntype DeleteCrewSectorUser struct {"
+		deleteAsk = "func (m *DeleteCrewSectorUser) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {\n\t// A tenant's method acts for a request made under the tenant's address.\n\ttenant, err := client.manager.Tenant(ctx)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"identity.Manager.Tenant()\")\n\t}\n\tagain, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"Client.SeatedAgainBySignIn()\")\n\t}\n\n\treturn tenant.DeletionWarning(again), nil\n}"
+		deleteSay = "// Before it runs on a tenant's side, the method says what it does (Warning): where the\n// tenant is open to its directory and the person signs in through it, that they can sign\n// in again and will get a new account."
+		noWarning = "// @answers(204)\ntype Delete"
+	)
+	for _, tt := range []struct {
+		name  string
+		data  *identitySourceData
+		reads bool
+	}{
+		{name: "a directories record with a default seat, a tenant record with the switch, an auth that keeps identities", data: data(sector(directory, seat), identityUsers, identityMemberships, identityIdentities), reads: true},
+		{name: "a directories record with a default seat, a tenant record with no switch, an auth that keeps identities", data: data(sector(nil, seat), identityUsers, identityMemberships, identityIdentities), reads: true},
+		{name: "a directories record with no default seat: not read", data: data(sector(directory, nil), identityUsers, identityMemberships, identityIdentities)},
+		{name: "an auth that keeps no identities: not read", data: data(sector(directory, seat), identityUsers, identityMemberships)},
+		{name: "an auth whose directory writes its roles: not read", data: synced(data(sector(directory, seat), identityUsers, identityMemberships, identityIdentities))},
+		{name: "no tenant record: not read", data: data(nil, identityUsers, identityMemberships, identityIdentities)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.data.ReadsSeatedAgain(); got != tt.reads {
+				t.Errorf("ReadsSeatedAgain() = %t, want %t", got, tt.reads)
+			}
+			c := &client{}
+			out, err := c.generateTemplateOutput("identityStoreTemplate", identityStoreTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityStoreTemplate) error = %v", err)
+			}
+			if tt.reads {
+				assertContains(t, "the store", string(out), []string{signature, statement, params}, nil)
+			} else {
+				assertContains(t, "the store", string(out), nil, []string{"SeatedAgainBySignIn"})
+			}
+			if tt.data.tenant == nil {
+				return
+			}
+			removal, err := c.generateTemplateOutput("identityTenantRemoveUserTemplate", identityTenantRemoveUserTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityTenantRemoveUserTemplate) error = %v", err)
+			}
+			if tt.reads {
+				assertContains(t, "the removal", string(removal), []string{asks, said}, []string{own})
+			} else {
+				assertContains(t, "the removal", string(removal), []string{own}, []string{"SeatedAgain", said})
+			}
+			tenantData := *tt.data
+			deletion, err := c.generateTemplateOutput("identityDeleteUserTemplate", identityDeleteUserTemplate, &tenantData)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityDeleteUserTemplate) error = %v", err)
+			}
+			if tt.reads {
+				assertContains(t, "the tenant's deletion", string(deletion), []string{deletes, deleteAsk, deleteSay}, nil)
+			} else {
+				assertContains(t, "the tenant's deletion", string(deletion), []string{noWarning}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
+			}
+			wholeData := tenantData
+			wholeData.ForTenant = false
+			whole, err := c.generateTemplateOutput("identityDeleteUserTemplate", identityDeleteUserTemplate, &wholeData)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityDeleteUserTemplate) error = %v", err)
+			}
+			assertContains(t, "the whole application's deletion", string(whole), []string{noWarning}, []string{"@warning", "Warning(", "SeatedAgain", deleteSay})
+		})
 	}
 }
 
@@ -1528,6 +1699,7 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 	t.Parallel()
 
 	harbor := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+	harborSeat := &identityDirectorySeat{Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", SeatColumn: "DefaultSeat"}
 	tests := []struct {
 		name    string
 		structs []string
@@ -1535,17 +1707,21 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 		written *identityTenantDirectory
 		// seat is the default seat column the sources were written for: the fixture's
 		// directories record carries DefaultSeat, and its Breakwater none.
-		seat    string
+		seat string
+		// seated is where the sources were written to read the default seat, with the
+		// directories record's table and columns, whether or not the switch is declared.
+		seated  *identityDirectorySeat
 		wantErr string
 	}{
-		{name: "the same switch and directories record", structs: []string{"Harbor", "HarborDirectory"}, record: "Harbor", written: harbor, seat: "DefaultSeat"},
-		{name: "no switch either way", structs: []string{"Sector", "HarborDirectory"}, record: "Sector", seat: "DefaultSeat"},
+		{name: "the same switch and directories record", structs: []string{"Harbor", "HarborDirectory"}, record: "Harbor", written: harbor, seat: "DefaultSeat", seated: harborSeat},
+		{name: "no switch either way", structs: []string{"Sector", "HarborDirectory"}, record: "Sector", seat: "DefaultSeat", seated: harborSeat},
 		{
 			name:    "written for a switch the load does not find",
 			structs: []string{"Sector", "HarborDirectory"},
 			record:  "Sector",
 			written: harbor,
 			seat:    "DefaultSeat",
+			seated:  harborSeat,
 			wantErr: "was written for the switch DirectoryOnly over the directories table HarborDirectories (HarborId, Method, Connection)",
 		},
 		{
@@ -1553,6 +1729,7 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 			structs: []string{"Harbor", "HarborDirectory"},
 			record:  "Harbor",
 			seat:    "DefaultSeat",
+			seated:  harborSeat,
 			wantErr: "was written for no directory-only switch",
 		},
 		{
@@ -1561,6 +1738,7 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 			record:  "Harbor",
 			written: &identityTenantDirectory{OnlyColumn: "Closed", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 			seat:    "DefaultSeat",
+			seated:  harborSeat,
 			wantErr: "was written for the switch Closed over the directories table HarborDirectories",
 		},
 		{
@@ -1576,7 +1754,24 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 			record:  "Harbor",
 			written: harbor,
 			seat:    "DefaultSeat",
+			seated:  harborSeat,
 			wantErr: `the role grants were written for the directories record's default seat column "DefaultSeat",`,
+		},
+		{
+			name:    "written to read no default seat, and the load finds one",
+			structs: []string{"Sector", "HarborDirectory"},
+			record:  "Sector",
+			seat:    "DefaultSeat",
+			wantErr: "the read of whether a person removed from a tenant is seated again was written for no default seat",
+		},
+		{
+			name:    "written to read the default seat over another column",
+			structs: []string{"Harbor", "HarborDirectory"},
+			record:  "Harbor",
+			written: harbor,
+			seat:    "DefaultSeat",
+			seated:  &identityDirectorySeat{Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Link", SeatColumn: "DefaultSeat"},
+			wantErr: "the read of whether a person removed from a tenant is seated again was written for the default seat DefaultSeat over the directories table HarborDirectories (HarborId, Method, Link)",
 		},
 	}
 	for _, tt := range tests {
@@ -1593,7 +1788,7 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 			r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a", domainRouteSegment: defaultDomainRouteSegment, domainRouteParam: defaultDomainRouteParam}
 			r.resource = "testdata/tenantfixture"
 			r.identityTree = "pkg/identity"
-			r.identity = []*identityInstance{{auth: "Crew", tenant: &identityTenant{name: tt.record, directory: tt.written, directorySeat: tt.seat}}}
+			r.identity = []*identityInstance{{auth: "Crew", tenant: &identityTenant{name: tt.record, directory: tt.written, directorySeat: tt.seat, seated: tt.seated}}}
 
 			// The run's own step: the record's declaration resolves, then the reading
 			// before the load is held to it.

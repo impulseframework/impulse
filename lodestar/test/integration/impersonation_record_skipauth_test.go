@@ -389,15 +389,18 @@ func TestImpersonation_ownRecordActingAsAPerson(t *testing.T) {
 
 // TestImpersonation_sectorDeletedActingAsAPerson proves a session that acts as a person
 // under the kind that refuses the class access cannot delete a sector. A sector that
-// goes takes with it every role held in it, its groups, the custom roles made in it and
-// the invitations into it, and each of those done alone is an access action; the
-// generator gives the delete of the tenant record that class, so the kind refuses it
-// whatever the person acted as may do. No role the release ships deletes a sector, so
-// the suite makes one that does and gives it to the governor, as the suite of a deleted
-// sector does. The cadet, standing in for the governor, is refused the delete of a
-// sector founded for the test: the sector stands, and so does every role held in the
-// crew. The governor, in a session of his own, then deletes it: the grant was there all
-// along, and the class is what refused.
+// goes takes with it every role held in it, its groups, the custom roles made in it, the
+// invitations into it and the accounts that were its alone, and each of those done alone
+// is an access action; the generator gives the delete of the tenant record that class,
+// so the kind refuses it whatever the person acted as may do. No role the release ships
+// deletes a sector, so the suite makes one that does and gives it to the governor, as
+// the suite of a deleted sector does, and he disables the sector first, as Headquarters
+// does: a sector is disabled before it is deleted. The cadet, standing in for the
+// governor, is refused
+// the delete of a disabled sector founded for the test: the sector stands, and so does
+// every role held in the crew. The governor, in a session of his own, then sends the
+// same delete, which says it takes everything under the sector, and the sector goes: the
+// grant was there all along, and the class is what refused.
 //
 // Demonstrates: impersonation.mask, impersonation.act-as-user, tenancy.deleted-tenant.
 func TestImpersonation_sectorDeletedActingAsAPerson(t *testing.T) {
@@ -427,10 +430,12 @@ func TestImpersonation_sectorDeletedActingAsAPerson(t *testing.T) {
 		t.Fatalf("Delete on Sectors for the governor holding %s = %s, want granted before the sector is made", closer, d)
 	}
 	forge := foundSector(ctx, t, s, hq, "Forge", "Far frontier", "2226-11-20", "forge-founder")
+	// A sector is disabled before it is deleted.
+	setSectorDisabled(ctx, t, hq, forge, true)
 
 	giveCrewRole(ctx, t, s, "StandIn", "cadet")
 	asGovernor := actingBrowser(ctx, t, s, "cadet", actAs(t, "governor", "standing in for the governor", ""))
-	remove := recordOp("remove", "/sectors/"+forge, "")
+	remove := recordOp("remove", "/sectors/"+forge, `{"everythingUnder":true}`)
 	sectors, roles := tableRows(ctx, t, s, "Sectors"), tableRows(ctx, t, s, "CrewUserRoles")
 	if status, answer := writeRecords(ctx, asGovernor, remove); status != http.StatusForbidden {
 		t.Errorf("acting as the governor, a sector deleted: status %d, want 403: the delete of a sector carries the class access: %s", status, answer)

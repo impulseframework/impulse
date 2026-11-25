@@ -185,8 +185,9 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 // tenant. The methods that end one session and unlock a sign-in are the whole
 // application's alone, and the one that removes a person from a tenant is a tenant's
 // alone. A tenant's side of an application that declares a directories
-// record also names the tenant record's methods that set how the tenant's people enter
-// (tenantdirectoryrole.go, tenantdirectoryonly.go, tenantdirectoryfactor.go).
+// record also names the tenant record's methods that take its directory and set how the
+// tenant's people enter (tenantdirectorytake.go, tenantdirectoryrole.go,
+// tenantdirectoryonly.go, tenantdirectoryfactor.go).
 func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 	subject := i.subject(tenant)
 	parts := []identityPart{
@@ -240,6 +241,7 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 	}
 	if tenant && i.tenant != nil && i.tenant.directories != "" {
 		parts = append(parts,
+			identityPart{"takeDirectory", takeDirectoryMethodName(i.tenant.name)},
 			identityPart{"openToDirectory", openToDirectoryMethodName(i.tenant.name)},
 			identityPart{"makeDirectoryInviteOnly", makeInviteOnlyMethodName(i.tenant.name)},
 			identityPart{"makeDirectoryOnly", makeDirectoryOnlyMethodName(i.tenant.name)},

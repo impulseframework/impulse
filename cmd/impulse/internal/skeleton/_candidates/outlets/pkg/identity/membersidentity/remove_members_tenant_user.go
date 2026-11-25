@@ -15,11 +15,8 @@ import (
 // the tenant the request is made under, in one transaction: every role of their own held in
 // the tenant goes, and their place in each group kept in it. What reaches the tenant another
 // way stays: a role held in every tenant, a role for the whole application and a place in a
-// group kept for the whole application. A person left holding nothing that has not ended is
-// deleted with their sign-in identities and sessions. An account that signs in through a
-// tenant's directory is that tenant's to delete: it goes this way only with the last thing
-// it holds in that tenant itself, and otherwise stays, holding nothing, in that tenant's
-// list of its people. A person who reaches the tenant no more is told by mail.
+// group kept for the whole application. Where the removal takes the last thing the person
+// holds, the account stays, holding nothing.
 //
 // It is a tenant's method: it names a row of MembersTenantUser, the tenant's own list of the
 // auth's people. It takes only what is the tenant's own, so its grant needs no condition on
@@ -29,7 +26,9 @@ import (
 // person leaves a tenant from their own account page.
 //
 // The method declares a warning, which a person types "remove" under before the call is
-// confirmed: the roles that go, and whether the account goes with them.
+// confirmed: the roles that go.
+// Where the tenant is open to its directory and the person signs in through it, the
+// warning says they are seated again at their next sign-in.
 //
 // @rpc
 // @permissionScope(domain)
@@ -43,8 +42,8 @@ type RemoveMembersTenantUser struct {
 	UserID impulse.UUID
 }
 
-// Warning says what the removal would take from the person, the roles by name, and whether
-// the account goes with it. It writes nothing.
+// Warning says what the removal would take from the person, the roles by name. It writes
+// nothing.
 func (m *RemoveMembersTenantUser) Warning(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*resource.Warning, error) {
 	tenant, err := client.manager.Tenant(ctx)
 	if err != nil {
@@ -53,6 +52,13 @@ func (m *RemoveMembersTenantUser) Warning(ctx context.Context, txn resource.Read
 	warning, err := tenant.RemovalWarning(ctx, txn, m.UserID)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Tenant.RemovalWarning()")
+	}
+	again, err := client.SeatedAgainBySignIn(ctx, txn, tenant.Domain(), m.UserID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Client.SeatedAgainBySignIn()")
+	}
+	if again {
+		warning.Also = append(warning.Also, tenant.SeatedAgainNote())
 	}
 
 	return warning, nil

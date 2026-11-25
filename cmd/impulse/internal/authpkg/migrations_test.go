@@ -123,7 +123,7 @@ func TestMigrations_normalizedUsername(t *testing.T) {
 	}
 }
 
-// TestMigrations_rowDeletionPolicies holds the row deletion policies of the three tables
+// TestMigrations_rowDeletionPolicies holds the row deletion policies of the seven tables
 // that would otherwise keep every row ever written, and the column the sign-in attempts
 // table's policy is counted from: the same statements as the session library's shipped
 // sets, under the auth's prefix.
@@ -139,6 +139,10 @@ func TestMigrations_rowDeletionPolicies(t *testing.T) {
 		"    EndsAt       TIMESTAMP AS (GREATEST(WindowEndsAt, IFNULL(LockedUntil, WindowEndsAt))) STORED,\n) PRIMARY KEY (Name);",
 		"ALTER TABLE StaffSessionSignInAttempts ADD ROW DELETION POLICY (OLDER_THAN(EndsAt, INTERVAL 1 DAY));",
 		"ALTER TABLE StaffSessionMailLinks ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));",
+		"ALTER TABLE StaffSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));",
+		"ALTER TABLE StaffSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));",
+		"ALTER TABLE StaffSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));",
+		"ALTER TABLE StaffSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));",
 	} {
 		if !strings.Contains(up.String(), statement) {
 			t.Errorf("the migrations lack %q", statement)
@@ -195,5 +199,31 @@ func TestMigrations_withdrawnLinks(t *testing.T) {
 	table, _, _ = strings.Cut(table, ") PRIMARY KEY (Id);")
 	if !strings.Contains(table, column) {
 		t.Errorf("the mail links table lacks %q:\n%s", column, table)
+	}
+}
+
+// TestMigrations_sessionsNameTheirUser holds that the sessions table names its user with
+// no foreign key: a deleted user's sessions are ended in code, and their rows stay until
+// the timed removal takes them, so nothing of the user's delete reaches them.
+func TestMigrations_sessionsNameTheirUser(t *testing.T) {
+	t.Parallel()
+
+	var up strings.Builder
+	for _, m := range Migrations("Staff", "staff", false) {
+		up.WriteString(m.Up)
+	}
+	_, table, found := strings.Cut(up.String(), "CREATE TABLE StaffSessions (")
+	if !found {
+		t.Fatal("the migrations make no sessions table")
+	}
+	table, _, _ = strings.Cut(table, ") PRIMARY KEY (Id);")
+	if !strings.Contains(table, "    UserId                STRING(36),\n") {
+		t.Errorf("the sessions table lacks its UserId column:\n%s", table)
+	}
+	if strings.Contains(table, "FOREIGN KEY") {
+		t.Errorf("the sessions table holds a foreign key, want none:\n%s", table)
+	}
+	if strings.Contains(up.String(), "ALTER TABLE StaffSessions ADD CONSTRAINT") {
+		t.Error("the migrations add a constraint to the sessions table, want none")
 	}
 }

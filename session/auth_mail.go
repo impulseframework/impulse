@@ -564,27 +564,6 @@ You do not need to do anything. If you want to know why, ask an administrator of
 	}
 }
 
-// removedFromTenantMessage is the notice sent when an administrator's act leaves a
-// person with no role in a tenant: where they were removed from (tenant, "" where the
-// Auth has no name for it), and that the account went with it when it did.
-func (m *mailSettings) removedFromTenantMessage(to, tenant string, accountDeleted bool) mail.Message {
-	app := m.settings.Application
-	where := tenant
-	if where == "" {
-		where = app
-	}
-	text := fmt.Sprintf("An administrator removed you from %s. You no longer have access to it in %s.\n", where, app)
-	if tenant == "" {
-		text = fmt.Sprintf("An administrator removed your access in %s.\n", app)
-	}
-	if accountDeleted {
-		text += fmt.Sprintf("\nIt was the only place you had access to, so your %s account was deleted with it.\n", app)
-	}
-	text += fmt.Sprintf("\nDidn't expect this?\nIf you think this is a mistake, ask an administrator of %s.\n", where)
-
-	return mail.Message{To: to, Subject: fmt.Sprintf("You were removed from %s", where), Text: text}
-}
-
 // codeMessage is the mail the second factor sends: the one-time code, how long it is
 // good for (lifetime), then what to do if no sign-in was started and a word to keep
 // the code to oneself. The code is spaced in the middle for reading.

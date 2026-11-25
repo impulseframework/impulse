@@ -14,3 +14,45 @@ mat-dialog-content {
   margin: 0;
   color: var(--mat-sys-error);
 }
+
+// A creation that takes the organization's directory: the server's statement in the
+// library's warning colors under a warning icon, as the method dialog draws a typed
+// warning, the phrase typed under the fields, and the button in the warning's color
+// while it can be pressed.
+.warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--impulse-alert-warn-border);
+  border-radius: 5px;
+  background-color: var(--impulse-alert-warn-bg);
+}
+
+.warning-icon {
+  flex: none;
+  color: var(--impulse-alert-warn-border);
+}
+
+.warning-words {
+  min-width: 0;
+}
+
+.warning-consequence {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.warning-note {
+  margin: 12px 0 0;
+  white-space: pre-line;
+}
+
+.typed-word {
+  display: block;
+}
+
+.warns:not(:disabled) {
+  background-color: var(--impulse-alert-warn-border);
+  color: var(--impulse-surface);
+}

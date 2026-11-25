@@ -24,7 +24,8 @@
                 "name",
                 "region",
                 "established",
-                "directoryOnly"
+                "directoryOnly",
+                "disabled"
               ]
             },
             {
@@ -34,6 +35,7 @@
                 "region",
                 "established",
                 "directoryOnly",
+                "disabled",
                 "people",
                 "since",
                 "directory"
@@ -70,7 +72,8 @@
                 "name",
                 "region",
                 "established",
-                "directoryOnly"
+                "directoryOnly",
+                "disabled"
               ]
             },
             {
@@ -726,6 +729,7 @@
                 "region",
                 "established",
                 "directoryOnly",
+                "disabled",
                 "people",
                 "since",
                 "directory",
@@ -1172,7 +1176,8 @@
               "fields": [
                 "name",
                 "region",
-                "established"
+                "established",
+                "disabled"
               ]
             },
             {
@@ -1618,6 +1623,7 @@
                 "region",
                 "established",
                 "directoryOnly",
+                "disabled",
                 "people",
                 "since",
                 "directory",
@@ -2481,9 +2487,6 @@
                 "answersRelayId",
                 "message"
               ]
-            },
-            {
-              "resource": "SectorDirectories"
             }
           ],
           "Update": [
@@ -2789,6 +2792,9 @@
             {
               "resource": "TakeCrewSectorGroupRole",
               "condition": "role != 'SectorMarshal'"
+            },
+            {
+              "resource": "TakeSectorDirectory"
             },
             {
               "resource": "MakeSectorDirectoryOnly"

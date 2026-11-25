@@ -48,7 +48,7 @@ what they hold.
   the people. A group gives nobody a power that giving the role directly would not: who is
   in a group, and what it holds, is changed by someone who may give or take those roles
   directly. The list of groups says how many people each group has and the roles it
-  holds, and offers Delete only on a group that holds nothing; a person's page lists
+  holds, and offers Delete on every group, asking first with a count of its people and roles; a person's page lists
   their roles in one list that says "Their own" or names the group each comes through.
   On the Break glass page (`/staff-break-glass`) a person takes a role for a set time and
   says why, when they hold the page's grant and could give themselves that role: the role

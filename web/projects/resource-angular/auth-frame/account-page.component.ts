@@ -26,7 +26,6 @@ import { OwnSession, OwnSessions, OwnTenant, SignInRefusal } from '@impulseframe
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { NewPasswordComponent } from '@impulseframework/resource-angular/auth-new-password';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { FRONTEND_SIGN_OUT_PATH } from '@impulseframework/resource-angular/types';
 import { MailHold, UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
 import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
@@ -110,7 +109,7 @@ interface Said {
  * person types what they are doing; a tenant they cannot leave says why in place of the
  * button. After a leave the person's permissions and tenants are read again: a person who
  * left the tenant the page is in is taken to the first page of the place the frame lands
- * them in, and a person whose account went with it to the sign-out path.
+ * them in.
  *
  * Under the lines, where the person is signed in: each browser by its name, with when it
  * was signed in and last used, this browser first. Each act on the list happens at once,
@@ -141,8 +140,6 @@ export class AccountPageComponent {
   private router = inject(Router);
   private frame = inject(Frame);
   private places = inject(PlaceService);
-  /** Where Sign out goes, and the browser after a leave that deleted the account. */
-  private signOutPath = inject(FRONTEND_SIGN_OUT_PATH);
 
   readonly nameMaxLength = nameMaxLength;
   readonly usernameMaxLength = usernameMaxLength;
@@ -619,11 +616,9 @@ export class AccountPageComponent {
 
   /**
    * Asks in a window of its own whether the person leaves a tenant, and leaves it once they
-   * confirm, telling the server what the list told them (`deletesAccount`). Where the
-   * account went with it, the browser goes where Sign out goes. Otherwise the person's
-   * permissions and tenants are read again, and a person who left the tenant the page is in
-   * is taken to the first page of the place the frame lands them in; anyone else is told
-   * they left it under the list, read again. A refusal says the server's words, and a
+   * confirm. The person's permissions and tenants are then read again, and a person who
+   * left the tenant the page is in is taken to the first page of the place the frame lands
+   * them in; anyone else is told they left it under the list, read again. A refusal says the server's words, and a
    * failure that it did not work; the list is read again after either.
    */
   async leave(tenant: OwnTenant): Promise<void> {
@@ -633,8 +628,6 @@ export class AccountPageComponent {
     const confirmed = await askToLeaveTenant(this.dialog, {
       name: tenant.name,
       roles: tenant.roles,
-      deletesAccount: tenant.deletesAccount,
-      word: inSentence(this.frame.tenantWord.one),
     });
     if (!confirmed || this.busy()) {
       return;
@@ -642,14 +635,10 @@ export class AccountPageComponent {
     this.tenantsSaid.set(undefined);
     try {
       await this.request(async () => {
-        const result = await this.client.auth.leaveTenant(tenant.domain, tenant.deletesAccount);
+        const result = await this.client.auth.leaveTenant(tenant.domain);
         if (result.outcome === 'refused') {
           this.tenantsSaid.set(result.message);
           this.held.reload();
-          return;
-        }
-        if (result.accountDeleted) {
-          await this.router.navigateByUrl(this.signOutPath);
           return;
         }
         await firstValueFrom(this.auth.refreshPermissions());

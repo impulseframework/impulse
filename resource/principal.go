@@ -83,10 +83,17 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // to open and the generated domain guard refuses a direct request for it as it
 // refuses a domain that is not a tenant (UserPermissions.Reaches). The person
 // holds a seat there all the same, so the tenant list of a person's own sign-in
-// carries the tenant closed, with the reason (ClosedDomains, UserDomainsHandler);
-// an impersonated session and a session that acts as a role are told of none. An
-// application that keeps no declarations passes nil, and every tenant admits
-// every session.
+// carries the tenant as not available, with the reason (UnavailableDomains,
+// UserDomainsHandler); an impersonated session and a session that acts as a role
+// are told of none. An application that keeps no declarations passes nil, and every
+// tenant admits every session.
+//
+// A tenant that is disabled (the tenant record's @tenantDisabled column,
+// signin.TenantDeclaration.Disabled) is entered by nobody but a super administrator.
+// Its own administrators, a person who came through its directory and a holder of a
+// role in every tenant hold nothing in it while it is disabled, whatever its sign-in
+// settings admit, and have what they had once it is enabled. The tenant list of a
+// person's own sign-in carries it with the reason, "Acme is disabled."
 //
 // A person is named as the permission store names them: by the id of their
 // account (sessioninfo.SessionData.User), never by the username, which can
@@ -189,6 +196,9 @@ func SessionPermissions[U SessionUserChecker, R RolePermissions](
 			actor:                 actorChecker,
 			foreignActor:          impersonated && !imp.IsLocalActor(),
 			reached:               map[accesstypes.Domain]bool{},
+			declared:              map[accesstypes.Domain]*signin.TenantDeclaration{},
+			admitted:              map[accesstypes.Domain]bool{},
+			disabled:              map[accesstypes.Domain]bool{},
 		}
 		perms.UserPermissionChecker = perms.admission
 		perms.ownSignIn = isUser && !impersonated
@@ -231,7 +241,7 @@ type rosterPermissions struct {
 	admission *admittedPermissions
 	// ownSignIn says the session is a person's own sign-in: a user principal that
 	// nobody is viewing the application as. Only such a session is told which tenants
-	// are closed to it (ClosedDomains).
+	// it cannot enter (UnavailableDomains).
 	ownSignIn bool
 	// person builds the checker of the session's person where the checker above is not
 	// theirs: a session that runs with a role's grants, whose person is the real person
@@ -276,14 +286,66 @@ func (p rosterPermissions) Reaches(ctx context.Context, domain accesstypes.Domai
 	return p.admission.Reaches(ctx, domain)
 }
 
+// sessionAdmitter is what the permissions SessionPermissions composes answer beside
+// UserPermissions: what a tenant's sign-in settings say of the session, whether or not
+// the tenant is disabled. AdmitsSession asks it.
+type sessionAdmitter interface {
+	AdmitsSession(ctx context.Context, domain accesstypes.Domain) (bool, error)
+}
+
+var (
+	_ sessionAdmitter = rosterPermissions{}
+	_ sessionAdmitter = (*maskedPermissions)(nil)
+)
+
+// AdmitsSession reports whether the tenant's sign-in settings admit the session: the
+// tenant's declaration admits the way the session was established, or the session's
+// actor is a super administrator, or the tenant is directory only and the session is its
+// own administrator's, established with a password and carrying a second factor. It is
+// what Reaches answers for a tenant that is not disabled, and it answers the same for a
+// tenant that is: being disabled is not a sign-in setting. The rules that keep the
+// application's own people from taking the administrators' way into a directory-only
+// tenant ask it, so they bind the same people whether or not the tenant is disabled. The
+// permissions SessionPermissions composes answer it; any other UserPermissions answer
+// Reaches.
+func AdmitsSession(ctx context.Context, perms UserPermissions, domain accesstypes.Domain) (bool, error) {
+	admitter, ok := perms.(sessionAdmitter)
+	if !ok {
+		reaches, err := perms.Reaches(ctx, domain)
+		if err != nil {
+			return false, errors.Wrap(err, "resource.UserPermissions.Reaches()")
+		}
+
+		return reaches, nil
+	}
+	admits, err := admitter.AdmitsSession(ctx, domain)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.AdmitsSession()")
+	}
+
+	return admits, nil
+}
+
+// AdmitsSession answers what the tenant's sign-in settings say of the session (the
+// admission's answer), and yes for every domain when the application keeps no
+// declarations.
+func (p rosterPermissions) AdmitsSession(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	if p.admission == nil {
+		return true, nil
+	}
+
+	return p.admission.admitsSession(ctx, domain)
+}
+
 // admittedPermissions attenuates a checker to the tenants the session reaches
 // (UserPermissions.Reaches): in a tenant whose declaration refuses the way the
 // session was established the session holds nothing — every check Denied, an
 // empty digest, no foothold — unless the session's actor is a super
 // administrator, whom no tenant's sign-in settings bind, or the tenant's own
 // administrator come by the administrators' way in, a password and a second
-// factor. The global partition is never attenuated: a declaration is a
-// tenant's. One value serves one request, so a tenant's declaration is read
+// factor. In a tenant that is disabled the session holds nothing unless its actor
+// is a super administrator. The global partition is never attenuated: a
+// declaration is a tenant's. One value serves one request, so a tenant's declaration is read
 // once, the super administrator question asked once and the tenant
 // administrator question once for a tenant, whatever is asked about the tenant
 // after; the next request asks again. The session's tenant list alone asks
@@ -312,40 +374,113 @@ type admittedPermissions struct {
 
 	mu      sync.Mutex
 	reached map[accesstypes.Domain]bool
-	super   *bool
+	// declared are the tenants' declarations as read, and admitted what each tenant's
+	// sign-in settings say of the session, whether or not it is disabled (admitsSession).
+	declared map[accesstypes.Domain]*signin.TenantDeclaration
+	admitted map[accesstypes.Domain]bool
+	// disabled are the tenants whose declaration, read by reach, says disabled.
+	disabled map[accesstypes.Domain]bool
+	super    *bool
 }
 
-// Reaches reports whether the session may enter domain: the tenant's declaration
-// admits the session's establishment, or the session's actor is a super
-// administrator, or the actor administers the tenant and the declaration admits
-// the session by the administrators' way in.
+// Reaches reports whether the session may enter domain: for a tenant that is
+// disabled, the session's actor is a super administrator; for any other, the
+// tenant's declaration admits the session's establishment, or the session's actor is
+// a super administrator, or the actor administers the tenant and the declaration
+// admits the session by the administrators' way in.
 func (a *admittedPermissions) Reaches(ctx context.Context, domain accesstypes.Domain) (bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	return a.reach(ctx, domain)
+}
+
+// reach is Reaches, answered from what was asked before in this value where it can
+// be. A tenant that is disabled asks the super administrator question alone: not
+// what its sign-in settings admit, and never who administers it. The caller holds
+// the lock.
+func (a *admittedPermissions) reach(ctx context.Context, domain accesstypes.Domain) (bool, error) {
 	if reaches, ok := a.reached[domain]; ok {
 		return reaches, nil
 	}
-	declaration, err := a.declarations(ctx, domain)
+	declaration, err := a.declaration(ctx, domain)
 	if err != nil {
-		return false, errors.Wrapf(err, "resource.TenantDeclarations(%q)", domain)
+		return false, err
 	}
-	reaches := declaration.Admits(a.establishment.Method, a.establishment.Connection)
-	if !reaches {
-		reaches, err = a.actorIsSuperAdministrator(ctx)
+	if declaration.IsDisabled() {
+		reaches, err := a.actorIsSuperAdministrator(ctx)
 		if err != nil {
 			return false, err
 		}
+		a.disabled[domain] = true
+		a.reached[domain] = reaches
+
+		return reaches, nil
 	}
-	if !reaches {
-		reaches, err = a.administratorsWayIn(ctx, declaration, domain)
-		if err != nil {
-			return false, err
-		}
+	reaches, err := a.settingsAdmit(ctx, declaration, domain)
+	if err != nil {
+		return false, err
 	}
 	a.reached[domain] = reaches
 
 	return reaches, nil
+}
+
+// admitsSession answers what the tenant's sign-in settings say of the session, whether
+// or not the tenant is disabled: what reach answers for a tenant that is not, asked of
+// the same declaration and kept beside it.
+func (a *admittedPermissions) admitsSession(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	declaration, err := a.declaration(ctx, domain)
+	if err != nil {
+		return false, err
+	}
+
+	return a.settingsAdmit(ctx, declaration, domain)
+}
+
+// declaration reads the tenant's declaration once for this value. The caller holds the
+// lock.
+func (a *admittedPermissions) declaration(ctx context.Context, domain accesstypes.Domain) (*signin.TenantDeclaration, error) {
+	if declaration, ok := a.declared[domain]; ok {
+		return declaration, nil
+	}
+	declaration, err := a.declarations(ctx, domain)
+	if err != nil {
+		return nil, errors.Wrapf(err, "resource.TenantDeclarations(%q)", domain)
+	}
+	a.declared[domain] = declaration
+
+	return declaration, nil
+}
+
+// settingsAdmit answers whether the tenant's sign-in settings admit the session: the
+// declaration admits the session's establishment, or the session's actor is a super
+// administrator, or the actor administers the tenant and the declaration admits the
+// session by the administrators' way in. The caller holds the lock.
+func (a *admittedPermissions) settingsAdmit(ctx context.Context, declaration *signin.TenantDeclaration, domain accesstypes.Domain) (bool, error) {
+	if admits, ok := a.admitted[domain]; ok {
+		return admits, nil
+	}
+	admits := declaration.Admits(a.establishment.Method, a.establishment.Connection)
+	var err error
+	if !admits {
+		admits, err = a.actorIsSuperAdministrator(ctx)
+		if err != nil {
+			return false, err
+		}
+	}
+	if !admits {
+		admits, err = a.administratorsWayIn(ctx, declaration, domain)
+		if err != nil {
+			return false, err
+		}
+	}
+	a.admitted[domain] = admits
+
+	return admits, nil
 }
 
 // administratorsWayIn answers whether the tenant's declaration admits the session
@@ -366,6 +501,19 @@ func (a *admittedPermissions) administratorsWayIn(ctx context.Context, declarati
 	}
 
 	return declaration.AdmitsAdministrator(a.establishment.Method, a.secondFactor, administers), nil
+}
+
+// tenantDisabled answers whether domain's declaration says the tenant is disabled,
+// from the read Reaches made, or made now.
+func (a *admittedPermissions) tenantDisabled(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if _, err := a.reach(ctx, domain); err != nil {
+		return false, err
+	}
+
+	return a.disabled[domain], nil
 }
 
 // opensWithSecondFactor answers whether the tenant's declaration would admit the
@@ -424,7 +572,8 @@ func (a *admittedPermissions) actorIsSuperAdministrator(ctx context.Context) (bo
 }
 
 // Check answers Denied for every resource in a tenant the session does not reach,
-// without consulting policy; otherwise it delegates.
+// without consulting policy, and the log says whether the tenant is disabled or does
+// not admit the session's establishment; otherwise it delegates.
 func (a *admittedPermissions) Check(
 	ctx context.Context, env accesstypes.Environment, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
 ) (accesstypes.Decisions, error) {
@@ -437,7 +586,15 @@ func (a *admittedPermissions) Check(
 			return nil, err
 		}
 		if !reaches {
-			logger.FromCtx(ctx).Warnf("tenant admission: %s denied for %s on %v: the tenant %s does not admit the session's establishment", perm, a.User(), resources, domain)
+			disabled, err := a.tenantDisabled(ctx, domain)
+			if err != nil {
+				return nil, err
+			}
+			if disabled {
+				logger.FromCtx(ctx).Warnf("tenant admission: %s denied for %s on %v: the tenant %s is disabled", perm, a.User(), resources, domain)
+			} else {
+				logger.FromCtx(ctx).Warnf("tenant admission: %s denied for %s on %v: the tenant %s does not admit the session's establishment", perm, a.User(), resources, domain)
+			}
 
 			return deniedDecisions(resources), nil
 		}
@@ -802,6 +959,12 @@ func (m *maskedPermissions) Reaches(ctx context.Context, domain accesstypes.Doma
 	}
 
 	return reaches, nil
+}
+
+// AdmitsSession passes through: a mask attenuates what the session may do, never what a
+// tenant's sign-in settings say of it.
+func (m *maskedPermissions) AdmitsSession(ctx context.Context, domain accesstypes.Domain) (bool, error) {
+	return AdmitsSession(ctx, m.UserPermissions, domain)
 }
 
 // MaskRefusesAction reports whether the permission mask of the session in the context

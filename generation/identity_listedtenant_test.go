@@ -347,6 +347,24 @@ func Test_prepareIdentity_listedTenant_shapes(t *testing.T) { //nolint:parallelt
 		assertContains(t, "the list's query", listedCitadelQuery(t, listed), []string{"\n )\n AND NOT u.Disabled\n ORDER BY Line\n ) AS Administrators"}, []string{"CrewGroups", "CrewGroupMembers", "CrewGroupRoles", "UNION DISTINCT", "JOIN"})
 	})
 
+	t.Run("a record that marks the column saying a tenant is disabled", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
+		t.Chdir(t.TempDir())
+
+		r := citadelGenerator(t, oneFieldCitadel("", "\t// @tenantDisabled\n\tDisabled bool `spanner:\"Disabled\"`\n"), func(r *resourceGenerator) {
+			r.tableMap["Citadels"].Columns["Disabled"] = columnMeta{SpannerType: "BOOL", HasDefault: true}
+		})
+		if err := r.prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+		// The list carries whether each citadel is disabled, under the record's own name
+		// for it, as a field of its struct and a column of its query.
+		listed := identitySource(t, listedCitadelFile)
+		assertContains(t, listedCitadelFile, listed, []string{
+			"Name string `spanner:\"Name\"`\n Disabled bool `spanner:\"Disabled\"`\n People int64 `spanner:\"People\"`\n",
+		}, nil)
+		assertContains(t, "the list's query", listedCitadelQuery(t, listed), []string{"SELECT\n s.Id AS Id,\n s.Name AS Name,\n s.Disabled AS Disabled,\n (SELECT COUNT(DISTINCT p.UserId)"}, nil)
+	})
+
 	t.Run("a record that declares a directory, for an auth that keeps no identities", func(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 		t.Chdir(t.TempDir())
 
@@ -589,6 +607,11 @@ func Test_identityInstance_refuseListedTenantNamesTaken(t *testing.T) {
 		{name: "a field named Since, where the record marks none", inst: instance("Citadel", withField("Since"))},
 		{name: "a marked field named Since, carried by the invitation", inst: instance("Citadel", marked(withField("Since"), "Since"))},
 		{name: "a marked field named Since, carried by no invitation", inst: instance("Citadel", marked(plain(), "Since"))},
+		{
+			name: "a field saying whether a tenant is disabled named People",
+			inst: instance("Citadel", &identityTenantInvitation{key: identityTenantField{Name: "ID"}, disabled: &identityTenantField{Name: "People"}}),
+			want: field("People"),
+		},
 		{
 			name: "a directory-only switch named Directory",
 			inst: instance("Citadel", &identityTenantInvitation{key: identityTenantField{Name: "ID"}, directoryOnly: &identityTenantField{Name: "Directory"}}),

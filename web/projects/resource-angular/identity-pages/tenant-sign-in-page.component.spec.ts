@@ -37,15 +37,18 @@ import { TenantSignIn, tenantSignInKey, tenantSignInRoute } from './tenant-sign-
 
 // A tenant's Sign-in settings page says how people enter the tenant and lets the holder
 // of each grant change it. A tenant has one directory, which nobody types in: a person
-// who may create it and is signed in through an organization's directory is offered to
-// make that one the tenant's, and the request names none; signed in by password they are
-// offered no such action and told how a directory is set. They remove the directory once
+// who holds the tenant's method that takes it and is signed in through an organization's
+// directory is offered to make that one the tenant's, behind the server's statement that
+// they are authorized to act for the organization and the phrase it has them type, and
+// the request names none; signed in by password they are offered no such action and told
+// how a directory is set. They remove the directory once
 // they confirm. Everything else is one of the tenant's own methods, run through the
-// library's method dialog: the role a person gets the first time they sign in through the
-// directory is picked in the dialog behind the server's warning and the word it has them
-// type, and the directory's people are made to need an invitation again on a plain
-// confirmation; the tenant is made directory only behind the server's warning and the
-// typed word, and the switch is turned off on a plain confirmation. A refusal of a warning
+// library's method dialog: the role a person gets when they sign in through the
+// directory and hold nothing in the tenant is picked in the dialog behind the server's
+// warning and the word it has them type, and the directory's people are made to need an
+// invitation again on a plain confirmation; the tenant is made directory only behind the
+// server's warning and the typed word, and the switch is turned off on a plain
+// confirmation. A refusal of a warning
 // is shown on the page in the server's words and no dialog opens. A reader with the list
 // alone is told whether there is a directory; a reader without the grants is told their
 // role does not cover the page, and nothing is requested.
@@ -92,6 +95,12 @@ const descriptor: ApiDescriptor = {
     },
   },
   methods: {
+    TakeTeamDirectory: {
+      method: 'TakeTeamDirectory' as Method,
+      property: 'takeTeamDirectory',
+      route: 'take-team-directory',
+      scope: 'domain',
+    },
     OpenTeamToDirectory: {
       method: 'OpenTeamToDirectory' as Method,
       property: 'openTeamToDirectory',
@@ -145,6 +154,7 @@ const descriptor: ApiDescriptor = {
           scope: 'domain',
           lists: { users: 'StaffTeamUsers', directories: 'TeamDirectories' },
           methods: {
+            takeDirectory: 'TakeTeamDirectory',
             openToDirectory: 'OpenTeamToDirectory',
             makeDirectoryInviteOnly: 'MakeTeamInviteOnly',
             makeDirectoryOnly: 'MakeTeamDirectoryOnly',
@@ -161,8 +171,9 @@ const descriptor: ApiDescriptor = {
 /** The names the page's route carries, as the library places it. */
 const signIn = tenantSignInRoute(descriptor, { auth: 'Staff' }).data?.[tenantSignInKey] as TenantSignIn;
 
-/** The tenant's methods as the generator describes them: two warn and have the person type a word. */
+/** The tenant's methods as the generator describes them: four warn and have the person type a word or a phrase. */
 const methodMeta: Record<string, MethodMeta> = {
+  TakeTeamDirectory: { route: 'take-team-directory', dryRun: true, warning: { typed: 'I am authorized' }, fields: [] },
   OpenTeamToDirectory: {
     route: 'open-team-to-directory',
     dryRun: true,
@@ -196,10 +207,11 @@ const methodMeta: Record<string, MethodMeta> = {
 const throughWorkspace = { authenticated: true, username: 'someone', directory: { method: 'google', connection } };
 const byPassword = { authenticated: true, username: 'someone' };
 
-/** Every grant the page reads, in the team. */
+/** Every grant the page reads, in the team. A directory is taken by the team's method, and never created as a row. */
 const administrator: PermissionDigest = {
-  TeamDirectories: { List: 'granted', Create: 'granted', Delete: 'granted' },
+  TeamDirectories: { List: 'granted', Delete: 'granted' },
   StaffTeamDirectoryRoles: { List: 'granted' },
+  TakeTeamDirectory: { Execute: 'granted' },
   OpenTeamToDirectory: { Execute: 'granted' },
   MakeTeamInviteOnly: { Execute: 'granted' },
   MakeTeamDirectoryOnly: { Execute: 'granted' },
@@ -304,6 +316,16 @@ const wouldVouch: MethodWarning = {
     'You are saying that Google Workspace riverside.example asks its people for a second factor when they sign in. This application will stop asking them for a code.',
   confirm: 'Stop asking people who sign in through Google Workspace riverside.example for a code',
 };
+/** What the server says taking the directory the person is signed in through would do: the statement. */
+const wouldTake: MethodWarning = {
+  consequence: 'You are stating that you are authorized to act on behalf of riverside.example.',
+  also: [
+    {
+      says: 'From now on, people at riverside.example who sign in through it and have no account here are sent to this team. They get in by your invitation, or with a starting role if you open the team to them. No other team can use riverside.example.',
+    },
+  ],
+  confirm: "Make riverside.example this team's directory",
+};
 /** What the server says making the team directory only would do. */
 const wouldKeepOut: MethodWarning = {
   consequence:
@@ -343,6 +365,7 @@ interface World {
 
 /** The team's own methods, by their routes. */
 const ownMethods = [
+  'take-team-directory',
   'open-team-to-directory',
   'make-team-invite-only',
   'make-team-directory-only',
@@ -358,11 +381,13 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
     if (own && request.headers?.['X-Warning'] === 'true') {
       const role = (request.body as { role?: string } | undefined)?.role ?? '';
       const warned =
-        own === 'open-team-to-directory'
-          ? wouldOpen(role)
-          : own === 'vouch-for-team-directory-second-factor'
-            ? wouldVouch
-            : wouldKeepOut;
+        own === 'take-team-directory'
+          ? wouldTake
+          : own === 'open-team-to-directory'
+            ? wouldOpen(role)
+            : own === 'vouch-for-team-directory-second-factor'
+              ? wouldVouch
+              : wouldKeepOut;
       return world.warning ?? { status: 200, body: warned };
     }
     if (own) {
@@ -496,15 +521,16 @@ describe('TenantSignInPageComponent', () => {
     expect(texts('h1')).toEqual(['Sign-in settings']);
     expect(texts('h2')).toEqual([
       'Directory',
-      'The role a person gets the first time they sign in through it',
+      'The role a person gets when they sign in through it and hold nothing here',
       'Second factor',
       'Directory only',
     ]);
     expect(notNamedFor('impulse-tenant-sign-in-', element())).toEqual([]);
   });
 
-  it("a person signed in through an organization's directory is offered to make it the team's directory, and the request names none", async () => {
-    await pageFor({ digest: administrator, session: throughWorkspace, state: noDirectoryThroughWorkspace });
+  it("a person signed in through an organization's directory takes it as the team's behind the server's statement and the typed phrase, and the request names none", async () => {
+    const world: World = { digest: administrator, session: throughWorkspace, state: noDirectoryThroughWorkspace };
+    await pageFor(world);
 
     expect(texts('.impulse-tenant-sign-in-stands')).toEqual([
       'People enter Riverside with a password or by invitation. No directory is set.',
@@ -521,11 +547,67 @@ describe('TenantSignInPageComponent', () => {
     button('make-directory')?.click();
     await turn();
     await turn();
-    // The server sets the directory the session came through, so the create carries nothing.
-    expect(writes()).toEqual([{ op: 'add', path: `/teams/${team}/team-directories`, value: {} }]);
+    // The page asked the server for the statement first, and nothing has run.
+    expect(sent('take-team-directory')[0]).toEqual({ kind: 'warning', body: {} });
+    expect(calls('take-team-directory')).toEqual([]);
+    expect(dialogText('[mat-dialog-title]')).toBe("Make it this team's directory");
+    expect(inDialog('.warning')?.getAttribute('role')).toBe('alert');
+    expect(dialogText('.warning-consequence')).toBe(
+      'You are stating that you are authorized to act on behalf of riverside.example.',
+    );
+    expect(dialogTexts('.warning-note')).toEqual([wouldTake.also?.[0]?.says]);
+    expect(dialogText('.typed-word mat-label')).toBe('Type I am authorized to confirm');
+    expect(runButton().textContent?.trim()).toBe("Make riverside.example this team's directory");
+    expect(runButton().disabled).toBe(true);
+    await typeWord('i am');
+    expect(runButton().disabled).toBe(true);
+    await typeWord('i am authorized');
+    expect(runButton().disabled).toBe(false);
+
+    world.state = withDirectory;
+    world.directories = [workspace];
+    runButton().click();
+    await turn();
+    await turn();
+    // The server takes the directory the session came through, so the call carries nothing,
+    // and no row of the directories record is written by the page.
+    expect(calls('take-team-directory')).toEqual([{}]);
+    expect(writes()).toEqual([]);
     expect(texts('.impulse-tenant-sign-in-refusal')).toEqual([]);
-    // After the write the page reads the sign-in settings again.
+    // After the call the page reads the sign-in settings again, and names the directory.
     expect(readsOfTheSettings()).toBe(2);
+    expect(texts('.impulse-tenant-sign-in-directory')).toEqual([directory]);
+    expect(button('make-directory')).toBeNull();
+  });
+
+  it("the button is offered by the grant of the team's method that takes the directory, and not by Create on the directories record", async () => {
+    await pageFor({
+      digest: {
+        ...administrator,
+        TeamDirectories: { List: 'granted', Create: 'granted', Delete: 'granted' },
+        TakeTeamDirectory: {},
+      },
+      session: throughWorkspace,
+      state: noDirectoryThroughWorkspace,
+    });
+
+    expect(button('make-directory')).toBeNull();
+    // With nothing to show under it, no part is headed Directory.
+    expect(texts('h2')).not.toContain('Directory');
+  });
+
+  it('a description that names no method that takes the directory offers no button', async () => {
+    const methods: TenantSignIn['methods'] = { ...signIn.methods };
+    delete methods.takeDirectory;
+    await pageFor({
+      digest: administrator,
+      session: throughWorkspace,
+      state: noDirectoryThroughWorkspace,
+      route: { ...signIn, methods },
+    });
+
+    expect(button('make-directory')).toBeNull();
+    expect(readsOfTheSettings()).toBe(1);
   });
 
   it('stays drawn while it reads again after a write, and the new answer replaces the old one', async () => {
@@ -545,11 +627,15 @@ describe('TenantSignInPageComponent', () => {
       fixture.detectChanges();
     };
     button('make-directory')?.click();
+    await turn();
+    await turn();
+    await typeWord('I am authorized');
+    runButton().click();
     await drawn();
     await drawn();
     await drawn();
-    // The write succeeded and the sign-in settings are read again; until the server answers, the page says what it said.
-    expect(writes()).toEqual([{ op: 'add', path: `/teams/${team}/team-directories`, value: {} }]);
+    // The call succeeded and the sign-in settings are read again; until the server answers, the page says what it said.
+    expect(calls('take-team-directory')).toEqual([{}]);
     expect(readsOfTheSettings()).toBe(2);
     expect(texts('.impulse-tenant-sign-in-stands')).toEqual([
       'People enter Riverside with a password or by invitation. No directory is set.',
@@ -565,20 +651,22 @@ describe('TenantSignInPageComponent', () => {
     expect(texts('.impulse-tenant-sign-in-directory')).toEqual([directory]);
   });
 
-  it("the server's refusal of a write is shown in its own words", async () => {
+  it("the server's refusal to take the directory is shown in its own words, with no dialog and no call", async () => {
     const sentence =
       "Google Workspace riverside.example already has a team here, and a directory belongs to one team. Ask that team's administrator to invite you.";
     await pageFor({
       digest: administrator,
       session: throughWorkspace,
       state: noDirectoryThroughWorkspace,
-      write: { status: 409, body: { message: sentence } },
+      warning: { status: 409, body: { message: sentence } },
     });
 
     button('make-directory')?.click();
     await turn();
     await turn();
     expect(texts('.impulse-tenant-sign-in-refusal[role=alert]')).toEqual([sentence]);
+    expect(inDialog('[mat-dialog-title]')).toBeNull();
+    expect(calls('take-team-directory')).toEqual([]);
   });
 
   it('a person signed in with a password is offered no way to set a directory, and is told how one is set', async () => {
@@ -679,9 +767,7 @@ describe('TenantSignInPageComponent', () => {
     expect(texts('.impulse-tenant-sign-in-default-role')).toEqual(['Nobody: by invitation only']);
     expect(texts('.impulse-tenant-sign-in-change-role')).toEqual(['Choose a role']);
     expect(button('invite-only')).toBeNull();
-    expect(texts('.impulse-tenant-sign-in-change-role ~ .impulse-tenant-sign-in-note')).toEqual([
-      'Someone whose role you remove afterwards is not given it back by signing in.',
-    ]);
+    expect(element().querySelector('.impulse-tenant-sign-in-change-role ~ .impulse-tenant-sign-in-note')).toBeNull();
 
     button('change-role')?.click();
     await turn();
@@ -690,13 +776,13 @@ describe('TenantSignInPageComponent', () => {
     expect(sent('open-team-to-directory')[0]).toEqual({ kind: 'warning', body: { role: '' } });
     expect(calls('open-team-to-directory')).toEqual([]);
     expect(dialogText('[mat-dialog-title]')).toBe('Choose the role');
+    // The dialog says what the role is for on a line of its own, whole at every width.
+    expect(dialogText('.says')).toBe('The role a person gets when they sign in through it and hold nothing here');
     expect(dialogText('.typed-word mat-label')).toBe('Type open to confirm');
     expect(runButton().disabled).toBe(true);
     const dialog = TestBed.inject(MatDialog).openDialogs[0]?.componentInstance as MethodDialogComponent;
-    // The role's input says what it sets, and lists each role by its name and description.
-    expect(dialog.elements.map((e) => e.label)).toEqual([
-      'The role a person gets the first time they sign in through it',
-    ]);
+    // The role's input is labeled Role, and lists each role by its name and description.
+    expect(dialog.elements.map((e) => e.label)).toEqual(['Role']);
     expect(dialog.elements[0]?.enumeratedConfig.listDisplay).toEqual(['name', 'description']);
 
     // The role is picked: the dialog asks the server what that choice will do and shows its words.
@@ -726,6 +812,9 @@ describe('TenantSignInPageComponent', () => {
 
     expect(texts('.impulse-tenant-sign-in-default-role')).toEqual(['Editor']);
     expect(texts('.impulse-tenant-sign-in-change-role')).toEqual(['Change the role']);
+    expect(texts('.impulse-tenant-sign-in-change-role ~ .impulse-tenant-sign-in-note')).toEqual([
+      'Removing someone does not keep them out: they are given this role again the next time they sign in through the directory. To keep someone out, disable their account.',
+    ]);
 
     button('invite-only')?.click();
     await turn();
@@ -1457,7 +1546,10 @@ describe('TenantSignInPageComponent', () => {
 
     expect(readsOfTheSettings()).toBe(1);
     expect(texts('.impulse-tenant-sign-in-directory')).toEqual([directory]);
-    expect(texts('h2')).toEqual(['Directory', 'The role a person gets the first time they sign in through it']);
+    expect(texts('h2')).toEqual([
+      'Directory',
+      'The role a person gets when they sign in through it and hold nothing here',
+    ]);
     expect(element().querySelector('.impulse-tenant-sign-in-directory-only')).toBeNull();
   });
 

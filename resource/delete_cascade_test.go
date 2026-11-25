@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -18,12 +17,18 @@ import (
 )
 
 // cascadeRows is how the tests of a delete that takes rows reach a kind's rows: the
-// fields its key is held in, and the deletes it made, in order.
+// fields its key is held in, what the kind asks of its rows, and the rows it asked and
+// deleted, in order.
 type cascadeRows struct {
 	// refused answers a row's check by the row's key: the error, and whether it is the
 	// row's rule that refuses.
 	refused map[string]cascadeRefusal
-	made    *[]string
+	// denied is what the caller's grants on the kind answer; nil passes.
+	denied error
+	// asks is what the kind asks of its rows; nil asks nothing.
+	asks  *takenAsks
+	asked *[]string
+	made  *[]string
 }
 
 // cascadeRefusal is what a row's check answers.
@@ -45,7 +50,7 @@ func (r cascadeRows) row(fields []accesstypes.Field, values []any, caller *Calle
 	if !caller.IsZero() {
 		who = "armed"
 	}
-	row := &cascadeRow{name: strings.Join(name, ",") + " " + who, made: r.made}
+	row := &cascadeRow{name: strings.Join(name, ",") + " " + who, asked: r.asked, made: r.made}
 	if refusal, ok := r.refused[fmt.Sprint(values...)]; ok {
 		row.refusal = refusal
 	}
@@ -53,19 +58,56 @@ func (r cascadeRows) row(fields []accesstypes.Field, values []any, caller *Calle
 	return row
 }
 
+func (r cascadeRows) kind(*Caller) takenKind {
+	return &cascadeKind{denied: r.denied, asks: r.asks}
+}
+
 func (cascadeRows) tracked() bool {
 	return false
 }
 
-// cascadeRow is the delete of one row a test's delete takes.
+// cascadeKind is the delete of a test kind's rows as one.
+type cascadeKind struct {
+	denied error
+	asks   *takenAsks
+}
+
+func (k *cascadeKind) checkPermissions(context.Context, DBType) error {
+	return k.denied
+}
+
+func (k *cascadeKind) takenAsks(DBType) (*takenAsks, error) {
+	if k.asks == nil {
+		return &takenAsks{}, nil
+	}
+
+	return k.asks, nil
+}
+
+// cascadeRow is the delete of one row a test's delete takes. Its check answers its
+// refusal, and refuses as the grant's condition does where a term the page read of it
+// answered false.
 type cascadeRow struct {
 	name    string
 	refusal cascadeRefusal
+	asked   *[]string
 	made    *[]string
 }
 
-func (r *cascadeRow) checkDelete(context.Context, ReadWriteTransaction) (byRule bool, err error) {
-	return r.refusal.byRule, r.refusal.err
+func (r *cascadeRow) checkTaken(_ context.Context, _ ReadWriteTransaction, _ *takenAsks, answers []spanner.NullBool) (byRule bool, err error) {
+	if r.asked != nil {
+		*r.asked = append(*r.asked, r.name)
+	}
+	if r.refusal.err != nil {
+		return r.refusal.byRule, r.refusal.err
+	}
+	for _, answer := range answers {
+		if !answer.Valid || !answer.Bool {
+			return false, httpio.NewForbiddenMessage("the condition does not hold for " + r.name)
+		}
+	}
+
+	return false, nil
 }
 
 func (r *cascadeRow) bufferTaken(context.Context, ReadWriteTransaction, ...string) error {
@@ -77,7 +119,7 @@ func (r *cascadeRow) bufferTaken(context.Context, ReadWriteTransaction, ...strin
 // projectTree describes a record whose delete takes three kinds: its tasks, which name
 // it and may be under another task, the comments on its tasks, and its labels, which
 // name it by its code and not by its key.
-func projectTree(rows TakenRows) *DeleteTree {
+func projectTree() *DeleteTree {
 	return &DeleteTree{
 		Record: "CascadeProjects",
 		Words:  DeleteWords{One: "project", Many: "projects"},
@@ -91,14 +133,12 @@ func projectTree(rows TakenRows) *DeleteTree {
 					{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}},
 					{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
 				}},
-				Rows: rows,
 			},
 			{
 				Resource: "CascadeLabels",
 				Words:    DeleteWords{One: "label", Many: "labels"},
 				Key:      []string{"Id"},
 				Paths:    []DeletePath{{{Columns: []string{"ProjectCode"}, Table: "CascadeProjects", References: []string{"Code"}}}},
-				Rows:     rows,
 			},
 			{
 				Resource: "CascadeTasks",
@@ -106,500 +146,8 @@ func projectTree(rows TakenRows) *DeleteTree {
 				Key:      []string{"Id"},
 				Paths:    []DeletePath{{{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}}}},
 				Within:   []DeleteLink{{Columns: []string{"ParentTaskId"}, Table: "CascadeTasks", References: []string{"Id"}}},
-				Rows:     rows,
 			},
 		},
-	}
-}
-
-// cascadeTables holds each table's rows for a walk, and answers the walk's reads from
-// them as the database would: a kind's rows whose columns hold what the link references
-// of one of the rows above.
-type cascadeTables map[accesstypes.Resource][]map[string]any
-
-func (c cascadeTables) under(_ context.Context, kind *DeleteKind, link DeleteLink, above []map[string]any, most int) ([]map[string]any, error) {
-	var rows []map[string]any
-	for _, row := range c[kind.Resource] {
-		if len(rows) == most {
-			break
-		}
-		if slices.ContainsFunc(above, func(over map[string]any) bool {
-			for i, column := range link.Columns {
-				if row[column] == nil || row[column] != over[link.References[i]] {
-					return false
-				}
-			}
-
-			return true
-		}) {
-			rows = append(rows, row)
-		}
-	}
-
-	return rows, nil
-}
-
-// ids are the Id of each row, in order.
-func ids(rows []map[string]any) []string {
-	out := make([]string, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, fmt.Sprint(row["Id"]))
-	}
-
-	return out
-}
-
-// TestTakenWalk_find pins how the rows a delete takes are found: level by level from
-// the record's row, a kind's rows under the rows the level before found by each link
-// that puts them there, a row under a row of its own kind among them and a row that
-// names the record by a column outside its key. A row is found once, whatever ways lead
-// to it, and never before a row it was found under; rows under each other end the walk;
-// a row the transaction itself deleted is left out with what is under it, and a row it
-// changed ends the walk, an update of a task before its project's delete in one request
-// among them; and the walk stops once the rows found cost more than the delete may.
-func TestTakenWalk_find(t *testing.T) {
-	t.Parallel()
-
-	tables := cascadeTables{
-		"CascadeTasks": {
-			{"Id": "t1", "ProjectId": "p1"},
-			{"Id": "t2", "ProjectId": "p1"},
-			{"Id": "t3", "ParentTaskId": "t1"},
-			{"Id": "t4", "ParentTaskId": "t3"},
-			// Under the project and under one of its tasks at once.
-			{"Id": "t5", "ProjectId": "p1", "ParentTaskId": "t2"},
-			// Under each other, the one under the project.
-			{"Id": "t6", "ProjectId": "p1", "ParentTaskId": "t7"},
-			{"Id": "t7", "ParentTaskId": "t6"},
-			{"Id": "other", "ProjectId": "p2"},
-		},
-		"CascadeComments": {
-			{"Id": "c1", "TaskId": "t1"},
-			{"Id": "c2", "TaskId": "t4"},
-			{"Id": "c3", "TaskId": "other"},
-		},
-		"CascadeLabels": {
-			{"Id": "l1", "ProjectCode": "ALPHA"},
-			{"Id": "l2", "ProjectCode": "BETA"},
-		},
-	}
-	record := map[string]any{"Id": "p1", "Code": "ALPHA"}
-
-	tests := []struct {
-		name  string
-		limit int
-		// deleted and changed are the tasks the transaction deleted, and the ones it
-		// updated, before the walk.
-		deleted     []string
-		changed     []string
-		want        map[accesstypes.Resource][]string
-		wantTooMany bool
-		wantChanged bool
-	}{
-		{
-			name:  "every row under the record, level by level",
-			limit: DeleteMutationLimit,
-			want: map[accesstypes.Resource][]string{
-				"CascadeTasks":    {"t1", "t2", "t5", "t6", "t3", "t7", "t4"},
-				"CascadeComments": {"c1", "c2"},
-				"CascadeLabels":   {"l1"},
-			},
-		},
-		{
-			name:    "a row the transaction deleted is left out with what is under it",
-			limit:   DeleteMutationLimit,
-			deleted: []string{"t3"},
-			want: map[accesstypes.Resource][]string{
-				"CascadeTasks":    {"t1", "t2", "t5", "t6", "t7"},
-				"CascadeComments": {"c1"},
-				"CascadeLabels":   {"l1"},
-			},
-		},
-		{
-			name:    "a row the transaction updated and then deleted is one it deleted",
-			limit:   DeleteMutationLimit,
-			changed: []string{"t3"},
-			deleted: []string{"t3"},
-			want: map[accesstypes.Resource][]string{
-				"CascadeTasks":    {"t1", "t2", "t5", "t6", "t7"},
-				"CascadeComments": {"c1"},
-				"CascadeLabels":   {"l1"},
-			},
-		},
-		{
-			// The request updates a task and then deletes the task's project.
-			name:        "a row the transaction changed ends the walk",
-			limit:       DeleteMutationLimit,
-			changed:     []string{"t3"},
-			wantChanged: true,
-		},
-		{
-			name:    "a row the transaction changed under a row it deleted is left out with it",
-			limit:   DeleteMutationLimit,
-			deleted: []string{"t3"},
-			changed: []string{"t4"},
-			want: map[accesstypes.Resource][]string{
-				"CascadeTasks":    {"t1", "t2", "t5", "t6", "t7"},
-				"CascadeComments": {"c1"},
-				"CascadeLabels":   {"l1"},
-			},
-		},
-		{
-			// The record's row, its label and four of its tasks cost six mutations.
-			name:        "the walk stops once the rows found cost more than the delete may",
-			limit:       4,
-			want:        map[accesstypes.Resource][]string{"CascadeLabels": {"l1"}, "CascadeTasks": {"t1", "t2", "t5", "t6"}},
-			wantTooMany: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			txn := newTransactionDeletes()
-			for _, id := range tt.changed {
-				txn.recordWritten("CascadeTasks", map[string]any{"Id": id}, false)
-			}
-			for _, id := range tt.deleted {
-				txn.recordWritten("CascadeTasks", map[string]any{"Id": id}, true)
-			}
-			walk := &takenWalk{
-				tree:  projectTree(nil),
-				limit: tt.limit,
-				tracked: func(accesstypes.Resource) bool {
-					return false
-				},
-				under: func(ctx context.Context, kind *DeleteKind, link DeleteLink, above []map[string]any, most int) ([]map[string]any, error) {
-					if most != tt.limit+1 {
-						t.Errorf("the walk reads up to %d rows, want one more than the limit of %d", most, tt.limit)
-					}
-
-					return tables.under(ctx, kind, link, above, most)
-				},
-				deleted: txn.deletedRow,
-				changed: txn.changedRow,
-			}
-			found, err := walk.find(t.Context(), record)
-			if err != nil {
-				t.Fatalf("takenWalk.find() error = %v", err)
-			}
-			if found.changed != tt.wantChanged {
-				t.Fatalf("takenWalk.find() changed = %v, want %v", found.changed, tt.wantChanged)
-			}
-			if tt.wantChanged {
-				// The delete is refused, and nothing the walk found is used.
-				return
-			}
-			got := make(map[accesstypes.Resource][]string, len(found.rows))
-			for kind, rows := range found.rows {
-				got[kind] = ids(rows)
-			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("takenWalk.find() rows mismatch (-want +got):\n%s", diff)
-			}
-			if found.tooMany != tt.wantTooMany {
-				t.Errorf("takenWalk.find() tooMany = %v, want %v", found.tooMany, tt.wantTooMany)
-			}
-		})
-	}
-}
-
-// Test_takenStatements pins the reads of one level: the kind's rows whose columns hold
-// what the link references of one of the rows above, a row above that holds nothing in
-// a referenced column left out, and the rows above read for in parts so that no read
-// names more values than a query takes. Where the kind's rows and the record are a
-// tenant's, each read finds the rows of the record's own tenant alone, by the kind's
-// ways up and by its links to its own kind, and the value that names the tenant takes
-// its room among the values of a read.
-func Test_takenStatements(t *testing.T) {
-	t.Parallel()
-
-	tasks := &DeleteKind{Resource: "CascadeTasks", Key: []string{"Id"}}
-	byProject := DeleteLink{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}}
-	byCode := DeleteLink{Columns: []string{"TenantId", "ProjectCode"}, Table: "CascadeProjects", References: []string{"TenantId", "Code"}}
-	var noCode *string
-	code := "ALPHA"
-
-	tests := []struct {
-		name     string
-		link     DeleteLink
-		above    []map[string]any
-		columns  []string
-		wantSQL  []string
-		wantArgs [][]any
-		wantErr  bool
-	}{
-		{
-			name:     "the rows that name one of the rows above",
-			link:     byProject,
-			above:    []map[string]any{{"Id": "p1"}, {"Id": "p2"}},
-			columns:  []string{"Id", "Code"},
-			wantSQL:  []string{"SELECT `Id`, `Code` FROM `CascadeTasks` WHERE (`ProjectId` = @d1) OR (`ProjectId` = @d2)"},
-			wantArgs: [][]any{{"p1", "p2"}},
-		},
-		{
-			name: "a link of two columns, to columns that are not the other table's key",
-			link: byCode,
-			above: []map[string]any{
-				{"Id": "p1", "TenantId": "anvil", "Code": &code},
-			},
-			columns:  []string{"Id"},
-			wantSQL:  []string{"SELECT `Id` FROM `CascadeTasks` WHERE (`TenantId` = @d1 AND `ProjectCode` = @d2)"},
-			wantArgs: [][]any{{"anvil", &code}},
-		},
-		{
-			name: "a row above that holds nothing in a referenced column has no row under it",
-			link: byCode,
-			above: []map[string]any{
-				{"Id": "p1", "TenantId": "anvil", "Code": noCode},
-				{"Id": "p2", "TenantId": "anvil", "Code": spanner.NullString{}},
-				{"Id": "p3", "TenantId": "anvil", "Code": spanner.NullString{StringVal: "BETA", Valid: true}},
-			},
-			columns:  []string{"Id"},
-			wantSQL:  []string{"SELECT `Id` FROM `CascadeTasks` WHERE (`TenantId` = @d1 AND `ProjectCode` = @d2)"},
-			wantArgs: [][]any{{"anvil", spanner.NullString{StringVal: "BETA", Valid: true}}},
-		},
-		{
-			name:    "no row above holds anything in the referenced columns",
-			link:    byCode,
-			above:   []map[string]any{{"Id": "p1", "TenantId": "anvil", "Code": noCode}},
-			columns: []string{"Id"},
-		},
-		{
-			name:    "a row above read without a referenced column",
-			link:    byCode,
-			above:   []map[string]any{{"Id": "p1", "TenantId": "anvil"}},
-			columns: []string{"Id"},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := takenStatements(SpannerDBType, nil, nil, tasks, tt.link, tt.above, tt.columns)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("takenStatements() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			var (
-				sql  []string
-				args [][]any
-			)
-			for _, statement := range got {
-				sql = append(sql, statement.SQL)
-				args = append(args, statement.Args)
-			}
-			if diff := cmp.Diff(tt.wantSQL, sql); diff != "" {
-				t.Errorf("takenStatements() SQL mismatch (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tt.wantArgs, args); diff != "" {
-				t.Errorf("takenStatements() values mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-
-	t.Run("more rows above than one read names are read for in parts", func(t *testing.T) {
-		t.Parallel()
-
-		above := make([]map[string]any, takenParameterLimit+1)
-		for i := range above {
-			above[i] = map[string]any{"Id": i, "TenantId": "anvil", "Code": "C"}
-		}
-		for name, tt := range map[string]struct {
-			link DeleteLink
-			want []int
-		}{
-			"one column":  {link: byProject, want: []int{takenParameterLimit, 1}},
-			"two columns": {link: byCode, want: []int{takenParameterLimit, takenParameterLimit, 2}},
-		} {
-			statements, err := takenStatements(SpannerDBType, nil, nil, tasks, tt.link, above, []string{"Id"})
-			if err != nil {
-				t.Fatalf("takenStatements() error = %v", err)
-			}
-			got := make([]int, 0, len(statements))
-			for _, statement := range statements {
-				got = append(got, len(statement.Args))
-			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("%s: values named by each read mismatch (-want +got):\n%s", name, diff)
-			}
-		}
-	})
-
-	t.Run("a kind of a tenant's rows under a record of a tenant", func(t *testing.T) {
-		t.Parallel()
-
-		byTenant := &DomainBindingData{Column: "TenantId"}
-		tenantTasks := &DeleteKind{Resource: "CascadeTasks", Key: []string{"Id"}, Tenant: byTenant}
-		byParent := DeleteLink{Columns: []string{"ParentTaskId"}, Table: "CascadeTasks", References: []string{"Id"}}
-		tenants := &DeleteTree{Record: "CascadeTenants", Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
-		clients := &DeleteTree{Record: "CascadeClients", Key: []string{"Id"}, Tenant: byTenant}
-		above := []map[string]any{{"Id": "p1"}, {"Id": "p2"}}
-
-		for _, tt := range []struct {
-			name      string
-			dbType    DBType
-			tree      *DeleteTree
-			recordKey map[string]any
-			kind      *DeleteKind
-			link      DeleteLink
-			above     []map[string]any
-			wantSQL   string
-			wantArgs  []any
-		}{
-			{
-				name:      "the tenant record: the tenant its key holds",
-				dbType:    SpannerDBType,
-				tree:      tenants,
-				recordKey: map[string]any{"Id": "anvil"},
-				kind:      tenantTasks,
-				link:      byProject,
-				above:     above,
-				wantSQL:   "SELECT `Id` FROM `CascadeTasks` WHERE ((`ProjectId` = @d1) OR (`ProjectId` = @d2)) AND `CascadeTasks`.`TenantId` = @d3",
-				wantArgs:  []any{"p1", "p2", "anvil"},
-			},
-			{
-				name:      "a record under a tenant: the tenant its row resolves to",
-				dbType:    SpannerDBType,
-				tree:      clients,
-				recordKey: map[string]any{"Id": "c1"},
-				kind:      tenantTasks,
-				link:      byProject,
-				above:     above,
-				wantSQL: "SELECT `Id` FROM `CascadeTasks` WHERE ((`ProjectId` = @d1) OR (`ProjectId` = @d2))" +
-					" AND `CascadeTasks`.`TenantId` = (SELECT tr.`TenantId` FROM `CascadeClients` AS tr WHERE tr.`Id` = @d3)",
-				wantArgs: []any{"p1", "p2", "c1"},
-			},
-			{
-				name:      "a kind whose rows reach their tenant through another table",
-				dbType:    SpannerDBType,
-				tree:      tenants,
-				recordKey: map[string]any{"Id": "anvil"},
-				kind: &DeleteKind{Resource: "CascadeTasks", Key: []string{"Id"}, Tenant: &DomainBindingData{
-					Column: "ProjectId", Path: []BindingHop{{Table: "CascadeProjects", JoinColumn: "Id", Column: "TenantId"}},
-				}},
-				link:  byProject,
-				above: above,
-				wantSQL: "SELECT `Id` FROM `CascadeTasks` WHERE ((`ProjectId` = @d1) OR (`ProjectId` = @d2))" +
-					" AND (SELECT n1.`TenantId` FROM `CascadeProjects` AS n1 WHERE n1.`Id` = `CascadeTasks`.`ProjectId`) = @d3",
-				wantArgs: []any{"p1", "p2", "anvil"},
-			},
-			{
-				name:      "a link to a row of its own kind",
-				dbType:    SpannerDBType,
-				tree:      tenants,
-				recordKey: map[string]any{"Id": "anvil"},
-				kind:      tenantTasks,
-				link:      byParent,
-				above:     []map[string]any{{"Id": "t1"}},
-				wantSQL:   "SELECT `Id` FROM `CascadeTasks` WHERE ((`ParentTaskId` = @d1)) AND `CascadeTasks`.`TenantId` = @d2",
-				wantArgs:  []any{"t1", "anvil"},
-			},
-			{
-				name:      "the tenant record, on PostgreSQL",
-				dbType:    PostgresDBType,
-				tree:      tenants,
-				recordKey: map[string]any{"Id": "anvil"},
-				kind:      tenantTasks,
-				link:      byProject,
-				above:     above,
-				wantSQL:   `SELECT "Id" FROM "CascadeTasks" WHERE (("ProjectId" = $1) OR ("ProjectId" = $2)) AND "CascadeTasks"."TenantId" = $3`,
-				wantArgs:  []any{"p1", "p2", "anvil"},
-			},
-			{
-				name:      "a record that is no tenant's",
-				dbType:    SpannerDBType,
-				tree:      &DeleteTree{Record: "CascadeClients", Key: []string{"Id"}},
-				recordKey: map[string]any{"Id": "c1"},
-				kind:      tenantTasks,
-				link:      byProject,
-				above:     above,
-				wantSQL:   "SELECT `Id` FROM `CascadeTasks` WHERE (`ProjectId` = @d1) OR (`ProjectId` = @d2)",
-				wantArgs:  []any{"p1", "p2"},
-			},
-			{
-				name:      "a kind whose rows are no tenant's",
-				dbType:    SpannerDBType,
-				tree:      tenants,
-				recordKey: map[string]any{"Id": "anvil"},
-				kind:      tasks,
-				link:      byProject,
-				above:     above,
-				wantSQL:   "SELECT `Id` FROM `CascadeTasks` WHERE (`ProjectId` = @d1) OR (`ProjectId` = @d2)",
-				wantArgs:  []any{"p1", "p2"},
-			},
-		} {
-			got, err := takenStatements(tt.dbType, tt.tree, tt.recordKey, tt.kind, tt.link, tt.above, []string{"Id"})
-			if err != nil {
-				t.Fatalf("%s: takenStatements() error = %v", tt.name, err)
-			}
-			want := []rowsUnderStatement{{SQL: tt.wantSQL, Args: tt.wantArgs}}
-			if diff := cmp.Diff(want, got); diff != "" {
-				t.Errorf("%s: takenStatements() mismatch (-want +got):\n%s", tt.name, diff)
-			}
-		}
-
-		many := make([]map[string]any, takenParameterLimit+1)
-		for i := range many {
-			many[i] = map[string]any{"Id": i}
-		}
-		statements, err := takenStatements(SpannerDBType, tenants, map[string]any{"Id": "anvil"}, tenantTasks, byProject, many, []string{"Id"})
-		if err != nil {
-			t.Fatalf("takenStatements() error = %v", err)
-		}
-		var rows []int
-		for i, statement := range statements {
-			rows = append(rows, len(statement.Args)-1)
-			if len(statement.Args) > takenParameterLimit {
-				t.Errorf("read %d names %d values, want no more than %d", i, len(statement.Args), takenParameterLimit)
-			}
-		}
-		if diff := cmp.Diff([]int{takenParameterLimit - 1, 2}, rows); diff != "" {
-			t.Errorf("rows above read by each read, the tenant's value beside them, mismatch (-want +got):\n%s", diff)
-		}
-	})
-}
-
-// Test_takenDeletes pins the order the rows found are deleted in: the kinds as the
-// description lists them, deepest first, and a kind's rows the last found first, so a
-// row under a row of its own kind goes before it. Each is the delete of the row by its
-// key, for the caller it is given.
-func Test_takenDeletes(t *testing.T) {
-	t.Parallel()
-
-	found := &takenFound{rows: map[accesstypes.Resource][]map[string]any{
-		"CascadeTasks":    {{"Id": "t1"}, {"Id": "t3"}, {"Id": "t4"}},
-		"CascadeComments": {{"Id": "c1"}, {"Id": "c2"}},
-	}}
-
-	for name, tt := range map[string]struct {
-		caller *Caller
-		who    string
-	}{
-		"armed against the caller":   {caller: whoLists(nil), who: "armed"},
-		"trusted for a zero caller":  {caller: &Caller{}, who: "trusted"},
-		"trusted for no caller here": {caller: nil, who: "trusted"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			var made []string
-			deletes, err := takenDeletes(projectTree(cascadeRows{made: &made}), SpannerDBType, found, tt.caller)
-			if err != nil {
-				t.Fatalf("takenDeletes() error = %v", err)
-			}
-			for _, taken := range deletes {
-				if err := taken.row.bufferTaken(t.Context(), nil); err != nil {
-					t.Fatalf("bufferTaken() error = %v", err)
-				}
-			}
-			want := []string{"ID=c2 " + tt.who, "ID=c1 " + tt.who, "ID=t4 " + tt.who, "ID=t3 " + tt.who, "ID=t1 " + tt.who}
-			if diff := cmp.Diff(want, made); diff != "" {
-				t.Errorf("takenDeletes() order mismatch (-want +got):\n%s", diff)
-			}
-		})
 	}
 }
 
@@ -613,7 +161,7 @@ func invoicedTree() *DeleteTree {
 			{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
 		}
 	}
-	tree := projectTree(nil)
+	tree := projectTree()
 	tree.RefusedBy = []DeleteKind{
 		{
 			Resource: "CascadeInvoices",
@@ -632,304 +180,15 @@ func invoicedTree() *DeleteTree {
 	return tree
 }
 
-// refusing answers a count's reads from the tables as the database would: the name of
-// each of the kind's rows whose columns hold what the link references of one of the
-// rows above.
-func (c cascadeTables) refusing(ctx context.Context, kind *DeleteKind, link DeleteLink, above []map[string]any) ([]string, error) {
-	rows, err := c.under(ctx, kind, link, above, len(c[kind.Resource]))
-	if err != nil {
-		return nil, err
-	}
-
-	return ids(rows), nil
-}
-
-// invoicedTables are a project's tasks, two of them under the project only through
-// another task, with the invoices and timesheets that name them.
-func invoicedTables() cascadeTables {
-	return cascadeTables{
-		"CascadeTasks": {
-			{"Id": "t1", "ProjectId": "p1"},
-			{"Id": "t2", "ParentTaskId": "t1"},
-			{"Id": "t3", "ParentTaskId": "t2"},
-			{"Id": "other", "ProjectId": "p2"},
-			{"Id": "other2", "ParentTaskId": "other"},
-		},
-		"CascadeInvoices": {
-			// Under a task that is under the project only through another task.
-			{"Id": "i1", "TaskId": "t2"},
-			// Under two of the project's tasks, by two columns.
-			{"Id": "i2", "TaskId": "t3", "CheckedTaskId": "t2"},
-			// Under another project's task.
-			{"Id": "i3", "TaskId": "other2"},
-		},
-		"CascadeTimesheets": {
-			{"Id": "s1", "TaskId": "t3"},
-		},
-	}
-}
-
-// walked is what a walk from project p1 finds in the tables.
-func walked(t *testing.T, tree *DeleteTree, tables cascadeTables) *takenFound {
-	t.Helper()
-
-	walk := &takenWalk{
-		tree:    tree,
-		limit:   1000,
-		tracked: func(accesstypes.Resource) bool { return false },
-		under:   tables.under,
-		deleted: func(accesstypes.Resource, map[string]any) bool { return false },
-		changed: func(accesstypes.Resource, map[string]any) bool { return false },
-	}
-	found, err := walk.find(t.Context(), map[string]any{"Id": "p1", "Code": "ALPHA"})
-	if err != nil {
-		t.Fatalf("find() error = %v", err)
-	}
-
-	return found
-}
-
-// TestRefusingCount_rows pins the count of the rows that refuse a record's delete from
-// under the rows a walk found: a row under a task that is under the record only through
-// another task is counted, a row under two of the rows found is counted once, a row
-// under another record's task is not, the kinds come in the description's order, and a
-// record with no such row has none.
-func TestRefusingCount_rows(t *testing.T) {
+// TestRecordedDelete_refuseRow pins what a kind or a row that may not go answers the
+// whole delete with: its rule's own sentence where its rule refuses; where the person
+// may not delete it, or may not reach it, a 403 that names the kind if they may list it
+// and says only that there are records if they may not; and anything else as the
+// failure it is.
+func TestRecordedDelete_refuseRow(t *testing.T) {
 	t.Parallel()
 
-	tree := invoicedTree()
-	paid := invoicedTables()
-	delete(paid, "CascadeInvoices")
-	delete(paid, "CascadeTimesheets")
-
-	tests := []struct {
-		name   string
-		tables cascadeTables
-		want   map[accesstypes.Resource]int64
-		order  []accesstypes.Resource
-	}{
-		{
-			name:   "rows under tasks the walk alone reaches",
-			tables: invoicedTables(),
-			want:   map[accesstypes.Resource]int64{"CascadeInvoices": 2, "CascadeTimesheets": 1},
-			order:  []accesstypes.Resource{"CascadeInvoices", "CascadeTimesheets"},
-		},
-		{
-			name:   "no refusing row under the rows found",
-			tables: paid,
-			want:   map[accesstypes.Resource]int64{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			count := &refusingCount{tree: tree, under: tt.tables.refusing}
-			refusing, err := count.rows(t.Context(), walked(t, tree, tt.tables))
-			if err != nil {
-				t.Fatalf("rows() error = %v", err)
-			}
-			got := make(map[accesstypes.Resource]int64, len(refusing))
-			var order []accesstypes.Resource
-			for _, k := range refusing {
-				got[k.kind.Resource] = k.rows
-				order = append(order, k.kind.Resource)
-			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("rows() mismatch (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tt.order, order); diff != "" {
-				t.Errorf("rows() order mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestRecordedDelete_refusedUnder pins the refusal of a delete over a refusing row under
-// a row the walk alone reaches: a 409 in the sentence that counts each kind the person
-// may list, and no refusal where no such row is there.
-func TestRecordedDelete_refusedUnder(t *testing.T) {
-	t.Parallel()
-
-	tree := invoicedTree()
-	paid := invoicedTables()
-	delete(paid, "CascadeInvoices")
-	delete(paid, "CascadeTimesheets")
-
-	tests := []struct {
-		name        string
-		tables      cascadeTables
-		caller      *Caller
-		wantStatus  int
-		wantMessage string
-	}{
-		{
-			name:        "a trusted call is told every kind",
-			tables:      invoicedTables(),
-			wantStatus:  http.StatusConflict,
-			wantMessage: "This project has 2 invoices and 1 timesheet, so it can't be deleted.",
-		},
-		{
-			name:        "a kind the person may not list is not counted for them",
-			tables:      invoicedTables(),
-			caller:      whoLists(accesstypes.Decisions{"CascadeInvoices": accesstypes.Denied()}),
-			wantStatus:  http.StatusConflict,
-			wantMessage: "This project has 1 timesheet, so it can't be deleted.",
-		},
-		{
-			name:   "no refusing row under the rows found",
-			tables: paid,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			asked := &recordedDelete{tree: tree, key: map[string]any{"Id": "p1"}, caller: tt.caller}
-			err := asked.refusedUnder(t.Context(), &refusingCount{tree: tree, under: tt.tables.refusing}, walked(t, tree, tt.tables))
-			if tt.wantStatus == 0 {
-				if err != nil {
-					t.Fatalf("refusedUnder() error = %v, want none", err)
-				}
-
-				return
-			}
-			if got := statusOf(err); got != tt.wantStatus {
-				t.Errorf("refusedUnder() status = %d, want %d (%v)", got, tt.wantStatus, err)
-			}
-			if got := httpio.Message(err); got != tt.wantMessage {
-				t.Errorf("refusedUnder() message = %q, want %q", got, tt.wantMessage)
-			}
-		})
-	}
-}
-
-// Test_refusingStatements pins the reads of the refusing rows under one part of the rows
-// found: the key of the kind's rows whose columns hold what the link references of one
-// of the rows above, the rows of the kind the transaction itself wrote left out, the
-// rows above read for in parts that leave room for those, and no read at all where the
-// transaction wrote more rows of the kind than a statement leaves out. Where the kind's
-// rows and the record are a tenant's, a read finds the rows of the record's own tenant
-// alone, and its parts leave room for the value that names the tenant too.
-func Test_refusingStatements(t *testing.T) {
-	t.Parallel()
-
-	invoices := &DeleteKind{Resource: "CascadeInvoices", Key: []string{"Id"}}
-	byTask := DeleteLink{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}}
-	rows := func(n int) []map[string]any {
-		out := make([]map[string]any, 0, n)
-		for i := range n {
-			out = append(out, map[string]any{"Id": fmt.Sprintf("r%d", i)})
-		}
-
-		return out
-	}
-
-	got, err := refusingStatements(nil, nil, invoices, byTask, []map[string]any{{"Id": "t1"}, {"Id": "t2"}}, []map[string]any{{"Id": "i9"}})
-	if err != nil {
-		t.Fatalf("refusingStatements() error = %v", err)
-	}
-	want := []rowsUnderStatement{{
-		SQL:  "SELECT t0.`Id` FROM `CascadeInvoices` AS t0 WHERE ((t0.`TaskId` = @d1) OR (t0.`TaskId` = @d2)) AND NOT (t0.`Id` = @d3)",
-		Args: []any{"t1", "t2", "i9"},
-	}}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("refusingStatements() mismatch (-want +got):\n%s", diff)
-	}
-
-	parts, err := refusingStatements(nil, nil, invoices, byTask, rows(takenParameterLimit), rows(100))
-	if err != nil {
-		t.Fatalf("refusingStatements() error = %v", err)
-	}
-	if len(parts) != 2 {
-		t.Fatalf("refusingStatements() made %d reads of %d rows above with 100 rows left out, want 2", len(parts), takenParameterLimit)
-	}
-	for i, part := range parts {
-		if len(part.Args) > takenParameterLimit {
-			t.Errorf("read %d names %d values, want no more than %d", i, len(part.Args), takenParameterLimit)
-		}
-	}
-
-	none, err := refusingStatements(nil, nil, invoices, byTask, rows(2), rows(deleteExclusionLimit+1))
-	if err != nil {
-		t.Fatalf("refusingStatements() error = %v", err)
-	}
-	if len(none) != 0 {
-		t.Errorf("refusingStatements() made %d reads with more rows written than a statement leaves out, want none", len(none))
-	}
-
-	byTenant := &DomainBindingData{Column: "TenantId"}
-	tenantInvoices := &DeleteKind{Resource: "CascadeInvoices", Key: []string{"Id"}, Tenant: byTenant}
-	tenants := &DeleteTree{Record: "CascadeTenants", Key: []string{"Id"}, Tenant: &DomainBindingData{Column: "Id"}}
-	for _, tt := range []struct {
-		name      string
-		tree      *DeleteTree
-		recordKey map[string]any
-		kind      *DeleteKind
-		want      rowsUnderStatement
-	}{
-		{
-			name:      "the tenant record: the tenant its key holds",
-			tree:      tenants,
-			recordKey: map[string]any{"Id": "anvil"},
-			kind:      tenantInvoices,
-			want: rowsUnderStatement{
-				SQL:  "SELECT t0.`Id` FROM `CascadeInvoices` AS t0 WHERE ((t0.`TaskId` = @d1) OR (t0.`TaskId` = @d2)) AND t0.`TenantId` = @d3 AND NOT (t0.`Id` = @d4)",
-				Args: []any{"t1", "t2", "anvil", "i9"},
-			},
-		},
-		{
-			name:      "a record under a tenant: the tenant its row resolves to",
-			tree:      &DeleteTree{Record: "CascadeClients", Key: []string{"Id"}, Tenant: byTenant},
-			recordKey: map[string]any{"Id": "c1"},
-			kind:      tenantInvoices,
-			want: rowsUnderStatement{
-				SQL: "SELECT t0.`Id` FROM `CascadeInvoices` AS t0 WHERE ((t0.`TaskId` = @d1) OR (t0.`TaskId` = @d2))" +
-					" AND t0.`TenantId` = (SELECT tr.`TenantId` FROM `CascadeClients` AS tr WHERE tr.`Id` = @d3) AND NOT (t0.`Id` = @d4)",
-				Args: []any{"t1", "t2", "c1", "i9"},
-			},
-		},
-		{
-			name:      "a kind whose rows are no tenant's",
-			tree:      tenants,
-			recordKey: map[string]any{"Id": "anvil"},
-			kind:      invoices,
-			want: rowsUnderStatement{
-				SQL:  "SELECT t0.`Id` FROM `CascadeInvoices` AS t0 WHERE ((t0.`TaskId` = @d1) OR (t0.`TaskId` = @d2)) AND NOT (t0.`Id` = @d3)",
-				Args: []any{"t1", "t2", "i9"},
-			},
-		},
-	} {
-		got, err := refusingStatements(tt.tree, tt.recordKey, tt.kind, byTask, []map[string]any{{"Id": "t1"}, {"Id": "t2"}}, []map[string]any{{"Id": "i9"}})
-		if err != nil {
-			t.Fatalf("%s: refusingStatements() error = %v", tt.name, err)
-		}
-		if diff := cmp.Diff([]rowsUnderStatement{tt.want}, got); diff != "" {
-			t.Errorf("%s: refusingStatements() mismatch (-want +got):\n%s", tt.name, diff)
-		}
-	}
-
-	roomy, err := refusingStatements(tenants, map[string]any{"Id": "anvil"}, tenantInvoices, byTask, rows(takenParameterLimit), rows(100))
-	if err != nil {
-		t.Fatalf("refusingStatements() error = %v", err)
-	}
-	for i, part := range roomy {
-		if len(part.Args) > takenParameterLimit {
-			t.Errorf("read %d of a tenant's rows names %d values, want no more than %d", i, len(part.Args), takenParameterLimit)
-		}
-	}
-}
-
-// TestRecordedDelete_mayTake pins what a row that may not go answers the whole delete
-// with: its rule's own sentence where its rule refuses; where the person may not delete
-// it, or may not reach it, a 403 that names the row's kind if they may list it and says
-// only that there are records if they may not; and anything else as the failure it is.
-func TestRecordedDelete_mayTake(t *testing.T) {
-	t.Parallel()
-
-	tree := projectTree(nil)
+	tree := projectTree()
 	tasks := &tree.Taken[2]
 
 	tests := []struct {
@@ -940,9 +199,6 @@ func TestRecordedDelete_mayTake(t *testing.T) {
 		wantMessage string
 		wantFailure bool
 	}{
-		{
-			name: "a row that may go",
-		},
 		{
 			name:        "a row its rule refuses answers in the rule's sentence",
 			refusal:     cascadeRefusal{byRule: true, err: httpio.NewBadRequestMessage("A task that is being worked on can't be deleted.")},
@@ -982,23 +238,19 @@ func TestRecordedDelete_mayTake(t *testing.T) {
 			t.Parallel()
 
 			asked := &recordedDelete{tree: tree, key: map[string]any{"Id": "p1"}, caller: tt.caller}
-			err := asked.mayTake(t.Context(), nil, takenDelete{kind: tasks, row: &cascadeRow{refusal: tt.refusal}})
-			switch {
-			case tt.wantFailure:
+			err := asked.refuseRow(t.Context(), tasks, tt.refusal.byRule, tt.refusal.err)
+			if tt.wantFailure {
 				if err == nil || httpio.Message(err) != "" {
-					t.Fatalf("mayTake() error = %v, want a failure with no sentence for the person", err)
+					t.Fatalf("refuseRow() error = %v, want a failure with no sentence for the person", err)
 				}
-			case tt.wantStatus == 0:
-				if err != nil {
-					t.Fatalf("mayTake() error = %v, want none", err)
-				}
-			default:
-				if got := statusOf(err); got != tt.wantStatus {
-					t.Errorf("mayTake() status = %d, want %d (%v)", got, tt.wantStatus, err)
-				}
-				if got := httpio.Message(err); got != tt.wantMessage {
-					t.Errorf("mayTake() message = %q, want %q", got, tt.wantMessage)
-				}
+
+				return
+			}
+			if got := statusOf(err); got != tt.wantStatus {
+				t.Errorf("refuseRow() status = %d, want %d (%v)", got, tt.wantStatus, err)
+			}
+			if got := httpio.Message(err); got != tt.wantMessage {
+				t.Errorf("refuseRow() message = %q, want %q", got, tt.wantMessage)
 			}
 		})
 	}
@@ -1021,20 +273,31 @@ func statusOf(err error) int {
 }
 
 // TestRecordedDelete_question pins what a person is asked before a delete takes the
-// rows under a record: the record's kind, then each kind found with its count, the kind
-// nearest the record first; a kind the person may not list is not counted for them, and
+// rows under a record: the record's kind, then each kind counted with its rows at every
+// level, the kind nearest the record first; a kind the person may not list is not counted for them, and
 // the sentence then says there are records they can't see; with no kind they may list it
-// only asks.
+// only asks. The kinds code handed the delete follow the description's, each told to
+// whoever asks. A trusted kind is counted for a person who may not list it, and an armed
+// kind beside it is not.
 func TestRecordedDelete_question(t *testing.T) {
 	t.Parallel()
 
-	found := &takenFound{rows: map[accesstypes.Resource][]map[string]any{
-		"CascadeTasks":    {{"Id": "t1"}, {"Id": "t2"}, {"Id": "t3"}},
-		"CascadeComments": {{"Id": "c1"}},
-	}}
+	tree := projectTree()
+	levels := &takenLevels{deepest: 1, rows: map[*DeleteKind][]int64{&tree.Taken[2]: {1, 2}, &tree.Taken[0]: {1, 0}, &tree.Taken[1]: {0}}}
+	trusted := projectTree()
+	trusted.Taken[2].Trusted = true
+	trustedLevels := &takenLevels{deepest: 1, rows: map[*DeleteKind][]int64{&trusted.Taken[2]: {1, 2}, &trusted.Taken[0]: {1, 0}, &trusted.Taken[1]: {0}}}
+	handed := []kindRows{
+		{kind: &DeleteKind{Words: DeleteWords{One: "role", Many: "roles"}, Trusted: true}, rows: 5},
+		{kind: &DeleteKind{Words: DeleteWords{One: "invitation", Many: "invitations"}, Trusted: true}, rows: 1},
+	}
+	listsNothing := whoLists(accesstypes.Decisions{"CascadeComments": accesstypes.Denied(), "CascadeTasks": accesstypes.Denied()})
 
 	tests := []struct {
 		name   string
+		tree   *DeleteTree
+		levels *takenLevels
+		handed []kindRows
 		caller *Caller
 		want   string
 	}{
@@ -1054,8 +317,25 @@ func TestRecordedDelete_question(t *testing.T) {
 		},
 		{
 			name:   "a person who may list none of the kinds is only asked",
-			caller: whoLists(accesstypes.Decisions{"CascadeComments": accesstypes.Denied(), "CascadeTasks": accesstypes.Denied()}),
+			caller: listsNothing,
 			want:   "Delete this project and everything under it? This can't be undone.",
+		},
+		{
+			name:   "the kinds code handed the delete follow the description's",
+			handed: handed,
+			caller: whoLists(nil),
+			want:   "Delete this project and everything under it: 3 tasks, 1 comment, 5 roles, 1 invitation. This can't be undone.",
+		},
+		{
+			name:   "the kinds code handed the delete are told to a person who may list none of the description's",
+			handed: handed,
+			caller: listsNothing,
+			want:   "Delete this project and everything under it: 5 roles, 1 invitation, and records you can't see. This can't be undone.",
+		},
+		{
+			name: "a trusted kind is counted for a person who may not list it, and an armed kind beside it is not", tree: trusted, levels: trustedLevels,
+			caller: listsNothing,
+			want:   "Delete this project and everything under it: 3 tasks, and records you can't see. This can't be undone.",
 		},
 	}
 
@@ -1063,8 +343,12 @@ func TestRecordedDelete_question(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			asked := &recordedDelete{tree: projectTree(nil), key: map[string]any{"Id": "p1"}, caller: tt.caller}
-			got, err := asked.question(t.Context(), found)
+			tree, levels := tree, levels
+			if tt.tree != nil {
+				tree, levels = tt.tree, tt.levels
+			}
+			asked := &recordedDelete{tree: tree, key: map[string]any{"Id": "p1"}, caller: tt.caller}
+			got, err := asked.question(t.Context(), levels, tt.handed)
 			if err != nil {
 				t.Fatalf("question() error = %v", err)
 			}
@@ -1072,13 +356,6 @@ func TestRecordedDelete_question(t *testing.T) {
 				t.Errorf("question() = %q, want %q", got, tt.want)
 			}
 		})
-	}
-
-	if got, want := deleteTooManySentence(projectTree(nil)), "This project has too many records under it to delete at once. Delete some of them first."; got != want {
-		t.Errorf("deleteTooManySentence() = %q, want %q", got, want)
-	}
-	if got, want := deleteWithChangeSentence(projectTree(nil)), "This request also changes a record under this project. Send the change and the delete separately."; got != want {
-		t.Errorf("deleteWithChangeSentence() = %q, want %q", got, want)
 	}
 }
 
@@ -1140,5 +417,81 @@ func TestDecoder_readsWhatARemoveSays(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Test_takenQuery pins a kind's path statement as Spanner takes it: the kind's rows read
+// under their table's name, under the record by the kind's ways at the level; a kind
+// three steps under the record names no row above it, only the record's key; above level
+// 0 the rows the record's key reaches by a declared way are left to level 0; and a page
+// reads each row's key and the answers asked of it, in key order, after the rows of the
+// pages before it.
+func Test_takenQuery(t *testing.T) {
+	t.Parallel()
+
+	tree := projectTree()
+	replies := DeleteKind{
+		Resource: "CascadeReplies",
+		Words:    DeleteWords{One: "reply", Many: "replies"},
+		Key:      []string{"Id"},
+		Paths: []DeletePath{{
+			{Columns: []string{"CommentId"}, Table: "CascadeComments", References: []string{"Id"}},
+			{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}},
+			{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
+		}},
+	}
+	query := &takenQuery{tree: tree, key: map[string]any{"Id": "p1"}}
+
+	// With the deepest level 0, a level leaves nothing out.
+	statement, ok := query.count(&replies, 0, 0)
+	if !ok {
+		t.Fatal("count() of the replies wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM `CascadeReplies` WHERE (EXISTS (SELECT 1 FROM `CascadeComments` AS w0_1, `CascadeTasks` AS w0_2 " +
+		"WHERE w0_1.`Id` = `CascadeReplies`.`CommentId` AND w0_2.`Id` = w0_1.`TaskId` AND w0_2.`ProjectId` = @d1))"; statement.SQL != want {
+		t.Errorf("count() of the replies =\n%s\nwant\n%s", statement.SQL, want)
+	}
+	if diff := cmp.Diff([]any{"p1"}, statement.Args); diff != "" {
+		t.Errorf("count() of the replies names values other than the record's key (-want +got):\n%s", diff)
+	}
+
+	// With the deepest level 2, a level below it leaves out what the next level finds, and
+	// level 1 compares nothing of the task's own project.
+	tasks, labels := &tree.Taken[2], &tree.Taken[1]
+	asks := &takenAsks{groups: [][]accesstypes.Resource{{"CascadeTasks"}}, terms: []string{"(CascadeTasks.Title != @_c1)"}, params: map[string]any{"_c1": "secret"}}
+	page, ok := query.page(tasks, 1, 2, asks, takenPageRows, takenPageRows)
+	if !ok {
+		t.Fatal("page() of the tasks at level 1 wrote no read")
+	}
+	if want := "SELECT `CascadeTasks`.`Id`, (CascadeTasks.Title != @_c1) AS a1 FROM `CascadeTasks` " +
+		"WHERE (EXISTS (SELECT 1 FROM `CascadeTasks` AS w0_1 WHERE w0_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w0_1.`ProjectId` = @d1)) " +
+		"AND NOT COALESCE((EXISTS (SELECT 1 FROM `CascadeTasks` AS w1_1, `CascadeTasks` AS w1_2 WHERE w1_1.`Id` = `CascadeTasks`.`ParentTaskId` " +
+		"AND w1_2.`Id` = w1_1.`ParentTaskId` AND w1_2.`ProjectId` = @d2)), FALSE) ORDER BY `CascadeTasks`.`Id` LIMIT 1000 OFFSET 1000"; page.SQL != want {
+		t.Errorf("page() of the tasks at level 1 =\n%s\nwant\n%s", page.SQL, want)
+	}
+	if diff := cmp.Diff(map[string]any{"_c1": "secret", "d1": "p1", "d2": "p1"}, page.spannerStatement().Params); diff != "" {
+		t.Errorf("page() of the tasks at level 1 values (-want +got):\n%s", diff)
+	}
+	if page, ok := query.page(tasks, 2, 2, nil, takenPageRows, 0); !ok || strings.Contains(page.SQL, "NOT") {
+		t.Errorf("page() of the tasks at the deepest level = %q (written %t), want a read that leaves nothing out", page.SQL, ok)
+	}
+	statement, ok = query.count(tasks, 0, 2)
+	if !ok {
+		t.Fatal("count() of the tasks at level 0 wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM `CascadeTasks` WHERE ((`CascadeTasks`.`ProjectId` = @d1)) " +
+		"AND NOT COALESCE((EXISTS (SELECT 1 FROM `CascadeTasks` AS w1_1 WHERE w1_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w1_1.`ProjectId` = @d2)), FALSE)"; statement.SQL != want {
+		t.Errorf("count() of the tasks at level 0 =\n%s\nwant\n%s", statement.SQL, want)
+	}
+	if statement, ok := query.count(tasks, 0, 0); !ok || strings.Contains(statement.SQL, "NOT") {
+		t.Errorf("count() of the tasks at level 0 with the deepest level 0 = %q (written %t), want a count that leaves nothing out", statement.SQL, ok)
+	}
+	for _, deepest := range []int{0, 2} {
+		if statement, ok := query.count(labels, 0, deepest); !ok || strings.Contains(statement.SQL, "NOT") {
+			t.Errorf("count() of the labels at level 0 with the deepest level %d = %q (written %t), want a count that leaves nothing out", deepest, statement.SQL, ok)
+		}
+	}
+	if _, ok := query.count(labels, 1, 2); ok {
+		t.Error("count() of the labels at level 1 wrote a statement, want none: no way of theirs has a place for a link to a row of the same table")
 	}
 }

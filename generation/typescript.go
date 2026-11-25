@@ -44,6 +44,11 @@ type typescriptGenerator struct {
 	// record cannot make it: the decision reads the outlets' auths, which this generator
 	// does not know.
 	tenantCreation tenantCreation
+	// tenantDirectories says the package declares a tenant's directories record,
+	// whichever outlets serve it: the outlet filter notes it before it drops the records
+	// off the target outlet (applyOutletFilter), since the create-your-tenant route takes
+	// a directory wherever it is served.
+	tenantDirectories bool
 	// directoryRolePicker mirrors the resourceGenerator's choice of the list the role of
 	// the method that opens a tenant to its directory is picked from: the roles that
 	// exist in one tenant, of the auth whose generated identity client judges the role
@@ -159,9 +164,10 @@ func (t *typescriptGenerator) validateOutletMemberReferences(resources []*resour
 func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, computedResources []*computedResource) ([]*resourceInfo, []*computedResource, error) {
 	t.outletExcludedTables = make(map[string]struct{})
 	// The methods that turn the tenant record's directory-only switch are served with
-	// the record, and the ones that say how a tenant admits its directory's people and
-	// the ones of its word for its directory's second factor with the directories
-	// record, so each leaves the outlet's constants with its record.
+	// the record, and the one that takes a tenant's directory, the ones that say how a
+	// tenant admits its directory's people and the ones of its word for its directory's
+	// second factor with the directories record, so each leaves the outlet's constants
+	// with its record.
 	// The action of the create-your-tenant route needs nothing here: the collection
 	// marks it an action no role is given, and such an action is in no outlet's
 	// constants (resource.CollectionResource.NoRole).
@@ -172,8 +178,16 @@ func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, compu
 		}
 	}
 	for _, res := range resources {
+		if res.IsTenantDirectory {
+			t.tenantDirectories = true
+		}
 		if res.declaresDirectoryOnly() && !res.OnOutlet(t.targetOutlet()) {
 			for _, method := range directoryOnlyMethodsOf(res.Name()) {
+				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
+			}
+		}
+		if tenant != nil && res.IsTenantDirectory && !res.OnOutlet(t.targetOutlet()) {
+			for _, method := range directoryTakeMethodsOf(tenant.Name()) {
 				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
 			}
 		}

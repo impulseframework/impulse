@@ -5,7 +5,6 @@ import { MatDialog } from '@angular/material/dialog';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   AnyResourceHandle,
-  CreatePermission,
   DeletePermission,
   DirectorySecondFactor,
   Domain,
@@ -42,9 +41,10 @@ type SignInMethod = keyof TenantSignIn['methods'];
 /**
  * A tenant's Sign-in settings page: how people enter the tenant, and what the person
  * reading can do about it right now. It says, in one line, how the tenant stands; then the
- * tenant's directory by the name people know it by, the role a person gets the first time
- * they sign in through it in plain words, and whether the tenant is directory only, with
- * how many of its people that keeps out, a count that opens those people on the People page.
+ * tenant's directory by the name people know it by, the role a person gets when they sign
+ * in through it and hold nothing in the tenant, in plain words, and whether the tenant is
+ * directory only, with how many of its people that keeps out, a count that opens those
+ * people on the People page.
  * Where the application's directories carry it, the page also says whether the tenant
  * vouches for its directory's own second factor, with the control that says so or takes it
  * back.
@@ -56,11 +56,13 @@ type SignInMethod = keyof TenantSignIn['methods'];
  * one. A reader who holds none of the tenant's sign-in methods is served neither count nor
  * control; where the digest lets them read the tenant record's directory-only field, the
  * page reads the tenant's own row and says whether the tenant is directory only, and no
- * more. A tenant has one directory, and nobody types one in: a person who may create it and
- * is signed in through an organization's directory makes that one the tenant's, and the
- * request names none. Everything else the page changes is one of the tenant's own methods,
- * run through the library's method dialog; a method that warns is asked for its warning
- * first, so a refusal is shown on the page in the server's words and no dialog opens.
+ * more. A tenant has one directory, and nobody types one in: a person who holds the
+ * tenant's method that takes it and is signed in through an organization's directory makes
+ * that one the tenant's, behind the statement that they are authorized to act for the
+ * organization, and the request names none. That and everything else the page changes but
+ * the directory's removal is one of the tenant's own methods, run through the library's
+ * method dialog; a method that warns is asked for its warning first, so a refusal is shown
+ * on the page in the server's words and no dialog opens.
  * After a write the page reads both again.
  *
  * The route carries the names (tenantSignInRoute); the tenant is the one the page is open
@@ -108,8 +110,8 @@ export class TenantSignInPageComponent {
   private readonly name = computed(() => this.knownName() || `this ${this.word}`);
 
   readonly canList = computed(() => this.allows(ListPermission, this.signIn.directories));
-  readonly canCreate = computed(() => this.allows(CreatePermission, this.signIn.directories));
   readonly canDelete = computed(() => this.allows(DeletePermission, this.signIn.directories));
+  readonly canTake = computed(() => this.grants('takeDirectory'));
   readonly canOpen = computed(() => this.grants('openToDirectory'));
   readonly canInviteOnly = computed(() => this.grants('makeDirectoryInviteOnly'));
   readonly canMakeOnly = computed(() => this.grants('makeDirectoryOnly'));
@@ -120,6 +122,7 @@ export class TenantSignInPageComponent {
   /** Whether the reader is served the read of the sign-in settings: the digest grants one of the tenant's own sign-in methods the route names. */
   private readonly readsSettings = computed(
     () =>
+      this.canTake() ||
       this.canOpen() ||
       this.canInviteOnly() ||
       this.canMakeOnly() ||
@@ -260,12 +263,10 @@ export class TenantSignInPageComponent {
   /**
    * Whether the part headed Directory is drawn: only where something stands under the
    * heading, the directory's name or the button that removes it, or, with no directory,
-   * what setting one takes of a reader who may create it.
+   * what setting one takes of a reader who holds the method that takes it.
    */
   readonly showsDirectory = computed(() =>
-    this.hasDirectory()
-      ? !!this.facts()?.directory || (this.canDelete() && this.row() !== undefined)
-      : this.canCreate(),
+    this.hasDirectory() ? !!this.facts()?.directory || (this.canDelete() && this.row() !== undefined) : this.canTake(),
   );
 
   /** The directory's name on a line of its own, opening with a capital; empty where the read names none. */
@@ -299,7 +300,7 @@ export class TenantSignInPageComponent {
       (this.facts() !== undefined || this.canOpen() || this.canInviteOnly()),
   );
 
-  /** The role a person gets the first time they sign in through the directory, in words. */
+  /** The role a person gets when they sign in through the directory and hold nothing in the tenant, in words. */
   readonly defaultRole = computed(() => this.facts()?.defaultRole || 'Nobody: by invitation only');
 
   /** Whether the button that opens the dialog with the role says the role is changed rather than chosen. */
@@ -407,14 +408,13 @@ export class TenantSignInPageComponent {
   readonly refusal = signal('');
 
   /**
-   * Makes the directory the person is signed in through this tenant's directory. The
-   * request names no directory: the server sets the one the session came through.
+   * Makes the directory the person is signed in through this tenant's directory, through
+   * the tenant's method behind its statement: the dialog shows what the server says taking
+   * it does and holds its button until the phrase is typed. The request names no
+   * directory: the server takes the one the session came through.
    */
   async makeDirectory(): Promise<void> {
-    await this.write(async () => {
-      await this.directories(this.tenant()).create({});
-      this.reload();
-    });
+    await this.run('takeDirectory', `Make it this ${this.word}'s directory`, {}, {});
   }
 
   /**
@@ -448,7 +448,7 @@ export class TenantSignInPageComponent {
       'openToDirectory',
       'Choose the role',
       {
-        labels: { role: 'The role a person gets the first time they sign in through it' },
+        says: 'The role a person gets when they sign in through it and hold nothing here',
         shows: { role: ['name', 'description'] },
       },
       { role: '' },

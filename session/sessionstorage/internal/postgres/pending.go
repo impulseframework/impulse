@@ -91,11 +91,24 @@ func (s *SessionStorageDriver) pendingTable() string {
 // is inserted only while its user still holds the password that was proved, read under
 // the user row's share lock in the transaction that inserts, so no password write lands
 // between the comparison and the insert: a password changed, reset or removed since the
-// proof inserts nothing (ErrPasswordChanged, a Conflict).
+// proof inserts nothing (ErrPasswordChanged, a Conflict). Once the pending sign-in is in,
+// the pending sign-ins that expired more than a day ago are removed, with their sign-in
+// codes, in a statement of their own.
 func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := s.insertPendingSignIn(ctx, p); err != nil {
+		return err
+	}
+	pendingSignInsRemoval.remove(ctx, s.conn, s.pendingTable())
+
+	return nil
+}
+
+// insertPendingSignIn is InsertPendingSignIn's write, on whichever of its two paths p
+// takes, with nothing removed after it.
+func (s *SessionStorageDriver) insertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error {
 	events, err := json.Marshal(p.Events)
 	if err != nil {
 		return errors.Wrap(err, "json.Marshal()")

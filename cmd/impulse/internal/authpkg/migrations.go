@@ -124,8 +124,9 @@ func usersDown(p string) string {
 
 func sessionsUp(p, who string) string {
 	return fmt.Sprintf(`-- The %[2]s auth's session tables: the session library's Auth sessions (session.Auth), one
--- set of tables for every sign-in method registered on the auth. A session belongs to a
--- user, and deleting the user deletes its sessions; UserId is null only for a
+-- set of tables for every sign-in method registered on the auth. A session names its user
+-- and is not held to it by a foreign key: a deleted user's sessions are ended in code, and
+-- their rows stay until the timed removal takes them. UserId is null only for a
 -- role-principal impersonation. ProviderSessionId is the identity provider's session id
 -- when the method reports one, for front-channel logout, and ProviderSessionIssuer the
 -- issuer it belongs to. Browser is the name of the browser a session was signed in from
@@ -146,7 +147,6 @@ CREATE TABLE %[1]sSessions (
     CreatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     UpdatedAt             TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     CONSTRAINT CK_%[1]sSessionsId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
-    CONSTRAINT FK_%[1]sSessions_%[1]sSessionUsers FOREIGN KEY (UserId) REFERENCES %[1]sSessionUsers (Id) ON DELETE CASCADE,
 ) PRIMARY KEY (Id);
 
 CREATE INDEX %[1]sSessions_Expired_idx ON %[1]sSessions (Expired DESC);
@@ -246,6 +246,10 @@ CREATE TABLE %[1]sSessionPendingSignIns (
 CREATE UNIQUE INDEX %[1]sSessionPendingSignInsByTokenHash ON %[1]sSessionPendingSignIns(TokenHash);
 
 CREATE INDEX %[1]sSessionPendingSignInsByExpiresAt ON %[1]sSessionPendingSignIns(ExpiresAt);
+
+-- A pending sign-in's row is removed one day after it expired (ExpiresAt), consumed or
+-- not: Spanner deletes it in the background, with its sign-in codes.
+ALTER TABLE %[1]sSessionPendingSignIns ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 
 -- The sign-in attempts: the attempt limiter's count of failed password attempts per
 -- sign-in name, known or not, within a window, and the lock those failures earned. The
@@ -417,6 +421,11 @@ CREATE INDEX %[1]sSessionTokensByUser ON %[1]sSessionTokens(UserId, RevokedAt, E
 
 CREATE INDEX %[1]sSessionTokensByFamilyId ON %[1]sSessionTokens(FamilyId, RevokedAt);
 
+-- A token's row is removed 30 days after the token expired (ExpiresAt), revoked or not. A
+-- refresh token that was rotated stays until then, so one presented again before it
+-- expires is still caught as a reuse.
+ALTER TABLE %[1]sSessionTokens ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
+
 -- The device codes: the device authorizations command-line clients start for a machine
 -- outlet whose tokens the %[2]s auth issues (RFC 8628). The client holds the opaque
 -- device code and the row keeps its hash; the person is shown the user code, normalized
@@ -445,6 +454,10 @@ CREATE TABLE %[1]sSessionDeviceCodes (
 CREATE UNIQUE INDEX %[1]sSessionDeviceCodesByHash ON %[1]sSessionDeviceCodes(DeviceCodeHash);
 
 CREATE INDEX %[1]sSessionDeviceCodesByUserCode ON %[1]sSessionDeviceCodes(UserCode, ExpiresAt);
+
+-- A device code's row is removed one day after the code expired (ExpiresAt), whether it
+-- was approved, denied or never decided.
+ALTER TABLE %[1]sSessionDeviceCodes ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 1 DAY));
 `, p, who, guidCheck)
 }
 
@@ -496,6 +509,9 @@ CREATE TABLE %[1]sSessionTrustedDevices (
 CREATE UNIQUE INDEX %[1]sSessionTrustedDevicesByTokenHash ON %[1]sSessionTrustedDevices(TokenHash);
 
 CREATE INDEX %[1]sSessionTrustedDevicesByUser ON %[1]sSessionTrustedDevices(UserId, RevokedAt);
+
+-- A trusted device's row is removed 30 days after it expired (ExpiresAt), revoked or not.
+ALTER TABLE %[1]sSessionTrustedDevices ADD ROW DELETION POLICY (OLDER_THAN(ExpiresAt, INTERVAL 30 DAY));
 `, p, who, guidCheck)
 }
 

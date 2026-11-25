@@ -162,7 +162,7 @@ func (c *DataConfiguration) %[1]sAdministrator() string {
 func (au Auth) administratorField() string {
 	signsIn := "and the person\n// signs in from its link. It is an address, not a secret, and no password is\n// generated for the person. Unset in development, where no release runs and nobody\n// is invited."
 	if !au.password() {
-		signsIn = "and the person's\n// first sign-in through the directory, from its link, is tied to the roles by the\n// invitation; the address the directory gives must be the invited one. Unset in\n// development, where no release runs and nobody is invited."
+		signsIn = "and the person's\n// sign-in through the directory from its link accepts it and is given the roles; the\n// address the directory gives must be the invited one. Unset in development, where no\n// release runs and nobody is invited."
 	}
 
 	return fmt.Sprintf("\n// %[1]sAdministrator is the email address of the %[2]s auth's first administrator\n// (%[2]s.AdministratorVariable), which the placement names for each environment:\n// while nobody of the auth holds the Super Administrator role the migrate command\n// has an invitation mailed there (%[2]s.Auth.InviteAdministrator), %[3]s\n%[1]sAdministrator string `env:%[4]q`", au.Pascal(), au.Name, signsIn, authpkg.AdministratorVariable(au.Name))

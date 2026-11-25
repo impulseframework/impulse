@@ -98,15 +98,15 @@ const (
 // when a row under it is the real person's own, or a pass of a squadron or a group they
 // are in. Under the act kind the class also refuses the place in a squadron and the
 // contact, whoever they name, and keeps the pass out as it does for the pass's own
-// writes. A pass given to a group still goes with the group when the group is deleted,
-// by the foreign key's own rule, with no write of the pass. A row that goes with its
-// sector is a limit of its own: a sector's delete asks no grant and no rule of a row.
-// The act kind refuses that delete by its class. The role kind has no mask; no role
-// Lodestar ships deletes a sector, and an application whose role does refuses the
-// delete in the kind's mask (accesstypes.RefusePermission(accesstypes.Delete, tenant)),
-// and by name an action that deletes a tenant (accesstypes.RefuseAction). None of
-// Lodestar's foreign keys changes a row where it stands, as PostgreSQL's ON DELETE SET
-// NULL and ON UPDATE CASCADE do.
+// writes. A group that a pass names is not deleted while the pass stands: the foreign key
+// to CrewGroups refuses it. A row that goes with its sector is a limit of its own: a
+// sector's delete asks no grant of a row, and each row's delete rule still runs. The act
+// kind refuses that delete by its class. The role kind has no mask; no role Lodestar
+// ships deletes a sector, and an application whose role does refuses the delete in the
+// kind's mask
+// (accesstypes.RefusePermission(accesstypes.Delete, tenant)), and by name an action that
+// deletes a tenant (accesstypes.RefuseAction). None of Lodestar's foreign keys changes a
+// row where it stands, as PostgreSQL's ON DELETE SET NULL and ON UPDATE CASCADE do.
 //
 // A column that records who made a row is another (a mission's booker,
 // Mission.BookedByUserID, which grants compare to the requester): the rule does not

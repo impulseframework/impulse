@@ -2,6 +2,7 @@ package generation
 
 import (
 	"go/format"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,12 +12,14 @@ import (
 // Test_signInSettingsMethods pins where the read of a tenant's sign-in settings is served
 // and the grants it is asked under. It is on every session outlet that serves one of the
 // tenant's own sign-in methods, first among the outlet's routes of them, and that outlet
-// names exactly the methods it serves, in the order of the switch's, the default role's
-// and the word for the second factor's: for a record that declares the switch alone, a
-// directories record with the default seat alone, one with the second-factor column
-// alone, and all three. The application's one handler is asked under every method an
-// outlet serves. A tenant record with no switch beside a directories record that carries
-// neither column has no read, and the matrix refuses the read on each outlet it is on.
+// names exactly the methods it serves, in the order of the one that takes the directory,
+// the switch's, the default role's and the word for the second factor's: for a record
+// that declares the switch beside a directories record with neither column, a directories
+// record with the default seat alone, one with the second-factor column alone, and all
+// three. The application's one handler is asked under every method an outlet serves. A
+// tenant record with no switch beside a directories record that carries neither column
+// is read under the method that takes the directory alone; one with no directories record
+// and no switch has no read. The matrix refuses the read on each outlet it is on.
 func Test_signInSettingsMethods(t *testing.T) {
 	t.Parallel()
 
@@ -31,12 +34,14 @@ func Test_signInSettingsMethods(t *testing.T) {
 			tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
 		}}
 	}
+	harborTake := []string{"TakeHarborDirectory"}
 	harborSwitch := []string{"MakeHarborDirectoryOnly", "EndHarborDirectoryOnly"}
 	harborRole := []string{"OpenHarborToDirectory", "MakeHarborInviteOnly"}
 	harborFactor := []string{"VouchForHarborDirectorySecondFactor", "StopVouchingForHarborDirectorySecondFactor"}
-	harborAll := append(append(append([]string{}, harborSwitch...), harborRole...), harborFactor...)
-	sectorRole := []string{"OpenSectorToDirectory", "MakeSectorInviteOnly"}
-	sectorFactor := []string{"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor"}
+	harborAll := slices.Concat(harborTake, harborSwitch, harborRole, harborFactor)
+	sectorTake := []string{"TakeSectorDirectory"}
+	sectorRole := slices.Concat(sectorTake, []string{"OpenSectorToDirectory", "MakeSectorInviteOnly"})
+	sectorFactor := slices.Concat(sectorTake, []string{"VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor"})
 	tests := []struct {
 		name    string
 		structs []string
@@ -51,8 +56,8 @@ func Test_signInSettingsMethods(t *testing.T) {
 		{
 			name:       "a record that declares the switch, beside a directories record with neither column",
 			structs:    []string{"Harbor", "Breakwater"},
-			want:       map[string][]string{defaultOutletName: harborSwitch, "members": harborSwitch},
-			wantGrants: harborSwitch,
+			want:       map[string][]string{defaultOutletName: slices.Concat(harborTake, harborSwitch), "members": slices.Concat(harborTake, harborSwitch)},
+			wantGrants: slices.Concat(harborTake, harborSwitch),
 		},
 		{
 			name:       "a record with no switch, beside a directories record with the default seat alone",
@@ -80,8 +85,14 @@ func Test_signInSettingsMethods(t *testing.T) {
 			wantGrants:    harborAll,
 		},
 		{
-			name:       "a record with no switch, beside a directories record with neither column, has no read",
+			name:       "a record with no switch, beside a directories record with neither column, is read under the method that takes the directory alone",
 			structs:    []string{"Sector", "Breakwater"},
+			want:       map[string][]string{defaultOutletName: sectorTake, "members": sectorTake},
+			wantGrants: sectorTake,
+		},
+		{
+			name:       "a record with no switch and no directories record has no read",
+			structs:    []string{"Sector"},
 			want:       map[string][]string{},
 			wantGrants: nil,
 		},
@@ -102,7 +113,7 @@ func Test_signInSettingsMethods(t *testing.T) {
 			}
 			for _, res := range r.resources {
 				res.OutletNames = []string{defaultOutletName, "members", "machines"}
-				if res.Name() == tt.structs[1] && len(tt.directoriesOn) > 0 {
+				if len(tt.directoriesOn) > 0 && res.Name() == tt.structs[1] {
 					res.OutletNames = tt.directoriesOn
 				}
 			}

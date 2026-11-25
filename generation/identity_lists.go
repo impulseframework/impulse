@@ -81,6 +81,11 @@ type identityTenant struct {
 	// tenant is opened to its directory's people with, which the generated methods
 	// judge by the role file's grants (seatsDirectory).
 	directorySeat string
+	// seated is where the directories record keeps its default seat, with its table
+	// and columns, nil where the application declares none or a column cannot be read
+	// (identity_directory.go): the generated client reads from it whether a person
+	// removed from a tenant is given its starting role again at their next sign-in.
+	seated *identityDirectorySeat
 	// directoryOutlets are the outlets the directories record is served on, nil where
 	// the application declares none: the two methods that say how a tenant admits its
 	// directory's people are served on the session outlets among them.
@@ -344,7 +349,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	directory, directories, seat, directoryOutlets, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
+	directory, directories, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
 	if err != nil {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the directory-only switch (@%s) and the directories record (@%s) from the sources of %s", r.identityTree.Dir(), directoryOnlyKeyword, tenantDirectoryKeyword, r.resource.Dir())
 	}
@@ -356,7 +361,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 
 	return &identityTenant{
 		name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label),
-		directory: directory, directorySeat: seat, directoryOutlets: directoryOutlets, directories: directories,
+		directory: directory, directorySeat: directories.seat, seated: directories.seated, directoryOutlets: directories.outlets, directories: directories.record,
 		invitation: invitation, unreadable: unreadable,
 	}, nil
 }

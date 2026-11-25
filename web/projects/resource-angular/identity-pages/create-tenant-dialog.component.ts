@@ -1,11 +1,14 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
 import { Router } from '@angular/router';
-import { ApiDescriptor, TenantCreationDescriptor } from '@impulseframework/resource';
+import { ApiDescriptor, MethodWarning, TenantCreationDescriptor } from '@impulseframework/resource';
 import { inSentence, PlaceService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import {
@@ -60,11 +63,29 @@ export function openCreateTenantDialog(
  * opens the tenant's first page. The route is no resource or method of the client, so the
  * dialog posts with the application's HttpClient. A refusal is said in place and the
  * dialog stays open: a name another tenant carries in the form's words, anything else in
- * the server's.
+ * the server's. Where the creation would take a directory, every refusal is said in the
+ * server's words: another tenant may have the directory, and the server says what to do.
+ *
+ * Where the description carries the phrase of a creation that may take a directory
+ * (`tenantCreation.warning`), the dialog asks the route's GET once on opening and holds
+ * Create until it has answered. An answer with a statement (the creation would take the
+ * organization's directory the person signed in through) is drawn above the fields as the
+ * method dialog draws a typed warning, the phrase is typed under it, in any case and with
+ * spaces around it, and the button carries the statement's words; an answer without one
+ * leaves the dialog as it is. A failed ask is said as a refused create is, and Create
+ * stays held. The phrase is the browser's to hold: the POST carries the fields alone.
  */
 @Component({
   selector: 'impulse-create-tenant-dialog',
-  imports: [MatButtonModule, MatDialogModule, ReactiveFormsModule, ResourceLayoutComponent],
+  imports: [
+    MatButtonModule,
+    MatDialogModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    ReactiveFormsModule,
+    ResourceLayoutComponent,
+  ],
   templateUrl: './create-tenant-dialog.component.html',
   styleUrl: './create-tenant-dialog.component.scss',
   providers: [ResourceStore],
@@ -120,9 +141,54 @@ export class CreateTenantDialogComponent {
   /** The refusal of the last request, in a sentence, or empty. */
   readonly refusal = signal('');
 
+  /** The phrase typed under the statement, the description's; empty where the creation never takes a directory. */
+  readonly typedWord = this.creation.warning?.typed ?? '';
+  /** Whether the offer has answered: always where the description carries no phrase, which asks nothing. */
+  readonly offerAnswered = signal(!this.typedWord);
+  /** The statement the offer answered, where the creation would take the person's organization's directory. */
+  readonly warned = signal<MethodWarning | undefined>(undefined);
+  /** The input the phrase is typed into. It is no part of the request. */
+  readonly typed = new FormControl('', { nonNullable: true });
+  private readonly typedValue = toSignal(this.typed.valueChanges, { initialValue: '' });
+  /**
+   * Whether the creation may be confirmed: once the offer has answered and, where it
+   * answered a statement, the phrase is typed, in any case on either side and with spaces
+   * around it.
+   */
+  readonly confirmed = computed(
+    () =>
+      this.offerAnswered() &&
+      (!this.warned() || this.typedValue().trim().toLowerCase() === this.typedWord.toLowerCase()),
+  );
+  /** The button's words: the statement's where one is shown. */
+  readonly createLabel = computed(() => this.warned()?.confirm ?? `Create ${this.word}`);
+
+  constructor() {
+    if (this.typedWord) {
+      void this.askOffer();
+    }
+  }
+
+  /**
+   * Asks the route's GET whether the creation would take a directory, and the statement
+   * the person reads first where it would. A failed ask is said in place and leaves
+   * Create held.
+   */
+  async askOffer(): Promise<void> {
+    try {
+      const offer = await firstValueFrom(
+        this.http.get<{ offered: boolean; warning?: MethodWarning }>(`${this.apiUrl}/${this.creation.route}`),
+      );
+      this.warned.set(offer.warning ?? undefined);
+      this.offerAnswered.set(true);
+    } catch (failure) {
+      this.refusal.set(this.messageOf(failure));
+    }
+  }
+
   /** Creates the tenant from the inputs, then opens it. */
   async create(): Promise<void> {
-    if (this.form.invalid || this.busy()) {
+    if (this.form.invalid || this.busy() || !this.confirmed()) {
       return;
     }
     this.busy.set(true);
@@ -161,13 +227,21 @@ export class CreateTenantDialogComponent {
   /**
    * The sentence a refused create is said with. A name another tenant carries is the one
    * conflict the form can cause (the unique index on the name answers 409), so it is said
-   * in the form's words; anything else is the server's message where it gave one.
+   * in the form's words; anything else is the server's message where it gave one. A
+   * creation that would take the organization's directory is refused 409 too where another
+   * tenant has that directory, so where the statement was shown a conflict is said in the
+   * server's words, which say which it is and what to do.
    */
   private refusalOf(failure: unknown, name: string): string {
-    if (failure instanceof HttpErrorResponse && failure.status === 409) {
+    if (failure instanceof HttpErrorResponse && failure.status === 409 && !this.warned()) {
       const article = articleFor(this.word) === 'an' ? 'An' : 'A';
       return `${article} ${this.word} named ${name} already exists. Choose another name.`;
     }
+    return this.messageOf(failure);
+  }
+
+  /** The server's message of a failed request where it gave one, else the failure's own. */
+  private messageOf(failure: unknown): string {
     if (failure instanceof HttpErrorResponse) {
       const message: unknown = (failure.error as { message?: unknown } | null)?.message;
       return typeof message === 'string' && message ? message : failure.message;

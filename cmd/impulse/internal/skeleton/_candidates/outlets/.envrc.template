@@ -101,9 +101,9 @@ export APP_MEMBERS_DIRECTORY_REDIRECT_URL=http://127.0.0.1:4303/portal/api/user/
 # APP_MEMBERS_ADMINISTRATOR is the email address of the members auth's first administrator
 # (pkg/auth/members, InviteAdministrator): while nobody of the auth holds the Super
 # Administrator role the migrate command has an invitation mailed there, and the person's
-# first sign-in through the directory, from its link, is tied to the roles by the
-# invitation. A deployment names it per environment, and the bootstrap seeds the
-# development members instead, so it stays unset here.
+# sign-in through the directory from its link accepts it and is given the roles. A
+# deployment names it per environment, and the bootstrap seeds the development members
+# instead, so it stays unset here.
 # export APP_MEMBERS_ADMINISTRATOR=
 
 # --- site: the served site ---

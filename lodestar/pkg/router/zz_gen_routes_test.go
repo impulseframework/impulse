@@ -3603,6 +3603,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/take-sector-directory", method: http.MethodPost,
+			handlerFunc: "TakeSectorDirectory", selfBounded: true, readsDryRunAndWarning: true,
+			parameters: map[string]string{},
+		},
+		{
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/make-sector-directory-only", method: http.MethodPost,
 			handlerFunc: "MakeSectorDirectoryOnly", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
@@ -4143,6 +4148,10 @@ func (s *generatedHandlersStub) DescribeCrewSectorGroup() http.HandlerFunc {
 
 func (s *generatedHandlersStub) TenantSignInSettings() http.HandlerFunc {
 	return s.record("TenantSignInSettings")
+}
+
+func (s *generatedHandlersStub) TakeSectorDirectory() http.HandlerFunc {
+	return s.record("TakeSectorDirectory")
 }
 
 func (s *generatedHandlersStub) MakeSectorDirectoryOnly() http.HandlerFunc {

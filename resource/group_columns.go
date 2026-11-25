@@ -66,7 +66,7 @@ type groupColumner interface {
 func (c *GroupColumn) refusal() error {
 	word := c.TenantWord
 	if word == "" {
-		word = "tenant"
+		word = defaultTenantWord
 	}
 
 	return httpio.NewBadRequestMessagef("%s names a group that is not one of this %s's own. Choose a group kept in this %s: a group kept in another %s, or for the whole application, cannot be named here.",

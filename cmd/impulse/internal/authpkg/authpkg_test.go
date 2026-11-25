@@ -853,8 +853,8 @@ func TestFiles_tenantDirectories(t *testing.T) {
 		"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n",
 	}
 	none := []string{
-		"\t// ({{reader}}), which answers nothing for every tenant, since\n\t// the application has no tenant directories. Required; New refuses nil.\n",
-		"\t// directories, so no tenant declares who may enter it and the generated reader\n\t// answers nothing for every tenant: a tenant admits everyone it seats, however they\n",
+		"\t// ({{reader}}), which reads whether each tenant is disabled and\n\t// nothing else, since the application has no tenant directories. Required; New\n\t// refuses nil.\n",
+		"\t// directories, so a tenant declares one thing, whether it is disabled, which the\n\t// generated reader reads: a tenant that is not disabled admits everyone it seats,\n",
 		"\t// directory is a way for an invited person to sign in and nothing more.\n",
 		"\t// roles that administer it, in the transaction that consumes the invitation,\n\t// however they signed in: no tenant takes a directory.\n",
 		"\t// is accepted there too: the tenant's row and the person's administrator roles are\n\t// written with the invitation's consumption or not at all.\n",

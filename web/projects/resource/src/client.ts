@@ -30,7 +30,7 @@ import {
   versionParam,
   versionedUrl,
 } from './live';
-import { BatchResult, Operation, OperationRoute, operationRoute } from './operations';
+import { BatchResult, DeleteLeft, Operation, OperationRoute, operationRoute } from './operations';
 import { ClientResponse, PermissionStore, Requester, RequestOptions, ResponseRequester } from './permissions';
 import { Store } from './store';
 import { dryRunHeader, warningHeader } from './transport';
@@ -359,7 +359,12 @@ export interface RemoveOptions {
 }
 
 export interface Removable<Key extends unknown[]> {
-  remove(key: Key, options?: RemoveOptions): Promise<void>;
+  /**
+   * Deletes the row. It resolves with nothing once the row is gone, and with what is left
+   * where the delete takes more records than one request holds (`DeleteLeft`, a 202): the
+   * row stands, and the same remove, sent again, goes on.
+   */
+  remove(key: Key, options?: RemoveOptions): Promise<DeleteLeft | undefined>;
 }
 
 /** Operation builders for the consolidated endpoint; pass their results to `client.batch`. */
@@ -1030,6 +1035,16 @@ export function resolveAbsolute(baseUrl: string, reference: string): string {
   return origin && reference.startsWith('/') ? origin[0] + reference : reference;
 }
 
+/** What a delete's answer says it left (a 202's body); undefined for an answer that says nothing of it. */
+function deleteLeftOf(answer: unknown): DeleteLeft | undefined {
+  if (typeof answer !== 'object' || answer === null) {
+    return undefined;
+  }
+  const { deleted, left } = answer as Record<string, unknown>;
+
+  return typeof deleted === 'number' && typeof left === 'number' ? { deleted, left } : undefined;
+}
+
 async function batch(request: Requester, descriptor: ApiDescriptor, operations: Operation[]): Promise<BatchResult> {
   const endpoints = new Set(operations.map((operation) => operationRoute(operation) ?? descriptor.consolidatedRoute));
   if (endpoints.size > 1) {
@@ -1273,9 +1288,7 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     patch: async (key, value) => {
       await mutate(ops.patch(key, value));
     },
-    remove: async (key, options) => {
-      await mutate(ops.remove(key, options));
-    },
+    remove: async (key, options) => deleteLeftOf(await mutate(ops.remove(key, options))),
     ops,
   };
   return handle;

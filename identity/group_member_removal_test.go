@@ -2,7 +2,6 @@ package identity
 
 import (
 	"context"
-	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -16,9 +15,7 @@ import (
 // The sentences of a person's removal from a group the tests read, word for word.
 const (
 	placeGoesConsequenceSays   = "dana is removed from the group Night shift. They keep the roles they hold themselves and lose the group's."
-	placeLastConsequenceSays   = "dana is removed from the group Night shift."
 	placeGoesConfirmSays       = "Remove from the group"
-	placeAndAccountConfirmSays = "Remove from the group and delete the account"
 	noLongerInGroupSays        = "This person is no longer in that group. Refresh the page to see who is in it."
 	mayNotTakeThroughGroupSays = "Taking a person out of the group Night shift takes away the role Warden, which you may not take from them."
 )
@@ -43,22 +40,15 @@ func groupMemberRemovalManager(t *testing.T, store Store) (*Manager, *fakeEngine
 
 // TestManager_GroupMemberRemovalWarning pins what an administrator is told before a
 // person is taken out of a group, from the judgment the removal runs: who leaves which
-// group, and, where the place is the last thing that keeps the account, that the account
-// goes with it, on the button and in a note, with the sentence about the roles the person
-// keeps left out. A role of their own and a place in another group keep the account, and
-// a place whose period is over still does until it is taken away. A person who is not in
-// the group, a group or an account that is not there, and a removal the rules refuse are
-// answered as refusals. Each warning is one a dialog can draw (resource.CheckWarning),
+// group, in one consequence with the one button and no note, where the place is the last
+// thing the person holds too. A person who is not in the group, a group or an account
+// that is not there, and a removal the rules refuse are answered as refusals. Each warning is one a dialog can draw (resource.CheckWarning),
 // and reading it writes nothing.
 func TestManager_GroupMemberRemovalWarning(t *testing.T) {
 	t.Parallel()
 
 	ended, _, _ := periodFixtures()
 	goes := &resource.Warning{Consequence: placeGoesConsequenceSays, Names: nil, Confirm: placeGoesConfirmSays, Also: nil}
-	takesAccount := &resource.Warning{
-		Consequence: placeLastConsequenceSays, Names: nil, Confirm: placeAndAccountConfirmSays,
-		Also: []resource.WarningNote{{Says: roleTakesAccountSays, Names: nil}},
-	}
 	tests := []struct {
 		name string
 		// in are the places committed and held the memberships; store adds what else the
@@ -74,25 +64,25 @@ func TestManager_GroupMemberRemovalWarning(t *testing.T) {
 		wantSays string
 	}{
 		{
-			name: "a person who holds a role of their own keeps the account",
+			name: "a person who holds a role of their own",
 			in:   []access.GroupMemberKey{memberKey(nightID, userID)}, held: []access.MembershipKey{danaSteward},
 			want: goes,
 		},
 		{
-			name: "a person in another group and with no role keeps the account",
+			name: "a person in another group and with no role",
 			in:   []access.GroupMemberKey{memberKey(nightID, userID), memberKey(staffID, userID)},
 			want: goes,
 		},
 		{
-			name: "the last thing the person holds: the account goes with it",
+			name: "the last thing the person holds: the one consequence, the one button and no note",
 			in:   []access.GroupMemberKey{memberKey(nightID, userID)},
-			want: takesAccount,
+			want: goes,
 		},
 		{
-			name:  "a place whose period is over, and the last thing kept: the account goes with it",
+			name:  "a place whose period is over, and the last thing held: the one consequence, the one button and no note",
 			in:    []access.GroupMemberKey{memberKey(nightID, userID)},
 			store: func(store *fakeStore) { store.placePeriods[memberKey(nightID, userID)] = ended },
-			want:  takesAccount,
+			want:  goes,
 		},
 		{
 			name: "a person who is no longer in the group is refused, and says to refresh",
@@ -230,24 +220,22 @@ func TestTenant_GroupMemberRemovalWarning(t *testing.T) {
 }
 
 // TestManager_GroupMemberRemovalWarning_agreesWithRemoveGroupMember pins that the warning
-// and the act read one judgment: over the cases of the rule on an account nothing admits
-// (TestManager_RemoveGroupMember), the warning says the account goes exactly when the
-// removal that follows deletes it, and a person who is not in the group is not found
-// before anything is said.
+// and the act read one judgment: the warning says nothing of the account and the removal
+// that follows deletes none, where the place is the last thing the person holds and where
+// it is not, and a person who is not in the group is not found before anything is said.
 func TestManager_GroupMemberRemovalWarning_agreesWithRemoveGroupMember(t *testing.T) {
 	t.Parallel()
 
-	deleted := "delete user " + userID.String()
 	tests := []struct {
 		name string
 		in   []access.GroupMemberKey
 		held []access.MembershipKey
 	}{
 		{name: "a person who is not in the group"},
-		{name: "the last thing a person held takes the account with it", in: []access.GroupMemberKey{memberKey(nightID, userID)}},
-		{name: "a person in another group stays", in: []access.GroupMemberKey{memberKey(nightID, userID), memberKey(staffID, userID)}},
+		{name: "the last thing a person held", in: []access.GroupMemberKey{memberKey(nightID, userID)}},
+		{name: "a person in another group", in: []access.GroupMemberKey{memberKey(nightID, userID), memberKey(staffID, userID)}},
 		{
-			name: "a person with a role of their own stays",
+			name: "a person with a role of their own",
 			in:   []access.GroupMemberKey{memberKey(nightID, userID)},
 			held: []access.MembershipKey{access.NewMembershipKey(betaScope, dana, "Reader")},
 		},
@@ -287,9 +275,15 @@ func TestManager_GroupMemberRemovalWarning_agreesWithRemoveGroupMember(t *testin
 			}); err != nil {
 				t.Fatalf("RemoveGroupMember() error = %v", err)
 			}
-			says := warning != nil && len(warning.Also) == 1 && warning.Also[0].Says == roleTakesAccountSays
-			if goes := slices.Contains(store.writes, deleted); says != goes {
-				t.Errorf("the warning says the account goes = %t, the removal deletes it = %t (writes %v)", says, goes, store.writes)
+			if warning != nil && (len(warning.Also) != 0 || warning.Confirm != placeGoesConfirmSays) {
+				t.Errorf("GroupMemberRemovalWarning() = %+v, want the one button and no note", warning)
+			}
+			var want []string
+			if len(tt.in) > 0 {
+				want = []string{"delete group member " + nightID.String() + " " + string(dana)}
+			}
+			if diff := cmp.Diff(want, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
 		})
 	}

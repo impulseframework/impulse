@@ -41,6 +41,20 @@ export function operationRoute(operation: Operation): string | undefined {
  * camelCase plural resource name on a consolidated route, and under `ids` on a
  * standalone route, which serves one resource (`iDs` on a server from before the key
  * changed, which a client still reads). Resources without a generated key contribute
- * no entry, so an empty object is a normal success.
+ * no entry, so an empty object is a normal success. A delete too large for one request
+ * answers with what it left in its place (DeleteLeft).
  */
 export type BatchResult = Record<string, string[]> & { ids?: string[]; iDs?: string[] };
+
+/**
+ * What a delete that takes the records under its row answers when one request did not
+ * hold them all (a 202): the records this request deleted and the records still under
+ * the row. The row stands until a request takes the last of them, and the same remove,
+ * sent again, goes on.
+ */
+export interface DeleteLeft {
+  /** The records this request deleted. */
+  deleted: number;
+  /** The records still under the row. */
+  left: number;
+}

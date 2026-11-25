@@ -43,7 +43,7 @@ nobody a power that giving the role directly would not: who is in a group, and w
 holds, is changed by someone who may give or take those roles directly, and a tenant puts
 its own people in its groups, while an account from outside the tenant is put there from
 the whole application's accounts. The list of groups says how many people each group has and the roles it
-holds, and offers Delete only on a group that holds nothing; a person's page lists their
+holds, and offers Delete on every group, asking first with a count of its people and roles; a person's page lists their
 roles in one list that says "Their own" or names the group each comes through. On the
 Break glass page (`/staff-break-glass`) a person takes a role in a tenant for a set time
 and says why, when they hold the page's grant and could give themselves that role there:
@@ -78,7 +78,8 @@ page. The staff auth is handed what makes the tenant by the data level
 (`staff.Settings.TenantMaker`, the generated `app.NewTenantMaker` over the roster, built before the
 auth), and refuses to start without it. A person who signed up and holds no tenant
 creates their own through the generated create-your-tenant route, which the dashboard
-offers while an administrator has a sign-in method open to sign-up.
+offers to a person who signed in through a sign-in method an administrator has open to
+sign-up.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the tenant's directory, the organization its people sign in
@@ -115,7 +116,7 @@ role outside any one tenant (a global role, or one held in every tenant) is admi
 then enters a tenant only where its declaration admits their session, and a person
 holding no tenant is refused. Which tenants the session
 then reaches is decided again per tenant where its tenant list is computed, and a tenant
-that seats the person and is closed to their session stays in the list marked closed,
+that seats the person and is closed to their session stays in the list as not available,
 with the reason: the data
 level's roster keeps every tenant's declaration beside its key
 (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions`), the
@@ -127,8 +128,8 @@ there and removes it, and changes everything else with the tenant's own generate
 methods, which `TenantAdministrator` holds and the page runs through the library's
 method dialog: `OpenTenantToDirectory`
 (`POST /console/api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of
-the directory's people is given at their first sign-in through it, a role the caller
-could give directly, picked from the list of the roles they may give
+the directory's people is given when they sign in through it and hold nothing in the
+tenant, a role the caller could give directly, picked from the list of the roles they may give
 (`StaffTenantDirectoryRoles`), and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
 (`POST /console/api/tenants/{tenantID}/make-tenant-directory-only`) and
 `EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and

@@ -47,8 +47,14 @@ await api.batch([api.clients.ops.patch([clientId], { trusted: true })]);
 // answers 428, an ApiError whose message is the question to ask a person first ("Delete
 // this work order and everything under it: 4 work order tasks. This can't be undone.").
 // The same delete saying it takes them deletes those records and the row; ops.remove
-// takes the same option.
-await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+// takes the same option. A delete too large for one request deletes what fits and
+// resolves with what is left ({ deleted, left }, a DeleteLeft, from a 202), the row
+// still standing; the same remove, sent again, goes on, and resolves with nothing once
+// the row is gone.
+let left = await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+while (left) {
+  left = await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+}
 
 // A page that learns its methods at run time (from the generated method metadata)
 // reaches one by its name: the same handle, bound to the tenant for a tenant's method.
@@ -318,12 +324,12 @@ or one per domain), loaded on demand and cached for the session.
   read, and `domainsUnread()` is true while its last read failed and no list is held from
   before (`domainsKnown(snapshot)` and `domainsUnread(snapshot)` answer the same of a
   snapshot).
-  A tenant the person holds a seat in and this session cannot enter (a tenant that admits
-  only people who sign in through its own directory, when the person signed in another
-  way) is listed with `closed`, the reason in a sentence the server writes. `domains()`
-  holds the tenants the session reaches and never a closed one; `closedDomains()` answers
-  the closed ones with their reasons, for a picker to show marked and not as places to
-  open.
+  A tenant the person holds a seat in and this session cannot enter is listed with
+  `unavailable`, with the server's reason: the tenant is directory only and the person
+  signed in another way, or the tenant is disabled. `domains()` holds the tenants the
+  session reaches and never such a tenant; `unavailableDomains()` answers them with their
+  reasons, for a picker to list under "Not available", with the reason, and never as
+  places to open.
 - A tenant's directory-only switch is the tenant's own, turned by the tenant's
   administrator with two generated methods in the tenant's scope:
   `api.domain(tenant).make<Record>DirectoryOnly` turns it on and
@@ -334,7 +340,8 @@ or one per domain), loaded on demand and cached for the session.
   administrator, who does not read the
   tenant record, has no other way to see. The read also says what a page of the tenant's
   sign-in settings shows: `directory`, the tenant's directory as people know it;
-  `defaultRole`, the role a person gets the first time they sign in through it, in words;
+  `defaultRole`, the role a person gets when they sign in through it and hold nothing in
+  the tenant, in words;
   `passwords`, whether the reader's auth has a password method; `signedIn`, a sentence
   that says how the reader signed in; `sessionDirectory`, the organization's directory the
   reader is signed in through; and `people`, how many people the tenant's list holds
@@ -365,10 +372,20 @@ or one per domain), loaded on demand and cached for the session.
   `.stopVouchingFor<Record>DirectorySecondFactor`, which is plain: a person who
   signs in through a directory its tenant vouches for is not asked for the
   application's mailed code.
+- A tenant takes its organization's directory with a generated method of its own,
+  `api.domain(tenant).take<Record>Directory({})`, where the tenant record declares a
+  directories record. The directory is the one the caller is signed in through, and the
+  request names none. It warns first (`warning: { typed: 'I am authorized' }`): the
+  server's statement that the caller is authorized to act on behalf of the organization,
+  named as its directory gives it, then what taking the directory does, and the words for
+  the button. Its refusals (a session that came by password, a personal account, a
+  tenant that has a directory, a directory another tenant has) throw from `warning` in
+  the server's words. The directories record's own `add` is refused.
 - How a tenant admits its directory's people is the tenant's own too, said with two
   generated methods where the directories record carries a default role:
   `api.domain(tenant).open<Record>ToDirectory({ role })` opens the tenant to them, each
-  given the role at their first sign-in through the directory, and
+  given the role whenever they sign in through the directory and hold nothing in the
+  tenant, and
   `api.domain(tenant).make<Record>InviteOnly({})` makes it invite only again. Opening
   warns (`warning: { typed: 'open' }`): the server says who will be able to enter and
   the role each of them gets, and refuses a role that is not the tenant's or that the
@@ -785,11 +802,11 @@ application's error hook (`onError`), so a notice raised there is not raised onc
 character.
 
 The list names `ownTenants` (`{ list, leave }`) where the server serves a person's own tenants.
-`ownTenants()` resolves them, each `{ domain, name, roles, refusal?, deletesAccount }`: the roles
-in words, why the person cannot leave where they cannot, and whether leaving deletes their account.
-`leaveTenant(domain, deletesAccount)` resolves `{ outcome: 'left', accountDeleted }`, or the
-server's refusal with its words: a tenant's last administrator (403), a tenant the person is not
-in (404), or a leave that would no longer do what the list said (409).
+`ownTenants()` resolves them, each `{ domain, name, roles, refusal? }`: the roles in words, and
+why the person cannot leave where they cannot. `leaveTenant(domain)` resolves `{ outcome: 'left' }`,
+or the server's refusal with its words: a tenant's last administrator (403), or a tenant the
+person is not in (404). Leaving takes every role the person holds in the tenant. The account
+stays.
 
 The look a person chose, light, dark or their device's setting (`device`) and one of the
 application's palettes, is kept with their account so that it follows them to every browser:

@@ -4,8 +4,9 @@ package integration
 // server's words. The two methods the generated management of the crew auth writes for
 // it, RemoveCrewGroupMember for the whole application and RemoveCrewSectorGroupMember
 // under a sector, declare a warning with no word to type, asked with X-Warning: true,
-// which writes nothing. It says who leaves which group, and, where the place is the last
-// thing the person holds, that the account is deleted with it, which the call then does.
+// which writes nothing. It says who leaves which group. Where the place is the last thing
+// the person holds, the account stays, holding nothing, and the warning says nothing of
+// it.
 
 import (
 	"fmt"
@@ -21,7 +22,6 @@ const (
 	removeGroupMemberPath       = consoleAPI + "/remove-crew-group-member"
 	removeSectorGroupMemberPath = "remove-crew-sector-group-member"
 	groupRemovalConfirm         = "Remove from the group"
-	groupRemovalDeletesConfirm  = "Remove from the group and delete the account"
 )
 
 // inCrewGroup reports whether the person under the name has a place in the group.
@@ -33,8 +33,9 @@ func (w *tenantListsWorld) inCrewGroup(t *testing.T, group, name string) bool {
 
 // TestGroupMemberRemovalWarning holds the question before a person is taken out of a
 // group: the warning names the person and the group, and writes nothing; where the place
-// is the last thing the person holds it says the account goes, and the call then takes
-// the account with it; a sector's group is asked of through the sector's own method; and
+// is the last thing the person holds it says nothing of the account, with the plain
+// button, and the account stays, holding nothing, with its sign-in identity and its
+// session; a sector's group is asked of through the sector's own method; and
 // a caller the call refuses is refused the warning in the same words.
 func TestGroupMemberRemovalWarning(t *testing.T) {
 	t.Parallel()
@@ -67,6 +68,7 @@ func TestGroupMemberRemovalWarning(t *testing.T) {
 	done(hq("give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Engineer","domain":%q}`, watch, anvil)))
 	w.seat(ctx, t, "kit", "Cadet", anvil)
 	w.ids["lee"] = string(makeCrewAccount(ctx, t, w.db, "lee"))
+	leeSession := w.signedInBy(ctx, t, "lee")
 	done(hq("add-crew-group-member", member(watch, "kit")))
 	done(hq("add-crew-group-member", member(watch, "lee")))
 
@@ -105,29 +107,26 @@ func TestGroupMemberRemovalWarning(t *testing.T) {
 			t.Error("kit is still in the night watch after the removal")
 		}
 		if !crewAccountExists(t, w.db, w.ids["kit"]) {
-			t.Error("kit's account is gone, want it kept: kit holds a role of their own")
+			t.Error("kit's account is gone, want it kept")
 		}
 	})
-	t.Run("the place is all the person holds: the warning says the account goes, and the call takes it", func(t *testing.T) {
+	t.Run("the place is all the person holds: the warning says nothing of the account, and the account stays", func(t *testing.T) {
 		t.Parallel()
 		status, body := w.askRoleRemoval(t, "governor", removeGroupMemberPath, member(watch, "lee"))
 		assertStatus(t, status, http.StatusOK, body)
 		want := resource.Warning{
-			Consequence: "lee is removed from the group Night watch.",
-			Confirm:     groupRemovalDeletesConfirm,
-			Also:        []resource.WarningNote{{Says: roleRemovalDeletesNote}},
+			Consequence: "lee is removed from the group Night watch. They keep the roles they hold themselves and lose the group's.",
+			Confirm:     groupRemovalConfirm,
 		}
 		if got := decodeWarning(t, body); !reflect.DeepEqual(got, want) {
-			t.Errorf("the warning = %+v, want %+v", got, want)
+			t.Errorf("the warning = %+v, want %+v: no note on the account and the plain button", got, want)
 		}
-		if !crewAccountExists(t, w.db, w.ids["lee"]) || !w.inCrewGroup(t, watch, "lee") {
-			t.Fatal("lee's account or place is gone after the warning, want both kept: the warning writes nothing")
+		if !w.inCrewGroup(t, watch, "lee") {
+			t.Fatal("lee's place is gone after the warning, want it kept: the warning writes nothing")
 		}
 		status, body = doRequestAs(t, w.h, "governor", http.MethodPost, removeGroupMemberPath, member(watch, "lee"))
 		assertStatus(t, status, http.StatusNoContent, body)
-		if crewAccountExists(t, w.db, w.ids["lee"]) {
-			t.Error("lee's account is still there after the removal of the last place, want it deleted")
-		}
+		w.accountKept(t, "lee", leeSession)
 	})
 	t.Run("a sector's group through the sector's own method", func(t *testing.T) {
 		t.Parallel()

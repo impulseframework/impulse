@@ -100,44 +100,60 @@ func (m *Manager) EndUserSessions(ctx context.Context, txn resource.ReadWriteTra
 // endUserSessions reads everything before it buffers anything: a buffered write is not
 // read back, and the sessions to end are the ones that stand now.
 func (m *Manager) endUserSessions(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
+	endings, err := m.sessionEndings(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+
+	return m.endSessions(ctx, txn, endings)
+}
+
+// sessionEnding is what ending a person's sessions writes of one session: its row, where
+// it stands, and its impersonation record, where that stands.
+type sessionEnding struct {
+	id      impulse.UUID
+	session bool
+	record  bool
+}
+
+// sessionEndings reads what ending a person's sessions writes: each session of theirs
+// that stands, with its impersonation record where it is one, then each impersonation
+// record they hold as the actor, with its session where that stands. A session that is
+// the person's own and held by them as actor at once (the person viewing as themselves)
+// is one ending.
+func (m *Manager) sessionEndings(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]sessionEnding, error) {
 	own, err := m.store.LiveSessions(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.LiveSessions()")
+		return nil, errors.Wrap(err, "identity.Store.LiveSessions()")
 	}
 	username, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
+		return nil, errors.Wrap(err, "identity.Store.Username()")
 	}
 	var held []impulse.UUID
 	if found {
 		records, err := m.store.ImpersonationsHeldBy(ctx, txn, username)
 		if err != nil {
-			return errors.Wrap(err, "identity.Store.ImpersonationsHeldBy()")
+			return nil, errors.Wrap(err, "identity.Store.ImpersonationsHeldBy()")
 		}
 		for _, record := range records {
 			held = append(held, record.SessionID)
 		}
 	}
 
-	// One plan per session, so a session that is the user's own and held by the user
-	// as actor at once (the user viewing as themselves) is ended once.
-	type ending struct {
-		session bool
-		record  bool
-	}
-	plan := make(map[impulse.UUID]*ending, len(own)+len(held))
-	order := make([]impulse.UUID, 0, len(own)+len(held))
+	endings := make([]sessionEnding, 0, len(own)+len(held))
+	at := make(map[impulse.UUID]int, len(own)+len(held))
 	for _, id := range own {
 		live, _, err := m.store.Impersonation(ctx, txn, id)
 		if err != nil {
-			return errors.Wrap(err, "identity.Store.Impersonation()")
+			return nil, errors.Wrap(err, "identity.Store.Impersonation()")
 		}
-		plan[id] = &ending{session: true, record: live}
-		order = append(order, id)
+		at[id] = len(endings)
+		endings = append(endings, sessionEnding{id: id, session: true, record: live})
 	}
 	for _, id := range held {
-		if e, planned := plan[id]; planned {
-			e.record = true
+		if i, planned := at[id]; planned {
+			endings[i].record = true
 
 			continue
 		}
@@ -145,20 +161,25 @@ func (m *Manager) endUserSessions(ctx context.Context, txn resource.ReadWriteTra
 		// can vouch for: the row is read, and ended only where it stands.
 		expired, exists, err := m.store.SessionExpired(ctx, txn, id)
 		if err != nil {
-			return errors.Wrap(err, "identity.Store.SessionExpired()")
+			return nil, errors.Wrap(err, "identity.Store.SessionExpired()")
 		}
-		plan[id] = &ending{session: exists && !expired, record: true}
-		order = append(order, id)
+		at[id] = len(endings)
+		endings = append(endings, sessionEnding{id: id, session: exists && !expired, record: true})
 	}
 
-	for _, id := range order {
-		if plan[id].session {
-			if err := m.store.EndSession(ctx, txn, id); err != nil {
+	return endings, nil
+}
+
+// endSessions buffers the endings sessionEndings read, in its order.
+func (m *Manager) endSessions(ctx context.Context, txn resource.ReadWriteTransaction, endings []sessionEnding) error {
+	for i := range endings {
+		if endings[i].session {
+			if err := m.store.EndSession(ctx, txn, endings[i].id); err != nil {
 				return errors.Wrap(err, "identity.Store.EndSession()")
 			}
 		}
-		if plan[id].record {
-			if err := m.store.EndImpersonation(ctx, txn, id, revoked); err != nil {
+		if endings[i].record {
+			if err := m.store.EndImpersonation(ctx, txn, endings[i].id, revoked); err != nil {
 				return errors.Wrap(err, "identity.Store.EndImpersonation()")
 			}
 		}

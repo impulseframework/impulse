@@ -20,8 +20,8 @@ import (
 
 // A person's own tenants. A signed-in person reads the tenants they hold something in,
 // with the roles they hold in each, and leaves one at their own word: everything they
-// hold in the tenant goes, the tenant's last administrator stays, and an account left
-// holding nothing is deleted with its sign-in identities and sessions.
+// hold in the tenant goes, and the tenant's last administrator stays. Where that was the
+// last thing the person held, the account stays, holding nothing.
 
 // The sentences a person is told about leaving a tenant themselves. Each %s is the
 // application's word for a tenant (WithTenantWord); none names the tenant's key or who
@@ -39,11 +39,6 @@ const (
 	// that does not exist, the two alike.
 	notInTenantMessage = "You hold no role in that %s."
 
-	// leavingChangedMessage is said where the leaving would no longer do what the list
-	// told the person: it would delete the account they were told stays, or keep the one
-	// they were told goes.
-	leavingChangedMessage = "What you hold changed while this page was open. Look at the list again before you leave."
-
 	// noTenantNamedMessage is said of a request that names no tenant.
 	noTenantNamedMessage = "Name the %s to leave."
 
@@ -55,28 +50,22 @@ const (
 
 // PersonTenant is one tenant a person holds something in, as their own account page
 // lists it: the tenant's key, the roles they hold there in words (words.RoleInWords),
-// sorted and each once, why they cannot leave it where they cannot (empty where they
-// can), and whether leaving it deletes their account, which it does when the person then
-// holds nothing that has not ended.
+// sorted and each once, and why they cannot leave it where they cannot (empty where they
+// can).
 type PersonTenant struct {
-	Domain         accesstypes.Domain
-	Roles          []string
-	Refusal        string
-	DeletesAccount bool
+	Domain  accesstypes.Domain
+	Roles   []string
+	Refusal string
 }
 
 // leaving is the judgment of a person's leaving one tenant, which the list and the act
-// both read, so the two cannot disagree: the rows that go, why the person may not leave
-// (empty where they may), and whether the account goes with the rows. memberships and
-// places are the rows in the tenant; endedMemberships and endedPlaces the rows outside
-// it, all of them ended, that go with the account, and none where the account stays.
+// both read, so the two cannot disagree: the rows that go, memberships and places, which
+// are the person's rows in the tenant, and why the person may not leave (empty where they
+// may).
 type leaving struct {
-	memberships      []access.MembershipKey
-	places           []access.GroupMemberKey
-	endedMemberships []access.MembershipKey
-	endedPlaces      []access.GroupMemberKey
-	refusal          string
-	deletesAccount   bool
+	memberships []access.MembershipKey
+	places      []access.GroupMemberKey
+	refusal     string
 }
 
 // tenantHolds is what a person's own tenants are judged by, read once a request: every
@@ -100,8 +89,7 @@ type tenantHolds struct {
 // Each tenant carries the roles the person holds there: their own memberships in it, and
 // the roles each group of the tenant they are in holds there whose period has not ended.
 // It carries the judgment of leaving it too (LeaveTenant), so the page says before the
-// person acts whether they may and whether their account goes. What the person holds is
-// read as committed.
+// person acts whether they may. What the person holds is read as committed.
 func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]PersonTenant, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -120,7 +108,7 @@ func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTrans
 		if err != nil {
 			return nil, err
 		}
-		tenants = append(tenants, PersonTenant{Domain: domain, Roles: held[domain], Refusal: judged.refusal, DeletesAccount: judged.deletesAccount})
+		tenants = append(tenants, PersonTenant{Domain: domain, Roles: held[domain], Refusal: judged.refusal})
 	}
 
 	return tenants, nil
@@ -129,7 +117,6 @@ func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTrans
 // LeaveTenant buffers the person's leaving of one of their tenants, at their own word, in
 // the caller's transaction, and has the permission engine told once the transaction has
 // committed: the person's next request is served without anything the tenant gave them.
-// It answers whether the account went with it.
 //
 // Every row the person has in the tenant goes, ended or not: each membership of their
 // own held in it and each place in a group kept in it. What reaches the tenant another
@@ -145,75 +132,56 @@ func (m *Manager) PersonTenants(ctx context.Context, txn resource.ReadWriteTrans
 //   - they hold nothing in the tenant now, which is also the answer for a tenant that
 //     does not exist (Not Found);
 //   - they administer the tenant and nobody else who can sign in does, judged for the
-//     whole leaving, or the application named no administrator roles (Forbidden);
-//   - deletesAccount, what the page told them, is no longer true either way (Conflict),
-//     so nobody's account goes having agreed to less and nobody keeps one they were told
-//     goes.
+//     whole leaving, or the application named no administrator roles (Forbidden).
 //
-// The account goes when the person, after the leaving, holds nothing that has not
-// ended, with its sign-in identities and every session, in the same transaction: a row
-// held anywhere else that has not ended keeps it, one whose period has not begun among
-// them, and a row that has ended elsewhere keeps nothing against the person's own leaving
-// and goes with the account. What has ended elsewhere is the database's to say, by its
-// own clock, before anything goes by it (EndedAssignments, as ClearEnded has it): a row
-// the database still counts keeps the account, and stays. No notice is mailed: the
-// person left themselves. The rule that keeps a directory-only tenant's administrators
-// to callers who enter it is not asked: giving up one's own roles makes nobody an
-// administrator.
+// Where the leaving takes the last thing the person holds, the account stays, holding
+// nothing, and no session of theirs ends. The rule that keeps a directory-only tenant's
+// administrators to callers who enter it is not asked: giving up one's own roles makes
+// nobody an administrator.
 //
 // What the person holds is read as committed: a second leaving in one transaction does
 // not see the first. Leave one tenant per transaction.
-func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain, deletesAccount bool) (deleted bool, err error) {
+func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := m.refuseImpersonatorAsSubject(ctx, userID, "leave "+withArticle(m.tenantWord)); err != nil {
-		return false, err
+		return err
 	}
 	if actsAsSomeoneElse(ctx) {
 		logger.FromCtx(ctx).Infof("impersonation: a session that acts as someone else asked for %s to leave %s: refused, since a person leaves only at their own word",
 			User(userID), withArticle(m.tenantWord))
 
-		return false, httpio.NewForbiddenMessagef(leavingAsSomeoneElseMessage, withArticle(m.tenantWord))
+		return httpio.NewForbiddenMessagef(leavingAsSomeoneElseMessage, withArticle(m.tenantWord))
 	}
 	if domain == "" {
-		return false, httpio.NewBadRequestMessagef(noTenantNamedMessage, m.tenantWord)
+		return httpio.NewBadRequestMessagef(noTenantNamedMessage, m.tenantWord)
 	}
 	holds, err := m.readTenantHolds(ctx, txn, userID)
 	if err != nil {
-		return false, err
+		return err
 	}
 	held, err := m.tenantsHeld(ctx, txn, holds)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if _, in := held[domain]; !in {
-		return false, httpio.NewNotFoundMessagef(notInTenantMessage, m.tenantWord)
+		return httpio.NewNotFoundMessagef(notInTenantMessage, m.tenantWord)
 	}
 	judged, err := m.judgeLeaving(ctx, txn, holds, domain)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if judged.refusal != "" {
-		return false, httpio.NewForbiddenMessage(judged.refusal)
+		return httpio.NewForbiddenMessage(judged.refusal)
 	}
-	if judged.deletesAccount != deletesAccount {
-		return false, httpio.NewConflictMessage(leavingChangedMessage)
-	}
-	if err := m.applyLeaving(ctx, txn, userID, judged, "they left the last "+m.tenantWord+" they were in"); err != nil {
-		return false, err
+	if err := m.applyLeaving(ctx, txn, judged); err != nil {
+		return err
 	}
 	logger.FromCtx(ctx).Infof("identity: %s left the %s %s themselves: %d role(s) of their own and %d place(s) in its groups are removed",
 		User(userID), m.tenantWord, domain, len(judged.memberships), len(judged.places))
-	if len(judged.endedMemberships)+len(judged.endedPlaces) > 0 {
-		logger.FromCtx(ctx).Infof("identity: %s holds nothing that has not ended after leaving, so %d role(s) and %d place(s) that had ended elsewhere go with the account",
-			User(userID), len(judged.endedMemberships), len(judged.endedPlaces))
-	}
-	if err := m.policyChangesAtCommit(txn); err != nil {
-		return false, err
-	}
 
-	return judged.deletesAccount, nil
+	return m.policyChangesAtCommit(txn)
 }
 
 // OwnTenants answers the session library's own-tenants hook (session.Auth.SetOwnTenants)
@@ -237,53 +205,38 @@ func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTen
 			}
 			tenants := make([]session.OwnTenant, 0, len(held))
 			for _, t := range held {
-				tenants = append(tenants, session.OwnTenant{Domain: t.Domain, Roles: t.Roles, Refusal: t.Refusal, DeletesAccount: t.DeletesAccount})
+				tenants = append(tenants, session.OwnTenant{Domain: t.Domain, Roles: t.Roles, Refusal: t.Refusal})
 			}
 
 			return tenants, nil
 		},
-		Leave: func(ctx context.Context, userID impulse.UUID, domain accesstypes.Domain, deletesAccount bool) (bool, error) {
+		Leave: func(ctx context.Context, userID impulse.UUID, domain accesstypes.Domain) error {
 			ctx, announcement := m.announcing(ctx)
-			var deleted bool
 			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				var err error
-				deleted, err = m.LeaveTenant(ctx, txn, userID, domain, deletesAccount)
-
-				return err
+				return m.LeaveTenant(ctx, txn, userID, domain)
 			})
 			if err != nil {
-				return false, errors.Wrapf(err, "%s: %s leaving the %s %q", auth, User(userID), m.tenantWord, domain)
+				return errors.Wrapf(err, "%s: %s leaving the %s %q", auth, User(userID), m.tenantWord, domain)
 			}
 			announcement.announce(ctx)
 
-			return deleted, nil
+			return nil
 		},
 	}
 }
 
 // applyLeaving buffers what a judged leaving takes, a person's own leaving
-// (LeaveTenant) or their removal (RemoveFromTenant): the account first where it goes
-// (deleteLeftWithNothing), read while it is still there, its deletion logged with
-// reason, then each membership and each place in the tenant, then each that had ended
-// elsewhere and goes with the account.
-func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, judged *leaving, reason string) error {
-	if judged.deletesAccount {
-		if err := m.deleteLeftWithNothing(ctx, txn, userID, reason); err != nil {
-			return err
+// (LeaveTenant) or their removal (RemoveFromTenant): each membership and each place in
+// the tenant.
+func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransaction, judged *leaving) error {
+	for i := range judged.memberships {
+		if err := m.store.DeleteMembership(ctx, txn, &judged.memberships[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteMembership()")
 		}
 	}
-	for _, memberships := range [][]access.MembershipKey{judged.memberships, judged.endedMemberships} {
-		for i := range memberships {
-			if err := m.store.DeleteMembership(ctx, txn, &memberships[i]); err != nil {
-				return errors.Wrap(err, "identity.Store.DeleteMembership()")
-			}
-		}
-	}
-	for _, places := range [][]access.GroupMemberKey{judged.places, judged.endedPlaces} {
-		for i := range places {
-			if err := m.store.DeleteGroupMember(ctx, txn, &places[i]); err != nil {
-				return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
-			}
+	for i := range judged.places {
+		if err := m.store.DeleteGroupMember(ctx, txn, &judged.places[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
 		}
 	}
 
@@ -355,13 +308,8 @@ func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransac
 
 // judgeLeaving judges the person's leaving of the tenant from what they hold: the rows
 // that go, every membership of their own held in the tenant and every place of theirs in
-// a group kept in it, whatever their periods; why they may not leave (leavingRefusal);
-// and whether the account goes, which it does when everything the person holds that has
-// not ended is in the tenant (the rule holds reads: their standing memberships, and each
-// standing place where its group is kept). Where it goes, every row of theirs outside
-// the tenant goes with it, and it goes only where the database says each of them has
-// ended (EndedAssignments): a server whose clock runs fast deletes no account that still
-// holds something.
+// a group kept in it, whatever their periods; and why they may not leave
+// (leavingRefusal).
 func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, domain accesstypes.Domain) (*leaving, error) {
 	person := User(holds.rows.userID)
 	var memberships []access.MembershipKey
@@ -380,66 +328,8 @@ func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransa
 	if err != nil {
 		return nil, err
 	}
-	deletesAccount := !slices.ContainsFunc(holds.own, func(key access.MembershipKey) bool {
-		return !heldIn(key.Kind, key.Axis, key.Domain, domain)
-	}) && !slices.ContainsFunc(holds.places, func(place GroupPlace) bool {
-		return !heldIn(place.Kind, place.Axis, place.Domain, domain)
-	})
-	var endedMemberships []access.MembershipKey
-	var endedPlaces []access.GroupMemberKey
-	if deletesAccount {
-		for _, key := range holds.rows.own {
-			if !heldIn(key.Kind, key.Axis, key.Domain, domain) {
-				endedMemberships = append(endedMemberships, key)
-			}
-		}
-		for _, place := range holds.rows.places {
-			if !heldIn(place.Kind, place.Axis, place.Domain, domain) {
-				endedPlaces = append(endedPlaces, access.GroupMemberKey{Group: GroupID(place.ID), User: person})
-			}
-		}
-		if len(endedMemberships)+len(endedPlaces) > 0 {
-			ended, err := m.endedByTheDatabase(ctx, txn, holds.rows.userID, endedMemberships, endedPlaces)
-			if err != nil {
-				return nil, err
-			}
-			if !ended {
-				deletesAccount, endedMemberships, endedPlaces = false, nil, nil
-			}
-		}
-	}
 
-	return &leaving{
-		memberships:      memberships,
-		places:           gone,
-		endedMemberships: endedMemberships,
-		endedPlaces:      endedPlaces,
-		refusal:          refusal,
-		deletesAccount:   deletesAccount,
-	}, nil
-}
-
-// endedByTheDatabase answers whether the database, by its own clock, says each of the
-// person's given rows has ended (EndedAssignments), read in the caller's transaction as
-// ClearEnded reads it: a row the server's clock reads as ended and the database's does
-// not still counts, and the answer is no.
-func (m *Manager) endedByTheDatabase(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, memberships []access.MembershipKey, places []access.GroupMemberKey) (bool, error) {
-	endedMemberships, endedPlaces, err := m.store.EndedAssignments(ctx, txn, userID)
-	if err != nil {
-		return false, errors.Wrap(err, "identity.Store.EndedAssignments()")
-	}
-	for _, key := range memberships {
-		if !slices.Contains(endedMemberships, key) {
-			return false, nil
-		}
-	}
-	for _, key := range places {
-		if !slices.Contains(endedPlaces, key) {
-			return false, nil
-		}
-	}
-
-	return true, nil
+	return &leaving{memberships: memberships, places: gone, refusal: refusal}, nil
 }
 
 // leavingRefusal answers why the person may not leave the tenant, empty where they may.

@@ -401,10 +401,11 @@ func roleHeldByGroup(t *testing.T, store access.Store, p *periods) {
 	}
 }
 
-// periodDeletes holds the two deletions that assignments block to the periods:
-// an assignment that has not begun stands in the way as one that counts does,
-// refused as policy.ErrStillAssigned, and the ones that have ended go with
-// what is deleted. It removes the phase's role and groups.
+// periodDeletes holds the two deletions to the periods: a role's, which an
+// assignment that has not begun stands in the way of as one that counts does,
+// refused as policy.ErrStillAssigned, the ones that have ended going with the
+// role; and a group's, which takes every place and role of the group, whatever
+// their periods. It removes the phase's role and groups.
 func periodDeletes(t *testing.T, store access.Store) {
 	t.Helper()
 	ctx := t.Context()
@@ -427,20 +428,12 @@ func periodDeletes(t *testing.T, store access.Store) {
 	}
 
 	// The shift: dan's place has ended, eve's has not begun, fay's counts, and
-	// the role it holds has ended.
-	for _, member := range []accesstypes.User{fay, eve} {
-		if _, err := store.DeleteGroup(ctx, shiftGroup); !errors.Is(err, policy.ErrStillAssigned) {
-			t.Fatalf("DeleteGroup() while %s is in the group or will be: error = %v, want policy.ErrStillAssigned", member, err)
-		}
-		if err := store.DeleteGroupMember(ctx, shiftGroup, member); err != nil {
-			t.Fatalf("DeleteGroupMember(%s) error = %v", member, err)
-		}
-	}
+	// the role it holds has ended. The group's delete takes all of it.
 	if deleted, err := store.DeleteGroup(ctx, shiftGroup); err != nil || !deleted {
-		t.Fatalf("DeleteGroup() once every place and role left has ended = (%v, %v), want it deleted", deleted, err)
+		t.Fatalf("DeleteGroup() of the shift with its places and its role = (%v, %v), want it deleted", deleted, err)
 	}
 	if deleted, err := store.DeleteGroup(ctx, reliefGroup); err != nil || !deleted {
-		t.Fatalf("DeleteGroup() of the emptied relief = (%v, %v), want it deleted", deleted, err)
+		t.Fatalf("DeleteGroup() of the relief = (%v, %v), want it deleted", deleted, err)
 	}
 	memberships, members := periodRecords(t, store)
 	if len(memberships) != 0 || len(members) != 0 {

@@ -204,6 +204,16 @@ describe('client.batch', () => {
     ]);
   });
 
+  it("resolves the handle's own remove with what a delete too large for one request left, and with nothing once the row is gone", async () => {
+    const answers = [
+      { status: 202, body: { deleted: 6800, left: 31200 } },
+      { status: 200, body: null },
+    ];
+    const client = api(scriptedTransport(() => answers.shift() ?? { status: 200, body: {} }));
+    expect(await client.clients.remove(['c1'], { everythingUnder: true })).toEqual({ deleted: 6800, left: 31200 });
+    expect(await client.clients.remove(['c1'], { everythingUnder: true })).toBeUndefined();
+  });
+
   it("routes the handle's own patch the same way", async () => {
     const transport = recording();
     const client = api(transport);

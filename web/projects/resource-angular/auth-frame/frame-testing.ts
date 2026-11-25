@@ -84,7 +84,7 @@ export const passwordMethods = {
 export interface SpecServer {
   session?: Record<string, unknown>;
   digests?: Record<string, PermissionDigest>;
-  domains?: readonly { domain: string; name: string; closed?: string }[];
+  domains?: readonly { domain: string; name: string; unavailable?: string }[];
   methods?: Record<string, unknown>;
   /** Any other route the spec plays; undefined falls through to the 404. */
   other?: (url: URL) => TransportResponse | undefined;
