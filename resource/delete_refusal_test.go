@@ -569,7 +569,7 @@ func TestRecordedDelete_seen(t *testing.T) {
 
 			asker, checker := caller()
 			asked := &recordedDelete{tree: scopeTree(tt.record, tt.one, tt.tenant, true), key: tt.key, caller: asker}
-			got, err := asked.question(t.Context(), counted(asked.tree))
+			got, err := asked.question(t.Context(), counted(asked.tree), nil)
 			if err != nil {
 				t.Fatalf("question() error = %v", err)
 			}
@@ -601,7 +601,7 @@ func TestRecordedDelete_seen(t *testing.T) {
 			key:    map[string]any{"Id": 7},
 			caller: &Caller{Permissions: &scopedLists{asked: map[accesstypes.Scope]int{}}, Scope: global},
 		}
-		_, err := asked.question(t.Context(), counted(asked.tree))
+		_, err := asked.question(t.Context(), counted(asked.tree), nil)
 		if want := "type int is neither string-kinded nor an encoding.TextMarshaler"; err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("question() error = %v, want one saying %q", err, want)
 		}

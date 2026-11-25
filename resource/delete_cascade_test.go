@@ -276,15 +276,28 @@ func statusOf(err error) int {
 // rows under a record: the record's kind, then each kind counted with its rows at every
 // level, the kind nearest the record first; a kind the person may not list is not counted for them, and
 // the sentence then says there are records they can't see; with no kind they may list it
-// only asks.
+// only asks. The kinds code handed the delete follow the description's, each told to
+// whoever asks. A trusted kind is counted for a person who may not list it, and an armed
+// kind beside it is not.
 func TestRecordedDelete_question(t *testing.T) {
 	t.Parallel()
 
 	tree := projectTree()
 	levels := &takenLevels{deepest: 1, rows: map[*DeleteKind][]int64{&tree.Taken[2]: {1, 2}, &tree.Taken[0]: {1, 0}, &tree.Taken[1]: {0}}}
+	trusted := projectTree()
+	trusted.Taken[2].Trusted = true
+	trustedLevels := &takenLevels{deepest: 1, rows: map[*DeleteKind][]int64{&trusted.Taken[2]: {1, 2}, &trusted.Taken[0]: {1, 0}, &trusted.Taken[1]: {0}}}
+	handed := []kindRows{
+		{kind: &DeleteKind{Words: DeleteWords{One: "role", Many: "roles"}, Trusted: true}, rows: 5},
+		{kind: &DeleteKind{Words: DeleteWords{One: "invitation", Many: "invitations"}, Trusted: true}, rows: 1},
+	}
+	listsNothing := whoLists(accesstypes.Decisions{"CascadeComments": accesstypes.Denied(), "CascadeTasks": accesstypes.Denied()})
 
 	tests := []struct {
 		name   string
+		tree   *DeleteTree
+		levels *takenLevels
+		handed []kindRows
 		caller *Caller
 		want   string
 	}{
@@ -304,8 +317,25 @@ func TestRecordedDelete_question(t *testing.T) {
 		},
 		{
 			name:   "a person who may list none of the kinds is only asked",
-			caller: whoLists(accesstypes.Decisions{"CascadeComments": accesstypes.Denied(), "CascadeTasks": accesstypes.Denied()}),
+			caller: listsNothing,
 			want:   "Delete this project and everything under it? This can't be undone.",
+		},
+		{
+			name:   "the kinds code handed the delete follow the description's",
+			handed: handed,
+			caller: whoLists(nil),
+			want:   "Delete this project and everything under it: 3 tasks, 1 comment, 5 roles, 1 invitation. This can't be undone.",
+		},
+		{
+			name:   "the kinds code handed the delete are told to a person who may list none of the description's",
+			handed: handed,
+			caller: listsNothing,
+			want:   "Delete this project and everything under it: 5 roles, 1 invitation, and records you can't see. This can't be undone.",
+		},
+		{
+			name: "a trusted kind is counted for a person who may not list it, and an armed kind beside it is not", tree: trusted, levels: trustedLevels,
+			caller: listsNothing,
+			want:   "Delete this project and everything under it: 3 tasks, and records you can't see. This can't be undone.",
 		},
 	}
 
@@ -313,8 +343,12 @@ func TestRecordedDelete_question(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			tree, levels := tree, levels
+			if tt.tree != nil {
+				tree, levels = tt.tree, tt.levels
+			}
 			asked := &recordedDelete{tree: tree, key: map[string]any{"Id": "p1"}, caller: tt.caller}
-			got, err := asked.question(t.Context(), levels)
+			got, err := asked.question(t.Context(), levels, tt.handed)
 			if err != nil {
 				t.Fatalf("question() error = %v", err)
 			}

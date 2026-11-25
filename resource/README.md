@@ -4010,14 +4010,11 @@ is answered 428 with the question a person is asked first (`Delete this tenant a
 everything under it? This can't be undone.`), and nothing is gone; the request that goes
 ahead carries `"value": {"everythingUnder": true}` on the remove operation, and the
 library's delete dialog sends it when the person presses Delete at the question. The
-question counts the rows of each kind the person may list in the tenant being deleted
-(`Delete this tenant and everything under it: 3 projects, 12 tasks. This can't be
-undone.`). A tenant's delete is asked for the whole application, and the rows under the
-tenant are the tenant's, so each kind of them is asked about in that tenant: a person
-whose roles list a kind there reads its count, and a kind they may not list there is
-neither named nor counted (`, and records you can't see.` after the kinds they may list,
-or the question alone where they may list none). A tenant with nothing under it is
-deleted by the plain remove. A table of the application's that no resource
+question counts every kind of the application's rows under the tenant, whatever the
+person may list, since the one permission to delete a tenant answers for all of them
+(each kind under the tenant record is trusted, `DeleteKind.Trusted`): `Delete this tenant
+and everything under it: 3 projects, 12 tasks. This can't be undone.` A tenant with
+nothing under it is deleted by the plain remove. A table of the application's that no resource
 describes is not a row the library can delete: its foreign key refuses the tenant's
 delete while its rows remain, so the application deletes them first, in code. An
 application that deletes a tenant in a transaction of its own buffers the record's

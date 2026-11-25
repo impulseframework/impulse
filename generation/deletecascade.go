@@ -808,6 +808,9 @@ func writeDeleteKinds(b *strings.Builder, field string, kinds []*deleteKind) {
 			}
 			b.WriteString("},\n")
 		}
+		if kind.Trusted {
+			b.WriteString("Trusted: true,\n")
+		}
 		if kind.Deletes {
 			writeTakenRows(b, kind)
 		}

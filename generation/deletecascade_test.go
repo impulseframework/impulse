@@ -145,6 +145,7 @@ func Test_deleteCascade_description(t *testing.T) {
 		"patch := &TaskDeletePatch{patchSet: patchSet}",
 		"func (p *ClientDeletePatch) WithEverythingUnder() *ClientDeletePatch {",
 		"func (p *ClientDeletePatch) Left() *resource.DeleteLeft {",
+		"func (p *ClientDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *ClientDeletePatch {",
 	} {
 		if !strings.Contains(rendered, wantLine) {
 			t.Errorf("rendered Client is missing %q", wantLine)
@@ -157,6 +158,29 @@ func Test_deleteCascade_description(t *testing.T) {
 	project := strings.Index(rendered, `Resource: "Projects",`)
 	if comment < 0 || task < comment || project < task {
 		t.Errorf("rendered Client lists its taken kinds out of delete order: TaskComments at %d, Tasks at %d, Projects at %d", comment, task, project)
+	}
+
+	// Code hands kinds to the delete of a record that takes rows, and to the tenant
+	// record's whatever is under a tenant; a record that takes nothing is handed none.
+	for _, tt := range []struct {
+		name   string
+		res    *resourceInfo
+		tenant bool
+		want   bool
+	}{
+		{name: "Client", res: client, want: true},
+		{name: "Supplier", res: byName["Supplier"]},
+		{name: "Supplier", res: byName["Supplier"], tenant: true, want: true},
+	} {
+		tt.res.IsTenant = tt.tenant
+		output, err := r.generateTemplateOutput("resourceFileTemplate", resourceFileTemplate, &resourceFileData{Source: "fixture", Package: "resources", Resource: tt.res})
+		tt.res.IsTenant = false
+		if err != nil {
+			t.Fatalf("generateTemplateOutput(%s) error = %v", tt.name, err)
+		}
+		if got := strings.Contains(string(output), "func (p *"+tt.name+"DeletePatch) DeleteAlso(kinds ...resource.TakenKind) *"+tt.name+"DeletePatch {"); got != tt.want {
+			t.Errorf("rendered %s (the tenant record: %t) carries DeleteAlso = %t, want %t", tt.name, tt.tenant, got, tt.want)
+		}
 	}
 }
 
@@ -224,6 +248,38 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 			if strings.Contains(rendered, unwanted) {
 				t.Errorf("%s of a record that takes no rows holds %q:\n%s", handler, unwanted, rendered)
 			}
+		}
+	}
+}
+
+// Test_deleteCascade_featureKind pins a kind behind a feature flag (@feature) that a
+// record's @deleteCascade names: it is a taken kind like any other, in the same place,
+// and nothing of its flag is in the record's description. A delete reads no flag: a flag
+// turns a feature's routes and pages off and does not change what belongs to a record.
+func Test_deleteCascade_featureKind(t *testing.T) {
+	t.Parallel()
+
+	c, byName := deleteFixtureResources(t)
+	ungated := byName["Client"].DeleteTreeLiteral()
+	byName["TaskComment"].Feature = &featureGate{Constant: "CommentThreads", Name: "comment_threads"}
+	for _, res := range byName {
+		res.DeleteTree = nil
+	}
+	if err := c.resolveDeleteTrees(resourceList(byName)); err != nil {
+		t.Fatalf("resolveDeleteTrees() error = %v", err)
+	}
+
+	tree := byName["Client"].DeleteTree
+	if len(tree.Taken) == 0 || tree.Taken[0].Table != "TaskComments" || !tree.Taken[0].Deletes {
+		t.Errorf("the gated kind is not taken first, with its delete: %+v", tree.Taken)
+	}
+	gated := byName["Client"].DeleteTreeLiteral()
+	if gated != ungated {
+		t.Errorf("the description with the kind gated differs from the one without:\n%s\nwant\n%s", gated, ungated)
+	}
+	for _, flag := range []string{"CommentThreads", "comment_threads", "Feature"} {
+		if strings.Contains(gated, flag) {
+			t.Errorf("the description holds %q of the kind's flag:\n%s", flag, gated)
 		}
 	}
 }
@@ -937,6 +993,10 @@ func Test_deleteTree_tenant(t *testing.T) {
 				t.Errorf("the tenant's description as written lacks %q:\n%s", want, literal)
 			}
 		}
+		// Every kind the tenant's delete takes is trusted.
+		if got, want := strings.Count(literal, "Trusted: true,\n"), len(client.DeleteTree.Taken); got != want {
+			t.Errorf("the tenant's description marks %d kinds trusted, want each of its %d:\n%s", got, want, literal)
+		}
 	})
 
 	t.Run("a record under a tenant, and one that is no tenant's", func(t *testing.T) {
@@ -977,6 +1037,12 @@ func Test_deleteTree_tenant(t *testing.T) {
 		}
 		if literal := byName["Client"].DeleteTreeLiteral(); !strings.Contains(literal, "Cost: resource.DeleteCost{IndexEntries: 0, Files: 0},\nTaken:") {
 			t.Errorf("the description of a record that is no tenant's writes a tenant:\n%s", literal)
+		}
+		// No record but the tenant record's marks a kind trusted.
+		for name, res := range byName {
+			if res.DeleteTree != nil && strings.Contains(res.DeleteTreeLiteral(), "Trusted") {
+				t.Errorf("the description of %s, which is not the tenant record, marks a kind trusted:\n%s", name, res.DeleteTreeLiteral())
+			}
 		}
 
 		project := byName["Project"].DeleteTree

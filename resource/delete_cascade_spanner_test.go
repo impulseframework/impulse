@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"reflect"
 	"slices"
@@ -39,14 +40,49 @@ func cascadeDatabase(t *testing.T, name string) *spanner.Client {
 	return db.Client
 }
 
-// cascadeRun is what one delete that takes rows did: what it answered, the rows it asked
-// about and deleted, in order, and how many count and page statements it sent.
+// cascadeRun is what one delete that takes rows did: what it answered, the round it
+// took, the rows it asked about and deleted, in order, and how many count and page
+// statements it sent.
 type cascadeRun struct {
 	err    error
+	round  *takenRound
 	asked  []string
 	made   []string
 	counts int
 	pages  int
+}
+
+// handedKind is a kind of row a test hands the delete (TakenKind): rows of it under the
+// record, each costing cost mutations, and what its check answers. It notes its check
+// with the rows asked about and what it took with the rows deleted.
+type handedKind struct {
+	words   DeleteWords
+	rows    int64
+	cost    int
+	refused error
+	asked   *[]string
+	made    *[]string
+}
+
+func (k *handedKind) Words() DeleteWords {
+	return k.words
+}
+
+func (k *handedKind) Count(context.Context, ReadWriteTransaction) (int64, error) {
+	return k.rows, nil
+}
+
+func (k *handedKind) Check(context.Context, ReadWriteTransaction) error {
+	*k.asked = append(*k.asked, k.words.Many+" checked")
+
+	return k.refused
+}
+
+func (k *handedKind) Take(_ context.Context, _ ReadWriteTransaction, budget int, _ ...string) (rows int64, mutations int, more bool, err error) {
+	rows = min(k.rows, int64(budget/k.cost))
+	*k.made = append(*k.made, fmt.Sprintf("%d %s of %d mutations", rows, k.words.Many, budget))
+
+	return rows, int(rows) * k.cost, rows < k.rows, nil
 }
 
 // runTaking runs the delete of the record with the key as deleteTaken runs it, over
@@ -55,8 +91,21 @@ type cascadeRun struct {
 func runTaking(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool) *cascadeRun {
 	t.Helper()
 
+	return runTakingAlso(t, db, tree, key, rows, everythingUnder, 0)
+}
+
+// runTakingAlso is runTaking in a save of the given size (DeleteMutationLimit for 0),
+// with kinds handed to the delete.
+func runTakingAlso(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, size int, handed ...*handedKind) *cascadeRun {
+	t.Helper()
+
 	run := &cascadeRun{}
 	rows.asked, rows.made = &run.asked, &run.made
+	also := make([]TakenKind, 0, len(handed))
+	for _, kind := range handed {
+		kind.asked, kind.made = &run.asked, &run.made
+		also = append(also, kind)
+	}
 	for _, kinds := range [][]DeleteKind{tree.Taken, tree.RefusedBy} {
 		for i := range kinds {
 			kinds[i].Rows = rows
@@ -77,14 +126,16 @@ func runTaking(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[strin
 
 				return spannerTxn.readPage(ctx, statement, types, answers)
 			},
+			size: size,
+			also: also,
 		}
 		tracked, _ := takenTracked(tree, false)
-		_, err := taking.run(ctx, func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
+		round, err := taking.run(ctx, func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
 			run.counts++
 
 			return spannerTxn.countRows(ctx, statement)
 		}, tracked, everythingUnder)
-		run.err = err
+		run.round, run.err = round, err
 
 		// The test's delete buffers nothing: the transaction commits nothing either way.
 		return nil
@@ -320,6 +371,104 @@ func TestTakingDelete(t *testing.T) {
 			}
 			if run.counts == 0 {
 				t.Error("the delete counted nothing")
+			}
+		})
+	}
+}
+
+// TestTakingDelete_handedKinds holds, over the emulator, the kinds code hands a delete
+// (TakenKind): the question counts them after the description's kinds, in the order
+// handed, two with the same words as one, once each is checked; a handed kind's check
+// refuses the asking delete with nothing gone; and a round takes them after the
+// description's kinds with what is left of the save's size, a kind with rows left leaving
+// the record standing, and the record going once the last is taken.
+func TestTakingDelete_handedKinds(t *testing.T) {
+	t.Parallel()
+
+	db := cascadeDatabase(t, "taking-delete-handed")
+	if _, err := db.Apply(t.Context(), []*spanner.Mutation{
+		spanner.InsertMap("CascadeProjects", map[string]any{"Id": "plain"}),
+		spanner.InsertMap("CascadeTasks", map[string]any{"Id": "plain-t1", "ProjectId": "plain"}),
+		spanner.InsertMap("CascadeTasks", map[string]any{"Id": "plain-t2", "ProjectId": "plain"}),
+	}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+	roles := func(rows int64) *handedKind {
+		return &handedKind{words: DeleteWords{One: "role", Many: "roles"}, rows: rows, cost: 1}
+	}
+	invitations := func(rows int64) *handedKind {
+		return &handedKind{words: DeleteWords{One: "invitation", Many: "invitations"}, rows: rows, cost: 1}
+	}
+	project := map[string]any{"Id": "plain"}
+
+	tests := []struct {
+		name            string
+		handed          []*handedKind
+		everythingUnder bool
+		size            int
+		wantStatus      int
+		wantMessage     string
+		wantAsked       []string
+		wantMade        []string
+		wantRound       *takenRound
+	}{
+		{
+			name:       "the question counts the handed kinds after the description's, two with the same words as one",
+			handed:     []*handedKind{roles(2), invitations(1), roles(3)},
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 2 tasks, 5 roles, 1 invitation. This can't be undone.",
+			wantAsked: []string{"roles checked", "invitations checked", "roles checked"},
+		},
+		{
+			name: "a handed kind's check refuses the asking delete with nothing gone",
+			handed: func() []*handedKind {
+				refusing := invitations(1)
+				refusing.refused = httpio.NewForbiddenMessage("You can't withdraw these invitations.")
+
+				return []*handedKind{roles(2), refusing}
+			}(),
+			wantStatus: http.StatusForbidden, wantMessage: "You can't withdraw these invitations.",
+			wantAsked: []string{"roles checked", "invitations checked"},
+		},
+		{
+			name:   "a round takes the handed kinds after the description's with what the size leaves, and rows left leave the record",
+			handed: []*handedKind{roles(10), invitations(1)}, everythingUnder: true,
+			// The record, the two tasks and five roles.
+			size:      1 + 2 + 5,
+			wantMade:  []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "5 roles of 5 mutations"},
+			wantRound: &takenRound{counted: 13, deleted: 7},
+		},
+		{
+			name:   "a round that takes the last of the handed kinds takes the record",
+			handed: []*handedKind{roles(10), invitations(1)}, everythingUnder: true,
+			wantMade:  []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "10 roles of 79997 mutations", "1 invitations of 79987 mutations"},
+			wantRound: &takenRound{counted: 13, deleted: 13, finished: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := runTakingAlso(t, db, projectTree(), project, cascadeRows{}, tt.everythingUnder, tt.size, tt.handed...)
+			switch {
+			case tt.wantStatus == 0 && run.err != nil:
+				t.Fatalf("the delete error = %v, want none", run.err)
+			case tt.wantStatus != 0:
+				if got := statusOf(run.err); got != tt.wantStatus {
+					t.Errorf("the delete's status = %d, want %d (%v)", got, tt.wantStatus, run.err)
+				}
+				if got := httpio.Message(run.err); got != tt.wantMessage {
+					t.Errorf("the delete's message = %q, want %q", got, tt.wantMessage)
+				}
+			}
+			if diff := cmp.Diff(tt.wantAsked, run.asked); diff != "" {
+				t.Errorf("the rows and kinds asked about (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantMade, run.made); diff != "" {
+				t.Errorf("the rows and kinds taken (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantRound, run.round, cmp.AllowUnexported(takenRound{})); diff != "" {
+				t.Errorf("the round (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -647,5 +796,82 @@ func TestTransactionDeletes_refuse_whatTheDatabaseHeld(t *testing.T) {
 	}
 	if row := readForkRow(t, db, "r1"); row == nil {
 		t.Error("the record is gone, want it kept")
+	}
+}
+
+// bareForkRow is a ForkRows record whose description lists nothing under it.
+type bareForkRow struct {
+	ID        string `spanner:"Id"`
+	Title     string `spanner:"Title"`
+	CreatedBy string `spanner:"CreatedBy"`
+	UpdatedBy string `spanner:"UpdatedBy"`
+}
+
+func (bareForkRow) Resource() accesstypes.Resource {
+	return "ForkRows"
+}
+
+func (bareForkRow) DeleteTree() *DeleteTree {
+	return &DeleteTree{Record: "ForkRows", Words: DeleteWords{One: "row", Many: "rows"}, Key: []string{"Id"}}
+}
+
+// TestPatchSet_DeleteAlso holds, over the emulator, a record whose description lists
+// nothing under it and that code hands a kind with rows: its delete asks first, naming
+// the kind, and deletes nothing; told to take what is under it, it takes the kind's rows
+// and the record.
+func TestPatchSet_DeleteAlso(t *testing.T) {
+	t.Parallel()
+
+	db := forkDatabase(t, "delete-also")
+	if _, err := db.Apply(t.Context(), []*spanner.Mutation{
+		spanner.InsertMap("ForkRows", map[string]any{"Id": "r1", "Title": "record"}),
+	}); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+	var asked, made []string
+	notes := &handedKind{words: DeleteWords{One: "note", Many: "notes"}, rows: 2, cost: 1, asked: &asked, made: &made}
+	deleteRecord := func(everythingUnder bool) (*DeleteLeft, error) {
+		var left *DeleteLeft
+		err := NewSpannerClient(db).ExecuteFunc(t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
+			asked, made = nil, nil
+			record := NewPatchSet(NewMetadata[bareForkRow]()).SetPatchType(DeletePatchType).DeleteAlso(notes)
+			if everythingUnder {
+				record.DeleteEverythingUnder()
+			}
+			record.SetKey("ID", "r1")
+			if err := record.Buffer(ctx, txn, "test"); err != nil {
+				return err
+			}
+			left = record.DeleteLeft()
+
+			return nil
+		})
+
+		return left, err
+	}
+
+	_, err := deleteRecord(false)
+	if want := "Delete this row and everything under it: 2 notes. This can't be undone."; statusOf(err) != http.StatusPreconditionRequired || httpio.Message(err) != want {
+		t.Errorf("the delete that asks = %v (%q), want a 428 saying %q", err, httpio.Message(err), want)
+	}
+	if diff := cmp.Diff([]string{"notes checked"}, asked); diff != "" {
+		t.Errorf("the kinds the delete that asks checked (-want +got):\n%s", diff)
+	}
+	if readForkRow(t, db, "r1") == nil {
+		t.Fatal("the delete that asks deleted the record")
+	}
+
+	left, err := deleteRecord(true)
+	if err != nil {
+		t.Fatalf("the delete that takes error = %v", err)
+	}
+	if left != nil {
+		t.Errorf("DeleteLeft() = %+v, want nil", left)
+	}
+	if diff := cmp.Diff([]string{"2 notes of 79999 mutations"}, made); diff != "" {
+		t.Errorf("what the delete that takes took (-want +got):\n%s", diff)
+	}
+	if row := readForkRow(t, db, "r1"); row != nil {
+		t.Errorf("the record is still there: %+v", row)
 	}
 }

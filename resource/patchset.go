@@ -65,6 +65,9 @@ type PatchSet[Resource Resourcer] struct {
 	// deleteSaveSize is the most mutations one save of a delete that takes rows holds,
 	// DeleteMutationLimit where it is zero: a test makes it small.
 	deleteSaveSize int
+	// alsoTaken are the kinds code hands the delete to take beside the description's
+	// (DeleteAlso).
+	alsoTaken []TakenKind
 	// fork is set on an update-or-create (OrCreate) and on a create-unless-there
 	// (OrSkip) patch, and nil on every other (patch_fork.go).
 	fork *patchFork[Resource]
@@ -715,6 +718,17 @@ func (p *PatchSet[Resource]) checkDelete(ctx context.Context, txn ReadWriteTrans
 // record that lists no rows to take.
 func (p *PatchSet[Resource]) DeleteEverythingUnder() *PatchSet[Resource] {
 	p.everythingUnder = true
+
+	return p
+}
+
+// DeleteAlso hands the delete the patch carries kinds of row it takes with the record
+// that the record's description does not list (TakenKind): the question counts them
+// after the description's kinds, the check before the delete asks them, and each round
+// takes what fits of them after the description's kinds and before the record. A delete
+// handed kinds takes rows though its description lists none.
+func (p *PatchSet[Resource]) DeleteAlso(kinds ...TakenKind) *PatchSet[Resource] {
+	p.alsoTaken = append(p.alsoTaken, kinds...)
 
 	return p
 }

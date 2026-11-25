@@ -121,6 +121,11 @@ type DeleteKind struct {
 	// row under it, is not under it, and a delete of the record neither counts it, names
 	// it nor takes it, whoever asks.
 	Tenant *DomainBindingData
+	// Trusted marks a kind whose rows a delete of the record takes without asking the
+	// caller's grant on them, and counts for the caller whatever they may list: each
+	// kind under the tenant record, whose delete asks one permission, to delete a
+	// tenant. The kind's delete rule is asked all the same. The generator writes it.
+	Trusted bool
 }
 
 // movable reports whether a row of the kind can be taken from under the record without

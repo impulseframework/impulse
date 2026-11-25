@@ -889,6 +889,17 @@ func (p *{{ .Resource.Name }}DeletePatch) Left() *resource.DeleteLeft {
 	return p.patchSet.DeleteLeft()
 }
 {{ end }}
+{{- if or .Resource.TakesRowsUnder .Resource.IsTenant }}
+// DeleteAlso hands the delete kinds of row it takes with the {{ .Resource.Name }} that its
+// description does not list (resource.TakenKind): the question counts them, the check
+// before the delete asks them, and each round takes what fits of them after the kinds
+// the description lists and before the {{ .Resource.Name }}.
+func (p *{{ .Resource.Name }}DeletePatch) DeleteAlso(kinds ...resource.TakenKind) *{{ .Resource.Name }}DeletePatch {
+	p.patchSet.DeleteAlso(kinds...)
+
+	return p
+}
+{{ end }}
 func (p *{{ .Resource.Name }}DeletePatch) Apply(ctx context.Context, client resource.Client, eventSource ...string) error {
 	return p.patchSet.Apply(ctx, client, eventSource...)
 }
