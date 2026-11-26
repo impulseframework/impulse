@@ -63,6 +63,21 @@ type PersonHoldings struct {
 	// identities came through. A person who signs in through another tenant's directory
 	// is that tenant's to manage, and stays when this one is deleted.
 	DirectoryTenants []accesstypes.Domain
+	Sessions         []LiveSession // the person's sessions that have not ended: what Store.LiveSessions answers
+	Held             []HeldRecord  // the records the person holds as actor that have not ended: what Store.ImpersonationsHeldBy answers
+	WithUser         int           // what Store.RowsWithUser answers for the person
+}
+
+// LiveSession is a session that has not ended; Record says its impersonation record stands (Store.Impersonation's live).
+type LiveSession struct {
+	ID     impulse.UUID
+	Record bool
+}
+
+// HeldRecord is an impersonation record a person holds as actor; Session says its session exists and has not ended (Store.SessionExpired).
+type HeldRecord struct {
+	SessionID impulse.UUID
+	Session   bool
 }
 
 // TenantKinds answers what the auth holds for a tenant as kinds of the tenant's delete
@@ -120,14 +135,17 @@ func (h *tenantHeld) policyChanged(txn resource.ReadWriteTransaction, rows int64
 }
 
 // tenantAccount is an account that belongs to the tenant alone, with what it holds there:
-// its memberships, all in the tenant, its places, all in the tenant's groups, and its
-// identity links.
+// its memberships, all in the tenant, its places, all in the tenant's groups, its
+// identity links, the endings of its sessions and of the impersonation records it holds,
+// and what the database removes with its row (Store.RowsWithUser).
 type tenantAccount struct {
 	id          impulse.UUID
 	username    string
 	memberships []access.MembershipKey
 	places      []GroupPlace
 	links       []Link
+	endings     []sessionEnding
+	withUser    int
 }
 
 // accounts reads the accounts that are the tenant's alone, in key order: each person who
@@ -155,6 +173,7 @@ func (h *tenantHeld) accounts(ctx context.Context, txn resource.ReadWriteTransac
 		if h.alone(person, groups) {
 			accounts = append(accounts, tenantAccount{
 				id: person.ID, username: person.Username, memberships: person.Memberships, places: person.Places, links: person.Links,
+				endings: mergeEndings(person.Sessions, person.Held), withUser: person.WithUser,
 			})
 		}
 	}
@@ -262,7 +281,7 @@ func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransac
 	}
 	costs := k.manager.store.DeleteCosts()
 	for i := range accounts {
-		cost, err := k.cost(ctx, txn, &accounts[i], &costs)
+		cost, err := k.cost(ctx, &accounts[i], &costs)
 		if err != nil {
 			return rows, mutations, false, err
 		}
@@ -282,28 +301,16 @@ func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransac
 // cost is what taking the account costs in the commit: its memberships, its places, its
 // identity links, its row, the ending of its sessions and of the impersonation records it
 // holds, what the database removes with the row, and the row of the audit log that
-// records its delete (auditRecordMutations).
-func (k *tenantAccounts) cost(ctx context.Context, txn resource.ReadWriteTransaction, account *tenantAccount, costs *TenantDeleteCosts) (int, error) {
-	links, err := k.manager.store.Identities(ctx, txn, account.id)
-	if err != nil {
-		return 0, errors.Wrap(err, "identity.Store.Identities()")
-	}
-	endings, err := k.manager.sessionEndings(ctx, txn, account.id)
-	if err != nil {
-		return 0, err
-	}
+// records its delete (auditRecordMutations). It reads nothing: the account carries it.
+func (k *tenantAccounts) cost(ctx context.Context, account *tenantAccount, costs *TenantDeleteCosts) (int, error) {
 	ended := 0
-	for i := range endings {
-		if endings[i].session {
+	for i := range account.endings {
+		if account.endings[i].session {
 			ended += costs.SessionEnd
 		}
-		if endings[i].record {
+		if account.endings[i].record {
 			ended += costs.ImpersonationEnd
 		}
-	}
-	withUser, err := k.manager.store.RowsWithUser(ctx, txn, account.id)
-	if err != nil {
-		return 0, errors.Wrap(err, "identity.Store.RowsWithUser()")
 	}
 	audit, err := auditRecordMutations(k.deleted(ctx, account))
 	if err != nil {
@@ -311,12 +318,14 @@ func (k *tenantAccounts) cost(ctx context.Context, txn resource.ReadWriteTransac
 	}
 
 	return len(account.memberships)*costs.Membership + len(account.places)*costs.GroupMember +
-		len(links)*costs.Identity + costs.User + ended + withUser + audit, nil
+		len(account.links)*costs.Identity + costs.User + ended + account.withUser + audit, nil
 }
 
 // take buffers the delete of the account and of what it holds in the tenant, and the row
 // of the audit log that records it: the account deleted with its tenant, by its username,
-// in the tenant, by the round's caller. What it held there has no row of its own.
+// in the tenant, by the round's caller. What it held there has no row of its own. It reads
+// nothing: its memberships and places go, then its sessions are ended, its identity links
+// and its row go (deleteAccount), and the row of the audit log is written, in that order.
 func (k *tenantAccounts) take(ctx context.Context, txn resource.ReadWriteTransaction, account *tenantAccount) error {
 	store := k.manager.store
 	for i := range account.memberships {
@@ -329,7 +338,7 @@ func (k *tenantAccounts) take(ctx context.Context, txn resource.ReadWriteTransac
 			return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
 		}
 	}
-	if err := k.manager.deleteAccount(ctx, txn, account.id); err != nil {
+	if err := k.manager.deleteAccount(ctx, txn, account.id, account.links, account.endings); err != nil {
 		return err
 	}
 	if err := k.manager.record(ctx, txn, k.deleted(ctx, account)); err != nil {

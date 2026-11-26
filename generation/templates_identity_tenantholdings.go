@@ -4,9 +4,10 @@ package generation
 
 const (
 	// identityTenantHoldingsStoreTemplate is the store's TenantHoldings: one statement from
-	// the tenant's key, whatever the tenant holds (TenantHoldingsSQL), read in the caller's
-	// transaction, and a stub that answers nobody where the store keeps no table a person
-	// holds something in a tenant by.
+	// the tenant's key, whatever the tenant holds (TenantHoldingsSQL), and a second over the
+	// people it found (TenantHoldingsSessionsSQL), read in the caller's transaction, and a
+	// stub that answers nobody where the store keeps no table a person holds something in
+	// a tenant by.
 	identityTenantHoldingsStoreTemplate = `{{ if .TenantHoldingsSQL }}
 {{- if .Has "memberships" }}
 // tenantHoldingsMembership is one membership of a person as TenantHoldings reads it.
@@ -51,11 +52,29 @@ type tenantHoldingsLink struct {
 	{{- end }}
 }
 {{ end }}
+// tenantHoldingsSession is one session of a person that has not ended, as TenantHoldings
+// reads it{{ if .Has "impersonations" }}, with whether its impersonation record stands{{ end }}.
+type tenantHoldingsSession struct {
+	ID     string ` + "`spanner:\"Id\"`" + `
+	{{- if .Has "impersonations" }}
+	Record bool   ` + "`spanner:\"Record\"`" + `
+	{{- end }}
+}
+{{ if .Has "impersonations" }}
+// tenantHoldingsHeld is one impersonation record a person holds as actor that has not
+// ended, with whether its session stands, as TenantHoldings reads it.
+type tenantHoldingsHeld struct {
+	SessionID string ` + "`spanner:\"SessionId\"`" + `
+	Session   bool   ` + "`spanner:\"Session\"`" + `
+}
+{{ end }}
 // TenantHoldings reads the people a tenant's delete considers and what each holds, in
-// the caller's transaction, by one statement that starts from the tenant's key and
-// reaches each person's rows by their tables' indexes on the user. A row whose user is no
-// account's id names nobody, and a role on a record whose period has ended is left out,
-// as RecordMemberships leaves it (identity.Store.TenantHoldings).
+// the caller's transaction, by two statements: the first starts from the tenant's key and
+// reaches each person's rows by their tables' indexes on the user, and the second reads,
+// for the people the first found, their sessions, the impersonation records they hold and
+// what the database removes with their rows. A row whose user is no account's id names
+// nobody, and a role on a record whose period has ended is left out, as RecordMemberships
+// leaves it (identity.Store.TenantHoldings).
 func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]identity.PersonHoldings, error) {
 	stmt := spanner.Statement{SQL: {{ .TenantHoldingsSQL }}, Params: map[string]any{}}
 	{{- if .Has "memberships" }}
@@ -149,6 +168,68 @@ func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransacti
 		{{- end }}
 		{{- end }}
 		people = append(people, person)
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	if len(people) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(people))
+	at := make(map[string]int, len(people))
+	for i := range people {
+		ids = append(ids, people[i].ID.String())
+		at[people[i].ID.String()] = i
+	}
+	{{- if .UserCascades }}
+	costs := []int{
+		{{- range .UserCascades }}
+		resource.DeleteCost{IndexEntries: {{ .IndexEntries }}}.Mutations(0),
+		{{- end }}
+	}
+	{{- end }}
+	stmt = spanner.Statement{SQL: {{ .TenantHoldingsSessionsSQL }}, Params: map[string]any{"people": ids}}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var user string
+		if err := row.ColumnByName("UserId", &user); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		person := &people[at[user]]
+		var sessions []*tenantHoldingsSession
+		if err := row.ColumnByName("Sessions", &sessions); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, session := range sessions {
+			sessionID, err := impulse.UUIDFromString(session.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Sessions = append(person.Sessions, identity.LiveSession{ID: sessionID{{ if .Has "impersonations" }}, Record: session.Record{{ end }}})
+		}
+		{{- if .Has "impersonations" }}
+		var held []*tenantHoldingsHeld
+		if err := row.ColumnByName("Held", &held); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, record := range held {
+			sessionID, err := impulse.UUIDFromString(record.SessionID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Held = append(person.Held, identity.HeldRecord{SessionID: sessionID, Session: record.Session})
+		}
+		{{- end }}
+		{{- if .UserCascades }}
+		for i, cost := range costs {
+			var count int64
+			if err := row.ColumnByName("WithUser"+strconv.Itoa(i), &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.ColumnByName()")
+			}
+			person.WithUser += int(count) * cost
+		}
+		{{- end }}
 
 		return nil
 	}); err != nil {

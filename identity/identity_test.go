@@ -745,7 +745,8 @@ func (f *fakeStore) TenantHoldings(ctx context.Context, txn resource.ReadWriteTr
 	return people, nil
 }
 
-// holdings is one row of TenantHoldings: what the per-person reads answer for the person.
+// holdings is one row of TenantHoldings: what the per-person reads answer for the person,
+// the sessions, the records held and the rows with the user among them.
 func (f *fakeStore) holdings(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*PersonHoldings, error) {
 	person := &PersonHoldings{ID: id}
 	var err error
@@ -766,6 +767,33 @@ func (f *fakeStore) holdings(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	if len(person.Links) > 0 {
 		person.DirectoryTenants = f.managing[id]
+	}
+	sessions, err := f.LiveSessions(ctx, txn, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, session := range sessions {
+		live, _, err := f.Impersonation(ctx, txn, session)
+		if err != nil {
+			return nil, err
+		}
+		person.Sessions = append(person.Sessions, LiveSession{ID: session, Record: live})
+	}
+	if person.Found {
+		records, err := f.ImpersonationsHeldBy(ctx, txn, person.Username)
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range records {
+			expired, exists, err := f.SessionExpired(ctx, txn, record.SessionID)
+			if err != nil {
+				return nil, err
+			}
+			person.Held = append(person.Held, HeldRecord{SessionID: record.SessionID, Session: exists && !expired})
+		}
+	}
+	if person.WithUser, err = f.RowsWithUser(ctx, txn, id); err != nil {
+		return nil, err
 	}
 
 	return person, nil

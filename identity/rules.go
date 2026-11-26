@@ -562,18 +562,15 @@ func (m *Manager) holderSignsIn(ctx context.Context, txn resource.ReadWriteTrans
 }
 
 // deleteAccount buffers the removal of a user that goes with its tenant: every session
-// they hold is ended first, then their identity links go, then the row, by the store's
-// delete that leaves the application's rows out (DeleteUserWithTenant). Everything is read
-// before anything is buffered. The memberships are the caller's to remove.
+// they hold is ended first (endings, as sessionEndings reads them), then their identity
+// links go, then the row, by the store's delete that leaves the application's rows out
+// (DeleteUserWithTenant). It reads nothing: the caller read the links and the endings
+// before anything was buffered. The memberships are the caller's to remove.
 //
 // Shared rule: the session library's DeleteSessionUser, which destroys the sessions
 // and deletes the links with the user.
-func (m *Manager) deleteAccount(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
-	links, err := m.store.Identities(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Identities()")
-	}
-	if err := m.endUserSessions(ctx, txn, userID); err != nil {
+func (m *Manager) deleteAccount(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, links []Link, endings []sessionEnding) error {
+	if err := m.endSessions(ctx, txn, endings); err != nil {
 		return err
 	}
 	for _, link := range links {

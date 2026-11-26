@@ -24,13 +24,19 @@ type identityDeleteCost struct {
 
 // identityUserCascade is a table whose rows the database removes with a user's row by a
 // foreign key declared ON DELETE CASCADE, straight or through another such table: the
-// statement that counts the table's rows under the user, and the number of its indexes
-// besides its key, each of which loses an entry for each row.
+// statement that counts the table's rows under the user (@userId), the same count under
+// each person of the second statement of TenantHoldings (heldPerson), and the number of
+// its indexes besides its key, each of which loses an entry for each row.
 type identityUserCascade struct {
 	Table        string
 	Count        string
+	PersonCount  string
 	IndexEntries int
 }
+
+// heldPerson is the id of one person the second statement of the store's TenantHoldings
+// reads, each a row of the people the first found (TenantHoldingsSessionsSQL).
+const heldPerson = "p"
 
 // withdrawnColumns are the columns of the mail links table the withdrawal of an
 // invitation writes (the store's ConsumeMailLink).
@@ -188,7 +194,8 @@ func (c *client) identityUserCascades(users string) []identityUserCascade {
 		}
 		cascades = append(cascades, identityUserCascade{
 			Table:        name,
-			Count:        "(SELECT COUNT(*) FROM " + name + " c0 WHERE " + walk.under(name, "c0", 0) + ")",
+			Count:        "(SELECT COUNT(*) FROM " + name + " c0 WHERE " + walk.under(name, "c0", 0, "@userId") + ")",
+			PersonCount:  "(SELECT COUNT(*) FROM " + name + " c0 WHERE " + walk.under(name, "c0", 0, heldPerson) + ")",
 			IndexEntries: c.tableMap[name].secondaryIndexes(),
 		})
 	}
@@ -207,16 +214,16 @@ type userCascadeWalk struct {
 }
 
 // under is the condition that a row of the table, read under alias, is removed with the
-// user's row (@userId): one of its keys names the user, or a row the user's delete
-// removes.
-func (w *userCascadeWalk) under(table, alias string, depth int) string {
+// row of the user the expression user names (@userId, or a person of TenantHoldings): one
+// of its keys names the user, or a row the user's delete removes.
+func (w *userCascadeWalk) under(table, alias string, depth int, user string) string {
 	if table == w.users {
-		return alias + "." + w.key[0] + " = @userId"
+		return alias + "." + w.key[0] + " = " + user
 	}
 	terms := make([]string, 0, len(w.links[table]))
 	for _, link := range w.links[table] {
 		if link.Table == w.users && len(link.Columns) == 1 && slices.Equal(link.References, w.key) {
-			terms = append(terms, alias+"."+link.Columns[0]+" = @userId")
+			terms = append(terms, alias+"."+link.Columns[0]+" = "+user)
 
 			continue
 		}
@@ -225,7 +232,7 @@ func (w *userCascadeWalk) under(table, alias string, depth int) string {
 		for i, column := range link.Columns {
 			match = append(match, parent+"."+link.References[i]+" = "+alias+"."+column)
 		}
-		terms = append(terms, "EXISTS (SELECT 1 FROM "+link.Table+" "+parent+" WHERE "+strings.Join(match, " AND ")+" AND "+w.under(link.Table, parent, depth+1)+")")
+		terms = append(terms, "EXISTS (SELECT 1 FROM "+link.Table+" "+parent+" WHERE "+strings.Join(match, " AND ")+" AND "+w.under(link.Table, parent, depth+1, user)+")")
 	}
 	if len(terms) == 1 {
 		return terms[0]
@@ -289,6 +296,36 @@ func (d *identitySourceData) TenantHoldingsSQL() string {
 	}
 
 	return strconv.Quote("SELECT " + strings.Join(columns, ", ") + " FROM (" + strings.Join(people, " UNION DISTINCT ") + ") p ORDER BY p.UserId")
+}
+
+// TenantHoldingsSessionsSQL is the second statement the store's TenantHoldings reads by,
+// as a Go string literal, over the people the first found (@people, each heldPerson):
+// each person's sessions that have not ended, by the sessions table's column of the user,
+// each with whether its impersonation record stands, by the record's key; the records the
+// person holds as actor that have not ended, by the impersonations table's column of the
+// actor's name joined to the person's username, each with whether its session stands, by
+// the session's key; and what the database removes with the person's row, a count for
+// each table of UserCascades (WithUser0 on), as RowsWithUser counts them. The records are
+// read where the store keeps the impersonations table, as its own reads of them are.
+func (d *identitySourceData) TenantHoldingsSessionsSQL() string {
+	sessions := "ARRAY(SELECT AS STRUCT s.Id"
+	if d.has(identityImpersonations) {
+		sessions += ", EXISTS (SELECT 1 FROM " + d.Tables.Impersonations + " r WHERE r.SessionId = s.Id AND r.EndedAt IS NULL) AS Record"
+	}
+	columns := []string{
+		heldPerson + " AS UserId",
+		sessions + " FROM " + d.Tables.Sessions + " s WHERE s.UserId = " + heldPerson + " AND s.Expired = FALSE) AS Sessions",
+	}
+	if d.has(identityImpersonations) {
+		columns = append(columns, "ARRAY(SELECT AS STRUCT r.SessionId, EXISTS (SELECT 1 FROM "+d.Tables.Sessions+" s WHERE s.Id = r.SessionId AND s.Expired = FALSE) AS Session"+
+			" FROM "+d.Tables.Users+" u JOIN "+d.Tables.Impersonations+" r ON r.ActorUsername = u.Username"+
+			" WHERE u.Id = "+heldPerson+" AND r.ActorRealm IS NULL AND r.EndedAt IS NULL) AS Held")
+	}
+	for i, cascade := range d.userCascades {
+		columns = append(columns, cascade.PersonCount+" AS WithUser"+strconv.Itoa(i))
+	}
+
+	return strconv.Quote("SELECT " + strings.Join(columns, ", ") + " FROM UNNEST(@people) AS " + heldPerson + " ORDER BY " + heldPerson)
 }
 
 // RowsWithUserSQL is the statement the store's RowsWithUser counts by, as a Go string

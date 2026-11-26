@@ -213,10 +213,17 @@ func Test_identityUserCascades(t *testing.T) {
 		{
 			Table:        "CrewSessionAuthEvents",
 			Count:        "(SELECT COUNT(*) FROM CrewSessionAuthEvents c0 WHERE EXISTS (SELECT 1 FROM CrewSessions c1 WHERE c1.Id = c0.SessionId AND c1.UserId = @userId))",
+			PersonCount:  "(SELECT COUNT(*) FROM CrewSessionAuthEvents c0 WHERE EXISTS (SELECT 1 FROM CrewSessions c1 WHERE c1.Id = c0.SessionId AND c1.UserId = p))",
 			IndexEntries: 0,
 		},
-		{Table: "CrewSessionIdentities", Count: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId)", IndexEntries: 2},
-		{Table: "CrewSessions", Count: "(SELECT COUNT(*) FROM CrewSessions c0 WHERE c0.UserId = @userId)", IndexEntries: 1},
+		{
+			Table: "CrewSessionIdentities", Count: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId)",
+			PersonCount: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p)", IndexEntries: 2,
+		},
+		{
+			Table: "CrewSessions", Count: "(SELECT COUNT(*) FROM CrewSessions c0 WHERE c0.UserId = @userId)",
+			PersonCount: "(SELECT COUNT(*) FROM CrewSessions c0 WHERE c0.UserId = p)", IndexEntries: 1,
+		},
 	}
 	got := c.identityUserCascades("CrewSessionUsers")
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -328,21 +335,30 @@ func Test_identityStoreTemplate_tenantKinds(t *testing.T) {
 // delete considers: one statement from the tenant's key, a branch of its union and a
 // column for each table the store keeps a person's holdings in, each reached by the
 // table's column of the user, and the directories table where the tenant record declares
-// a directory and the auth keeps identities. Nothing reads the tenant's list of its
-// people. A store that keeps none of the tables answers nobody.
+// a directory and the auth keeps identities; and a second over the people it found, their
+// sessions, the records they hold as actor where the store keeps the impersonations
+// table, and a count of each table the database removes rows of with the user's row.
+// Nothing reads the tenant's list of its people. A store that keeps none of the tables
+// answers nobody.
 func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 	t.Parallel()
 
 	directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"}
-	data := func(tenant *identityTenant, tables ...identityTable) *identitySourceData {
-		inst := &identityInstance{auth: "Crew", tenant: tenant, tables: map[identityTable]bool{}, heldRecords: []identityHeldRecord{{}}}
+	identities := identityUserCascade{
+		Table: "CrewSessionIdentities", Count: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId)",
+		PersonCount: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p)", IndexEntries: 2,
+	}
+	data := func(tenant *identityTenant, cascades []identityUserCascade, tables ...identityTable) *identitySourceData {
+		inst := &identityInstance{auth: "Crew", tenant: tenant, tables: map[identityTable]bool{}, heldRecords: []identityHeldRecord{{}}, userCascades: cascades}
 		for _, kind := range tables {
 			inst.tables[kind] = true
 		}
 
 		return &identitySourceData{
 			Source: "Auth", Package: "crewidentity", identityInstance: inst, ResourcesPackage: "crewresources", MethodsPackage: "crewidentity", Outlets: "default",
-			Tables: session.Tables{Users: "CrewSessionUsers", Identities: "CrewSessionIdentities"},
+			Tables: session.Tables{
+				Users: "CrewSessionUsers", Identities: "CrewSessionIdentities", Sessions: "CrewSessions", Impersonations: "CrewSessionImpersonations",
+			},
 			Policy: access.Tables{
 				UserRoles: "CrewUserRoles", Roles: "CrewRoles", Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", RecordUserRoles: "CrewRecordUserRoles",
 			},
@@ -353,7 +369,7 @@ func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 		username    = "(SELECT u.Username FROM CrewSessionUsers u WHERE u.Id = p.UserId) AS Username"
 		memberships = "ARRAY(SELECT AS STRUCT m.Kind, m.Axis, m.DomainId, m.Role FROM CrewUserRoles m WHERE m.UserId = p.UserId) AS Memberships"
 		places      = "ARRAY(SELECT AS STRUCT g.Id, g.Kind, g.Axis, g.DomainId FROM CrewGroupMembers gm JOIN CrewGroups g ON g.Id = gm.GroupId WHERE gm.UserId = p.UserId) AS Places"
-		records     = "ARRAY(SELECT AS STRUCT r.Axis, r.DomainId, r.Resource, r.RecordId, r.Role, r.EndsAt FROM CrewRecordUserRoles r WHERE r.UserId = p.UserId) AS RecordRoles"
+		roles       = "ARRAY(SELECT AS STRUCT r.Axis, r.DomainId, r.Resource, r.RecordId, r.Role, r.EndsAt FROM CrewRecordUserRoles r WHERE r.UserId = p.UserId) AS RecordRoles"
 		links       = "ARRAY(SELECT AS STRUCT i.Id, i.Method, i.Connection, " +
 			"ARRAY(SELECT d.SectorId FROM SectorDirectories d WHERE d.Method = i.Method AND d.Connection = i.Connection) AS Tenants " +
 			"FROM CrewSessionIdentities i WHERE i.UserId = p.UserId) AS Links"
@@ -364,39 +380,54 @@ func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 		through    = "SELECT i.UserId FROM SectorDirectories d JOIN CrewSessionIdentities i ON i.Method = d.Method AND i.Connection = d.Connection WHERE d.SectorId = @tenant"
 		signature  = "func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]identity.PersonHoldings, error) {"
 		stub       = "func (store) TenantHoldings(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]identity.PersonHoldings, error) {\n\treturn nil, nil\n}"
+		sessions   = "SELECT p AS UserId, ARRAY(SELECT AS STRUCT s.Id"
+		records    = ", EXISTS (SELECT 1 FROM CrewSessionImpersonations r WHERE r.SessionId = s.Id AND r.EndedAt IS NULL) AS Record"
+		ownRows    = " FROM CrewSessions s WHERE s.UserId = p AND s.Expired = FALSE) AS Sessions"
+		held       = ", ARRAY(SELECT AS STRUCT r.SessionId, EXISTS (SELECT 1 FROM CrewSessions s WHERE s.Id = r.SessionId AND s.Expired = FALSE) AS Session" +
+			" FROM CrewSessionUsers u JOIN CrewSessionImpersonations r ON r.ActorUsername = u.Username WHERE u.Id = p AND r.ActorRealm IS NULL AND r.EndedAt IS NULL) AS Held"
+		withUser = ", (SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p) AS WithUser0"
+		overThem = " FROM UNNEST(@people) AS p ORDER BY p"
 	)
 	for _, tt := range []struct {
 		name            string
 		data            *identitySourceData
 		wantSQL         string
+		wantSessionsSQL string
 		wantContains    []string
 		wantNotContains []string
 		// notInRead are what the read itself, from its signature to its end, holds none of.
 		notInRead []string
 	}{
 		{
-			name: "every table, a tenant record with a directory",
-			data: data(&identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory}, every...),
-			wantSQL: "SELECT p.UserId, " + strings.Join([]string{username, memberships, places, records, links}, ", ") +
+			name: "every table, a tenant record with a directory, a rule on the users",
+			data: data(&identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory},
+				[]identityUserCascade{identities}, append(every, identityImpersonations)...),
+			wantSQL: "SELECT p.UserId, " + strings.Join([]string{username, memberships, places, roles, links}, ", ") +
 				" FROM (" + strings.Join([]string{heldHere, inGroups, onRecords, through}, " UNION DISTINCT ") + ") p ORDER BY p.UserId",
+			wantSessionsSQL: sessions + records + ownRows + held + withUser + overThem,
 			wantContains: []string{
 				signature, "type tenantHoldingsMembership struct {", "type tenantHoldingsPlace struct {", "type tenantHoldingsRecordRole struct {",
 				"Tenants []string `spanner:\"Tenants\"`", `stmt.Params["tenant"] = string(domain)`,
+				"Record bool `spanner:\"Record\"`", "type tenantHoldingsHeld struct {", "costs := []int{\n\t\tresource.DeleteCost{IndexEntries: 2}.Mutations(0),\n\t}",
+				`row.ColumnByName("WithUser"+strconv.Itoa(i), &count)`,
 			},
 			wantNotContains: []string{stub, "ManagingTenants", "DirectoryUsers"},
 			notInRead:       []string{"NewCrewSectorUserQuery", "CrewSectorUser"},
 		},
 		{
-			name: "every table, a tenant record with no directory",
-			data: data(&identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector"}, every...),
-			wantSQL: "SELECT p.UserId, " + strings.Join([]string{username, memberships, places, records, plainLinks}, ", ") +
+			name: "every table but the impersonations, a tenant record with no directory, no rule on the users",
+			data: data(&identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector"}, nil, every...),
+			wantSQL: "SELECT p.UserId, " + strings.Join([]string{username, memberships, places, roles, plainLinks}, ", ") +
 				" FROM (" + strings.Join([]string{heldHere, inGroups, onRecords}, " UNION DISTINCT ") + ") p ORDER BY p.UserId",
-			wantContains:    []string{signature, "type tenantHoldingsLink struct {"},
-			wantNotContains: []string{stub, "SectorDirectories", "Tenants []string", `stmt.Params["tenant"]`},
+			wantSessionsSQL: sessions + ownRows + overThem,
+			wantContains:    []string{signature, "type tenantHoldingsLink struct {", "type tenantHoldingsSession struct {"},
+			wantNotContains: []string{
+				stub, "SectorDirectories", "Tenants []string", `stmt.Params["tenant"]`, "tenantHoldingsHeld", "Record bool", `row.ColumnByName("WithUser"`,
+			},
 		},
 		{
 			name:            "the users and sessions alone",
-			data:            data(nil, identityUsers, identitySessions),
+			data:            data(nil, nil, identityUsers, identitySessions),
 			wantContains:    []string{stub},
 			wantNotContains: []string{signature, "tenantHoldings"},
 		},
@@ -413,6 +444,12 @@ func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 			}
 			if got != tt.wantSQL {
 				t.Errorf("TenantHoldingsSQL() =\n%s\nwant\n%s", got, tt.wantSQL)
+			}
+			if tt.wantSessionsSQL != "" {
+				got, err := strconv.Unquote(tt.data.TenantHoldingsSessionsSQL())
+				if err != nil || got != tt.wantSessionsSQL {
+					t.Errorf("TenantHoldingsSessionsSQL() =\n%s (%v)\nwant\n%s", got, err, tt.wantSessionsSQL)
+				}
 			}
 			c := &client{}
 			out, err := c.generateTemplateOutput("identityStoreTemplate", identityStoreTemplate, tt.data)

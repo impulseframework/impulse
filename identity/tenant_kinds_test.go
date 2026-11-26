@@ -197,15 +197,20 @@ func TestManager_TenantKinds_counts(t *testing.T) {
 // TestManager_TenantKinds_readsNoPersonAlone pins that the accounts kind reads the
 // tenant's people and what each holds once (Store.TenantHoldings) and nothing of one
 // person: with each of the store's reads of one person failing in turn, Count and Check
-// answer as they do with none failing.
+// answer as they do with none failing, and Take takes every account and buffers the
+// writes TestManager_TenantKinds_takeEverything wants of them, in its order.
 func TestManager_TenantKinds_readsNoPersonAlone(t *testing.T) {
 	t.Parallel()
 
-	for _, call := range []string{"Memberships", "UserGroups", "RecordMemberships", "Username"} {
+	for _, call := range []string{
+		"Memberships", "UserGroups", "RecordMemberships", "Username",
+		"Identities", "LiveSessions", "ImpersonationsHeldBy", "Impersonation", "SessionExpired", "RowsWithUser",
+	} {
 		t.Run(call, func(t *testing.T) {
 			t.Parallel()
 
 			store := alphaStore()
+			store.withUser = map[impulse.UUID]int{doraID: 2}
 			store.failOn = call
 			m, _ := newManager(t, store, engineRoles)
 			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
@@ -220,12 +225,39 @@ func TestManager_TenantKinds_readsNoPersonAlone(t *testing.T) {
 				if err := accounts.Check(ctx, txn); err != nil {
 					return errors.Wrap(err, "resource.TakenKind.Check()")
 				}
+				rows, _, more, err := accounts.Take(ctx, txn, resource.DeleteMutationLimit)
+				if err != nil {
+					return errors.Wrap(err, "resource.TakenKind.Take()")
+				}
+				if rows != 3 || more {
+					t.Errorf("Take() = %d rows, more %t, want the 3 accounts and none left", rows, more)
+				}
 
 				return nil
 			}); err != nil {
 				t.Fatalf("with %s failing: %v", call, err)
 			}
+			if diff := cmp.Diff(alphaAccountWrites(), store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
 		})
+	}
+}
+
+// alphaAccountWrites are the writes of taking alpha's three accounts, in order: anna's
+// membership, her session ended and her row; ben's membership, his place in the night
+// group and his row; dora's session ended, her identity link and her row.
+func alphaAccountWrites() []string {
+	return []string{
+		"delete membership " + membershipText(&annaAlpha),
+		"end session " + annaLogin.String(),
+		"delete user " + annaID.String() + " with its tenant",
+		"delete membership " + membershipText(&benAlpha),
+		"delete group member " + nightID.String() + " " + benID.String(),
+		"delete user " + benID.String() + " with its tenant",
+		"end session " + doraLogin.String(),
+		"delete identity " + doraLink.String(),
+		"delete user " + doraID.String() + " with its tenant",
 	}
 }
 
@@ -310,25 +342,16 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Take() by kind (-want +got):\n%s", diff)
 	}
-	wantWrites := []string{
-		"delete membership " + membershipText(&annaAlpha),
-		"end session " + annaLogin.String(),
-		"delete user " + annaID.String() + " with its tenant",
-		"delete membership " + membershipText(&benAlpha),
-		"delete group member " + nightID.String() + " " + benID.String(),
-		"delete user " + benID.String() + " with its tenant",
-		"end session " + doraLogin.String(),
-		"delete identity " + doraLink.String(),
-		"delete user " + doraID.String() + " with its tenant",
-		"delete membership " + membershipText(&annaAlpha),
-		"delete membership " + membershipText(&benAlpha),
-		"delete membership " + membershipText(&caraAlpha),
-		"delete membership " + membershipText(&evanAlpha),
-		"delete group role " + groupRoleText(&staffInAlpha),
-		"delete group " + nightID.String() + " with its tenant",
+	wantWrites := append(alphaAccountWrites(),
+		"delete membership "+membershipText(&annaAlpha),
+		"delete membership "+membershipText(&benAlpha),
+		"delete membership "+membershipText(&caraAlpha),
+		"delete membership "+membershipText(&evanAlpha),
+		"delete group role "+groupRoleText(&staffInAlpha),
+		"delete group "+nightID.String()+" with its tenant",
 		"delete the custom roles of alpha",
-		"consume mail link " + invited.String(),
-	}
+		"consume mail link "+invited.String(),
+	)
 	if diff := cmp.Diff(wantWrites, store.writes); diff != "" {
 		t.Errorf("buffered writes (-want +got):\n%s", diff)
 	}
