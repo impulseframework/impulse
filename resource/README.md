@@ -4141,8 +4141,10 @@ as kinds of it (`DeleteAlso`), through the generated identity client of every au
 management the program generates (`<Auth>Identity().TenantKinds`,
 `identity.Manager.TenantKinds`): an account taken goes with its identity links, its
 sessions ended; a group goes with its members and its roles; the custom roles go with
-their grants; an invitation is withdrawn. A role held in every tenant is no one tenant's
-and stays. The permission engine is told once a save that took any of them has committed.
+their grants; an invitation is withdrawn; the roles held on the tenant's records go. A role
+held in every tenant is no one tenant's and stays. The permission engine is told once a save
+that took any of them has committed. A record a role can be held on hands its own generated
+delete the roles held on it the same way (`<Auth>Identity().RecordKinds`, section 25).
 
 The rows under the tenant go with it, and the library deletes them in code (section 10,
 "A delete that takes what is under the record"): every row of a resource of the
@@ -4421,7 +4423,8 @@ application with a tenant record it is also one tenant's management of the peopl
 hold a role in it: the tenant's lists (its people, the roles held there, its invitations)
 and the methods the tenant changes them through, both below; and, for the Auth a tenant
 is made through, the invitation staff bring a tenant in by ("The invitation that makes a
-tenant", below).
+tenant", below). Where the auth's role file holds a role on one of a tenant's records, it is
+also that record's sharing (section 25).
 
 **The tree.** `treeDir` (Lodestar's is `pkg/identity`) is the generator's alone. Per Auth
 it holds three packages, the `crew` Auth's being:
@@ -6875,3 +6878,176 @@ A record names the person who made the change for as long as it is kept: deletin
 account rewrites no record. To change the period later, add a migration that replaces the
 table's row deletion policy; to end it, one that takes the policy off. Lodestar declares
 365 days, in its baseline.
+
+## 25. A role held on one record
+
+A tenant's role is held across the tenant: an Editor of the tenant edits every project in
+it. Some work is shared one record at a time instead: a person outside the team, or a team
+of its own, works on one project and on nothing else of the tenant. A role held on one
+record is for that. The tenant's administrator gives a person, or a group kept in the
+tenant, a role on one project; the role's grants then count on that project, on the rows
+under it, and on the rows it names, and on nothing else. The same role held in the tenant
+reaches every project, as before.
+
+Reach for it when the record is the unit people are let in by. Where people see a slice of
+every record (a field, the rows of a state), a grant's condition says it, and nothing here
+is needed.
+
+**Marking the record.** `@holdsRoles` on the record's struct says a role can be held on its
+rows:
+
+```go
+// Project is a piece of client work.
+//
+// @resource
+// @permissionScope(domain)
+// @holdsRoles
+type Project struct {
+    ID       impulse.UUID `spanner:"Id"`
+    // @domain
+    TenantID impulse.UUID `spanner:"TenantId"`
+    ClientID impulse.UUID `spanner:"ClientId"`
+    // @name
+    Title    string       `spanner:"Title"`
+}
+```
+
+The record is a tenant's resource with a table of its own, keyed by one column, and not the
+tenant record itself (a role held on the tenant is the role held in the tenant). The
+generator refuses each of the others in a sentence that names the struct and what to do.
+
+**Naming it in a role.** A domain role of the auth's role file says which kinds of record it
+can be held on, under `heldOn`, by their resource names:
+
+```json
+{
+  "name": "ProjectViewer",
+  "description": "Reads one project and what is under it.",
+  "heldOn": ["Projects"],
+  "permissions": {
+    "List": [{"resource": "Projects", "fields": ["title", "clientId"]}, {"resource": "Tasks", "fields": ["title", "dueOn"]}],
+    "Read": [{"resource": "Projects", "fields": ["title", "clientId"]}, {"resource": "Tasks", "fields": ["title", "dueOn"]}, {"resource": "Clients", "fields": ["name"]}]
+  }
+}
+```
+
+A role without `heldOn` is held in the tenant alone, and a global role takes none. A
+`heldOn` that names a resource the program does not mark is refused at generation:
+`ProjectViewer is held on Projects, and Projects is not marked as a record that can hold a
+role. Write @holdsRoles on the Project struct, or take Projects out of the role's heldOn.`
+
+**What a role held there gives.** The role's own grants, each under one more condition:
+
+- The record itself.
+- Every row under it by foreign keys, by every way the schema gives: a task of the project,
+  a comment on the task. A row under the record by two ways is reached by either. A way never
+  passes a table twice, so a row that hangs under the record only through another row of its
+  own kind (a task under a task) is reached through its own foreign key to the record alone.
+- The one row of each kind the record names by a foreign key (the project's client), and no
+  other row of that kind. Such a row is read, never created: a Create there gives nothing.
+- A create of a row under the record, by the record it names: a task created on the project.
+  A role held on one project creates no other project.
+- Nothing on a view of the application's or on a resource apart from the record.
+
+The grants are the ones the role file writes, with their fields and their conditions: the
+record says which rows a grant reaches and never what it allows. The check of a role file
+warns for each grant that gives nothing when the role is held on one record (the role keeps
+it, and it counts when the role is held in the tenant), in one of four sentences:
+
+- `ProjectViewer can be held on a project, and Invoices is neither under a project nor named by one, so its List on Invoices gives nothing when the role is held on one project. It still counts when the role is held across the tenant.`
+- `ProjectEditor can be held on a project, and a project names one client and makes none, so its Create on Clients gives nothing when the role is held on one project. It still adds clients when the role is held across the tenant.`
+- `ProjectEditor can be held on a project, and a role held on one project makes no other, so its Create on Projects gives nothing when the role is held on one project. It still adds projects when the role is held across the tenant.`
+- `ProjectEditor can be held on a project, and ArchiveTenant names no row, so its Execute on ArchiveTenant gives nothing when the role is held on one project. It still counts when the role is held across the tenant.`
+
+An Execute grant counts on one record where its method names a row by `@target` and the
+role reaches that row there. A check or a list reads the condition as it reads any
+other: an `EXISTS` over the rows that name the person, in the same statement.
+
+**The sharing the generator writes.** Where an auth's management is generated
+(`GenerateIdentity`), the application has a tenant record and the auth's role file holds a
+role on the record, each auth gets the record's sharing, named after the auth and the
+record (Staff and Project here):
+
+| | What it is |
+| --- | --- |
+| `GiveStaffRoleOnProject` | gives a person of the tenant a role on one project, for a period where the request names one |
+| `TakeStaffRoleOnProject` | takes it away |
+| `GiveStaffGroupRoleOnProject` | gives a group kept in the tenant a role on one project (where the auth keeps groups) |
+| `TakeStaffGroupRoleOnProject` | takes it away |
+| `StaffProjectHolders` | who holds what on a project: one row for each person's role and each group's, with the holder's name and the period, under the tenant's address |
+| `StaffProjectRoles` | the roles the give dialogs pick from: the roles held on projects that the caller could give with the method, on the project, asked as `recordId:eq:<key>,method:eq:GiveStaffRoleOnProject` |
+
+Each method names the project by `@target`, so a caller who cannot reach the project
+cannot give a role on it, and each carries the class `access` (section 6). A give answers
+`ProjectEditor is not a role held on a project.` (400) for a role whose `heldOn` does not
+name the kind, and refuses a person who is not one of the tenant's people, as the tenant's
+own methods do: a project is shared with somebody outside the tenant once they are invited
+into it. The role field reads as `new.role` in a grant's condition, on the gives and the
+takes alike, so a role file says who hands out which role:
+
+```json
+{
+  "name": "ProjectLead",
+  "description": "Runs one project, and shares it with viewers.",
+  "heldOn": ["Projects"],
+  "permissions": {
+    "List": [{"resource": "StaffProjectHolders", "fields": ["name", "startsAt", "endsAt"]}],
+    "Execute": [
+      {"resource": "GiveStaffRoleOnProject", "condition": "new.role IN ('ProjectViewer')"},
+      {"resource": "TakeStaffRoleOnProject", "condition": "new.role IN ('ProjectViewer')"}
+    ]
+  }
+}
+```
+
+The two lists are under their record: a grant on either held on one project lists that
+project's rows alone. A role file gives the tenant's administrator the four methods and the
+two lists with no condition, as Lodestar's does. The roles list is asked for one record and one method, and a computed
+list filters only by a field granted with no condition, so a role file grants `method` and
+`recordId` on it among the fields of a grant with no condition.
+
+**A person who holds only records.** A person whose only role in a tenant is held on one of
+its records is let into the tenant, for those records alone. They are one of the tenant's
+people: the tenant's list of its people has a row for them, whose three facts say what they
+hold (`recordsHeld`, how many of the tenant's records; `recordsHeldKind`, the records'
+resource where they are of one kind; `recordHeldName`, the record's name where they hold one
+and the kind has `@name`), and the library's people page says `Project Apollo only` in the
+Roles column. The tenant is among the person's own tenants, leaving it takes the roles held
+on its records, and so does removing the person from the tenant. A role held on a record
+holds the person in the tenant for the one-tenant rule too.
+
+**Periods.** A role held on a record carries a period as a tenant's role does (section 21):
+it counts inside it alone, a give with an end already past is refused, and a group's role on
+a record counts for a member while their place in the group and the group's role both count.
+
+**Deleting.** A record's delete takes the roles held on it, a person's and a group's,
+whatever their periods: its question counts them (`3 roles held on it`) beside the rows under
+it, and the delete takes them in its rounds. A tenant's delete takes the roles held on its
+records (`roles held on records`), and a group's delete takes the roles the group holds on
+records. An application that deletes such a record in code of its own hands its delete
+`<Auth>Identity().RecordKinds(accesstypes.NewRecordScope(domain, "Projects", key))`
+(`DeleteAlso`), as the generated delete does.
+
+**The page.** `sharingConfig` from `@impulseframework/resource-angular/identity-pages` answers
+the Sharing list of the record's page, a related list with Share with a person, Share with a
+group and Remove on each row:
+
+```ts
+const projectSharing = sharingConfig(apiDescriptor, resourceMeta, { auth: 'Staff', record: Resources.Projects });
+
+export const projectsConfig: ResourceConfig = {
+  // ...
+  relatedConfigs: projectSharing ? [projectSharing] : [],
+};
+```
+
+It answers undefined where the auth's side shares no such record. The dialogs pick the role
+from the roles list narrowed by the method and the page's record.
+
+**PostgreSQL.** The access library stores the roles held on records and compiles their
+conditions on both databases, and the condition a role held on a record counts under renders
+for PostgreSQL and holds against its rows. This package's writes are Spanner's, and nothing
+more of it is extended for PostgreSQL by this.
+
+Lodestar is the reference: a mission holds roles, `MissionObserver` and `MissionLead` are held
+on missions, and the console's missions page carries the Sharing list.

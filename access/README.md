@@ -33,7 +33,7 @@ go get github.com/impulseframework/impulse/access
 
 ## Policy Stores
 
-Each store owns six tables named `{Prefix}{Store}{Roles|UserRoles|RoleGrants|Groups|GroupMembers|GroupRoles}` — defaults yield `AccessRoles`, `AccessUserRoles`, `AccessRoleGrants`, `AccessGroups`, `AccessGroupMembers`, `AccessGroupRoles`. Applications with several independent permission stores in one database give each a store name (`WithStore("AdminPortal")` → `AccessAdminPortalRoles`, ...); separate tables make cross-store leakage structurally impossible.
+Each store owns eight tables named `{Prefix}{Store}{Roles|UserRoles|RoleGrants|Groups|GroupMembers|GroupRoles|RecordUserRoles|RecordGroupRoles}` — defaults yield `AccessRoles`, `AccessUserRoles`, `AccessRoleGrants`, `AccessGroups`, `AccessGroupMembers`, `AccessGroupRoles`, `AccessRecordUserRoles`, `AccessRecordGroupRoles`. Applications with several independent permission stores in one database give each a store name (`WithStore("AdminPortal")` → `AccessAdminPortalRoles`, ...); separate tables make cross-store leakage structurally impossible.
 
 The tables hold what is written at run time: custom roles, their grants, role memberships, and the groups of people with their members and the roles they hold. The release's default roles have no rows. Each row records where it is held in its own columns, never in a distinguished domain value: `Kind` is `global`, `domain` or `every` and is checked in the database, `DomainId` carries the tenant's id on a `domain` row and is empty otherwise, and `Axis` is the empty string on every row today. Any tenant name is therefore ordinary data.
 
@@ -46,7 +46,8 @@ The `access.Store` interface the two subpackages implement is sealed: only this 
 - A membership, a place in a group and a group's role each carry the period they count in, in two nullable columns, `StartsAt` and `EndsAt` (see Periods). An insert gives the row its period: it writes the row where the key is free, and where it is taken it replaces the period and leaves the rest of the row as it was. A membership carries the reason it was given for too, in a nullable column `Reason` (see What is held and why): its insert writes the reason with the period and replaces both where the key is taken, so the reason kept is the one the role was last given with. No row is written when a period begins or ends. The listings of what a person or a group holds return the rows that count at the database's present; `ReadPolicy` returns every row with its period.
 - `Groups` holds the groups of people, each under an id the access package generates, with where it is kept (`Kind` is `global` or `domain`, checked in the database: no group is kept in every domain), its name and its description. A unique index (`{Prefix}{Store}GroupsByName`) holds a name to one group where the group is kept.
 - `GroupMembers` holds the people in each group and `GroupRoles` the roles each group holds, a role named by name alone as a membership names it (`InsertCustomGroupRole` reads a custom role's row as `InsertCustomUserRole` does). Both reference their group (a foreign key in both stores), and `DeleteGroup` deletes a group with its members and the roles it holds, in one transaction. A grant written to a role, or a person or a role given to a group, that was deleted at that moment is not written, and the caller is told the role or the group does not exist. An index led by the user (`{Prefix}{Store}GroupMembersByUserId`) serves the groups a person is in, and one led by where a role is held (`{Prefix}{Store}GroupRolesByScope`) serves the group roles held in one tenant.
-- `ReadPolicy` reads the custom roles, their grants, the memberships, and the groups with their members and roles, with one consistent view of the store, for the snapshot to compile.
+- `RecordUserRoles` and `RecordGroupRoles` hold the roles held on one record, a person's and a group's, each with its period (see Roles held on one record).
+- `ReadPolicy` reads the custom roles, their grants, the memberships, the groups with their members and roles, and the roles held on records, with one consistent view of the store, for the snapshot to compile.
 - Inserting an existing row and deleting an absent one are no-ops, and list results are sorted.
 
 The library never runs DDL — applications own their schema lifecycle. `DDL()` returns the canonical schema rendered with the configured names; copy it into your migration file. The library's own test suites execute exactly these statements, so the shipped DDL is the tested DDL.
@@ -670,6 +671,99 @@ mgr.AssignGroupRole(ctx, watch, tenant1, "Editor", period)
 - A caller that writes an assignment's row in a transaction of its own asks
   `ValidatePeriod` before it writes, as it asks `Membership` or `GroupRole` for the key
 
+### Roles held on one record
+
+A domain role can be held on one record of a tenant instead of across it: a person, or a
+group kept in the tenant, given `Viewer` on one project holds the role's grants on that
+project and on what it reaches, and nothing else of the tenant. A role is held there only
+where the role file says so (`heldOn`, see JSON Configuration), on a kind of record the
+permission collection marks as one that holds roles.
+
+```go
+mgr := client.UserManager()
+apollo := accesstypes.NewRecordScope("tenant1", "Projects", "6f1c0d3e-0000-4000-8000-000000000001")
+
+// A person's role on the project, for the period; again replaces the period.
+mgr.AssignRecordUserRole(ctx, apollo, "jane.roe", "Viewer", period)
+mgr.DeleteRecordUserRoles(ctx, apollo, "jane.roe", "Viewer")
+
+// A group's, the group kept in the project's tenant.
+mgr.AssignRecordGroupRole(ctx, watch, apollo, "Viewer", period)
+mgr.DeleteRecordGroupRoles(ctx, watch, apollo, "Viewer")
+
+holders, err := mgr.RecordHolders(ctx, apollo) // []access.RecordHolder: who holds what there, not ended
+roles := mgr.RolesHeldOn("Projects")            // []access.RoleInfo: the roles that can be held on a project
+mgr.DeleteRecordRoles(ctx, apollo)              // every role held on the project: what its deletion does
+```
+
+`accesstypes.RecordScope` names the record: its tenant, its kind by its resource name and its
+key as text. The library never reads the record: that the key names a row is the caller's,
+as for every label the store holds.
+
+- A give is refused (400, in a sentence a person can act on) where no tenant, record or person
+  is named, the kind is not marked (`No role can be held on one project. Give the role in the
+  tenant instead.` with the collection's words), or the role is not one the role file holds on
+  the kind (`Editor is not a role held on a project.`). A group kept anywhere but the
+  record's tenant is refused too: `A role on one project is given to a person or to a group
+  of the project's tenant. This group is kept in another tenant.`
+- A take of a role not held there is no error, and the role need not be one held on records
+  any more: a row of a role since taken out of the role file's `heldOn` goes like any other.
+- A caller that writes the row in a transaction of its own asks `RecordMembership` or
+  `RecordGroupRole` for the key, as it asks `Membership` for a tenant's role, and
+  `ValidatePeriod` for the period, then tells the engine with `PolicyChanged` once it has
+  committed.
+
+How the engine counts one: the snapshot compiles a role held on a kind of record as a role
+of its own (`Viewer@Projects`), whose grants are the role's, each joined by AND to the
+condition the collection answers for the grant's resource (`RecordCondition`): the row's
+way to the record is in a subject set of the records the person holds the role on, or their
+groups do. A grant on a resource the record does not reach is left out. A membership of the
+record's row is a membership of that role in the record's tenant, with its period, so a
+check, the digest and `UserHasGrants` read it as they read any role. The subject sets are
+declared nowhere: their names say what they are, and the collection answers them.
+
+Each row that gives nothing is skipped at the load and reported (`SkippedRecordRole`, which
+the reload-error hook receives and `CheckPolicy` lists as a warning): a role the role file no
+longer holds on the kind, a group's row whose group is gone, and a group not kept in the
+record's tenant. The role file's check warns for each grant of a role that can be held on a
+record that gives nothing there (`HeldOnWarning`, see Warnings).
+
+The two tables, as `DDL()` renders them for Spanner with the default names:
+
+```sql
+CREATE TABLE AccessRecordUserRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, UserId);
+
+CREATE INDEX AccessRecordUserRolesByUserId ON AccessRecordUserRoles (UserId, Axis, DomainId);
+
+CREATE TABLE AccessRecordGroupRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  GroupId STRING(36) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT AccessRecordGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES AccessGroups (Id),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, GroupId);
+
+CREATE INDEX AccessRecordGroupRolesByGroupId ON AccessRecordGroupRoles (GroupId);
+```
+
+PostgreSQL's `DDL()` renders the same two tables in its own types. `DeleteGroup` takes the
+roles the group holds on records with its members and its roles.
+
 ### What is held and why
 
 A person's role may carry the reason it was given for, and the user manager answers
@@ -875,6 +969,13 @@ and reported by `CheckPolicy`, as a grant on a name this release does not declar
 collection says which actions are marked through two optional methods,
 `IsNoRoleAction(action)` and `NoRoleActions()`, which the generated collection and
 `UnionCollection` carry; a collection without them marks none.
+
+A domain role of the file may say which kinds of record it can be held on, one at a time,
+besides across the tenant (`heldOn`, see Roles held on one record). The file is refused where
+a global role carries one, an entry names no resource or names one twice, or names a resource
+the collection does not mark as a record that holds roles: `Viewer is held on Projects, and
+Projects is not marked as a record that can hold a role. Mark it, or take Projects out of
+the role's heldOn.`
 
 Every role name follows one grammar, a default role's in the file and a custom
 role's given to `AddRole` alike: letters and digits starting with a capital
@@ -1293,6 +1394,21 @@ may carry several grants on one resource for one permission, each under its own 
 `"fields": ["*"]` is all of the resource's fields, the ones a later release adds among
 them: the grant a write to a custom role spells `Documents.*`. `Update` on all the fields
 is not `Update` on a field the release marks immutable.
+
+A domain role may carry `heldOn`, the resource names of the kinds of record it can be held
+on one at a time, beside its grants (see Roles held on one record):
+
+```json
+{
+  "name": "DocumentReviewer",
+  "description": "Reads one folder and the documents in it.",
+  "heldOn": ["Folders"],
+  "permissions": {
+    "List": [{"resource": "Folders", "fields": ["name"]}, {"resource": "Documents", "fields": ["title", "author"]}],
+    "Read": [{"resource": "Documents", "fields": ["title", "author", "body"]}]
+  }
+}
+```
 
 The file is decoded strictly: a key the shape does not declare is an error, since a
 misspelled key would otherwise silently drop the roles under it. `RoleFile.Parse` decodes
