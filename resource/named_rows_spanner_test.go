@@ -101,13 +101,14 @@ type namedCommentRequest struct {
 }
 
 // namedRowsCaller is a caller of the named-row tests: every permission but List granted on
-// whatever it is asked about, but for an Update of a kind, or of a field of it, that update
-// holds a decision for, and List answered from list (Denied where it names nothing), for
-// the user named. It counts the List checks it answers.
+// whatever it is asked about, but for an Update or a Create of a kind, or of a field of it,
+// that update or create holds a decision for, and List answered from list (Denied where it
+// names nothing), for the user named. It counts the List checks it answers.
 type namedRowsCaller struct {
 	user   accesstypes.User
 	list   map[accesstypes.Resource]accesstypes.Decision
 	update map[accesstypes.Resource]accesstypes.Decision
+	create map[accesstypes.Resource]accesstypes.Decision
 
 	mu    sync.Mutex
 	lists int
@@ -119,6 +120,9 @@ func (c *namedRowsCaller) Check(_ context.Context, _ accesstypes.Environment, _ 
 		decisions[res] = accesstypes.Granted()
 		kind, _ := res.ResourceAndTag()
 		if decision, held := c.update[kind]; held && perm == accesstypes.Update {
+			decisions[res] = decision
+		}
+		if decision, held := c.create[kind]; held && perm == accesstypes.Create {
 			decisions[res] = decision
 		}
 	}

@@ -148,6 +148,17 @@ func (q *QuerySet[Resource]) conditionRefused(resources []accesstypes.Resource) 
 	return httpio.NewForbiddenMessageWithError(cause, mayNotThisOne(q.requiredPermission, resources))
 }
 
+// valueRefused is the answer to a write whose grant would hold for the row written with
+// another value: the sentence names the fields at fault, those whose values the grant's
+// condition read, and says the value is what may not be set. The cause names the group's
+// resources, as conditionRefused's does.
+func (q *QuerySet[Resource]) valueRefused(resources, atFault []accesstypes.Resource) error {
+	cause := errors.Newf("scope (%s), user (%s): (%s) on %s is conditionally granted and the condition does not hold for the values sent",
+		q.scope, q.userPermissions.User(), q.requiredPermission, resources)
+
+	return httpio.NewForbiddenMessageWithError(cause, mayNotToThisValue(q.requiredPermission, labelOf[Resource](), atFault))
+}
+
 // mayNot is the sentence for a permission refused on the resources denied, in the place
 // where: "You may not change the budget of hangar passes here."
 func mayNot(perm accesstypes.Permission, denied []accesstypes.Resource, where string) string {
@@ -185,6 +196,50 @@ func mayNotThisOne(perm accesstypes.Permission, resources []accesstypes.Resource
 	}
 
 	return "You may " + verb + " " + things + " " + refusedHere + ", " + last
+}
+
+// mayNotToThisValue is the sentence for a write whose grant refuses a value it sends, where
+// the row would take another: "You may change the budget of this hangar pass, but not to
+// this value." for a change, the record said by its struct's name in words, and "You may
+// add hangar passes here, but not with this value for the budget." for a new row, the
+// resource said by its name. Several fields read "the budget or the due date" and "these
+// values". A permission that sends no value, a new row's resource with no words or no field
+// with words names nothing.
+func mayNotToThisValue(perm accesstypes.Permission, label string, atFault []accesstypes.Resource) string {
+	var (
+		name   string
+		fields []string
+	)
+	for _, res := range atFault {
+		resource, tag, _ := strings.Cut(string(res), ".")
+		if name == "" {
+			name = resource
+		}
+		if field := inWords(tag); field != "" {
+			fields = append(fields, "the "+field)
+		}
+	}
+	if len(fields) == 0 {
+		return refusedPlainly
+	}
+	value := "this value"
+	if len(fields) > 1 {
+		value = "these values"
+	}
+
+	switch perm {
+	case accesstypes.Update:
+		return "You may " + permissionVerb(perm) + " " + eitherOf(fields) + " of this " + recordInWords(label) + ", but not to " + value + "."
+	case accesstypes.Create:
+		thing := inWords(name)
+		if thing == "" {
+			return refusedPlainly
+		}
+
+		return "You may " + permissionVerb(perm) + " " + thing + " " + refusedHere + ", but not with " + value + " for " + eitherOf(fields) + "."
+	default:
+		return refusedPlainly
+	}
 }
 
 // mayNotDoThisTo is the sentence for a method refused on the row it names: "You may not

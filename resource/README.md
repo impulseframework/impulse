@@ -681,10 +681,20 @@ read, the same in every application:
 | a search of a computed resource by such a field | "You may not search hangar passes by the budget here." |
 | a write whose grant holds for some rows and not for this one | "You may change some hangar passes here, but not this one." |
 | the same, where the grant is on a field | "You may change the budget of some hangar passes here, but not of this one." |
+| a change whose grant refuses the value sent, where the row would take another | "You may change the budget of this hangar pass, but not to this value." |
+| a new row whose grant refuses a value sent | "You may add hangar passes here, but not with this value for the budget." |
 | a column, a sort or a filter no tenant of a list across tenants grants | the same sentences, ending "anywhere." |
 | the history of a feature flag none of whose facts the caller may list | "You may not see this flag's history here." |
 | an act the mask of a session that acts as someone refuses | "You are acting as someone else, and this session cannot create a tenant." |
 | an answer a session that acts as a role the application runs no sessions as cannot give | "You are acting as a role, and this session cannot do this." |
+
+A write refused by a condition is told what to change. Where the condition reads a value
+the write sends (`new.` on an update, any attribute on a create) and the row would be
+accepted with another value, the sentence names the fields whose values the condition read
+and says the value is what may not be set. Where the stored row refuses the write whatever
+is sent, the sentence is the row's ("but not of this one"), and a write that fails both
+ways is told the row's. Several fields read "the budget or the due date" and "these
+values".
 
 The verb is the permission's: Create is "add", Read is "see", Update is "change", Delete
 is "delete" and List is "list". The resource is its name split into lower-case words

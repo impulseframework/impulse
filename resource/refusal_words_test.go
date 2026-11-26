@@ -224,6 +224,46 @@ func TestRefusedCondition_plainWords(t *testing.T) {
 	}
 }
 
+func TestRefusedValue_plainWords(t *testing.T) {
+	t.Parallel()
+
+	budget := []accesstypes.Resource{"HangarPasses.budget"}
+	both := []accesstypes.Resource{"HangarPasses.budget", "HangarPasses.dueDate"}
+	tests := []struct {
+		name      string
+		perm      accesstypes.Permission
+		resources []accesstypes.Resource
+		atFault   []accesstypes.Resource
+		said      string
+	}{
+		{name: "a change, one field", perm: accesstypes.Update, resources: budget, atFault: budget, said: "You may change the budget of this hangar pass, but not to this value."},
+		{name: "a change, several fields", perm: accesstypes.Update, resources: both, atFault: both, said: "You may change the budget or the due date of this hangar pass, but not to these values."},
+		{name: "a new row, one field", perm: accesstypes.Create, resources: budget, atFault: budget, said: "You may add hangar passes here, but not with this value for the budget."},
+		{name: "a new row, several fields", perm: accesstypes.Create, resources: both, atFault: both, said: "You may add hangar passes here, but not with these values for the budget or the due date."},
+		{
+			name: "the group's other fields are not at fault", perm: accesstypes.Update,
+			resources: []accesstypes.Resource{"HangarPasses.budget", "HangarPasses.notes"}, atFault: budget,
+			said: "You may change the budget of this hangar pass, but not to this value.",
+		},
+		{name: "a permission with no plain verb", perm: "Countersign", resources: budget, atFault: budget, said: "You may not do this here."},
+		{name: "a delete, which sends no value", perm: accesstypes.Delete, resources: budget, atFault: budget, said: "You may not do this here."},
+		{name: "a new row of a resource with no words", perm: accesstypes.Create, resources: []accesstypes.Resource{".budget"}, atFault: []accesstypes.Resource{".budget"}, said: "You may not do this here."},
+		{name: "no field with words", perm: accesstypes.Update, resources: []accesstypes.Resource{"HangarPasses."}, atFault: []accesstypes.Resource{"HangarPasses."}, said: "You may not do this here."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			q := &QuerySet[hangarPass]{scope: testScope, userPermissions: &fakeUserPermissions{}, requiredPermission: tt.perm}
+			kept := []string{"testDomain", "testUser", "(" + string(tt.perm) + ")", "the values sent"}
+			for _, res := range tt.resources {
+				kept = append(kept, string(res))
+			}
+			plainAnswer(t, q.valueRefused(tt.resources, tt.atFault), httpio.HasForbidden, tt.said, kept...)
+		})
+	}
+}
+
 // TestRefusedPermission_theLogKeepsWhoAndWhat serves a refusal as a handler does and
 // reads both sides of it: the caller's body says the plain sentence and nothing of the
 // scope, the person, the permission's code name or the table, and the line the server
