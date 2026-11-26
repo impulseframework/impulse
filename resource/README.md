@@ -7121,11 +7121,13 @@ answers any other 404, `A record this one refers to does not exist.`, as it answ
 that is not there. A role that sets such a column therefore needs the List grant on the table
 it picks from; a grant under a condition lets it name the rows the condition holds for, and a
 role held on one record the rows that record reaches (section 25). The refusal comes after
-the grant's own (a person who may not create at all is told so) and before the write's
-conditions are asked.
+the grant's own (a person who may not create at all is told so). A create is refused before
+its conditions are asked. An update and an update-or-create are asked once the row is found in
+the request's tenant and the write's conditions hold for it, so the answer tells a writer
+nothing of a row they may not change.
 
 An update that leaves the column as it is is not asked, and neither is a row the same
-transaction created before, nor a write made outside a request (a job, a bootstrap: a patch
+transaction created before in the request's tenant, nor a write made outside a request (a job, a bootstrap: a patch
 set that is not armed). The rule holds for a column the generator declares (`NamedRows()` on
 the resource): one whose source is a table of the application with a list. A column picked
 from an enumeration table is not held: everyone picks from those.

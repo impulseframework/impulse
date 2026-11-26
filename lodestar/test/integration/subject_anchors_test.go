@@ -83,12 +83,12 @@ func TestSubjectAnchorWrites(t *testing.T) {
 
 		// At Bastion, Dunn flies with Portcullis: assigning the open beacon repair to
 		// Portcullis passes grant A; assigning it to Hammer (an Anvil squadron Dunn
-		// also flies with) is refused, because Hammer is not one of Bastion's: Bastion's
-		// list of squadrons does not show it, so the write is answered as one naming a row
-		// that is not there (404) before grant A's partition of subject.squadrons is asked.
+		// also flies with) fails, because Hammer is not in Bastion's partition of
+		// subject.squadrons: an update's own conditions are asked before the squadron it
+		// names.
 		status, body := doRequestAs(t, h, "dispatcher", http.MethodPatch, "/console/api/resources",
 			fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"assignedSquadronId":%q}}]`, opPath(bastion, "missions/"+missionBeaconID), squadronHammerID))
-		assertStatus(t, status, http.StatusNotFound, body)
+		assertStatus(t, status, http.StatusForbidden, body)
 		status, body = doRequestAs(t, h, "dispatcher", http.MethodPatch, "/console/api/resources",
 			fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"assignedSquadronId":%q}}]`, opPath(bastion, "missions/"+missionBeaconID), squadronPortcullisID))
 		assertStatus(t, status, http.StatusOK, body)

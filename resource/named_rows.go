@@ -18,7 +18,12 @@ import (
 // would show, asked in the scope that list is asked in: the grant on the kind, its
 // condition, and the request's tenant for a kind that belongs to one. The rule is held
 // here once, for every write an armed patch carries; a patch that is not armed (a job, a
-// bootstrap) runs trusted and is not asked.
+// bootstrap) runs trusted and is not asked. A create is asked right after the grant's own
+// check. An update and an update-or-create are asked once their row is found in the
+// request's tenant and the write's conditions hold for it, so a caller the row's own checks
+// refuse learns nothing from this one of a row they may not change. A row an earlier patch
+// of the same request created is not asked where it is the request's tenant's: one request
+// can carry the writes of several tenants, and a write of one names no row another's made.
 
 // NamedRow is one column of a resource that names a row of another resource the
 // application lists. The generator writes it from the column's picker (the generated
@@ -83,18 +88,23 @@ type namedValue struct {
 	spelled string
 }
 
-// checkNamedRows holds every row the write names to the rows its caller can list, before
-// the server's own defaults are set, so it judges what the caller sent and never a value
-// the server stamps. A patch that is not armed passes, as it runs trusted. For each
-// declared column the patch sets to a value that is not empty, a create's key parts among
-// them, the caller's List on the named kind is asked in its scope (grantScope):
+// checkNamedRows holds every row the write names to the rows its caller can list: named,
+// the values namedValues read before the server's own defaults were set, so it judges what
+// the caller sent and never a value the server stamps. A create asks it right after the
+// grant's own check; an update and an update-or-create once the write's conditions have
+// held for the row (enforceWriteConditions), so the stored row is read only once it is
+// found within the request's tenant and the caller may change it. A patch that is not
+// armed sends nothing to judge, as it runs trusted. For each declared column the patch sets
+// to a value that is not empty, a create's key parts among them, the caller's List on the
+// named kind is asked in its scope (grantScope):
 //
 //   - granted, for a kind that belongs to no tenant, or for the column the row's own way
 //     to its tenant leaves through, whose row the tenancy term already holds to the
 //     request's tenant: it passes, with no read;
 //   - otherwise an update, or an update-or-create whose row is there, that leaves the
 //     column naming the row it already names is not judged, and a row an earlier patch of
-//     the same transaction created passes, its create held to its own checks;
+//     the same transaction created in the request's tenant passes, its create held to its
+//     own checks (createdInTransaction);
 //   - denied: refused;
 //   - granted: the row is read by key within the request's tenant (tenantTest);
 //   - conditional: the row is read by key, within the tenant, under the grant's condition
@@ -104,15 +114,11 @@ type namedValue struct {
 // 404, "A record this one refers to does not exist." (referencedNotFound), so the answer
 // says nothing of a row the caller cannot see. A mocked transaction holds no tables to
 // ask, and a column whose judgment needs a read passes there.
-func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTransaction) error {
-	q := p.querySet
-	if q.resourceSet == nil || len(q.rMeta.namedRows) == 0 {
+func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTransaction, named []namedValue) error {
+	if len(named) == 0 {
 		return nil
 	}
-	named, err := p.namedValues()
-	if err != nil || len(named) == 0 {
-		return err
-	}
+	q := p.querySet
 	decisions, err := p.namedRowDecisions(ctx, named)
 	if err != nil {
 		return err
@@ -136,7 +142,11 @@ func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTr
 				continue
 			}
 		}
-		if createdInTransaction(txn, n) {
+		created, err := p.createdInTransaction(ctx, txn, n)
+		if err != nil {
+			return err
+		}
+		if created {
 			continue
 		}
 		if decision.IsDenied() {
@@ -161,9 +171,15 @@ func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTr
 }
 
 // namedValues are the declared columns the patch sets to a value that is not empty: the
-// fields it sets, and a create's key parts.
+// fields it sets, and a create's key parts. A patch that is not armed has none, as it runs
+// trusted. The buffer functions read them right after the grant's own check, before the
+// server's own defaults are set, and hand them to checkNamedRows where they ask it.
 func (p *PatchSet[Resource]) namedValues() ([]namedValue, error) {
-	rows := p.querySet.rMeta.namedRows
+	q := p.querySet
+	if q.resourceSet == nil || len(q.rMeta.namedRows) == 0 {
+		return nil, nil
+	}
+	rows := q.rMeta.namedRows
 	var named []namedValue
 	for i := range rows {
 		row := &rows[i]
@@ -249,21 +265,38 @@ func (p *PatchSet[Resource]) namesStoredRow(ctx context.Context, txn ReadWriteTr
 }
 
 // createdInTransaction reports whether an earlier patch of the transaction created the
-// named row (transactionRows.namedWrite): a transaction that keeps no record of its rows
-// (the Mock's, PostgreSQL) created none that a read would not see.
-func createdInTransaction(txn ReadWriteTransaction, n namedValue) bool {
+// named row (transactionRows.namedWrite) in the request's tenant: a transaction that keeps
+// no record of its rows (the Mock's, PostgreSQL) created none that a read would not see.
+// For a kind that belongs to a tenant, the created row's tenant column, as its image holds
+// it, is followed along the kind's way to its tenant by the transaction's point reads
+// (followTenantPath), which see what the request buffered, and must spell the request's
+// tenant: one request can carry the writes of several tenants. A kind that belongs to no
+// tenant, and a request of the whole application, which writes for no one tenant, pass a
+// created row as it is.
+func (p *PatchSet[Resource]) createdInTransaction(ctx context.Context, txn ReadWriteTransaction, n namedValue) (bool, error) {
 	recorder, ok := txn.(rowsRecorder)
 	if !ok {
-		return false
+		return false, nil
 	}
 	rows := recorder.transactionRows()
 	write, named := rows.namedWrite(pointRead{table: n.row.Table, keyColumn: n.row.KeyColumn, value: n.spelled})
 	if !named {
-		return false
+		return false, nil
 	}
 	image, ok := rows.image(n.row.Table, write.row)
+	if !ok || image.state != rowCreated {
+		return false, nil
+	}
+	domain, partitioned := p.querySet.scope.Domain()
+	if n.row.TenantColumn == "" || !partitioned {
+		return true, nil
+	}
+	tenant, _, err := followTenantPath(ctx, transactionPointReader(txn, namedRowsNotImplemented), n.row.Field, image.columns[n.row.TenantColumn], n.row.TenantPath)
+	if err != nil {
+		return false, errors.Wrapf(err, "the tenant of the %s row a write of %s names", n.row.Table, p.Resource())
+	}
 
-	return ok && image.state == rowCreated
+	return tenant == string(domain), nil
 }
 
 // listsNamedRow reads the named row by key as the caller's list of its kind would read

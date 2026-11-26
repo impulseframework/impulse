@@ -74,6 +74,24 @@ func (namedComment) NamedRows() []NamedRow {
 	return []NamedRow{{Field: "TaskID", Resource: "Tasks", Table: "Tasks", KeyColumn: "Id", TenantColumn: "DomainId"}}
 }
 
+// namedPathComment is a comment whose task is declared as a kind whose tenant is read
+// through a parent: the task's project, then the project's tenant.
+type namedPathComment struct {
+	ID       string  `spanner:"Id"`
+	DomainID string  `spanner:"DomainId"`
+	TaskID   *string `spanner:"TaskId"`
+	Body     *string `spanner:"Body"`
+}
+
+func (namedPathComment) Resource() accesstypes.Resource { return "Comments" }
+
+func (namedPathComment) NamedRows() []NamedRow {
+	return []NamedRow{{
+		Field: "TaskID", Resource: "Tasks", Table: "Tasks", KeyColumn: "Id",
+		TenantColumn: "ProjectId", TenantPath: []BindingHop{{Table: "Projects", JoinColumn: "Id", Column: "DomainId"}},
+	}}
+}
+
 // namedCommentRequest is the request a comment is written by.
 type namedCommentRequest struct {
 	ID       string  `json:"id"     perm:"-"`
@@ -83,11 +101,13 @@ type namedCommentRequest struct {
 }
 
 // namedRowsCaller is a caller of the named-row tests: every permission but List granted on
-// whatever it is asked about, and List answered from list (Denied where it names nothing),
-// for the user named. It counts the List checks it answers.
+// whatever it is asked about, but for an Update of a kind, or of a field of it, that update
+// holds a decision for, and List answered from list (Denied where it names nothing), for
+// the user named. It counts the List checks it answers.
 type namedRowsCaller struct {
-	user accesstypes.User
-	list map[accesstypes.Resource]accesstypes.Decision
+	user   accesstypes.User
+	list   map[accesstypes.Resource]accesstypes.Decision
+	update map[accesstypes.Resource]accesstypes.Decision
 
 	mu    sync.Mutex
 	lists int
@@ -97,6 +117,10 @@ func (c *namedRowsCaller) Check(_ context.Context, _ accesstypes.Environment, _ 
 	decisions := make(accesstypes.Decisions, len(resources))
 	for _, res := range resources {
 		decisions[res] = accesstypes.Granted()
+		kind, _ := res.ResourceAndTag()
+		if decision, held := c.update[kind]; held && perm == accesstypes.Update {
+			decisions[res] = decision
+		}
 	}
 	if perm != accesstypes.List {
 		return decisions, nil
@@ -199,12 +223,14 @@ func namedRowsDatabase(t *testing.T, name string) *spanner.Client {
 }
 
 // namedWrite is one write of the named-row tests: a patch of a task or a comment, armed
-// for caller in north unless caller is nil.
+// for caller in north unless caller is nil. An update-or-create is armed for the whole
+// application unless partitioned says it is armed in north.
 type namedWrite struct {
-	patchType PatchType
-	caller    *namedRowsCaller
-	id        string
-	columns   map[accesstypes.Field]any
+	patchType   PatchType
+	caller      *namedRowsCaller
+	id          string
+	columns     map[accesstypes.Field]any
+	partitioned bool
 }
 
 // armedPermission is the permission a patch of the type is armed for.
@@ -218,7 +244,8 @@ func armedPermission(patchType PatchType) accesstypes.Permission {
 
 // taskPatch builds the write of one task. A create carries its tenant, as the decoder
 // stamps it. A patch armed in north reads the fixture's collection; an update-or-create is
-// armed for the whole application, since a partitioned write cannot be one.
+// armed for the whole application, since a partitioned write cannot be one, unless the
+// write is partitioned, to be refused as one.
 func taskPatch(t *testing.T, collection *GeneratedCollection, w *namedWrite) *PatchSet[namedTask] {
 	t.Helper()
 
@@ -235,11 +262,12 @@ func taskPatch(t *testing.T, collection *GeneratedCollection, w *namedWrite) *Pa
 	return p
 }
 
-// commentPatch builds the write of one comment, as taskPatch builds a task's.
-func commentPatch(t *testing.T, collection *GeneratedCollection, w *namedWrite) *PatchSet[namedComment] {
+// commentPatch builds the write of one comment, of either declaration, as taskPatch
+// builds a task's.
+func commentPatch[Comment Resourcer](t *testing.T, collection *GeneratedCollection, w *namedWrite) *PatchSet[Comment] {
 	t.Helper()
 
-	p := NewPatchSet(NewMetadata[namedComment]()).SetPatchType(w.patchType)
+	p := NewPatchSet(NewMetadata[Comment]()).SetPatchType(w.patchType)
 	p.SetKey("ID", w.id)
 	for field, value := range w.columns {
 		p.Set(field, value)
@@ -261,7 +289,7 @@ func arm[Resource Resourcer](t *testing.T, q *QuerySet[Resource], collection *Ge
 	}
 	perm := armedPermission(w.patchType)
 	scope := accesstypes.DomainScope(onRecordNorth)
-	if w.patchType == CreateOrUpdatePatchType {
+	if w.patchType == CreateOrUpdatePatchType && !w.partitioned {
 		scope, collection = accesstypes.GlobalScope(), nil
 	}
 	var rSet any
@@ -271,6 +299,8 @@ func arm[Resource Resourcer](t *testing.T, q *QuerySet[Resource], collection *Ge
 		rSet, err = NewSet[namedTask, namedTaskRequest](perm)
 	case *QuerySet[namedComment]:
 		rSet, err = NewSet[namedComment, namedCommentRequest](perm)
+	case *QuerySet[namedPathComment]:
+		rSet, err = NewSet[namedPathComment, namedCommentRequest](perm)
 	case *QuerySet[namedOpenTask]:
 		rSet, err = NewSet[namedOpenTask, namedOpenTaskRequest](perm)
 	}
@@ -424,7 +454,7 @@ func TestPatchSet_namedRows_onSpanner(t *testing.T) {
 
 		caller := listsNoProject()
 		body := "Seen to."
-		err := commentPatch(t, collection, &namedWrite{patchType: UpdatePatchType, caller: caller, id: "k1", columns: map[accesstypes.Field]any{"Body": &body}}).Apply(ctx, db)
+		err := commentPatch[namedComment](t, collection, &namedWrite{patchType: UpdatePatchType, caller: caller, id: "k1", columns: map[accesstypes.Field]any{"Body": &body}}).Apply(ctx, db)
 		judgeNamed(t, err, true)
 		if asked := caller.listsAsked(); asked != 0 {
 			t.Errorf("the caller was asked List %d times, want none", asked)
@@ -478,10 +508,10 @@ func TestPatchSet_namedRows_onSpanner(t *testing.T) {
 				return err
 			}
 
-			return commentPatch(t, collection, &namedWrite{patchType: CreatePatchType, caller: caller, id: "n-comment", columns: map[accesstypes.Field]any{"TaskID": &task}}).Buffer(ctx, txn)
+			return commentPatch[namedComment](t, collection, &namedWrite{patchType: CreatePatchType, caller: caller, id: "n-comment", columns: map[accesstypes.Field]any{"TaskID": &task}}).Buffer(ctx, txn)
 		})
 		judgeNamed(t, err, true)
-		err = commentPatch(t, collection, &namedWrite{patchType: CreatePatchType, caller: caller, id: "n-comment-after", columns: map[accesstypes.Field]any{"TaskID": &task}}).Apply(ctx, db)
+		err = commentPatch[namedComment](t, collection, &namedWrite{patchType: CreatePatchType, caller: caller, id: "n-comment-after", columns: map[accesstypes.Field]any{"TaskID": &task}}).Apply(ctx, db)
 		judgeNamed(t, err, false)
 	})
 
@@ -501,4 +531,169 @@ func TestPatchSet_namedRows_onSpanner(t *testing.T) {
 			t.Error("the refused task is stored")
 		}
 	})
+}
+
+// editsHeldTasks is erin as a writer of tasks: she holds ProjectEditor on project 1 alone,
+// so her List on projects and her Update on tasks are each held under the condition a role
+// held on one record answers for it (RecordCondition).
+func editsHeldTasks(t *testing.T, collection *GeneratedCollection) *namedRowsCaller {
+	t.Helper()
+
+	caller := listsHeldProjects(t, collection)
+	held, ok := collection.RecordCondition(onRecordAuth, "ProjectEditor", "Projects", "Tasks", accesstypes.Update)
+	if !ok {
+		t.Fatal("RecordCondition(staff, ProjectEditor, Projects, Tasks, Update) is not ok")
+	}
+	caller.update = map[accesstypes.Resource]accesstypes.Decision{
+		"Tasks": accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{"Tasks"}, Condition: mustCondition(held)}),
+	}
+
+	return caller
+}
+
+// TestPatchSet_namedRows_afterTheRowsOwnChecks_onSpanner pins where an update and an
+// update-or-create ask about the rows they name: once the row is found in the request's
+// tenant and the write's conditions hold for it. A caller the row's own checks refuse is
+// answered by them whatever the column is sent as, so the answer tells nothing of a row
+// the caller may not change; a caller they pass is answered as before.
+func TestPatchSet_namedRows_afterTheRowsOwnChecks_onSpanner(t *testing.T) {
+	t.Parallel()
+
+	client := namedRowsDatabase(t, "named-rows-after")
+	db := NewSpannerClient(client)
+	collection := namedRowsCollection(t)
+	ctx := context.Background()
+	project := func(id string) *string { return &id }
+	update := func(caller *namedRowsCaller, id string, field accesstypes.Field, value string) error {
+		return taskPatch(t, collection, &namedWrite{patchType: UpdatePatchType, caller: caller, id: id, columns: map[accesstypes.Field]any{field: project(value)}}).Apply(ctx, db)
+	}
+
+	t.Run("erin, who may change the tasks of project 1 alone, changes a task of project 2", func(t *testing.T) {
+		t.Parallel()
+
+		// t3 is a task of p2: p2 is the project it names, and p3 one erin cannot list.
+		sent := update(editsHeldTasks(t, collection), "t3", "ProjectID", "p2")
+		other := update(editsHeldTasks(t, collection), "t3", "ProjectID", "p3")
+		for _, err := range []error{sent, other} {
+			if !httpio.HasForbidden(err) {
+				t.Errorf("error = %v, want the update's own refusal, a forbidden", err)
+			}
+		}
+		if httpio.Message(sent) != httpio.Message(other) {
+			t.Errorf("the refusals read %q and %q, want one sentence whatever the column is sent as", httpio.Message(sent), httpio.Message(other))
+		}
+		if got, _ := storedColumn(t, client, "t3", "ProjectId"); got != "p2" {
+			t.Errorf("t3 names %q, want p2", got)
+		}
+	})
+
+	t.Run("a caller of north changes a task of south", func(t *testing.T) {
+		t.Parallel()
+
+		// t9 is south's and names p9; p-none is no project's key.
+		missing := httpio.Message(recordNotFound[namedTask]("t9"))
+		for _, value := range []string{"p9", "p-none"} {
+			err := update(listsEveryProject(), "t9", "ProjectID", value)
+			if !httpio.HasNotFound(err) || httpio.Message(err) != missing {
+				t.Errorf("sending %s: error = %v, reading %q; want 404, %q, as a task that is not there", value, err, httpio.Message(err), missing)
+			}
+		}
+		if got, _ := storedColumn(t, client, "t9", "ProjectId"); got != "p9" {
+			t.Errorf("t9 names %q, want p9", got)
+		}
+	})
+
+	t.Run("a caller the row's own checks pass is answered as before", func(t *testing.T) {
+		t.Parallel()
+
+		// Two tasks of project 1, the second come from p2, which erin cannot list.
+		for id, former := range map[string]*string{"na1": nil, "na2": project("p2")} {
+			columns := map[accesstypes.Field]any{"ProjectID": project("p1"), "FormerProjectID": former}
+			if err := taskPatch(t, collection, &namedWrite{patchType: CreatePatchType, id: id, columns: columns}).Apply(ctx, db); err != nil {
+				t.Fatalf("writing the task %s: %v", id, err)
+			}
+		}
+		judgeNamed(t, update(editsHeldTasks(t, collection), "na1", "FormerProjectID", "p2"), false)
+		judgeNamed(t, update(editsHeldTasks(t, collection), "na2", "FormerProjectID", "p2"), true)
+	})
+
+	t.Run("an update-or-create of a task of another tenant", func(t *testing.T) {
+		t.Parallel()
+
+		upsert := func(value string) error {
+			w := &namedWrite{patchType: CreateOrUpdatePatchType, caller: listsNoProject(), id: "t9", columns: map[accesstypes.Field]any{"ProjectID": project(value)}, partitioned: true}
+
+			return taskPatch(t, collection, w).Apply(ctx, db)
+		}
+		// p9 is the project t9 names, and p1 one the caller cannot list.
+		sent, other := upsert("p9"), upsert("p1")
+		if sent == nil || other == nil {
+			t.Fatalf("errors = %v and %v, want both refused", sent, other)
+		}
+		if sent.Error() != other.Error() {
+			t.Errorf("the refusals are %q and %q, want one whatever the column is sent as", sent, other)
+		}
+		if httpio.Message(other) == referencedNotFoundMessage {
+			t.Errorf("error = %v, want the row's own refusal, not the named row's", other)
+		}
+	})
+}
+
+// TestPatchSet_namedRows_sameRequest_onSpanner pins the pass for a row the same request
+// created: a write names it with nothing asked where the row is the request's tenant's,
+// read from the created row and, for a kind whose tenant is read through a parent, along
+// that way; a row created in another tenant is judged as any other, and so refused.
+func TestPatchSet_namedRows_sameRequest_onSpanner(t *testing.T) {
+	t.Parallel()
+
+	client := namedRowsDatabase(t, "named-rows-same-request")
+	db := NewSpannerClient(client)
+	collection := namedRowsCollection(t)
+	ctx := context.Background()
+
+	// createTask buffers the create of a task of the tenant under the project, unarmed, as
+	// an earlier patch of the request.
+	createTask := func(ctx context.Context, txn ReadWriteTransaction, id, domain, project string) error {
+		p := NewPatchSet(NewMetadata[namedTask]()).SetPatchType(CreatePatchType)
+		p.SetKey("ID", id)
+		p.Set("DomainID", domain)
+		p.Set("ProjectID", &project)
+
+		return p.Buffer(ctx, txn)
+	}
+	cases := []struct {
+		name, domain, project string
+		written               bool
+	}{
+		{name: "a task created in north", domain: onRecordNorth, project: "p1", written: true},
+		{name: "a task created in south", domain: onRecordSouth, project: "p9"},
+	}
+	for i, tt := range cases {
+		t.Run(tt.name+", then a comment of north that names it", func(t *testing.T) {
+			t.Parallel()
+
+			task := fmt.Sprintf("ns-task%d", i)
+			err := db.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+				if err := createTask(ctx, txn, task, tt.domain, tt.project); err != nil {
+					return err
+				}
+
+				return commentPatch[namedComment](t, collection, &namedWrite{patchType: CreatePatchType, caller: listsEveryProject(), id: fmt.Sprintf("ns-comment%d", i), columns: map[accesstypes.Field]any{"TaskID": &task}}).Buffer(ctx, txn)
+			})
+			judgeNamed(t, err, tt.written)
+		})
+		t.Run(tt.name+", then a comment of north that names it, the task's tenant read through its project", func(t *testing.T) {
+			t.Parallel()
+
+			task := fmt.Sprintf("ns-path-task%d", i)
+			err := db.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+				if err := createTask(ctx, txn, task, tt.domain, tt.project); err != nil {
+					return err
+				}
+
+				return commentPatch[namedPathComment](t, collection, &namedWrite{patchType: CreatePatchType, caller: listsEveryProject(), id: fmt.Sprintf("ns-path-comment%d", i), columns: map[accesstypes.Field]any{"TaskID": &task}}).Buffer(ctx, txn)
+			})
+			judgeNamed(t, err, tt.written)
+		})
+	}
 }
