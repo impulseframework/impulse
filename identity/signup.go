@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/logger"
@@ -319,8 +320,24 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 	if err := m.store.SetSignInMethod(ctx, txn, row); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
 	}
+	if row.DefaultRole == nil {
+		return nil
+	}
+	opened := settingRecord(auditlog.ActSignUpOpened, auditlog.SignUpSetting(open.Method), buttonWords(registered))
+	opened.RoleNames = []string{*row.DefaultRole}
 
-	return nil
+	return m.record(ctx, txn, opened)
+}
+
+// buttonWords answers a sign-in method as the setting of its sign-up is named in the
+// audit log: by the words of its button on the login page, and by the name it is
+// registered under where the page offers none.
+func buttonWords(registered *session.RegisteredMethod) string {
+	if registered.Label != "" {
+		return registered.Label
+	}
+
+	return registered.Name
 }
 
 // OpenSignUpWarning says what opening the method would do, in the words a person reads
@@ -360,7 +377,8 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if _, err := m.choosable(method); err != nil {
+	registered, err := m.choosable(method)
+	if err != nil {
 		return err
 	}
 	rows, err := m.store.SignInMethodRows(ctx, txn)
@@ -376,7 +394,7 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
 	}
 
-	return nil
+	return m.record(ctx, txn, settingRecord(auditlog.ActSignUpClosed, auditlog.SignUpSetting(method), buttonWords(registered)))
 }
 
 // SetSelfServiceReset buffers an administrator's choice of whether a person may ask at
@@ -397,8 +415,12 @@ func (m *Manager) SetSelfServiceReset(ctx context.Context, txn resource.ReadWrit
 	if err := m.store.SetSelfServiceReset(ctx, txn, string(sessioninfo.MethodPassword), on); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSelfServiceReset()")
 	}
+	act := auditlog.ActSelfServiceResetOff
+	if on {
+		act = auditlog.ActSelfServiceResetOn
+	}
 
-	return nil
+	return m.record(ctx, txn, settingRecord(act, auditlog.SettingSelfServiceReset, ""))
 }
 
 // choosable answers the registered method of the name, and refuses a name the auth

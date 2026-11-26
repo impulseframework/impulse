@@ -238,7 +238,7 @@ func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransa
 	}
 	groups := make([]string, len(judged.places))
 	for i := range judged.places {
-		if groups[i], err = m.groupNamed(ctx, txn, judged.places[i].Group); err != nil {
+		if groups[i], _, err = m.groupWhere(ctx, txn, judged.places[i].Group); err != nil {
 			return err
 		}
 	}

@@ -112,22 +112,57 @@ func (m *Manager) invitationSubject(ctx context.Context, txn resource.ReadWriteT
 	return invitationRecord("", invitationID, address), nil
 }
 
-// groupNamed answers a group's name for a row of the audit log, as the store answers it
-// now, and its id where the store answers none.
-func (m *Manager) groupNamed(ctx context.Context, txn resource.ReadWriteTransaction, group accesstypes.Group) (string, error) {
+// groupWhere answers a group's name for a row of the audit log, as the store answers it
+// now, and the tenant it is kept in (groupTenant); its id, and no tenant, where the store
+// answers no group.
+func (m *Manager) groupWhere(ctx context.Context, txn resource.ReadWriteTransaction, group accesstypes.Group) (name, tenant string, err error) {
 	id, err := impulse.UUIDFromString(string(group))
 	if err != nil {
-		return "", errors.Wrap(err, "impulse.UUIDFromString()")
+		return "", "", errors.Wrap(err, "impulse.UUIDFromString()")
 	}
 	read, found, err := m.store.Group(ctx, txn, id)
 	if err != nil {
-		return "", errors.Wrap(err, "identity.Store.Group()")
+		return "", "", errors.Wrap(err, "identity.Store.Group()")
 	}
-	if !found || read.Name == "" {
-		return string(group), nil
+	if !found {
+		return string(group), "", nil
+	}
+	name = read.Name
+	if name == "" {
+		name = string(group)
 	}
 
-	return read.Name, nil
+	return name, groupTenant(read.Kind, read.Axis, read.Domain), nil
+}
+
+// groupTenant answers the tenant a group is kept in, from the columns of its row: "" for
+// a group kept for the whole application.
+func groupTenant(kind, axis, domain string) string {
+	tenant, ok := tenantOf(kind, axis, domain)
+	if !ok {
+		return ""
+	}
+
+	return string(tenant)
+}
+
+// groupRecord answers a row of the act done to the group, by its id and its name, in the
+// tenant it is kept in ("" for none).
+func groupRecord(act auditlog.Act, groupID impulse.UUID, name, tenant string) *auditlog.Record {
+	var r auditlog.Record
+	r.Act, r.SubjectKind, r.SubjectID, r.SubjectName, r.TenantID = act, auditlog.SubjectGroup, groupID.String(), name, tenant
+
+	return &r
+}
+
+// settingRecord answers a row of the act done to the auth's sign-in setting of the fixed
+// name (auditlog.SettingSecondFactor, SignUpSetting, ...), named by name: a sign-up
+// setting's method by its button's words, "" for every other.
+func settingRecord(act auditlog.Act, setting, name string) *auditlog.Record {
+	var r auditlog.Record
+	r.Act, r.SubjectKind, r.SubjectID, r.SubjectName = act, auditlog.SubjectSetting, setting, name
+
+	return &r
 }
 
 // recordAct buffers the row of the act done to the subject (accountSubject), with no

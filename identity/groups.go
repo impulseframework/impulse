@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/tracer"
@@ -161,6 +162,10 @@ func (m *Manager) CreateGroup(ctx context.Context, txn resource.ReadWriteTransac
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "identity.Store.InsertGroup()")
 	}
+	_, tenant := auditlog.ScopeOf(scope)
+	if err := m.record(ctx, txn, groupRecord(auditlog.ActGroupMade, id, row.Name, tenant)); err != nil {
+		return impulse.NilUUID, err
+	}
 
 	return id, nil
 }
@@ -183,7 +188,7 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 		return errors.Wrap(err, "identity.Store.DescribeGroup()")
 	}
 
-	return nil
+	return m.record(ctx, txn, groupRecord(auditlog.ActGroupChanged, groupID, group.Name, groupTenant(group.Kind, group.Axis, group.Domain)))
 }
 
 // DeleteGroup deletes a group with its members and the roles it holds, in the caller's
@@ -324,6 +329,15 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 	if !inserted && !changed {
 		return nil
 	}
+	added, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	added.Act, added.GroupID, added.GroupName, added.Period = auditlog.ActGroupMemberAdded, groupID.String(), group.Name, period
+	added.TenantID = groupTenant(group.Kind, group.Axis, group.Domain)
+	if err := m.record(ctx, txn, added); err != nil {
+		return err
+	}
 
 	return m.policyChangesAtCommit(txn)
 }
@@ -365,11 +379,34 @@ func (m *Manager) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteT
 	if err := m.refuseTakingPlace(ctx, txn, groupID, userID); err != nil {
 		return err
 	}
+	out, err := m.placeRecord(ctx, txn, &key, userID)
+	if err != nil {
+		return err
+	}
 	if err := m.store.DeleteGroupMember(ctx, txn, &key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
 	}
+	if err := m.record(ctx, txn, out); err != nil {
+		return err
+	}
 
 	return m.policyChangesAtCommit(txn)
+}
+
+// placeRecord answers the row of a person taken out of a group (groupMemberRemoved): the
+// account, the group by its id and its name, in the tenant the group is kept in. It
+// reads, so it is asked before the place's delete is buffered.
+func (m *Manager) placeRecord(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey, userID impulse.UUID) (*auditlog.Record, error) {
+	out, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	out.Act, out.GroupID = auditlog.ActGroupMemberRemoved, string(key.Group)
+	if out.GroupName, out.TenantID, err = m.groupWhere(ctx, txn, key.Group); err != nil {
+		return nil, err
+	}
+
+	return out, nil
 }
 
 // judgeTakingPlace holds a person's removal from the group to what the caller may take
@@ -565,8 +602,25 @@ func (m *Manager) GiveGroupRoleFor(
 	if !inserted && !changed {
 		return nil
 	}
+	if err := m.record(ctx, txn, groupRoleRecord(auditlog.ActGroupRoleGiven, groupID, group, scope, role, period)); err != nil {
+		return err
+	}
 
 	return m.policyChangesAtCommit(txn)
+}
+
+// groupRoleRecord answers the row of a role given to a group or taken from it, with the
+// period it is given for: the role where it is held, in its tenant, and in the group's
+// where the role names none.
+func groupRoleRecord(act auditlog.Act, groupID impulse.UUID, group *Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) *auditlog.Record {
+	r := groupRecord(act, groupID, group.Name, groupTenant(group.Kind, group.Axis, group.Domain))
+	roleScope, tenant := auditlog.ScopeOf(scope)
+	r.RoleNames, r.RoleScope, r.Period = []string{string(role)}, roleScope, period
+	if tenant != "" {
+		r.TenantID = tenant
+	}
+
+	return r
 }
 
 // TakeGroupRole buffers the removal of a role a group holds in the scope, in the
@@ -596,8 +650,16 @@ func (m *Manager) TakeGroupRole(ctx context.Context, txn resource.ReadWriteTrans
 	if err := m.refuseTakingGroupRole(ctx, txn, groupID, scope, &key); err != nil {
 		return err
 	}
+	group, err := m.requireGroup(ctx, txn, groupID)
+	if err != nil {
+		return err
+	}
 	if err := m.store.DeleteGroupRole(ctx, txn, &key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteGroupRole()")
+	}
+	var noPeriod accesstypes.Period
+	if err := m.record(ctx, txn, groupRoleRecord(auditlog.ActGroupRoleTaken, groupID, group, scope, role, noPeriod)); err != nil {
+		return err
 	}
 
 	return m.policyChangesAtCommit(txn)
@@ -677,8 +739,16 @@ func (m *Manager) removeGroupPlaces(ctx context.Context, txn resource.ReadWriteT
 		return false, errors.Wrap(err, "identity.Store.UserGroups()")
 	}
 	for _, place := range places {
-		if err := m.store.DeleteGroupMember(ctx, txn, &access.GroupMemberKey{Group: GroupID(place.ID), User: User(userID)}); err != nil {
+		key := access.GroupMemberKey{Group: GroupID(place.ID), User: User(userID)}
+		out, err := m.placeRecord(ctx, txn, &key, userID)
+		if err != nil {
+			return false, err
+		}
+		if err := m.store.DeleteGroupMember(ctx, txn, &key); err != nil {
 			return false, errors.Wrap(err, "identity.Store.DeleteGroupMember()")
+		}
+		if err := m.record(ctx, txn, out); err != nil {
+			return false, err
 		}
 	}
 
