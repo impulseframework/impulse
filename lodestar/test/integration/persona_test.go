@@ -87,8 +87,9 @@ func TestPersonaMethod(t *testing.T) {
 }
 
 // TestPersonaCast seeds the cast: a password-less crew login per persona, seated in the
-// roles the cast names where the role file holds them (Headquarters in the global
-// partition, SectorMarshal and Cadet in every sector), with the persona's address. The
+// roles the cast names where the role file holds them (Headquarters, and the warden's
+// CrewCommon, ClientBrowser and BriefingClerk, in the global partition; SectorMarshal and
+// Cadet in every sector), with the persona's address. The
 // roles are held by the id of each login's account, never by its name, and the id is the
 // one the seed chose for the login (session.SeedUserID): the seed writes the roles under
 // it first and creates the login under it last. So a run that stopped after a persona's
@@ -123,8 +124,14 @@ func TestPersonaCast(t *testing.T) {
 	if created != 3 {
 		t.Errorf("SeedCast() created %d logins, want the cast's 3", created)
 	}
-	// The rookie's role was held before the run, so the run gave two roles and says two.
-	if got, want := said.String(), "Gave the crew auth's persona hq the role Headquarters\nGave the crew auth's persona warden the role SectorMarshal in every sector\n"; got != want {
+	// The rookie's role was held before the run, so the run gave the other five roles and
+	// says five, a persona's roles of the whole application before its roles of every
+	// sector.
+	if got, want := said.String(), "Gave the crew auth's persona hq the role Headquarters\n"+
+		"Gave the crew auth's persona warden the role CrewCommon\n"+
+		"Gave the crew auth's persona warden the role ClientBrowser\n"+
+		"Gave the crew auth's persona warden the role BriefingClerk\n"+
+		"Gave the crew auth's persona warden the role SectorMarshal in every sector\n"; got != want {
 		t.Errorf("SeedCast() said\n%swant\n%s", got, want)
 	}
 	for _, tt := range []struct {
@@ -134,6 +141,9 @@ func TestPersonaCast(t *testing.T) {
 	}{
 		{login: "hq", scope: accesstypes.GlobalPolicyScope(), role: "Headquarters"},
 		{login: "warden", scope: accesstypes.EveryDomainPolicyScope(), role: "SectorMarshal"},
+		{login: "warden", scope: accesstypes.GlobalPolicyScope(), role: "CrewCommon"},
+		{login: "warden", scope: accesstypes.GlobalPolicyScope(), role: "ClientBrowser"},
+		{login: "warden", scope: accesstypes.GlobalPolicyScope(), role: "BriefingClerk"},
 		{login: "rookie", scope: accesstypes.EveryDomainPolicyScope(), role: "Cadet"},
 	} {
 		user, err := api.UserByUsername(ctx, tt.login)
@@ -236,8 +246,8 @@ func TestPersonaCast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserRoles(warden) error = %v", err)
 	}
-	if names := roleNames(held); len(names) != 1 || names[0] != "SectorMarshal" {
-		t.Errorf("the renamed warden's account holds %v after the seed ran over it, want SectorMarshal: the account is the persona's under any name", names)
+	if names, want := slices.Sorted(slices.Values(roleNames(held))), []string{"BriefingClerk", "ClientBrowser", "CrewCommon", "SectorMarshal"}; !slices.Equal(names, want) {
+		t.Errorf("the renamed warden's account holds %v after the seed ran over it, want %v: the account is the persona's under any name", names, want)
 	}
 	if got, want := said.String(), "Gave the crew auth's persona warden the role SectorMarshal in every sector\n"; got != want {
 		t.Errorf("SeedCast() over a renamed persona said %q, want %q", got, want)

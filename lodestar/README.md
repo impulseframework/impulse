@@ -778,6 +778,19 @@ sheet, and holding nothing else she points her mission at no squadron but the on
 names. Every list pages at the size its `@page` annotation declares, and the seed is
 deep enough that every list of consequence has a second page.
 
+A role is of one scope, so a sector's role holds no List on a kind of the whole
+application. Where a sector's role sets a column, or runs a method with a field, that
+names a row of such a kind, a role of the whole application lists it and the person who
+does the job holds both. A ship's class is one of the ship classes, which `CrewCommon`
+lists. A consignment's client is one of the clients, which `Headquarters` lists whole and
+`ClientBrowser` and `SalvageDesk` each under its own condition, so a supercargo who holds
+`ClientBrowser` records cargo for trusted clients alone. A mission's briefing sheet, and
+the sheet a briefing is compiled on, come from the catalog, which `BriefingClerk` lists.
+Without the second role the form offers nothing to choose and the server answers the
+request as a row that is not there (the resource package's section 26). The seed gives
+every persona who sets one of these the role that lists it (`cmd/bootstrap/users.json`),
+and so does the cast for its warden (`pkg/auth/crew/cast.json`).
+
 ## Two populations, two auths
 
 Each auth is one `session.Auth` with its sign-in methods registered on it, and the

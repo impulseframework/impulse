@@ -22,7 +22,9 @@ import (
 // after traffic (bedrock deploy persona register), and the application seeds its
 // accounts at start where the method is registered (SeedCast). The logins are on no
 // manifest: hq holds Headquarters, the fleet's global administration; warden holds
-// SectorMarshal in every sector; rookie holds Cadet in every sector.
+// SectorMarshal in every sector, and the three roles of the whole application that list
+// what a marshal's writes pick from (CrewCommon, ClientBrowser and BriefingClerk); rookie
+// holds Cadet in every sector.
 //
 // Demonstrates: auth.persona.
 //
