@@ -412,31 +412,7 @@ func (r *resourceGenerator) prepareIdentity() error {
 		inst.createsTenant = r.identityCreatesTenant(inst)
 		inst.opensToDirectory = r.identityOpensToDirectory(inst)
 		inst.recordsTenantSignIn = r.identityRecordsTenantSignIn(inst)
-		if err := inst.refuseListNamesTaken(); err != nil {
-			return err
-		}
-		if err := inst.refuseInvitationNamesTaken(); err != nil {
-			return err
-		}
-		if err := inst.refuseListedTenantNamesTaken(); err != nil {
-			return err
-		}
-		if err := r.requireEveryTenantColumn(inst); err != nil {
-			return err
-		}
-		if err := r.requireNewTenantColumn(inst); err != nil {
-			return err
-		}
-		if err := r.requireMailFailedColumn(inst); err != nil {
-			return err
-		}
-		if err := r.requireWithdrawnColumn(inst); err != nil {
-			return err
-		}
-		if err := r.requireSessionBrowserColumn(inst); err != nil {
-			return err
-		}
-		if err := r.refuseReservedRole(inst); err != nil {
+		if err := r.refuseIdentityInstance(inst); err != nil {
 			return err
 		}
 		for _, dir := range []packageDir{inst.resources, inst.methods, inst.handlers} {
@@ -460,6 +436,39 @@ func (r *resourceGenerator) prepareIdentity() error {
 	log.Printf("Wrote the identity sources of %d auth(s) in %s\n", len(instances), time.Since(begin))
 
 	return nil
+}
+
+// refuseIdentityInstance refuses an instance before anything of it is written: a name its
+// lists or its invitations would take that is taken already, a column of the schema its
+// management writes that is missing, and a role of its role file under a name the library
+// keeps.
+func (r *resourceGenerator) refuseIdentityInstance(inst *identityInstance) error {
+	if err := inst.refuseListNamesTaken(); err != nil {
+		return err
+	}
+	if err := inst.refuseInvitationNamesTaken(); err != nil {
+		return err
+	}
+	if err := inst.refuseListedTenantNamesTaken(); err != nil {
+		return err
+	}
+	if err := r.requireEveryTenantColumn(inst); err != nil {
+		return err
+	}
+	if err := r.requireNewTenantColumn(inst); err != nil {
+		return err
+	}
+	if err := r.requireMailFailedColumn(inst); err != nil {
+		return err
+	}
+	if err := r.requireWithdrawnColumn(inst); err != nil {
+		return err
+	}
+	if err := r.requireSessionBrowserColumn(inst); err != nil {
+		return err
+	}
+
+	return r.refuseReservedRole(inst)
 }
 
 // removeStaleIdentitySources removes what an earlier run wrote for an instance and this
