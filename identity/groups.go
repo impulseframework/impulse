@@ -200,12 +200,16 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 // administrator's role of a tenant. A member or a role whose period has ended gives
 // nobody anything and is asked nothing: the delete takes it with the rest, and counts it
 // in the question. It answers what one save left where the group had more under it than
-// one save holds (nil once the group is gone).
+// one save holds (nil once the group is gone). The save that deletes the group's own row
+// writes the row of its removal, done to the group by its name, in the tenant it is kept
+// in; a save that leaves the group standing writes none, and its members and roles have
+// no row of their own.
 func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if _, err := m.requireGroup(ctx, txn, groupID); err != nil {
+	group, err := m.requireGroup(ctx, txn, groupID)
+	if err != nil {
 		return nil, err
 	}
 	periods, err := m.store.GroupPeriods(ctx, txn, groupID)
@@ -251,6 +255,12 @@ func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransac
 	left, err := m.store.DeleteGroup(ctx, txn, groupID, everythingUnder)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.DeleteGroup()")
+	}
+	if left == nil {
+		removed := groupRecord(auditlog.ActGroupRemoved, groupID, group.Name, groupTenant(group.Kind, group.Axis, group.Domain))
+		if err := m.record(ctx, txn, removed); err != nil {
+			return nil, err
+		}
 	}
 
 	return left, m.policyChangesAtCommit(txn)
@@ -732,23 +742,16 @@ func (m *Manager) holds(ctx context.Context, txn resource.ReadWriteTransaction, 
 
 // removeGroupPlaces buffers the removal of every place in a group the person has, for an
 // account that goes: a place left behind would keep its group from ever being deleted.
-// It reports whether the person was in a group.
+// It reports whether the person was in a group. A place goes with the account and has no
+// row of the audit log of its own: the account's delete is the row.
 func (m *Manager) removeGroupPlaces(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (bool, error) {
 	places, err := m.store.UserGroups(ctx, txn, userID)
 	if err != nil {
 		return false, errors.Wrap(err, "identity.Store.UserGroups()")
 	}
 	for _, place := range places {
-		key := access.GroupMemberKey{Group: GroupID(place.ID), User: User(userID)}
-		out, err := m.placeRecord(ctx, txn, &key, userID)
-		if err != nil {
-			return false, err
-		}
-		if err := m.store.DeleteGroupMember(ctx, txn, &key); err != nil {
+		if err := m.store.DeleteGroupMember(ctx, txn, &access.GroupMemberKey{Group: GroupID(place.ID), User: User(userID)}); err != nil {
 			return false, errors.Wrap(err, "identity.Store.DeleteGroupMember()")
-		}
-		if err := m.record(ctx, txn, out); err != nil {
-			return false, err
 		}
 	}
 

@@ -837,7 +837,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 // writes neither the method nor the connection; the create answers the caller's grants
 // and is then refused, naming the tenant's own method that takes a directory
 // (Take<Record>Directory), and builds and stamps nothing; and the delete asks the rules
-// before the row's removal is buffered.
+// before the row's removal is buffered, and once it is buffered records the directory's
+// removal in the audit log of the auth that records a tenant's sign-in acts.
 func Test_directoriesRecord_writes(t *testing.T) {
 	t.Parallel()
 
@@ -846,6 +847,7 @@ func Test_directoriesRecord_writes(t *testing.T) {
 		t.Fatalf("declarationResources() error = %v", err)
 	}
 	r.resource = "testdata/tenantfixture"
+	r.identity = []*identityInstance{{auth: "Staff", opensToDirectory: true}}
 	var directories *resourceInfo
 	for _, res := range r.resources {
 		if res.IsTenantDirectory {
@@ -873,6 +875,7 @@ func Test_directoriesRecord_writes(t *testing.T) {
 		Resources: []*resourceInfo{directories},
 		DomainCases: []consolidatedCaseData{{
 			resourceInfo: directories, DomainPatternPrefix: "/harbors/{harborID}", ResourcePackage: "resources", ReceiverName: "a",
+			DirectoryRemovalRecorder: r.directoryRemovalRecorder(directories),
 		}},
 		HasTenant:           true,
 		DomainRouteSegment:  "harbors",
@@ -909,6 +912,8 @@ func Test_directoriesRecord_writes(t *testing.T) {
 				"if err := NewHarborDirectoryRules().Remove(ctx, txn, domain); err != nil {",
 				`return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")`,
 				".NewHarborDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
+				`.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryRemoved, ""); err != nil {`,
+				`return errors.Wrap(err, "StaffIdentity().RecordTenantSignIn()")`,
 			)
 			// The create builds no row and stamps no directory: the tenant's own method
 			// takes it.
@@ -918,6 +923,28 @@ func Test_directoriesRecord_writes(t *testing.T) {
 			assertContains(t, name, out, []string{"tenantsWritten = true", "a.TenantRoster().Reload(ctx)", "resource.KindTenants"}, nil)
 		})
 	}
+
+	// A directories record whose delete takes rows under it records the removal in the
+	// save that deletes its row, and in none that leaves it standing.
+	taking := *directories
+	taking.deleteCascade = &deleteCascadeDecl{Taken: []string{"HarborDirectoryNote"}}
+	taking.DeleteTree = &deleteTree{Taken: []*deleteKind{{}}}
+	if !taking.TakesRowsUnder() {
+		t.Fatal("the directories record given a kind under it does not take rows under it")
+	}
+	rounds, err := r.handlerContent(PatchHandler, &taking)
+	if err != nil {
+		t.Fatalf("handlerContent() of the record that takes rows error = %v", err)
+	}
+	if _, err := format.Source(append([]byte("package app\n\n"), rounds...)); err != nil {
+		t.Fatalf("the rendered handler of the record that takes rows does not parse: %v\n%s", err, rounds)
+	}
+	assertInOrder(t, string(rounds),
+		"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+		"if taken := patch.Left(); taken != nil {",
+		"if patch.Left() == nil {",
+		`.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryRemoved, ""); err != nil {`,
+	)
 }
 
 // assertInOrder fails unless every want appears in out, each after the one before it.
@@ -996,7 +1023,10 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 			if _, err := format.Source(append([]byte("package app\n\n"), standalone...)); err != nil {
 				t.Fatalf("the rendered handler does not parse: %v\n%s", err, standalone)
 			}
-			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", KindsFrom: r.tenantKindSources(res)}
+			segment := consolidatedCaseData{
+				resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", KindsFrom: r.tenantKindSources(res),
+				DirectoryRemovalRecorder: r.directoryRemovalRecorder(res),
+			}
 			data := consolidatedPatchData{
 				Resources:           []*resourceInfo{res},
 				HasTenant:           true,
@@ -1029,8 +1059,9 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 			// package the data names.
 			packageOf := map[string]string{"the record's own handler": "tenantfixture", "the consolidated handler": "resources"}
 			for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
-				// No removal of a directory beside the row's own.
-				assertContains(t, name, out, nil, []string{"Directory(ctx, txn, id"})
+				// No removal of a directory beside the row's own, and none recorded: no auth
+				// of the fixture records a tenant's sign-in acts.
+				assertContains(t, name, out, nil, []string{"Directory(ctx, txn, id", "RecordTenantSignIn"})
 				if !tt.tenant {
 					continue
 				}

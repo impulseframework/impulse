@@ -263,3 +263,15 @@ func (r *resourceGenerator) tenantSignInRecorder() string {
 
 	return ""
 }
+
+// directoryRemovalRecorder is the application's accessor of the identity client whose
+// audit log the delete of res records the directory's removal in: the auth that records
+// a tenant's sign-in acts (tenantSignInRecorder) for the directories record, and none for
+// any other resource or where no auth records them.
+func (r *resourceGenerator) directoryRemovalRecorder(res *resourceInfo) string {
+	if !res.IsTenantDirectory {
+		return ""
+	}
+
+	return r.tenantSignInRecorder()
+}

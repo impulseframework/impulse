@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
@@ -9,6 +10,8 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -224,8 +227,9 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 	}
 	want := []takenRows{
 		// anna: a membership and the user (2); ben: a membership, a place and the user
-		// (3); dora: a link, the user and what the database removes with it (4).
-		{Rows: 3, Mutations: 9},
+		// (3); dora: a link, the user and what the database removes with it (4); and each
+		// the row of the audit log that records its delete.
+		{Rows: 3, Mutations: 9 + 3*auditRecordMutations()},
 		{Rows: 5, Mutations: 5},
 		// The group, its two members and its role.
 		{Rows: 1, Mutations: 4},
@@ -260,6 +264,35 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 	if engine.changed != 1 {
 		t.Errorf("the engine was told the policy changed %d time(s), want once", engine.changed)
 	}
+	// Each account taken is one row, deleted with its tenant, in the tenant; the roles,
+	// the group and the invitation that go with the tenant have none.
+	deleted := func(id impulse.UUID, username string) auditlog.Record {
+		return auditlog.Record{
+			Act: auditlog.ActAccountDeleted, Form: auditlog.FormWithTenant, Source: eventsource.ProcessEvent(auditlog.ProcessApplication),
+			SubjectKind: auditlog.SubjectAccount, SubjectID: id.String(), SubjectName: username, TenantID: "alpha", TenantName: "alpha",
+		}
+	}
+	wantRows := []auditlog.Record{deleted(annaID, "anna"), deleted(benID, "ben"), deleted(doraID, "dora")}
+	if diff := cmp.Diff(wantRows, store.audit, cmp.AllowUnexported(eventsource.EventSource{})); diff != "" {
+		t.Errorf("audit rows (-want +got):\n%s", diff)
+	}
+}
+
+// TestAuditRecordMutations pins what an account the tenant's delete takes is counted to
+// cost for its row of the audit log: one for each column the audit records table
+// declares and one for each of its indexes, as the table's statements declare them.
+func TestAuditRecordMutations(t *testing.T) {
+	t.Parallel()
+
+	indexes := 0
+	for _, stmt := range auditlog.SpannerDDL("SessionAuditRecords", auditlog.KeepForever())[1:] {
+		if strings.HasPrefix(stmt, "CREATE INDEX ") || strings.HasPrefix(stmt, "CREATE NULL_FILTERED INDEX ") {
+			indexes++
+		}
+	}
+	if want := len(auditlog.Columns()) + indexes; auditRecordMutations() != want {
+		t.Errorf("auditRecordMutations() = %d, want the %d columns and %d indexes the table declares", auditRecordMutations(), len(auditlog.Columns()), indexes)
+	}
 }
 
 // TestManager_TenantKinds_takeInRounds pins the accounts kind in a save with room for one
@@ -269,18 +302,20 @@ func TestManager_TenantKinds_takeInRounds(t *testing.T) {
 	t.Parallel()
 
 	costs := TenantDeleteCosts{Membership: 1, GroupMember: 1, Identity: 1, User: 1}
-	// anna costs her membership, her user and the two rows the database removes with it.
+	// anna costs her membership, her user, the two rows the database removes with it and
+	// the row of the audit log that records her delete.
+	budget := 4 + auditRecordMutations()
 	first := alphaStore()
 	first.costs = costs
 	first.withUser = map[impulse.UUID]int{annaID: 2}
 	m, _ := newManager(t, first, engineRoles)
 	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		accounts := m.TenantKinds("alpha")[0]
-		rows, mutations, more, err := accounts.Take(ctx, txn, 4)
+		rows, mutations, more, err := accounts.Take(ctx, txn, budget)
 		if err != nil {
 			return errors.Wrap(err, "resource.TakenKind.Take()")
 		}
-		if got, want := (takenRows{Rows: rows, Mutations: mutations, More: more}), (takenRows{Rows: 1, Mutations: 4, More: true}); got != want {
+		if got, want := (takenRows{Rows: rows, Mutations: mutations, More: more}), (takenRows{Rows: 1, Mutations: budget, More: true}); got != want {
 			t.Errorf("the first save's Take() = %+v, want %+v", got, want)
 		}
 
@@ -297,7 +332,8 @@ func TestManager_TenantKinds_takeInRounds(t *testing.T) {
 		t.Errorf("the first save's writes (-want +got):\n%s", diff)
 	}
 
-	// ben costs his membership, his place and his user: 3, and dora 2 more than is left.
+	// ben costs his membership, his place, his user and his row of the audit log, and
+	// dora more than is left.
 	next := alphaStore(annaID)
 	next.costs = costs
 	m, _ = newManager(t, next, engineRoles)
@@ -310,11 +346,11 @@ func TestManager_TenantKinds_takeInRounds(t *testing.T) {
 		if count != 2 {
 			t.Errorf("the next save's Count() = %d, want the 2 accounts left", count)
 		}
-		rows, mutations, more, err := accounts.Take(ctx, txn, 4)
+		rows, mutations, more, err := accounts.Take(ctx, txn, budget)
 		if err != nil {
 			return errors.Wrap(err, "resource.TakenKind.Take()")
 		}
-		if got, want := (takenRows{Rows: rows, Mutations: mutations, More: more}), (takenRows{Rows: 1, Mutations: 3, More: true}); got != want {
+		if got, want := (takenRows{Rows: rows, Mutations: mutations, More: more}), (takenRows{Rows: 1, Mutations: 3 + auditRecordMutations(), More: true}); got != want {
 			t.Errorf("the next save's Take() = %+v, want %+v", got, want)
 		}
 
@@ -418,8 +454,9 @@ func TestManager_TenantKinds_sessionsCost(t *testing.T) {
 
 	acting := mustUUID("0190c000-0000-7000-8000-000000000041")
 	ended := mustUUID("0190c000-0000-7000-8000-000000000042")
-	// The membership and the row (2), two session endings (10) and a record's (7).
-	const cost = 2 + 2*5 + 7
+	// The membership and the row (2), two session endings (10), a record's (7) and the
+	// row of the audit log that records the delete.
+	cost := 2 + 2*5 + 7 + auditRecordMutations()
 	for _, tt := range []struct {
 		name   string
 		budget int

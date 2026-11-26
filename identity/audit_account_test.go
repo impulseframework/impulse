@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
@@ -136,6 +137,23 @@ func TestAccountActsRecorded(t *testing.T) {
 				return m.RevokeToken(ctx, txn, tokenA)
 			},
 			want: auditlog.Record{Act: auditlog.ActTokenRevoked},
+		},
+		{
+			// The account's roles go with it, and have no row of their own.
+			name: "delete, with three roles",
+			store: func() *fakeStore {
+				return &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, memberships: map[access.MembershipKey]bool{
+					access.NewMembershipKey(alphaScope, User(userID), "Editor"): true,
+					access.NewMembershipKey(alphaScope, User(userID), "Reader"): true,
+					access.NewMembershipKey(alphaScope, User(userID), "Viewer"): true,
+				}}
+			},
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				_, err := m.DeleteUser(ctx, txn, userID, false)
+
+				return err
+			},
+			want: auditlog.Record{Act: auditlog.ActAccountDeleted},
 		},
 	}
 	callers := []struct {
@@ -280,5 +298,51 @@ func TestAccountActsRecorded_unlinkedDirectory(t *testing.T) {
 				t.Errorf("the row reads %q, want %q", got, tt.wantWhat)
 			}
 		})
+	}
+}
+
+// TestDeleteUser_recordedOnce pins the row of an account's delete in two saves: none in
+// the save that leaves the account standing, and one, done to the account by its
+// username, in the save that deletes its row.
+func TestDeleteUser_recordedOnce(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, userLeft: &resource.DeleteLeft{Deleted: 2, Left: 1}}
+	m, err := New(managedAuth, store, &fakeEngine{}, fakeSessions{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	round := func(t *testing.T) *resource.DeleteLeft {
+		t.Helper()
+
+		var left *resource.DeleteLeft
+		if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			var err error
+			left, err = m.DeleteUser(ctx, txn, userID, true)
+
+			return err
+		}); err != nil {
+			t.Fatalf("DeleteUser() error = %v", err)
+		}
+
+		return left
+	}
+
+	if left := round(t); left == nil {
+		t.Fatal("the first save's DeleteUser() left nothing, want what the fake left")
+	}
+	if len(store.audit) != 0 {
+		t.Fatalf("the save that left the account standing wrote %d audit rows (%s first), want none", len(store.audit), store.audit[0].Act)
+	}
+	store.userLeft = nil
+	if left := round(t); left != nil {
+		t.Fatalf("the second save's DeleteUser() left %+v, want the account gone", left)
+	}
+	want := []auditlog.Record{{
+		Act: auditlog.ActAccountDeleted, Source: eventsource.ProcessEvent(auditlog.ProcessApplication),
+		SubjectKind: auditlog.SubjectAccount, SubjectID: userID.String(), SubjectName: "dana",
+	}}
+	if diff := cmp.Diff(want, store.audit, cmp.AllowUnexported(eventsource.EventSource{})); diff != "" {
+		t.Errorf("audit rows (-want +got):\n%s", diff)
 	}
 }

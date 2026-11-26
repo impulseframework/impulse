@@ -250,6 +250,35 @@ func Test_directoryTake(t *testing.T) {
 	}
 }
 
+// Test_resourceGenerator_directoryRemovalRecorder pins the auth whose audit log the
+// delete of a directories record records the removal in: the one that records a tenant's
+// sign-in acts, for the directories record alone, and none where no auth records them.
+func Test_resourceGenerator_directoryRemovalRecorder(t *testing.T) {
+	t.Parallel()
+
+	opens := []*identityInstance{{auth: "Staff"}, {auth: "Members", opensToDirectory: true}}
+	tests := []struct {
+		name     string
+		identity []*identityInstance
+		res      *resourceInfo
+		want     string
+	}{
+		{name: "the directories record", identity: opens, res: &resourceInfo{IsTenantDirectory: true}, want: "MembersIdentity"},
+		{name: "another record", identity: opens, res: &resourceInfo{IsTenant: true}},
+		{name: "the directories record, where no auth records", identity: []*identityInstance{{auth: "Staff"}}, res: &resourceInfo{IsTenantDirectory: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{identity: tt.identity}}
+			if got := r.directoryRemovalRecorder(tt.res); got != tt.want {
+				t.Errorf("directoryRemovalRecorder() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // Test_resourceGenerator_tenantSignInRecorder pins the auth whose audit log a tenant's
 // sign-in settings are recorded in: the one whose management opens a tenant to its
 // directory's people, by the application's accessor of its client, and none where no

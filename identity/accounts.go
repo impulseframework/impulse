@@ -123,7 +123,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // until a save takes the last of them. Once the row goes, every session the person holds
 // is ended, and their identity links, every membership they hold and their place in
 // every group go with it, and the permission engine is told once the transaction has
-// committed. Nobody deletes themselves: the person acting, the real person behind the
+// committed. The save that deletes the row writes the row of the account's delete, done
+// to the account by the username the transaction read; what goes with the account has no
+// row of its own. Nobody deletes themselves: the person acting, the real person behind the
 // session, is refused their own account, and a session that views as someone else the
 // account it views as (refuseOwnAccount). In a session that acts as someone else the
 // refusal of the real person's own account is the one DisableUser and EnableUser give
@@ -137,7 +139,7 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	_, found, err := m.store.Username(ctx, txn, userID)
+	username, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.Username()")
 	}
@@ -201,6 +203,9 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	inGroups, err := m.removeGroupPlaces(ctx, txn, userID)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.record(ctx, txn, accountRecord(auditlog.ActAccountDeleted, userID, username)); err != nil {
 		return nil, err
 	}
 	if len(held) > 0 || inGroups {

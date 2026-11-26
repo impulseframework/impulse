@@ -1124,6 +1124,20 @@ const (
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 					}`
 
+	// directoryRemovalRecorded is spliced into the directories record's delete, once the
+	// row's removal is buffered (domain, which the splice's place binds), where the auth
+	// whose management opens a tenant to its directory's people records the tenant's
+	// sign-in acts (resourceGenerator.directoryRemovalRecorder): the removal is recorded
+	// in that auth's audit log, in the delete's transaction, as the record's other write
+	// paths record theirs. A delete that takes rows under the record records it in the save
+	// that deletes the row (patch.Left nil). The splice reads the accessor of the auth's
+	// identity client as its dot, and the receiver as $.ReceiverName.
+	directoryRemovalRecorded = `// The directory's removal is recorded in the audit log of the auth whose people
+					// the directories record's outlets sign in.
+					if err := {{ $.ReceiverName }}.{{ . }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryRemoved, ""); err != nil {
+						return errors.Wrap(err, "{{ . }}().RecordTenantSignIn()")
+					}`
+
 	// tenantDisabledRequired is spliced into the tenant record's delete, before the row's
 	// removal is buffered (patchSet and id, which the splice's place sets), where the
 	// record marks the column saying a tenant is disabled: a tenant is disabled before it
@@ -3454,6 +3468,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -3945,10 +3960,18 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
 					` + deleteLeftKept + `
+					{{- with .DirectoryRemovalRecorder }}
+					if patch.Left() == nil {
+					` + directoryRemovalRecorded + `
+					}
+					{{- end }}
 					{{- else }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
+					{{- with .DirectoryRemovalRecorder }}
+					` + directoryRemovalRecorded + `
+					{{- end }}
 					{{- end }}
 				{{- end }}
 				}
@@ -3989,6 +4012,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -4279,10 +4303,18 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
 							` + deleteLeftKept + `
+							{{- with .DirectoryRemovalRecorder }}
+							if patch.Left() == nil {
+							` + directoryRemovalRecorded + `
+							}
+							{{- end }}
 							{{- else }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
+							{{- with .DirectoryRemovalRecorder }}
+							` + directoryRemovalRecorded + `
+							{{- end }}
 							{{- end }}
 							{{- end }}
 						}

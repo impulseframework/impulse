@@ -32,8 +32,6 @@ const (
 	noRowLibrary = "the session library's write records it"
 	noRowSession = "a session, which the Sessions page lists"
 	noRowNoAct   = "not an act of the log"
-	// noRowDeletes is the reason of the deletes, whose rows are built with the deletes.
-	noRowDeletes = "built with the deletes"
 )
 
 // recordedMethods lists every exported method of the Manager and of a Tenant, each with
@@ -47,7 +45,7 @@ var recordedMethods = map[string]recordRule{
 	"Manager.RenameUser":            {acts: []auditlog.Act{auditlog.ActUsernameChanged}},
 	"Manager.DisableUser":           {acts: []auditlog.Act{auditlog.ActAccountDisabled}},
 	"Manager.EnableUser":            {acts: []auditlog.Act{auditlog.ActAccountEnabled}},
-	"Manager.DeleteUser":            {acts: []auditlog.Act{auditlog.ActGroupMemberRemoved}},
+	"Manager.DeleteUser":            {acts: []auditlog.Act{auditlog.ActAccountDeleted}},
 	"Manager.RequirePasswordChange": {acts: []auditlog.Act{auditlog.ActPasswordChangeRequired}},
 	"Manager.RemovePassword":        {acts: []auditlog.Act{auditlog.ActPasswordRemoved}},
 	"Manager.UnlinkIdentity":        {acts: []auditlog.Act{auditlog.ActIdentityUnlinked}},
@@ -80,7 +78,7 @@ var recordedMethods = map[string]recordRule{
 	// A group.
 	"Manager.CreateGroup":       {acts: []auditlog.Act{auditlog.ActGroupMade}},
 	"Manager.DescribeGroup":     {acts: []auditlog.Act{auditlog.ActGroupChanged}},
-	"Manager.DeleteGroup":       {none: noRowDeletes},
+	"Manager.DeleteGroup":       {acts: []auditlog.Act{auditlog.ActGroupRemoved}},
 	"Manager.AddGroupMemberFor": {acts: []auditlog.Act{auditlog.ActGroupMemberAdded}},
 	"Manager.AddGroupMember":    {by: "Manager.AddGroupMemberFor"},
 	"Manager.RemoveGroupMember": {acts: []auditlog.Act{auditlog.ActGroupMemberRemoved}},
@@ -89,7 +87,7 @@ var recordedMethods = map[string]recordRule{
 	"Manager.TakeGroupRole":     {acts: []auditlog.Act{auditlog.ActGroupRoleTaken}},
 	"Tenant.CreateGroup":        {by: "Manager.CreateGroup"},
 	"Tenant.DescribeGroup":      {by: "Manager.DescribeGroup"},
-	"Tenant.DeleteGroup":        {none: noRowDeletes},
+	"Tenant.DeleteGroup":        {by: "Manager.DeleteGroup"},
 	"Tenant.AddGroupMemberFor":  {by: "Manager.AddGroupMemberFor"},
 	"Tenant.AddGroupMember":     {by: "Manager.AddGroupMemberFor"},
 	"Tenant.RemoveGroupMember":  {by: "Manager.RemoveGroupMember"},
@@ -124,8 +122,8 @@ var recordedMethods = map[string]recordRule{
 		auditlog.ActDirectoryOpened, auditlog.ActDirectoryInviteOnly, auditlog.ActDirectorySecondFactorVouched, auditlog.ActDirectorySecondFactorUnvouched,
 	}},
 
-	// A tenant's delete.
-	"Manager.TenantKinds": {none: noRowDeletes},
+	// A tenant's delete: the accounts that were its alone.
+	"Manager.TenantKinds": {acts: []auditlog.Act{auditlog.ActAccountDeleted}},
 
 	// What is wired once.
 	"Manager.AnnounceWith": {none: noRowNoAct},
@@ -189,7 +187,6 @@ var recordedElsewhere = map[auditlog.Act]string{
 	auditlog.ActTokenMade:             bySessionLibrary,
 	auditlog.ActRoleGiven:             byPermissionStore,
 	auditlog.ActRoleTaken:             byPermissionStore,
-	auditlog.ActGroupRemoved:          noRowDeletes,
 }
 
 // Test_everyMethodIsListedForTheAuditLog reads the package's own source and holds every
@@ -204,7 +201,7 @@ var recordedElsewhere = map[auditlog.Act]string{
 // it included, and the body of each function or method of the package it names, once
 // each. A call on the method's receiver, or on the Manager a Tenant holds, is that
 // type's method; any other call of a method is every method of the package of that
-// name. Whether a method calls record is read without following the exported methods
+// name; and a value made of a type of the package reaches every method of the type. Whether a method calls record is read without following the exported methods
 // of the two types, which have lines of their own.
 func Test_everyMethodIsListedForTheAuditLog(t *testing.T) {
 	t.Parallel()
@@ -265,10 +262,12 @@ func Test_everyMethodIsListedForTheAuditLog(t *testing.T) {
 }
 
 // packageCode is the package's own code, its tests apart: each function and method by
-// its key (its name, Type.name for a method), and the keys of the methods of each name.
+// its key (its name, Type.name for a method), the keys of the methods of each name, and
+// the keys of the methods of each type.
 type packageCode struct {
 	funcs   map[string]*ast.FuncDecl
 	methods map[string][]string
+	ofType  map[string][]string
 }
 
 // readPackageCode parses the package's own files, its tests apart.
@@ -279,7 +278,7 @@ func readPackageCode(t *testing.T) *packageCode {
 	if err != nil {
 		t.Fatalf("os.ReadDir() error = %v", err)
 	}
-	code := &packageCode{funcs: make(map[string]*ast.FuncDecl), methods: make(map[string][]string)}
+	code := &packageCode{funcs: make(map[string]*ast.FuncDecl), methods: make(map[string][]string), ofType: make(map[string][]string)}
 	files := token.NewFileSet()
 	for _, entry := range entries {
 		name := entry.Name()
@@ -299,6 +298,7 @@ func readPackageCode(t *testing.T) *packageCode {
 			if typ := receiverType(fn); typ != "" {
 				key = typ + "." + key
 				code.methods[fn.Name.Name] = append(code.methods[fn.Name.Name], key)
+				code.ofType[typ] = append(code.ofType[typ], key)
 			}
 			code.funcs[key] = fn
 		}
@@ -317,8 +317,9 @@ func isListedMethod(key string) bool {
 
 // named answers the keys of the package's functions a node of fn's code names: a call
 // or a method value on fn's receiver or on the Manager a Tenant holds is that type's
-// method, any other call of a method every method of that name, and a name a function
-// of the package.
+// method, any other call of a method every method of that name, a name a function of
+// the package, and a value made of one of the package's types every method of the type,
+// which whoever it is handed to may call (the kinds a tenant's delete is handed).
 func (p *packageCode) named(fn *ast.FuncDecl, node ast.Node) []string {
 	switch n := node.(type) {
 	case *ast.SelectorExpr:
@@ -341,6 +342,10 @@ func (p *packageCode) named(fn *ast.FuncDecl, node ast.Node) []string {
 		}
 	case *ast.Ident:
 		return p.known(n.Name)
+	case *ast.CompositeLit:
+		if typ, ok := n.Type.(*ast.Ident); ok {
+			return p.ofType[typ.Name]
+		}
 	}
 
 	return nil

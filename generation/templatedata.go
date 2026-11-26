@@ -149,6 +149,10 @@ type consolidatedCaseData struct {
 	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
 	// removal is buffered (tenantDisabledRequirement); nil on every other case.
 	RequiresDisabled *tenantDisabledRequirement
+	// DirectoryRemovalRecorder is the application's accessor of the identity client whose
+	// audit log the directories record's delete records the removal in
+	// (directoryRemovalRecorder); empty on every other case.
+	DirectoryRemovalRecorder string
 }
 
 func (d *consolidatedPatchData) typeImports() []fixerImport {
@@ -173,6 +177,10 @@ type handlerContentData struct {
 	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
 	// removal is buffered (tenantDisabledRequirement); nil on every other resource.
 	RequiresDisabled *tenantDisabledRequirement
+	// DirectoryRemovalRecorder is the application's accessor of the identity client whose
+	// audit log the directories record's delete records the removal in
+	// (directoryRemovalRecorder); empty on every other resource.
+	DirectoryRemovalRecorder string
 	// Home is where the handler is written, nil for the application's handler package:
 	// it says what the handler hands to every publish (handlerHome.LiveDerivations).
 	Home *handlerHome

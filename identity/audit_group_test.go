@@ -157,7 +157,8 @@ func TestGroupActsRecorded(t *testing.T) {
 			},
 		},
 		{
-			name: "an account deleted takes its places in groups",
+			// The places go with the account, which is the one row.
+			name: "an account deleted with its places in groups",
 			prepare: func(store *fakeStore) {
 				store.groupMembers[memberKey(nightID, userID)] = true
 			},
@@ -166,8 +167,8 @@ func TestGroupActsRecorded(t *testing.T) {
 
 				return err
 			},
-			want:     []auditlog.Record{danaIn(auditlog.ActGroupMemberRemoved)},
-			wantWhat: "Took out of the group Night shift",
+			want:     []auditlog.Record{{Act: auditlog.ActAccountDeleted, SubjectKind: auditlog.SubjectAccount, SubjectID: userID.String(), SubjectName: "dana"}},
+			wantWhat: "Deleted the account",
 		},
 	}
 	for _, tt := range tests {
@@ -382,5 +383,60 @@ func TestRememberLengthsAreTheLogsWords(t *testing.T) {
 		if got, want := row.Sentences("tenant").What, "Set how long a browser is remembered to "+length.Name; got != want {
 			t.Errorf("the log reads %d days as %q, want %q", length.Days, got, want)
 		}
+	}
+}
+
+// TestDeleteGroup_recorded pins the row of a group's delete in two saves: none in the
+// save that leaves the group standing, and one in the save that deletes it, done to the
+// group by its name, in the tenant it is kept in. Its members and its roles have no row of
+// their own.
+func TestDeleteGroup_recorded(t *testing.T) {
+	t.Parallel()
+
+	store := groupStore()
+	store.groupMembers[memberKey(nightID, userID)] = true
+	store.groupRoles[access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")] = true
+	store.groupLeft = &resource.DeleteLeft{Deleted: 2, Left: 1}
+	sessions := fakeSessions{tenantNames: map[accesstypes.Domain]string{"alpha": "Alpha Sector"}}
+	m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, sessions, WithTenantWord("sector"))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	round := func(t *testing.T) *resource.DeleteLeft {
+		t.Helper()
+
+		var left *resource.DeleteLeft
+		if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			var err error
+			left, err = m.DeleteGroup(ctx, txn, nightID, true)
+
+			return err
+		}); err != nil {
+			t.Fatalf("DeleteGroup() error = %v", err)
+		}
+
+		return left
+	}
+
+	if left := round(t); left == nil {
+		t.Fatal("the first save's DeleteGroup() left nothing, want what the fake left")
+	}
+	if len(store.audit) != 0 {
+		t.Fatalf("the save that left the group standing wrote %d audit rows (%s first), want none", len(store.audit), store.audit[0].Act)
+	}
+	store.groupLeft = nil
+	if left := round(t); left != nil {
+		t.Fatalf("the second save's DeleteGroup() left %+v, want the group gone", left)
+	}
+	want := []auditlog.Record{{
+		Act: auditlog.ActGroupRemoved, Source: eventsource.ProcessEvent(auditlog.ProcessApplication), SubjectKind: auditlog.SubjectGroup,
+		SubjectID: nightID.String(), SubjectName: "Night shift", TenantID: "alpha", TenantName: "Alpha Sector",
+	}}
+	if diff := cmp.Diff(want, store.audit, cmp.AllowUnexported(eventsource.EventSource{})); diff != "" {
+		t.Fatalf("audit rows (-want +got):\n%s", diff)
+	}
+	stored := storedOf(t, &store.audit[0])
+	if got := stored.Sentences("sector").What; got != "Removed the group" {
+		t.Errorf("the row reads %q, want Removed the group", got)
 	}
 }
