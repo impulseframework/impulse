@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -135,6 +136,111 @@ func TestResume(t *testing.T) {
 			}
 			if start != tt.wantStart {
 				t.Errorf("Resume() = %d, want %d", start, tt.wantStart)
+			}
+		})
+	}
+}
+
+func TestInFlight(t *testing.T) {
+	t.Parallel()
+
+	stmts := []string{
+		"CREATE TABLE A (Id INT64) PRIMARY KEY (Id)",
+		"CREATE UNIQUE INDEX U ON T(Val)",
+		"INSERT INTO T (Id, Val) VALUES (1, 1)",
+		"CREATE TABLE B (Id INT64) PRIMARY KEY (Id)",
+	}
+	file := &Migration{Version: 41, Name: "Refits", Direction: Up, File: "000041_Refits.up.sql"}
+	const operation = "projects/p/instances/i/databases/d/operations/migrate_0123456789abcdef0123456789abcdef"
+	row := func(applied int, checkpoint string) Version {
+		return Version{Number: 41, Known: true, Dirty: true, Progress: true, Applied: applied, Checkpoint: checkpoint, Operation: operation}
+	}
+
+	tests := []struct {
+		name    string
+		version Version
+		stmts   []string
+		want    Group
+		wantErr string
+	}{
+		{
+			name:    "the batch from the file's start",
+			version: row(0, Checkpoint(stmts[:2])),
+			stmts:   stmts,
+			want:    Group{Kind: DDL, Start: 0, Statements: stmts[:2]},
+		},
+		{
+			name:    "the batch after an applied statement",
+			version: row(1, Checkpoint(stmts[:2])),
+			stmts:   stmts,
+			want:    Group{Kind: DDL, Start: 1, Statements: stmts[1:2]},
+		},
+		{
+			name:    "the part after the batch may change",
+			version: row(0, Checkpoint(stmts[:2])),
+			stmts:   []string{stmts[0], stmts[1], "INSERT INTO T (Id, Val) VALUES (2, 2)", "CREATE TABLE C (Id INT64) PRIMARY KEY (Id)"},
+			want:    Group{Kind: DDL, Start: 0, Statements: stmts[:2]},
+		},
+		{
+			name:    "the applied part changed",
+			version: row(1, Checkpoint(stmts[:2])),
+			stmts:   []string{"CREATE TABLE A (Id INT64, Name STRING(MAX)) PRIMARY KEY (Id)", stmts[1], stmts[2], stmts[3]},
+			wantErr: "000041_Refits.up.sql changed in the part already applied (1 statement) or in the DDL batch after it, which the version row names as operation " + operation + "; restore the file or force a version",
+		},
+		{
+			name:    "the batch changed",
+			version: row(0, Checkpoint(stmts[:2])),
+			stmts:   []string{stmts[0], "CREATE UNIQUE INDEX U ON T(Val, Id)", stmts[2], stmts[3]},
+			wantErr: "changed in the part already applied",
+		},
+		{
+			name:    "a statement added to the batch",
+			version: row(0, Checkpoint(stmts[:2])),
+			stmts:   []string{stmts[0], stmts[1], "CREATE TABLE C (Id INT64) PRIMARY KEY (Id)", stmts[2], stmts[3]},
+			wantErr: "changed in the part already applied",
+		},
+		{
+			name:    "a statement taken out of the batch",
+			version: row(0, Checkpoint(stmts[:2])),
+			stmts:   []string{stmts[0], stmts[2], stmts[3]},
+			wantErr: "changed in the part already applied",
+		},
+		{
+			name:    "no DDL group at that place",
+			version: row(2, Checkpoint(stmts[:3])),
+			stmts:   stmts,
+			wantErr: "changed in the part already applied",
+		},
+		{
+			name:    "the file ends before the batch",
+			version: row(2, Checkpoint(stmts[:2])),
+			stmts:   stmts[:2],
+			wantErr: "changed in the part already applied",
+		},
+		{
+			name:    "a checkpoint of the applied part alone",
+			version: row(1, Checkpoint(stmts[:1])),
+			stmts:   stmts,
+			wantErr: "changed in the part already applied",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := inFlight(tt.version, file, tt.stmts)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("inFlight() error = %v, want one containing %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("inFlight() error = %v", err)
+			}
+			if got.Kind != tt.want.Kind || got.Start != tt.want.Start || !slices.Equal(got.Statements, tt.want.Statements) {
+				t.Errorf("inFlight() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}

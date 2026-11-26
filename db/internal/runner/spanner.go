@@ -141,20 +141,31 @@ func (s *Spanner) resume(ctx context.Context, held *Version, src *Source) error 
 }
 
 // resolveOperation settles the DDL operation a stopped run left named on the version row.
-// The file's applied part is checked against the recorded checkpoint first, so nothing is
-// sent for a file that changed there. When the name is one the runner makes, it then sends
-// the group's batch under that name: Spanner accepts it if the stopped run never sent it,
-// and answers that the operation exists if it did, so the batch is sent once either way. It
-// then waits for the operation and counts its committed statements into Applied: all of
-// them when it succeeded, its commit timestamps when it failed. The operation's statements
-// must be the file's from Applied on; otherwise the file changed in its applied part. A wait
-// that the run's own context ends leaves the operation named on the row, and the next run
-// resolves it.
+// For a name the runner makes, the row's checkpoint covers the file through the operation's
+// batch, and the file is checked against it first: nothing is sent or settled for a file that
+// changed in its applied part or in that batch. The batch is then sent under the recorded
+// name: Spanner accepts it if the stopped run never sent it, and answers that the operation
+// exists if it did, so the batch is sent once either way. The run waits for the operation and
+// counts the batch's applied statements into Applied: all of them when it succeeded, as many
+// as it holds commit timestamps when it failed. It reads none of the statements Spanner holds
+// for the operation: Spanner keeps its own rewritten text of each, not the text it was sent. A
+// name the runner did not make is only fetched: the row's checkpoint covers its applied part
+// alone, and the operation's statements must be the file's from Applied on. A wait that does
+// not finish leaves the operation named on the row for the next run; only for a name the
+// runner did not make, with the run's context still live, does the run say the operation
+// cannot be fetched.
 func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Migration, stmts []string) error {
-	if err := checkApplied(*held, file, stmts); err != nil {
-		return err
-	}
-	if err := s.sendRecorded(ctx, held, file, stmts); err != nil {
+	id, own := s.ownOperationID(held.Operation)
+	var g Group
+	if own {
+		var err error
+		if g, err = inFlight(*held, file, stmts); err != nil {
+			return err
+		}
+		if err := s.sendRecorded(ctx, held, file, stmts, g, id); err != nil {
+			return err
+		}
+	} else if err := checkApplied(*held, file, stmts); err != nil {
 		return err
 	}
 
@@ -162,22 +173,27 @@ func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Mig
 	op := s.admin.UpdateDatabaseDdlOperation(v.Operation)
 	waitErr := op.Wait(ctx)
 	switch {
-	case !op.Done() && ctx.Err() != nil:
+	case !op.Done() && (own || ctx.Err() != nil):
 		return errors.Wrapf(waitErr, "waiting for DDL operation %s of %s; the next run resolves it", v.Operation, file.File)
 	case !op.Done():
 		return errors.Wrapf(waitErr, "DDL operation %s, recorded for version %d, cannot be fetched; force the version that matches the database's real state", v.Operation, v.Number)
 	}
 
-	md, err := op.Metadata()
-	if err != nil {
-		return errors.Wrapf(err, "metadata of DDL operation %s", v.Operation)
+	var md *databasepb.UpdateDatabaseDdlMetadata
+	if !own || waitErr != nil {
+		var err error
+		if md, err = op.Metadata(); err != nil {
+			return errors.Wrapf(err, "metadata of DDL operation %s", v.Operation)
+		}
 	}
-
-	n := len(md.GetCommitTimestamps())
-	if waitErr == nil {
+	n := len(g.Statements)
+	switch {
+	case waitErr != nil:
+		n = len(md.GetCommitTimestamps())
+	case !own:
 		n = len(md.GetStatements())
 	}
-	if v.Applied+n > len(stmts) || !slices.Equal(stmts[v.Applied:v.Applied+n], md.GetStatements()[:n]) {
+	if v.Applied+n > len(stmts) || (!own && !slices.Equal(stmts[v.Applied:v.Applied+n], md.GetStatements()[:n])) {
 		return errors.Newf("%s changed in the part already applied: DDL operation %s applied %s the file no longer carries at that place; restore the file or force a version",
 			file.File, v.Operation, plural(n, "statement"))
 	}
@@ -193,23 +209,12 @@ func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Mig
 	return nil
 }
 
-// sendRecorded sends the batch of the DDL group a stopped run named on the version row,
-// under the recorded operation ID, when the name is the runner's own form and the file's
-// next group is DDL. Another name was not made by the runner and is only fetched. A refusal
-// of Spanner's own applied nothing: the name comes off the row and the run stops with a
-// DirtyError. Any other failure does not say whether Spanner took the batch: the name stays
-// on the row and the run stops.
-func (s *Spanner) sendRecorded(ctx context.Context, held *Version, file *Migration, stmts []string) error {
-	id, ok := s.ownOperationID(held.Operation)
-	if !ok {
-		return nil
-	}
-	groups := Groups(stmts, held.Applied)
-	if len(groups) == 0 || groups[0].Kind != DDL {
-		return nil
-	}
-	g := groups[0]
-
+// sendRecorded sends the batch a stopped run named on the version row, under the recorded
+// operation ID. A refusal of Spanner's own applied nothing: the name comes off the row, the
+// row's checkpoint goes back to the applied part, and the run stops with a DirtyError. Any
+// other failure does not say whether Spanner took the batch: the name stays on the row and
+// the run stops.
+func (s *Spanner) sendRecorded(ctx context.Context, held *Version, file *Migration, stmts []string, g Group, id string) error {
 	_, err := s.ddlBatch(ctx, g.Statements, id)
 	switch {
 	case err == nil:
@@ -226,9 +231,7 @@ func (s *Spanner) sendRecorded(ctx context.Context, held *Version, file *Migrati
 		)
 	}
 
-	v := *held
-	v.Operation = ""
-	if _, commitErr := s.Commit(ctx, held, v, nil); commitErr != nil {
+	if _, commitErr := s.Commit(ctx, held, s.progress(file, stmts, held.Applied, ""), nil); commitErr != nil {
 		return commitErr
 	}
 
@@ -284,30 +287,40 @@ func (s *Spanner) progress(m *Migration, stmts []string, applied int, operation 
 	}
 }
 
-// applyDDL sends a DDL group as one batch under an operation ID of the run's own, whose
-// name it records on the version row before it sends. Spanner accepts an operation ID once,
-// so a batch whose name is on the row is sent once, whoever sends it. When Spanner answers
-// that the operation exists, the batch was taken before: by this call's own earlier attempt
-// whose answer was lost, or by a run that took this file up. The run waits for that
-// operation as for one it sent, and stops (ErrAnotherRun) only when it carries other
-// statements. A refusal of Spanner's own applied nothing, and the name comes off the row. Any
-// other failure of the send does not say whether Spanner took the batch: the name stays on
-// the row and the next run resolves it. When the operation fails, its commit timestamps say
-// how many statements applied.
+// claim is the version row that names the operation of a DDL group before its batch is sent:
+// the statements applied before the group, and a checkpoint of the file through the group,
+// which the run that takes the file up checks its own file against.
+func (s *Spanner) claim(m *Migration, stmts []string, g Group, operation string) Version {
+	v := s.progress(m, stmts, g.Start, operation)
+	v.Checkpoint = Checkpoint(stmts[:g.Start+len(g.Statements)])
+
+	return v
+}
+
+// applyDDL sends a DDL group as one batch under an operation ID of the run's own. Before it
+// sends, it records on the version row the operation's name and a checkpoint of the file
+// through the group. Spanner accepts an operation ID once, so a batch whose name is on the row
+// is sent once, whoever sends it. When Spanner answers that the operation exists, the batch
+// was taken before: by this call's own earlier attempt whose answer was lost, or by a run that
+// took this file up, which sends under the name only when its file carries the same batch
+// (resolveOperation). The run waits for that operation as for one it sent. A refusal of
+// Spanner's own applied nothing, and the name comes off the row. Any other failure of the
+// send does not say whether Spanner took the batch: the name stays on the row and the next
+// run resolves it. When the operation fails, its commit timestamps say how many statements
+// applied.
 func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stmts []string, g Group) error {
 	id, err := newOperationID()
 	if err != nil {
 		return err
 	}
 	name := s.operationName(id)
-	if _, err := s.Commit(ctx, held, s.progress(m, stmts, g.Start, name), nil); err != nil {
+	if _, err := s.Commit(ctx, held, s.claim(m, stmts, g, name), nil); err != nil {
 		return err
 	}
 
 	op, err := s.ddlBatch(ctx, g.Statements, id)
-	taken := status.Code(err) == codes.AlreadyExists
 	switch {
-	case taken:
+	case status.Code(err) == codes.AlreadyExists:
 		op = s.admin.UpdateDatabaseDdlOperation(name)
 	case spannerRefused(err):
 		if _, commitErr := s.Commit(ctx, held, s.progress(m, stmts, g.Start, ""), nil); commitErr != nil {
@@ -322,15 +335,6 @@ func (s *Spanner) applyDDL(ctx context.Context, held *Version, m *Migration, stm
 	waitErr := op.Wait(ctx)
 	if !op.Done() {
 		return errors.Wrapf(waitErr, "waiting for DDL operation %s of %s; the next run resolves it", op.Name(), m.File)
-	}
-	if taken {
-		md, err := op.Metadata()
-		if err != nil {
-			return errors.Wrapf(err, "metadata of DDL operation %s", op.Name())
-		}
-		if !slices.Equal(md.GetStatements(), g.Statements) {
-			return errors.Wrapf(ErrAnotherRun, "DDL operation %s of %s was sent by another run with other statements; version table %s", name, m.File, s.table)
-		}
 	}
 	if waitErr != nil {
 		md, err := op.Metadata()

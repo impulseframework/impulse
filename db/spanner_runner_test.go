@@ -901,7 +901,9 @@ func testNotCarried(dirty bool) func(ctx context.Context, t *testing.T, containe
 // TestSpannerMigrator_InterruptedRun resolves a DDL operation a dead run left named on the
 // version row: the test sends the batch itself, or leaves it unsent as a run that died
 // between recording the name and sending would, and writes the row with the operation's
-// name. A file changed in its applied part refuses before anything is sent or settled.
+// name. A file changed in its applied part refuses before anything is sent or settled. For a
+// name of the runner's own form the row's checkpoint covers the batch, and a file changed in
+// the batch refuses the same way.
 func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 	t.Parallel()
 
@@ -916,14 +918,17 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 	const ownID = "migrate_0123456789abcdef0123456789abcdef"
 
 	tests := []struct {
-		name        string
-		seed        [][2]int64
-		batch       []string
+		name  string
+		seed  [][2]int64
+		batch []string
+		// now is the file's statements, where they are not the batch.
+		now         []string
 		unknown     bool
 		ownID       bool
 		unsent      bool
 		changed     bool
 		wantErr     string
+		wantAbsent  []string
 		wantDirty   bool
 		wantApplied int64
 		wantClean   bool
@@ -960,6 +965,14 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 			wantClean: true,
 		},
 		{
+			name:        "a failed operation the run named counts its commit timestamps",
+			seed:        [][2]int64{{1, 7}, {2, 7}},
+			batch:       []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlUniqueIndexU, ";"), strings.TrimSuffix(sqlCreateB, ";")},
+			ownID:       true,
+			wantErr:     "stopped at statement 2 of 3",
+			wantApplied: 1,
+		},
+		{
 			name:      "a named batch Spanner refuses comes off the row",
 			batch:     []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlBadIndex, ";")},
 			ownID:     true,
@@ -976,6 +989,23 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 			wantErr: "changed in the part already applied (1 statement)",
 		},
 		{
+			name:       "a file changed in the batch in flight refuses before the recorded batch is sent",
+			batch:      []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateB, ";")},
+			now:        []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateC, ";")},
+			ownID:      true,
+			unsent:     true,
+			wantErr:    "000002_refit.up.sql changed in the part already applied (0 statements) or in the DDL batch after it, which the version row names as operation <name>; restore the file or force a version",
+			wantAbsent: []string{"A", "C"},
+		},
+		{
+			name:       "a file changed in the batch in flight refuses before the sent operation is settled",
+			batch:      []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateB, ";")},
+			now:        []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateC, ";")},
+			ownID:      true,
+			wantErr:    "or in the DDL batch after it",
+			wantAbsent: []string{"C"},
+		},
+		{
 			name:    "a file changed in its applied part refuses before the recorded operation is settled",
 			batch:   []string{strings.TrimSuffix(sqlCreateB, ";")},
 			changed: true,
@@ -986,20 +1016,34 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			db, migrator := testMigrator(ctx, t, container)
+			var opts []option.ClientOption
+			if tt.ownID {
+				opts = append(opts, intercepting(heldAsSpannerHolds))
+			}
+			db, migrator := testMigrator(ctx, t, container, opts...)
 			source := writeSource(t, map[string]string{"000001_t.up.sql": sqlCreateT})
 			if err := migrator.MigrateUpSchema(ctx, source); err != nil {
 				t.Fatalf("MigrateUpSchema(file 1) error = %v", err)
 			}
 			insertT(ctx, t, db.Client, tt.seed...)
-			file := strings.Join(tt.batch, ";\n") + ";"
-			applied, checkpoint := int64(0), runner.Checkpoint(nil)
+			stmts := tt.batch
+			if tt.now != nil {
+				stmts = tt.now
+			}
+			file := strings.Join(stmts, ";\n") + ";"
+			var done []string
 			if tt.changed {
 				// The file's first statement applied as it was then, and changed since.
 				first := strings.TrimSuffix(sqlCreateA, ";")
 				ddl(ctx, t, db, first)
 				file = sqlCreateAChanged + "\n" + file
-				applied, checkpoint = 1, runner.Checkpoint([]string{first})
+				done = []string{first}
+			}
+			applied, checkpoint := int64(len(done)), runner.Checkpoint(done)
+			if tt.ownID {
+				// A run that names an operation records a checkpoint of the file, as it held
+				// it, through the batch.
+				checkpoint = runner.Checkpoint(append(slices.Clone(done), tt.batch...))
 			}
 			writeMigration(t, source, "000002_refit.up.sql", file)
 
@@ -1032,19 +1076,25 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 
 			err := migrator.MigrateUpSchema(ctx, source)
 			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("MigrateUpSchema() error = %v, want one containing %q", err, tt.wantErr)
+				wantErr := strings.ReplaceAll(tt.wantErr, "<name>", name)
+				if err == nil || !strings.Contains(err.Error(), wantErr) {
+					t.Fatalf("MigrateUpSchema() error = %v, want one containing %q", err, wantErr)
 				}
 				row, ok := readVersionRow(ctx, t, db.Client, "SchemaMigrations")
 				if !ok {
 					t.Fatal("SchemaMigrations has no row")
 				}
-				if tt.unknown || tt.changed {
-					if !row.operation.Valid || row.operation.StringVal != name {
-						t.Errorf("SchemaMigrations = %+v, want the operation kept on the row", row)
+				if tt.unknown || tt.changed || tt.now != nil {
+					if !row.operation.Valid || row.operation.StringVal != name || row.applied.Int64 != applied {
+						t.Errorf("SchemaMigrations = %+v, want the operation kept on the row with %d applied", row, applied)
 					}
 					if tt.unsent && exists(ctx, t, db.Client, "table", "B") {
 						t.Error("table B exists: the recorded batch was sent for a file changed in its applied part")
+					}
+					for _, table := range tt.wantAbsent {
+						if exists(ctx, t, db.Client, "table", table) {
+							t.Errorf("table %s exists: the run went on with a file changed in the batch in flight", table)
+						}
 					}
 
 					return
@@ -1054,6 +1104,9 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 					t.Errorf("MigrateUpSchema() error = %v, want a *DirtyError with nothing applied", err)
 				}
 				assertDirty(ctx, t, db.Client, 2, tt.wantApplied)
+				if want := runner.Checkpoint(stmts[:tt.wantApplied]); tt.ownID && row.checkpoint.StringVal != want {
+					t.Errorf("SchemaMigrations checkpoint = %s, want %s, of the %d applied statements", row.checkpoint.StringVal, want, tt.wantApplied)
+				}
 
 				return
 			}
@@ -1086,6 +1139,7 @@ func TestSpannerMigrator_RecordedOperationWait(t *testing.T) {
 		run  func(ctx context.Context, t *testing.T, container *SpannerContainer)
 	}{
 		{name: "a wait the run's own context ends says the next run resolves it", run: testRecordedWaitCut},
+		{name: "a batch just sent whose wait does not finish says the next run resolves it", run: testSentWaitRefused},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1096,21 +1150,24 @@ func TestSpannerMigrator_RecordedOperationWait(t *testing.T) {
 	}
 }
 
-// cancelAtFirstPoll is an interceptor that, once armed, ends a run's context at the first
-// poll of an operation it sees, then lets the poll go.
-type cancelAtFirstPoll struct {
-	cancel   context.CancelFunc
-	armed    atomic.Bool
-	canceled atomic.Bool
+// firstPoll is an interceptor that, once armed, hands the first poll of an operation it sees
+// to answer, which polls (poll) or answers in place of Spanner.
+type firstPoll struct {
+	answer func(poll func() error) error
+	armed  atomic.Bool
+	seen   atomic.Bool
 }
 
 // intercept is the interceptor.
-func (c *cancelAtFirstPoll) intercept(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-	if method == methodGetOperation && c.armed.Load() && c.canceled.CompareAndSwap(false, true) {
-		c.cancel()
+func (f *firstPoll) intercept(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	poll := func() error {
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+	if method == methodGetOperation && f.armed.Load() && f.seen.CompareAndSwap(false, true) {
+		return f.answer(poll)
 	}
 
-	return invoker(ctx, method, req, reply, cc, opts...)
+	return poll()
 }
 
 // testRecordedWaitCut: a stopped run left a sent batch named on the row under the name
@@ -1122,8 +1179,12 @@ func testRecordedWaitCut(ctx context.Context, t *testing.T, container *SpannerCo
 
 	runCtx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
-	poll := &cancelAtFirstPoll{cancel: cancel}
-	db, migrator := testMigrator(ctx, t, container, intercepting(poll.intercept))
+	first := &firstPoll{answer: func(poll func() error) error {
+		cancel()
+
+		return poll()
+	}}
+	db, migrator := testMigrator(ctx, t, container, intercepting(first.intercept))
 	source := writeSource(t, map[string]string{"000001_t.up.sql": sqlCreateT})
 	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
 		t.Fatalf("MigrateUpSchema(file 1) error = %v", err)
@@ -1147,9 +1208,9 @@ func testRecordedWaitCut(ctx context.Context, t *testing.T, container *SpannerCo
 	}
 	writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &want)
 
-	poll.armed.Store(true)
+	first.armed.Store(true)
 	err = migrator.MigrateUpSchema(runCtx, source)
-	if !poll.canceled.Load() {
+	if !first.seen.Load() {
 		t.Fatal("the interceptor saw no poll of the recorded operation")
 	}
 	if err == nil || !strings.Contains(err.Error(), "the next run resolves it") || strings.Contains(err.Error(), "force the version") {
@@ -1161,6 +1222,53 @@ func testRecordedWaitCut(ctx context.Context, t *testing.T, container *SpannerCo
 
 	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
 		t.Fatalf("MigrateUpSchema() with a live context error = %v", err)
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 2)
+	assertTablesAB(ctx, t, db, true)
+}
+
+// testSentWaitRefused: a stopped run named its operation on the row and never sent the batch;
+// the next run sends it under the name, and the first poll of the operation is refused. The
+// run says the next run resolves it and leaves the name on the row; the next run settles the
+// operation and finishes the file.
+func testSentWaitRefused(ctx context.Context, t *testing.T, container *SpannerContainer) {
+	t.Helper()
+
+	first := &firstPoll{answer: func(func() error) error {
+		return status.Error(codes.PermissionDenied, "the poll was refused")
+	}}
+	db, migrator := testMigrator(ctx, t, container, intercepting(heldAsSpannerHolds), intercepting(first.intercept))
+	source := writeSource(t, map[string]string{"000001_t.up.sql": sqlCreateT})
+	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
+		t.Fatalf("MigrateUpSchema(file 1) error = %v", err)
+	}
+	writeMigration(t, source, "000002_ab.up.sql", sqlCreateA+"\n"+sqlCreateB)
+
+	// A name of the runner's own form: migrate_ and 32 lower-case hex digits.
+	name := db.dbStr + "/operations/migrate_0123456789abcdef0123456789abcdef"
+	batch := []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateB, ";")}
+	writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &versionRow{
+		version:    2,
+		dirty:      true,
+		applied:    spanner.NullInt64{Int64: 0, Valid: true},
+		checkpoint: spanner.NullString{StringVal: runner.Checkpoint(batch), Valid: true},
+		operation:  spanner.NullString{StringVal: name, Valid: true},
+	})
+
+	first.armed.Store(true)
+	err := migrator.MigrateUpSchema(ctx, source)
+	if !first.seen.Load() {
+		t.Fatal("the interceptor saw no poll of the recorded operation")
+	}
+	if err == nil || !strings.Contains(err.Error(), "the next run resolves it") || strings.Contains(err.Error(), "force the version") {
+		t.Errorf("MigrateUpSchema() error = %v, want one that says the next run resolves it, not to force the version", err)
+	}
+	if row, ok := readVersionRow(ctx, t, db.Client, "SchemaMigrations"); !ok || row.operation.StringVal != name {
+		t.Errorf("SchemaMigrations = %+v, want %s kept on the row", row, name)
+	}
+
+	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
+		t.Fatalf("MigrateUpSchema() again error = %v", err)
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 2)
 	assertTablesAB(ctx, t, db, true)
@@ -1256,7 +1364,8 @@ func TestSpannerMigrator_CommitHoldsTheRow(t *testing.T) {
 
 // TestSpannerMigrator_DDLSendAnswers stages Spanner's answer to the first DDL batch a run
 // sends under its own operation ID, through an interceptor both of the migrator's clients
-// take.
+// take. The migrator's clients answer every operation's statements in other text than was
+// sent, as the real service does.
 func TestSpannerMigrator_DDLSendAnswers(t *testing.T) {
 	t.Parallel()
 
@@ -1272,8 +1381,9 @@ func TestSpannerMigrator_DDLSendAnswers(t *testing.T) {
 		run  func(ctx context.Context, t *testing.T, container *SpannerContainer)
 	}{
 		{name: "a batch taken while its answer was lost is waited for", run: testSendAnswerLost},
-		{name: "a batch another run sent under the name with other statements stops the run", run: testSendOtherStatements},
 		{name: "an answer that does not say whether the batch was taken keeps the name", run: testSendAnswerUnknown},
+		{name: "a run that takes the file up before the first run sent sends the batch once", run: testTakenUpBeforeTheSend},
+		{name: "a run with another file that takes the file up sends nothing", run: testTakenUpWithAnotherFile},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1328,7 +1438,7 @@ func (n *namedSends) sent() []string {
 func migrateAB(ctx context.Context, t *testing.T, container *SpannerContainer, sends *namedSends) (*SpannerDB, *SpannerMigrator, string) {
 	t.Helper()
 
-	db, migrator := testMigrator(ctx, t, container, intercepting(sends.intercept))
+	db, migrator := testMigrator(ctx, t, container, intercepting(sends.intercept), intercepting(heldAsSpannerHolds))
 	source := writeSource(t, map[string]string{"000001_ab.up.sql": sqlCreateA + "\n" + sqlCreateB})
 
 	return db, migrator, source
@@ -1370,43 +1480,6 @@ func testSendAnswerLost(ctx context.Context, t *testing.T, container *SpannerCon
 	}
 }
 
-// testSendOtherStatements: another run sent a batch with other statements under the run's
-// operation ID before the run's own send arrived. The run stops with ErrAnotherRun and writes
-// nothing: the row keeps the name, and the file's tables are not made.
-func testSendOtherStatements(ctx context.Context, t *testing.T, container *SpannerContainer) {
-	t.Helper()
-
-	sends := &namedSends{first: func(req *databasepb.UpdateDatabaseDdlRequest, send func() error) error {
-		op, err := container.admin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-			Database:    req.GetDatabase(),
-			Statements:  []string{strings.TrimSuffix(sqlCreateC, ";")},
-			OperationId: req.GetOperationId(),
-		})
-		if err != nil {
-			t.Errorf("DatabaseAdminClient.UpdateDatabaseDdl() of the other batch error = %v", err)
-		} else if err := op.Wait(ctx); err != nil {
-			t.Errorf("UpdateDatabaseDdlOperation.Wait() of the other batch error = %v", err)
-		}
-
-		return send()
-	}}
-	db, migrator, source := migrateAB(ctx, t, container, sends)
-
-	err := migrator.MigrateUpSchema(ctx, source)
-	if !errors.Is(err, ErrAnotherRun) || !strings.Contains(err.Error(), "other statements") {
-		t.Fatalf("MigrateUpSchema() error = %v, want ErrAnotherRun that names other statements", err)
-	}
-	ids := sends.sent()
-	if len(ids) == 0 {
-		t.Fatal("the interceptor saw no named DDL batch")
-	}
-	row, ok := readVersionRow(ctx, t, db.Client, "SchemaMigrations")
-	if name := db.dbStr + "/operations/" + ids[0]; !ok || row.version != 1 || !row.dirty || row.operation.StringVal != name {
-		t.Errorf("SchemaMigrations = %+v, want dirty at version 1 with %s on it", row, name)
-	}
-	assertTablesAB(ctx, t, db, false)
-}
-
 // testSendAnswerUnknown: Spanner takes the batch and the answer that comes back is one the
 // gRPC framework makes itself. The name stays on the row, and the next run resolves it
 // without sending the batch twice.
@@ -1438,6 +1511,68 @@ func testSendAnswerUnknown(ctx context.Context, t *testing.T, container *Spanner
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
 	assertTablesAB(ctx, t, db, true)
+}
+
+// testTakenUpBeforeTheSend: a second run takes the file up after the first run named its
+// operation on the row and before its batch was sent. The second run sends the batch under
+// the name and finishes the file; the first run's own send is answered that the operation
+// exists, it waits for it, and it stops with ErrAnotherRun at its next write. The batch is
+// sent once.
+func testTakenUpBeforeTheSend(ctx context.Context, t *testing.T, container *SpannerContainer) {
+	t.Helper()
+
+	var other *SpannerMigrator
+	var source string
+	sends := &namedSends{first: func(_ *databasepb.UpdateDatabaseDdlRequest, send func() error) error {
+		if err := other.MigrateUpSchema(ctx, source); err != nil {
+			t.Errorf("MigrateUpSchema() of the run that takes the file up error = %v", err)
+		}
+
+		return send()
+	}}
+	db, migrator, src := migrateAB(ctx, t, container, sends)
+	other = openMigrator(ctx, t, container, migrator.databaseName, intercepting(heldAsSpannerHolds))
+	source = src
+
+	err := migrator.MigrateUpSchema(ctx, source)
+	if !errors.Is(err, ErrAnotherRun) {
+		t.Errorf("MigrateUpSchema() error = %v, want ErrAnotherRun", err)
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
+	assertTablesAB(ctx, t, db, true)
+	if ids := sends.sent(); len(ids) != 1 {
+		t.Errorf("named sends = %v, want one", ids)
+	}
+}
+
+// testTakenUpWithAnotherFile: a second run whose file carries another batch takes the file up
+// after the first run named its operation on the row and before its batch was sent. The
+// second run is refused before it sends anything; the first run sends its batch and finishes
+// the file.
+func testTakenUpWithAnotherFile(ctx context.Context, t *testing.T, container *SpannerContainer) {
+	t.Helper()
+
+	var other *SpannerMigrator
+	otherSource := writeSource(t, map[string]string{"000001_ab.up.sql": sqlCreateA + "\n" + sqlCreateC})
+	sends := &namedSends{first: func(_ *databasepb.UpdateDatabaseDdlRequest, send func() error) error {
+		const want = "or in the DDL batch after it"
+		if err := other.MigrateUpSchema(ctx, otherSource); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("MigrateUpSchema() of the run with another file error = %v, want one containing %q", err, want)
+		}
+
+		return send()
+	}}
+	db, migrator, source := migrateAB(ctx, t, container, sends)
+	other = openMigrator(ctx, t, container, migrator.databaseName, intercepting(heldAsSpannerHolds))
+
+	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
+		t.Fatalf("MigrateUpSchema() error = %v", err)
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
+	assertTablesAB(ctx, t, db, true)
+	if exists(ctx, t, db.Client, "table", "C") {
+		t.Error("table C exists: the run with another file sent its batch")
+	}
 }
 
 // TestSpannerMigrator_RowChangedUnderARun changes the version row under a run at a staged
