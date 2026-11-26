@@ -83,8 +83,8 @@ const (
 	groupID      = "90000000-0000-4000-8000-000000000004"
 )
 
-// acceptedRecords is one record the log takes for each act and form, with the parts A1.3's
-// table gives it, and a few more where a part may be empty.
+// acceptedRecords is one record the log takes for each act and form, with the parts its
+// shape names (shapes), and a few more where a part may be empty.
 func acceptedRecords() []Record {
 	bob := bobID.String()
 	end := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
