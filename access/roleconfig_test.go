@@ -461,7 +461,9 @@ func TestUnionCollection_recordRoles(t *testing.T) {
 		records:        []accesstypes.Resource{"Clients"},
 		words:          map[accesstypes.Resource][2]string{"Clients": {"client", "clients"}},
 	}
-	union := unionOf(t, heldOnRegistry(), console, portal)
+	// The first member registers Invoices alone: a member that registered Projects and
+	// did not mark it would place Projects apart from the console's mark, and be refused.
+	union := unionOf(t, &stubCollection{list: registry("Read", "Invoices")}, console, portal)
 
 	marker, ok := union.(recordRoles)
 	if !ok {
@@ -518,8 +520,10 @@ func TestUnionCollection_recordReach(t *testing.T) {
 
 // TestUnionCollection_placedTwoWays pins the union's refusal of two members that both
 // register a resource and place it differently under a record: one says the rows are
-// under it and the other not, or both give a condition and the two differ. Members that
-// agree, and a resource only one member registers, are taken.
+// under it and the other not, or both give a condition and the two differ. A member that
+// registers the resource and does not mark the record places it apart, whatever else it
+// would say, and so does a collection written by hand, which marks no record. Members
+// that agree, and a resource only one member registers, are taken.
 func TestUnionCollection_placedTwoWays(t *testing.T) {
 	t.Parallel()
 
@@ -535,12 +539,29 @@ func TestUnionCollection_placedTwoWays(t *testing.T) {
 
 		return m
 	}
+	// unmarked registers what is named and marks no record, though it would say Tasks are
+	// under any record it were asked of.
+	unmarked := func(registered ...string) markingCollection {
+		var list []string
+		for _, res := range registered {
+			list = append(list, "Read", res)
+		}
+
+		return markingCollection{stubCollection: &stubCollection{list: registry(list...)}, under: map[accesstypes.Resource]bool{"Tasks": true}}
+	}
+	const tasksApart = `UnionCollection: collections 1 and 2 (in argument order) both register resource "Tasks" and disagree on its place under Projects: self false, under true, named false vs self false, under false, named false`
 	tests := []struct {
 		name          string
-		first, second markingCollection
+		first, second PermissionCollection
 		wantErr       string
 	}{
 		{name: "both place Tasks the same", first: member(true, "way0 IN subject.held"), second: member(true, "way0 IN subject.held")},
+		{name: "one puts Tasks under the record and the other registers Tasks and marks nothing", first: member(true, ""), second: unmarked("Tasks"), wantErr: tasksApart},
+		{name: "one puts Tasks under the record and a collection written by hand registers Tasks", first: member(true, ""), second: &stubCollection{list: registry("Read", "Tasks")}, wantErr: tasksApart},
+		{
+			name: "the other registers Projects itself and does not mark it", first: member(true, ""), second: unmarked("Projects"),
+			wantErr: `UnionCollection: collections 1 and 2 (in argument order) both register resource "Projects" and disagree on its place under Projects: self true, under false, named false vs self false, under false, named false`,
+		},
 		{
 			name: "one puts Tasks under the record and the other not", first: member(true, ""), second: member(false, ""),
 			wantErr: `UnionCollection: collections 1 and 2 (in argument order) both register resource "Tasks" and disagree on its place under Projects: self false, under true, named false vs self false, under false, named false`,

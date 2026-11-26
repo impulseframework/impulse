@@ -273,6 +273,50 @@ func (g *GeneratedCollection) RecordReach(record, res accesstypes.Resource) (sel
 	return self, under, named
 }
 
+// RecordPlace spells how a row of res stands to a record of the kind record, column by
+// column, for two collections to be compared by (access.UnionCollection): a line for each
+// way the row is under it, in the ways' order, then a line for each name of res by the
+// record, in the names' order. A way's line is its attribute, a colon, the column of the
+// row the way leaves through, and for each hop of the attribute's path a comma, the hop's
+// table and the column it is joined on, an arrow and the column it reads
+// ("held_way0_Projects: TaskId, Tasks.Id -> ProjectId"); the record's own way is its key
+// ("held_way0_Projects: Id"). A name's line is its attribute, a colon, the record's column
+// that names the row, an arrow, and the named row's column the attribute reads
+// ("held_named0_Projects: ClientId -> Id"). A condition names a way by its number, so two
+// sites that reach a table through other columns give the same condition and differ here.
+// It is nil where res stands apart from the record, and where record is no record a role
+// can be held on.
+func (g *GeneratedCollection) RecordPlace(record, res accesstypes.Resource) []string {
+	if g == nil {
+		return nil
+	}
+	data, marked := g.heldRecord(record)
+	if !marked {
+		return nil
+	}
+	scope := g.Scope(res)
+	var lines []string
+	for _, way := range g.waysUnder(res) {
+		if way.Record != record {
+			continue
+		}
+		attr, _ := g.attributeData(scope, res, way.Attribute)
+		line := way.Attribute + ": " + attr.Column
+		for _, hop := range attr.Path {
+			line += ", " + hop.Table + "." + hop.JoinColumn + " -> " + hop.Column
+		}
+		lines = append(lines, line)
+	}
+	for _, name := range data.Names {
+		if name.Resource == res {
+			attr, _ := g.attributeData(scope, res, name.Attribute)
+			lines = append(lines, name.Attribute+": "+name.Column+" -> "+attr.Column)
+		}
+	}
+
+	return lines
+}
+
 // recordRoleStore is where auth keeps the roles held on records; ok is false for an auth
 // with no store.
 func (g *GeneratedCollection) recordRoleStore(auth string) (RecordRoleStoreData, bool) {

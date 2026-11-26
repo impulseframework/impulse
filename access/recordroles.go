@@ -32,6 +32,26 @@ type recordRoles interface {
 	RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, perm accesstypes.Permission) (condition string, ok bool)
 }
 
+// recordPlaces is what a collection answers when it can spell how a resource stands under
+// a record, column by column, for two collections to be compared by (UnionCollection).
+type recordPlaces interface {
+	// RecordPlace spells how a row of res stands to a record of the kind record: a line for
+	// each way the row is under it, in the ways' order, then a line for each name of res
+	// by the record, in the names' order. It is nil where res stands apart from the record.
+	RecordPlace(record, res accesstypes.Resource) []string
+}
+
+// markedRecords lists the records store marks as ones a role can be held on, none for a
+// collection that does not answer.
+func markedRecords(store PermissionCollection) []accesstypes.Resource {
+	marker, ok := store.(recordRoles)
+	if !ok {
+		return nil
+	}
+
+	return marker.RecordsHoldingRoles()
+}
+
 // holdsRoles reports whether store marks res as a record a role can be held on.
 func holdsRoles(store PermissionCollection, res accesstypes.Resource) bool {
 	marker, ok := store.(recordRoles)

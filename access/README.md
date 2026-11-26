@@ -1337,9 +1337,11 @@ collection registering it. A resource several sites serve must be declared ident
 in each; `UnionCollection` refuses collections that disagree on a shared resource's
 permissions (fields included), scope, immutability, computed marking, or method target,
 and two that place it differently under a record a role can be held on (how its rows
-stand to the record, or the condition each gives a holder of a role on it). The sites'
-collections each carry where an auth keeps its roles on records, so a condition the union
-gives is read by every site.
+stand to the record, the columns each way to it passes, or the condition each gives a
+holder of a role on it); a site that registers the resource and does not mark the record
+places it apart, and is refused with the others. The sites' collections each carry where
+an auth keeps its roles on records, so a condition the union gives is read by every
+site.
 An action one site marks as an action no role is given is no role's in the union, and a
 site that registers the same name for roles is refused: a name is one or the other in
 every site. Collections that declare one subject set in two different ways are refused,

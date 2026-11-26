@@ -75,6 +75,56 @@ func TestUnionCollection_secondSite(t *testing.T) {
 	}
 }
 
+// TestUnionCollection_placedThroughOtherColumns pins the union's refusal of two generated
+// sites that both mark the project and reach Comments by one way each, through other
+// columns: the first through the comment's task, the second through its milestone. The
+// condition each gives a holder is the same text, since a condition names a way by its
+// number, so the columns each way passes are what tells the two apart. The same sites
+// reaching Comments through the same columns are taken.
+func TestUnionCollection_placedThroughOtherColumns(t *testing.T) {
+	t.Parallel()
+
+	domain := accesstypes.DomainPermissionScope
+	read := []accesstypes.Permission{accesstypes.Read}
+	tenancy := &resource.DomainBindingData{Column: "DomainId"}
+	way := resource.RecordWayAttribute("Projects", 0)
+	store := resource.RecordRoleStoreData{Auth: "staff", UserRoles: "StaffRecordUserRoles"}
+	under := func(name accesstypes.Resource, column string, path ...resource.BindingHop) resource.CollectionResource {
+		return resource.CollectionResource{
+			Name: name, Scope: domain, Permissions: read, Domain: tenancy,
+			Attributes: []resource.AttributeData{{Name: way, Column: column, Type: resource.AttributeTypeString, Path: path}},
+			Under:      []resource.RecordWayData{{Record: "Projects", Attribute: way, Self: name == "Projects"}},
+		}
+	}
+	projects := under("Projects", "Id")
+	projects.HoldsRoles = &resource.RecordData{Key: "Id", One: "project", Many: "projects"}
+	site := func(parent accesstypes.Resource, column string) PermissionCollection {
+		return generated(t, &resource.CollectionData{
+			Resources: []resource.CollectionResource{
+				projects, under(parent, "ProjectId"),
+				under("Comments", column, resource.BindingHop{Table: string(parent), JoinColumn: "Id", Column: "ProjectId"}),
+			},
+			RecordRoleStores: []resource.RecordRoleStoreData{store},
+		})
+	}
+	first, second := site("Tasks", "TaskId"), site("Milestones", "MilestoneId")
+
+	firstCondition, _ := recordCondition(first, "staff", "ProjectEditor", "Projects", "Comments", accesstypes.Read)
+	secondCondition, _ := recordCondition(second, "staff", "ProjectEditor", "Projects", "Comments", accesstypes.Read)
+	if firstCondition == "" || firstCondition != secondCondition {
+		t.Fatalf("the two sites' conditions on Comments are %q and %q, want one text: the fixture no longer shows what the columns add", firstCondition, secondCondition)
+	}
+	_, err := UnionCollection(first, second)
+	want := `UnionCollection: collections 1 and 2 (in argument order) both register resource "Comments" and disagree on its place under Projects: ` +
+		`"held_way0_Projects: TaskId, Tasks.Id -> ProjectId" vs "held_way0_Projects: MilestoneId, Milestones.Id -> ProjectId"`
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("UnionCollection() error = %v, want one containing %q", err, want)
+	}
+	if _, err := UnionCollection(first, site("Tasks", "TaskId")); err != nil {
+		t.Errorf("UnionCollection() of two sites reaching Comments through the same columns: error = %v", err)
+	}
+}
+
 // TestValidateRoles_heldOnGeneratedCollection pins that the generated collection is one
 // that marks records (recordRoles): a role file whose role is held on the record the
 // collection marks validates, and one whose role is held on a resource it does not mark

@@ -234,6 +234,55 @@ func onRecordConditionData() CollectionData {
 	}
 }
 
+// TestGeneratedCollection_RecordPlace pins how the collection spells a resource's place
+// under a record, column by column, for two sites to be compared by: a line for each way,
+// its attribute, the column the row leaves through and each hop of its path; a line for
+// each name, the record's column and the named row's; the record's own way by its key; and
+// nothing for a resource apart.
+func TestGeneratedCollection_RecordPlace(t *testing.T) {
+	t.Parallel()
+
+	data := onRecordConditionData()
+	// Replies are under a project by one way of two hops: their comment's task's project.
+	data.Resources = append(data.Resources, CollectionResource{
+		Name: "Replies", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read},
+		Domain: &DomainBindingData{Column: "DomainId"},
+		Attributes: []AttributeData{{
+			Name: RecordWayAttribute("Projects", 0), Column: "CommentId", Type: AttributeTypeString,
+			Path: []BindingHop{{Table: "Comments", JoinColumn: "Id", Column: "TaskId"}, {Table: "Tasks", JoinColumn: "Id", Column: "ProjectId"}},
+		}},
+		Under: []RecordWayData{{Record: "Projects", Attribute: RecordWayAttribute("Projects", 0)}},
+	})
+	g, err := NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+
+	tests := []struct {
+		name string
+		res  accesstypes.Resource
+		want []string
+	}{
+		{name: "one way of two hops", res: "Replies", want: []string{"held_way0_Projects: CommentId, Comments.Id -> TaskId, Tasks.Id -> ProjectId"}},
+		{name: "two ways", res: "Comments", want: []string{"held_way0_Projects: TaskId, Tasks.Id -> ProjectId", "held_way1_Projects: TaskId, Tasks.Id -> FormerProjectId"}},
+		{name: "a resource the record names", res: "Clients", want: []string{"held_named0_Projects: ClientId -> Id"}},
+		{name: "the record itself", res: "Projects", want: []string{"held_way0_Projects: Id"}},
+		{name: "a resource apart", res: "Invoices"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, g.RecordPlace("Projects", tt.res)); diff != "" {
+				t.Errorf("RecordPlace(Projects, %s) (-want +got):\n%s", tt.res, diff)
+			}
+		})
+	}
+	if got := g.RecordPlace("Invoices", "Tasks"); got != nil {
+		t.Errorf("RecordPlace(Invoices, Tasks) = %q, want nil: Invoices is no record a role can be held on", got)
+	}
+}
+
 // onRecordSecondSiteData is the data of a second site of the fixture's application: its
 // program does not generate the auth's management, so no struct declares the set of a
 // person's groups (StaffGroupMembers is left out), and it serves Milestones, under a

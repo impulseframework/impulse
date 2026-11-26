@@ -7102,12 +7102,14 @@ for PostgreSQL and holds against its rows. This package's writes are Spanner's, 
 more of it is extended for PostgreSQL by this.
 
 **An application of several sites.** A role held on a record counts in every site. Each site
-that serves the record, or anything under it, declares the record's struct with `@holdsRoles`
-and the tables on the way down to what it serves, as the site that shares the record does; its
-collection then carries where the auth keeps its roles on records, whichever site generates the
-auth's management. The Sharing list and its methods are served by the site that generates the
-management. Where two sites declare one table, they place it under the record the same way:
-`access.UnionCollection` refuses two that differ, naming the table and the record.
+that serves the record, anything under it or a row it names declares the record's struct with
+`@holdsRoles` and the tables on the way down to what it serves, as the site that shares the
+record does; its collection then carries where the auth keeps its roles on records, whichever
+site generates the auth's management. The Sharing list and its methods are served by the site
+that generates the management. Where two sites declare one table, they place it under the
+record the same way, through the same columns: `access.UnionCollection` refuses two that
+differ, and a site that declares the table and leaves the record's mark out, naming the table
+and the record.
 
 Lodestar is the reference: a mission holds roles, `MissionObserver` and `MissionLead` are held
 on missions, and the console's missions page carries the Sharing list.
