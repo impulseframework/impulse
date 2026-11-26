@@ -69,8 +69,8 @@ await methodHandle(api, 'ScheduleWorkOrder', 'ws-alpha').execute(body);
 - `Create` shapes exclude server-owned fields (output-only, state columns, the tenant
   key) and a server-generated key; a client-assigned key is required.
 - `Patch` shapes additionally exclude immutable fields and keys.
-- Keys are named tuples in route order, so a compound key is never a hand-joined
-  string.
+- Keys are named tuples in route order, which is the table's key order whatever order the Go
+  struct lists its key fields in, so a compound key is never a hand-joined string.
 - `ops.patchOrAdd` and `ops.addOrSkip` exist only on a resource whose key the client
   supplies: a server-made id names no row that may or may not be there. The value of
   `patchOrAdd` is written whether the server finds the row or not, so it holds what a
