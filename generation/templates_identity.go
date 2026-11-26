@@ -995,6 +995,7 @@ func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransa
 
 	return nil
 }
+{{- end }}
 
 // RecordTenantSignIn records an act on a tenant's own sign-in settings in the {{ .Auth }}
 // auth's audit log, in the caller's transaction: done to the tenant, by who acted, with
@@ -1008,6 +1009,7 @@ func (c *Client) RecordTenantSignIn(ctx context.Context, txn resource.ReadWriteT
 
 	return nil
 }
+{{- if not .RolesSynced }}
 
 // OwnTenants answers the session library's own-tenants hook (session.Auth.SetOwnTenants)
 // over the {{ .Auth }} auth's tables: a signed-in person's account page lists the

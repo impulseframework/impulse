@@ -256,7 +256,7 @@ func Test_directoryTake(t *testing.T) {
 func Test_resourceGenerator_directoryRemovalRecorder(t *testing.T) {
 	t.Parallel()
 
-	opens := []*identityInstance{{auth: "Staff"}, {auth: "Members", opensToDirectory: true}}
+	opens := []*identityInstance{{auth: "Staff"}, {auth: "Members", opensToDirectory: true, recordsTenantSignIn: true}}
 	tests := []struct {
 		name     string
 		identity []*identityInstance
@@ -293,7 +293,12 @@ func Test_resourceGenerator_tenantSignInRecorder(t *testing.T) {
 	}{
 		{
 			name:     "the second of two auths opens a tenant to its directory",
-			identity: []*identityInstance{{auth: "Staff"}, {auth: "Members", opensToDirectory: true}},
+			identity: []*identityInstance{{auth: "Staff"}, {auth: "Members", opensToDirectory: true, recordsTenantSignIn: true}},
+			want:     "MembersIdentity",
+		},
+		{
+			name:     "the auth the directories record's outlets sign people in through gives no starting role",
+			identity: []*identityInstance{{auth: "Staff"}, {auth: "Members", recordsTenantSignIn: true}},
 			want:     "MembersIdentity",
 		},
 		{name: "no auth does", identity: []*identityInstance{{auth: "Staff"}}},

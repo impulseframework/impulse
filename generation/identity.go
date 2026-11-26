@@ -96,6 +96,11 @@ type identityInstance struct {
 	// admits its directory's people ask this instance's client, and the instance
 	// declares the list the role is picked from (identityOpensToDirectory).
 	opensToDirectory bool
+	// recordsTenantSignIn marks the auth a tenant's sign-in settings are recorded
+	// through (tenantSignInRecorder): the session outlets that serve the directories
+	// record are this auth's, whether or not its management opens a tenant to its
+	// directory's people with a starting role (identityRecordsTenantSignIn).
+	recordsTenantSignIn bool
 	// session and policy name the auth's tables: the session library's and the
 	// permission store's, each by the library's own rule for the prefix.
 	session session.Tables
@@ -392,6 +397,7 @@ func (r *resourceGenerator) prepareIdentity() error {
 		inst.tenant = tenant
 		inst.createsTenant = r.identityCreatesTenant(inst)
 		inst.opensToDirectory = r.identityOpensToDirectory(inst)
+		inst.recordsTenantSignIn = r.identityRecordsTenantSignIn(inst)
 		if err := inst.refuseListNamesTaken(); err != nil {
 			return err
 		}

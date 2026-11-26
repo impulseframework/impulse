@@ -52,14 +52,16 @@ func TestIdentityAnnounce_client(t *testing.T) {
 			},
 		},
 		{
-			name:         "an auth whose directory writes the roles",
-			data:         announceData(true, every...),
-			wantContains: []string{tables(users, sessions, identities, memberships, mailLinks), announce, signedIn},
+			name: "an auth whose directory writes the roles, which records a tenant's sign-in settings where its people are the ones the directories record's outlets sign in",
+			data: announceData(true, every...),
+			wantContains: []string{
+				tables(users, sessions, identities, memberships, mailLinks), announce, signedIn,
+				"func (c *Client) RecordTenantSignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, act auditlog.Act, named string) error {",
+			},
 			wantNotContains: []string{
 				"func (c *Client) InvitationAccepted()",
 				"func (c *Client) DirectorySeated()",
 				"func (c *Client) DirectoryRole(",
-				"func (c *Client) RecordTenantSignIn(",
 				"func (c *Client) OwnTenants(",
 			},
 		},

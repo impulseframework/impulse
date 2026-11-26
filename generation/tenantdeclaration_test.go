@@ -847,7 +847,7 @@ func Test_directoriesRecord_writes(t *testing.T) {
 		t.Fatalf("declarationResources() error = %v", err)
 	}
 	r.resource = "testdata/tenantfixture"
-	r.identity = []*identityInstance{{auth: "Staff", opensToDirectory: true}}
+	r.identity = []*identityInstance{{auth: "Staff", opensToDirectory: true, recordsTenantSignIn: true}}
 	var directories *resourceInfo
 	for _, res := range r.resources {
 		if res.IsTenantDirectory {

@@ -811,6 +811,46 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 		}
 	})
 
+	t.Run("a tenant's sign-in settings are recorded through the auth the directories record's session outlets are bound to, whether or not it gives a starting role", func(t *testing.T) {
+		t.Parallel()
+
+		served := []string{defaultOutletName, "members", "machines"}
+		tests := []struct {
+			name  string
+			auths []string
+			inst  func() *identityInstance
+			// outlets are the outlets the sources name on the directories record.
+			outlets []string
+			want    bool
+		}{
+			{name: "every session outlet that serves the directories record signs people in through the auth", auths: []string{staffAuth}, inst: func() *identityInstance { return staff(false) }, outlets: served, want: true},
+			{name: "another auth signs people in on one of them", auths: []string{staffAuth, "example.com/app/pkg/auth/members"}, inst: func() *identityInstance { return staff(false) }, outlets: served},
+			{name: "a directory writes the auth's roles", auths: []string{staffAuth}, inst: func() *identityInstance { return staff(true) }, outlets: served, want: true},
+			{name: "no session outlet serves the directories record", auths: []string{staffAuth}, inst: func() *identityInstance { return staff(false) }, outlets: []string{"machines"}},
+			{
+				name: "the directories record carries no default seat", auths: []string{staffAuth}, outlets: served, want: true,
+				inst: func() *identityInstance {
+					inst := staff(false)
+					inst.tenant.directorySeat = ""
+
+					return inst
+				},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				inst := tt.inst()
+				inst.tenant.directoryOutlets = tt.outlets
+				r := generator(t, tt.auths, []*identityInstance{inst}, "Harbor", "HarborDirectory")
+				if got := r.identityRecordsTenantSignIn(inst); got != tt.want {
+					t.Errorf("identityRecordsTenantSignIn() = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
+
 	t.Run("the role is picked from the roles the caller may give, of the auth that judges it", func(t *testing.T) {
 		t.Parallel()
 

@@ -246,17 +246,18 @@ func (r *resourceGenerator) generateDirectoryRole() error {
 }
 
 // tenantSignInRecorder is the application's accessor of the generated identity client
-// whose audit log a tenant's sign-in settings are recorded in: that of the auth whose
-// management opens a tenant to its directory's people (identityInstance.opensToDirectory),
-// whose session outlets serve the directories record. The seven methods of a tenant's
-// directory (the take, the directory-only switch, the default role and the second factor's
-// word) record their act through it, in their transaction, after their write. It is ""
-// where no auth's management does, and the methods are written with no record.
+// whose audit log a tenant's sign-in settings are recorded in: that of the auth the
+// directories record's session outlets are bound to (identityInstance.recordsTenantSignIn),
+// whether or not its management opens a tenant to its directory's people with a starting
+// role. The seven methods of a tenant's directory (the take, the directory-only switch,
+// the default role and the second factor's word) record their act through it, in their
+// transaction, after their write. It is "" where no auth's management is generated for
+// those outlets, and the methods are written with no record.
 //
 // The tenant's sign-in settings are recorded in the audit log of the auth whose people the directories record's outlets sign in. An application with no such auth has no log to write them to.
 func (r *resourceGenerator) tenantSignInRecorder() string {
 	for _, inst := range r.identity {
-		if inst.opensToDirectory {
+		if inst.recordsTenantSignIn {
 			return inst.accessor()
 		}
 	}
