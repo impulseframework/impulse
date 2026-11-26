@@ -91,8 +91,9 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 // back. The row is done to the tenant, by its key and the name the application gives it
 // (its key where it gives none), in that tenant, by who acted: the request's caller, or
 // the application outside a request. named is the act's one part: the role's stored name
-// for directoryOpened, the directory's name for directoryTaken, and empty for the other
-// six. Another act, a part handed to an act that takes none and none handed to one that
+// for directoryOpened, the directory for directoryTaken by its kind and its name, or its
+// kind alone where no name is known (resource.DirectoryNameOrKind), and empty for the
+// other six. Another act, a part handed to an act that takes none and none handed to one that
 // takes one are a fault of the code that calls it: an error, and nothing is written. The
 // generated methods of a tenant's directory call it through the auth's client, after
 // their write.

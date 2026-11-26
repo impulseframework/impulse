@@ -70,6 +70,11 @@ func TestWhat(t *testing.T) {
 		{name: "group given a role", row: Stored{Act: ActGroupRoleGiven, RoleNames: []string{"Editor"}, RoleScope: RoleScopeEveryTenant, PeriodStart: start}, tenantWord: "company", want: "Gave the group the role Editor in every company from 2026-12-01 09:30 UTC"},
 		{name: "role taken from a group", row: Stored{Act: ActGroupRoleTaken, RoleNames: []string{"Editor"}, RoleScope: RoleScopeGlobal}, want: "Took the role Editor for the whole application from the group"},
 		{name: "directory taken", row: Stored{Act: ActDirectoryTaken, NewValue: "Acme"}, want: "Took the directory Acme as its own"},
+		{
+			name: "directory taken, by its kind and its name", row: Stored{Act: ActDirectoryTaken, NewValue: "Microsoft Entra tenant Lakeside"},
+			want: "Took the directory Microsoft Entra tenant Lakeside as its own",
+		},
+		{name: "directory taken, by its kind alone", row: Stored{Act: ActDirectoryTaken, NewValue: "Microsoft Entra tenant"}, want: "Took the directory Microsoft Entra tenant as its own"},
 		{name: "directory removed", row: Stored{Act: ActDirectoryRemoved}, want: "Removed its directory"},
 		{name: "directory only on", row: Stored{Act: ActDirectoryOnlyOn}, want: "Turned directory only on"},
 		{name: "directory only off", row: Stored{Act: ActDirectoryOnlyOff}, want: "Turned directory only off"},

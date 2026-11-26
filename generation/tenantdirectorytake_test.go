@@ -89,13 +89,13 @@ func Test_tenantDirectoryTakeTemplate(t *testing.T) {
 			},
 		},
 		{
-			name: "the take is recorded in the auth's audit log after the row, naming the directory as the rules' sentences do, before a dry run rolls back",
+			name: "the take is recorded in the auth's audit log after the row, naming the directory by its kind and its name, before a dry run rolls back",
 			data: recorded,
 			wantInOrder: []string{
 				"said := rules.TakeDirectoryWarning(directory, false)",
 				"return resource.ErrWarningAsked",
 				"if err := SetHarborDirectory(ctx, txn, tenant, directory, eventSource); err != nil {",
-				"if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryWords(directory, a.StaffIdentity().DirectoryName)); err != nil {\n\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().RecordTenantSignIn()\")\n\t\t\t}",
+				"if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory, a.StaffIdentity().DirectoryName)); err != nil {\n\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().RecordTenantSignIn()\")\n\t\t\t}",
 				"if dryRun {\n\t\t\t\treturn resource.ErrDryRun\n\t\t\t}",
 			},
 		},

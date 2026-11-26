@@ -126,7 +126,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Take.Name }}() http.Handl
 				return errors.Wrap(err, "Set{{ .Name }}Directory()")
 			}
 			{{- if .IdentityAccessor }}
-			if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryWords(directory{{ if .Namers }}, {{ .Namers }}{{ end }})); err != nil {
+			if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory{{ if .Namers }}, {{ .Namers }}{{ end }})); err != nil {
 				return errors.Wrap(err, "{{ .IdentityAccessor }}().RecordTenantSignIn()")
 			}
 			{{- end }}
