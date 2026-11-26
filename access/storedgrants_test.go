@@ -106,7 +106,7 @@ func TestClient_storedGrantIsHeldToTheWritesRule(t *testing.T) {
 			for _, err := range []error{
 				store.InsertRole(ctx, tt.held, clerk, aDescription),
 				store.InsertGrant(ctx, tt.held, clerk, tt.perm, string(tt.res), "", tt.cond),
-				store.InsertUserRole(ctx, tt.held, "dana", clerk, accesstypes.Period{}, ""),
+				store.InsertUserRole(ctx, tt.held, "dana", clerk, accesstypes.Period{}, "", nil),
 			} {
 				if err != nil {
 					t.Fatalf("seeding fake store: %v", err)
@@ -415,8 +415,8 @@ func TestClient_oneBadStoredConditionLeavesTheOtherGrants(t *testing.T) {
 		store.InsertGrant(ctx, tenant1Policy, "Broken", accesstypes.Read, "Documents", "", "ghost = 'open'"),
 		store.InsertRole(ctx, tenant1Policy, "Sound", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Sound", accesstypes.Read, "Documents", "", "status = 'open'"),
-		store.InsertUserRole(ctx, tenant1Policy, "dana", "Broken", accesstypes.Period{}, ""),
-		store.InsertUserRole(ctx, tenant1Policy, "dana", "Sound", accesstypes.Period{}, ""),
+		store.InsertUserRole(ctx, tenant1Policy, "dana", "Broken", accesstypes.Period{}, "", nil),
+		store.InsertUserRole(ctx, tenant1Policy, "dana", "Sound", accesstypes.Period{}, "", nil),
 	} {
 		if err != nil {
 			t.Fatalf("seeding fake store: %v", err)
@@ -480,9 +480,9 @@ func TestClient_oneUnsettledScopeWideConditionLeavesTheOtherGrants(t *testing.T)
 		store.InsertGrant(ctx, tenant1Policy, "Broken", exportLedger, "", "", "now >= '2026'"),
 		store.InsertRole(ctx, tenant1Policy, "Sound", aDescription),
 		store.InsertGrant(ctx, tenant1Policy, "Sound", exportLedger, "", "", "now >= '2026-01-01T00:00:00Z'"),
-		store.InsertUserRole(ctx, tenant1Policy, "dana", "Broken", accesstypes.Period{}, ""),
-		store.InsertUserRole(ctx, tenant1Policy, "dana", "Sound", accesstypes.Period{}, ""),
-		store.InsertUserRole(ctx, tenant1Policy, "erin", "Broken", accesstypes.Period{}, ""),
+		store.InsertUserRole(ctx, tenant1Policy, "dana", "Broken", accesstypes.Period{}, "", nil),
+		store.InsertUserRole(ctx, tenant1Policy, "dana", "Sound", accesstypes.Period{}, "", nil),
+		store.InsertUserRole(ctx, tenant1Policy, "erin", "Broken", accesstypes.Period{}, "", nil),
 	} {
 		if err != nil {
 			t.Fatalf("seeding fake store: %v", err)

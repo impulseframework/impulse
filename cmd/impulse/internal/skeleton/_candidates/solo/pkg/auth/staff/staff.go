@@ -338,7 +338,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if settings.Mail == nil {
 		return nil, errors.New("staff.Settings.Mail is nil: the auth mails its invitations and address verifications and its sign-up links through the application's sender (the Workspace relay deployed, the log in development), which the data level opens")
 	}
-	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
+	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix), spannerstore.WithAuditRecords(auditRecordsTable))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"math"
 	"net/http"
@@ -379,11 +380,31 @@ func (a *Auth[S, U, Tx]) afterInsert(ctx context.Context, at *signInAttempt, req
 	if !ok || m.SyncRoles == nil {
 		return nil
 	}
-	if err := m.SyncRoles(ctx, accesstypes.User(req.UserID.String()), at.roleNames); err != nil {
+	if err := m.SyncRoles(a.withDirectorySync(ctx, at, req), accesstypes.User(req.UserID.String()), at.roleNames); err != nil {
 		return errors.Wrap(err, "role synchronization")
 	}
 
 	return nil
+}
+
+// withDirectorySync answers ctx with what the sign-in tells the permission store about
+// the role changes SyncRoles asks for (auditlog.WithDirectorySync), so the store records
+// each role it gives or takes as the directory's act on the account: the directory the
+// attempt's identity came through, by the name the registrations give it, else the label
+// of the login page's button (directoryName), else the label of the attempt's own
+// registration, else the method's own name; the account by its id and its username at
+// the sign-in; and each tenant by the name the Auth gives it (tenantName).
+func (a *Auth[S, U, Tx]) withDirectorySync(ctx context.Context, at *signInAttempt, req *sessioninfo.NewSessionRequest) context.Context {
+	name, label := a.directoryName(at.identity.Method, at.identity.Connection)
+
+	return auditlog.WithDirectorySync(ctx, auditlog.DirectorySync{
+		Directory: cmp.Or(name, label, a.registered().labels[at.registration], string(at.identity.Method)),
+		UserID:    req.UserID.String(),
+		Username:  req.Username,
+		TenantName: func(tenant accesstypes.Domain) string {
+			return a.tenantName(string(tenant))
+		},
+	})
 }
 
 // notifyLinked calls the IdentityLinked hook. An error is logged, and the link stands.

@@ -32,6 +32,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -42,8 +43,9 @@ var _ access.Store = (*Store)(nil)
 type Option func(*config)
 
 type config struct {
-	store  string
-	prefix string
+	store        string
+	prefix       string
+	auditRecords string
 }
 
 // WithStore names the policy store this client owns; it becomes part of the
@@ -58,6 +60,15 @@ func WithStore(store string) Option {
 // "Access"), which keeps every access table contiguous in a sorted listing.
 func WithPrefix(prefix string) Option {
 	return func(c *config) { c.prefix = prefix }
+}
+
+// WithAuditRecords names the table the store writes the record of a person's role
+// given or taken in: the auth's audit records table, as session.TablesWithPrefix names
+// it (AuditRecords), in the database the store writes. Each of the three writes of a
+// person's role (InsertUserRole, InsertCustomUserRole, DeleteUserRole) writes the record
+// it is handed in its own transaction. With no table named, no record is written.
+func WithAuditRecords(table string) Option {
+	return func(c *config) { c.auditRecords = table }
 }
 
 // tableNames holds the three quoted table identifiers plus the raw (unquoted)
@@ -82,6 +93,9 @@ type tableNames struct {
 	rawGroupsByName      string
 	rawGroupMembersIndex string
 	rawGroupRolesIndex   string
+
+	// auditRecords is the audit records table (WithAuditRecords), unquoted, "" for none.
+	auditRecords string
 }
 
 func resolveNames(opts []Option) (tableNames, error) {
@@ -105,6 +119,8 @@ func resolveNames(opts []Option) (tableNames, error) {
 		rawGroupsByName:      tables.GroupsByName,
 		rawGroupMembersIndex: tables.GroupMembersByUserID,
 		rawGroupRolesIndex:   tables.GroupRolesByScope,
+
+		auditRecords: c.auditRecords,
 	}
 	n.groups = pgx.Identifier{n.rawGroups}.Sanitize()
 	n.groupMembers = pgx.Identifier{n.rawGroupMembers}.Sanitize()
@@ -413,12 +429,18 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 // membership is added where the user does not hold the role, and given the new
 // period and the new reason where they do, an empty reason as none. The role
 // is named by name alone: no role row is required, since the release's default
-// roles have none.
-func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+// roles have none. A record of the act is written with the membership, in one
+// transaction (writeUnder); with none it is one statement.
+func (s *Store) InsertUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	var why *string
 	if reason != "" {
 		why = &reason
+	}
+	if s.records(record) {
+		return s.writeUnder(ctx, "assign user role", s.sqlInsertUserRole, []any{kind, axis, domain, role, user, period.StartPtr(), period.EndPtr(), why}, record)
 	}
 	if _, err := s.pool.Exec(ctx, s.sqlInsertUserRole, kind, axis, domain, role, user, period.StartPtr(), period.EndPtr(), why); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() assign user role")
@@ -431,14 +453,16 @@ func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScop
 // holds a row of the custom role where the membership reads it: the scope's own or,
 // for one domain, every domain's. It reads those rows for key share before it writes,
 // as writeUnder says, and wraps policy.ErrNoRole where none is there.
-func (s *Store) InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+func (s *Store) InsertCustomUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	var why *string
 	if reason != "" {
 		why = &reason
 	}
 
-	return s.writeUnder(ctx, "assign user role", s.sqlInsertUserRole, []any{kind, axis, domain, role, user, period.StartPtr(), period.EndPtr(), why}, s.customRole(scope, role))
+	return s.writeUnder(ctx, "assign user role", s.sqlInsertUserRole, []any{kind, axis, domain, role, user, period.StartPtr(), period.EndPtr(), why}, record, s.customRole(scope, role))
 }
 
 // parent is the row, or the rows, a write stands on: the statement that reads them for
@@ -485,8 +509,9 @@ func (s *Store) ownRole(scope accesstypes.PolicyScope, role accesstypes.Role) pa
 // writes nothing and answers that parent's error. A deletion of a parent locks its row
 // for update before it looks for what stands on it, so the two take turns: the deletion
 // that comes second reads the row written and refuses, and the write that comes second
-// reads no row.
-func (s *Store) writeUnder(ctx context.Context, what, insert string, args []any, parents ...parent) error {
+// reads no row. The record of the act, nil for none, is written after the row, in the
+// same transaction (writeRecord).
+func (s *Store) writeUnder(ctx context.Context, what, insert string, args []any, record *auditlog.Record, parents ...parent) error {
 	// Read committed whatever the database's default, as InsertRole: the read of a
 	// parent that waited on a deletion reads what the deletion committed.
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -503,8 +528,38 @@ func (s *Store) writeUnder(ctx context.Context, what, insert string, args []any,
 	if _, err := tx.Exec(ctx, insert, args...); err != nil {
 		return errors.Wrapf(err, "pgx.Tx.Exec() %s", what)
 	}
+	if err := s.writeRecord(ctx, tx, record); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return errors.Wrapf(err, "pgx.Tx.Commit() %s", what)
+	}
+
+	return nil
+}
+
+// records reports whether the store writes record: one is handed, and the store names
+// the audit records table (WithAuditRecords).
+func (s *Store) records(record *auditlog.Record) bool {
+	return record != nil && s.names.auditRecords != ""
+}
+
+// writeRecord inserts record, the record of the act of the write tx makes, in the audit
+// records table, inside tx: its columns (auditlog.Record.Columns), and CreatedAt the
+// statement's time (auditlog.PostgresInsert). A record the store does not write
+// (records) inserts nothing. A record that does not validate is an error, and the act's
+// transaction does not commit.
+func (s *Store) writeRecord(ctx context.Context, tx pgx.Tx, record *auditlog.Record) error {
+	if !s.records(record) {
+		return nil
+	}
+	columns, err := record.Columns()
+	if err != nil {
+		return errors.Wrap(err, "auditlog.Record.Columns()")
+	}
+	statement, args := auditlog.PostgresInsert(s.names.auditRecords, columns)
+	if _, err := tx.Exec(ctx, statement, args...); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec() audit record")
 	}
 
 	return nil
@@ -528,11 +583,37 @@ func shareParents(ctx context.Context, tx pgx.Tx, parents []parent) error {
 }
 
 // DeleteUserRole removes one user-role membership; removing an absent
-// membership is a no-op.
-func (s *Store) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
+// membership is a no-op. A record of the act is written in the removal's transaction,
+// after a delete that removed a row: a membership that is not there is removed by
+// nobody, and no record is written. With no record it is one statement.
+func (s *Store) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.sqlDeleteUserRole, kind, axis, domain, role, user); err != nil {
-		return errors.Wrap(err, "pgxpool.Pool.Exec() delete user role")
+	if !s.records(record) {
+		if _, err := s.pool.Exec(ctx, s.sqlDeleteUserRole, kind, axis, domain, role, user); err != nil {
+			return errors.Wrap(err, "pgxpool.Pool.Exec() delete user role")
+		}
+
+		return nil
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return errors.Wrap(err, "pgxpool.Pool.BeginTx() delete user role")
+	}
+	defer func() {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+	}()
+	tag, err := tx.Exec(ctx, s.sqlDeleteUserRole, kind, axis, domain, role, user)
+	if err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec() delete user role")
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	if err := s.writeRecord(ctx, tx, record); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit() delete user role")
 	}
 
 	return nil

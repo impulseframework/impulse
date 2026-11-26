@@ -80,7 +80,7 @@ func customGiven(t *testing.T, store access.Store, p *periods) {
 		{period: p.current, reason: "Keeps the keys"},
 		{period: p.upcoming, reason: "Covers the night"},
 	} {
-		if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, step.period, step.reason); err != nil {
+		if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, step.period, step.reason, nil); err != nil {
 			t.Fatalf("InsertCustomUserRole() error = %v", err)
 		}
 		got, err := store.ListUserAssignments(ctx, lou)
@@ -108,7 +108,7 @@ func customGiven(t *testing.T, store access.Store, p *periods) {
 		{name: "a row held in the global partition gives the role there", row: globalScope, scope: globalScope},
 	} {
 		insertRole(t, store, tc.row, warden)
-		if err := store.InsertCustomUserRole(ctx, tc.scope, lou, warden, accesstypes.Period{}, ""); err != nil {
+		if err := store.InsertCustomUserRole(ctx, tc.scope, lou, warden, accesstypes.Period{}, "", nil); err != nil {
 			t.Errorf("%s: InsertCustomUserRole(%s) error = %v", tc.name, tc.scope, err)
 		}
 		if roles, err := store.ListUserRoles(ctx, tc.scope, lou); err != nil || !slices.Equal(roles, []accesstypes.Role{warden}) {
@@ -141,7 +141,7 @@ func customRefused(t *testing.T, store access.Store) {
 		for _, row := range tc.rows {
 			insertRole(t, store, row.Scope, row.Name)
 		}
-		err := store.InsertCustomUserRole(ctx, tc.scope, lou, warden, accesstypes.Period{}, "")
+		err := store.InsertCustomUserRole(ctx, tc.scope, lou, warden, accesstypes.Period{}, "", nil)
 		if !errors.Is(err, policy.ErrNoRole) {
 			t.Errorf("%s: InsertCustomUserRole(%s) error = %v, want policy.ErrNoRole", tc.name, tc.scope, err)
 		}
@@ -154,7 +154,7 @@ func customRefused(t *testing.T, store access.Store) {
 
 	insertRole(t, store, wardTenant, warden)
 	deleteRoles(t, store, policy.Role{Scope: wardTenant, Name: warden})
-	if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, accesstypes.Period{}, ""); !errors.Is(err, policy.ErrNoRole) {
+	if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, accesstypes.Period{}, "", nil); !errors.Is(err, policy.ErrNoRole) {
 		t.Errorf("InsertCustomUserRole() of a role deleted before it: error = %v, want policy.ErrNoRole", err)
 	}
 	if got, err := store.ListUserAssignments(ctx, lou); err != nil || len(got) != 0 {
@@ -221,7 +221,7 @@ func customTogether(t *testing.T, store access.Store) {
 			giveTogether(t, store, &together{
 				row: policy.Role{Scope: wardTenant, Name: role},
 				give: func(ctx context.Context) error {
-					return store.InsertCustomUserRole(ctx, wardTenant, lou, role, accesstypes.Period{}, "")
+					return store.InsertCustomUserRole(ctx, wardTenant, lou, role, accesstypes.Period{}, "", nil)
 				},
 				holds:   func(t *testing.T) bool { return userHolds(t, store, wardTenant, role) },
 				remove:  func(t *testing.T) { removeUserRole(t, store, wardTenant, role) },
@@ -266,11 +266,11 @@ func heldInDomain(t *testing.T, store access.Store, p *periods) {
 		{
 			name: "a person holds it in two domains now",
 			give: func() error {
-				if err := store.InsertCustomUserRole(ctx, otherTenant, lou, warden, accesstypes.Period{}, ""); err != nil {
+				if err := store.InsertCustomUserRole(ctx, otherTenant, lou, warden, accesstypes.Period{}, "", nil); err != nil {
 					return errors.Wrapf(err, "access.Store.InsertCustomUserRole() in %s", otherTenant)
 				}
 
-				return store.InsertCustomUserRole(ctx, wardTenant, lou, warden, accesstypes.Period{}, "")
+				return store.InsertCustomUserRole(ctx, wardTenant, lou, warden, accesstypes.Period{}, "", nil)
 			},
 			remove: func(t *testing.T) {
 				removeUserRole(t, store, otherTenant, warden)
@@ -280,7 +280,7 @@ func heldInDomain(t *testing.T, store access.Store, p *periods) {
 		},
 		{
 			name:   "a person holds it in one domain for a period that has not begun",
-			give:   func() error { return store.InsertCustomUserRole(ctx, wardTenant, lou, warden, p.upcoming, "") },
+			give:   func() error { return store.InsertCustomUserRole(ctx, wardTenant, lou, warden, p.upcoming, "", nil) },
 			remove: func(t *testing.T) { removeUserRole(t, store, wardTenant, warden) },
 			holder: `a person holds it in the domain "wards"`,
 		},
@@ -314,7 +314,7 @@ func heldInDomain(t *testing.T, store access.Store, p *periods) {
 
 	// The ended holdings in a domain that reads the every-domain row go with it.
 	insertRole(t, store, everyDomain, warden)
-	if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, p.ended, ""); err != nil {
+	if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, p.ended, "", nil); err != nil {
 		t.Fatalf("InsertCustomUserRole(ended) error = %v", err)
 	}
 	if err := store.InsertCustomGroupRole(ctx, wardGroup, wardTenant, warden, p.ended); err != nil {
@@ -334,7 +334,7 @@ func heldInDomain(t *testing.T, store access.Store, p *periods) {
 		giveTogether(t, store, &together{
 			row: policy.Role{Scope: everyDomain, Name: role},
 			give: func(ctx context.Context) error {
-				return store.InsertCustomUserRole(ctx, wardTenant, lou, role, accesstypes.Period{}, "")
+				return store.InsertCustomUserRole(ctx, wardTenant, lou, role, accesstypes.Period{}, "", nil)
 			},
 			holds:   func(t *testing.T) bool { return userHolds(t, store, wardTenant, role) },
 			remove:  func(t *testing.T) { removeUserRole(t, store, wardTenant, role) },
@@ -354,7 +354,7 @@ func ownRowStandsApart(t *testing.T, store access.Store, p *periods) {
 
 	insertRole(t, store, everyDomain, warden)
 	insertRole(t, store, wardTenant, warden)
-	if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, accesstypes.Period{}, ""); err != nil {
+	if err := store.InsertCustomUserRole(ctx, wardTenant, lou, warden, accesstypes.Period{}, "", nil); err != nil {
 		t.Fatalf("InsertCustomUserRole() error = %v", err)
 	}
 	if err := store.InsertCustomGroupRole(ctx, wardGroup, wardTenant, warden, p.ended); err != nil {
@@ -472,7 +472,7 @@ func insertRole(t *testing.T, store access.Store, scope accesstypes.PolicyScope,
 // no failure.
 func removeUserRole(t *testing.T, store access.Store, scope accesstypes.PolicyScope, role accesstypes.Role) {
 	t.Helper()
-	if err := store.DeleteUserRole(context.WithoutCancel(t.Context()), scope, lou, role); err != nil {
+	if err := store.DeleteUserRole(context.WithoutCancel(t.Context()), scope, lou, role, nil); err != nil {
 		t.Errorf("DeleteUserRole(%s, %q) error = %v", scope, role, err)
 	}
 }

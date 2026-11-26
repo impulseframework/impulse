@@ -450,7 +450,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		return nil, errors.New("{{.Name}}.Settings.TenantMaker is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the {{.TenantPolicy.Record}} record ({{.TenantPolicy.Maker}}), which the data level hands in")
 	}
 {{- end}}
-	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
+	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix), spannerstore.WithAuditRecords(auditRecordsTable))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}

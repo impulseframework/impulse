@@ -32,6 +32,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
@@ -69,8 +70,9 @@ const (
 type Option func(*config)
 
 type config struct {
-	store  string
-	prefix string
+	store        string
+	prefix       string
+	auditRecords string
 }
 
 // WithStore names the policy store this client owns; it becomes part of the
@@ -87,6 +89,15 @@ func WithPrefix(prefix string) Option {
 	return func(c *config) { c.prefix = prefix }
 }
 
+// WithAuditRecords names the table the store writes the record of a person's role
+// given or taken in: the auth's audit records table, as session.TablesWithPrefix names
+// it (AuditRecords), in the database the store writes. Each of the three writes of a
+// person's role (InsertUserRole, InsertCustomUserRole, DeleteUserRole) writes the record
+// it is handed in its own transaction. With no table named, no record is written.
+func WithAuditRecords(table string) Option {
+	return func(c *config) { c.auditRecords = table }
+}
+
 type tableNames struct {
 	roles      string
 	userRoles  string
@@ -99,6 +110,9 @@ type tableNames struct {
 	groupsByName      string
 	groupMembersIndex string
 	groupRolesIndex   string
+
+	// auditRecords is the audit records table (WithAuditRecords), "" for none.
+	auditRecords string
 }
 
 func resolveNames(opts []Option) (tableNames, error) {
@@ -123,6 +137,8 @@ func resolveNames(opts []Option) (tableNames, error) {
 		groupsByName:      tables.GroupsByName,
 		groupMembersIndex: tables.GroupMembersByUserID,
 		groupRolesIndex:   tables.GroupRolesByScope,
+
+		auditRecords: c.auditRecords,
 	}, nil
 }
 
@@ -409,15 +425,23 @@ func (s *Store) customRoleHeld(scope accesstypes.PolicyScope, role accesstypes.R
 // its CreatedAt among it, left as it was. keyColumns and key name the row; the
 // read and the write share one transaction, so two assignments of one key
 // settle on one period. Each of needs is read first in the same transaction: the
-// first that answers an error is answered, and nothing is written.
-func (s *Store) assign(ctx context.Context, table string, keyColumns []string, key spanner.Key, period accesstypes.Period, needs []requirement, wrap string, with ...given) error {
+// first that answers an error is answered, and nothing is written. The record of
+// the act is written with the row (auditMutations).
+func (s *Store) assign(
+	ctx context.Context, table string, keyColumns []string, key spanner.Key, period accesstypes.Period, needs []requirement, record *auditlog.Record, wrap string,
+	with ...given,
+) error {
+	audit, err := s.auditMutations(record)
+	if err != nil {
+		return err
+	}
 	values := append(slices.Clone([]any(key)), period.StartPtr(), period.EndPtr())
 	columns := append(slices.Clone(keyColumns), colStartsAt, colEndsAt)
 	for _, g := range with {
 		columns = append(columns, g.column)
 		values = append(values, g.value)
 	}
-	_, err := spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+	_, err = spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		for _, need := range needs {
 			if err := need(ctx, txn); err != nil {
 				return err
@@ -433,7 +457,7 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
 		}
 
-		if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+		if err := txn.BufferWrite(append([]*spanner.Mutation{m}, audit...)); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
 		}
 
@@ -451,8 +475,10 @@ func (s *Store) assign(ctx context.Context, table string, keyColumns []string, k
 // period and the new reason where they do, an empty reason as none. The role
 // is named by name alone: no role row is required, since the release's default
 // roles have none.
-func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
-	return s.assignUserRole(ctx, scope, user, role, period, reason, nil)
+func (s *Store) InsertUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
+	return s.assignUserRole(ctx, scope, user, role, period, reason, nil, record)
 }
 
 // InsertCustomUserRole writes what InsertUserRole writes, only while the roles table
@@ -461,32 +487,82 @@ func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScop
 // read-write transaction at the serializable isolation level, so a DeleteRole of the
 // row at the same moment either reads the membership and refuses, or deletes the row
 // and this transaction, run again, finds it gone and wraps policy.ErrNoRole.
-func (s *Store) InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
-	return s.assignUserRole(ctx, scope, user, role, period, reason, []requirement{s.customRoleHeld(scope, role)})
+func (s *Store) InsertCustomUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
+	return s.assignUserRole(ctx, scope, user, role, period, reason, []requirement{s.customRoleHeld(scope, role)}, record)
 }
 
 // assignUserRole writes one user-role membership with its period and its reason
-// once each of needs is there.
-func (s *Store) assignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, needs []requirement) error {
+// once each of needs is there, and the record of the act with it.
+func (s *Store) assignUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, needs []requirement,
+	record *auditlog.Record,
+) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 
 	return s.assign(ctx, s.names.userRoles,
 		[]string{colKind, colAxis, colDomain, colRole, colUser},
 		spanner.Key{kind, axis, domain, string(role), string(user)},
-		period, needs, "spannertxn.Serializable() assign user role",
+		period, needs, record, "spannertxn.Serializable() assign user role",
 		given{column: colReason, value: spanner.NullString{StringVal: reason, Valid: reason != ""}})
 }
 
 // DeleteUserRole removes one user-role membership; removing an absent
-// membership is a no-op.
-func (s *Store) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
+// membership is a no-op. The record of the act is written with the removal, in its
+// transaction, which reads the membership first: a membership that is not there is
+// removed by nobody, and no record is written.
+func (s *Store) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error {
+	audit, err := s.auditMutations(record)
+	if err != nil {
+		return err
+	}
 	kind, axis, domain := policy.ScopeColumns(scope)
-	m := spanner.Delete(s.names.userRoles, spanner.Key{kind, axis, domain, string(role), string(user)})
-	if _, err := s.client.Apply(ctx, []*spanner.Mutation{m}); err != nil {
-		return errors.Wrap(err, "spanner.Client.Apply() delete user role")
+	key := spanner.Key{kind, axis, domain, string(role), string(user)}
+	m := spanner.Delete(s.names.userRoles, key)
+	if len(audit) == 0 {
+		if _, err := s.client.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+			return errors.Wrap(err, "spanner.Client.Apply() delete user role")
+		}
+
+		return nil
+	}
+	_, err = spannertxn.Serializable(ctx, s.client, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		switch _, err := txn.ReadRow(ctx, s.names.userRoles, key, []string{colRole}); {
+		case spanner.ErrCode(err) == codes.NotFound:
+			return nil
+		case err != nil:
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+		}
+		if err := txn.BufferWrite(append([]*spanner.Mutation{m}, audit...)); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spannertxn.Serializable() delete user role")
 	}
 
 	return nil
+}
+
+// auditMutations answers the mutation that writes record, the record of the act of the
+// write it goes with, in the audit records table (WithAuditRecords): its columns
+// (auditlog.Record.Columns) and CreatedAt the commit's time. A nil record, or a store
+// that names no table, writes none. A record that does not validate is an error, and
+// the act writes nothing.
+func (s *Store) auditMutations(record *auditlog.Record) ([]*spanner.Mutation, error) {
+	if record == nil || s.names.auditRecords == "" {
+		return nil, nil
+	}
+	columns, err := record.Columns()
+	if err != nil {
+		return nil, errors.Wrap(err, "auditlog.Record.Columns()")
+	}
+	columns[colCreatedAt] = spanner.CommitTimestamp
+
+	return []*spanner.Mutation{spanner.InsertMap(s.names.auditRecords, columns)}, nil
 }
 
 // ListUserRoles returns the roles the user holds in scope now, sorted.

@@ -63,7 +63,7 @@ func (u *userManager) AssignUserRole(ctx context.Context, scope accesstypes.Poli
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	return u.assignUserRoles(ctx, scope, user, period, reason, role)
+	return u.assignUserRoles(ctx, scope, user, period, reason, nil, role)
 }
 
 // AssignGroupUser puts user in group for the period, replacing the period of a place

@@ -77,7 +77,7 @@ func holdingReasons(t *testing.T, store access.Store, p *periods) {
 		{name: "one that has ended is not", period: p.ended, reason: "Over", want: []policy.Assignment{}},
 	}
 	for _, step := range steps {
-		if err := store.InsertUserRole(ctx, holdingsTenant, ivy, steward, step.period, step.reason); err != nil {
+		if err := store.InsertUserRole(ctx, holdingsTenant, ivy, steward, step.period, step.reason, nil); err != nil {
 			t.Fatalf("%s: InsertUserRole() error = %v", step.name, err)
 		}
 		got, err := store.ListUserAssignments(ctx, ivy)
@@ -91,7 +91,7 @@ func holdingReasons(t *testing.T, store access.Store, p *periods) {
 	if got, err := store.ListUserAssignments(ctx, jon); err != nil || len(got) != 0 {
 		t.Errorf("ListUserAssignments() of a person who holds nothing = (%v, %v), want none", got, err)
 	}
-	if err := store.DeleteUserRole(ctx, holdingsTenant, ivy, steward); err != nil {
+	if err := store.DeleteUserRole(ctx, holdingsTenant, ivy, steward, nil); err != nil {
 		t.Fatalf("DeleteUserRole() error = %v", err)
 	}
 }

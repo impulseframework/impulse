@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 var _ policyStore = (*storeManager)(nil)
@@ -34,8 +35,8 @@ func (m *storeManager) notifyPolicyChange() {
 	}
 }
 
-func (m *storeManager) deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
-	if err := m.store.DeleteUserRole(ctx, scope, user, role); err != nil {
+func (m *storeManager) deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error {
+	if err := m.store.DeleteUserRole(ctx, scope, user, role, record); err != nil {
 		return errors.Wrapf(err, "access.Store.DeleteUserRole(): role %q from %q", role, user)
 	}
 	m.notifyPolicyChange()
