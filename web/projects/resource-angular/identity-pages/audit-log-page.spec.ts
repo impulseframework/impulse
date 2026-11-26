@@ -18,12 +18,13 @@ import { CompoundResourceComponent, ResourceListComponent } from '@impulseframew
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { ListViewConfig, RESOURCE_DOMAIN, RESOURCE_META } from '@impulseframework/resource-angular/types';
-import { identityPages } from './identity-pages';
+import { identityPages, identityRoutes } from './identity-pages';
 
 // The Audit log page as the library's list draws it: the rows the server lists, newest
 // first by the list's own order, each cell in the words the server wrote of the row (who
 // acted, what was done, to whom or to what), and a row done to an account opening the
-// account. The list is built as it is read, so the page asks the server for no total.
+// account on the Accounts page. The list is built as it is read, so the page asks the
+// server for no total.
 
 const field = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
   ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
@@ -153,6 +154,10 @@ describe('the Audit log page, drawn by the list', () => {
   };
 
   beforeEach(async () => {
+    // The application builds the side's routes before any page draws, and so records the
+    // Accounts page as where an account opens. The record is the whole run's, as it is the
+    // application's: built here as there, a link reads the same whichever spec ran first.
+    identityRoutes(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
     const [page] = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' }).filter(
       (config) => config.page?.label === 'Audit log',
     );
@@ -219,6 +224,6 @@ describe('the Audit log page, drawn by the list', () => {
   });
 
   it('opens the account of a row done to one, from its name, and opens nothing from a row done to no account', () => {
-    expect(links()).toEqual([`/crew-session-users/${ada}`, null]);
+    expect(links()).toEqual([`/crew-accounts/${ada}`, null]);
   });
 });
