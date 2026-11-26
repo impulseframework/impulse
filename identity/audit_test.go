@@ -102,6 +102,7 @@ func storedOf(t *testing.T, record *auditlog.Record) auditlog.Stored {
 		RoleNames: append(roles, others...), RoleScope: auditlog.RoleScope(text("RoleScope")),
 		GroupID: text("GroupId"), GroupName: text("GroupName"), OldValue: text("OldValue"), NewValue: text("NewValue"),
 		PeriodStart: at("PeriodStart"), PeriodEnd: at("PeriodEnd"),
+		RecordKind: text("RecordKind"), RecordID: text("RecordId"), RecordWord: text("RecordWord"), RecordName: text("RecordName"),
 		SeatingTenantID: text("SeatingTenantId"), SeatingTenantName: text("SeatingTenantName"), Reason: text("Reason"),
 	}
 }

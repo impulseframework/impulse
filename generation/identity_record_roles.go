@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/generation/parser/genlang"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -66,6 +67,9 @@ type identityHeldRecord struct {
 	// its people reads a record's name by them (identitySourceData.RecordNames).
 	keyColumn  string
 	nameColumn string
+	// word is what one of the records is called inside a sentence (structRowWord): a row of
+	// the audit log keeps it with the role given or taken on the record.
+	word string
 }
 
 // findRecordTables marks the tables of the roles held on a record that the schema holds:
@@ -224,7 +228,9 @@ func (r *resourceGenerator) heldRecordsIn(dir string) ([]identityHeldRecord, err
 				if !ok || !structCommentHas(gen, typeSpec, holdsRolesKeyword) {
 					continue
 				}
-				record := identityHeldRecord{name: typeSpec.Name.Name, resource: accesstypes.Resource(r.pluralize(typeSpec.Name.Name))}
+				record := identityHeldRecord{
+					name: typeSpec.Name.Name, resource: accesstypes.Resource(r.pluralize(typeSpec.Name.Name)), word: structRowWord(gen, typeSpec),
+				}
 				if named {
 					naming := &typeNaming{file: file, pkgName: pkg.Name, pkgPath: resourcesPath, imports: map[string]bool{}}
 					record.keyType, err = r.heldRecordKeyType(structType, string(record.resource), naming)
@@ -302,6 +308,28 @@ func (r *resourceGenerator) heldRecordColumns(structType *ast.StructType, table 
 	return key, name
 }
 
+// structRowWord reads off a struct's comment what one of its rows is called inside a
+// sentence, as the extraction reads it for a loaded struct (declareRowWords): the word its
+// @rowWord states, else its name split into words. A @rowWord the extraction refuses is
+// left to it, and read here as none.
+func structRowWord(gen *ast.GenDecl, typeSpec *ast.TypeSpec) string {
+	doc := typeSpec.Doc
+	if doc == nil && len(gen.Specs) == 1 {
+		doc = gen.Doc
+	}
+	annotations, err := genlang.NewScanner(resourceKeywords()).ScanStructComment(doc.Text() + typeSpec.Comment.Text())
+	if err == nil && annotations.Has(rowWordKeyword) {
+		invocations, err := annotations.Get(rowWordKeyword).ParseInvocations(rowWordArgSpec())
+		if err == nil && len(invocations) > 0 && len(invocations[0].Positional) > 0 {
+			if word := strings.Join(strings.Fields(invocations[0].Positional[0]), " "); word != "" {
+				return word
+			}
+		}
+	}
+
+	return sentenceWord(typeSpec.Name.Name, "")
+}
+
 // fieldCommentHas reports whether a struct field's comment carries the annotation keyword
 // on a line of its own, with or without arguments.
 func fieldCommentHas(field *ast.Field, keyword string) bool {
@@ -339,6 +367,32 @@ func (d *identitySourceData) RecordNames() []identityRecordName {
 	}
 
 	return names
+}
+
+// identityRecordCalled is how the store reads what one record a role is held on is called,
+// for a row of the audit log (identity.Store.RecordNamed), each part a Go string literal:
+// the kind's resource, the word one of its records is called, and the statement that reads
+// a record's name by its key, "" where the kind declares no name or its key is more than
+// one column.
+type identityRecordCalled struct {
+	Resource string
+	Word     string
+	NameSQL  string
+}
+
+// RecordsCalled are the records the instance keeps roles on, in the records' order, as the
+// store reads what each is called (identityRecordCalled).
+func (d *identitySourceData) RecordsCalled() []identityRecordCalled {
+	called := make([]identityRecordCalled, 0, len(d.heldRecords))
+	for _, record := range d.heldRecords {
+		entry := identityRecordCalled{Resource: strconv.Quote(string(record.resource)), Word: strconv.Quote(record.word), NameSQL: ""}
+		if record.keyColumn != "" && record.nameColumn != "" {
+			entry.NameSQL = strconv.Quote("SELECT " + record.nameColumn + " FROM " + string(record.resource) + " WHERE " + record.keyColumn + " = @id")
+		}
+		called = append(called, entry)
+	}
+
+	return called
 }
 
 // PeopleLeftOut is what the select of the tenant's list of its people leaves out of the

@@ -160,7 +160,7 @@ func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransa
 // whole application's method: a tenant's group holds any account, and a tenant's
 // administrator puts in the ones the tenant has.
 func (t *Tenant) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID, period accesstypes.Period) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 	if err := t.requireTenantPerson(ctx, txn, userID); err != nil {
@@ -173,7 +173,7 @@ func (t *Tenant) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteTr
 // GiveGroupRoleFor is Tenant.GiveGroupRole with the period the group holds the role for
 // (see Manager.GiveGroupRoleFor).
 func (t *Tenant) GiveGroupRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 

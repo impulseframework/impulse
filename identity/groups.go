@@ -761,20 +761,20 @@ func (m *Manager) removeGroupPlaces(ctx context.Context, txn resource.ReadWriteT
 
 // requireTenantGroup reads a group of the tenant, or answers NotFound: a group kept
 // anywhere else is not found in the tenant, whoever asks.
-func (t *Tenant) requireTenantGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) error {
+func (t *Tenant) requireTenantGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) (*Group, error) {
 	group, err := t.manager.requireGroup(ctx, txn, groupID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	kept, err := group.kept()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if kept != t.scope() {
-		return groupNotFound(groupID)
+		return nil, groupNotFound(groupID)
 	}
 
-	return nil
+	return group, nil
 }
 
 // CreateGroup buffers a new group kept in the tenant (see Manager.CreateGroup).
@@ -785,7 +785,7 @@ func (t *Tenant) CreateGroup(ctx context.Context, txn resource.ReadWriteTransact
 // DescribeGroup buffers a new description on a group of the tenant (see
 // Manager.DescribeGroup).
 func (t *Tenant) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, description string) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 
@@ -795,7 +795,7 @@ func (t *Tenant) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransa
 // DeleteGroup deletes a group of the tenant with its members and the roles it holds
 // (see Manager.DeleteGroup).
 func (t *Tenant) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return nil, err
 	}
 
@@ -839,7 +839,7 @@ func (t *Tenant) AddGroupMember(ctx context.Context, txn resource.ReadWriteTrans
 // RemoveGroupMember buffers the removal of a person from a group of the tenant (see
 // Manager.RemoveGroupMember).
 func (t *Tenant) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 
@@ -849,7 +849,7 @@ func (t *Tenant) RemoveGroupMember(ctx context.Context, txn resource.ReadWriteTr
 // GiveGroupRole buffers a role a group of the tenant holds in the tenant, the one place
 // a tenant's group holds a role (see Manager.GiveGroupRole).
 func (t *Tenant) GiveGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, role accesstypes.Role) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 
@@ -859,7 +859,7 @@ func (t *Tenant) GiveGroupRole(ctx context.Context, txn resource.ReadWriteTransa
 // TakeGroupRole buffers the removal of a role a group of the tenant holds in the tenant
 // (see Manager.TakeGroupRole).
 func (t *Tenant) TakeGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, role accesstypes.Role) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 

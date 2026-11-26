@@ -215,6 +215,11 @@ type Store interface {
 	TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
 	// RecordMemberships reads the roles the person holds on records, in any tenant, not ended.
 	RecordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.RecordMembershipKey, error)
+	// RecordNamed reads what one record is called, for a row of the audit log: the word one
+	// record of its kind goes by ("project"), and the record's name, read by its key from
+	// the field its kind names a record by, "" where the kind names none or the record has
+	// none. A kind no role is held on is an error.
+	RecordNamed(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (word, name string, err error)
 
 	// InsertInvitation buffers the mail links row of a prepared invitation, as the
 	// session library says one is written (session.InvitationRow).

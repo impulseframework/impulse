@@ -333,6 +333,46 @@ func (store) RecordMemberships(ctx context.Context, txn resource.ReadWriteTransa
 	return keys, nil
 }
 
+// RecordNamed reads what one record is called, for a row of the audit log: the word one
+// record of its kind is called, and the record's name, read by its key in the caller's
+// transaction from the column its kind names a record by, "" where the kind names none or
+// the record has none. A kind no role of the auth is held on is an error.
+func (store) RecordNamed(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (string, string, error) {
+	switch at.Resource() {
+	{{- range .RecordsCalled }}
+	case {{ .Resource }}:
+		{{- if .NameSQL }}
+		name, err := recordName(ctx, txn, {{ .NameSQL }}, at.Record())
+
+		return {{ .Word }}, name, err
+		{{- else }}
+		return {{ .Word }}, "", nil
+		{{- end }}
+	{{- end }}
+	default:
+		return "", "", errors.Newf("no role of the {{ .Auth }} auth is held on one %s", at.Resource())
+	}
+}
+{{- if .RecordNames }}
+
+// recordName reads one record's name by the statement, "" where the record or its name is
+// not there.
+func recordName(ctx context.Context, txn resource.ReadWriteTransaction, sql, id string) (string, error) {
+	var name spanner.NullString
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, spanner.Statement{SQL: sql, Params: map[string]any{"id": id}}).Do(func(row *spanner.Row) error {
+		if err := row.Columns(&name); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+
+		return nil
+	}); err != nil {
+		return "", errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return name.StringVal, nil
+}
+{{- end }}
+
 // recordMemberships lists the rows a query of the people's roles on records reads, as
 // their keys, in the table's key order.
 func recordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, query *{{ .ResourcesPackage }}.{{ .RecordUserRole }}Query) ([]access.RecordMembershipKey, error) {
@@ -418,6 +458,10 @@ func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, a
 
 func (store) RecordMemberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordMembershipKey, error) {
 	return nil, nil
+}
+
+func (store) RecordNamed(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (string, string, error) {
+	return "", "", errNoRecordRoles
 }
 {{ end }}`
 

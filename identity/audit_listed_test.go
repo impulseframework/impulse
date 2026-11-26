@@ -95,6 +95,12 @@ var recordedMethods = map[string]recordRule{
 	"Tenant.GiveGroupRole":      {by: "Manager.GiveGroupRoleFor"},
 	"Tenant.TakeGroupRole":      {by: "Manager.TakeGroupRole"},
 
+	// A role on one record of a tenant.
+	"Tenant.GiveRoleOn":      {acts: []auditlog.Act{auditlog.ActRoleGiven}},
+	"Tenant.TakeRoleOn":      {acts: []auditlog.Act{auditlog.ActRoleTaken}},
+	"Tenant.GiveGroupRoleOn": {acts: []auditlog.Act{auditlog.ActGroupRoleGiven}},
+	"Tenant.TakeGroupRoleOn": {acts: []auditlog.Act{auditlog.ActGroupRoleTaken}},
+
 	// An invitation.
 	"Manager.Invite":                   {acts: []auditlog.Act{auditlog.ActInvited}},
 	"Manager.InviteTenant":             {acts: []auditlog.Act{auditlog.ActInvited}},

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -14,11 +15,12 @@ import (
 )
 
 // fakeRecordTables are the committed rows of the roles held on records, a person's and a
-// group's, each with its period. A write is logged as the other writes are and changes no
-// row.
+// group's, each with its period, and the names of the records the test names, by key. A
+// write is logged as the other writes are and changes no row.
 type fakeRecordTables struct {
 	recordRoles      map[access.RecordMembershipKey]accesstypes.Period
 	recordGroupRoles map[access.RecordGroupRoleKey]accesstypes.Period
+	recordNames      map[string]string
 }
 
 // heldOnProjects are the roles the tests' role file marks for the kind Projects
@@ -144,6 +146,20 @@ func (f *fakeStore) RecordPeriods(_ context.Context, _ resource.ReadWriteTransac
 	}
 
 	return periods, nil
+}
+
+// RecordNamed answers the word a record of the tests' kind goes by and the name the test
+// gives the record, "" where it gives none; any other kind is an error, as the generated
+// store answers a kind no role is held on.
+func (f *fakeStore) RecordNamed(_ context.Context, _ resource.ReadWriteTransaction, at accesstypes.RecordScope) (word, name string, err error) {
+	if err := f.fail("RecordNamed"); err != nil {
+		return "", "", err
+	}
+	if at.Resource() != projects {
+		return "", "", errors.Newf("no role is held on one %s", at.Resource())
+	}
+
+	return "project", f.recordNames[at.Record()], nil
 }
 
 func (f *fakeStore) TenantRecordRoles(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {

@@ -12,7 +12,9 @@ package integration
 // sector reach every mission. The sector's Marshal gives and takes either role on a mission,
 // to a person of the sector or to a group kept there, through the four methods of the
 // mission's sharing; the lead shares the mission with observers through the same methods,
-// held to the observer's role by the grant's condition.
+// held to the observer's role by the grant's condition. Each role given or taken on a
+// mission is a row of the sector's audit log, which names the mission by its word and its
+// title as they were.
 //
 // Each test writes two missions of Anvil of its own, each with a sortie, an expense and a
 // document, the first naming the Hammer squadron and the second the Tongs; the third mission
@@ -28,6 +30,7 @@ import (
 	"math/big"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +123,24 @@ func (w *sharingWorld) share(mission, who, group, role string, startsAt, endsAt 
 	}
 
 	return periodBody(w.t, fields, startsAt, endsAt)
+}
+
+// loggedOnMissions is what Anvil's audit log says, as its marshal reads it, of each role
+// given to or taken from the subject named on a mission, oldest first.
+func (w *sharingWorld) loggedOnMissions(subjectName string) []string {
+	w.t.Helper()
+
+	status, body := w.as("marshal", http.MethodGet, sectorPath(anvil, crewSectorAuditPath+"?limit=200"), "")
+	assertStatus(w.t, status, http.StatusOK, body)
+	var what []string
+	for _, row := range decodeRows(w.t, body) {
+		if said := text(row, "what"); text(row, "subjectName") == subjectName && strings.Contains(said, " on the mission ") {
+			what = append(what, said)
+		}
+	}
+	slices.Reverse(what)
+
+	return what
 }
 
 // enter seats a person as a Cadet of Anvil, one of the sector's people.
@@ -418,6 +439,21 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 	}
 	if got := w.holders("marshal", second.id); !slices.Equal(got, []string{"person bea MissionObserver"}) {
 		t.Errorf("the second mission's holders after the first's delete = %v, want bea's alone", got)
+	}
+
+	// Anvil's audit log keeps each role given and taken on a mission, naming the mission by
+	// its word and its title as they were: the rows still read so once it is deleted. The
+	// refused gives wrote none, and the delete writes none of its own.
+	onFirst := " on the mission " + first.title
+	logged := map[string][]string{
+		"kit":          {"Gave the role Mission observer" + onFirst, "Took the role Mission observer" + onFirst},
+		"Debris watch": {"Gave the group the role Mission observer" + onFirst},
+		"bea":          {"Gave the role Mission observer on the mission " + second.title},
+	}
+	for subject, want := range logged {
+		if got := w.loggedOnMissions(subject); !slices.Equal(got, want) {
+			t.Errorf("Anvil's log of the roles on missions of %s = %q, want %q", subject, got, want)
+		}
 	}
 
 	// The Marshal removes bea, who holds the second mission alone, from the sector by the

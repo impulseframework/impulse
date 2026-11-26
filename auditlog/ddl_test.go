@@ -7,14 +7,15 @@ import (
 	"testing"
 )
 
-// wantColumns is the audit records table's thirty-one columns, in the order the table
+// wantColumns is the audit records table's thirty-five columns, in the order the table
 // declares them.
 func wantColumns() []string {
 	return []string{
 		"Id", "CreatedAt", "Act", "Form",
 		"Auth", "ActorUserId", "ActorUsername", "PrincipalUserId", "PrincipalUsername", "PrincipalRole", "SessionId", "Process", "Rpc",
 		"Directory", "SubjectKind", "SubjectId", "SubjectName", "TenantId", "TenantName",
-		"RoleName", "OtherRoleNames", "RoleScope", "GroupId", "GroupName", "OldValue", "NewValue",
+		"RoleName", "OtherRoleNames", "RoleScope", "RecordKind", "RecordId", "RecordWord", "RecordName",
+		"GroupId", "GroupName", "OldValue", "NewValue",
 		"PeriodStart", "PeriodEnd", "SeatingTenantId", "SeatingTenantName", "Reason",
 	}
 }
@@ -85,6 +86,10 @@ func TestSpannerDDL(t *testing.T) {
   RoleName STRING(MAX),
   OtherRoleNames ARRAY<STRING(MAX)>,
   RoleScope STRING(MAX),
+  RecordKind STRING(MAX),
+  RecordId STRING(MAX),
+  RecordWord STRING(MAX),
+  RecordName STRING(MAX),
   GroupId STRING(MAX),
   GroupName STRING(MAX),
   OldValue STRING(MAX),
@@ -163,6 +168,10 @@ func TestPostgresDDL(t *testing.T) {
     "RoleName" character varying,
     "OtherRoleNames" character varying[],
     "RoleScope" character varying,
+    "RecordKind" character varying,
+    "RecordId" character varying,
+    "RecordWord" character varying,
+    "RecordName" character varying,
     "GroupId" character varying,
     "GroupName" character varying,
     "OldValue" character varying,

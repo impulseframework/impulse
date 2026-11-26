@@ -694,3 +694,62 @@ func Test_prepareIdentity_recordPeople(t *testing.T) {
 			[]string{"ARRAY_LENGTH(RecordsHeldOn) AS RecordsHeld,", "'' AS RecordHeldName"}, []string{"CASE RecordsHeldOn"})
 	})
 }
+
+// Test_prepareIdentity_recordNamed pins how the store reads what one record a role is held
+// on is called, for a row of the audit log: for each kind the role file holds a role on,
+// the word one of its records is called, the one its @rowWord states or else its name in
+// words, and the record's name, read by its key from the column of the field its kind
+// declares a name in (@name), in the caller's transaction; a kind that declares no name
+// reads none, and a kind no role is held on is an error. An auth whose role file holds no
+// role on a record refuses the read, as it refuses every write.
+func Test_prepareIdentity_recordNamed(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	named := strings.Replace(voyageRecordSource, "\t\t// @domain\n\t\tShipID string",
+		"\t\t// @name\n\t\tName string `spanner:\"Name\"`\n\t\t// @domain\n\t\tShipID string", 1)
+	worded := strings.Replace(voyageRecordSource, "\t// @holdsRoles\n", "\t// @holdsRoles\n\t// @rowWord(sea passage, plural: sea passages)\n", 1)
+	if named == voyageRecordSource || worded == voyageRecordSource {
+		t.Fatal("the fixture's voyage no longer reads as the test expects: no name field or row word added")
+	}
+	signature := "func (store) RecordNamed(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (string, string, error) { switch at.Resource() {"
+	unknown := "default: return \"\", \"\", errors.Newf(\"no role of the Crew auth is held on one %s\", at.Resource()) } }"
+	reader := "func recordName(ctx context.Context, txn resource.ReadWriteTransaction, sql, id string) (string, error) {"
+	tests := []struct {
+		name, source string
+		want         []string
+		wantNot      []string
+	}{
+		{
+			name: "a kind that declares a name", source: named,
+			want: []string{
+				signature,
+				"case \"Voyages\": name, err := recordName(ctx, txn, \"SELECT Name FROM Voyages WHERE Id = @id\", at.Record()) return \"voyage\", name, err",
+				unknown, reader,
+				"var name spanner.NullString if err := txn.SpannerReadOnlyTransaction().Query(ctx, spanner.Statement{SQL: sql, Params: map[string]any{\"id\": id}}).Do(",
+				"return name.StringVal, nil",
+			},
+		},
+		{
+			name: "a kind that declares no name", source: voyageRecordSource,
+			want: []string{signature, "case \"Voyages\": return \"voyage\", \"\", nil", unknown}, wantNot: []string{reader},
+		},
+		{
+			name: "a kind that states its word", source: worded,
+			want: []string{"case \"Voyages\": return \"sea passage\", \"\", nil"},
+		},
+	}
+	for _, tt := range tests {
+		writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": tt.source})
+		writeRoleFile(t, crewAuthPath, navigatorOnVoyages)
+		writeRoleFile(t, membersAuthPath, deckhandOnNothing)
+		if err := sharingGenerator(t).prepareIdentity(); err != nil {
+			t.Fatalf("%s: prepareIdentity() error = %v", tt.name, err)
+		}
+		assertContains(t, tt.name+": the crew's store", readIdentityFile(t, "crewidentity/store.go"), squashEach(tt.want), squashEach(tt.wantNot))
+	}
+
+	assertContains(t, "the members' store", readIdentityFile(t, "membersidentity/store.go"), squashEach([]string{
+		"func (store) RecordNamed(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (string, string, error) {\n\treturn \"\", \"\", errNoRecordRoles\n}",
+	}), []string{"func recordName("})
+}
