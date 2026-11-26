@@ -36,8 +36,8 @@ type Options struct {
 	Version string
 	// WebVersion is the browser packages' version every web root's package.json pins, in
 	// place of the template's placeholder (WebVersionPlaceholder): the release's own
-	// version, or the latest release's for an impulse no release published packages for.
-	// Required.
+	// version, or that of the release the ledger's last step names, for an impulse no
+	// release published packages for. Required.
 	WebVersion string
 	// DevRoot, when set, is a checkout of the framework (a directory whose go.mod declares
 	// github.com/impulseframework/impulse). The rendering then adds a replace directive to

@@ -110,13 +110,13 @@ func frameworkCheckout(t *testing.T) string {
 // TestNew runs impulse new over the builds an impulse can be: a release pins the framework
 // at its own version, the browser packages at it, and resolves the pin with go get -tool
 // before go mod tidy settles the requirements; an impulse installed from a commit pins
-// that commit's pseudo-version and the browser packages at the latest release's; a build
-// from a checkout, or one reporting (devel), is refused before anything is written; with
-// --dev-root the framework is pinned at the zero pseudo-version and replaced by the
-// checkout, whatever the build, and tidy alone runs; an auth of another name than the
-// skeleton's has the generators run once after that, and the skeleton's own name does
-// not; and a go get, a tidy or a regeneration that fails stops before the first commit,
-// the tree rendered.
+// that commit's pseudo-version and the browser packages at the ledger's last step's
+// release; a build from a checkout, or one reporting (devel), is refused before anything
+// is written; with --dev-root the framework is pinned at the zero pseudo-version and
+// replaced by the checkout, whatever the build, and tidy alone runs; an auth of another
+// name than the skeleton's has the generators run once after that, and the skeleton's own
+// name does not; and a go get, a tidy or a regeneration that fails stops before the first
+// commit, the tree rendered.
 func TestNew(t *testing.T) {
 	t.Parallel()
 
@@ -156,12 +156,12 @@ func TestNew(t *testing.T) {
 			wantLine:  "Pinned the framework in go.mod at " + release + ", the impulse that rendered the application, so CI's go tool impulse check runs the same code; the web roots pin the browser packages to match.",
 		},
 		{
-			name:      "an impulse installed from a commit pins that commit's pseudo-version, the browser packages at the latest release's",
+			name:      "an impulse installed from a commit pins that commit's pseudo-version, the browser packages at the ledger's last step's release",
 			build:     check.Build{Version: commit, FromModule: true},
 			wantPin:   commit,
 			wantWeb:   latestWeb,
 			wantCalls: []string{"app GOWORK=off go get -tool github.com/impulseframework/impulse/cmd/impulse@" + commit, "app GOWORK=off go mod tidy"},
-			wantLine:  "Pinned the framework in go.mod at " + commit + ", the impulse that rendered the application, so CI's go tool impulse check runs the same code; the web roots pin the browser packages to match.",
+			wantLine:  "Pinned the framework in go.mod at " + commit + ", the impulse that rendered the application, so CI's go tool impulse check runs the same code; a commit publishes no browser packages, so the web roots pin them at the release the upgrade ledger's last step names, and weblib.sh local attaches a framework checkout's own.",
 		},
 		{
 			name:    "a build from a checkout is refused, whatever version control stamped on it",
@@ -305,9 +305,10 @@ func TestNew(t *testing.T) {
 
 // TestFrameworkPins reads what a rendering pins the framework at from the running build:
 // a release its own version for the module and the browser packages, resolved through
-// the proxy; a commit its pseudo-version, the browser packages at the latest release's; a
-// checkout build nothing, refused; and under a dev root the zero pseudo-version, not
-// resolved, the browser packages at the latest release's, whatever the build.
+// the proxy; a commit its pseudo-version, the browser packages at the ledger's last
+// step's release; a checkout build nothing, refused; and under a dev root the zero
+// pseudo-version, not resolved, the browser packages at the ledger's last step's release,
+// whatever the build.
 func TestFrameworkPins(t *testing.T) {
 	t.Parallel()
 

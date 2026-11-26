@@ -161,12 +161,14 @@ impulse installed with go install github.com/impulseframework/impulse/cmd/impuls
 was built from. The tool directive CI's go tool impulse check runs names impulse's package
 in that module, so the templates the application starts from and the check are the same
 code; new resolves the pin with go get -tool, through the module proxy. The web roots pin
-the browser packages at the release's version, or at the latest release's for an impulse
-installed from a commit, since only a release publishes them. An impulse built from a
-checkout (go build, go run) names no version the proxy serves, so new refuses it before
-writing anything, unless --dev-root names the checkout to build against: then go.mod
-requires the framework at a placeholder version and replaces the module with the checkout,
-a line that is not for committing.`
+the browser packages at the release's version. Only a release publishes them, so an impulse
+installed from a commit pins them at the release named by the last step of the upgrade
+ledger (impulse upgrade), which can stand behind the latest release and behind the commit;
+weblib.sh local attaches the packages of a framework checkout in their place. An impulse
+built from a checkout (go build, go run) names no version the proxy serves, so new refuses
+it before writing anything, unless --dev-root names the checkout to build against: then
+go.mod requires the framework at a placeholder version and replaces the module with the
+checkout, a line that is not for committing.`
 }
 
 func newNew() *cobra.Command {
@@ -335,12 +337,14 @@ func (p frameworkPin) resolved() string {
 // check its CI runs are the same code. A release pins its own version, for the module and
 // the browser packages alike, since they release together; an impulse installed from a
 // commit (go install <package>@<commit>) pins the module at that commit's pseudo-version
-// and the browser packages at the latest release's, since a commit publishes none. A build
-// that cannot name its commit, one built from a checkout (go build, go run, whatever
-// version control stamped on it) or reporting (devel), is refused before anything is
-// written: no module proxy serves it, so no pin could fetch it. With a dev root the module
-// is pinned at the zero pseudo-version and replaced by the checkout, so nothing is
-// resolved; the browser packages take the latest release's version there too.
+// and the browser packages at the release the ledger's last step names (ledger.Latest),
+// since a commit publishes none: the web-pins check holds an application whose go.mod
+// names a commit to that step's versions, and the last step may stand behind the latest
+// release. A build that cannot name its commit, one built from a checkout (go build, go
+// run, whatever version control stamped on it) or reporting (devel), is refused before
+// anything is written: no module proxy serves it, so no pin could fetch it. With a dev
+// root the module is pinned at the zero pseudo-version and replaced by the checkout, so
+// nothing is resolved; the browser packages take the last step's release there too.
 func frameworkPins(b check.Build, devRoot string) (frameworkPin, error) {
 	latest := ledger.Latest()
 	if devRoot != "" {
