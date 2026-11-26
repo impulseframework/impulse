@@ -302,7 +302,7 @@ func TestManager_AddGroupMember_rolesOnRecords(t *testing.T) {
 	reader := access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")
 	frank, erinID := frankID.String(), otherUser.String()
 	insertFrank := "insert group member " + nightID.String() + " " + frank
-	const refusedEditor = "Putting a person in the group Night shift gives them the role Project editor, which you may not give them."
+	const refusedEditor = "Putting a person in the group Night shift gives them the role Project editor on one project, which you may not give them there."
 	// wholeApplication is a request erin made for the whole application, checked in the
 	// global scope.
 	wholeApplication := func(ctx context.Context) context.Context {
@@ -346,7 +346,7 @@ func TestManager_AddGroupMember_rolesOnRecords(t *testing.T) {
 			records:  map[access.RecordGroupRoleKey]accesstypes.Period{viewerP2: {}, editorP1: {}},
 			noGiveOn: []string{"p2"},
 			wantSays: "the role ProjectViewer on Projects p2 in alpha, which you may not give them",
-			wantTold: "Putting a person in the group Night shift gives them the role Project viewer, which you may not give them.",
+			wantTold: "Putting a person in the group Night shift gives them the role Project viewer on one project, which you may not give them there.",
 			wantAsked: []string{
 				"give on Projects p1 in alpha " + frank + " ProjectEditor",
 				"give on Projects p2 in alpha " + frank + " ProjectViewer",

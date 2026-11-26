@@ -159,11 +159,15 @@ func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWrit
 // putting them in the group or giving the group a role on a record, to what giving them
 // each role on its record directly needs: the person is asked for every role named, in
 // order, and the first the caller may not give refuses the change, in the sentence
-// refuseGivingThrough writes. A request made under a tenant asks what the method that gives
-// a person a role on a record of that kind asks (RoleGrants.MayGiveOn); one made for the
-// whole application asks what giving the role across the record's tenant asks
-// (RoleGrants.MayGive), since no method of the whole application gives a role on one
-// record. The cause, kept for the server's log, names the record.
+// refuseGivingThrough writes with the role said to be held on one record, by what the store
+// calls one record of its kind (Store.RecordNamed: the word alone, never the record's name,
+// which the caller may have no right to see): "... gives them the role Project editor on
+// one project, which you may not give them there." A request made under a tenant asks what
+// the method that gives a person a role on a record of that kind asks
+// (RoleGrants.MayGiveOn); one made for the whole application asks what giving the role
+// across the record's tenant asks (RoleGrants.MayGive), since no method of the whole
+// application gives a role on one record. The cause, kept for the server's log, names the
+// record.
 func (m *Manager) refuseGivingOnThrough(ctx context.Context, txn resource.ReadWriteTransaction, roles []access.RecordGroupRoleKey, userID impulse.UUID, act string) error {
 	_, inTenant := resource.CallerFrom(ctx).Scope.Domain()
 	for i := range roles {
@@ -180,9 +184,14 @@ func (m *Manager) refuseGivingOnThrough(ctx context.Context, txn resource.ReadWr
 			return errors.Wrap(err, "identity.RoleGrants")
 		}
 		if !allowed {
+			word, _, err := m.store.RecordNamed(ctx, txn, at)
+			if err != nil {
+				return errors.Wrap(err, "identity.Store.RecordNamed()")
+			}
+
 			return httpio.NewForbiddenMessageWithError(
 				errors.Newf("%s the role %s on %s, which you may not give them: someone who may give the role on the record does it", act, string(held.Role), at.String()),
-				sentenceStart(act)+" the role "+roleInWords(held.Role)+", which you may not give them.",
+				sentenceStart(act)+" the role "+roleInWords(held.Role)+" on one "+word+", which you may not give them there.",
 			)
 		}
 	}

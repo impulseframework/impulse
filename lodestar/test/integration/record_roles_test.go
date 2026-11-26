@@ -700,7 +700,7 @@ func TestRecordRoles_aGroupsPlaces(t *testing.T) {
 	refused := func(status int, body []byte, group string) {
 		t.Helper()
 		assertStatus(t, status, http.StatusForbidden, body)
-		want := "Putting a person in the group " + group + " gives them the role Mission observer, which you may not give them."
+		want := "Putting a person in the group " + group + " gives them the role Mission observer on one mission, which you may not give them there."
 		if got := refusalMessage(t, body); got != want {
 			t.Errorf("the refusal = %q, want %q", got, want)
 		}
@@ -735,7 +735,7 @@ func TestRecordRoles_aGroupsPlaces(t *testing.T) {
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = w.as("noa", http.MethodPost, sectorPath(anvil, "give-crew-group-role-on-mission"), w.share(first.id, "", spares, "MissionObserver", none, none))
 	assertStatus(t, status, http.StatusForbidden, body)
-	if got, want := refusalMessage(t, body), "Giving the group Spares crew a role gives everyone in it the role Mission observer, which you may not give them."; got != want {
+	if got, want := refusalMessage(t, body), "Giving the group Spares crew a role gives everyone in it the role Mission observer on one mission, which you may not give them there."; got != want {
 		t.Errorf("the refusal = %q, want %q", got, want)
 	}
 	if got := w.holders("marshal", first.id); slices.Contains(got, "group Spares crew MissionObserver") {

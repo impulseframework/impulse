@@ -401,7 +401,7 @@ func TestTenant_GiveGroupRoleOn_eachPerson(t *testing.T) {
 
 		return want
 	}
-	const refused = "Giving the group Night shift a role gives everyone in it the role Project viewer, which you may not give them."
+	const refused = "Giving the group Night shift a role gives everyone in it the role Project viewer on one project, which you may not give them there."
 	tests := []struct {
 		name string
 		// places are the night shift's people, each with the period of their place.
