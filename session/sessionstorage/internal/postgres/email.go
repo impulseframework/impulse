@@ -186,7 +186,9 @@ func (s *SessionStorageDriver) VerifyUserEmailIn(ctx context.Context, tx pgx.Tx,
 // record after the address where the claim wrote it, and none where it wrote nothing. The
 // row written is a copy of record with the address the user held before as its old value
 // ("" for none), read in the claim's transaction before the claim, under a lock that
-// holds the row until it ends.
+// holds the row until it ends. On a store whose usernames are the addresses the claim
+// writes only that the address is confirmed, so the row's new value is the account's
+// own spelling too, whatever the case of email.
 func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string, record *auditlog.Record) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -212,6 +214,9 @@ func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID im
 		set.OldValue = ""
 		if held != nil {
 			set.OldValue = *held
+		}
+		if s.usernameIsEmail {
+			set.NewValue = set.OldValue
 		}
 
 		return s.InsertAuditRecordIn(ctx, tx, &set)
