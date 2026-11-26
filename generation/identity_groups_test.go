@@ -540,7 +540,8 @@ func Test_prepareIdentity_grants(t *testing.T) {
 // under a tenant is answered by the grants of the tenant's own two methods, the one that
 // gives a role read against the person's row of the tenant's people and the one that
 // takes a role away against the row the removal would name; and the store reads whether
-// a person is one of the tenant's people from the tenant's own list.
+// a person is one of the tenant's people from the tenant's own list, the store of an auth
+// that keeps no groups among them.
 func Test_prepareIdentity_grants_tenant(t *testing.T) {
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
@@ -580,6 +581,14 @@ func Test_prepareIdentity_grants_tenant(t *testing.T) {
 			"func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {",
 			"clause := crewresources.NewCrewShipUserQueryClause()",
 			"clause.ID().Equal(userID).And().DomainID().Equal(string(domain))",
+		},
+		// The members keep no groups, and their store reads the tenant's list of their
+		// people all the same: a role given on one of the tenant's records asks it.
+		"membersidentity/store.go": {
+			"func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {",
+			"clause := membersresources.NewMembersShipUserQueryClause()",
+			"clause.ID().Equal(userID).And().DomainID().Equal(string(domain))",
+			"var errNoGroups = errors.New(",
 		},
 		// The tenant's method holds the person to the tenant's people in the library, so
 		// it reads no account of its own.

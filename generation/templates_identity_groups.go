@@ -481,27 +481,7 @@ func (store) GroupsHolding(ctx context.Context, txn resource.ReadWriteTransactio
 
 	return ids, nil
 }
-{{ if .TenantPeople }}
-// TenantPerson reads the tenant's own list of the auth's people, {{ .TenantUser }}, by
-// the two columns that name a row within its tenant: the account's id and the tenant.
-// It is the list a tenant's method names a person from, so a person found here is one
-// the generated frame of such a method finds.
-func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {
-	clause := {{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause()
-	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
-		Where(clause.ID().Equal(userID).And().DomainID().Equal(string(domain)))
-	for _, err := range query.List(ctx, txn) {
-		if err != nil {
-			return false, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
-		}
-
-		return true, nil
-	}
-
-	return false, nil
-}
-{{ else }}
+{{ if .TenantPeople }}` + identityTenantPersonRead + `{{ else }}
 // The application has no tenant record, so no tenant keeps a list of the {{ .Auth }}
 // auth's people, and nobody is found in one.
 func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
@@ -593,13 +573,39 @@ func (store) TenantGroupRoles(context.Context, resource.ReadWriteTransaction, ac
 func (store) GroupsHolding(context.Context, resource.ReadWriteTransaction, *access.RoleKey) ([]impulse.UUID, error) {
 	return nil, nil
 }
-
-// TenantPerson is asked by the rules of a tenant's group alone, and here there are no
-// groups.
+{{ if .TenantPeople }}` + identityTenantPersonRead + `{{ else }}
+// TenantPerson is asked by the rules of a role given on one of a tenant's records, and
+// no tenant keeps a list of the {{ .Auth }} auth's people: nobody is found in one.
 func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
 	return false, nil
 }
-{{ end }}`
+{{ end }}{{ end }}`
+
+	// identityTenantPersonRead is the store's read of whether a person is one of a
+	// tenant's people (identity.GroupStore.TenantPerson) where the instance has the
+	// tenant's list of them, whether it keeps groups or not: the rules of a tenant's group
+	// ask it, and so do the rules of a role given on one of the tenant's records.
+	identityTenantPersonRead = `
+// TenantPerson reads the tenant's own list of the auth's people, {{ .TenantUser }}, by
+// the two columns that name a row within its tenant: the account's id and the tenant.
+// It is the list a tenant's method names a person from, so a person found here is one
+// the generated frame of such a method finds.
+func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	clause := {{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause()
+	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
+		Where(clause.ID().Equal(userID).And().DomainID().Equal(string(domain)))
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return false, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
+		}
+
+		return true, nil
+	}
+
+	return false, nil
+}
+`
 
 	// identityTenantGroupPeople are the people a tenant's list holds because of a group,
 	// as branches of the union the people are selected from (identityTenantPeopleFrom):
