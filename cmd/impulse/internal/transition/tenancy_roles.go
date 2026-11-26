@@ -613,6 +613,126 @@ func tagsText(fields []accesstypes.Tag) string {
 	return strings.Join(words, ", ")
 }
 
+// givableRolesSuffix names the whole application's list of the roles a person may be
+// given, after the auth's name, as the generated management names it.
+const givableRolesSuffix = "GivableRoles"
+
+// rolePlaces are the fields of the whole application's list of the roles to give that
+// say where a role is held: the tenant it is held in, and whether it is held in every
+// tenant.
+var rolePlaces = []accesstypes.Tag{"domain", "everyDomain"}
+
+// writeRolePlaces gives each auth's role file where each role to give is held
+// (grantRolePlaces), and writes the file back where a role gained it. Every auth's list
+// of the roles to give gains the two fields once the application has a tenant record,
+// and the whole application's dialogs that give a role ask the list by them, so the pass
+// reads the role file of every auth, not only of the one whose people make tenants. An
+// auth with no role file, or whose list the application does not serve for the whole
+// application, is left as it is. A role file that is there and cannot be read stops the
+// command with the error; one that does not read as the permission engine reads it is
+// left as it is, and the change names the hand step where the list has either field.
+func (tn Tenancy) writeRolePlaces(a *app.App, ch *Change) error {
+	served, err := a.Served()
+	if err != nil || served == nil {
+		return err
+	}
+	for i := range a.AuthPackages {
+		pkg := &a.AuthPackages[i]
+		list := names.Pascal(pkg.Name) + givableRolesSuffix
+		rel := path.Join(pkg.Dir, app.RolesFileName)
+		r, ok := served.Resource(list)
+		if !ok || r.Scope != app.ScopeGlobal || !exists(a, rel) {
+			continue
+		}
+		data, mode, err := readFile(a, rel)
+		if err != nil {
+			return err
+		}
+		file, err := parseRoleFile(data)
+		if err != nil {
+			if len(placesTaken(r)) > 0 {
+				ch.skipf("%s: the role file does not read as the permission engine reads it (%s), so no role in it was given where each role to give is held: add domain and everyDomain to the fields of each global role's List grant on %s; until then the whole application's dialogs that give a role offer its holder no role", rel, refusalText(err), list)
+			}
+
+			continue
+		}
+		if !tn.grantRolePlaces(file, served, pkg.Name, rel, ch) {
+			continue
+		}
+		if err := writeRoleFile(a, rel, file, mode, nil); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// grantRolePlaces gives each global role of the auth's role file that lists the roles to
+// give where each role is held there, on what the application serves (rolePlacesOf), says
+// so in one line, none where no role gained anything, and reports whether one did. It
+// changes the file in memory; writeRolePlaces writes it.
+func (tn Tenancy) grantRolePlaces(file *roleFile, served *app.Served, auth, rel string, ch *Change) bool {
+	list := accesstypes.Resource(names.Pascal(auth) + givableRolesSuffix)
+	r, ok := served.Resource(string(list))
+	if !ok || r.Scope != app.ScopeGlobal {
+		return false
+	}
+	places := placesTaken(r)
+	gained := make([]string, 0, len(file.Roles.Global))
+	for _, role := range file.Roles.Global {
+		gained = append(gained, rolePlacesOf(role, list, places)...)
+	}
+	if len(gained) == 0 {
+		return false
+	}
+	ch.didf("%s: each global role that lists the roles to give also reads where each role is held there, which the whole application's dialogs ask the list by once the application has %s (%s)", rel, tn.manyLower(), strings.Join(gained, "; "))
+
+	return true
+}
+
+// rolePlacesOf gives one global role where each role to give is held, and answers what it
+// gained in the file's order. A List grant on the list that names fields gains each of
+// the places the list takes that it does not name already, after its own fields and
+// under its own condition. A grant that names every field (*) names them already, and a
+// bare grant names no field to add them to: neither gains any, as with who manages each
+// account (factsToGain).
+func rolePlacesOf(role *roleEntry, list accesstypes.Resource, places []accesstypes.Tag) []string {
+	var gained []string
+	for i := range role.Permissions {
+		if role.Permissions[i].Permission != string(accesstypes.List) {
+			continue
+		}
+		for j := range role.Permissions[i].Grants {
+			grant := &role.Permissions[i].Grants[j]
+			if grant.Resource != list || namesNoField(*grant) {
+				continue
+			}
+			fields := slices.DeleteFunc(slices.Clone(places), func(field accesstypes.Tag) bool {
+				return slices.Contains(grant.Fields, field)
+			})
+			if len(fields) > 0 {
+				grant.Fields = append(grant.Fields, fields...)
+				gained = append(gained, fmt.Sprintf("%s: %s on %s (%s)", role.Name, accesstypes.List, list, tagsText(fields)))
+			}
+		}
+	}
+
+	return gained
+}
+
+// placesTaken are the fields that say where a role is held that the list of the roles to
+// give takes List on, in rolePlaces' order: none where the application has no tenants.
+func placesTaken(list *app.ServedResource) []accesstypes.Tag {
+	var places []accesstypes.Tag
+	for _, field := range rolePlaces {
+		if list.FieldTakes(string(field), string(accesstypes.List)) {
+			places = append(places, field)
+		}
+	}
+
+	return places
+}
+
 // applicationManages is the condition the tenanted skeleton holds its own administrator's
 // grants on the whole application's methods that act on an account to: the account is
 // one no tenant manages.

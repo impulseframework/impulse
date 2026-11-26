@@ -28,11 +28,13 @@ type roleScopes struct {
 	Domain []*roleEntry `json:"domain"`
 }
 
-// roleEntry is one role of a role file.
+// roleEntry is one role of a role file. HeldOn is the kinds of record a tenant's role can
+// be held on, kept so that a role file written again holds each role where it was held.
 type roleEntry struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Permissions rolePermissions `json:"permissions"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	HeldOn      []accesstypes.Resource `json:"heldOn,omitempty"`
+	Permissions rolePermissions        `json:"permissions"`
 }
 
 // rolePermission is the grants a role carries for one permission.

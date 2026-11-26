@@ -406,6 +406,7 @@ func TestTenancy_Apply_provesTheConditionsWithNoPassword(t *testing.T) {
 			for _, want := range []string{
 				`provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "DisableMembersTenantUser", "managedHere = true")`,
 				"s.auth.SeedCastFile(ctx, io.Discard,", "signIn(ctx, members.PersonaRegistration,", "membersAccount(ctx, t, s, name,", `"/api/assign-members-role"`, `"unlink-members-tenant-session-identity"`,
+				`"/api/members-givable-roles?limit=all&filter=method:eq:AssignMembersRole,"`,
 			} {
 				if !strings.Contains(proof, want) {
 					t.Errorf("%s does not contain %q", tenantPeopleTest, want)
