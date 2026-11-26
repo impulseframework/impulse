@@ -35,6 +35,13 @@ export interface OfferedMethod {
    * runs nothing.
    */
   says?: string;
+  /**
+   * Runs against the row the list sits under, not the row it is offered on: a method the
+   * page fills from a row whose target row is the one the list sits under
+   * (parentRowMethods). That row's key fills the request, and the page fills the rest from
+   * the row the entry is on.
+   */
+  onParent?: boolean;
 }
 
 /**
@@ -207,6 +214,53 @@ export function filledMethods(
       continue;
     }
     const entry = offeredAs(presentation.method, meta, presentation);
+    if (presents(presentation, row)) {
+      methods.push(entry);
+      continue;
+    }
+    const says = saidInstead(presentation, row);
+    if (says) {
+      methods.push({ ...entry, says });
+    }
+  }
+  return methods;
+}
+
+/**
+ * The methods a row offers that name the row the list sits under and are filled from the
+ * row: the ones the page names with a `fill` whose target row is not a row of the listed
+ * resource, each on every row where the answer for the row the list sits under (`parent`)
+ * lists it, as a method above the list that names that row is drawn (parentOffers), less
+ * the ones the page hides and the ones whose row predicate says no. Each runs against the
+ * row the list sits under (`onParent`). As for a method that names its row (rowMethods), a
+ * presentation whose predicate keeps the method off the row is an entry of words where the
+ * page says what the row shows in its place (`otherwise`). A list under no row, and a row
+ * read without its answer, offer none.
+ */
+export function parentRowMethods(
+  row: RecordData,
+  parent: RecordData | undefined,
+  resource: Resource | undefined,
+  presentations: readonly MethodPresentation[] | undefined,
+  metaOf: (method: string) => MethodMeta | undefined,
+): OfferedMethod[] {
+  const admitted = parent ? rowCapabilities(parent)?.Execute : undefined;
+  if (!admitted) {
+    return [];
+  }
+  const methods: OfferedMethod[] = [];
+  for (const presentation of presentations ?? []) {
+    const meta = metaOf(presentation.method);
+    // A method that names a row of the listed resource is the row's own answer's to offer.
+    if (
+      !presentation.fill ||
+      !meta?.target ||
+      meta.target.resource === resource ||
+      !admitted.includes(presentation.method)
+    ) {
+      continue;
+    }
+    const entry: OfferedMethod = { ...offeredAs(presentation.method, meta, presentation), onParent: true };
     if (presents(presentation, row)) {
       methods.push(entry);
       continue;

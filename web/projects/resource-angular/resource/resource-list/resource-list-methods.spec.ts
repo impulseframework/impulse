@@ -54,6 +54,8 @@ const people = 'SectorPeople' as Resource;
 const ships = 'Ships' as Resource;
 const berths = 'Berths' as Resource;
 const passes = 'HangarPasses' as Resource;
+// The resource a list of berths sits under in the specs of a method that names that row; no list of it is drawn.
+const docks = 'Docks' as Resource;
 
 const metas: Record<string, ResourceMeta> = {
   [people]: {
@@ -142,6 +144,7 @@ const descriptor: ApiDescriptor = {
     InvitePerson: method('InvitePerson', 'domain'),
     NoteOnPerson: method('NoteOnPerson', 'domain'),
     SweepBerth: method('SweepBerth', 'domain'),
+    ReleaseBerth: method('ReleaseBerth', 'domain'),
   },
 };
 
@@ -172,6 +175,15 @@ const methodMetas: Record<string, MethodMeta> = {
     route: 'sweepberth',
     fields: [{ fieldName: 'berth', displayType: 'string', required: true }],
     offeredOn: [berths],
+  },
+  // Names a dock (its target row) and takes a berth: offered on the berths of a list under the dock.
+  ReleaseBerth: {
+    route: 'releaseberth',
+    target: { resource: docks, key: { dockId: 'id' } },
+    fields: [
+      { fieldName: 'dockId', displayType: 'uuid' },
+      { fieldName: 'berth', displayType: 'string', required: true },
+    ],
   },
 };
 
@@ -1192,6 +1204,100 @@ describe('ResourceListComponent row methods', () => {
       expect(element().querySelector('button.impulse-resource-list-method')).toBeNull();
     });
   }
+
+  // A method that names the row the list sits under, filled from a row of the list: each
+  // row's menu offers it where the answer for the row the list sits under lists it, as the
+  // buttons above the list are drawn, and it runs against that row.
+  const release: MethodPresentation = {
+    method: 'ReleaseBerth' as Method,
+    label: 'Release',
+    fill: (row) => ({ berth: row['name'] }),
+    when: (row) => row['name'] !== 'East',
+    otherwise: (row) => `${String(row['name'])} is kept`,
+    confirm: (row) => `Release ${String(row['name'])}?`,
+  };
+  /** The dock a list of berths sits under, as the page's read of it answers: with the methods the caller may run on it, where it says. */
+  const dock = (execute?: string[]): RecordData =>
+    ({
+      id: 'd-9',
+      name: 'Pier',
+      ...(execute ? { zzCapabilities: { Execute: execute } } : {}),
+    }) as unknown as RecordData;
+  const berthsUnder = (parent: RecordData | undefined): Promise<void> =>
+    create(
+      { primaryResource: berths, listColumns: [{ id: 'name' as FieldName }], rowMethods: [release] } as never,
+      { ...listsBerths, ReleaseBerth: { Execute: 'granted' } },
+      parent,
+    );
+
+  it("offers in each row's menu a method the page fills from the row that names the row the list sits under, where the answer for that row lists it, and runs it against that row", async () => {
+    await berthsUnder(dock(['ReleaseBerth']));
+
+    // The rows' own answers are not asked for: the answer for the row the list sits under decides.
+    expect(listRequests()).toEqual(['GET /api/sectors/anvil/berths?columns=name%2Cid&count=true']);
+    expect(fixture.componentInstance.columns().map((col) => col.id)).toContain(rowActionsKey);
+    // A menu on every row, whatever the row's own answer: South's lists nothing, and East was read without one.
+    const buttons = Array.from(element().querySelectorAll('tr.impulse-row')).map(
+      (tr) => tr.querySelectorAll('button.row-actions').length,
+    );
+    expect(buttons).toEqual([1, 1, 1]);
+    // The page's predicate keeps the method off East, which says the page's words in its place.
+    expect(actionsOf(2).map((a) => [a.label, a.disabled])).toEqual([['East is kept', true]]);
+
+    // Drawn: South's menu holds the method, and chosen it runs against the dock the list is
+    // under, the berth filled from South.
+    element().querySelectorAll<HTMLButtonElement>('tr.impulse-row button.row-actions')[1].click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const entries = Array.from(document.querySelectorAll<HTMLButtonElement>('button.row-action'));
+    expect(entries.map((entry) => entry.textContent?.trim())).toEqual(['Release']);
+    entries[0].click();
+    await settle();
+
+    expect(opened).toEqual([
+      {
+        method: 'ReleaseBerth',
+        label: 'Release',
+        preset: { dockId: 'd-9', berth: 'South' },
+        confirm: 'Release South?',
+      },
+    ]);
+  });
+
+  for (const tt of [
+    {
+      name: 'the answer for the row the list sits under does not list it, whatever the digest grants',
+      parent: dock(['CloseDock']),
+    },
+    { name: 'the row the list sits under was read without its answer', parent: dock() },
+    { name: 'the list sits under no row', parent: undefined },
+  ]) {
+    it(`offers such a method on no row where ${tt.name}`, async () => {
+      await berthsUnder(tt.parent);
+
+      expect([0, 1, 2].map(actionsOf)).toEqual([[], [], []]);
+      expect(element().querySelector('tr.impulse-row button.row-actions')).toBeNull();
+    });
+  }
+
+  it("offers a method the page fills from the row that names a row of the listed resource by each row's own answer, and runs it against that row, under a row whose answer lists it too", async () => {
+    const rename: MethodPresentation = {
+      method: 'RenamePerson' as Method,
+      label: 'Rename',
+      fill: (row) => ({ username: row['username'] }),
+    };
+    await create({ primaryResource: people, rowMethods: [rename] }, {}, under(false, ['RenamePerson']));
+
+    expect(actionsOf(0).map((a) => a.label)).toEqual(['Rename', 'Disable person', 'Enable person']);
+    expect(actionsOf(1)).toEqual([]);
+
+    actionsOf(0)[0].run();
+    await settle();
+
+    expect(opened).toEqual([
+      { method: 'RenamePerson', label: 'Rename', preset: { personId: 'u-1', username: 'ada' }, confirm: undefined },
+    ]);
+  });
 });
 
 // A link to a list page can open one of the methods above its list: the query parameter

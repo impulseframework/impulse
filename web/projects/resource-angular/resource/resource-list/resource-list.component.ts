@@ -96,6 +96,7 @@ import {
   offeredAs,
   OfferedMethod,
   parentOffers,
+  parentRowMethods,
   rowMethods,
 } from '../row-methods/row-methods';
 import { deleteLeftOf } from '../delete-left';
@@ -479,6 +480,22 @@ export class ResourceListComponent implements OnInit {
       )
       .map((presentation) => presentation.method),
   );
+  /**
+   * The methods the page fills from a row whose target row is the row the list sits under
+   * (`@target` naming a resource other than the listed one): a row's menu offers each
+   * where the answer for the row the list sits under lists it (parentRowMethods), as a
+   * method above the list that names that row is drawn (listMethods), and runs it against
+   * that row.
+   */
+  parentMethodNames = computed<string[]>(() => {
+    const listed = this.config().primaryResource;
+    return (this.across() ? [] : (this.methodPresentations() ?? []))
+      .filter((presentation) => {
+        const target = this.store.methodMeta(presentation.method)?.target;
+        return presentation.fill && !presentation.hidden && target !== undefined && target.resource !== listed;
+      })
+      .map((presentation) => presentation.method);
+  });
   /** How the page presents the methods it names; undefined where it names none. */
   private methodPresentations = computed(() => {
     const rowMethodsConfig = this.config().rowMethods;
@@ -1416,7 +1433,11 @@ export class ResourceListComponent implements OnInit {
       });
     });
 
-    if (this.rowMethodNames().length > 0 || this.filledMethodNames().length > 0) {
+    if (
+      this.rowMethodNames().length > 0 ||
+      this.filledMethodNames().length > 0 ||
+      this.parentMethodNames().length > 0
+    ) {
       // The methods a row offers, in one menu at its end: the entries ride the display
       // row (processedRowData), so a row that offers none draws no button.
       columns.push({
@@ -1504,6 +1525,7 @@ export class ResourceListComponent implements OnInit {
     const columns = this.columns();
     const methods = this.rowMethodNames();
     const filled = this.filledMethodNames();
+    const onParent = this.parentMethodNames();
     const buttons = this.rowButtons().length > 0;
 
     const target = this.across() ? this.rowTarget() : undefined;
@@ -1583,10 +1605,10 @@ export class ResourceListComponent implements OnInit {
         cell[linkCellKey(col.id)] =
           key === undefined || key === null || key === '' ? undefined : `/${opens.route}/${String(key)}`;
       }
-      if (methods.length > 0 || filled.length > 0) {
+      if (methods.length > 0 || filled.length > 0 || onParent.length > 0) {
         // The methods this row offers, read off its capability answer, then the ones
-        // the page fills from the row: the menu column's entries, each bound to the
-        // raw row it runs against.
+        // the page fills from the row, and those that run against the row the list sits
+        // under: the menu column's entries, each bound to the raw row it is offered on.
         (updatedRow as Record<string, unknown>)[rowActionsKey] = this.rowActions(row, methods, filled);
       }
       if (buttons) {
@@ -1606,6 +1628,13 @@ export class ResourceListComponent implements OnInit {
         ...rowMethods(row, methods, this.store.methodMeta, presentations),
         ...filledMethods(row, this.config().primaryResource, presentations, this.store.methodMeta, (method) =>
           filled.includes(method),
+        ),
+        ...parentRowMethods(
+          row,
+          this.relatedData(),
+          this.config().primaryResource,
+          presentations,
+          this.store.methodMeta,
         ),
       ],
       presentations,
