@@ -277,7 +277,7 @@ var attachedSpec = regexp.MustCompile(`file:\.yalc/@impulseframework/[a-z-]+`)
 // TestWeblibLocalAttachesEveryPin runs weblib.sh local in each web root that carries one.
 // yalc add attaches the dependencies alone; the script attaches every other spec of the
 // three packages, the overrides entry first of all, or bun installs the registry's client
-// beneath the attached library and the build fails. Nothing else in package.json changes.
+// in place of the attached one and the build fails. Nothing else in package.json changes.
 func TestWeblibLocalAttachesEveryPin(t *testing.T) {
 	t.Parallel()
 

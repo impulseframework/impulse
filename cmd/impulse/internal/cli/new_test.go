@@ -161,7 +161,7 @@ func TestNew(t *testing.T) {
 			wantPin:   commit,
 			wantWeb:   latestWeb,
 			wantCalls: []string{"app GOWORK=off go get -tool github.com/impulseframework/impulse/cmd/impulse@" + commit, "app GOWORK=off go mod tidy"},
-			wantLine:  "Pinned the framework in go.mod at " + commit + ", the impulse that rendered the application, so CI's go tool impulse check runs the same code; the web roots pin the browser packages to match.",
+			wantLine:  "Pinned the framework in go.mod at " + commit + ", the impulse that rendered the application, so CI's go tool impulse check runs the same code; a commit publishes no browser packages, so the web roots pin them at the release the upgrade ledger's last step names, and weblib.sh local attaches a framework checkout's own.",
 		},
 		{
 			name:    "a build from a checkout is refused, whatever version control stamped on it",

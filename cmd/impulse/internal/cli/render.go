@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/ci"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/ledger"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
@@ -50,9 +51,8 @@ module at the running impulse's version and the web roots pin the browser packag
 upgrade ledger, since a commit publishes none), resolved with go get -tool and settled with
 go mod tidy. It is the primitive impulse new builds on, and the way the templates are
 validated: render one, then build, test, and check the result. The placeholder auth (staff)
-is kept; new renames it.
-The application is named after the module path's last segment unless --name says
-otherwise.
+is kept; new renames it. The application is named after the module path's last segment
+unless --name says otherwise.
 
 With --dev-root, go.mod requires the framework at a placeholder version and replaces the
 module with that checkout, so the application builds against local framework work instead
@@ -242,7 +242,7 @@ func (r *renderReport) write(w io.Writer) {
 		fmt.Fprintf(w, "Named %s: the web package, APP_SERVICE_NAME, and the development database carry it.\n", r.name)
 	}
 	if r.pin != "" {
-		fmt.Fprintf(w, "Pinned the framework in go.mod at %s, the impulse that rendered the application, so CI's go tool impulse check runs the same code; the web roots pin the browser packages to match.\n", r.pin)
+		fmt.Fprintf(w, "Pinned the framework in go.mod at %s, the impulse that rendered the application, so CI's go tool impulse check runs the same code; %s.\n", r.pin, r.webPins())
 	}
 	if r.gitNote != "" {
 		fmt.Fprintln(w, r.gitNote)
@@ -327,6 +327,17 @@ func (r *renderReport) writePorts(w io.Writer, bold func(string) string) {
 		fmt.Fprintf(w, "\n%s the server listens on :%s and the Spanner emulator on :%s.\n", bold("Ports:"), r.port, r.emulator)
 		fmt.Fprintf(w, "       Both are set in .envrc.template; change them there if either is taken.\n")
 	}
+}
+
+// webPins says what the web roots pin beside a framework pin resolved through the proxy:
+// a release's own browser packages, or, under a commit, which publishes none, those of the
+// release the upgrade ledger's last step names (ledger.Latest, as frameworkPins takes it).
+func (r *renderReport) webPins() string {
+	if ledger.IsRelease(r.pin) {
+		return "the web roots pin the browser packages to match"
+	}
+
+	return "a commit publishes no browser packages, so the web roots pin them at the release the upgrade ledger's last step names, and weblib.sh local attaches a framework checkout's own"
 }
 
 // installSteps says how the browser apps' packages are installed, once, in each web
