@@ -7042,10 +7042,11 @@ it counts inside it alone, a give with an end already past is refused, and a gro
 a record counts for a member while their place in the group and the group's role both count.
 
 **Deleting.** A record's delete takes the roles held on it, a person's and a group's,
-whatever their periods: its question counts them (`3 roles held on it`) beside the rows under
-it, and the delete takes them in its rounds. A tenant's delete takes the roles held on its
-records (`roles held on records`), and a group's delete takes the roles the group holds on
-records. An application that deletes such a record in code of its own hands its delete
+whatever their periods: its question counts them (`3 roles held on it`) beside the rows
+under it, and the delete takes them in its rounds. A tenant's delete takes the roles held on
+its records (`roles held on records`), and a group's delete takes the roles the group holds
+on records. An account's delete takes the roles the account holds on records. An application
+that deletes such a record in code of its own hands its delete
 `<Auth>Identity().RecordKinds(accesstypes.NewRecordScope(domain, "Projects", key))`
 (`DeleteAlso`), as the generated delete does.
 

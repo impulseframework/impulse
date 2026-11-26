@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -302,6 +303,64 @@ func TestManager_DeleteUser(t *testing.T) {
 			}
 			if engine.changed != tt.wantChanged {
 				t.Errorf("the engine was told %d times, want %d", engine.changed, tt.wantChanged)
+			}
+		})
+	}
+}
+
+// TestManager_DeleteUser_recordRoles pins that an account's delete takes the roles the
+// account holds on records that have not ended, and has the permission engine told for
+// them, and that an account holding none is deleted as before.
+func TestManager_DeleteUser_recordRoles(t *testing.T) {
+	t.Parallel()
+
+	apollo := access.NewRecordMembershipKey(accesstypes.NewRecordScope("alpha", projects, "apollo"), User(userID), "ProjectEditor")
+	gemini := access.NewRecordMembershipKey(accesstypes.NewRecordScope("alpha", projects, "gemini"), User(userID), "ProjectViewer")
+	ended := accesstypes.Period{End: time.Now().Add(-time.Hour)}
+	tests := []struct {
+		name        string
+		held        map[access.RecordMembershipKey]accesstypes.Period
+		wantWrites  []string
+		wantChanged int
+	}{
+		{
+			name:        "a role on a record goes with the account, and the engine is told",
+			held:        map[access.RecordMembershipKey]accesstypes.Period{apollo: {}},
+			wantWrites:  []string{"delete user " + userID.String(), "delete record membership " + recordMembershipText(&apollo)},
+			wantChanged: 1,
+		},
+		{
+			name:        "a role on a record that has ended stays",
+			held:        map[access.RecordMembershipKey]accesstypes.Period{apollo: {}, gemini: ended},
+			wantWrites:  []string{"delete user " + userID.String(), "delete record membership " + recordMembershipText(&apollo)},
+			wantChanged: 1,
+		},
+		{
+			name:       "an account that holds none is deleted as before: the engine is not told",
+			wantWrites: []string{"delete user " + userID.String()},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}}
+			store.recordRoles = tt.held
+			m, engine := newManager(t, store, engineRoles)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				_, err := m.DeleteUser(asCaller(ctx, erin), txn, userID, false)
+
+				return err
+			})
+			if err != nil {
+				t.Fatalf("DeleteUser() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+			if engine.changed != tt.wantChanged {
+				t.Errorf("the engine was told %d time(s), want %d", engine.changed, tt.wantChanged)
 			}
 		})
 	}

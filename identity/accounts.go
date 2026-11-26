@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
@@ -121,9 +122,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // with their counts; where they are more than one save holds, it answers what the
 // save left, and the account stands whole, with its sessions and its ways to sign in,
 // until a save takes the last of them. Once the row goes, every session the person holds
-// is ended, and their identity links, every membership they hold and their place in
-// every group go with it, and the permission engine is told once the transaction has
-// committed. The save that deletes the row writes the row of the account's delete, done
+// is ended, and their identity links, every membership they hold, every role they hold
+// on a record that has not ended and their place in every group go with it, and the
+// permission engine is told once the transaction has committed. The save that deletes the row writes the row of the account's delete, done
 // to the account by the username the transaction read; what goes with the account has no
 // row of its own. Nobody deletes themselves: the person acting, the real person behind the
 // session, is refused their own account, and a session that views as someone else the
@@ -171,6 +172,10 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.Memberships()")
 	}
+	onRecords, err := m.store.RecordMemberships(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.RecordMemberships()")
+	}
 	links, err := m.store.Identities(ctx, txn, userID)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.Identities()")
@@ -191,15 +196,8 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	if err := m.endSessions(ctx, txn, endings); err != nil {
 		return nil, err
 	}
-	for _, link := range links {
-		if err := m.store.DeleteIdentity(ctx, txn, link.ID); err != nil {
-			return nil, errors.Wrap(err, "identity.Store.DeleteIdentity()")
-		}
-	}
-	for _, key := range held {
-		if err := m.store.DeleteMembership(ctx, txn, &key); err != nil {
-			return nil, errors.Wrap(err, "identity.Store.DeleteMembership()")
-		}
+	if err := m.deleteAccountHoldings(ctx, txn, links, held, onRecords); err != nil {
+		return nil, err
 	}
 	inGroups, err := m.removeGroupPlaces(ctx, txn, userID)
 	if err != nil {
@@ -208,11 +206,33 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	if err := m.record(ctx, txn, accountRecord(auditlog.ActAccountDeleted, userID, username)); err != nil {
 		return nil, err
 	}
-	if len(held) > 0 || inGroups {
+	if len(held) > 0 || len(onRecords) > 0 || inGroups {
 		return nil, m.policyChangesAtCommit(txn)
 	}
 
 	return nil, nil
+}
+
+// deleteAccountHoldings buffers the deletion of what goes with an account once its row is
+// gone (DeleteUser): its identity links, its memberships and its roles on records.
+func (m *Manager) deleteAccountHoldings(ctx context.Context, txn resource.ReadWriteTransaction, links []Link, held []access.MembershipKey, onRecords []access.RecordMembershipKey) error {
+	for _, link := range links {
+		if err := m.store.DeleteIdentity(ctx, txn, link.ID); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteIdentity()")
+		}
+	}
+	for i := range held {
+		if err := m.store.DeleteMembership(ctx, txn, &held[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteMembership()")
+		}
+	}
+	for i := range onRecords {
+		if err := m.store.DeleteRecordMembership(ctx, txn, &onRecords[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteRecordMembership()")
+		}
+	}
+
+	return nil
 }
 
 // resetLinksEndAtCommit registers the withdrawal of the user's standing password reset
