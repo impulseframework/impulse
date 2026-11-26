@@ -602,8 +602,14 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 			return err
 		}
 
-		// Only the poll that issues the tokens is recorded.
-		return s.bufferAuditRecord(txn, record)
+		// Only the poll that issues the tokens is recorded, done to the account that
+		// approved the code.
+		approved, err := s.approverRecord(ctx, txn, code, record)
+		if err != nil {
+			return err
+		}
+
+		return s.bufferAuditRecord(txn, approved)
 	})
 	switch {
 	case errors.Is(err, errDeviceCodeNotPending):
@@ -613,6 +619,31 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 	}
 
 	return code, status, nil
+}
+
+// approverRecord answers a copy of record, the record of the redemption of code, done to
+// the account that approved the code: its id and its username, read inside txn, the id
+// where no account holds it. A nil record answers nil.
+func (s *SessionStorageDriver) approverRecord(ctx context.Context, txn *spanner.ReadWriteTransaction, code *dbtype.DeviceCode, record *auditlog.Record) (*auditlog.Record, error) {
+	if record == nil {
+		return nil, nil
+	}
+	approved := *record
+	approved.SubjectID, approved.SubjectName = code.UserID.String(), code.UserID.String()
+	iter := txn.Read(ctx, s.userTableName, spanner.Key{code.UserID.String()}, []string{usernameColumn})
+	defer iter.Stop()
+	row, err := iter.Next()
+	switch {
+	case errors.Is(err, iterator.Done):
+		return &approved, nil
+	case err != nil:
+		return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
+	}
+	if err := row.Column(0, &approved.SubjectName); err != nil {
+		return nil, errors.Wrap(err, "spanner.Row.Column()")
+	}
+
+	return &approved, nil
 }
 
 // redeemIn decides the poll of code inside txn and writes what it decides.

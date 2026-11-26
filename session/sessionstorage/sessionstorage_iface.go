@@ -298,6 +298,8 @@ type db interface {
 	DenyDeviceCode(ctx context.Context, id impulse.UUID, now time.Time) error
 	// RedeemDeviceCode is the client's poll of the device code holding deviceCodeHash: an approved code is consumed once
 	// and access and refresh inserted; otherwise the status says what the client learned. NotFound when there is none.
+	// The record of the redemption that issues the tokens is written done to the approving account, read in the
+	// transaction (AuthStore.RedeemDeviceCode).
 	RedeemDeviceCode(
 		ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token, record *auditlog.Record,
 	) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)

@@ -295,7 +295,9 @@ func (a *Auth[S, U, Tx]) mintPair() (access, refresh *sessionstorage.Token, pair
 // the person approved it, with status DeviceApproved, and once only; otherwise no
 // pair and the status, DevicePending while the person has not decided, DeviceSlowDown
 // when the client polled before the interval passed, DeviceDenied, or DeviceExpired. A
-// device code that is unknown or was redeemed already is NotFound.
+// device code that is unknown or was redeemed already is NotFound. The poll that issues
+// the pair is recorded as a token made by the device (auditlog.ProcessDevice), done to
+// the person who approved it, whom the store names.
 func (p *AuthAPI[S, U, Tx]) RedeemDeviceCode(ctx context.Context, deviceCode string) (*TokenPair, sessionstorage.DeviceCodeStatus, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -305,7 +307,7 @@ func (p *AuthAPI[S, U, Tx]) RedeemDeviceCode(ctx context.Context, deviceCode str
 	if err != nil {
 		return nil, "", err
 	}
-	_, status, err := a.storage.RedeemDeviceCode(ctx, hashToken(deviceCode), a.settings.tokens.pollInterval, access, refresh, nil)
+	_, status, err := a.storage.RedeemDeviceCode(ctx, hashToken(deviceCode), a.settings.tokens.pollInterval, access, refresh, deviceRecord())
 	if err != nil {
 		return nil, "", errors.Wrap(err, "sessionstorage.AuthStore.RedeemDeviceCode()")
 	}

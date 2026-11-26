@@ -447,7 +447,7 @@ func authAPIDeviceCase3(t *testing.T) {
 	f := newTokenFixture(t, gomock.NewController(t), WithTokenLifetimes(time.Hour, 24*time.Hour, 48*time.Hour), WithDeviceCodeLifetime(5*time.Minute, 2*time.Second))
 	var access, refresh *sessionstorage.Token
 	status := sessionstorage.DevicePending
-	f.store.EXPECT().RedeemDeviceCode(gomock.Any(), hashToken("device-1"), 2*time.Second, gomock.Any(), gomock.Any(), gomock.Nil()).
+	f.store.EXPECT().RedeemDeviceCode(gomock.Any(), hashToken("device-1"), 2*time.Second, gomock.Any(), gomock.Any(), aDeviceRecord()).
 		DoAndReturn(func(_ context.Context, _ []byte, _ time.Duration, a, r *sessionstorage.Token, _ *auditlog.Record) (*sessionstorage.DeviceCode, sessionstorage.DeviceCodeStatus, error) {
 			access, refresh = a, r
 

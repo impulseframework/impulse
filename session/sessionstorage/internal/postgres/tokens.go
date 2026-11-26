@@ -451,8 +451,14 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 			return err
 		}
 
-		// Only the poll that issues the tokens is recorded.
-		return s.InsertAuditRecordIn(ctx, tx, record)
+		// Only the poll that issues the tokens is recorded, done to the account that
+		// approved the code.
+		approved, err := s.approverRecord(ctx, tx, code, record)
+		if err != nil {
+			return err
+		}
+
+		return s.InsertAuditRecordIn(ctx, tx, approved)
 	})
 	if err != nil {
 		return nil, "", err
@@ -462,6 +468,23 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 	}
 
 	return code, status, nil
+}
+
+// approverRecord answers a copy of record, the record of the redemption of code, done to
+// the account that approved the code: its id and its username, read inside tx, the id
+// where no account holds it. A nil record answers nil.
+func (s *SessionStorageDriver) approverRecord(ctx context.Context, tx pgx.Tx, code *dbtype.DeviceCode, record *auditlog.Record) (*auditlog.Record, error) {
+	if record == nil {
+		return nil, nil
+	}
+	approved := *record
+	approved.SubjectID, approved.SubjectName = code.UserID.String(), code.UserID.String()
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT "Username" FROM %s WHERE "Id" = $1`, s.userTable()), code.UserID.UUID).Scan(&approved.SubjectName)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+
+	return &approved, nil
 }
 
 // redeemIn decides the poll of code inside tx and writes what it decides.

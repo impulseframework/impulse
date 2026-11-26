@@ -120,7 +120,7 @@ func TestDeviceHandlers_Token(t *testing.T) {
 			t.Parallel()
 			f := newTokenFixture(t, gomock.NewController(t), WithTokenLifetimes(2*time.Hour, 24*time.Hour, 48*time.Hour))
 			var access, refreshed *sessionstorage.Token
-			f.store.EXPECT().RedeemDeviceCode(gomock.Any(), hashToken("d"), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Nil()).
+			f.store.EXPECT().RedeemDeviceCode(gomock.Any(), hashToken("d"), gomock.Any(), gomock.Any(), gomock.Any(), aDeviceRecord()).
 				DoAndReturn(func(_ context.Context, _ []byte, _ time.Duration, a, r *sessionstorage.Token, _ *auditlog.Record) (*sessionstorage.DeviceCode, sessionstorage.DeviceCodeStatus, error) {
 					access, refreshed = a, r
 

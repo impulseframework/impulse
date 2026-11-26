@@ -267,7 +267,11 @@ type AuthStore[Tx any] interface {
 	// are inserted as the approving user's for the code's outlet and client, which the
 	// store fills in on the two; a pending code polled before interval passed since the
 	// last poll is slow_down and nothing is written; otherwise the status says what
-	// the client learned. A code that is not there or was consumed is NotFound.
+	// the client learned. A code that is not there or was consumed is NotFound. record,
+	// nil for none, is the record of the redemption that issues the tokens, handed
+	// with who acted and no subject: the store writes it done to the approving account,
+	// by its id and its username as the transaction reads them, the one record a store
+	// fills the subject of.
 	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, interval time.Duration, access, refresh *Token, record *auditlog.Record) (*DeviceCode, DeviceCodeStatus, error)
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error

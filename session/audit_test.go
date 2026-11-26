@@ -27,6 +27,10 @@ import (
 // neighbors.
 type recordMatcher struct {
 	addressesLeft bool
+	// subjectLeft is a device's redemption: a token made by the device, handed with no
+	// subject, since the store names the account that approved the code
+	// (sessionstorage.AuthStore.RedeemDeviceCode).
+	subjectLeft bool
 }
 
 func (m recordMatcher) Matches(x any) bool {
@@ -34,16 +38,27 @@ func (m recordMatcher) Matches(x any) bool {
 	if !ok || r == nil {
 		return false
 	}
+	if m.subjectLeft {
+		if r.Act != auditlog.ActTokenMade || r.Source.Columns()["Process"] != auditlog.ProcessDevice || r.SubjectID != "" || r.SubjectName != "" {
+			return false
+		}
+		approved := *r
+		approved.SubjectID, approved.SubjectName = "approver", "pat"
+		r = &approved
+	}
 
 	return finished(r, m.addressesLeft).Validate() == nil
 }
 
 func (m recordMatcher) String() string {
-	if m.addressesLeft {
+	switch {
+	case m.addressesLeft:
 		return "is the record of an address confirmed, which validates once the store fills the addresses"
+	case m.subjectLeft:
+		return "is the record of a device's redemption, with no subject, which validates once the store names the approving account"
+	default:
+		return "is the record of an act, which validates"
 	}
-
-	return "is the record of an act, which validates"
 }
 
 // finished is r as the store writes it: a confirmation's record (addressesLeft) with the
@@ -60,13 +75,19 @@ func finished(r *auditlog.Record, addressesLeft bool) *auditlog.Record {
 
 // aRecord matches the record of a recorded storage call (recordMatcher).
 func aRecord() gomock.Matcher {
-	return recordMatcher{addressesLeft: false}
+	return recordMatcher{addressesLeft: false, subjectLeft: false}
 }
 
 // aConfirmationRecord matches the record of an address confirmed by a link, handed
 // without the addresses (recordMatcher).
 func aConfirmationRecord() gomock.Matcher {
-	return recordMatcher{addressesLeft: true}
+	return recordMatcher{addressesLeft: true, subjectLeft: false}
+}
+
+// aDeviceRecord matches the record of a device's redemption, handed with no subject
+// (recordMatcher).
+func aDeviceRecord() gomock.Matcher {
+	return recordMatcher{addressesLeft: false, subjectLeft: true}
 }
 
 // actedBy is who a record says acted: a person, by their account and username, or a

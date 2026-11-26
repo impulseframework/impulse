@@ -62,6 +62,16 @@ func (a *Auth[S, U, Tx]) directorySaid(method sessioninfo.AuthMethod, connection
 	return cmp.Or(name, label, string(method))
 }
 
+// deviceRecord answers the record of a device's redemption of the code a person approved:
+// a token made, by the device (auditlog.ProcessDevice), done to an account the store names
+// (sessionstorage.AuthStore.RedeemDeviceCode), which no other layer knows.
+func deviceRecord() *auditlog.Record {
+	var r auditlog.Record
+	r.Act, r.Source, r.SubjectKind = auditlog.ActTokenMade, eventsource.ProcessEvent(auditlog.ProcessDevice), auditlog.SubjectAccount
+
+	return &r
+}
+
 // heldAddress is the address an account holds, as the record of a change of it names
 // the old one: "" for none.
 func heldAddress(email *string) string {

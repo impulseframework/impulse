@@ -445,10 +445,14 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 					t.Fatalf("ApproveDeviceCode() error = %v", err)
 				}
 				access, refresh := newFamily(user.ID, tokenHash(n+100), tokenHash(n+200))
-				record := accountRow(auditlog.ActTokenMade, user)
-				record.Source = eventsource.ProcessEvent(auditlog.ProcessDevice)
+				// The record is handed with no subject, and written done to the account that
+				// approved the code.
+				want := accountRow(auditlog.ActTokenMade, user)
+				want.Source = eventsource.ProcessEvent(auditlog.ProcessDevice)
+				handed := *want
+				handed.SubjectID, handed.SubjectName = "", ""
 
-				return auditRun{record: record, write: func(record *auditlog.Record) error {
+				return auditRun{record: &handed, want: want, write: func(record *auditlog.Record) error {
 					return redeemed(in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh, record))
 				}}
 			},
