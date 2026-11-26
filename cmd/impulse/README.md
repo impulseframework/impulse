@@ -1372,7 +1372,10 @@ resource the application does not serve. Each global role that lists the roles t
 (`<Auth>GivableRoles`) gains the two fields that say where a role is held, `domain` and
 `everyDomain`, on that grant: once the application has tenants the whole application's
 dialogs that give a role ask the list by them, and offer no role to a person whose role
-lacks them. The command then writes the role a tenant's
+lacks them. A grant of the list that names no field is left as it is: where a role holds
+`method` beside it as a grant of the field alone (`<Auth>GivableRoles.method`), add
+`<Auth>GivableRoles.domain` and `<Auth>GivableRoles.everyDomain` the same way by hand. The
+command then writes the role a tenant's
 administrator holds, since an application with tenants builds no router until one is
 named: `<Record>Administrator` (`TenantAdministrator` over `Tenants`), a domain role in the
 role file of the auth whose people make tenants, with the grants the tenanted skeleton's

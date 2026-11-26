@@ -1089,6 +1089,35 @@ func TestRoleFile_keepsTheFile(t *testing.T) {
 	}
 }
 
+// TestRoleFile_keepsWhereARoleIsHeld pins that a role file read to be changed is written
+// back with the kinds of record each role can be held on, where a role file names them:
+// written back without them, the role would be held on no record any more, and nothing
+// would say so.
+func TestRoleFile_keepsWhereARoleIsHeld(t *testing.T) {
+	t.Parallel()
+
+	const data = `{"auth": "staff", "roles": {"global": [], "domain": [{"name": "ProjectViewer", "description": "Reads one project and what is under it.", "heldOn": ["Projects"], "permissions": {"Read": [{"resource": "Projects", "fields": ["title"]}]}}]}}`
+	file, err := parseRoleFile([]byte(data))
+	if err != nil {
+		t.Fatalf("parseRoleFile() error = %v", err)
+	}
+	written, err := file.encode()
+	if err != nil {
+		t.Fatalf("encode() error = %v", err)
+	}
+	config, err := access.RoleFile(written).Parse()
+	if err != nil {
+		t.Fatalf("access.RoleFile.Parse() error = %v, of %s", err, written)
+	}
+	if len(config.Roles.Domain) != 1 || !slices.Equal(config.Roles.Domain[0].HeldOn, []accesstypes.Resource{"Projects"}) {
+		t.Errorf("the role file is written back as %s, want ProjectViewer held on Projects as it was read", written)
+	}
+	text := string(written)
+	if held, permissions := strings.Index(text, `"heldOn"`), strings.Index(text, `"permissions"`); held < 0 || held > permissions {
+		t.Errorf("the role file is written back as %s, want heldOn before the role's permissions", written)
+	}
+}
+
 func TestRolePermissions_add(t *testing.T) {
 	t.Parallel()
 
