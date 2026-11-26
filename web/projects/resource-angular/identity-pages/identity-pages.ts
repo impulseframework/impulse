@@ -323,7 +323,9 @@ class SideBuilder {
    * person's sign-in, and on a tenant's list that another tenant or the whole application
    * also holds the person. It is blank when all is well. Its words come from several
    * fields, so the column neither sorts nor filters. Where the server says what each
-   * person holds, a Roles column lists it, a line for each role.
+   * person holds, a Roles column lists it, a line for each role. Both columns draw each
+   * line whole, over as many lines as its words take (`wraps`): a record's name or a
+   * state's sentence is longer than a column of one line holds.
    * A person's page is headed by the person (personTitle), and says the same state on
    * one line, where there is any, and whether the email address is confirmed
    * (personFields).
@@ -371,6 +373,7 @@ class SideBuilder {
                   id: 'roles' as FieldName,
                   header: 'Roles',
                   lines: true,
+                  wraps: true,
                   filterable: false,
                   valueGetter: this.has(users, 'recordsHeld') ? (row: RecordData) => this.rolesHeld(row) : undefined,
                 },
@@ -383,6 +386,7 @@ class SideBuilder {
                   id: 'disabled' as FieldName,
                   header: 'State',
                   lines: true,
+                  wraps: true,
                   sortable: false,
                   filterable: false,
                   valueGetter: (row: RecordData) => this.statesOf(row),

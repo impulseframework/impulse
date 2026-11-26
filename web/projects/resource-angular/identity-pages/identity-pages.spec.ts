@@ -3029,6 +3029,16 @@ describe('identityPages, the people lists say what each person holds, and a lock
       expect([roles.lines, roles.filterable]).toEqual([true, false]);
       expect(hiddenColumns(list(config))).toContain('lockedUntil');
     });
+
+    it(`${side} draws each line of the Roles and the State whole, over as many lines as its words take`, () => {
+      // A role held on one record is said by the record's name ("Mission Apollo only"), and
+      // a state by a sentence ("Also holds a role in the whole application"): longer than a
+      // column of one line holds, so each line wraps and none is cut short.
+      for (const id of ['roles', 'disabled']) {
+        const column = columnOf(list(config), id);
+        expect([id, column.lines, column.wraps]).toEqual([id, true, true]);
+      }
+    });
   }
 
   it('draws no Roles column and reads no lock where the server says neither', () => {
