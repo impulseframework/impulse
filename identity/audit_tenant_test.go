@@ -176,3 +176,80 @@ func TestActingInSession(t *testing.T) {
 		}
 	}
 }
+
+// TestMakingTenant pins the name a row gives a tenant that is being made: the roster
+// learns of a tenant only after the commit that makes it, so the rows of its making (a
+// role given in it, and its own sign-in settings) name it by the name MakingTenant
+// carries for exactly that tenant. Another tenant's name, an empty name, or none carried
+// leave the key; a name the roster gives wins.
+func TestMakingTenant(t *testing.T) {
+	t.Parallel()
+
+	writes := []struct {
+		name  string
+		write func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+		// subject says the row is done to the tenant, so its SubjectName is the name too.
+		subject bool
+	}{
+		{
+			name: "a role given in the tenant",
+			write: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.AssignRole(ctx, txn, alphaScope, userID, "Reader")
+			},
+		},
+		{
+			name: "the directory the tenant was made with",
+			write: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.RecordTenantSignIn(ctx, txn, "alpha", auditlog.ActDirectoryTaken, "Lakeside")
+			},
+			subject: true,
+		},
+	}
+	contexts := []struct {
+		name string
+		ctx  context.Context
+		// rostered is the name the roster gives alpha, "" for none.
+		rostered string
+		want     string
+	}{
+		{name: "under MakingTenant", ctx: MakingTenant(t.Context(), "alpha", "Alpha School"), want: "Alpha School"},
+		{name: "with no MakingTenant", ctx: t.Context(), want: "alpha"},
+		{name: "under MakingTenant of another tenant", ctx: MakingTenant(t.Context(), "beta", "Beta School"), want: "alpha"},
+		{name: "under MakingTenant with no name", ctx: MakingTenant(t.Context(), "alpha", ""), want: "alpha"},
+		{name: "under MakingTenant, where the roster names the tenant", ctx: MakingTenant(t.Context(), "alpha", "Alpha School"), rostered: "Alpha Sector", want: "Alpha Sector"},
+	}
+	for _, w := range writes {
+		for _, tt := range contexts {
+			t.Run(w.name+", "+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				store := groupStore()
+				store.membershipPeriods = map[access.MembershipKey]accesstypes.Period{}
+				store.membershipReasons = map[access.MembershipKey]string{}
+				sessions := fakeSessions{}
+				if tt.rostered != "" {
+					sessions.tenantNames = map[accesstypes.Domain]string{"alpha": tt.rostered}
+				}
+				m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, sessions, WithTenantWord("sector"))
+				if err != nil {
+					t.Fatalf("New() error = %v", err)
+				}
+				if err := inTransaction(t, func(_ context.Context, txn resource.ReadWriteTransaction) error {
+					return w.write(tt.ctx, txn, m)
+				}); err != nil {
+					t.Fatalf("%s error = %v", w.name, err)
+				}
+				if len(store.audit) != 1 {
+					t.Fatalf("%s recorded %d row(s), want one", w.name, len(store.audit))
+				}
+				row := store.audit[0]
+				if row.TenantName != tt.want {
+					t.Errorf("the row's tenant is named %q, want %q", row.TenantName, tt.want)
+				}
+				if w.subject && row.SubjectName != tt.want {
+					t.Errorf("the row is done to the tenant named %q, want %q", row.SubjectName, tt.want)
+				}
+			})
+		}
+	}
+}

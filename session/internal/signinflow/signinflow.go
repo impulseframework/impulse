@@ -3000,7 +3000,7 @@ func codeAddressWrite[Tx any](ctx context.Context, d Driver[Tx], tx Tx, user *db
 	if !wrote {
 		return codeAddressGone(user.ID, claim), false, nil
 	}
-	if err := d.InsertAuditRecordIn(ctx, tx, codeAddressRecord(ctx, user, claim.Email)); err != nil {
+	if err := d.InsertAuditRecordIn(ctx, tx, codeAddressRecord(ctx, user, claim.Held, claim.Email)); err != nil {
 		return nil, false, errors.Wrap(err, "Driver.InsertAuditRecordIn()")
 	}
 
@@ -3008,11 +3008,16 @@ func codeAddressWrite[Tx any](ctx context.Context, d Driver[Tx], tx Tx, user *db
 }
 
 // codeAddressRecord is the row of the auth's audit log the address a mailed sign-in code
-// proved writes: the address set on user's account, by its person, through the sign-in.
-func codeAddressRecord(ctx context.Context, user *dbtype.User, address string) *auditlog.Record {
+// proved writes: the address set on user's account, by its person, through the sign-in,
+// with the address the account held before as its old value (held, which the write found
+// the row holding; nil for none).
+func codeAddressRecord(ctx context.Context, user *dbtype.User, held *string, address string) *auditlog.Record {
 	var r auditlog.Record
 	r.Act, r.SubjectKind, r.SubjectID, r.SubjectName = auditlog.ActAddressChanged, auditlog.SubjectAccount, user.ID.String(), user.Username
 	r.Source, r.NewValue = eventsource.AccountProcessEvent(ctx, actor.NewAccount(user.ID, user.Username), auditlog.ProcessSignIn), address
+	if held != nil {
+		r.OldValue = *held
+	}
 
 	return &r
 }

@@ -217,7 +217,12 @@ func (c *stillHolds) met(held spanner.NullString) bool {
 }
 
 // ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own, which writes
-// record with the address where the claim wrote it, and none where it wrote nothing.
+// record with the address where the claim wrote it, and none where it wrote nothing. The
+// row written is a copy of record with the address the user held before as its old value
+// ("" for none), read in the claim's transaction: the claim's write is buffered, so the
+// read answers the row as it stood. On a store whose usernames are the addresses the
+// claim writes only that the address is confirmed, so the row's new value is the
+// account's own spelling too, whatever the case of email.
 func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string, record *auditlog.Record) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -225,11 +230,23 @@ func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID im
 	var claimed bool
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var err error
-		if claimed, err = s.ClaimVerifiedEmailIn(ctx, txn, userID, email); err != nil || !claimed {
+		if claimed, err = s.ClaimVerifiedEmailIn(ctx, txn, userID, email); err != nil || !claimed || record == nil {
 			return err
 		}
+		user, err := s.UserIn(ctx, txn, userID)
+		if err != nil {
+			return err
+		}
+		set := *record
+		set.OldValue = ""
+		if user.Email != nil {
+			set.OldValue = *user.Email
+		}
+		if s.usernameIsEmail {
+			set.NewValue = set.OldValue
+		}
 
-		return s.bufferAuditRecord(txn, record)
+		return s.bufferAuditRecord(txn, &set)
 	})
 	if err != nil {
 		return false, errors.Wrap(err, "spannertxn.Serializable()")

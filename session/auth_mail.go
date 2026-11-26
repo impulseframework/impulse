@@ -1029,7 +1029,8 @@ func (a *Auth[S, U, Tx]) hashToSet(password string, who passwordstrength.Details
 // address is written: that address is confirmed by the mailed code. It is bookkeeping
 // after the session stands: a failure is logged. An address written is recorded in the
 // auth's audit log, done to the account username names by its person, through the
-// sign-in.
+// sign-in, with the address the account held before (the storage reads it in the
+// claim's transaction).
 func (a *Auth[S, U, Tx]) claimVerifiedEmail(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity) {
 	if identity == nil || !identity.EmailVerified || identity.Email == "" {
 		return

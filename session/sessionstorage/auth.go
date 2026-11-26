@@ -427,8 +427,8 @@ type AuthStore[Tx any] interface {
 	// verified address yet and no other user holds it, and reports whether it wrote:
 	// a Google sign-in's verified address. On a store whose usernames are the
 	// addresses only the verified time is written, and only when the address is the
-	// username. record is written in the claim's transaction where it wrote, and none
-	// where it wrote nothing.
+	// username. record is written in the claim's transaction where it wrote, with the
+	// address the user held before as its old value, and none where it wrote nothing.
 	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string, record *auditlog.Record) (bool, error)
 	// SetUserName writes the person's name on a user, or takes it off (nil, or nothing
 	// but space): the person's own change. It replaces whatever the user held; a name

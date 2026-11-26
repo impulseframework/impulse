@@ -122,10 +122,7 @@ func (m *Manager) RecordTenantSignIn(ctx context.Context, txn resource.ReadWrite
 	default:
 		return errors.Newf("%s is not an act on a tenant's sign-in", act)
 	}
-	r.SubjectName = m.sessions.TenantName(tenant)
-	if r.SubjectName == "" {
-		r.SubjectName = string(tenant)
-	}
+	r.SubjectName = m.tenantNamed(ctx, tenant)
 
 	return m.record(ctx, txn, &r)
 }

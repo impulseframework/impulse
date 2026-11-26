@@ -69,6 +69,10 @@ type NewTenant struct {
 	// could not have written by creating the tenant is refused when the invitation is
 	// sent. At an acceptance the write is the application's own.
 	Caller *resource.Caller
+	// Name is set by Make: what the tenant it made is called, the value its row holds in the
+	// record's @tenantName column, and "" where the record marks none or the row holds
+	// none. A caller hands it empty.
+	Name string
 }
 
 // TenantMaker makes a tenant from an invitation's details. The generator writes one over
@@ -159,6 +163,7 @@ func (m *Manager) CheckInvitedTenant(ctx context.Context, client resource.Client
 	err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		if _, err := m.tenants.Make(ctx, txn, &NewTenant{
 			Fields: inv.Fields, DirectoryOnly: false, Directory: signin.Directory{Method: "", Connection: ""}, DefaultRole: "", Source: eventsource.ProcessEvent("CheckInvitedTenant"), Caller: caller,
+			Name: "",
 		}); err != nil {
 			return errors.Wrap(err, "identity.TenantMaker.Make()")
 		}
@@ -498,47 +503,55 @@ func (m *Manager) refuseInvitedWithATenant(ctx context.Context, txn resource.Rea
 // The tenant made is noted on the invitation (sessioninfo.Invitation.MadeTenantID),
 // which is how the session library learns where to open the application for the
 // person: the invitation itself names no tenant. A refusal notes none.
-func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (accesstypes.Domain, error) {
+//
+// It answers the tenant with what it is called, the name its maker made it with
+// (NewTenant.Name, "" for none): the rows of its making are written under MakingTenant,
+// since the roster learns of the tenant only after the commit.
+func (m *Manager) acceptTenantInvitation(
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation,
+) (accesstypes.Domain, string, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if err := m.requireTenantMaker(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	var details tenantDetails
 	if len(inv.NewTenant.Details) > 0 {
 		if err := json.Unmarshal(inv.NewTenant.Details, &details); err != nil {
-			return "", errors.Wrapf(err, "the invitation %s to %s carries details that do not read", inv.ID, inv.Email)
+			return "", "", errors.Wrapf(err, "the invitation %s to %s carries details that do not read", inv.ID, inv.Email)
 		}
 	}
 	directory := signin.Directory{Method: inv.SignInMethod, Connection: inv.SignInConnection}
 	if !directory.Organization() {
 		directory = signin.Directory{Method: "", Connection: ""}
 		if inv.NewTenant.DirectoryOnly {
-			return "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationAccountRequired, httpio.NewUnauthorizedMessageWithError(signin.ErrOrganizationAccountRequired,
+			return "", "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationAccountRequired, httpio.NewUnauthorizedMessageWithError(signin.ErrOrganizationAccountRequired,
 				"This invitation is accepted with your organization's account, not with a password or a personal account. Sign in with your organization's account (Google Workspace or Microsoft Entra)."))
 		}
 	}
-	domain, err := m.tenants.Make(ctx, txn, &NewTenant{
+	made := &NewTenant{
 		Fields: details.Fields, DirectoryOnly: inv.NewTenant.DirectoryOnly, Directory: directory, DefaultRole: accesstypes.Role(details.DefaultRole),
-		Source: eventsource.AccountProcessEvent(ctx, actor.NewAccount(userID, username), "AcceptInvitation"), Caller: nil,
-	})
-	if err != nil {
-		return "", errors.Wrapf(err, "the invitation to %s makes a %s", inv.Email, m.tenantWord)
+		Source: eventsource.AccountProcessEvent(ctx, actor.NewAccount(userID, username), "AcceptInvitation"), Caller: nil, Name: "",
 	}
+	domain, err := m.tenants.Make(ctx, txn, made)
+	if err != nil {
+		return "", "", errors.Wrapf(err, "the invitation to %s makes a %s", inv.Email, m.tenantWord)
+	}
+	ctx = MakingTenant(ctx, domain, made.Name)
 	if err := m.recordMadeWithDirectory(ctx, txn, domain, directory, inv.NewTenant.DirectoryOnly, accesstypes.Role(details.DefaultRole)); err != nil {
-		return "", err
+		return "", "", err
 	}
 	for _, role := range m.administrators.domain {
 		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userID, role); err != nil {
-			return "", errors.Wrapf(err, "the invitation to %s seats %q as the new %s's administrator with the role %s", inv.Email, username, m.tenantWord, role)
+			return "", "", errors.Wrapf(err, "the invitation to %s seats %q as the new %s's administrator with the role %s", inv.Email, username, m.tenantWord, role)
 		}
 	}
 	// The session library opens the application for the person in the tenant their
 	// invitation made: it is told which here, once everything is buffered.
 	inv.MadeTenantID = string(domain)
 
-	return domain, nil
+	return domain, made.Name, nil
 }
 
 // recordMadeWithDirectory records what a tenant was made with of its own sign-in
@@ -577,11 +590,11 @@ func (m *Manager) tenantInvitationAccepted(
 	ctx context.Context, auth string, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation,
 ) (func(ctx context.Context), error) {
 	txn := resource.NewSpannerReadWriteTransaction(tx)
-	domain, err := m.acceptTenantInvitation(m.oneTenant.within(ctx, tx), txn, userID, username, inv)
+	domain, name, err := m.acceptTenantInvitation(m.oneTenant.within(ctx, tx), txn, userID, username, inv)
 	if err != nil {
 		return nil, err
 	}
-	if err := m.recordAccepted(ctx, txn, userID, username, string(domain)); err != nil {
+	if err := m.recordAccepted(MakingTenant(ctx, domain, name), txn, userID, username, string(domain)); err != nil {
 		return nil, err
 	}
 

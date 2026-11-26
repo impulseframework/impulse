@@ -409,6 +409,12 @@ type tenantCreationData struct {
 	// where the application holds a person to one tenant, nil where the package
 	// declares none.
 	Directory *tenantCreationDirectory
+	// NameField is the record's @tenantName field, which the rows of the tenant's making
+	// name it by, "" where the record marks none; NameNullable says it is a pointer. The
+	// route hands the name converted to a string: the field's type may be one named over
+	// a string.
+	NameField    string
+	NameNullable bool
 
 	// record is the tenant record the file is rendered from; it scopes import
 	// resolution to the types its fields name and is not referenced by the template.
@@ -512,8 +518,7 @@ func (r *resourceGenerator) generateTenantCreation() error {
 func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *routerOutlet) *tenantCreationData {
 	auth := caser.ToPascal(outlet.auth.packageName())
 	key, fields, setters := tenantCreationFields(record)
-
-	return &tenantCreationData{
+	data := &tenantCreationData{
 		Source:              r.resource.Dir(),
 		Package:             r.handler.Package(),
 		LocalPackageImports: r.localPackageImports(),
@@ -538,8 +543,16 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 		ClosedRefusal:       tenantCreationClosedRefusal(record.Name()),
 		OwnCreation:         tenantCreationOwnCreation(record.Name()),
 		Directory:           r.tenantCreationDirectoryData(record),
+		NameField:           "",
+		NameNullable:        false,
 		record:              record,
 	}
+	if field := record.TenantNameField; field != nil {
+		data.NameField = field.Name()
+		data.NameNullable = strings.HasPrefix(field.Type(), "*")
+	}
+
+	return data
 }
 
 // tenantCreationDirectoryData is the directories record as the route sets the

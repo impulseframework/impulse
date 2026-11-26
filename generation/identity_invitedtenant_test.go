@@ -586,6 +586,21 @@ func Test_prepareIdentity_invitedTenant_shapes(t *testing.T) {
 			[]string{"InviteCrewCitadel{}", "CrewInvitedCitadelRoles"})
 	})
 
+	t.Run("a record whose name is a nullable string names the tenant by the name it points to", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+
+		source := oneFieldCitadel("", "\t// @tenantName\n\tMotto *string `spanner:\"Motto\"`\n")
+		if err := citadelGenerator(t, source, nil).prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+		// The invitation page reads the name the sender gave, and the application's word
+		// for one tenant where they gave none, as for a record that marks no name; never
+		// the pointer printed.
+		assertContains(t, "invite_crew_citadel.go", identitySource(t, "crewidentity/invite_crew_citadel.go"),
+			[]string{"CitadelMotto *string\n", "TenantName: fmt.Sprint(\"citadel\"),", "if m.CitadelMotto != nil {\n invitation.TenantName = string(*m.CitadelMotto)\n }"},
+			[]string{"fmt.Sprint(m.CitadelMotto)"})
+	})
+
 	t.Run("a field's type reached through an alias is written through it, and the written source resolves it", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 

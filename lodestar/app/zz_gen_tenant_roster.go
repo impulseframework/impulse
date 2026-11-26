@@ -215,6 +215,11 @@ func (m *sectorMaker) Make(ctx context.Context, txn resource.ReadWriteTransactio
 	if tenant.Caller != nil {
 		patch.Enforce(tenant.Caller)
 	}
+	// What the sector is called, which the rows of its making name it by: the roster
+	// learns of it only after the commit.
+	if patch.NameIsSet() {
+		tenant.Name = string(patch.Name())
+	}
 	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
 		return "", errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
 	}

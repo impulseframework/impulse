@@ -2131,6 +2131,19 @@ func (m *{{ GoCamel $.Name }}Maker) Make(ctx context.Context, txn resource.ReadW
 	if tenant.Caller != nil {
 		patch.Enforce(tenant.Caller)
 	}
+	{{- if $.NameField }}
+	// What the {{ $.RecordLower }} is called, which the rows of its making name it by: the roster
+	// learns of it only after the commit.
+	{{- if $.NameNullable }}
+	if patch.{{ $.NameField }}IsSet() && patch.{{ $.NameField }}() != nil {
+		tenant.Name = string(*patch.{{ $.NameField }}())
+	}
+	{{- else }}
+	if patch.{{ $.NameField }}IsSet() {
+		tenant.Name = string(patch.{{ $.NameField }}())
+	}
+	{{- end }}
+	{{- end }}
 	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
 		return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Name }}CreatePatch.Buffer()")
 	}
@@ -2412,6 +2425,19 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			// {{ .RecordLower }}'s first administrator{{ if .Directory }} and of the directory it is made with{{ end }} name the
 			// person of the session, though no grant judges the gift.
 			byCreator := identity.ActingInSession(ctx)
+			{{- if .NameField }}
+			// The rows of the {{ .RecordLower }}'s making name it by the name it is made with, as its
+			// later rows do: the roster learns of it only after the commit.
+			{{- if .NameNullable }}
+			if patch.{{ .NameField }}IsSet() && patch.{{ .NameField }}() != nil {
+				byCreator = identity.MakingTenant(byCreator, domain, string(*patch.{{ .NameField }}()))
+			}
+			{{- else }}
+			if patch.{{ .NameField }}IsSet() {
+				byCreator = identity.MakingTenant(byCreator, domain, string(patch.{{ .NameField }}()))
+			}
+			{{- end }}
+			{{- end }}
 			{{- if .Directory }}
 			// The creator's directory, written with the row only where the application
 			// holds a person to one tenant: the organization's directory the creator is

@@ -84,6 +84,10 @@ type identityTenantInvitation struct {
 	// in a line of text reads (identitySourceData.GroupRoleLines).
 	nameField  string
 	nameColumn string
+	// nameNullable says the name field is a pointer: a tenant may be given none. The name
+	// it points to is written converted to a string: the field's type may be one named
+	// over a string.
+	nameNullable bool
 	// directoryOnly is the record's directory-only switch, nil where it declares none
 	// (Type is unused: the switch is a yes or a no), and seats says the directories
 	// record keeps a default role.
@@ -194,6 +198,12 @@ func (d *identitySourceData) TenantFieldImports() string {
 // none.
 func (d *identitySourceData) TenantNameField() string {
 	return d.tenant.invitation.nameField
+}
+
+// TenantNameNullable reports whether the name field is a *string, which a sender may
+// leave nil.
+func (d *identitySourceData) TenantNameNullable() bool {
+	return d.tenant.invitation.nameNullable
 }
 
 // TenantDirectoryOnly reports whether an invitation may say directory only,
@@ -434,7 +444,7 @@ func (t *identityTenantInvitation) readFields(structType *ast.StructType, meta *
 			return "field " + name + " has a type another package cannot name", nil
 		}
 		if fieldTenantName.MatchString(comment) {
-			t.nameField, t.nameColumn = name, tag.Get(spannerTagKey)
+			t.nameField, t.nameColumn, t.nameNullable = name, tag.Get(spannerTagKey), strings.HasPrefix(typeText, "*")
 		}
 		required := !column.IsNullable && !column.HasDefault
 		t.fields = append(t.fields, identityTenantField{
