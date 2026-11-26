@@ -996,8 +996,10 @@ class SideBuilder {
    * in, and why. A tenant's side lists the rows done in that tenant. The server writes the
    * words of a row (`who`, `what`, `doneTo`) as it reads the row, so the page holds no
    * sentence of the log: its own words are the labels and the act filter's choices
-   * (auditActWords). A row done to an account opens the account where the person's id
-   * names the list of the accounts. The list is built as it is read, so the page asks for
+   * (auditActWords). Who acted and what was done are drawn over as many lines as their
+   * words take (`wraps`), since a row is read for them whole; every other column is one
+   * line. A row done to an account opens the account where the person's id names the
+   * list of the accounts. The list is built as it is read, so the page asks for
    * no total and sorts by the time alone. It draws no search box: a box would search the
    * names a row stores, not the words its cells draw.
    */
@@ -1017,8 +1019,8 @@ class SideBuilder {
       }));
     const listColumns: ColumnConfig[] = [
       ...this.columns(resource, [['at', 'When']]),
-      ...drawn('actorUsername', 'Who', 'who'),
-      ...drawn('act', 'What', 'what').map((column) => ({ ...column, filterChoices: auditActWords })),
+      ...drawn('actorUsername', 'Who', 'who').map((column) => ({ ...column, wraps: true })),
+      ...drawn('act', 'What', 'what').map((column) => ({ ...column, wraps: true, filterChoices: auditActWords })),
       ...drawn('subjectName', 'Done to', 'doneTo').map((column) => ({ ...column, opensRow: true })),
       ...this.columns(resource, [['role', 'Role']]).map((column) => ({ ...column, sortable: false })),
       ...(this.tenant

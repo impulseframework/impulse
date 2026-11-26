@@ -367,6 +367,14 @@ interface ColumnConfigBase {
    */
   lines?: boolean;
   /**
+   * Draws the column's cells over as many lines as their words take, in place of one line
+   * cut short: for a sentence a person reads whole (what an audit log says was done). The
+   * row grows to fit its tallest cell. The column does not grow wide for a long text: where
+   * the list has room left over it takes its share and no more, as wide as the columns that
+   * share beside it, and its words break at that width; nothing in it is cut short.
+   */
+  wraps?: boolean;
+  /**
    * Opt the column out of its filter control. A control is drawn only where the
    * generated metadata says the server filters the field (`filterable`); `false` removes
    * it there too. It never adds one where the server would refuse the filter.

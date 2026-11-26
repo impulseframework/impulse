@@ -223,6 +223,14 @@ describe('the Audit log page, drawn by the list', () => {
     ]);
   });
 
+  it('draws who acted and what was done over as many lines as their words take, and every other column on one line', () => {
+    const drawn = Array.from(element().querySelectorAll('tr.impulse-row')[0].querySelectorAll('td.data-col')).map(
+      (cell) => getComputedStyle(cell).whiteSpace,
+    );
+    // When, Who, What, Done to, Role, the tenant, Reason.
+    expect(drawn).toEqual(['nowrap', 'normal', 'normal', 'nowrap', 'nowrap', 'nowrap', 'nowrap']);
+  });
+
   it('opens the account of a row done to one, from its name, and opens nothing from a row done to no account', () => {
     expect(links()).toEqual([`/crew-accounts/${ada}`, null]);
   });

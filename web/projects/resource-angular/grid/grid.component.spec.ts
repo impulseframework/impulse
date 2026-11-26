@@ -3334,6 +3334,72 @@ describe('a list and the width of its frame', () => {
           expect(widths()[1]).toBe('285px');
         });
       });
+
+      describe('beside a column whose words wrap over several lines', () => {
+        // An audit log's rows: what was done, and why. "Gave the role Briefing clerk for the
+        // whole application" is fifty-four characters, a sentence the What column draws whole
+        // over several lines where it wraps; as a column of one line it would need far more
+        // than the library's width. "Covering the briefing desk", twenty-six, is a Reason the
+        // column cuts at its narrowest.
+        const acts: RecordData[] = [
+          { what: 'Gave the role Briefing clerk for the whole application', reason: 'Covering the briefing desk' },
+          { what: 'Required a new password', reason: '' },
+        ];
+        const sentence = cellOf(54);
+        const why = cellOf(26);
+        /** The list of acts, its What column wrapping unless a case says otherwise. */
+        const listOfActs = async (what: { wraps?: boolean } = { wraps: true }): Promise<void> => {
+          const fixture = TestBed.createComponent(AppGridComponent);
+          fixture.componentRef.setInput('rowData', acts);
+          fixture.componentRef.setInput('columnDefs', [{ id: 'what', ...what }, { id: 'reason' }]);
+          element = fixture.nativeElement as HTMLElement;
+          detect = (): void => fixture.detectChanges();
+          give = (name, value): void => fixture.componentRef.setInput(name, value);
+          leave = (): void => fixture.destroy();
+          await settle(fixture);
+        };
+
+        it('draws a long text whole over as many lines as its words take, and gives it no room of its own', async () => {
+          await listOfActs();
+          expect(sentence).toBeGreaterThan(text);
+          expect(why).toBeGreaterThan(text);
+          // An equal share of the frame holds the Reason whole and not the sentence on one
+          // line. The sentence asks no room of its own: no column is given a width.
+          frameIs(700);
+          expect(700 / 2).toBeGreaterThan(why);
+          expect(700 / 2).toBeLessThan(sentence);
+
+          expect(held()).toBe(false);
+          expect(widths()).toEqual(['', '']);
+          const cell = cells(0)[0];
+          expect(cell.textContent?.trim()).toBe('Gave the role Briefing clerk for the whole application');
+          expect(getComputedStyle(cell).whiteSpace).toBe('normal');
+          expect(declares(['td', 'wraps'])).toContain('overflow-wrap: anywhere');
+        });
+
+        it('leaves a column without it cut short on one line, and given the room first: the column that wraps keeps its narrowest', async () => {
+          await listOfActs();
+          // Fifty over the columns at their narrowest. The Reason, the one column that cuts a
+          // value, takes all fifty: the last to take, it is given no width and takes what is
+          // left. The What keeps the library's width and wraps there.
+          frameIs(text + text + 50);
+
+          expect(held()).toBe(false);
+          expect(widths()).toEqual([`${text}px`, '']);
+          const reason = cells(0)[1];
+          expect(reason.textContent?.trim()).toBe('Covering the briefing desk');
+          expect(getComputedStyle(reason).whiteSpace).toBe('nowrap');
+          expect(getComputedStyle(reason).textOverflow).toBe('ellipsis');
+        });
+
+        it('is a rule of the column: the same column drawn on one line asks what its sentence needs', async () => {
+          await listOfActs({});
+          frameIs(700);
+
+          expect(widths()).toEqual([`${sentence}px`, '']);
+          expect(getComputedStyle(cells(0)[0]).whiteSpace).toBe('nowrap');
+        });
+      });
     });
 
     describe('reading what is drawn', () => {

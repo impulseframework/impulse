@@ -1335,8 +1335,10 @@ export class ResourceListComponent implements OnInit {
         // A column that opts out of its filter control says so to the table, and so
         // does one that opts out of sorting.
         ...(col.filterable === false || worded ? { filterable: false } : {}),
-        // A column whose list is drawn a line each says so to the table.
+        // A column whose list is drawn a line each says so to the table, and so does one
+        // whose words wrap over several lines.
         ...(col.lines ? { lines: true } : {}),
+        ...(col.wraps ? { wraps: true } : {}),
         // A column that names the values it filters by keeps them, for its menu
         // (filterChoices).
         ...(col.filterChoices ? { filterChoices: col.filterChoices } : {}),

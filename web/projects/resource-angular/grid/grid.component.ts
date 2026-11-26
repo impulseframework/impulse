@@ -1375,14 +1375,15 @@ export class AppGridComponent {
    * read down, a line each, and does not grow wide for a long line. So it takes none of the
    * room the list gives first to a column that cuts a value, shares the frame as a column
    * that cuts nothing does, and is as wide as the columns that share beside it and no wider;
-   * a line longer than that is cut short and offered whole with the cell's other lines.
+   * a line longer than that is cut short and offered whole with the cell's other lines. A
+   * column whose words wrap (`wraps`) asks the same, and its words break at that width.
    */
   private wholeFor(col: ColumnConfig): number {
     const own = this.widthFor(col);
     if (own !== null) {
       return own;
     }
-    if (col.lines) {
+    if (col.lines || col.wraps) {
       return this.narrowestFor(col);
     }
     return Math.max(this.narrowestFor(col), this.wholes().get(col.id) ?? 0);
