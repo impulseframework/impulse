@@ -112,6 +112,24 @@ func (m *Manager) invitationSubject(ctx context.Context, txn resource.ReadWriteT
 	return invitationRecord("", invitationID, address), nil
 }
 
+// groupNamed answers a group's name for a row of the audit log, as the store answers it
+// now, and its id where the store answers none.
+func (m *Manager) groupNamed(ctx context.Context, txn resource.ReadWriteTransaction, group accesstypes.Group) (string, error) {
+	id, err := impulse.UUIDFromString(string(group))
+	if err != nil {
+		return "", errors.Wrap(err, "impulse.UUIDFromString()")
+	}
+	read, found, err := m.store.Group(ctx, txn, id)
+	if err != nil {
+		return "", errors.Wrap(err, "identity.Store.Group()")
+	}
+	if !found || read.Name == "" {
+		return string(group), nil
+	}
+
+	return read.Name, nil
+}
+
 // recordAct buffers the row of the act done to the subject (accountSubject), with no
 // part beyond it.
 func (m *Manager) recordAct(ctx context.Context, txn resource.ReadWriteTransaction, act auditlog.Act, subject *auditlog.Record) error {
