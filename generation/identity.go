@@ -614,6 +614,9 @@ type identitySourceData struct {
 	// ForTenant marks a file that holds a method one tenant runs (identity_tenant.go):
 	// the templates the two kinds of method share render the tenant's from it.
 	ForTenant bool
+	// HeldRecord is the record a file of a record's sharing shares, nil for every other
+	// file (identity_record_roles.go).
+	HeldRecord *identityHeldRecord
 }
 
 // Singular names of the instance's resources, the structs over its tables.
@@ -662,14 +665,16 @@ func (d *identitySourceData) GivesRoles() bool {
 func (d *identitySourceData) AuthImportPath() string { return d.importPath }
 
 // identitySourceFile is one source file of an instance: where it goes, the template it
-// renders from, the tables whose presence in the schema it depends on, and whether it
-// holds a method one tenant runs.
+// renders from, the tables whose presence in the schema it depends on, whether it holds a
+// method one tenant runs, and the record it shares where it is one of a record's sharing
+// (identity_record_roles.go).
 type identitySourceFile struct {
 	dir      packageDir
 	name     string
 	template string
 	needs    []identityTable
 	tenant   bool
+	record   *identityHeldRecord
 }
 
 // writeIdentitySources writes one instance's declarations, methods and handler base.
@@ -789,6 +794,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// sent it.
 	files = append(files, r.mailLinkListSources(inst)...)
 	files = append(files, r.signInAttemptListSources(inst)...)
+	// The sharing of each record a role can be held on: the methods that give and take a
+	// role on one, the roles they pick from and the list of who holds what there.
+	files = append(files, r.recordSharingSources(inst)...)
 	// What the rules ask of the role file: who may give a role and take one away.
 	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {
@@ -797,6 +805,7 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 		}
 		fileData := *data
 		fileData.ForTenant = file.tenant
+		fileData.HeldRecord = file.record
 		fileData.Source = fmt.Sprintf("Auth(%q)", inst.importPath)
 		fileData.Package = file.dir.Package()
 		fileData.LocalPackageImports = r.identityImports(inst)
@@ -900,6 +909,7 @@ func (c *client) identityResources(packageMap map[string]*packages.Package, fset
 		}
 		for _, res := range lists {
 			res.identity = inst
+			res.recordAttributes, res.recordWays = inst.recordWaysOf(res.Name())
 		}
 		resources = append(resources, extracted...)
 		resources = append(resources, lists...)
@@ -965,11 +975,33 @@ func (c *client) identityMethods(packageMap map[string]*packages.Package, fsetPk
 		}
 		for _, method := range extracted {
 			method.identity = inst
+			c.placeTargetRoot(method)
 		}
 		methods = append(methods, extracted...)
 	}
 
 	return methods, nil
+}
+
+// placeTargetRoot names, for a method of an instance whose target is a table of the
+// application's, the package the frame reads the row from (rpcTarget.RootPackage): the
+// application's record a record's sharing names (identity_record_roles.go). A target
+// among the instance's own declarations, and a view, are read as before.
+func (c *client) placeTargetRoot(method *rpcMethodInfo) {
+	target := method.Target
+	if target == nil || target.ViewPackage != "" || method.identity == nil {
+		return
+	}
+	for _, res := range c.resources {
+		if res.Name() != target.RootStruct {
+			continue
+		}
+		if dir := c.resourcesDirOf(res); dir != method.identity.resources {
+			target.RootPackage = dir.Package()
+		}
+
+		return
+	}
 }
 
 // handlerHome is where the handlers of a resource or a method are written, and what the

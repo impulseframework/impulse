@@ -1631,6 +1631,14 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // The answer is yes where the method does not refuse the caller the role: its grant
 // admits the role, or what is left of the grant's condition reads the row the method
 // names (a person, a group), so the role could be given to some of them.
+{{- if .RecordGivings }}
+//
+// The methods that give a role on one record of the tenant are asked the same way, with
+// the role alone, for the list a role on a record is picked from; what is left of the
+// grant's condition there reads the record:
+//
+//	{{ range $i, $g := .RecordGivings }}{{ if $i }}, {{ end }}{{ $g.Method }}{{ end }}
+{{- end }}
 {{- end }}
 //
 // For a request made for the whole application, the method is one of the whole
@@ -1661,9 +1669,13 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 		case {{ .Method }}{}.Method():
 			return couldGiveBy(ctx, caller, method, &{{ .Method }}{ {{- .Fields -}} })
 		{{- end }}
+		{{- range .RecordGivings }}
+		case {{ .Method }}{}.Method():
+			return couldGiveBy(ctx, caller, method, &{{ .Method }}{ {{- .Fields -}} })
+		{{- end }}
 		}
 
-		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: {{ .GivingMethods }}", method)
+		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: {{ .TenantHandGivingMethods }}", method)
 	}
 {{ end }}
 	{{- if .HasTenant }}

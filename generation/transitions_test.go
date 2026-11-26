@@ -575,6 +575,31 @@ func Test_rpcHandlerTemplate_transition(t *testing.T) {
 		}
 	})
 
+	t.Run("a root of another package is read from there", func(t *testing.T) {
+		t.Parallel()
+
+		// An auth's method that names a record of the application's: its home's
+		// resources package is the auth's, and the root is read from the
+		// application's.
+		rpcMethod := buildMethod(t, "PlainTargetTask")
+		rpcMethod.Target.RootPackage = "appresources"
+		out := render(t, rpcMethod)
+		for _, want := range []string{
+			"row, err := appresources.NewStatefulTaskQuery().",
+			"AddColumns(appresources.NewStatefulTaskColumns().ID()).",
+			`return errors.Wrap(err, "appresources.StatefulTaskQuery.Read()")`,
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("handler of a root of another package missing %q:\n%s", want, out)
+			}
+		}
+		for _, notWant := range []string{":= resources.NewStatefulTaskQuery()", "(resources.NewStatefulTaskColumns()"} {
+			if strings.Contains(out, notWant) {
+				t.Errorf("handler of a root of another package reads it from the home's package (%q):\n%s", notWant, out)
+			}
+		}
+	})
+
 	t.Run("domain-scoped tenancy forms", func(t *testing.T) {
 		t.Parallel()
 

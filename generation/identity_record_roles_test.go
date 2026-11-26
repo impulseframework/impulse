@@ -1,11 +1,16 @@
 package generation
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // voyageRecordSource declares Ship the tenant record and Voyage a ship's record a role can
@@ -76,7 +81,7 @@ func heldRecordsGenerator(t *testing.T) *resourceGenerator {
 func readIdentityFile(t *testing.T, file string) string {
 	t.Helper()
 
-	content, err := os.ReadFile(filepath.Join("pkg/identity", file))
+	content, err := os.ReadFile(filepath.Join("pkg", "identity", file))
 	if err != nil {
 		t.Fatalf("os.ReadFile(%s) error = %v", file, err)
 	}
@@ -260,6 +265,328 @@ func Test_identityDeleteCosts_recordRoles(t *testing.T) {
 		}
 		if !slices.Equal(got, want[inst.auth]) {
 			t.Errorf("the %s instance's costs of the roles held on a record = %v, want %v", inst.auth, got, want[inst.auth])
+		}
+	}
+}
+
+// voyagesTable is the fixture's table of voyages, keyed by one id column, each under its
+// ship.
+func voyagesTable() *tableMetadata {
+	return &tableMetadata{PkCount: 1, Columns: map[string]columnMeta{
+		"Id":     {IsPrimaryKey: true, SpannerType: "STRING(36)"},
+		"ShipId": {SpannerType: "STRING(36)"},
+	}}
+}
+
+// sharingGenerator is the fixture's run with the voyages' table, so the key of a voyage is
+// read (heldRecordKeyType) and a voyage's sharing is written.
+func sharingGenerator(t *testing.T) *resourceGenerator {
+	t.Helper()
+
+	r := heldRecordsGenerator(t)
+	r.tableMap["Voyages"] = voyagesTable()
+
+	return r
+}
+
+// sharingFiles are the files of the generated tree of a voyage's sharing.
+func sharingFiles(t *testing.T) []string {
+	t.Helper()
+
+	var files []string
+	for _, file := range identityTreeFiles(t, "pkg/identity") {
+		if strings.Contains(file, "voyage") {
+			files = append(files, file)
+		}
+	}
+
+	return files
+}
+
+// Test_prepareIdentity_recordSharing pins what an instance writes for the sharing of a
+// record its role file holds a role on: the tenant's four methods that give a person or a
+// group a role on one voyage and take it away, each naming the voyage's row by its key
+// field's type and picking a person from the tenant's people and a group from its groups;
+// the list the give methods pick a role from, fed by the identity package; and the view of
+// who holds what on a voyage, over both tables. The generated grants answer the list's
+// question for the two give methods. An instance whose role file holds no role on the
+// record writes none of it, and one that keeps no groups writes no group pair.
+func Test_prepareIdentity_recordSharing(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": voyageRecordSource})
+	writeRoleFile(t, crewAuthPath, navigatorOnVoyages)
+	writeRoleFile(t, membersAuthPath, deckhandOnNothing)
+	if err := sharingGenerator(t).prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	want := []string{
+		"crewidentity/crew_voyage_roles.go",
+		"crewidentity/give_crew_group_role_on_voyage.go",
+		"crewidentity/give_crew_role_on_voyage.go",
+		"crewidentity/take_crew_group_role_on_voyage.go",
+		"crewidentity/take_crew_role_on_voyage.go",
+		"internal/crewresources/crew_voyage_holders.go",
+	}
+	if got := sharingFiles(t); !slices.Equal(got, want) {
+		t.Errorf("the files of a voyage's sharing = %q, want %q", got, want)
+	}
+
+	assertContains(t, "the give method", readIdentityFile(t, "crewidentity/give_crew_role_on_voyage.go"), squashEach([]string{
+		generationHeader, "package crewidentity",
+		"// GiveCrewRoleOnVoyage gives a person of one Ship a role on one Voyage of the tenant, for a period where the request names one.\n//\n" +
+			"// @rpc\n// @permissionScope(domain)\n// @outlet(default)\n// @answers(204)\n// @class(access)\ntype GiveCrewRoleOnVoyage struct {",
+		"// @target(Voyage)\n\tRecordID impulse.UUID",
+		"// @enumerate(CrewShipUsers)\n\tUserID impulse.UUID",
+		"// @attribute(role)\n\t// @enumerate(CrewVoyageRoles)\n\tRole string `validate:\"required\"`",
+		"StartsAt *time.Time", "EndsAt *time.Time",
+		"if err := tenant.GiveRoleOn(ctx, txn, \"Voyages\", m.RecordID.String(), m.UserID, accesstypes.Role(m.Role), period); err != nil {",
+	}), []string{"\"fmt\""})
+	assertContains(t, "the take method", readIdentityFile(t, "crewidentity/take_crew_role_on_voyage.go"), squashEach([]string{
+		"// TakeCrewRoleOnVoyage takes away a role a person holds on one Voyage of one Ship.",
+		"// @answers(204)\n// @class(access)\ntype TakeCrewRoleOnVoyage struct {",
+		"// @target(Voyage)\n\tRecordID impulse.UUID\n\tUserID impulse.UUID\n\tRole string `validate:\"required\"`\n}",
+		"if err := tenant.TakeRoleOn(ctx, txn, \"Voyages\", m.RecordID.String(), m.UserID, accesstypes.Role(m.Role)); err != nil {",
+	}), nil)
+	assertContains(t, "the group's give method", readIdentityFile(t, "crewidentity/give_crew_group_role_on_voyage.go"), squashEach([]string{
+		"// GiveCrewGroupRoleOnVoyage gives a group of one Ship a role on one Voyage of the tenant, for a period where the request names one.",
+		"// @target(Voyage)\n\tRecordID impulse.UUID",
+		"// @enumerate(CrewShipGroups)\n\tGroupID impulse.UUID",
+		"// @enumerate(CrewVoyageRoles)\n\tRole string",
+		"if err := tenant.GiveGroupRoleOn(ctx, txn, \"Voyages\", m.RecordID.String(), m.GroupID, accesstypes.Role(m.Role), period); err != nil {",
+	}), nil)
+	assertContains(t, "the group's take method", readIdentityFile(t, "crewidentity/take_crew_group_role_on_voyage.go"), squashEach([]string{
+		"// @target(Voyage)\n\tRecordID impulse.UUID\n\tGroupID impulse.UUID\n\tRole string `validate:\"required\"`\n}",
+		"if err := tenant.TakeGroupRoleOn(ctx, txn, \"Voyages\", m.RecordID.String(), m.GroupID, accesstypes.Role(m.Role)); err != nil {",
+	}), nil)
+	assertContains(t, "the roles to give on a voyage", readIdentityFile(t, "crewidentity/crew_voyage_roles.go"), squashEach([]string{
+		"// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\n// @rowWord(role)\ntype CrewVoyageRole struct {",
+		"Method string `spanner:\"Method\" allow_filter:\"true\"`",
+		"return \"CrewVoyageRoles\"",
+		"method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{\n\t\t\tGiveCrewRoleOnVoyage{}.Method(),\n\t\t\tGiveCrewGroupRoleOnVoyage{}.Method(),\n\t\t}, qSet.Filter().Take(\"Method\"))",
+		"roles, err := client.manager.GivableRecordRoles(ctx, db, method, \"Voyages\")",
+	}), nil)
+	assertContains(t, "who holds what on a voyage", readIdentityFile(t, "internal/crewresources/crew_voyage_holders.go"), squashEach([]string{
+		"// @virtual\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\t// @order(Name asc, Role asc)\n\t// @page(default: 25, max: 200)\n\t// @rowWord(holder)\n\tCrewVoyageHolder struct {",
+		"// @primarykey\n\t\tRecordID string `spanner:\"RecordId\" index:\"true\"`\n\t\t// @primarykey\n\t\tMemberKind string `spanner:\"MemberKind\" index:\"true\"`\n" +
+			"\t\t// @primarykey\n\t\tMemberID impulse.UUID `spanner:\"MemberId\" index:\"true\"`\n\t\t// @primarykey\n\t\t// @roleOf(Crew)\n\t\tRole string `spanner:\"Role\" index:\"true\"`\n" +
+			"\t\t// @domain\n\t\tDomainID string `spanner:\"DomainId\" index:\"true\"`\n\t\tName string `spanner:\"Name\" index:\"true\"`\n" +
+			"\t\tStartsAt *time.Time `spanner:\"StartsAt\"`\n\t\tEndsAt *time.Time `spanner:\"EndsAt\"`\n\t}",
+		"'person' AS MemberKind,\n r.UserId AS MemberId,", "COALESCE(NULLIF(u.Name, ''), u.Username) AS Name,",
+		"FROM CrewRecordUserRoles r\nJOIN CrewSessionUsers u ON u.Id = r.UserId\nWHERE r.Axis = '' AND r.Resource = 'Voyages'\n AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())\nUNION ALL",
+		"'group' AS MemberKind,\n r.GroupId AS MemberId,", "g.Name AS Name,",
+		"FROM CrewRecordGroupRoles r\nJOIN CrewGroups g ON g.Id = r.GroupId\nWHERE r.Axis = '' AND r.Resource = 'Voyages'\n AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())\n`",
+	}), nil)
+	// The list a role on a voyage is picked from asks the generated grants which roles
+	// the dialog's method takes from the caller.
+	assertContains(t, "the crew's grants", readIdentityFile(t, "crewidentity/grants.go"), squashEach([]string{
+		"case GiveCrewRoleOnVoyage{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewRoleOnVoyage{Role: string(role)})",
+		"case GiveCrewGroupRoleOnVoyage{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewGroupRoleOnVoyage{Role: string(role)})",
+		"is no method of a tenant that gives a role by hand: AssignCrewShipRole, InviteCrewShipUser, GiveCrewShipGroupRole, GiveCrewRoleOnVoyage, GiveCrewGroupRoleOnVoyage\"",
+	}), nil)
+	// The tenant's list of its roles is asked for the tenant's own methods alone.
+	assertContains(t, "the roles of a ship", readIdentityFile(t, "crewidentity/crew_ship_roles.go"), nil, []string{"Voyage"})
+
+	// The members hold a role on a voyage too, and keep no groups: a person's pair, the
+	// list of roles for that one method and the view over the people's table alone.
+	t.Run("an instance that keeps no groups", func(t *testing.T) {
+		writeRoleFile(t, membersAuthPath, strings.ReplaceAll(navigatorOnVoyages, "Navigator", "Lookout"))
+		if err := sharingGenerator(t).prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+		var members []string
+		for _, file := range sharingFiles(t) {
+			if strings.Contains(file, "members") {
+				members = append(members, file)
+			}
+		}
+		want := []string{
+			"internal/membersresources/members_voyage_holders.go",
+			"membersidentity/give_members_role_on_voyage.go",
+			"membersidentity/members_voyage_roles.go",
+			"membersidentity/take_members_role_on_voyage.go",
+		}
+		if !slices.Equal(members, want) {
+			t.Errorf("the members' files of a voyage's sharing = %q, want %q", members, want)
+		}
+		assertContains(t, "the members' roles to give on a voyage", readIdentityFile(t, "membersidentity/members_voyage_roles.go"), squashEach([]string{
+			"[]accesstypes.Resource{\n\t\t\tGiveMembersRoleOnVoyage{}.Method(),\n\t\t}",
+		}), []string{"GroupRoleOnVoyage"})
+		assertContains(t, "who holds what on a members' voyage", readIdentityFile(t, "internal/membersresources/members_voyage_holders.go"),
+			squashEach([]string{"FROM MembersRecordUserRoles r"}), []string{"UNION ALL", "MembersRecordGroupRoles"})
+	})
+
+	// Nobody's role file holds a role on a voyage: nothing of its sharing is written.
+	t.Run("a role file that names no record", func(t *testing.T) {
+		writeRoleFile(t, crewAuthPath, deckhandOnNothing)
+		writeRoleFile(t, membersAuthPath, deckhandOnNothing)
+		if err := sharingGenerator(t).prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+		if got := sharingFiles(t); len(got) != 0 {
+			t.Errorf("the files of a voyage's sharing = %q, want none", got)
+		}
+		assertContains(t, "the crew's grants", readIdentityFile(t, "crewidentity/grants.go"), nil, []string{"Voyage"})
+	})
+}
+
+// Test_identityInstance_recordWaysOf pins that a shared record's holders' view is under
+// its record, by its RecordID with no hop, and that the instance's other views are not.
+func Test_identityInstance_recordWaysOf(t *testing.T) {
+	t.Parallel()
+
+	crew := sharingInstance("Crew", "Ship", "Voyage", true)
+	attribute := resource.RecordWayAttribute("Voyages", 0)
+	attributes, ways := crew.recordWaysOf("CrewVoyageHolder")
+	if diff := cmp.Diff([]resource.AttributeData{{Name: attribute, Column: "RecordId", Type: resource.AttributeTypeString}}, attributes); diff != "" {
+		t.Errorf("the holders' attributes (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]resource.RecordWayData{{Record: "Voyages", Attribute: attribute}}, ways); diff != "" {
+		t.Errorf("the holders' ways (-want +got):\n%s", diff)
+	}
+	if attributes, ways := crew.recordWaysOf("CrewShipUser"); len(attributes)+len(ways) != 0 {
+		t.Errorf("another view is under a record: %v, %v", attributes, ways)
+	}
+}
+
+// sharingInstance is an instance of the auth that keeps the roles held on the record, in
+// an application whose tenant record is tenant, with groups where groups is true: the
+// tables every list and method of the record's sharing reads.
+func sharingInstance(auth, tenant, record string, groups bool) *identityInstance {
+	inst := &identityInstance{
+		auth: auth, outlets: []string{"console"}, tenant: &identityTenant{name: tenant, table: tenant + "s", key: "Id"},
+		tables:      map[identityTable]bool{identityUsers: true, identityMemberships: true, identityRecordUserRoles: true},
+		heldRecords: []identityHeldRecord{{name: record, resource: accesstypes.Resource(record + "s"), keyType: "impulse.UUID"}},
+	}
+	if groups {
+		for _, kind := range append(identityGroupTables(), identityRecordGroupRoles) {
+			inst.tables[kind] = true
+		}
+	}
+
+	return inst
+}
+
+// Test_identityOn_sharing pins what the generated API description says of a record's
+// sharing, on a tenant's side: the record, its words, its two lists and its methods, the
+// group's pair where the auth keeps groups, and nothing where the outlet does not serve
+// the record, a list or a person's method.
+func Test_identityOn_sharing(t *testing.T) {
+	t.Parallel()
+
+	_, byName, err := recordRolesResources(t, recordRolesTables())
+	if err != nil {
+		t.Fatalf("structsToResources() error = %v", err)
+	}
+	resources := slices.Collect(maps.Values(byName))
+	people := []string{"StaffListedUsers", "StaffRealmUsers", "Projects", "StaffProjectHolders", "StaffProjectRoles"}
+	methods := []string{"GiveStaffRoleOnProject", "TakeStaffRoleOnProject", "GiveStaffGroupRoleOnProject", "TakeStaffGroupRoleOnProject"}
+	tests := []struct {
+		name    string
+		groups  bool
+		served  []string
+		methods []string
+		want    []tsAPIRecordSharing
+	}{
+		{
+			name: "an auth that keeps groups", groups: true, served: people, methods: methods,
+			want: []tsAPIRecordSharing{{
+				Record: "Projects", One: "project", Many: "projects", Holders: "StaffProjectHolders", Roles: "StaffProjectRoles",
+				Give: "GiveStaffRoleOnProject", Take: "TakeStaffRoleOnProject", GiveGroup: "GiveStaffGroupRoleOnProject", TakeGroup: "TakeStaffGroupRoleOnProject",
+			}},
+		},
+		{
+			name: "an auth that keeps none", served: people, methods: methods,
+			want: []tsAPIRecordSharing{{
+				Record: "Projects", One: "project", Many: "projects", Holders: "StaffProjectHolders", Roles: "StaffProjectRoles",
+				Give: "GiveStaffRoleOnProject", Take: "TakeStaffRoleOnProject",
+			}},
+		},
+		{name: "an outlet that does not serve the record", groups: true, served: slices.DeleteFunc(slices.Clone(people), func(name string) bool { return name == "Projects" }), methods: methods},
+		{name: "an outlet that does not serve the holders", groups: true, served: people[:3], methods: methods},
+		{name: "an outlet that does not serve a person's method", groups: true, served: people, methods: methods[1:]},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data := &tsAPIData{}
+			for _, name := range tt.served {
+				data.Resources = append(data.Resources, &tsAPIResource{Name: name})
+			}
+			for _, name := range tt.methods {
+				data.Methods = append(data.Methods, &tsAPIMethod{Name: name})
+			}
+			run := &client{resources: resources, identity: []*identityInstance{sharingInstance("Staff", "Realm", "Project", tt.groups)}}
+			got := (&typescriptGenerator{client: run, outletName: "console"}).identityOn(data)
+			if len(got) != 1 || len(got[0].Sides) != 2 {
+				t.Fatalf("identityOn() = %v, want the staff's two sides", got)
+			}
+			if diff := cmp.Diff(tt.want, got[0].Sides[1].Sharing); diff != "" {
+				t.Errorf("the tenant's sharing (-want +got):\n%s", diff)
+			}
+			if got[0].Sides[0].Sharing != nil {
+				t.Errorf("the whole application's side shares %v, want nothing", got[0].Sides[0].Sharing)
+			}
+		})
+	}
+}
+
+// Test_typescriptAPITemplate_sharing pins a tenant's sharing as the template writes it, and
+// a side that shares nothing writes no sharing.
+func Test_typescriptAPITemplate_sharing(t *testing.T) {
+	t.Parallel()
+
+	sharing := tsAPIRecordSharing{
+		Record: "Projects", One: "project", Many: "projects", Holders: "StaffProjectHolders", Roles: "StaffProjectRoles",
+		Give: "GiveStaffRoleOnProject", Take: "TakeStaffRoleOnProject", GiveGroup: "GiveStaffGroupRoleOnProject", TakeGroup: "TakeStaffGroupRoleOnProject",
+	}
+	data := &tsAPIData{Identity: []*tsAPIIdentity{{
+		Auth: "Staff", Label: "Staff", Tenant: "Realm",
+		Sides: []*tsAPIIdentitySide{
+			{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{{Key: "users", Name: "StaffSessionUsers"}}},
+			{Scope: accesstypes.DomainPermissionScope, Lists: []identityPart{{Key: "users", Name: "StaffRealmUsers"}}, Sharing: []tsAPIRecordSharing{sharing}},
+		},
+	}}}
+	out, err := (&client{}).generateTemplateOutput("typescriptAPITemplate", typescriptAPITemplate, data)
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	assertContains(t, "typescriptAPITemplate", string(out), []string{
+		"          lists: { users: Resources.StaffRealmUsers },\n          methods: {  },\n          sharing: [\n            {\n" +
+			"              record: Resources.Projects,\n              one: 'project',\n              many: 'projects',\n" +
+			"              holders: Resources.StaffProjectHolders,\n              roles: Resources.StaffProjectRoles,\n" +
+			"              give: Methods.GiveStaffRoleOnProject,\n              take: Methods.TakeStaffRoleOnProject,\n" +
+			"              giveGroup: Methods.GiveStaffGroupRoleOnProject,\n              takeGroup: Methods.TakeStaffGroupRoleOnProject,\n            },\n          ],\n        },",
+		"          lists: { users: Resources.StaffSessionUsers },\n          methods: {  },\n        },",
+	}, nil)
+}
+
+// Test_placeTargetRoot pins where the frame of an instance's method reads its target row
+// from: a record of the application's from the application's resources package, and a
+// declaration of the instance's from the instance's own, as every frame reads it.
+func Test_placeTargetRoot(t *testing.T) {
+	t.Parallel()
+
+	c, byName, err := recordRolesResources(t, recordRolesTables())
+	if err != nil {
+		t.Fatalf("structsToResources() error = %v", err)
+	}
+	c.resource = "pkg/resources"
+	c.resources = slices.Collect(maps.Values(byName))
+	staff := &identityInstance{auth: "Staff", resources: "pkg/identity/internal/staffresources"}
+	// The invoices stand for one of the instance's own declarations.
+	byName["Invoice"].identity = staff
+
+	for _, tt := range []struct {
+		root, want string
+	}{{root: "Project", want: "resources"}, {root: "Invoice", want: ""}} {
+		method := &rpcMethodInfo{identity: staff, Target: &rpcTarget{RootStruct: tt.root}}
+		c.placeTargetRoot(method)
+		if method.Target.RootPackage != tt.want {
+			t.Errorf("a target %s: RootPackage = %q, want %q", tt.root, method.Target.RootPackage, tt.want)
 		}
 	}
 }

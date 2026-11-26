@@ -67,6 +67,11 @@ func (i *identityInstance) picksRoles() bool {
 	return i.tenant != nil && !i.rolesSynced && i.has(identityMemberships)
 }
 
+// roleAloneFields are the fields of a request that names the role alone, as Go writes
+// them over the role asked about: what a method that gives a role in one tenant, or on one
+// of its records, is asked with.
+const roleAloneFields = "Role: string(role)"
+
 // tenantGiving is one method a person gives a role with by hand in one tenant, whose
 // role field picks from the roles that exist in the tenant: the method's struct, and
 // the fields its request names the role in, as Go writes them.
@@ -89,9 +94,9 @@ func (i *identityInstance) tenantGivings() []tenantGiving {
 	sources := slices.Concat(i.tenantMethodSources(), i.groupMethodSources())
 	var givings []tenantGiving
 	for _, giving := range []tenantGiving{
-		{Method: "Assign" + subject + "Role", Fields: "Role: string(role)"},
+		{Method: "Assign" + subject + "Role", Fields: roleAloneFields},
 		{Method: "Invite" + subject + "User", Fields: "Roles: []string{string(role)}"},
-		{Method: "Give" + subject + "GroupRole", Fields: "Role: string(role)"},
+		{Method: "Give" + subject + "GroupRole", Fields: roleAloneFields},
 	} {
 		written := slices.ContainsFunc(sources, func(file identitySourceFile) bool {
 			return file.tenant && file.name == fileStem(giving.Method) &&

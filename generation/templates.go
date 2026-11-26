@@ -5104,6 +5104,25 @@ export const apiDescriptor = defineApiDescriptor({
           scope: '{{ $side.Scope }}',
           lists: { {{ range $i, $l := $side.Lists }}{{ if $i }}, {{ end }}{{ $l.Key }}: Resources.{{ $l.Name }}{{ end }} },
           methods: { {{ range $i, $m := $side.Methods }}{{ if $i }}, {{ end }}{{ $m.Key }}: Methods.{{ $m.Name }}{{ end }} },
+          {{- if $side.Sharing }}
+          sharing: [
+{{- range $r := $side.Sharing }}
+            {
+              record: Resources.{{ $r.Record }},
+              one: '{{ $r.One }}',
+              many: '{{ $r.Many }}',
+              holders: Resources.{{ $r.Holders }},
+              roles: Resources.{{ $r.Roles }},
+              give: Methods.{{ $r.Give }},
+              take: Methods.{{ $r.Take }},
+              {{- if $r.GiveGroup }}
+              giveGroup: Methods.{{ $r.GiveGroup }},
+              takeGroup: Methods.{{ $r.TakeGroup }},
+              {{- end }}
+            },
+{{- end }}
+          ],
+          {{- end }}
         },
 {{- end }}
       ],
@@ -6637,10 +6656,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 					return err
 				}
 				{{ else }}
+				{{- $rootPackage := or $t.RootPackage $.ResourcesPackage }}
 				// Declared target: locate the row within the tenancy predicate
 				// before the body runs.
-				row, err := {{ $.ResourcesPackage }}.New{{ $t.RootStruct }}Query().
-					AddColumns({{ $.ResourcesPackage }}.New{{ $t.RootStruct }}Columns(){{ $t.LocateColumnCalls }}).
+				row, err := {{ $rootPackage }}.New{{ $t.RootStruct }}Query().
+					AddColumns({{ $rootPackage }}.New{{ $t.RootStruct }}Columns(){{ $t.LocateColumnCalls }}).
 					{{- range $t.Keys }}
 					Set{{ .RootPKField }}(p.{{ .TargetField }}).
 					{{- end }}
@@ -6652,7 +6672,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 						return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 					}
 
-					return errors.Wrap(err, "{{ $.ResourcesPackage }}.{{ $t.RootStruct }}Query.Read()")
+					return errors.Wrap(err, "{{ $rootPackage }}.{{ $t.RootStruct }}Query.Read()")
 				}
 				if row == nil {
 					return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})

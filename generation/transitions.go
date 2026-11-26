@@ -92,6 +92,13 @@ type rpcTarget struct {
 	// holds the row to the request's tenant by the view's @domain column,
 	// which the collection carries.
 	ViewPackage string
+
+	// RootPackage names the package a table's root is declared in where it is
+	// not the method's home's resources package: a method of an auth's
+	// generated management that names a record of the application's (a
+	// record's sharing, identity_record_roles.go). The frame reads the row
+	// from there. Empty otherwise, and for a view (ViewPackage).
+	RootPackage string
 }
 
 // rpcTargetKey is one column of a target row's key and the RPC field that
