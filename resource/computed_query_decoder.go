@@ -27,8 +27,8 @@ type ComputedQueryDecoder[Resource Resourcer, Request any] struct {
 	// facts is the client the facts about the caller are read through, where a
 	// grant's condition names one (subject.<name>); nil until wired.
 	facts SubjectFactSource
-	// namedRowSources are the views a row a write names is read from
-	// (WithNamedRowSources), stamped on the QuerySet the decode answers.
+	// namedRowSources are the views and the computed lists a row a write names is asked
+	// of (WithNamedRowSources), stamped on the QuerySet the decode answers.
 	namedRowSources NamedRowSources
 }
 
@@ -101,9 +101,9 @@ func (d *ComputedQueryDecoder[Resource, Request]) WithCollection(collection *Gen
 	return d
 }
 
-// WithNamedRowSources installs the views a row a write names is read from: they ride
-// the QuerySet the decode answers, and its caller (QuerySet.Caller) carries them to a
-// write the application's function arms (NamedRowSources).
+// WithNamedRowSources installs the views and the computed lists a row a write names is
+// asked of: they ride the QuerySet the decode answers, and its caller (QuerySet.Caller)
+// carries them to a write the application's function arms (NamedRowSources).
 func (d *ComputedQueryDecoder[Resource, Request]) WithNamedRowSources(sources NamedRowSources) *ComputedQueryDecoder[Resource, Request] {
 	d.namedRowSources = sources
 
@@ -163,8 +163,8 @@ func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, 
 	// And the application database's type (QuerySet.Collect), so the handler's
 	// in-memory sort and page boundary place NULL where a body's plain ORDER BY does.
 	qSet.dbType = d.dbType
-	// And the views a row a write names is read from, which the query's caller carries
-	// to a write the function arms (QuerySet.Caller).
+	// And the views and the computed lists a row a write names is asked of, which the
+	// query's caller carries to a write the function arms (QuerySet.Caller).
 	qSet.namedRowSources = d.namedRowSources
 
 	decisions, err := userPermissions.Check(ctx, qSet.env, scope, requiredPermission, base)

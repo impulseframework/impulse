@@ -70,13 +70,15 @@ type (
 	// sector through its own two-hop path, so a squadron the requester flies with in
 	// another sector opens nothing here; and subject.crewGroups holds the groups kept in
 	// the request's sector alone, so a pass that named another sector's group, or a group
-	// kept for the whole fleet, would open nothing. No such pass is written: the picker offers
-	// neither, and the library refuses a create that names either, whoever writes it (the
-	// API, the bootstrap, a job), with 400 and "groupId names a group that is not one of
-	// this sector's own. Choose a group kept in this sector: a group kept in another
-	// sector, or for the whole application, cannot be named here." The rule is the
-	// library's for every column a set follows to an auth's groups (the generated
-	// GroupColumns), so nothing in this file states it.
+	// kept for the whole fleet, would open nothing. No such pass is written: the picker
+	// offers neither; a request that names either is answered as a row that is not there
+	// (404), since its writer's list of the sector's groups shows neither; and the library
+	// refuses a create that names either from a writer no list is asked of (the
+	// bootstrap, a job), with 400 and "groupId names a group that is not one of this
+	// sector's own. Choose a group kept in this sector: a group kept in another sector, or
+	// for the whole application, cannot be named here." Both rules are the library's (the
+	// generated NamedRows, and the generated GroupColumns for every column a set follows
+	// to an auth's groups), so nothing in this file states them.
 	//
 	// A pass names its hangar by its sector and the hangar's id: the foreign key holds
 	// both, so the database refuses a pass that names another sector's hangar, when it is

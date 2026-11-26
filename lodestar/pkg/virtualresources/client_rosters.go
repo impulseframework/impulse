@@ -12,7 +12,8 @@ type (
 	// many contacts the client has and how many missions it holds in this sector. It is
 	// keyed by the client id alone, so its rows key into the same space as Clients, and
 	// Mission.ClientID names it with a field-scope @enumerate: the schema's foreign key
-	// stays the guard at write time, and the picker lists this view instead of the
+	// stays the guard at write time, the library holds a write to the clients the
+	// writer's list of the roster shows, and the picker lists this view instead of the
 	// target. The bare @domain on SectorId partitions the rows, so the roster a picker
 	// shows is the selected sector's. Mission is served on the portal outlet too, and a
 	// declared enumeration must be on every outlet its field is, so the roster is as well.

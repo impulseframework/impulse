@@ -11,14 +11,15 @@ import (
 
 type (
 	// BriefingTemplate is a catalog row served from Go: the sheets a briefing can be
-	// compiled on. It stands in for a catalog held outside the schema — a template
-	// service, say — so nothing in the database references it: Mission.BriefingTemplateID
-	// is a plain column that names this resource with a field-scope @enumerate, and the
-	// picker lists these rows. The keyed read route is suppressed, as a service that only
-	// lists its catalog would have no read to offer; the browser resolves a picked
-	// template's display from the option list instead. Mission is served on the portal
-	// outlet too, and a declared enumeration must be on every outlet its field is, so
-	// the catalog is as well.
+	// compiled on. It stands in for a catalog held outside the schema — a template service,
+	// say — so nothing in the database references it: Mission.BriefingTemplateID is a plain
+	// column that names this resource with a field-scope @enumerate, and the picker lists
+	// these rows; the library takes in the column only an id the writer's list of the
+	// catalog shows, and in CompileBriefing's TemplateID only one the caller's list shows.
+	// The keyed read route is suppressed, as a service that only lists its catalog would
+	// have no read to offer; the browser resolves a picked template's display from the
+	// option list instead. Mission is served on the portal outlet too, and a declared
+	// enumeration must be on every outlet its field is, so the catalog is as well.
 	//
 	// The catalog declares no @order and no maximum: read whole (limit=all), it keeps
 	// its sheets in the sequence a template service would rank them, the standard sheet

@@ -46,8 +46,8 @@ type TargetedRPCDecoder[Request any] struct {
 	perm            accesstypes.Permission
 	userPermissions func(*http.Request) UserPermissions
 	collection      *GeneratedCollection
-	// namedRowSources are the views a row a body's armed write names is read from
-	// (WithNamedRowSources).
+	// namedRowSources are the views and the computed lists a row a body's armed write
+	// names is asked of (WithNamedRowSources).
 	namedRowSources NamedRowSources
 }
 
@@ -71,9 +71,9 @@ func MustNewTargetedRPCDecoder[Request any](a DecoderAccessor, collection *Gener
 	}
 }
 
-// WithNamedRowSources installs the views a row a write names is read from, so the
-// caller of the gate the decoder answers carries them to a body's armed writes
-// (NamedRowSources).
+// WithNamedRowSources installs the views and the computed lists a row a write names is
+// asked of, so the caller of the gate the decoder answers carries them to a body's armed
+// writes (NamedRowSources).
 func (s *TargetedRPCDecoder[Request]) WithNamedRowSources(sources NamedRowSources) *TargetedRPCDecoder[Request] {
 	decoder := *s
 	decoder.namedRowSources = sources
@@ -215,8 +215,9 @@ type ExecuteGate struct {
 	env             accesstypes.Environment
 	collection      *GeneratedCollection
 	cond            condition.Expr
-	// namedRowSources are the views a row a write names is read from, carried from the
-	// caller the gate was asked for to the caller it answers (Caller).
+	// namedRowSources are the views and the computed lists a row a write names is asked
+	// of, carried from the caller the gate was asked for to the caller it answers
+	// (Caller).
 	namedRowSources NamedRowSources
 	// entryPermission is the permission a method's decode asked on the method, for the
 	// gate its decode answers (TargetedRPCDecoder.Decode); empty for a gate a body asks
