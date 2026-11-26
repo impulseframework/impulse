@@ -30,9 +30,10 @@ type Caller struct {
 	// collection renders a conditional grant into the live check, when the
 	// frame's decoder was wired to one.
 	collection *GeneratedCollection
-	// namedRowSources are the views a row a write names is read from, when the
-	// frame's decoder was handed them (WithNamedRowSources): a write the frame's
-	// body arms (Enforce) carries them.
+	// namedRowSources are the views a named row is read from and the computed lists
+	// it is asked of, when the frame's decoder was handed them (WithNamedRowSources):
+	// a write the frame's body arms (Enforce) carries them, and a method's picked
+	// fields are held to them (HoldPicked).
 	namedRowSources NamedRowSources
 	// method and permission are what the frame's entry check asked: the method, and the
 	// permission on it. A method's decode sets them on the caller it answers

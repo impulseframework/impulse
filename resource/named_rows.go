@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition"
+	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
 
 // A column that names a row of another table (a foreign key, or a column picked from a
@@ -151,11 +152,13 @@ func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTr
 		return nil
 	}
 	q := p.querySet
-	decisions, err := p.namedRowDecisions(ctx, named)
+	caller := q.Caller()
+	decisions, err := listDecisions(ctx, caller, named)
 	if err != nil {
 		return err
 	}
 
+	ask := &listedAsk{caller: caller, reader: txn, owner: p.Resource()}
 	for _, n := range named {
 		decision := decisions[n.row.grantScope(q.scope)][n.row.Resource]
 		if decision.IsGranted() && n.row.fromTable() && (n.row.TenantColumn == "" || p.leavesForTenant(n.row.Field)) {
@@ -182,7 +185,7 @@ func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTr
 			continue
 		}
 		if decision.IsDenied() {
-			return referencedNotFound(p.Resource(), n.row.Table)
+			return referencedNotFound(p.Resource(), n.row.lookedIn())
 		}
 		if txn.DBType() != SpannerDBType && !n.row.Computed {
 			return errors.Newf("%s is not implemented for %s", namedRowsNotImplemented, txn.DBType())
@@ -190,17 +193,12 @@ func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTr
 		if mocked {
 			continue
 		}
-		var listed bool
-		if n.row.Computed {
-			listed, err = p.listsComputedRow(ctx, txn, n, decision)
-		} else {
-			listed, err = p.listsNamedRow(ctx, txn, n, decision)
-		}
+		listed, err := ask.listsRow(ctx, n, decision)
 		if err != nil {
 			return err
 		}
 		if !listed {
-			return referencedNotFound(p.Resource(), n.row.Table)
+			return referencedNotFound(p.Resource(), n.row.lookedIn())
 		}
 	}
 
@@ -241,14 +239,14 @@ func (p *PatchSet[Resource]) namedValues() ([]namedValue, error) {
 	return named, nil
 }
 
-// namedRowDecisions asks the caller's List on each named kind, once per scope it is
-// asked in, and answers the decisions by scope.
-func (p *PatchSet[Resource]) namedRowDecisions(ctx context.Context, named []namedValue) (map[accesstypes.Scope]accesstypes.Decisions, error) {
-	q := p.querySet
+// listDecisions asks the caller's List on each kind the values name, once for each scope
+// it is asked in (grantScope over the caller's scope), in the caller's environment, and
+// answers the decisions by scope.
+func listDecisions(ctx context.Context, caller *Caller, named []namedValue) (map[accesstypes.Scope]accesstypes.Decisions, error) {
 	var scopes []accesstypes.Scope
 	kinds := make(map[accesstypes.Scope][]accesstypes.Resource)
 	for _, n := range named {
-		scope := n.row.grantScope(q.scope)
+		scope := n.row.grantScope(caller.Scope)
 		if _, seen := kinds[scope]; !seen {
 			scopes = append(scopes, scope)
 		}
@@ -258,7 +256,7 @@ func (p *PatchSet[Resource]) namedRowDecisions(ctx context.Context, named []name
 	}
 	decisions := make(map[accesstypes.Scope]accesstypes.Decisions, len(scopes))
 	for _, scope := range scopes {
-		answer, err := q.userPermissions.Check(ctx, q.env, scope, accesstypes.List, kinds[scope]...)
+		answer, err := caller.Permissions.Check(ctx, caller.Env, scope, accesstypes.List, kinds[scope]...)
 		if err != nil {
 			return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 		}
@@ -283,6 +281,16 @@ func (n *NamedRow) storedRow() *NamedRow {
 	}
 
 	return n.Stored
+}
+
+// lookedIn is what a refusal's cause says the row was looked for in: the table or the
+// view the row is read from, or the computed list asked for it.
+func (n *NamedRow) lookedIn() string {
+	if n.Computed {
+		return string(n.Resource)
+	}
+
+	return n.Table
 }
 
 // leavesForTenant reports whether field is the one the row's own way to its tenant
@@ -359,12 +367,56 @@ func (p *PatchSet[Resource]) createdInTransaction(ctx context.Context, txn ReadW
 	return tenant == string(domain), nil
 }
 
+// namedRowReader is what a named row is read through: the transaction of the write that
+// names it, or the client a method's request is held with (HoldPicked). A reader whose
+// database is Spanner and that holds no Spanner reader is a mock's: it holds no tables to
+// ask, and a row whose judgment needs a read passes there.
+type namedRowReader interface {
+	DBType() DBType
+	SpannerReadOnlyTransaction() spxapi.Querier
+}
+
+// listedAsk is what the question whether the caller's list of a kind shows a row is asked
+// over, once the caller's List on the kind is decided: the caller (its checker, scope,
+// environment, collection and named-row sources), the reader the row is read through, and
+// the resource whose write names the row, or the method whose request does (method).
+// A write's check (checkNamedRows) asks it with the query set's caller and the write's
+// transaction, a method's (HoldPicked) with the method's caller and the client; the
+// statements it writes are the same.
+type listedAsk struct {
+	caller *Caller
+	reader namedRowReader
+	owner  accesstypes.Resource
+	method bool
+}
+
+// naming is what the errors say names the row: a write of the resource, or a request of
+// the method.
+func (a *listedAsk) naming() string {
+	if a.method {
+		return "a request of method " + string(a.owner)
+	}
+
+	return "a write of " + string(a.owner)
+}
+
+// listsRow answers whether the caller's list of the kind shows the row the value names,
+// the caller's List on it having answered decision (granted or conditional): a computed
+// list is asked through its own function (listsComputedRow), every other row is read
+// (listsNamedRow).
+func (a *listedAsk) listsRow(ctx context.Context, n namedValue, decision accesstypes.Decision) (bool, error) {
+	if n.row.Computed {
+		return a.listsComputedRow(ctx, n, decision)
+	}
+
+	return a.listsNamedRow(ctx, n, decision)
+}
+
 // listsNamedRow reads the named row by key as the caller's list of its kind would read
 // it: within the request's tenant for a kind that belongs to one, and under the grant's
 // condition where the decision carries one. A view's row is read from the view's query,
-// under the view's resource's name (namedViewItem). It answers whether there is such a
-// row.
-func (p *PatchSet[Resource]) listsNamedRow(ctx context.Context, txn ReadWriteTransaction, n namedValue, decision accesstypes.Decision) (bool, error) {
+// under the view's resource's name (viewItem). It answers whether there is such a row.
+func (a *listedAsk) listsNamedRow(ctx context.Context, n namedValue, decision accesstypes.Decision) (bool, error) {
 	registry := newParamRegistry()
 	alias := registry.alias()
 	if n.row.View {
@@ -375,7 +427,7 @@ func (p *PatchSet[Resource]) listsNamedRow(ctx context.Context, txn ReadWriteTra
 		terms = append(terms, test)
 	}
 	if decision.IsConditional() {
-		held, err := p.namedRowCondition(n.row, decision, alias, registry)
+		held, err := a.namedRowCondition(n.row, decision, alias, registry)
 		if err != nil {
 			return false, err
 		}
@@ -386,15 +438,15 @@ func (p *PatchSet[Resource]) listsNamedRow(ctx context.Context, txn ReadWriteTra
 	gen := newSQLGenerator(Spanner)
 	where, err := gen.generateLowered(andChain(terms...), registry)
 	if err != nil {
-		return false, errors.Wrapf(err, "the read of %s a write of %s names", n.row.Table, p.Resource())
+		return false, errors.Wrapf(err, "the read of %s %s names", n.row.Table, a.naming())
 	}
 	params := make(map[string]any)
-	if err := p.mergeCheckParams(registry, params); err != nil {
+	if err := a.bindParams(registry, params); err != nil {
 		return false, err
 	}
 	withClause, from := "", gen.quoteIdentifier(n.row.Table)+" "+gen.quoteIdentifier(alias)
 	if n.row.View {
-		withClause, from, err = p.namedViewItem(n.row, params)
+		withClause, from, err = a.viewItem(n.row, params)
 		if err != nil {
 			return false, err
 		}
@@ -403,20 +455,65 @@ func (p *PatchSet[Resource]) listsNamedRow(ctx context.Context, txn ReadWriteTra
 		SQL:    withClause + "SELECT 1 FROM " + from + " WHERE " + where,
 		Params: params,
 	}
-	_, found, err := spannerFirstRow(ctx, txn.SpannerReadOnlyTransaction(), stmt)
+	_, found, err := spannerFirstRow(ctx, a.reader.SpannerReadOnlyTransaction(), stmt)
 	if err != nil {
-		return false, errors.Wrapf(err, "reading the %s row a write of %s names", n.row.Table, p.Resource())
+		return false, errors.Wrapf(err, "reading the %s row %s names", n.row.Table, a.naming())
 	}
 
 	return found, nil
+}
+
+// bindParams folds the read's bound values and the reserved parameters it references
+// into params: the caller's user, the decision instant of its environment and its
+// tenant, the values the caller's own check folded with.
+func (a *listedAsk) bindParams(registry *paramRegistry, params map[string]any) error {
+	for _, param := range registry.boundParams() {
+		if _, ok := params[param.Name]; ok {
+			return errors.Newf("named parameter collision: the read of the row %s names already contains named parameter %q", a.naming(), param.Name)
+		}
+		params[param.Name] = param.Value
+	}
+	for _, name := range registry.referencedNames() {
+		value, err := a.caller.paramValue(name)
+		if err != nil {
+			return err
+		}
+		params[name] = value
+	}
+
+	return nil
+}
+
+// paramValue supplies a reserved parameter a statement asked as the caller references:
+// the same values the caller's entry check folded with, never sampled again.
+func (c *Caller) paramValue(name string) (any, error) {
+	switch name {
+	case subjectParamName:
+		return string(c.Permissions.User()), nil
+	case nowParamName:
+		now, ok := c.Env.Now()
+		if !ok {
+			return nil, errors.New("condition references now but the request environment carries no decision instant")
+		}
+
+		return now, nil
+	case domainParamName:
+		domain, ok := c.Scope.Domain()
+		if !ok {
+			return nil, errors.New("condition rendering referenced the request partition in a global request")
+		}
+
+		return string(domain), nil
+	default:
+		return nil, errors.Newf("condition rendering referenced unknown named parameter %q", name)
+	}
 }
 
 // namedRowCondition lowers the condition the caller's List on the named kind is held
 // under against the named table read under alias, in that kind's own vocabulary, as a
 // name's lookup lowers it (QuerySet.nameGrantCondition). A condition that comes to true
 // adds nothing, and answers nil.
-func (p *PatchSet[Resource]) namedRowCondition(row *NamedRow, decision accesstypes.Decision, alias string, registry *paramRegistry) (ExpressionNode, error) {
-	q := p.querySet
+func (a *listedAsk) namedRowCondition(row *NamedRow, decision accesstypes.Decision, alias string, registry *paramRegistry) (ExpressionNode, error) {
 	expr, err := conditionalExpr(row.Resource, decision)
 	if err != nil {
 		return nil, err
@@ -425,15 +522,16 @@ func (p *PatchSet[Resource]) namedRowCondition(row *NamedRow, decision accesstyp
 	if t, ok := expr.(condition.Truth); ok && t.Value {
 		return nil, nil
 	}
-	if q.collection == nil {
-		return nil, errors.Newf("resource %s names a row of %s, on which the caller's List is conditional, but no generated collection is wired to render the condition", q.Resource(), row.Resource)
+	collection := a.caller.collection
+	if collection == nil {
+		return nil, errors.Newf("%s names a row of %s, on which the caller's List is conditional, but no generated collection is wired to render the condition", a.naming(), row.Resource)
 	}
-	bindings, _ := q.collection.Bindings(q.collection.Scope(row.Resource), row.Resource)
-	_, partitioned := row.grantScope(q.scope).Domain()
-	lctx := &loweringContext{outer: alias, bindings: bindings, collection: q.collection, partitioned: partitioned}
+	bindings, _ := collection.Bindings(collection.Scope(row.Resource), row.Resource)
+	_, partitioned := row.grantScope(a.caller.Scope).Domain()
+	lctx := &loweringContext{outer: alias, bindings: bindings, collection: collection, partitioned: partitioned}
 	held, err := lowerRowCondition(expr, lctx, registry)
 	if err != nil {
-		return nil, errors.Wrapf(err, "lowering the condition on %s for the row %s names", row.Resource, q.Resource())
+		return nil, errors.Wrapf(err, "lowering the condition on %s for the row %s names", row.Resource, a.naming())
 	}
 
 	return &GroupNode{Expression: held}, nil
