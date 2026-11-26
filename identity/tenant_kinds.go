@@ -39,12 +39,13 @@ type TenantDeleteCosts struct {
 	// database removes with it (Store.RowsWithUser).
 	Identity int
 	User     int
-	// Invitation is the withdrawal of one invitation: the columns it writes, and an entry
-	// of each index that holds one of them.
+	// Invitation is the withdrawal of one invitation: its update, counted as the store's
+	// generator counts an update (the key, the columns it writes, and each index that holds
+	// one of them).
 	Invitation int
 	// SessionEnd is the ending of one session of an account that is deleted, and
-	// ImpersonationEnd the ending of one impersonation record it holds: the columns each
-	// writes, and an entry of each index that holds one of them.
+	// ImpersonationEnd the ending of one impersonation record it holds, each counted as an
+	// update is.
 	SessionEnd       int
 	ImpersonationEnd int
 }

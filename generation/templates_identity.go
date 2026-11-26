@@ -2022,8 +2022,10 @@ func (store) DirectoryUsers(context.Context, resource.ReadWriteTransaction, acce
 // a tenant's delete takes costs in a commit, as the schema read at generation tells it:
 // the delete and an entry out of each of the table's indexes besides its key, with no
 // change record, since the declarations write none. The withdrawal of an invitation costs
-// the columns ConsumeMailLink writes and an entry of each index that holds one of them. A
-// table the schema does not hold costs nothing (identity.Store.DeleteCosts).
+// what its update costs: the key, the columns ConsumeMailLink writes, and each index that
+// holds one of them, two where the column is in the index's key and one and its stored
+// columns otherwise. A table the schema does not hold costs nothing
+// (identity.Store.DeleteCosts).
 func (store) DeleteCosts() identity.TenantDeleteCosts {
 	return identity.TenantDeleteCosts{
 		{{- range .DeleteCosts }}

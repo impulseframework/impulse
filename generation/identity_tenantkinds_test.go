@@ -51,15 +51,10 @@ func crewTablesInstance(t *testing.T, kinds ...identityTable) *identityInstance 
 	return inst
 }
 
-// Test_identityDeleteCosts pins what the store's DeleteCosts says a row of each of the
-// auth's tables a tenant's delete takes costs: the delete and an entry of each index
-// besides the key, with no change record; the withdrawal of an invitation its two columns
-// and an entry of each index that holds one of them, in its key or stored. A table the
-// schema does not hold has no field.
-func Test_identityDeleteCosts(t *testing.T) {
-	t.Parallel()
-
-	c := &client{tableMap: map[string]*tableMetadata{
+// tenantCostTables are the crew auth's tables the delete cost tests read: each table's
+// key and its indexes besides it, as the schema holds them.
+func tenantCostTables() map[string]*tableMetadata {
+	return map[string]*tableMetadata{
 		"CrewUserRoles":         tenantKindsTable("Kind", []indexMeta{indexOn("CrewUserRolesByUserId", []string{"UserId"})}),
 		"CrewRoles":             tenantKindsTable("Kind", nil),
 		"CrewGroups":            tenantKindsTable("Id", []indexMeta{indexOn("CrewGroupsByName", []string{"Kind", "Name"})}),
@@ -80,7 +75,18 @@ func Test_identityDeleteCosts(t *testing.T) {
 			indexOn("ByActor", []string{"ActorUsername"}, "EndedAt"),
 			indexOn("BySubject", []string{"SubjectUsername"}),
 		}),
-	}}
+	}
+}
+
+// Test_identityDeleteCosts pins what the store's DeleteCosts says a row of each of the
+// auth's tables a tenant's delete takes costs: the delete and an entry of each index
+// besides the key, with no change record; the withdrawal of an invitation, a session's
+// end and an impersonation record's end what an update of the columns each writes costs.
+// A table the schema does not hold has no field.
+func Test_identityDeleteCosts(t *testing.T) {
+	t.Parallel()
+
+	c := &client{tableMap: tenantCostTables()}
 	every := crewTablesInstance(t, identityUsers, identitySessions, identityIdentities, identityMailLinks, identityMemberships, identityRoles,
 		identityGroups, identityGroupMembers, identityGroupRoles, identityImpersonations)
 	want := []identityDeleteCost{
@@ -91,12 +97,13 @@ func Test_identityDeleteCosts(t *testing.T) {
 		{Field: "Role", Cost: "resource.DeleteCost{IndexEntries: 0}.Mutations(false)"},
 		{Field: "Identity", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
 		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
-		// ConsumedAt and WithdrawnAt, the index by kind and the index by tenant.
-		{Field: "Invitation", Cost: "4"},
-		// Expired and UpdatedAt, and the index by user, which holds Expired.
-		{Field: "SessionEnd", Cost: "3"},
-		// EndedAt and EndReason, and the index by actor, which stores EndedAt.
-		{Field: "ImpersonationEnd", Cost: "3"},
+		// The key, ConsumedAt and WithdrawnAt, two for the index by kind, three for the
+		// index by tenant.
+		{Field: "Invitation", Cost: "8"},
+		// The key, Expired and UpdatedAt, two for the index by user, which keys Expired.
+		{Field: "SessionEnd", Cost: "5"},
+		// The key, EndedAt and EndReason, two for the index by actor, which stores EndedAt.
+		{Field: "ImpersonationEnd", Cost: "5"},
 	}
 	if diff := cmp.Diff(want, c.identityDeleteCosts(every)); diff != "" {
 		t.Errorf("identityDeleteCosts() of every table (-want +got):\n%s", diff)
@@ -105,10 +112,45 @@ func Test_identityDeleteCosts(t *testing.T) {
 	bare := crewTablesInstance(t, identityUsers, identitySessions)
 	wantBare := []identityDeleteCost{
 		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
-		{Field: "SessionEnd", Cost: "3"},
+		{Field: "SessionEnd", Cost: "5"},
 	}
 	if diff := cmp.Diff(wantBare, c.identityDeleteCosts(bare)); diff != "" {
 		t.Errorf("identityDeleteCosts() of the users and sessions alone (-want +got):\n%s", diff)
+	}
+}
+
+// Test_updateMutations pins what an update of the columns on one row costs: one for each
+// column of the key, one for each column written, and for each index besides the key that
+// holds a written column, two where one is in the index's key and otherwise one and one
+// for each written column it stores.
+func Test_updateMutations(t *testing.T) {
+	t.Parallel()
+
+	tables := tenantCostTables()
+	twoColumnKey := &tableMetadata{Columns: map[string]columnMeta{
+		"TenantId": {IsPrimaryKey: true, KeyOrdinalPosition: 1},
+		"Id":       {IsPrimaryKey: true, KeyOrdinalPosition: 2},
+	}}
+	storedOnly := tenantKindsTable("Id", []indexMeta{indexOn("ByName", []string{"Name"}, "Note")})
+	for _, tt := range []struct {
+		name    string
+		table   *tableMetadata
+		columns []string
+		want    int
+	}{
+		{name: "an invitation's withdrawal", table: tables["CrewSessionMailLinks"], columns: withdrawnColumns, want: 8},
+		{name: "a session's end", table: tables["CrewSessions"], columns: sessionEndColumns, want: 5},
+		{name: "an impersonation record's end", table: tables["CrewSessionImpersonations"], columns: impersonationEndColumns, want: 5},
+		{name: "a key of two columns and no index", table: twoColumnKey, columns: []string{"Name"}, want: 3},
+		// The key, Note, and two for the index, which stores Note and keys none.
+		{name: "an index that stores the column alone", table: storedOnly, columns: []string{"Note"}, want: 4},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.table.updateMutations(tt.columns); got != tt.want {
+				t.Errorf("updateMutations(%v) = %d, want %d", tt.columns, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -48,9 +48,9 @@ var (
 // a tenant's delete takes costs, for the tables the schema holds: the delete and an entry
 // out of each of the table's indexes besides its key, with no change record, since the
 // instance's declarations write none (defaultConfig), but for the roles held on a record,
-// whose declarations write one. An invitation's withdrawal, a
-// session's end and an impersonation record's end each cost the columns they write and an
-// entry of each index that holds one of them.
+// whose declarations write one. An invitation's withdrawal, a session's end and an
+// impersonation record's end each cost what an update of the columns they write costs
+// (updateMutations).
 func (c *client) identityDeleteCosts(inst *identityInstance) []identityDeleteCost {
 	var costs []identityDeleteCost
 	for _, field := range []struct {
@@ -99,27 +99,44 @@ func (c *client) identityDeleteCosts(inst *identityInstance) []identityDeleteCos
 		if !ok || !inst.has(field.kind) {
 			continue
 		}
-		writes := len(field.columns)
-		for _, index := range table.Indexes {
-			if !index.PrimaryKey && index.holdsAny(field.columns) {
-				writes++
-			}
-		}
-		costs = append(costs, identityDeleteCost{Field: field.name, Cost: strconv.Itoa(writes)})
+		costs = append(costs, identityDeleteCost{Field: field.name, Cost: strconv.Itoa(table.updateMutations(field.columns))})
 	}
 
 	return costs
 }
 
-// holdsAny reports whether the index holds one of the columns, in its key or stored.
-func (i *indexMeta) holdsAny(columns []string) bool {
-	for _, column := range i.Key {
-		if slices.Contains(columns, column.Column) {
-			return true
+// updateMutations is what an update of the columns on one row of the table costs in a
+// commit, as Spanner was measured to count it on the real service: one for each column of
+// the table's key, one for each column the update writes, and for each index besides the
+// key that holds a written column, two where a written column is in the index's key, since
+// its entry is deleted and written again, and otherwise one and one more for each written
+// column the index stores, since its entry is updated. The withdrawal of an invitation,
+// which writes two columns of a table with one index keyed on one of them and one index
+// that stores both, was counted eight.
+func (t *tableMetadata) updateMutations(columns []string) int {
+	mutations := len(t.keyColumns()) + len(columns)
+	for _, index := range t.Indexes {
+		if index.PrimaryKey {
+			continue
+		}
+		keyed := slices.ContainsFunc(index.Key, func(column indexColumn) bool {
+			return slices.Contains(columns, column.Column)
+		})
+		stored := 0
+		for _, column := range index.Storing {
+			if slices.Contains(columns, column) {
+				stored++
+			}
+		}
+		switch {
+		case keyed:
+			mutations += 2
+		case stored > 0:
+			mutations += 1 + stored
 		}
 	}
 
-	return slices.ContainsFunc(i.Storing, func(column string) bool { return slices.Contains(columns, column) })
+	return mutations
 }
 
 // identityUserCascades reads the tables whose rows the database removes with a row of
