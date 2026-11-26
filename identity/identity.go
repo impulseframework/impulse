@@ -191,6 +191,25 @@ type Store interface {
 	// them. It answers how many roles go.
 	DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (roles int, err error)
 
+	// SetRecordMembership writes the person's role on the record with its period, replacing the
+	// period of a row that is there.
+	SetRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey, period accesstypes.Period) error
+	// DeleteRecordMembership buffers the removal of the person's role on the record; a role
+	// the person does not hold there is no error.
+	DeleteRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey) error
+	// SetRecordGroupRole writes the group's role on the record with its period, replacing the
+	// period of a row that is there.
+	SetRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey, period accesstypes.Period) error
+	// DeleteRecordGroupRole buffers the removal of the group's role on the record; a role the
+	// group does not hold there is no error.
+	DeleteRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey) error
+	// RecordRoles reads every role held on the record, ended ones too, in key order.
+	RecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
+	// TenantRecordRoles reads every role held on a record of the tenant, in key order.
+	TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
+	// RecordMemberships reads the roles the person holds on records, in any tenant, not ended.
+	RecordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.RecordMembershipKey, error)
+
 	// InsertInvitation buffers the mail links row of a prepared invitation, as the
 	// session library says one is written (session.InvitationRow).
 	InsertInvitation(ctx context.Context, txn resource.ReadWriteTransaction, row *session.InvitationRow) error

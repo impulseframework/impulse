@@ -42,7 +42,7 @@ type (
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	// @rowWord(group)
-	// @deleteCascade({{ .GroupMember }}, {{ .GroupRole }})
+	// @deleteCascade({{ .GroupMember }}, {{ .GroupRole }}{{ if .KeepsRecordGroupRoles }}, {{ .RecordGroupRole }}{{ end }})
 	{{ .Group }} struct {
 		// @attribute(group)
 		ID          impulse.UUID ` + "`spanner:\"Id\"`" + `

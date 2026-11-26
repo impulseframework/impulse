@@ -47,7 +47,8 @@ var (
 // identityDeleteCosts reads what the delete of one row of each of the instance's tables
 // a tenant's delete takes costs, for the tables the schema holds: the delete and an entry
 // out of each of the table's indexes besides its key, with no change record, since the
-// instance's declarations write none (defaultConfig). An invitation's withdrawal, a
+// instance's declarations write none (defaultConfig), but for the roles held on a record,
+// whose declarations write one. An invitation's withdrawal, a
 // session's end and an impersonation record's end each cost the columns they write and an
 // entry of each index that holds one of them.
 func (c *client) identityDeleteCosts(inst *identityInstance) []identityDeleteCost {
@@ -69,6 +70,21 @@ func (c *client) identityDeleteCosts(inst *identityInstance) []identityDeleteCos
 			continue
 		}
 		costs = append(costs, identityDeleteCost{Field: field.name, Cost: fmt.Sprintf("resource.DeleteCost{IndexEntries: %d}.Mutations(false)", table.secondaryIndexes())})
+	}
+	// The declarations of the roles held on a record write a change record with each write
+	// (identityRecordUserRolesTemplate), so a row's delete costs one more.
+	for _, field := range []struct {
+		name string
+		kind identityTable
+	}{
+		{"RecordMembership", identityRecordUserRoles},
+		{"RecordGroupRole", identityRecordGroupRoles},
+	} {
+		table, ok := c.tableMap[inst.tableName(field.kind)]
+		if !ok || !inst.has(field.kind) {
+			continue
+		}
+		costs = append(costs, identityDeleteCost{Field: field.name, Cost: fmt.Sprintf("resource.DeleteCost{IndexEntries: %d}.Mutations(true)", table.secondaryIndexes())})
 	}
 	for _, field := range []struct {
 		name    string

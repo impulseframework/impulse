@@ -26,6 +26,11 @@ type TenantDeleteCosts struct {
 	Group       int
 	GroupMember int
 	GroupRole   int
+	// RecordMembership and RecordGroupRole are a row of each of the tables of the roles
+	// held on one record, a person's and a group's, with the change record its removal
+	// writes.
+	RecordMembership int
+	RecordGroupRole  int
 	// Role is a row of the roles table, a custom role. Its grants go by the database's
 	// rule with it.
 	Role int

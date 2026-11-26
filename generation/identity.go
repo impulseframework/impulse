@@ -113,6 +113,10 @@ type identityInstance struct {
 	// groupSet is the name of the subject set of a person's groups, "" where the
 	// instance keeps no groups (identity_groups.go).
 	groupSet string
+	// heldRecords are the records of the application a role of the auth's role file can
+	// be held on, in name order: with one the instance keeps the roles held on a record
+	// (identity_record_roles.go).
+	heldRecords []identityHeldRecord
 	// deleteCosts and userCascades are what a tenant's delete costs the auth's rows by,
 	// read off the schema (identity_tenantkinds.go).
 	deleteCosts  []identityDeleteCost
@@ -211,6 +215,10 @@ func (i *identityInstance) tableName(kind identityTable) string {
 		return i.policy.GroupMembers
 	case identityGroupRoles:
 		return i.policy.GroupRoles
+	case identityRecordUserRoles:
+		return i.policy.RecordUserRoles
+	case identityRecordGroupRoles:
+		return i.policy.RecordGroupRoles
 	default:
 		panic(fmt.Sprintf("unexpected identityTable: %q", kind))
 	}
@@ -344,6 +352,7 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 	if err := inst.settleGroupTables(); err != nil {
 		return nil, err
 	}
+	inst.findRecordTables(r.tableMap)
 	for _, kind := range []identityTable{identityUsers, identitySessions} {
 		if !inst.has(kind) {
 			return nil, errors.Newf("Auth(%q): the schema holds no table %s, so there is nothing of the auth to manage; its tables are named by its package's name in PascalCase (TablePrefix = %q), each the session library's own name under it", auth.importPath, inst.tableName(kind), name)
@@ -377,6 +386,11 @@ func (r *resourceGenerator) prepareIdentity() error {
 	// names them: it is read off the sources and the schema, since nothing is loaded yet.
 	tenant, err := r.readIdentityTenant()
 	if err != nil {
+		return err
+	}
+	// So do the records a role can be held on, which decide whether an instance keeps the
+	// roles held on a record.
+	if err := r.readHeldRecords(instances); err != nil {
 		return err
 	}
 	for _, inst := range instances {
@@ -671,7 +685,7 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// The struct names are held to the engine's rule here, where the refusal can say
 	// what went wrong: a resource's table is its struct's name in the plural.
 	files := []identitySourceFile{{dir: inst.resources, name: "resources", template: identityResourcesTemplate}}
-	for _, decl := range identityDeclarations() {
+	for _, decl := range slices.Concat(identityDeclarations(), inst.recordRoleDeclarations()) {
 		struc, table := inst.auth+decl.suffix, inst.tableName(decl.kind)
 		if got := r.pluralize(struc); got != table {
 			return errors.Newf("the declaration over table %s would be struct %s, whose plural is %s: the generator's plural rules do not carry the auth's name %q back to its table (see WithPluralOverrides)", table, struc, got, inst.auth)
