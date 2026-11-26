@@ -134,7 +134,7 @@ func removeStanding(ctx context.Context, d AuthDriver, userID impulse.UUID) erro
 	if err != nil {
 		return err
 	}
-	if err := d.RemoveUserPassword(ctx, userID, standing); err != nil {
+	if err := d.RemoveUserPassword(ctx, userID, standing, nil); err != nil {
 		return errors.Wrap(err, "AuthDriver.RemoveUserPassword()")
 	}
 
@@ -695,7 +695,7 @@ func testDisabledUserRefused(ctx context.Context, t *testing.T, h *AuthHarness) 
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	user := createUser(ctx, t, in.Driver, "gone@lakeside.edu")
 	mustLink(ctx, t, in.Driver, user.ID, lakeside("idp_gone"))
-	if err := in.Driver.DeactivateUser(ctx, user.ID); err != nil {
+	if err := in.Driver.DeactivateUser(ctx, user.ID, nil); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
 
@@ -816,7 +816,7 @@ func testLinkManagement(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Errorf("LinkIdentity() of a password identity error = %v, want BadRequest", err)
 	}
 
-	err := in.Driver.UnlinkIdentity(ctx, first.ID, everyLinkSignsIn)
+	err := in.Driver.UnlinkIdentity(ctx, first.ID, everyLinkSignsIn, nil)
 	if !errors.Is(err, dbtype.ErrLastSignInMethod) || !httpio.HasConflict(err) {
 		t.Errorf("UnlinkIdentity() of a password-less user's only identity error = %v, want ErrLastSignInMethod (Conflict)", err)
 	}
@@ -826,18 +826,18 @@ func testLinkManagement(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if err != nil || len(links) != 2 || links[0].ID != first.ID || links[1].ID != second.ID {
 		t.Fatalf("IdentitiesByUser() = %v, %v; want both links, oldest first", links, err)
 	}
-	if err := in.Driver.UnlinkIdentity(ctx, first.ID, everyLinkSignsIn); err != nil {
+	if err := in.Driver.UnlinkIdentity(ctx, first.ID, everyLinkSignsIn, nil); err != nil {
 		t.Errorf("UnlinkIdentity() with another identity left error = %v", err)
 	}
-	if err := in.Driver.UnlinkIdentity(ctx, second.ID, everyLinkSignsIn); !errors.Is(err, dbtype.ErrLastSignInMethod) {
+	if err := in.Driver.UnlinkIdentity(ctx, second.ID, everyLinkSignsIn, nil); !errors.Is(err, dbtype.ErrLastSignInMethod) {
 		t.Errorf("UnlinkIdentity() of the remaining identity error = %v, want ErrLastSignInMethod", err)
 	}
 
 	patLink := mustLink(ctx, t, in.Driver, pat.ID, lakeside("idp_pat"))
-	if err := in.Driver.UnlinkIdentity(ctx, patLink.ID, everyLinkSignsIn); err != nil {
+	if err := in.Driver.UnlinkIdentity(ctx, patLink.ID, everyLinkSignsIn, nil); err != nil {
 		t.Errorf("UnlinkIdentity() of a user that has a password error = %v, want removed", err)
 	}
-	if err := in.Driver.UnlinkIdentity(ctx, patLink.ID, everyLinkSignsIn); !httpio.HasNotFound(err) {
+	if err := in.Driver.UnlinkIdentity(ctx, patLink.ID, everyLinkSignsIn, nil); !httpio.HasNotFound(err) {
 		t.Errorf("UnlinkIdentity() of a removed link error = %v, want NotFound", err)
 	}
 }
@@ -874,38 +874,38 @@ func testUnlinkKeepsAMeansOfSignIn(ctx context.Context, t *testing.T, h *AuthHar
 	counts := mustLink(ctx, t, in.Driver, sso.ID, lakeside("idp_sso"))
 	stale := mustLink(ctx, t, in.Driver, sso.ID, riverside("idp_sso_stale"))
 	assertKept("the last identity that signs a password-less user in, with one that signs nobody in remaining",
-		sso.ID, in.Driver.UnlinkIdentity(ctx, counts.ID, lakesideSignsIn), counts, stale)
-	assertKept("an identity of a password-less user for whom the caller judges nothing", sso.ID, in.Driver.UnlinkIdentity(ctx, stale.ID, nil), counts, stale)
+		sso.ID, in.Driver.UnlinkIdentity(ctx, counts.ID, lakesideSignsIn, nil), counts, stale)
+	assertKept("an identity of a password-less user for whom the caller judges nothing", sso.ID, in.Driver.UnlinkIdentity(ctx, stale.ID, nil, nil), counts, stale)
 
 	// Another user's identity that counts is no means of sign-in of this one.
 	other := createUser(ctx, t, in.Driver, "other@lakeside.edu")
 	mustLink(ctx, t, in.Driver, other.ID, lakeside("idp_other"))
 	mustLink(ctx, t, in.Driver, other.ID, lakeside("idp_other_second"))
 	assertKept("the last identity that signs a password-less user in, while another user holds ones that count",
-		sso.ID, in.Driver.UnlinkIdentity(ctx, counts.ID, lakesideSignsIn), counts, stale)
+		sso.ID, in.Driver.UnlinkIdentity(ctx, counts.ID, lakesideSignsIn, nil), counts, stale)
 
 	// The one that signs nobody in goes from beside the one that counts, which is then
 	// the user's last means of sign-in.
-	if err := in.Driver.UnlinkIdentity(ctx, stale.ID, lakesideSignsIn); err != nil {
+	if err := in.Driver.UnlinkIdentity(ctx, stale.ID, lakesideSignsIn, nil); err != nil {
 		t.Errorf("UnlinkIdentity() of an identity that signs nobody in, beside one that counts, error = %v", err)
 	}
-	assertKept("a password-less user's one identity", sso.ID, in.Driver.UnlinkIdentity(ctx, counts.ID, lakesideSignsIn), counts)
+	assertKept("a password-less user's one identity", sso.ID, in.Driver.UnlinkIdentity(ctx, counts.ID, lakesideSignsIn, nil), counts)
 
 	// Identities that sign nobody in keep nobody's way in, however many there are.
 	lost := createUser(ctx, t, in.Driver, "lost@lakeside.edu")
 	first := mustLink(ctx, t, in.Driver, lost.ID, riverside("idp_lost_a"))
 	second := mustLink(ctx, t, in.Driver, lost.ID, riverside("idp_lost_b"))
-	assertKept("an identity of a password-less user none of whose others signs them in", lost.ID, in.Driver.UnlinkIdentity(ctx, first.ID, lakesideSignsIn), first, second)
+	assertKept("an identity of a password-less user none of whose others signs them in", lost.ID, in.Driver.UnlinkIdentity(ctx, first.ID, lakesideSignsIn, nil), first, second)
 
 	// A password signs its user in, so the last identity that counts goes, and the one
 	// that signs nobody in after it: the judgment is asked about neither.
 	pat := passwordUser(ctx, t, in.Driver, "pat@lakeside.edu")
 	patCounts := mustLink(ctx, t, in.Driver, pat.ID, lakeside("idp_pat"))
 	patStale := mustLink(ctx, t, in.Driver, pat.ID, riverside("idp_pat_stale"))
-	if err := in.Driver.UnlinkIdentity(ctx, patCounts.ID, lakesideSignsIn); err != nil {
+	if err := in.Driver.UnlinkIdentity(ctx, patCounts.ID, lakesideSignsIn, nil); err != nil {
 		t.Errorf("UnlinkIdentity() of the last identity that signs in a user that has a password error = %v, want it removed", err)
 	}
-	if err := in.Driver.UnlinkIdentity(ctx, patStale.ID, nil); err != nil {
+	if err := in.Driver.UnlinkIdentity(ctx, patStale.ID, nil, nil); err != nil {
 		t.Errorf("UnlinkIdentity() of the one identity of a user that has a password error = %v, want it removed", err)
 	}
 	if links := standingLinks(ctx, t, in.Driver, pat.ID); len(links) != 0 {
@@ -934,7 +934,7 @@ func testUnlinksRace(ctx context.Context, t *testing.T, h *AuthHarness) {
 		errs := make([]error, len(links))
 		for i, link := range links {
 			wg.Go(func() {
-				errs[i] = in.Driver.UnlinkIdentity(ctx, link.ID, lakesideSignsIn)
+				errs[i] = in.Driver.UnlinkIdentity(ctx, link.ID, lakesideSignsIn, nil)
 			})
 		}
 		wg.Wait()
@@ -989,7 +989,7 @@ func testPasswordRemoval(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 
 	// No identity: the password is the user's one means of sign-in, and it stays.
-	assertKept("a user with no identity", in.Driver.RemoveUserPassword(ctx, pat.ID, nil))
+	assertKept("a user with no identity", in.Driver.RemoveUserPassword(ctx, pat.ID, nil, nil))
 
 	// An identity counts only when the caller names it: the caller judges which of the
 	// user's identities can still sign them in, and the driver holds the removal to
@@ -998,24 +998,24 @@ func testPasswordRemoval(ctx context.Context, t *testing.T, h *AuthHarness) {
 	stale := mustLink(ctx, t, in.Driver, pat.ID, riverside("idp_pat_stale"))
 	other := createUser(ctx, t, in.Driver, "other@lakeside.edu")
 	others := mustLink(ctx, t, in.Driver, other.ID, lakeside("idp_other"))
-	assertKept("a user whose one identity the caller does not name", in.Driver.RemoveUserPassword(ctx, pat.ID, nil))
-	assertKept("a user for whom the caller names an identity that does not exist", in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{impulse.Must(impulse.NewUUID())}))
-	assertKept("a user for whom the caller names another user's identity", in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{others.ID}))
+	assertKept("a user whose one identity the caller does not name", in.Driver.RemoveUserPassword(ctx, pat.ID, nil, nil))
+	assertKept("a user for whom the caller names an identity that does not exist", in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{impulse.Must(impulse.NewUUID())}, nil))
+	assertKept("a user for whom the caller names another user's identity", in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{others.ID}, nil))
 	assertKept("a user whose one identity the caller does not name, on proof of the password",
-		in.Driver.RemoveProvenUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, []impulse.UUID{others.ID}))
+		in.Driver.RemoveProvenUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, []impulse.UUID{others.ID}, nil))
 	// The identity the caller names was unlinked since the caller read it.
 	gone := mustLink(ctx, t, in.Driver, pat.ID, riverside("idp_pat_gone"))
-	if err := in.Driver.UnlinkIdentity(ctx, gone.ID, everyLinkSignsIn); err != nil {
+	if err := in.Driver.UnlinkIdentity(ctx, gone.ID, everyLinkSignsIn, nil); err != nil {
 		t.Fatalf("UnlinkIdentity() error = %v", err)
 	}
-	assertKept("a user whose named identity was unlinked meanwhile", in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{gone.ID}))
-	if err := in.Driver.UnlinkIdentity(ctx, stale.ID, everyLinkSignsIn); err != nil {
+	assertKept("a user whose named identity was unlinked meanwhile", in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{gone.ID}, nil))
+	if err := in.Driver.UnlinkIdentity(ctx, stale.ID, everyLinkSignsIn, nil); err != nil {
 		t.Fatalf("UnlinkIdentity() error = %v", err)
 	}
 
 	// One named identity that still stands is enough, whatever else is named.
 	link := mustLink(ctx, t, in.Driver, pat.ID, lakeside("idp_pat"))
-	if err := in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{gone.ID, link.ID}); err != nil {
+	if err := in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{gone.ID, link.ID}, nil); err != nil {
 		t.Fatalf("RemoveUserPassword() of a user with an identity the caller names error = %v", err)
 	}
 	removed, err := in.Driver.User(ctx, pat.ID)
@@ -1033,13 +1033,13 @@ func testPasswordRemoval(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 
 	// The identity is now the last means of sign-in, and there is no password left to remove.
-	if err := in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn); !errors.Is(err, dbtype.ErrLastSignInMethod) {
+	if err := in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn, nil); !errors.Is(err, dbtype.ErrLastSignInMethod) {
 		t.Errorf("UnlinkIdentity() of the identity left after the removal error = %v, want ErrLastSignInMethod", err)
 	}
-	if err := in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{link.ID}); !httpio.HasBadRequest(err) {
+	if err := in.Driver.RemoveUserPassword(ctx, pat.ID, []impulse.UUID{link.ID}, nil); !httpio.HasBadRequest(err) {
 		t.Errorf("RemoveUserPassword() of a user that has no password error = %v, want BadRequest", err)
 	}
-	if err := in.Driver.RemoveUserPassword(ctx, impulse.Must(impulse.NewUUID()), []impulse.UUID{link.ID}); !httpio.HasNotFound(err) {
+	if err := in.Driver.RemoveUserPassword(ctx, impulse.Must(impulse.NewUUID()), []impulse.UUID{link.ID}, nil); !httpio.HasNotFound(err) {
 		t.Errorf("RemoveUserPassword() of an unknown user error = %v, want NotFound", err)
 	}
 }
@@ -1064,10 +1064,10 @@ func testPasswordRemovalRacesUnlink(ctx context.Context, t *testing.T, h *AuthHa
 			unlinkErr error
 		)
 		wg.Go(func() {
-			removeErr = in.Driver.RemoveUserPassword(ctx, user.ID, []impulse.UUID{link.ID})
+			removeErr = in.Driver.RemoveUserPassword(ctx, user.ID, []impulse.UUID{link.ID}, nil)
 		})
 		wg.Go(func() {
-			unlinkErr = in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn)
+			unlinkErr = in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn, nil)
 		})
 		wg.Wait()
 
@@ -1104,7 +1104,7 @@ func testDeleteUserDeletesLinks(ctx context.Context, t *testing.T, h *AuthHarnes
 	mustLink(ctx, t, in.Driver, sso.ID, &sessioninfo.Identity{Method: sessioninfo.MethodAzure, Connection: "tenant-1", Subject: "oid-gone"})
 	kept := mustLink(ctx, t, in.Driver, other.ID, lakeside("idp_stays"))
 
-	if err := in.Driver.DeleteUser(ctx, sso.ID); err != nil {
+	if err := in.Driver.DeleteUser(ctx, sso.ID, nil); err != nil {
 		t.Fatalf("DeleteUser() of a linked user error = %v", err)
 	}
 
@@ -1115,7 +1115,7 @@ func testDeleteUserDeletesLinks(ctx context.Context, t *testing.T, h *AuthHarnes
 	if link, err := in.Driver.Identity(ctx, sessioninfo.MethodWorkOS, "conn_lakeside", "idp_stays"); err != nil || link.ID != kept.ID {
 		t.Errorf("Identity() of another user's link = %v, %v; want it kept", link, err)
 	}
-	if err := in.Driver.DeleteUser(ctx, sso.ID); !httpio.HasNotFound(err) {
+	if err := in.Driver.DeleteUser(ctx, sso.ID, nil); !httpio.HasNotFound(err) {
 		t.Errorf("DeleteUser() of a deleted user error = %v, want NotFound", err)
 	}
 }

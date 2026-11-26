@@ -47,7 +47,7 @@ func insertInvitation(ctx context.Context, t *testing.T, d AuthDriver, email, te
 
 	link := newMailLink(dbtype.MailLinkInvitation, email, hash)
 	link.TenantID, link.RoleNames = tenant, roles
-	if err := d.InsertMailLink(ctx, link); err != nil {
+	if err := d.InsertMailLink(ctx, link, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 
@@ -73,12 +73,12 @@ func testInvitationPlaceRoundTrip(ctx context.Context, t *testing.T, h *AuthHarn
 	inTenant := insertInvitation(ctx, t, in.Driver, "alex@lakeside.edu", "lakeside", []string{"Teacher"}, tokenHash(1))
 	everyTenant := newMailLink(dbtype.MailLinkInvitation, "sam@lakeside.edu", tokenHash(2))
 	everyTenant.EveryTenant, everyTenant.RoleNames = true, []string{"Reader"}
-	if err := in.Driver.InsertMailLink(ctx, everyTenant); err != nil {
+	if err := in.Driver.InsertMailLink(ctx, everyTenant, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 	global := insertInvitation(ctx, t, in.Driver, "pat@lakeside.edu", "", []string{"Reader"}, tokenHash(3))
 	signUp := newMailLink(dbtype.MailLinkSignUp, "lee@lakeside.edu", tokenHash(4))
-	if err := in.Driver.InsertMailLink(ctx, signUp); err != nil {
+	if err := in.Driver.InsertMailLink(ctx, signUp, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 
@@ -218,18 +218,18 @@ func testUserEmail(ctx context.Context, t *testing.T, h *AuthHarness) {
 
 	// An entry by hand reserves an address, unverified; one another user holds is
 	// refused; nil takes it off; an unknown user is NotFound.
-	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("alex@lakeside.edu")); err != nil {
+	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("alex@lakeside.edu"), nil); err != nil {
 		t.Fatalf("SetUserEmail() error = %v", err)
 	}
 	assertEmail(t, "User() after SetUserEmail()", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), false)
-	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("pat.lee@lakeside.edu")); !httpio.HasConflict(err) {
+	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("pat.lee@lakeside.edu"), nil); !httpio.HasConflict(err) {
 		t.Errorf("SetUserEmail() to an address another user holds error = %v, want Conflict", err)
 	}
-	if err := in.Driver.SetUserEmail(ctx, alex.ID, nil); err != nil {
+	if err := in.Driver.SetUserEmail(ctx, alex.ID, nil, nil); err != nil {
 		t.Fatalf("SetUserEmail(nil) error = %v", err)
 	}
 	assertEmail(t, "User() after SetUserEmail(nil)", mustUser(ctx, t, in.Driver, alex.ID), nil, false)
-	if err := in.Driver.SetUserEmail(ctx, impulse.Must(impulse.NewUUID()), strPtr("x@lakeside.edu")); !httpio.HasNotFound(err) {
+	if err := in.Driver.SetUserEmail(ctx, impulse.Must(impulse.NewUUID()), strPtr("x@lakeside.edu"), nil); !httpio.HasNotFound(err) {
 		t.Errorf("SetUserEmail() of an unknown user error = %v, want NotFound", err)
 	}
 
@@ -296,7 +296,7 @@ func testUserEmailVerified(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 
 	// An entry by hand over a verified address leaves it unverified: the operator typed it.
-	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("alex.new@lakeside.edu")); err != nil {
+	if err := in.Driver.SetUserEmail(ctx, alex.ID, strPtr("alex.new@lakeside.edu"), nil); err != nil {
 		t.Fatalf("SetUserEmail() error = %v", err)
 	}
 	assertEmail(t, "User() after SetUserEmail() over a verified address", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex.new@lakeside.edu"), false)
@@ -359,10 +359,10 @@ func testUsernameIsEmail(ctx context.Context, t *testing.T, h *AuthHarness) {
 	assertEmail(t, "CreateUser() verified", alex, strPtr("alex@lakeside.edu"), true)
 
 	// A rename and an entry by hand are refused: the address changes through a link.
-	if err := in.Driver.SetUserUsername(ctx, pat.ID, "patricia@lakeside.edu"); !httpio.HasConflict(err) {
+	if err := in.Driver.SetUserUsername(ctx, pat.ID, "patricia@lakeside.edu", nil); !httpio.HasConflict(err) {
 		t.Errorf("SetUserUsername() error = %v, want Conflict", err)
 	}
-	if err := in.Driver.SetUserEmail(ctx, pat.ID, strPtr("patricia@lakeside.edu")); !httpio.HasConflict(err) {
+	if err := in.Driver.SetUserEmail(ctx, pat.ID, strPtr("patricia@lakeside.edu"), nil); !httpio.HasConflict(err) {
 		t.Errorf("SetUserEmail() error = %v, want Conflict", err)
 	}
 
@@ -431,7 +431,7 @@ func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			w := startWindow(h.ClockLead)
-			if err := in.Driver.InsertMailLink(ctx, tt.link); err != nil {
+			if err := in.Driver.InsertMailLink(ctx, tt.link, nil); err != nil {
 				t.Fatalf("InsertMailLink() error = %v", err)
 			}
 			w.done()
@@ -452,7 +452,7 @@ func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if _, err := in.Driver.MailLinkByToken(ctx, tokenHash(9), time.Now()); !httpio.HasNotFound(err) {
 		t.Errorf("MailLinkByToken() of an unknown token error = %v, want NotFound", err)
 	}
-	if err := in.Driver.InsertMailLink(ctx, newMailLink("reminder", "x@lakeside.edu", tokenHash(4))); err == nil {
+	if err := in.Driver.InsertMailLink(ctx, newMailLink("reminder", "x@lakeside.edu", tokenHash(4)), nil); err == nil {
 		t.Error("InsertMailLink() of an unknown kind error = nil, want a refusal")
 	}
 }
@@ -463,7 +463,7 @@ func testMailLinkConsumedOnce(ctx context.Context, t *testing.T, h *AuthHarness)
 	second := insertInvitation(ctx, t, in.Driver, "second@lakeside.edu", "", []string{"Admin"}, tokenHash(2))
 	verification := newMailLink(dbtype.MailLinkVerification, "pat@lakeside.edu", tokenHash(3))
 	verification.UserID = impulse.NullUUIDFromUUID(createUser(ctx, t, in.Driver, "pat").ID)
-	if err := in.Driver.InsertMailLink(ctx, verification); err != nil {
+	if err := in.Driver.InsertMailLink(ctx, verification, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 
@@ -492,13 +492,13 @@ func testMailLinkConsumedOnce(ctx context.Context, t *testing.T, h *AuthHarness)
 	}
 
 	// Revoked by id, once.
-	if err := in.Driver.RevokeMailLink(ctx, second.ID, time.Now()); err != nil {
+	if err := in.Driver.RevokeMailLink(ctx, second.ID, time.Now(), nil); err != nil {
 		t.Fatalf("RevokeMailLink() error = %v", err)
 	}
-	if err := in.Driver.RevokeMailLink(ctx, second.ID, time.Now()); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeMailLink(ctx, second.ID, time.Now(), nil); !httpio.HasNotFound(err) {
 		t.Errorf("second RevokeMailLink() error = %v, want NotFound", err)
 	}
-	if err := in.Driver.RevokeMailLink(ctx, impulse.Must(impulse.NewUUID()), time.Now()); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeMailLink(ctx, impulse.Must(impulse.NewUUID()), time.Now(), nil); !httpio.HasNotFound(err) {
 		t.Errorf("RevokeMailLink() of an unknown id error = %v, want NotFound", err)
 	}
 	if live, err := in.Driver.LiveMailLinks(ctx, dbtype.MailLinkInvitation, time.Now()); err != nil || len(live) != 0 {
@@ -554,7 +554,7 @@ func testMailLinkMailFailed(ctx context.Context, t *testing.T, h *AuthHarness) {
 
 	// A link withdrawn by hand and one that was followed are consumed and say nothing
 	// of their mail, and neither is marked afterwards.
-	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now()); err != nil {
+	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now(), nil); err != nil {
 		t.Fatalf("RevokeMailLink() error = %v", err)
 	}
 	if err := in.Driver.ConsumeMailLink(ctx, followed.TokenHash, time.Now()); err != nil {
@@ -584,7 +584,7 @@ func testMailLinkWithdrawn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// The link taken back is consumed and marked withdrawn, in one write at the
 	// database's time.
 	w := startWindow(h.ClockLead)
-	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now()); err != nil {
+	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now(), nil); err != nil {
 		t.Fatalf("RevokeMailLink() error = %v", err)
 	}
 	w.done()
@@ -598,7 +598,7 @@ func testMailLinkWithdrawn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 
 	// Once: a second withdrawal is NotFound and moves neither time.
-	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now()); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeMailLink(ctx, withdrawn.ID, time.Now(), nil); !httpio.HasNotFound(err) {
 		t.Errorf("second RevokeMailLink() error = %v, want NotFound", err)
 	}
 	if again := h.MailLinkWithdrawnAt(ctx, t, in.Raw, withdrawn.TokenHash); again == nil || !again.Equal(*withdrawnAt) {
@@ -637,7 +637,7 @@ func testMailLinkExpired(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if err := in.Driver.ConsumeMailLink(ctx, link.TokenHash, later); !httpio.HasNotFound(err) {
 		t.Errorf("ConsumeMailLink() after expiry error = %v, want NotFound", err)
 	}
-	if err := in.Driver.RevokeMailLink(ctx, link.ID, later); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeMailLink(ctx, link.ID, later, nil); !httpio.HasNotFound(err) {
 		t.Errorf("RevokeMailLink() after expiry error = %v, want NotFound", err)
 	}
 	if live, err := in.Driver.LiveMailLinks(ctx, dbtype.MailLinkInvitation, later); err != nil || len(live) != 0 {
@@ -654,12 +654,12 @@ func testMailLinkCascade(ctx context.Context, t *testing.T, h *AuthHarness) {
 	gone := createUser(ctx, t, in.Driver, "gone@lakeside.edu")
 	verification := newMailLink(dbtype.MailLinkVerification, "gone.new@lakeside.edu", tokenHash(1))
 	verification.UserID = impulse.NullUUIDFromUUID(gone.ID)
-	if err := in.Driver.InsertMailLink(ctx, verification); err != nil {
+	if err := in.Driver.InsertMailLink(ctx, verification, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 	invitation := insertInvitation(ctx, t, in.Driver, "other@lakeside.edu", "", nil, tokenHash(2))
 
-	if err := in.Driver.DeleteUser(ctx, gone.ID); err != nil {
+	if err := in.Driver.DeleteUser(ctx, gone.ID, nil); err != nil {
 		t.Fatalf("DeleteUser() error = %v", err)
 	}
 	if _, err := in.Driver.MailLinkByToken(ctx, verification.TokenHash, time.Now()); !httpio.HasNotFound(err) {
@@ -837,7 +837,7 @@ func testInvitationKeptOnRefusal(ctx context.Context, t *testing.T, h *AuthHarne
 	gone := createUser(ctx, t, disabled.Driver, "gone@lakeside.edu")
 	goneIdentity := entra("oid-gone", "gone@lakeside.edu")
 	mustLink(ctx, t, disabled.Driver, gone.ID, goneIdentity)
-	if err := disabled.Driver.DeactivateUser(ctx, gone.ID); err != nil {
+	if err := disabled.Driver.DeactivateUser(ctx, gone.ID, nil); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
 	link = insertInvitation(ctx, t, disabled.Driver, "gone@lakeside.edu", "", []string{"Admin"}, tokenHash(4))

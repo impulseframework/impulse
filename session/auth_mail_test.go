@@ -18,6 +18,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/azure"
@@ -108,7 +109,7 @@ func (m *mailLinks) expectAccounts(f *authFixture) {
 // expectMailLinks gives the fixture's store a mail links table and returns it.
 func expectMailLinks(f *authFixture) *mailLinks {
 	links := &mailLinks{}
-	f.store.EXPECT().InsertMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, l *sessionstorage.MailLink) error {
+	f.store.EXPECT().InsertMailLink(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, l *sessionstorage.MailLink, _ *auditlog.Record) error {
 		links.mu.Lock()
 		defer links.mu.Unlock()
 		l.ID = impulse.Must(impulse.NewUUID())
@@ -145,7 +146,7 @@ func expectMailLinks(f *authFixture) *mailLinks {
 
 		return httpio.NewNotFoundMessage("no live mail link")
 	}).AnyTimes()
-	f.store.EXPECT().RevokeMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, id impulse.UUID) error {
+	f.store.EXPECT().RevokeMailLink(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(ctx context.Context, id impulse.UUID, _ *auditlog.Record) error {
 		if links.beforeRevoke != nil {
 			links.beforeRevoke(ctx)
 		}
@@ -253,7 +254,7 @@ func (m *mailLinks) insert(l *sessionstorage.MailLink) {
 func (m *mailLinks) expectConfirmation(f *authFixture, userID impulse.UUID, email string, row *sessionstorage.SessionUser) *gomock.Call {
 	return f.store.EXPECT().ConfirmAddressByLink(gomock.Any(), gomock.Cond(func(c *sessionstorage.AddressConfirmation) bool {
 		return c.UserID == userID && c.Email == email
-	})).DoAndReturn(func(_ context.Context, c *sessionstorage.AddressConfirmation) (*sessionstorage.ConfirmedAddress, error) {
+	}), gomock.Nil()).DoAndReturn(func(_ context.Context, c *sessionstorage.AddressConfirmation, _ *auditlog.Record) (*sessionstorage.ConfirmedAddress, error) {
 		return m.confirm(f, c, row)
 	})
 }

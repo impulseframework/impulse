@@ -177,7 +177,7 @@ func (a *Auth[S, U, Tx]) ForgetBrowsers() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		user := sessioninfo.UserFromCtx(ctx)
-		if err := a.storage.RevokeTrustedDevices(ctx, user.ID); err != nil {
+		if err := a.storage.RevokeTrustedDevices(ctx, user.ID, nil); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "sessionstorage.AuthStore.RevokeTrustedDevices()"))
 		}
 		a.dropTrustedEntry(ctx, w, impulse.NullUUID{UUID: user.ID, Valid: true})

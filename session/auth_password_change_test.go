@@ -13,6 +13,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
@@ -86,7 +87,7 @@ func TestAuth_ChangeUserPassword_continuesItsSession(t *testing.T) {
 				UserID:      impulse.NullUUIDFromUUID(userID), AuthEvents: tt.events,
 			}, nil)
 			f.store.EXPECT().User(gomock.Any(), userID).Return(user, nil).Times(2)
-			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(nil)
+			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil()), gomock.Nil()).Return(nil)
 			var got []sessioninfo.AuthEvent
 			createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
 				if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID {
@@ -124,8 +125,8 @@ func TestAuth_ChangeUserPassword_madeWhenItsSessionCannotStart(t *testing.T) {
 		old := hashed(t, oldPassword)
 		written := new(*securehash.Hash)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil).Times(users)
-		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).DoAndReturn(
-			func(_ context.Context, _ impulse.UUID, _, hash *securehash.Hash) error {
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil()), gomock.Nil()).DoAndReturn(
+			func(_ context.Context, _ impulse.UUID, _, hash *securehash.Hash, _ *auditlog.Record) error {
 				*written = hash
 
 				return nil
@@ -234,7 +235,7 @@ func TestAuthAPI_ChangeSessionUserPassword_nothingToContinue(t *testing.T) {
 			f := newAuthFixture(t, gomock.NewController(t))
 			old := hashed(t, "the old one")
 			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil)
-			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(nil)
+			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil()), gomock.Nil()).Return(nil)
 			f.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Times(0)
 
 			ctx := context.Background()

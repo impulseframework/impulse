@@ -386,7 +386,7 @@ func (p *AuthAPI[S, U, Tx]) withdrawFirstAdministrator(ctx context.Context, hold
 // an invitation that no longer stood, accepted or run out since it was read, which is
 // no error and withdraws nothing.
 func (p *AuthAPI[S, U, Tx]) revokeFirstAdministrator(ctx context.Context, inv *sessioninfo.Invitation, result *FirstAdministrator) (gone bool, err error) {
-	err = p.auth.storage.RevokeMailLink(ctx, inv.ID)
+	err = p.auth.storage.RevokeMailLink(ctx, inv.ID, nil)
 	switch {
 	case err == nil:
 		result.Withdrawn = append(result.Withdrawn, inv.Email)

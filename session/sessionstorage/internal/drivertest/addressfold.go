@@ -191,7 +191,7 @@ func testAddressFoldWithAddressColumn(ctx context.Context, t *testing.T, h *Auth
 
 			// Another user is refused the asked address, by hand and by a claim, exactly
 			// when it is the stored one; otherwise each holds it beside the holder.
-			err := in.Driver.SetUserEmail(ctx, setter.ID, &p.asked)
+			err := in.Driver.SetUserEmail(ctx, setter.ID, &p.asked, nil)
 			switch {
 			case p.one && !httpio.HasConflict(err):
 				t.Errorf("SetUserEmail() of the holder's address in another spelling error = %v, want Conflict", err)
@@ -200,7 +200,7 @@ func testAddressFoldWithAddressColumn(ctx context.Context, t *testing.T, h *Auth
 			case !p.one:
 				assertHeld(ctx, t, in, names, p.asked, setter.ID, impulse.NilUUID)
 				assertHeld(ctx, t, in, names, p.stored, holder.ID, holder.ID)
-				if err := in.Driver.SetUserEmail(ctx, setter.ID, nil); err != nil {
+				if err := in.Driver.SetUserEmail(ctx, setter.ID, nil, nil); err != nil {
 					t.Fatalf("SetUserEmail(nil) error = %v", err)
 				}
 			}
@@ -333,7 +333,7 @@ func deleteAfter(ctx context.Context, t *testing.T, d AuthDriver, ids ...impulse
 	ctx = context.WithoutCancel(ctx)
 	t.Cleanup(func() {
 		for _, id := range ids {
-			if err := d.DeleteUser(ctx, id); err != nil {
+			if err := d.DeleteUser(ctx, id, nil); err != nil {
 				t.Errorf("DeleteUser() error = %v", err)
 			}
 		}

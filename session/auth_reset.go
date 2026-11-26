@@ -224,7 +224,7 @@ func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.Ses
 	link := &sessionstorage.MailLink{
 		TokenHash: hash, Kind: sessionstorage.MailLinkPasswordReset, Email: email, UserID: impulse.NullUUIDFromUUID(user.ID), ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := a.storage.InsertMailLink(ctx, link); err != nil {
+	if err := a.storage.InsertMailLink(ctx, link, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.passwordResetMessage(email, token, lifetime, by, a.administratorOf(m, by))); err != nil {
@@ -402,7 +402,7 @@ func (a *Auth[S, U, Tx]) completeReset(ctx context.Context, token, password stri
 
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.ConsumeMailLink()")
 	}
-	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash); err != nil {
+	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash, nil); err != nil {
 		if errors.Is(err, sessionstorage.ErrPasswordChanged) {
 			return nil, httpio.NewConflictMessageWithError(err, "Your password was changed while you were choosing a new one, so this link did not change it. Sign in with your password, or ask for a new link")
 		}
@@ -443,7 +443,7 @@ func (a *Auth[S, U, Tx]) endLinks(ctx context.Context, kind sessionstorage.MailL
 		if !link.UserID.Valid || link.UserID.UUID != userID {
 			continue
 		}
-		if err := a.storage.RevokeMailLink(ctx, link.ID); err != nil && !httpio.HasNotFound(err) {
+		if err := a.storage.RevokeMailLink(ctx, link.ID, nil); err != nil && !httpio.HasNotFound(err) {
 			logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.RevokeMailLink()"))
 		}
 	}
@@ -497,7 +497,7 @@ func (p *AuthAPI[S, U, Tx]) SetSelfServiceReset(ctx context.Context, on bool) er
 	if !a.registered().passwordRegistered() {
 		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset.")
 	}
-	if err := a.storage.SetSelfServiceReset(ctx, string(sessioninfo.MethodPassword), on); err != nil {
+	if err := a.storage.SetSelfServiceReset(ctx, string(sessioninfo.MethodPassword), on, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetSelfServiceReset()")
 	}
 

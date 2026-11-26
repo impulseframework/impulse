@@ -302,7 +302,7 @@ func testDirectorySeatAtConfirmedLink(ctx context.Context, t *testing.T, h *Auth
 	if err != nil {
 		t.Fatalf("Identity() error = %v", err)
 	}
-	if err := in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn); err != nil {
+	if err := in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn, nil); err != nil {
 		t.Fatalf("UnlinkIdentity() error = %v", err)
 	}
 	_, err = signInAs()
@@ -340,7 +340,7 @@ func testDirectorySeatNotForDisabledLink(ctx context.Context, t *testing.T, h *A
 	gus := createUser(ctx, t, in.Driver, name)
 	identity := entra("oid-gus", name)
 	mustLink(ctx, t, in.Driver, gus.ID, identity)
-	if err := in.Driver.DeactivateUser(ctx, gus.ID); err != nil {
+	if err := in.Driver.DeactivateUser(ctx, gus.ID, nil); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-gus", name)}
@@ -367,7 +367,7 @@ func testDirectorySeatNotForDisabledFirstLink(ctx context.Context, t *testing.T,
 	const name = "gus@lakeside.edu"
 	gus := createUser(ctx, t, in.Driver, name)
 	rec.roleAhead(gus.ID, "lakeside")
-	if err := in.Driver.DeactivateUser(ctx, gus.ID); err != nil {
+	if err := in.Driver.DeactivateUser(ctx, gus.ID, nil); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
 	identity := entra("oid-gus", name)
@@ -393,7 +393,7 @@ func testDirectorySeatNotForDisabledConfirmedLink(ctx context.Context, t *testin
 	// made, as before, and the directory's default seat is not handed to the hook.
 	const name = "kim@lakeside.edu"
 	kim := passwordUser(ctx, t, in.Driver, name)
-	if err := in.Driver.DeactivateUser(ctx, kim.ID); err != nil {
+	if err := in.Driver.DeactivateUser(ctx, kim.ID, nil); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
 	identity := entra("oid-kim", name)

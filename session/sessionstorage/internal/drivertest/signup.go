@@ -129,11 +129,11 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 	stale := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	w := startWindow(h.ClockLead)
 	anyone := signin.Audience{Accounts: "a Google account"}
-	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole), UpdatedAt: stale}); err != nil {
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole), UpdatedAt: stale}, nil); err != nil {
 		t.Fatalf("SetSignInMethod(google) error = %v", err)
 	}
 	w.done()
-	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "azure", OpenSignUp: true}); err != nil {
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "azure", OpenSignUp: true}, nil); err != nil {
 		t.Fatalf("SetSignInMethod(azure) error = %v", err)
 	}
 	got, err = in.Driver.SignInMethods(ctx)
@@ -156,7 +156,7 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 
 	// A second write replaces the row: the method is invite only again, with no role.
-	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google"}); err != nil {
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google"}, nil); err != nil {
 		t.Fatalf("SetSignInMethod(google) error = %v", err)
 	}
 	got, err = in.Driver.SignInMethods(ctx)
@@ -182,7 +182,7 @@ func assertSelfServiceReset(ctx context.Context, t *testing.T, in *AuthInstance,
 	if got[0].ResetsOwnPassword() || got[1].ResetsOwnPassword() {
 		t.Errorf("ResetsOwnPassword() = %v and %v on rows written without it, want false: self-service reset starts closed", got[0].ResetsOwnPassword(), got[1].ResetsOwnPassword())
 	}
-	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "azure", OpenSignUp: true, SelfServiceReset: true}); err != nil {
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "azure", OpenSignUp: true, SelfServiceReset: true}, nil); err != nil {
 		t.Fatalf("SetSignInMethod(azure) error = %v", err)
 	}
 	reset, err := in.Driver.SignInMethods(ctx)
@@ -193,7 +193,7 @@ func assertSelfServiceReset(ctx context.Context, t *testing.T, in *AuthInstance,
 		t.Errorf("after turning self-service reset on for one row: ResetsOwnPassword() = %v and %v, OpenSignUp = %v; want it on that row alone, the row otherwise as written",
 			reset[0].ResetsOwnPassword(), reset[1].ResetsOwnPassword(), reset[0].OpenSignUp)
 	}
-	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "azure", OpenSignUp: true}); err != nil {
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "azure", OpenSignUp: true}, nil); err != nil {
 		t.Fatalf("SetSignInMethod(azure) error = %v", err)
 	}
 	if reset, err = in.Driver.SignInMethods(ctx); err != nil {
@@ -211,15 +211,15 @@ func testSelfServiceResetOneField(ctx context.Context, t *testing.T, h *AuthHarn
 
 	// One method is open to sign-up for an audience with a role, another is open with
 	// none. Turning the field on and off again on the first leaves both as chosen.
-	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "password", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole)}); err != nil {
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "password", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole)}, nil); err != nil {
 		t.Fatalf("SetSignInMethod(password) error = %v", err)
 	}
-	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google", OpenSignUp: true, OpenedFor: openedFor(anyone)}); err != nil {
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google", OpenSignUp: true, OpenedFor: openedFor(anyone)}, nil); err != nil {
 		t.Fatalf("SetSignInMethod(google) error = %v", err)
 	}
 	other := &dbtype.SignInMethod{Name: "google", OpenSignUp: true, OpenedFor: openedFor(anyone)}
 	for _, on := range []bool{true, false} {
-		if err := in.Driver.SetSelfServiceReset(ctx, "password", on); err != nil {
+		if err := in.Driver.SetSelfServiceReset(ctx, "password", on, nil); err != nil {
 			t.Fatalf("SetSelfServiceReset(password, %v) error = %v", on, err)
 		}
 		got, err := in.Driver.SignInMethods(ctx)
@@ -234,7 +234,7 @@ func testSelfServiceResetOneField(ctx context.Context, t *testing.T, h *AuthHarn
 
 	// A method nobody chose for has no row: it gets one that is invite only, with the
 	// field as written.
-	if err := in.Driver.SetSelfServiceReset(ctx, "azure", true); err != nil {
+	if err := in.Driver.SetSelfServiceReset(ctx, "azure", true, nil); err != nil {
 		t.Fatalf("SetSelfServiceReset(azure, true) error = %v", err)
 	}
 	got, err := in.Driver.SignInMethods(ctx)
@@ -261,7 +261,7 @@ func testSignInMethodsMissingTable(ctx context.Context, t *testing.T, h *AuthHar
 
 	_, err := in.Driver.SignInMethods(ctx)
 	wantMissingTableError(t, "SignInMethods", table, err)
-	err = in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true})
+	err = in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true}, nil)
 	wantMissingTableError(t, "SetSignInMethod", table, err)
 
 	// A sign-in that cannot read the choice fails: a missing table is never read as
@@ -277,7 +277,7 @@ func testSignInMethodsMissingTable(ctx context.Context, t *testing.T, h *AuthHar
 	assertNoLink(ctx, t, in.Driver, identity)
 
 	link := newMailLink(dbtype.MailLinkSignUp, name, tokenHash(1))
-	if err := in.Driver.InsertMailLink(ctx, link); err != nil {
+	if err := in.Driver.InsertMailLink(ctx, link, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 	_, err = in.SignUp(ctx, &dbtype.InsertSessionUser{Username: name, Email: strPtr(name), EmailVerified: true}, link.ID)
@@ -361,7 +361,7 @@ func testOpenRowOfAnotherAudience(_ context.Context, t *testing.T, h *AuthHarnes
 			if tt.opened != nil {
 				row.OpenedFor = openedFor(*tt.opened)
 			}
-			if err := in.Driver.SetSignInMethod(ctx, row); err != nil {
+			if err := in.Driver.SetSignInMethod(ctx, row, nil); err != nil {
 				t.Fatalf("SetSignInMethod() error = %v", err)
 			}
 			identity := entra("oid-pat", name)
@@ -546,7 +546,7 @@ func signUpLink(ctx context.Context, t *testing.T, d AuthDriver, hash []byte) *d
 	t.Helper()
 
 	link := newMailLink(dbtype.MailLinkSignUp, signUpPerson, hash)
-	if err := d.InsertMailLink(ctx, link); err != nil {
+	if err := d.InsertMailLink(ctx, link, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 
@@ -581,7 +581,7 @@ func testPasswordSignUpClosed(_ context.Context, t *testing.T, h *AuthHarness) {
 			rec := newSignUps()
 			in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, SignUp: rec.hook})
 			if tt.seed != nil {
-				if err := in.Driver.SetSignInMethod(ctx, tt.seed); err != nil {
+				if err := in.Driver.SetSignInMethod(ctx, tt.seed, nil); err != nil {
 					t.Fatalf("SetSignInMethod() error = %v", err)
 				}
 			}

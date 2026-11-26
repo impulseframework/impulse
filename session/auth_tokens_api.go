@@ -104,7 +104,7 @@ func (p *AuthAPI[S, U, Tx]) CreateApplicationToken(ctx context.Context, req *App
 		ID: id, TokenHash: hash, Kind: sessionstorage.TokenApplication, UserID: user.ID, Outlet: req.Outlet, Name: name,
 		ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := a.storage.InsertToken(ctx, tok); err != nil {
+	if err := a.storage.InsertToken(ctx, tok, nil); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertToken()")
 	}
 
@@ -158,7 +158,7 @@ func (p *AuthAPI[S, U, Tx]) RevokeToken(ctx context.Context, userID, id impulse.
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.auth.storage.RevokeUserToken(ctx, userID, id, sessionstorage.TokenRevokedByHand); err != nil {
+	if err := p.auth.storage.RevokeUserToken(ctx, userID, id, sessionstorage.TokenRevokedByHand, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeUserToken()")
 	}
 
@@ -298,7 +298,7 @@ func (p *AuthAPI[S, U, Tx]) RedeemDeviceCode(ctx context.Context, deviceCode str
 	if err != nil {
 		return nil, "", err
 	}
-	_, status, err := a.storage.RedeemDeviceCode(ctx, hashToken(deviceCode), a.settings.tokens.pollInterval, access, refresh)
+	_, status, err := a.storage.RedeemDeviceCode(ctx, hashToken(deviceCode), a.settings.tokens.pollInterval, access, refresh, nil)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "sessionstorage.AuthStore.RedeemDeviceCode()")
 	}

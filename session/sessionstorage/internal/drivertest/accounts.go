@@ -359,7 +359,7 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				t.Helper()
 				for _, open := range []bool{true, false} {
-					if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: MethodName, OpenSignUp: open, OpenedFor: openedFor(MethodAudience())}); err != nil {
+					if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: MethodName, OpenSignUp: open, OpenedFor: openedFor(MethodAudience())}, nil); err != nil {
 						t.Fatalf("SetSignInMethod() error = %v", err)
 					}
 				}
@@ -378,7 +378,7 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			accounts: InviteOnly,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				t.Helper()
-				if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "another", OpenSignUp: true, OpenedFor: openedFor(MethodAudience())}); err != nil {
+				if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "another", OpenSignUp: true, OpenedFor: openedFor(MethodAudience())}, nil); err != nil {
 					t.Fatalf("SetSignInMethod() error = %v", err)
 				}
 

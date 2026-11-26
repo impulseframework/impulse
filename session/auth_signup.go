@@ -156,7 +156,7 @@ func (a *Auth[S, U, Tx]) startSignUp(ctx context.Context, email string) error {
 	}
 	lifetime := m.settings.LinkTimeout
 	link := &sessionstorage.MailLink{TokenHash: hash, Kind: sessionstorage.MailLinkSignUp, Email: bare, ExpiresAt: time.Now().Add(lifetime)}
-	if err := a.storage.InsertMailLink(ctx, link); err != nil {
+	if err := a.storage.InsertMailLink(ctx, link, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 

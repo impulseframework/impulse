@@ -30,6 +30,7 @@ func TestAuth(t *testing.T) {
 		MailLinkWithdrawnAt:   mailLinkWithdrawnAt,
 		AttemptsEndsAt:        attemptsEndsAt,
 		RequirePasswordChange: requirePasswordChange,
+		AuditRows:             auditRows,
 	})
 }
 

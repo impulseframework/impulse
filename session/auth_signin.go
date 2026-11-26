@@ -1022,7 +1022,7 @@ func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.U
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
 	}
-	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash, a.linksThatSignIn(links)); err != nil {
+	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash, a.linksThatSignIn(links), nil); err != nil {
 		switch {
 		case errors.Is(err, sessionstorage.ErrLastSignInMethod):
 			return httpio.NewConflictMessageWithError(err, "Your password is your only way to sign in: sign in through your directory first, which links it to your account, then remove the password")

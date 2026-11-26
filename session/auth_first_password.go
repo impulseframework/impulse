@@ -268,7 +268,7 @@ func (a *Auth[S, U, Tx]) firstPasswordCodes(ctx context.Context, userID impulse.
 // that ended meanwhile is no failure.
 func (a *Auth[S, U, Tx]) endFirstPasswordCodes(ctx context.Context, codes []*sessionstorage.MailLink) error {
 	for _, code := range codes {
-		if err := a.storage.RevokeMailLink(ctx, code.ID); err != nil && !httpio.HasNotFound(err) {
+		if err := a.storage.RevokeMailLink(ctx, code.ID, nil); err != nil && !httpio.HasNotFound(err) {
 			return errors.Wrap(err, "sessionstorage.AuthStore.RevokeMailLink()")
 		}
 	}
@@ -320,7 +320,7 @@ func (a *Auth[S, U, Tx]) sendFirstPasswordCode(ctx context.Context, userID impul
 		TokenHash: hashFirstPasswordCode(user.ID, expiresAt, code), Kind: sessionstorage.MailLinkFirstPassword, Email: email,
 		UserID: impulse.NullUUIDFromUUID(user.ID), ExpiresAt: expiresAt,
 	}
-	if err := a.storage.InsertMailLink(ctx, row); err != nil {
+	if err := a.storage.InsertMailLink(ctx, row, nil); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.firstPasswordMessage(email, code, lifetime)); err != nil {
@@ -362,7 +362,7 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 	if err != nil {
 		return err
 	}
-	if err := a.storage.SetFirstUserPassword(ctx, user.ID, hash); err != nil {
+	if err := a.storage.SetFirstUserPassword(ctx, user.ID, hash, nil); err != nil {
 		if errors.Is(err, sessionstorage.ErrPasswordHeld) {
 			return errPasswordHeld()
 		}

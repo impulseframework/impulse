@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -41,6 +42,9 @@ type authSettings struct {
 	signInMethodsTable  *string
 	signInSettingsTable *string
 	auditRecordsTable   *string
+	// auditRecordsKept is how long the Auth keeps its audit records (KeepAuditRecords),
+	// nil for forever.
+	auditRecordsKept *auditlog.Period
 	// mail is how the Auth sends mail: NewAuth's argument, validated.
 	mail *mailSettings
 	// invitationCookie names the cookie that carries an opened invitation into the
@@ -162,6 +166,17 @@ func WithSignInSettingsTableName(name string) AuthOption {
 // Auth keeps its audit log. (default: SessionAuditRecords)
 func WithAuditRecordsTableName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.auditRecordsTable = &name }}
+}
+
+// KeepAuditRecords says how long the Auth keeps its audit records on PostgreSQL, where
+// the store removes older rows as it writes one. On Spanner the table's row deletion
+// policy removes them, written into the application's migration (auditlog.SpannerDDL),
+// and this option changes nothing.
+//
+// The period is counted in hours, a day being 24 of them (auditlog.KeepDays); with
+// auditlog.KeepForever, or without the option, no row is removed.
+func KeepAuditRecords(period auditlog.Period) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.auditRecordsKept = &period }}
 }
 
 // WithInvitationCookieName sets the name of the cookie that carries an invitation the
@@ -430,6 +445,9 @@ func NewAuth[SessionData, UserData, Tx any](
 	}
 	if err := nameTables(storage, &settings); err != nil {
 		return nil, err
+	}
+	if settings.auditRecordsKept != nil {
+		storage.SetAuditRecordsPeriod(*settings.auditRecordsKept)
 	}
 
 	baseSession, cookieClient, err := sessioncore.NewBaseSession(storage, cookieKey, options)

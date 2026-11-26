@@ -79,7 +79,7 @@ func testUsernameFoldOver(ctx context.Context, t *testing.T, in *AuthInstance, p
 
 			// Another user is refused the asked name exactly when it is the stored one;
 			// otherwise each is found under its own.
-			err := in.Driver.SetUserUsername(ctx, mover.ID, p.asked)
+			err := in.Driver.SetUserUsername(ctx, mover.ID, p.asked, nil)
 			switch {
 			case p.one && !httpio.HasConflict(err):
 				t.Errorf("SetUserUsername(%+q) of the first user's name in another spelling error = %v, want Conflict", p.asked, err)

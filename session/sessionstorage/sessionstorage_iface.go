@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/sealed"
@@ -136,7 +137,7 @@ type UserStore interface {
 	UserByUserName(ctx context.Context, username string) (*SessionUser, error)
 	// SetUserUsername updates the user username and, atomically, the Username
 	// on every active session row for that user.
-	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
+	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string, record *auditlog.Record) error
 	// UpgradeUserPasswordHash replaces the password hash a sign-in proved with hash, the
 	// same password hashed under the hasher's current parameters, leaving the password
 	// change mark as it is. proven is the hash the sign-in compared the password
@@ -148,7 +149,7 @@ type UserStore interface {
 	// ActivateUser activates a user. It is the bare write, and asks nothing of the session it is
 	// called in: the rule that a person who acts as someone else does not switch their
 	// own account is the session API's (ActivateSessionUser).
-	ActivateUser(ctx context.Context, id impulse.UUID) error
+	ActivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
 	// CreateUser creates a new user. customData is nil or *U for the configured custom
 	// user data struct type; when non-nil it is written atomically with the user insert
 	// and requires a custom user data configuration on the storage.
@@ -156,11 +157,11 @@ type UserStore interface {
 	// DeactivateUser deactivates a user. It is the bare write, and asks nothing of the session it is
 	// called in: the rule that a person who acts as someone else does not switch their
 	// own account is the session API's (DeactivateSessionUser).
-	DeactivateUser(ctx context.Context, id impulse.UUID) error
+	DeactivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
 	// DeleteUser deletes a user. It is the bare write, and asks nothing of the session it is
 	// called in: the rule that a person who acts as someone else does not switch their
 	// own account is the session API's (DeleteSessionUser).
-	DeleteUser(ctx context.Context, id impulse.UUID) error
+	DeleteUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
 	// CustomUserData returns the custom user data row for the given user ID as *U for
 	// the configured struct type. A user with no custom data row yields a zero-value *U.
 	CustomUserData(ctx context.Context, userID impulse.UUID) (any, error)
@@ -234,25 +235,28 @@ type db interface {
 	// SignInMethods lists every row of the sign-in methods table, by name.
 	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
 	// SetSignInMethod writes the row of the sign-in method m names, replacing the one it had.
-	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
+	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod, record *auditlog.Record) error
 	// SetSelfServiceReset writes whether a person may ask for their own password reset
 	// link on the row of the sign-in method registered under method, and leaves what else
 	// the row says as it stands.
-	SetSelfServiceReset(ctx context.Context, method string, on bool) error
+	SetSelfServiceReset(ctx context.Context, method string, on bool, record *auditlog.Record) error
 	// SetSignInSettingsTableName sets the name of the sign-in settings table.
 	SetSignInSettingsTableName(name string) error
 	// SetAuditRecordsTableName sets the name of the audit records table.
 	SetAuditRecordsTableName(name string) error
+	// SetAuditRecordsPeriod sets how long the audit records are kept, where the driver
+	// removes them as it writes one.
+	SetAuditRecordsPeriod(period auditlog.Period)
 	// SignInSettings reads the Auth's row of the sign-in settings table, or nil when there is none.
 	SignInSettings(ctx context.Context) (*dbtype.SignInSettings, error)
 	// SetRequireSecondFactor writes whether everyone is asked for a second factor, and leaves
 	// how long a browser is remembered as it stands.
-	SetRequireSecondFactor(ctx context.Context, on bool) error
+	SetRequireSecondFactor(ctx context.Context, on bool, record *auditlog.Record) error
 	// SetRememberBrowserDays writes for how many days a remembered browser skips the code, and
 	// leaves whether a second factor is required as it stands.
-	SetRememberBrowserDays(ctx context.Context, days int64) error
+	SetRememberBrowserDays(ctx context.Context, days int64, record *auditlog.Record) error
 	// InsertMailLink inserts a mail link.
-	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
+	InsertMailLink(ctx context.Context, l *dbtype.MailLink, record *auditlog.Record) error
 	// MailLinkByToken returns the mail link holding tokenHash that is live at now, or NotFound.
 	MailLinkByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.MailLink, error)
 	// LiveMailLinks lists the links of kind that are live at now, oldest first.
@@ -262,7 +266,7 @@ type db interface {
 	// RevokeMailLink marks the live mail link id consumed and withdrawn, both at the
 	// database's time: a link taken back before anyone followed it. A link that is not
 	// live is NotFound.
-	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
+	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time, record *auditlog.Record) error
 	// FailMailLink marks the live mail link id consumed at now, and as one whose message could not be mailed; NotFound when it is not live.
 	FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
 	// SetTokensTableName sets the name of the tokens table.
@@ -270,7 +274,7 @@ type db interface {
 	// SetDeviceCodesTableName sets the name of the device codes table.
 	SetDeviceCodesTableName(name string) error
 	// InsertToken inserts t.
-	InsertToken(ctx context.Context, t *dbtype.Token) error
+	InsertToken(ctx context.Context, t *dbtype.Token, record *auditlog.Record) error
 	// TokenByHash returns the token holding tokenHash that is live at now, or NotFound.
 	TokenByHash(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.Token, error)
 	// TokensByUser lists the tokens of userID that are live at now, newest first.
@@ -278,7 +282,7 @@ type db interface {
 	// TouchToken moves the LastUsedAt of the live token id to the database's time.
 	TouchToken(ctx context.Context, id impulse.UUID, now time.Time) error
 	// RevokeUserToken revokes the live token id of userID, its family with it; NotFound when it is not live or not the user's.
-	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation) error
+	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation, record *auditlog.Record) error
 	// RevokeUserTokens revokes every live token of userID.
 	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error
 	// ExchangeRefreshToken rotates the live refresh token holding tokenHash into access and refresh, in one transaction;
@@ -294,7 +298,9 @@ type db interface {
 	DenyDeviceCode(ctx context.Context, id impulse.UUID, now time.Time) error
 	// RedeemDeviceCode is the client's poll of the device code holding deviceCodeHash: an approved code is consumed once
 	// and access and refresh inserted; otherwise the status says what the client learned. NotFound when there is none.
-	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)
+	RedeemDeviceCode(
+		ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token, record *auditlog.Record,
+	) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)
 	// SetFactorCodesTableName sets the name of the factor codes table.
 	SetFactorCodesTableName(name string) error
 	// SetTrustedDevicesTableName sets the name of the trusted devices table.
@@ -317,7 +323,7 @@ type db interface {
 	// RevokeTrustedDevice revokes the live device holding tokenHash; NotFound when it is not live.
 	RevokeTrustedDevice(ctx context.Context, tokenHash []byte, now time.Time) error
 	// RevokeTrustedDevices revokes every device of userID that is not revoked yet.
-	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
+	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error
 	// TrustedDeviceCount returns how many of userID's devices are live at now and were
 	// remembered after rememberedAfter.
 	TrustedDeviceCount(ctx context.Context, userID impulse.UUID, now, rememberedAfter time.Time) (int, error)
@@ -336,7 +342,7 @@ type db interface {
 	// SetUserEmail puts an address on the user by hand, unverified, or takes it off (nil).
 	// Taking it off consumes, in the same transaction, every live factor code of the
 	// user's pending sign-ins.
-	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
+	SetUserEmail(ctx context.Context, id impulse.UUID, email *string, record *auditlog.Record) error
 	// VerifyUserEmail writes the address the person proved they read, verified at the database's time.
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
 	// ClaimVerifiedEmail writes email on the user as verified when the user holds no verified address and no other user holds it, and reports whether it did.
@@ -380,19 +386,19 @@ type db interface {
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	// SetUserUsername updates the user username and, atomically, the Username
 	// on every active session row for that user.
-	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
+	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string, record *auditlog.Record) error
 	// UpgradeUserPasswordHash replaces the proven password hash with hash while the row still holds it, leaving the password change mark as it is.
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// ChangeUserPassword replaces the proven password hash with hash, clears the password change mark and expires the user's
 	// sessions, in one transaction, while the row still holds the proven hash.
-	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
+	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash, record *auditlog.Record) error
 	// SetFirstUserPassword writes hash and clears the password change mark while the row holds no password hash, and leaves
 	// the user's sessions as they are.
-	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
+	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, record *auditlog.Record) error
 	// ActivateUser activates a user. It is the bare write, and asks nothing of the session it is
 	// called in: the rule that a person who acts as someone else does not switch their
 	// own account is the session API's (ActivateSessionUser).
-	ActivateUser(ctx context.Context, id impulse.UUID) error
+	ActivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
 	// CreateUser creates a new user; non-nil customData (*U) is written atomically with the user insert.
 	CreateUser(ctx context.Context, insertSessionUser *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
 	// Users lists every user, by username.
@@ -400,11 +406,11 @@ type db interface {
 	// DeactivateUser deactivates a user. It is the bare write, and asks nothing of the session it is
 	// called in: the rule that a person who acts as someone else does not switch their
 	// own account is the session API's (DeactivateSessionUser).
-	DeactivateUser(ctx context.Context, id impulse.UUID) error
+	DeactivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
 	// DeleteUser deletes a user. It is the bare write, and asks nothing of the session it is
 	// called in: the rule that a person who acts as someone else does not switch their
 	// own account is the session API's (DeleteSessionUser).
-	DeleteUser(ctx context.Context, id impulse.UUID) error
+	DeleteUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
 	// DestroyAllUserSessions destroys all sessions for a given user
 	DestroyAllUserSessions(ctx context.Context, username string) error
 
@@ -421,14 +427,14 @@ type db interface {
 	// UnlinkIdentity removes a link, refusing to remove the last means of sign-in of a
 	// user that has no password: another identity linked to the user must be one signsIn
 	// judges a means of sign-in, read in the transaction that unlinks.
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, record *auditlog.Record) error
 	// RemoveUserPassword removes a user's password and its change mark while one of the
 	// identities standing names is still linked to the user, refusing to remove a
 	// user's last means of sign-in otherwise.
-	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID, record *auditlog.Record) error
 	// RemoveProvenUserPassword removes a user's password and its change mark as
 	// RemoveUserPassword does, while the row still holds the proven hash.
-	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID, record *auditlog.Record) error
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	// TouchUserSignIn moves a user's LastSignInAt to the database's time, as its own write.

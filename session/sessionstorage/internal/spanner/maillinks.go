@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -110,7 +111,7 @@ func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
 }
 
 // InsertMailLink inserts l.
-func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.MailLink) error {
+func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.MailLink, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -125,7 +126,11 @@ func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.Mai
 	if err != nil {
 		return errors.Wrap(err, "spanner.InsertStruct()")
 	}
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+	audit, err := s.auditRecordMutations(record)
+	if err != nil {
+		return err
+	}
+	if _, err := s.spanner.Apply(ctx, append([]*spanner.Mutation{m}, audit...)); err != nil {
 		return errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
@@ -209,12 +214,16 @@ func (s *SessionStorageDriver) ConsumeMailLink(ctx context.Context, tokenHash []
 // RevokeMailLink marks the live mail link id consumed and withdrawn, both at the
 // database's time: a link taken back before anyone followed it. A link that is not live
 // is NotFound.
-func (s *SessionStorageDriver) RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
+func (s *SessionStorageDriver) RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		return s.endMailLinkIn(ctx, txn, mailLinkWithdrawn, idColumn, id.String(), now)
+		if err := s.endMailLinkIn(ctx, txn, mailLinkWithdrawn, idColumn, id.String(), now); err != nil {
+			return err
+		}
+
+		return s.bufferAuditRecord(txn, record)
 	})
 	if errors.Is(err, errMailLinkNotLive) {
 		return dbtype.MailLinkNotLive()

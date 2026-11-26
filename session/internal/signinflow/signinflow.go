@@ -14,6 +14,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/util"
@@ -89,6 +90,10 @@ type Driver[Tx any] interface {
 	// name another user holds ends the transaction with an EmailConflict or a
 	// UsernameConflict.
 	VerifyUserEmailIn(ctx context.Context, tx Tx, userID impulse.UUID, email string) error
+	// InsertAuditRecordIn writes record, one row of the Auth's audit log, inside tx, so
+	// the act it records and its row commit together or neither does. A record that does
+	// not validate is an error, which ends tx.
+	InsertAuditRecordIn(ctx context.Context, tx Tx, record *auditlog.Record) error
 	// ClaimUserNameIn writes name on the user inside tx when the user holds none, and
 	// reports whether it wrote. A user inserted earlier in tx is not claimed for: its
 	// insert carries the name.
@@ -1399,10 +1404,18 @@ var errConfirmationRefused = errors.New("the confirmation by link is refused")
 // account's row and then its links, and the same order here keeps the two from waiting
 // on each other.
 //
+// record, nil for none, is the row of the Auth's audit log the confirmation writes, with
+// who acted and the account and no address: the address the account held is known only
+// in the transaction, so a copy of it with the address held before (OldValue) and the
+// one confirmed (NewValue) is written after the address (Driver.InsertAuditRecordIn), in
+// the same transaction. A refusal ends the transaction before it, and on a store whose
+// usernames are the addresses the one row says the change.
+//
 // A transaction the database ends to break a deadlock or a serialization failure
 // (dbtype.LockConflict) runs once more, and the confirmation is answered by what the
-// second run finds; c.Refuse is asked again there.
-func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressConfirmation) (*ConfirmedAddress, error) {
+// second run finds; c.Refuse is asked again there. The row is written by the run that
+// commits, once.
+func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressConfirmation, record *auditlog.Record) (*ConfirmedAddress, error) {
 	var (
 		confirmed *ConfirmedAddress
 		// refused is the answer of a refusal decided in the run, which ends it with
@@ -1453,6 +1466,17 @@ func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressC
 		}
 		if err := d.VerifyUserEmailIn(ctx, tx, c.UserID, c.Email); err != nil {
 			return errors.Wrap(err, "Driver.VerifyUserEmailIn()")
+		}
+		if record != nil {
+			// The address held before, none where the account held none.
+			changed := *record
+			changed.OldValue, changed.NewValue = "", c.Email
+			if held.Email != nil {
+				changed.OldValue = *held.Email
+			}
+			if err := d.InsertAuditRecordIn(ctx, tx, &changed); err != nil {
+				return errors.Wrap(err, "Driver.InsertAuditRecordIn()")
+			}
 		}
 		confirmed = &ConfirmedAddress{Held: held, Username: user.Username, Renamed: d.UsernameIsEmail() && user.Username != c.Email}
 

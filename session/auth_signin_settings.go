@@ -56,7 +56,7 @@ func (p *AuthAPI[S, U, Tx]) SetSecondFactorRequired(ctx context.Context, require
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.auth.storage.SetRequireSecondFactor(ctx, required); err != nil {
+	if err := p.auth.storage.SetRequireSecondFactor(ctx, required, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetRequireSecondFactor()")
 	}
 
@@ -77,7 +77,7 @@ func (p *AuthAPI[S, U, Tx]) SetRememberedBrowserDays(ctx context.Context, days i
 	if days < 0 || days > MaxRememberedBrowserDays {
 		return httpio.NewBadRequestMessage("A browser is remembered for 0 to 90 days. 0 means browsers are not remembered.")
 	}
-	if err := p.auth.storage.SetRememberBrowserDays(ctx, days); err != nil {
+	if err := p.auth.storage.SetRememberBrowserDays(ctx, days, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetRememberBrowserDays()")
 	}
 

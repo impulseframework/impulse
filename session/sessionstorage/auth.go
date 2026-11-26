@@ -7,6 +7,7 @@ import (
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -133,14 +134,14 @@ type AuthStore[Tx any] interface {
 	// (ErrPasswordChanged), with no session ended, so a password a reset link set
 	// meanwhile is not overwritten on proof of the password it replaced. A write with
 	// no proven hash writes nothing, and one with no new hash is refused.
-	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
+	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash, record *auditlog.Record) error
 	// SetFirstUserPassword gives a user who holds no password the one they chose, with
 	// the password change mark clear. The write lands only while the row holds no
 	// password, decided by the write itself, so of two that race one lands: a user who
 	// holds one already keeps it (ErrPasswordHeld, a Conflict), and an unknown user is
 	// NotFound. The user's sessions stand: a person who adds a way to sign in gives
 	// nobody a reason to be signed out. A write with no hash is refused.
-	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
+	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, record *auditlog.Record) error
 	// CreateSession inserts a session that has no identity to resolve and returns its
 	// ID: a session the application starts for a user it authenticated itself, or a
 	// regeneration. A configured custom session data resolver runs inside the insert
@@ -199,7 +200,7 @@ type AuthStore[Tx any] interface {
 	// password, that race cannot leave the user with no means of sign-in between them.
 	// signsIn is asked about no identity of a user that has a password, who may lose
 	// every one; a nil signsIn judges no identity a means of sign-in.
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, record *auditlog.Record) error
 	// RemoveUserPassword removes a user's password, and with it the mark that the user
 	// must change it. standing names the identities linked to the user that the caller
 	// judged a means of sign-in (the links a sign-in is still possible through): the
@@ -211,14 +212,14 @@ type AuthStore[Tx any] interface {
 	// not name is no means of sign-in to it. The user's sessions stand. A user that
 	// holds no password is a BadRequest. It follows no proof of the password: it is an
 	// administrator's removal. A user's own removal is RemoveProvenUserPassword.
-	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID, record *auditlog.Record) error
 	// RemoveProvenUserPassword removes the password a user proved, as RemoveUserPassword
 	// removes one, under the same rule of the identities that stand. proven is the hash
 	// the caller compared the user's password against, and the removal goes through
 	// only while the row still holds it: a password changed, reset or removed since the
 	// caller read it stands as it is (ErrPasswordChanged), answered before the user's
 	// other means of sign-in are counted. A removal with no proven hash removes nothing.
-	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID, record *auditlog.Record) error
 	// SetTokensTableName sets the name of the tokens table (SessionTokens).
 	SetTokensTableName(name string) error
 	// SetDeviceCodesTableName sets the name of the device codes table
@@ -226,7 +227,7 @@ type AuthStore[Tx any] interface {
 	SetDeviceCodesTableName(name string) error
 	// InsertToken inserts a token: created at the database's time, unused and not
 	// revoked, whatever t carries.
-	InsertToken(ctx context.Context, t *Token) error
+	InsertToken(ctx context.Context, t *Token, record *auditlog.Record) error
 	// Token returns the token holding tokenHash that is live now: not revoked and not
 	// expired. Any other is NotFound.
 	Token(ctx context.Context, tokenHash []byte) (*Token, error)
@@ -238,7 +239,7 @@ type AuthStore[Tx any] interface {
 	// RevokeUserToken revokes the live token id of userID with reason: the token
 	// alone, or its whole family when it has one. A token that is not live, or not the
 	// user's, is NotFound.
-	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, reason TokenRevocation) error
+	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, reason TokenRevocation, record *auditlog.Record) error
 	// RevokeUserTokens revokes every live token of a user with reason.
 	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason TokenRevocation) error
 	// ExchangeRefreshToken rotates the live refresh token holding tokenHash, in one
@@ -265,7 +266,7 @@ type AuthStore[Tx any] interface {
 	// store fills in on the two; a pending code polled before interval passed since the
 	// last poll is slow_down and nothing is written; otherwise the status says what
 	// the client learned. A code that is not there or was consumed is NotFound.
-	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, interval time.Duration, access, refresh *Token) (*DeviceCode, DeviceCodeStatus, error)
+	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, interval time.Duration, access, refresh *Token, record *auditlog.Record) (*DeviceCode, DeviceCodeStatus, error)
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	// TouchUserSignIn moves a user's LastSignInAt to the database's time. The Auth calls
@@ -335,18 +336,23 @@ type AuthStore[Tx any] interface {
 	// SetSignInMethod writes the row of the sign-in method m names, replacing the one
 	// it had. It holds no rule: whether the name is a registered method, and whether an
 	// open method names a role, are the caller's to decide.
-	SetSignInMethod(ctx context.Context, m *SignInMethod) error
+	SetSignInMethod(ctx context.Context, m *SignInMethod, record *auditlog.Record) error
 	// SetSelfServiceReset writes whether a person may ask for their own password reset
 	// link on the row of the sign-in method registered under method, and leaves what else
 	// the row says as it stands. The one field is written, never the row read and written
 	// back, so a choice made for the method at the same moment (opened to sign-up, made
 	// invite only) is not undone. A method with no row gets one that is invite only.
-	SetSelfServiceReset(ctx context.Context, method string, on bool) error
+	SetSelfServiceReset(ctx context.Context, method string, on bool, record *auditlog.Record) error
 	// SetSignInSettingsTableName sets the name of the sign-in settings table. (default: SessionSignInSettings)
 	SetSignInSettingsTableName(name string) error
 	// SetAuditRecordsTableName sets the name of the audit records table, where the Auth
 	// keeps its audit log. (default: SessionAuditRecords)
 	SetAuditRecordsTableName(name string) error
+	// SetAuditRecordsPeriod sets how long the Auth keeps its audit records: on
+	// PostgreSQL a write that inserts one removes the rows older than period; on
+	// Spanner the table's row deletion policy removes them, and the call changes
+	// nothing. (default: kept forever)
+	SetAuditRecordsPeriod(period auditlog.Period)
 	// SignInSettings reads the Auth's row of the sign-in settings table: what an
 	// administrator chose for the whole Auth. It answers nil when there is none, which
 	// requires the second factor and remembers a browser for the default period. A read
@@ -356,13 +362,13 @@ type AuthStore[Tx any] interface {
 	// sign in, and leaves how long a browser is remembered as it stands. The one field is
 	// written, never the row read and written back. With no row, the row is made with the
 	// default period.
-	SetRequireSecondFactor(ctx context.Context, on bool) error
+	SetRequireSecondFactor(ctx context.Context, on bool, record *auditlog.Record) error
 	// SetRememberBrowserDays writes for how many days a browser a person asked to be
 	// remembered skips the code, 0 for browsers that are not remembered, and leaves
 	// whether a second factor is required as it stands. The one field is written, never
 	// the row read and written back. With no row, the row is made with the second factor
 	// required. It holds no rule: the days' bounds are the caller's to keep.
-	SetRememberBrowserDays(ctx context.Context, days int64) error
+	SetRememberBrowserDays(ctx context.Context, days int64, record *auditlog.Record) error
 	// SignUp makes the account of a person who signs up with a password through the
 	// method registered under method, in one transaction, and returns its id: the method
 	// must be open to sign-up for audience, whom its registration admits
@@ -382,8 +388,10 @@ type AuthStore[Tx any] interface {
 	// answers what the account held before the write. A link that is no longer live and
 	// an account that is gone are NotFound; an address another user holds is a Conflict;
 	// an error c.Refuse returns is answered as it is. Nothing is written by a refusal,
-	// and the link stands.
-	ConfirmAddressByLink(ctx context.Context, c *AddressConfirmation) (*ConfirmedAddress, error)
+	// and the link stands. record, nil for none, is the act's row of the audit log, with
+	// who acted and the account: the address held before and the one confirmed are
+	// written on a copy of it in the transaction (signinflow.ConfirmAddressByLink).
+	ConfirmAddressByLink(ctx context.Context, c *AddressConfirmation, record *auditlog.Record) (*ConfirmedAddress, error)
 	// SetUsernameIsEmail declares the users table in the shape where the address is
 	// the username, generated by the database: the store never writes Email, refuses
 	// a rename, and writes a verified address as the username (see the README's
@@ -401,7 +409,7 @@ type AuthStore[Tx any] interface {
 	// entry is refused. Taking the address off ends, in the same transaction, the
 	// sign-in codes mailed for the user's pending sign-ins, so a code mailed before
 	// the change and entered after it is dead and writes nothing back.
-	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
+	SetUserEmail(ctx context.Context, id impulse.UUID, email *string, record *auditlog.Record) error
 	// VerifyUserEmail writes the address the person has just proven they read,
 	// verified at the database's time, replacing whatever the user held; on a store
 	// whose usernames are the addresses it is written as the username, renaming the
@@ -428,7 +436,7 @@ type AuthStore[Tx any] interface {
 	SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error
 	// InsertMailLink stores a mailed link's row: l.TokenHash is the hash of the opaque
 	// token the mail carries. The row's ID is set on l.
-	InsertMailLink(ctx context.Context, l *MailLink) error
+	InsertMailLink(ctx context.Context, l *MailLink, record *auditlog.Record) error
 	// MailLink returns the live mail link holding tokenHash: not consumed and not
 	// expired. Any other is NotFound.
 	MailLink(ctx context.Context, tokenHash []byte) (*MailLink, error)
@@ -441,7 +449,7 @@ type AuthStore[Tx any] interface {
 	// RevokeMailLink marks the live mail link id consumed and withdrawn, both at the
 	// database's time: a link taken back before anyone followed it. A link that is not
 	// live is NotFound.
-	RevokeMailLink(ctx context.Context, id impulse.UUID) error
+	RevokeMailLink(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
 	// FailMailLink ends the live mail link id whose message could not be mailed. The
 	// link is consumed, as a withdrawn one is, and its row says the mail failed, so a
 	// list of the links tells it from one that was followed or withdrawn. A link that
@@ -481,7 +489,7 @@ type AuthStore[Tx any] interface {
 	RevokeTrustedDevice(ctx context.Context, tokenHash []byte) error
 	// RevokeTrustedDevices revokes every device of userID that is not revoked yet: an
 	// administrator's reset of the person's factors.
-	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
+	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error
 	// TrustedDeviceCount returns how many of userID's devices are live (not revoked, not
 	// expired, and remembered within the period the sign-in settings say now): the
 	// browsers the second factor remembers for the person, none where browsers are not
@@ -822,11 +830,11 @@ func (a *Auth[Tx]) SignInMethods(ctx context.Context) ([]*SignInMethod, error) {
 }
 
 // SetSignInMethod implements AuthStore.
-func (a *Auth[Tx]) SetSignInMethod(ctx context.Context, m *SignInMethod) error {
+func (a *Auth[Tx]) SetSignInMethod(ctx context.Context, m *SignInMethod, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.SetSignInMethod(ctx, m); err != nil {
+	if err := a.db.SetSignInMethod(ctx, m, record); err != nil {
 		return errors.Wrap(err, "db.SetSignInMethod()")
 	}
 
@@ -834,11 +842,11 @@ func (a *Auth[Tx]) SetSignInMethod(ctx context.Context, m *SignInMethod) error {
 }
 
 // SetSelfServiceReset implements AuthStore.
-func (a *Auth[Tx]) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
+func (a *Auth[Tx]) SetSelfServiceReset(ctx context.Context, method string, on bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.SetSelfServiceReset(ctx, method, on); err != nil {
+	if err := a.db.SetSelfServiceReset(ctx, method, on, record); err != nil {
 		return errors.Wrap(err, "db.SetSelfServiceReset()")
 	}
 
@@ -863,6 +871,11 @@ func (a *Auth[Tx]) SetAuditRecordsTableName(name string) error {
 	return nil
 }
 
+// SetAuditRecordsPeriod implements AuthStore.
+func (a *Auth[Tx]) SetAuditRecordsPeriod(period auditlog.Period) {
+	a.db.SetAuditRecordsPeriod(period)
+}
+
 // SignInSettings implements AuthStore.
 func (a *Auth[Tx]) SignInSettings(ctx context.Context) (*SignInSettings, error) {
 	ctx, span := tracer.Start(ctx)
@@ -877,11 +890,11 @@ func (a *Auth[Tx]) SignInSettings(ctx context.Context) (*SignInSettings, error) 
 }
 
 // SetRequireSecondFactor implements AuthStore.
-func (a *Auth[Tx]) SetRequireSecondFactor(ctx context.Context, on bool) error {
+func (a *Auth[Tx]) SetRequireSecondFactor(ctx context.Context, on bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.SetRequireSecondFactor(ctx, on); err != nil {
+	if err := a.db.SetRequireSecondFactor(ctx, on, record); err != nil {
 		return errors.Wrap(err, "db.SetRequireSecondFactor()")
 	}
 
@@ -889,11 +902,11 @@ func (a *Auth[Tx]) SetRequireSecondFactor(ctx context.Context, on bool) error {
 }
 
 // SetRememberBrowserDays implements AuthStore.
-func (a *Auth[Tx]) SetRememberBrowserDays(ctx context.Context, days int64) error {
+func (a *Auth[Tx]) SetRememberBrowserDays(ctx context.Context, days int64, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.SetRememberBrowserDays(ctx, days); err != nil {
+	if err := a.db.SetRememberBrowserDays(ctx, days, record); err != nil {
 		return errors.Wrap(err, "db.SetRememberBrowserDays()")
 	}
 
@@ -914,11 +927,11 @@ func (a *Auth[Tx]) SignUp(ctx context.Context, method, audience string, user *In
 }
 
 // ConfirmAddressByLink implements AuthStore.
-func (a *Auth[Tx]) ConfirmAddressByLink(ctx context.Context, c *AddressConfirmation) (*ConfirmedAddress, error) {
+func (a *Auth[Tx]) ConfirmAddressByLink(ctx context.Context, c *AddressConfirmation, record *auditlog.Record) (*ConfirmedAddress, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	confirmed, err := signinflow.ConfirmAddressByLink(ctx, a.flow, c)
+	confirmed, err := signinflow.ConfirmAddressByLink(ctx, a.flow, c, record)
 	if err != nil {
 		return nil, errors.Wrap(err, "signinflow.ConfirmAddressByLink()")
 	}
@@ -950,11 +963,11 @@ func (a *Auth[Tx]) UserByEmail(ctx context.Context, email string) (*SessionUser,
 }
 
 // SetUserEmail implements AuthStore.
-func (a *Auth[Tx]) SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error {
+func (a *Auth[Tx]) SetUserEmail(ctx context.Context, id impulse.UUID, email *string, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.SetUserEmail(ctx, id, email); err != nil {
+	if err := a.db.SetUserEmail(ctx, id, email, record); err != nil {
 		return errors.Wrap(err, "db.SetUserEmail()")
 	}
 
@@ -1024,7 +1037,7 @@ func (a *Auth[Tx]) ClaimUserName(ctx context.Context, id impulse.UUID, name stri
 }
 
 // InsertMailLink implements AuthStore.
-func (a *Auth[Tx]) InsertMailLink(ctx context.Context, l *MailLink) error {
+func (a *Auth[Tx]) InsertMailLink(ctx context.Context, l *MailLink, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -1033,7 +1046,7 @@ func (a *Auth[Tx]) InsertMailLink(ctx context.Context, l *MailLink) error {
 		return errors.Wrap(err, "impulse.NewUUID()")
 	}
 	l.ID = id
-	if err := a.db.InsertMailLink(ctx, l); err != nil {
+	if err := a.db.InsertMailLink(ctx, l, record); err != nil {
 		return errors.Wrap(err, "db.InsertMailLink()")
 	}
 
@@ -1079,11 +1092,11 @@ func (a *Auth[Tx]) ConsumeMailLink(ctx context.Context, tokenHash []byte) error 
 }
 
 // RevokeMailLink implements AuthStore.
-func (a *Auth[Tx]) RevokeMailLink(ctx context.Context, id impulse.UUID) error {
+func (a *Auth[Tx]) RevokeMailLink(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.RevokeMailLink(ctx, id, time.Now()); err != nil {
+	if err := a.db.RevokeMailLink(ctx, id, time.Now(), record); err != nil {
 		return errors.Wrap(err, "db.RevokeMailLink()")
 	}
 
@@ -1255,11 +1268,11 @@ func (a *Auth[Tx]) RevokeTrustedDevice(ctx context.Context, tokenHash []byte) er
 }
 
 // RevokeTrustedDevices implements AuthStore.
-func (a *Auth[Tx]) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error {
+func (a *Auth[Tx]) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.RevokeTrustedDevices(ctx, userID); err != nil {
+	if err := a.db.RevokeTrustedDevices(ctx, userID, record); err != nil {
 		return errors.Wrap(err, "db.RevokeTrustedDevices()")
 	}
 
@@ -1328,14 +1341,14 @@ func (a *Auth[Tx]) Users(ctx context.Context) ([]*SessionUser, error) {
 }
 
 // ChangeUserPassword implements AuthStore.
-func (a *Auth[Tx]) ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error {
+func (a *Auth[Tx]) ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if hash == nil {
 		return errors.New("ChangeUserPassword needs the new password's hash: RemoveProvenUserPassword removes a password")
 	}
-	if err := a.db.ChangeUserPassword(ctx, id, proven, hash); err != nil {
+	if err := a.db.ChangeUserPassword(ctx, id, proven, hash, record); err != nil {
 		return errors.Wrap(err, "db.ChangeUserPassword()")
 	}
 
@@ -1343,14 +1356,14 @@ func (a *Auth[Tx]) ChangeUserPassword(ctx context.Context, id impulse.UUID, prov
 }
 
 // SetFirstUserPassword implements AuthStore.
-func (a *Auth[Tx]) SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error {
+func (a *Auth[Tx]) SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if hash == nil {
 		return errors.New("SetFirstUserPassword needs the password's hash: a user with no password is given one")
 	}
-	if err := a.db.SetFirstUserPassword(ctx, id, hash); err != nil {
+	if err := a.db.SetFirstUserPassword(ctx, id, hash, record); err != nil {
 		return errors.Wrap(err, "db.SetFirstUserPassword()")
 	}
 
@@ -1430,11 +1443,11 @@ func (a *Auth[Tx]) LinkConfirmedIdentity(
 }
 
 // UnlinkIdentity implements AuthStore.
-func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
+func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.UnlinkIdentity(ctx, identityID, signsIn); err != nil {
+	if err := a.db.UnlinkIdentity(ctx, identityID, signsIn, record); err != nil {
 		return errors.Wrap(err, "db.UnlinkIdentity()")
 	}
 
@@ -1442,11 +1455,11 @@ func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, 
 }
 
 // RemoveUserPassword implements AuthStore.
-func (a *Auth[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error {
+func (a *Auth[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.RemoveUserPassword(ctx, userID, standing); err != nil {
+	if err := a.db.RemoveUserPassword(ctx, userID, standing, record); err != nil {
 		return errors.Wrap(err, "db.RemoveUserPassword()")
 	}
 
@@ -1454,11 +1467,11 @@ func (a *Auth[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID, 
 }
 
 // RemoveProvenUserPassword implements AuthStore.
-func (a *Auth[Tx]) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error {
+func (a *Auth[Tx]) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.RemoveProvenUserPassword(ctx, userID, proven, standing); err != nil {
+	if err := a.db.RemoveProvenUserPassword(ctx, userID, proven, standing, record); err != nil {
 		return errors.Wrap(err, "db.RemoveProvenUserPassword()")
 	}
 
@@ -1652,11 +1665,11 @@ func (a *Auth[Tx]) SetDeviceCodesTableName(name string) error {
 }
 
 // InsertToken implements AuthStore.
-func (a *Auth[Tx]) InsertToken(ctx context.Context, t *Token) error {
+func (a *Auth[Tx]) InsertToken(ctx context.Context, t *Token, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.InsertToken(ctx, t); err != nil {
+	if err := a.db.InsertToken(ctx, t, record); err != nil {
 		return errors.Wrap(err, "db.InsertToken()")
 	}
 
@@ -1702,11 +1715,11 @@ func (a *Auth[Tx]) TouchToken(ctx context.Context, id impulse.UUID) error {
 }
 
 // RevokeUserToken implements AuthStore.
-func (a *Auth[Tx]) RevokeUserToken(ctx context.Context, userID, id impulse.UUID, reason TokenRevocation) error {
+func (a *Auth[Tx]) RevokeUserToken(ctx context.Context, userID, id impulse.UUID, reason TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.RevokeUserToken(ctx, userID, id, time.Now(), reason); err != nil {
+	if err := a.db.RevokeUserToken(ctx, userID, id, time.Now(), reason, record); err != nil {
 		return errors.Wrap(err, "db.RevokeUserToken()")
 	}
 
@@ -1787,11 +1800,13 @@ func (a *Auth[Tx]) DenyDeviceCode(ctx context.Context, id impulse.UUID) error {
 }
 
 // RedeemDeviceCode implements AuthStore.
-func (a *Auth[Tx]) RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, interval time.Duration, access, refresh *Token) (code *DeviceCode, status DeviceCodeStatus, err error) {
+func (a *Auth[Tx]) RedeemDeviceCode(
+	ctx context.Context, deviceCodeHash []byte, interval time.Duration, access, refresh *Token, record *auditlog.Record,
+) (code *DeviceCode, status DeviceCodeStatus, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	d, status, err := a.db.RedeemDeviceCode(ctx, deviceCodeHash, time.Now(), interval, access, refresh)
+	d, status, err := a.db.RedeemDeviceCode(ctx, deviceCodeHash, time.Now(), interval, access, refresh, record)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "db.RedeemDeviceCode()")
 	}

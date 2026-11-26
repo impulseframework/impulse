@@ -223,7 +223,7 @@ func (a *Auth[S, U, Tx]) sendVerification(ctx context.Context, user *sessioninfo
 		TokenHash: hash, Kind: sessionstorage.MailLinkVerification, Email: bare, UserID: impulse.NullUUIDFromUUID(user.ID),
 		ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := a.storage.InsertMailLink(ctx, link); err != nil {
+	if err := a.storage.InsertMailLink(ctx, link, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 
@@ -273,7 +273,7 @@ func (a *Auth[S, U, Tx]) emailVerify() http.HandlerFunc {
 
 				return nil
 			},
-		})
+		}, nil)
 		if err != nil {
 			if httpio.HasNotFound(err) {
 				err = errLinkDead()
@@ -381,7 +381,7 @@ func (p *AuthAPI[S, U, Tx]) RequestAddressChange(ctx context.Context, userID imp
 	link := &sessionstorage.MailLink{
 		TokenHash: hash, Kind: sessionstorage.MailLinkAddressChange, Email: bare, UserID: impulse.NullUUIDFromUUID(user.ID), ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := a.storage.InsertMailLink(ctx, link); err != nil {
+	if err := a.storage.InsertMailLink(ctx, link, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.addressChangeMessage(bare, token, lifetime, a.administratorOf(m, by))); err != nil {
@@ -450,7 +450,7 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 
 			return nil
 		},
-	})
+	}, nil)
 	if err != nil {
 		if httpio.HasNotFound(err) {
 			return "", errLinkDead()

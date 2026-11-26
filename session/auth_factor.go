@@ -1268,7 +1268,7 @@ func (p *AuthAPI[S, U, Tx]) ResetFactors(ctx context.Context, userID impulse.UUI
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.auth.storage.RevokeTrustedDevices(ctx, userID); err != nil {
+	if err := p.auth.storage.RevokeTrustedDevices(ctx, userID, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeTrustedDevices()")
 	}
 	if err := p.NoticeFactorReset(ctx, userID); err != nil {

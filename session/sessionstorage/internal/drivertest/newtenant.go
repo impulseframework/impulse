@@ -36,7 +36,7 @@ func insertTenantInvitation(ctx context.Context, t *testing.T, d AuthDriver, ema
 
 	link := newMailLink(dbtype.MailLinkInvitation, email, hash)
 	link.NewTenant = tenant
-	if err := d.InsertMailLink(ctx, link); err != nil {
+	if err := d.InsertMailLink(ctx, link, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 

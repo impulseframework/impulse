@@ -895,7 +895,7 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 		TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Name: name, TenantID: req.TenantID, EveryTenant: req.EveryTenant, RoleNames: req.RoleNames,
 		InvitedByUserID: req.InvitedByUserID, NewTenant: newTenant, ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := p.auth.storage.InsertMailLink(ctx, link); err != nil {
+	if err := p.auth.storage.InsertMailLink(ctx, link, nil); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := p.auth.sendInvitation(ctx, m, link.ID, email, token, lifetime); err != nil {
@@ -1107,7 +1107,7 @@ func (p *AuthAPI[S, U, Tx]) Invitations(ctx context.Context) ([]*sessioninfo.Inv
 // RevokeInvitation withdraws an invitation that stands; its link is then dead. One
 // that no longer stands is NotFound.
 func (p *AuthAPI[S, U, Tx]) RevokeInvitation(ctx context.Context, id impulse.UUID) error {
-	if err := p.auth.storage.RevokeMailLink(ctx, id); err != nil {
+	if err := p.auth.storage.RevokeMailLink(ctx, id, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeMailLink()")
 	}
 

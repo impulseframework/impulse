@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -416,18 +417,23 @@ func (s *SessionStorageDriver) RevokeTrustedDevice(ctx context.Context, tokenHas
 
 // RevokeTrustedDevices revokes every device of userID that is not revoked yet, at the
 // commit time.
-func (s *SessionStorageDriver) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error {
+func (s *SessionStorageDriver) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET RevokedAt = PENDING_COMMIT_TIMESTAMP() WHERE UserId = @userId AND RevokedAt IS NULL`, s.trustedDevicesTableName))
 		stmt.Params["userId"] = userID.String()
-		if _, err := txn.Update(ctx, stmt); err != nil {
+		revoked, err := txn.Update(ctx, stmt)
+		if err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
+		// A revocation that found no device to revoke is no act, and is not recorded.
+		if revoked == 0 {
+			return nil
+		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")

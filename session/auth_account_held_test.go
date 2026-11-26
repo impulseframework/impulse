@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/mockstore"
 	"github.com/impulseframework/impulse/session/internal/workos"
@@ -308,7 +309,7 @@ func TestAuthAPI_CreateApplicationToken_heldToTheLibrarysAccount(t *testing.T) {
 				f.store.EXPECT().User(gomock.Any(), patID).Return(tt.own, tt.ownErr)
 			}
 			var stored []*sessionstorage.Token
-			f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token) error {
+			f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
 				stored = append(stored, tok)
 
 				return nil

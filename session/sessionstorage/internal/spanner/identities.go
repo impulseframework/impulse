@@ -10,6 +10,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/securehash"
@@ -460,7 +461,7 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID impulse.
 // that has no password: the link goes only while another identity linked to the user
 // is a means of sign-in by signsIn, the caller's judgment of a link, asked about the
 // identities the unlinking transaction reads (dbtype.UnlinkKeepsSignIn).
-func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
+func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -505,7 +506,7 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")
@@ -527,7 +528,7 @@ const (
 // and refuses to remove the user's last means of sign-in otherwise. The user's sessions
 // stand. A user that holds no password is a BadRequest. It follows no proof of the
 // password and removes whatever hash the row holds.
-func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error {
+func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -535,7 +536,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 		return errors.New("RemoveUserPassword needs the auth schema: use Auth storage")
 	}
 
-	return s.removeUserPassword(ctx, userID, false, spanner.NullString{}, standing)
+	return s.removeUserPassword(ctx, userID, false, spanner.NullString{}, standing, record)
 }
 
 // RemoveProvenUserPassword removes the password a user proved (proven), as
@@ -543,7 +544,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 // it, so the removal goes through only while the row still holds the proven one: a
 // password changed, reset or removed since the caller read it stands as it is
 // (ErrPasswordChanged, a Conflict).
-func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error {
+func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -555,15 +556,17 @@ func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, use
 		return err
 	}
 
-	return s.removeUserPassword(ctx, userID, true, provenHash, standing)
+	return s.removeUserPassword(ctx, userID, true, provenHash, standing, record)
 }
 
 // removeUserPassword removes a user's password and its change mark in one transaction.
 // With followsProof set, the row must still hold proven, the hash the caller proved.
 // standing names the identities the caller judged a means of sign-in: one of them must
 // still be linked to the user when the password goes, read in the transaction that
-// writes, as an unlink reads them.
-func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString, standing []impulse.UUID) error {
+// writes, as an unlink reads them. record, nil for none, is buffered with the removal.
+func (s *SessionStorageDriver) removeUserPassword(
+	ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString, standing []impulse.UUID, record *auditlog.Record,
+) error {
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if followsProof {
 			if err := s.holdsProvenPasswordIn(ctx, txn, userID, proven); err != nil {
@@ -595,7 +598,7 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")

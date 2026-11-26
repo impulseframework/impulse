@@ -14,6 +14,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -265,7 +266,7 @@ func TestAuthAPI_CreateApplicationToken(t *testing.T) {
 		f := newTokenFixture(t, gomock.NewController(t), WithTokenLifetimes(time.Hour, 24*time.Hour, 48*time.Hour))
 		f.store.EXPECT().User(gomock.Any(), f.user.ID).Return(f.user, nil)
 		var stored *sessionstorage.Token
-		f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token) error {
+		f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
 			stored = tok
 
 			return nil
@@ -294,7 +295,7 @@ func TestAuthAPI_CreateApplicationToken(t *testing.T) {
 		f := newTokenFixture(t, gomock.NewController(t), WithTokenLifetimes(time.Hour, 24*time.Hour, 48*time.Hour))
 		f.store.EXPECT().User(gomock.Any(), f.user.ID).Return(f.user, nil)
 		var stored *sessionstorage.Token
-		f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token) error {
+		f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
 			stored = tok
 
 			return nil
@@ -362,7 +363,7 @@ func TestAuthAPI_TokensAndRevocation(t *testing.T) {
 		t.Parallel()
 		f := newTokenFixture(t, gomock.NewController(t))
 		id := impulse.Must(impulse.NewUUID())
-		f.store.EXPECT().RevokeUserToken(gomock.Any(), f.user.ID, id, sessionstorage.TokenRevokedByHand).Return(nil)
+		f.store.EXPECT().RevokeUserToken(gomock.Any(), f.user.ID, id, sessionstorage.TokenRevokedByHand, gomock.Nil()).Return(nil)
 		f.store.EXPECT().RevokeUserTokens(gomock.Any(), f.user.ID, sessionstorage.TokenRevokedWithUser).Return(nil)
 		if err := f.auth.API().RevokeToken(context.Background(), f.user.ID, id); err != nil {
 			t.Errorf("RevokeToken() error = %v", err)
@@ -376,7 +377,7 @@ func TestAuthAPI_TokensAndRevocation(t *testing.T) {
 		t.Parallel()
 		f := newTokenFixture(t, gomock.NewController(t))
 		id := impulse.Must(impulse.NewUUID())
-		f.store.EXPECT().RevokeUserToken(gomock.Any(), f.user.ID, id, sessionstorage.TokenRevokedByHand).Return(httpio.NewNotFoundMessage("no live token"))
+		f.store.EXPECT().RevokeUserToken(gomock.Any(), f.user.ID, id, sessionstorage.TokenRevokedByHand, gomock.Nil()).Return(httpio.NewNotFoundMessage("no live token"))
 		if err := f.auth.API().RevokeToken(context.Background(), f.user.ID, id); !httpio.HasNotFound(err) {
 			t.Errorf("RevokeToken() error = %v, want NotFound", err)
 		}
@@ -444,8 +445,8 @@ func authAPIDeviceCase3(t *testing.T) {
 	f := newTokenFixture(t, gomock.NewController(t), WithTokenLifetimes(time.Hour, 24*time.Hour, 48*time.Hour), WithDeviceCodeLifetime(5*time.Minute, 2*time.Second))
 	var access, refresh *sessionstorage.Token
 	status := sessionstorage.DevicePending
-	f.store.EXPECT().RedeemDeviceCode(gomock.Any(), hashToken("device-1"), 2*time.Second, gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ []byte, _ time.Duration, a, r *sessionstorage.Token) (*sessionstorage.DeviceCode, sessionstorage.DeviceCodeStatus, error) {
+	f.store.EXPECT().RedeemDeviceCode(gomock.Any(), hashToken("device-1"), 2*time.Second, gomock.Any(), gomock.Any(), gomock.Nil()).
+		DoAndReturn(func(_ context.Context, _ []byte, _ time.Duration, a, r *sessionstorage.Token, _ *auditlog.Record) (*sessionstorage.DeviceCode, sessionstorage.DeviceCodeStatus, error) {
 			access, refresh = a, r
 
 			return &sessionstorage.DeviceCode{}, status, nil

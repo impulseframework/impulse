@@ -60,7 +60,7 @@ func testNotFoundInWords(ctx context.Context, t *testing.T, h *AuthHarness) {
 		notFoundInWords(t, "Session() of an id no session has", err, dbtype.SessionNotFoundMessage, nobody.String())
 	})
 	t.Run("a sign-in identity", func(t *testing.T) {
-		err := in.Driver.UnlinkIdentity(ctx, nobody, nil)
+		err := in.Driver.UnlinkIdentity(ctx, nobody, nil, nil)
 		notFoundInWords(t, "UnlinkIdentity() of an id no identity has", err, dbtype.SignInIdentityNotFoundMessage, nobody.String())
 	})
 	t.Run("a sign-in identity that is linked to no account", func(t *testing.T) {
@@ -71,7 +71,7 @@ func testNotFoundInWords(ctx context.Context, t *testing.T, h *AuthHarness) {
 	t.Run("a token", func(t *testing.T) {
 		_, err := in.Driver.TokenByHash(ctx, tokenHash(9), time.Now())
 		notFoundInWords(t, "TokenByHash() of a hash no token has", err, dbtype.TokenNotFoundMessage)
-		err = in.Driver.RevokeUserToken(ctx, nobody, nobody, time.Now(), dbtype.TokenRevokedByHand)
+		err = in.Driver.RevokeUserToken(ctx, nobody, nobody, time.Now(), dbtype.TokenRevokedByHand, nil)
 		notFoundInWords(t, "RevokeUserToken() of an id no token has", err, dbtype.TokenNotFoundMessage)
 	})
 	t.Run("a refresh token", func(t *testing.T) {
@@ -87,7 +87,7 @@ func testNotFoundInWords(ctx context.Context, t *testing.T, h *AuthHarness) {
 		err = in.Driver.DenyDeviceCode(ctx, nobody, time.Now())
 		notFoundInWords(t, "DenyDeviceCode() of an id no code has", err, dbtype.DeviceCodeNotPendingMessage)
 		access, refresh := newFamily(nobody, tokenHash(10), tokenHash(11))
-		_, _, err = in.Driver.RedeemDeviceCode(ctx, tokenHash(9), time.Now(), devicePollInterval, access, refresh)
+		_, _, err = in.Driver.RedeemDeviceCode(ctx, tokenHash(9), time.Now(), devicePollInterval, access, refresh, nil)
 		notFoundInWords(t, "RedeemDeviceCode() of a hash no code has", err, dbtype.DeviceCodeNotRedeemableMessage)
 	})
 	t.Run("a mailed link", func(t *testing.T) {

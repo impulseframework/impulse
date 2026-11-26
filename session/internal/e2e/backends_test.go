@@ -148,7 +148,7 @@ func storeTables(t *testing.T) (*sessionstorage.AuthEventsTable, *sessionstorage
 func secondFactorOff[Tx any](ctx context.Context, t *testing.T, store *sessionstorage.Auth[Tx]) {
 	t.Helper()
 
-	if err := store.SetRequireSecondFactor(ctx, false); err != nil {
+	if err := store.SetRequireSecondFactor(ctx, false, nil); err != nil {
 		t.Fatalf("sessionstorage.Auth.SetRequireSecondFactor(false) error = %v", err)
 	}
 }

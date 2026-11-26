@@ -127,7 +127,7 @@ func (a *Auth[S, U, Tx]) ChangeUsername() http.HandlerFunc {
 		if !free {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewConflictMessage(usernameHeldMessage))
 		}
-		if err := a.storage.SetUserUsername(ctx, user.ID, name); err != nil {
+		if err := a.storage.SetUserUsername(ctx, user.ID, name, nil); err != nil {
 			// Someone took the name between the lookup and the rename.
 			if httpio.HasConflict(err) {
 				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewConflictMessageWithError(err, usernameHeldMessage))

@@ -224,7 +224,7 @@ func (p *AuthAPI[S, U, Tx]) UserByUsername(ctx context.Context, username string)
 // ChangeSessionUserUsername changes a user's username, and atomically the username
 // on its live sessions.
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userID impulse.UUID, username string) error {
-	if err := p.auth.storage.SetUserUsername(ctx, userID, username); err != nil {
+	if err := p.auth.storage.SetUserUsername(ctx, userID, username, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetUserUsername()")
 	}
 
@@ -288,7 +288,7 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 	}
 	// One store call writes the password and ends the user's sessions, in one
 	// transaction: no failure leaves the password changed and a session alive.
-	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash); err != nil {
+	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash, nil); err != nil {
 		if errors.Is(err, sessionstorage.ErrPasswordChanged) {
 			return httpio.NewConflictMessageWithError(err, "Your password has changed since you entered it, so this change was not made: try again with your current password")
 		}
@@ -393,7 +393,7 @@ func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userI
 		return errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
 	}
 	standing := a.linksThatSignIn(links)
-	if err := a.storage.RemoveUserPassword(ctx, user.ID, standing); err != nil {
+	if err := a.storage.RemoveUserPassword(ctx, user.ID, standing, nil); err != nil {
 		if errors.Is(err, sessionstorage.ErrLastSignInMethod) && len(links) > 0 && len(standing) == 0 {
 			return httpio.NewConflictMessageWithError(err, dbtype.PasswordIsLastWorkingSignInMessage)
 		}
@@ -444,7 +444,7 @@ func (p *AuthAPI[S, U, Tx]) DeactivateSessionUser(ctx context.Context, userID im
 	if err := refuseImpersonatorsOwnAccount(ctx, userID, "disable your own account"); err != nil {
 		return err
 	}
-	if err := p.auth.storage.DeactivateUser(ctx, userID); err != nil {
+	if err := p.auth.storage.DeactivateUser(ctx, userID, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DeactivateUser()")
 	}
 	if err := p.auth.storage.DestroyUserSessions(ctx, userID); err != nil {
@@ -460,7 +460,7 @@ func (p *AuthAPI[S, U, Tx]) ActivateSessionUser(ctx context.Context, userID impu
 	if err := refuseImpersonatorsOwnAccount(ctx, userID, "enable your own account"); err != nil {
 		return err
 	}
-	if err := p.auth.storage.ActivateUser(ctx, userID); err != nil {
+	if err := p.auth.storage.ActivateUser(ctx, userID, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.ActivateUser()")
 	}
 
@@ -483,7 +483,7 @@ func (p *AuthAPI[S, U, Tx]) DeleteSessionUser(ctx context.Context, userID impuls
 	if err := p.auth.storage.DestroyUserSessions(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
 	}
-	if err := p.auth.storage.DeleteUser(ctx, userID); err != nil {
+	if err := p.auth.storage.DeleteUser(ctx, userID, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DeleteUser()")
 	}
 
@@ -520,7 +520,7 @@ func (p *AuthAPI[S, U, Tx]) Identities(ctx context.Context, userID impulse.UUID)
 // holds a password may lose every link; the password of a user with no link that
 // counts is refused the same way (RemoveSessionUserPassword).
 func (p *AuthAPI[S, U, Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
-	if err := p.auth.storage.UnlinkIdentity(ctx, identityID, p.auth.signsIn); err != nil {
+	if err := p.auth.storage.UnlinkIdentity(ctx, identityID, p.auth.signsIn, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.UnlinkIdentity()")
 	}
 
