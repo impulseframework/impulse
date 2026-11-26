@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
@@ -72,6 +73,9 @@ var _ interface {
 // organization has a sector already is refused (409) with nothing written. A
 // creator who signed in by password, or with a personal account, sets none in either
 // kind of application.
+// The directory set is recorded in the new sector, done by its creator, in the
+// audit log of the auth that records a sector's sign-in settings
+// (CrewIdentity().RecordTenantSignIn), as a take of a directory is.
 // The roster must list the sector and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a sector the roster does
 // not know admits nobody who came through a directory.
@@ -188,6 +192,11 @@ func (a *App) CreateSector() http.HandlerFunc {
 					if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
 						if err := SetSectorDirectory(ctx, txn, id, directory, eventSource); err != nil {
 							return errors.Wrap(err, "SetSectorDirectory()")
+						}
+						// The directory the sector was made with is recorded in it, by its
+						// creator, as a take is: the first row of its sign-in settings.
+						if err := a.CrewIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory, a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName)); err != nil {
+							return errors.Wrap(err, "CrewIdentity().RecordTenantSignIn()")
 						}
 					}
 				}
