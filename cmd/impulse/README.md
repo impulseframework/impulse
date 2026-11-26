@@ -262,8 +262,11 @@ the check its CI runs are the same code:
   packages release with the module at its version.
 - An impulse installed from a commit (`go install github.com/impulseframework/impulse/cmd/impulse@<commit>`)
   pins that commit's pseudo-version, the version Go gives a commit that has no release tag
-  (`v0.0.0-20261004053859-89401d630235`); the browser packages take the latest release's
-  version, since a commit publishes none.
+  (`v0.0.0-20261004053859-89401d630235`). A commit publishes no browser packages, so the
+  web roots pin them at the release the ledger's last step names (section impulse upgrade),
+  which is the version `web-pins` holds an application at that step to. That release can
+  stand behind the latest one and behind the commit; to build the browser apps against the
+  commit's own packages, attach a checkout of it with `weblib.sh local`.
 - An impulse built from a checkout (`go build`, `go run`) names no commit the module proxy
   serves, so `new` refuses it before writing anything and says to install impulse from a
   release or a pushed commit, or to name the checkout to build against with `--dev-root`.
@@ -921,12 +924,12 @@ With a candidate and a directory, `render` copies one embedded skeleton into a n
 empty directory under the module path `--module` names, rewriting every import and
 `go.mod` to it, and pins the framework as `new` does: `go.mod` requires the framework
 module at the running impulse's version and the web roots pin the browser packages at it
-(an impulse installed from a commit pins them at the latest release's, since a commit
-publishes none), resolved with `go get -tool` and settled with `go mod tidy`. It is the
-primitive `new` builds on and the way the templates are validated: render one, then
-build, test, and `impulse check` the result. The templates carry `staff` as their
-placeholder auth; `new` renames it, `render` keeps it. Both name the application after the
-module path's last segment unless `--name` says otherwise.
+(an impulse installed from a commit pins them at the release the ledger's last step
+names, since a commit publishes none), resolved with `go get -tool` and settled with
+`go mod tidy`. It is the primitive `new` builds on and the way the templates are
+validated: render one, then build, test, and `impulse check` the result. The templates
+carry `staff` as their placeholder auth; `new` renames it, `render` keeps it. Both name
+the application after the module path's last segment unless `--name` says otherwise.
 
 ```sh
 impulse render solo ../beacon --module example.com/acme/beacon
@@ -941,8 +944,9 @@ application lives beside the checkout, absolute otherwise), so the application b
 against local framework work instead of a release, and `go mod tidy` reads the
 requirements from the checkout; nothing is resolved through the module proxy, so an
 impulse built from a checkout, which names no version the proxy serves, renders only this
-way. The browser packages take the latest release's version. That replace line is for
-development only; never commit it.
+way. The browser packages take the version of the release the ledger's last step names;
+`weblib.sh local` attaches the checkout's own. That replace line is for development only;
+never commit it.
 
 ## impulse brand
 

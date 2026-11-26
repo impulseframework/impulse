@@ -38,3 +38,17 @@ func checkApplied(v Version, file *Migration, stmts []string) error {
 
 	return nil
 }
+
+// inFlight returns the DDL batch a version row names an operation for: the file's DDL group
+// that starts at the row's Applied. While an operation is named, the row's checkpoint covers
+// the file through that batch, so a file that changed in its applied part or in the batch is
+// refused, before anything is sent or settled.
+func inFlight(v Version, file *Migration, stmts []string) (Group, error) {
+	groups := Groups(stmts, v.Applied)
+	if len(groups) == 0 || groups[0].Kind != DDL || Checkpoint(stmts[:v.Applied+len(groups[0].Statements)]) != v.Checkpoint {
+		return Group{}, errors.Newf("%s changed in the part already applied (%s) or in the DDL batch after it, which the version row names as operation %s; restore the file or force a version",
+			file.File, plural(v.Applied, "statement"), v.Operation)
+	}
+
+	return groups[0], nil
+}

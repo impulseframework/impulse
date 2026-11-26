@@ -145,8 +145,8 @@ func Groups(stmts []string, start int) []Group {
 
 // Checkpoint is the hex SHA-256 over the statements' text, each statement preceded by its
 // length so that no two statement lists hash alike: the record of which statements a stopped
-// file had applied, so a later run can tell whether the file changed in that part. Zero
-// statements hash to the SHA-256 of nothing.
+// file had applied, and of the DDL batch it had in flight, so a later run can tell whether the
+// file changed there. Zero statements hash to the SHA-256 of nothing.
 func Checkpoint(stmts []string) string {
 	h := sha256.New()
 	for _, stmt := range stmts {
