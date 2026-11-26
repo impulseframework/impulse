@@ -15,6 +15,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/actor"
@@ -279,6 +280,7 @@ func TestManager_InviteTenant(t *testing.T) {
 			if diff := cmp.Diff(want, store.writes); diff != "" {
 				t.Errorf("writes mismatch (-want +got):\n%s", diff)
 			}
+			wantInvitationRow(t, store, auditlog.ActInvited, invitationID)
 			if len(grants.asked) != tt.wantAsked {
 				t.Errorf("the role file was asked %v, want %d question(s)", grants.asked, tt.wantAsked)
 			}
@@ -764,6 +766,7 @@ func TestManager_InvitedTenants(t *testing.T) {
 		if diff := cmp.Diff([]string{"consume mail link " + standing.String()}, store.writes); diff != "" {
 			t.Errorf("writes mismatch (-want +got):\n%s", diff)
 		}
+		wantInvitationRow(t, store, auditlog.ActInvitationWithdrawn, standing)
 	})
 	for name, id := range map[string]impulse.UUID{"one that has expired": expired, "an invitation of another kind": invitationID} {
 		t.Run(name+" is not found, and nothing is written", func(t *testing.T) {
@@ -777,6 +780,7 @@ func TestManager_InvitedTenants(t *testing.T) {
 			if !httpio.HasNotFound(err) || len(store.writes) != 0 {
 				t.Fatalf("WithdrawTenantInvitation() error = %v, writes = %v; want NotFound and nothing written", err, store.writes)
 			}
+			wantInvitationRow(t, store, auditlog.ActInvitationWithdrawn, id)
 		})
 	}
 }

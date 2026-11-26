@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/actor"
@@ -237,6 +238,12 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 	}
 	if err := m.store.InsertInvitation(ctx, txn, row); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "identity.Store.InsertInvitation()")
+	}
+	// The row names no role and no tenant: there is none yet.
+	invited := invitationRecord(auditlog.ActInvited, row.ID, row.Email)
+	invited.Form = auditlog.FormNewTenant
+	if err := m.record(ctx, txn, invited); err != nil {
+		return impulse.NilUUID, err
 	}
 	if err := resource.AfterCommit(txn, func(ctx context.Context) {
 		err := prepared.Send(ctx)
@@ -633,16 +640,13 @@ func (m *Manager) WithdrawTenantInvitation(ctx context.Context, txn resource.Rea
 	if err != nil {
 		return err
 	}
-	stands := false
-	for _, inv := range standing {
-		stands = stands || inv.ID == invitationID
-	}
-	if !stands {
+	i := slices.IndexFunc(standing, func(inv *InvitedTenant) bool { return inv.ID == invitationID })
+	if i < 0 {
 		return invitationNoLongerStands(errors.Newf("no invitation %q that makes a %s stands: it was accepted, withdrawn or has expired, or it never was one", invitationID, m.tenantWord))
 	}
 	if err := m.store.ConsumeMailLink(ctx, txn, invitationID); err != nil {
 		return errors.Wrap(err, "identity.Store.ConsumeMailLink()")
 	}
 
-	return nil
+	return m.record(ctx, txn, invitationRecord(auditlog.ActInvitationWithdrawn, invitationID, standing[i].Email))
 }

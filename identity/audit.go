@@ -87,6 +87,31 @@ func accountRecord(act auditlog.Act, userID impulse.UUID, username string) *audi
 	return &r
 }
 
+// invitationRecord answers a row of the act done to the invitation, named by the address
+// it was mailed to, with nothing else set.
+func invitationRecord(act auditlog.Act, id impulse.UUID, address string) *auditlog.Record {
+	var r auditlog.Record
+	r.Act, r.SubjectKind, r.SubjectID, r.SubjectName = act, auditlog.SubjectInvitation, id.String(), address
+
+	return &r
+}
+
+// invitationSubject answers a row of an act done to an invitation, with its subject set
+// and nothing else: the invitation's id and the address it was mailed to, the id where
+// the store answers none.
+func (m *Manager) invitationSubject(ctx context.Context, txn resource.ReadWriteTransaction, invitationID impulse.UUID) (*auditlog.Record, error) {
+	sent, found, err := m.store.SentInvitation(ctx, txn, invitationID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.SentInvitation()")
+	}
+	address := invitationID.String()
+	if found {
+		address = sent.Invitation.Email
+	}
+
+	return invitationRecord("", invitationID, address), nil
+}
+
 // recordAct buffers the row of the act done to the subject (accountSubject), with no
 // part beyond it.
 func (m *Manager) recordAct(ctx context.Context, txn resource.ReadWriteTransaction, act auditlog.Act, subject *auditlog.Record) error {

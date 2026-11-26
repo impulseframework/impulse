@@ -953,7 +953,7 @@ func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.Invitati
 	return &fakePrepared{
 		mail: s.mail,
 		row: session.InvitationRow{
-			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, EveryTenant: req.EveryTenant,
+			ID: s.mail.id, TokenHash: []byte(preparedTokenHash), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, EveryTenant: req.EveryTenant,
 			RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID, ExpiresAt: time.Time{}, NewTenant: req.NewTenant,
 		},
 	}, nil
