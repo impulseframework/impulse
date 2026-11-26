@@ -42,7 +42,7 @@ var frankID = mustUUID("55555555-5555-4555-8555-555555555555")
 // behind it, is the account: the caller the context already carries is the person the
 // session views as, whose grants the entry check ran with.
 func viewedBy(ctx context.Context, actor impulse.UUID) context.Context {
-	session := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{ActorID: impulse.NullUUIDFromUUID(actor)}}
+	session := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{ActorID: impulse.NullUUIDFromUUID(actor)}}
 
 	return context.WithValue(ctx, sessioninfo.CtxSessionInfo, session)
 }
@@ -141,7 +141,7 @@ func TestManager_AssignRole_superAdministrator(t *testing.T) {
 		{
 			name: "an actor from another application holds no role here, whoever the session views as",
 			ctx: func(ctx context.Context) context.Context {
-				foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: string(erin), ActorRealm: "another-application"}}
+				foreign := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{Actor: string(erin), ActorRealm: "another-application"}}
 
 				return context.WithValue(asCallerThrough(ctx, managedAuth, erin), sessioninfo.CtxSessionInfo, foreign)
 			},

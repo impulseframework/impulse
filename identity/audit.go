@@ -9,6 +9,7 @@ import (
 	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // actingKey is the context key under which a sign-in hook carries what acted to the
@@ -34,10 +35,14 @@ func actingAs(ctx context.Context, source eventsource.EventSource, directory str
 // the tenant's name.
 func (m *Manager) record(ctx context.Context, txn resource.ReadWriteTransaction, r *auditlog.Record) error {
 	caller := resource.CallerFrom(ctx)
+	// A person is read from the request's session, which every frame that stamps a
+	// caller serves; a caller stamped where no session is, by a hand-written handler,
+	// names nobody the row could keep, and the act is the application's.
+	_, inSession := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
 	switch carried, ok := ctx.Value(actingKey{}).(acting); {
 	case ok:
 		r.Source, r.Directory = carried.source, carried.directory
-	case !caller.IsZero():
+	case !caller.IsZero() && inSession:
 		r.Source = eventsource.UserEvent(ctx)
 	default:
 		r.Source = eventsource.ProcessEvent(auditlog.ProcessApplication)
@@ -70,10 +75,40 @@ func (m *Manager) accountSubject(ctx context.Context, txn resource.ReadWriteTran
 		username = userID.String()
 	}
 
-	var subject auditlog.Record
-	subject.SubjectKind, subject.SubjectID, subject.SubjectName = auditlog.SubjectAccount, userID.String(), username
+	return accountRecord("", userID, username), nil
+}
 
-	return &subject, nil
+// accountRecord answers a row of the act done to the account, named by the username a
+// rule has read already, with nothing else set.
+func accountRecord(act auditlog.Act, userID impulse.UUID, username string) *auditlog.Record {
+	var r auditlog.Record
+	r.Act, r.SubjectKind, r.SubjectID, r.SubjectName = act, auditlog.SubjectAccount, userID.String(), username
+
+	return &r
+}
+
+// recordAct buffers the row of the act done to the subject (accountSubject), with no
+// part beyond it.
+func (m *Manager) recordAct(ctx context.Context, txn resource.ReadWriteTransaction, act auditlog.Act, subject *auditlog.Record) error {
+	subject.Act = act
+
+	return m.record(ctx, txn, subject)
+}
+
+// directoryCalled says the directory a link came through as a row of the audit log keeps
+// it: the name the auth's sign-in registrations give it, the label of the button a person
+// signs in to it with where they give none, and the method's own name where they give
+// neither, as for a link left from a registration the login page no longer offers.
+func (m *Manager) directoryCalled(link *Link) string {
+	name, label := m.sessions.DirectoryName(link.Method, link.Connection)
+	switch {
+	case name != "":
+		return name
+	case label != "":
+		return label
+	default:
+		return string(link.Method)
+	}
 }
 
 // tenantOfScope answers the domain of a scope that is one tenant, and "" for any other.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -102,8 +103,11 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 			return errors.Wrap(err, "identity.Store.RenameImpersonationActor()")
 		}
 	}
+	// The row names the account by its new username, and keeps the old one beside it.
+	renamed := accountRecord(auditlog.ActUsernameChanged, userID, name)
+	renamed.OldValue, renamed.NewValue = old, name
 
-	return nil
+	return m.record(ctx, txn, renamed)
 }
 
 // DeleteUser buffers the removal of a user, in the caller's transaction. The row's
@@ -274,9 +278,19 @@ func (m *Manager) RevokeTrustedDevices(ctx context.Context, txn resource.ReadWri
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.TrustedDevices()")
 	}
-	for _, id := range devices {
-		if err := m.store.RevokeTrustedDevice(ctx, txn, id); err != nil {
-			return errors.Wrap(err, "identity.Store.RevokeTrustedDevice()")
+	// A person with no browser remembered has nothing forgotten, and no row says so.
+	if len(devices) > 0 {
+		subject, err := m.accountSubject(ctx, txn, userID)
+		if err != nil {
+			return err
+		}
+		for _, id := range devices {
+			if err := m.store.RevokeTrustedDevice(ctx, txn, id); err != nil {
+				return errors.Wrap(err, "identity.Store.RevokeTrustedDevice()")
+			}
+		}
+		if err := m.recordAct(ctx, txn, auditlog.ActBrowsersForgotten, subject); err != nil {
+			return err
 		}
 	}
 

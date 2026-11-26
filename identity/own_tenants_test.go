@@ -524,7 +524,7 @@ func TestManager_LeaveTenant_notIn(t *testing.T) {
 func TestManager_LeaveTenant_impersonator(t *testing.T) {
 	t.Parallel()
 
-	foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
+	foreign := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
 	tests := map[string]func(ctx context.Context) context.Context{
 		"the real person behind the session names themselves": func(ctx context.Context) context.Context {
 			return viewedBy(asCaller(ctx, erin), userID)

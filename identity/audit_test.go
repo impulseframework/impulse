@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -73,6 +74,16 @@ func storedOf(t *testing.T, record *auditlog.Record) auditlog.Stored {
 
 		return value
 	}
+	at := func(column string) time.Time {
+		value, _ := columns[column].(time.Time)
+
+		return value
+	}
+	var roles []string
+	if role := text("RoleName"); role != "" {
+		roles = append(roles, role)
+	}
+	others, _ := columns["OtherRoleNames"].([]string)
 
 	return auditlog.Stored{
 		ID: text("Id"), Act: auditlog.Act(text("Act")), Form: auditlog.Form(text("Form")),
@@ -83,14 +94,18 @@ func storedOf(t *testing.T, record *auditlog.Record) auditlog.Stored {
 		},
 		Directory: text("Directory"), SubjectKind: auditlog.SubjectKind(text("SubjectKind")), SubjectID: text("SubjectId"),
 		SubjectName: text("SubjectName"), TenantID: text("TenantId"), TenantName: text("TenantName"),
+		RoleNames: append(roles, others...), RoleScope: auditlog.RoleScope(text("RoleScope")),
+		GroupID: text("GroupId"), GroupName: text("GroupName"), OldValue: text("OldValue"), NewValue: text("NewValue"),
+		PeriodStart: at("PeriodStart"), PeriodEnd: at("PeriodEnd"),
+		SeatingTenantID: text("SeatingTenantId"), SeatingTenantName: text("SeatingTenantName"), Reason: text("Reason"),
 	}
 }
 
 // TestManager_record pins the package's one way to a row of the audit log: who acted is
-// what a sign-in hook carried, else the caller a generated frame stamped, else the
-// application; the tenant is the one the act named, else the one the request was checked
-// in; and the tenant's name is the application's, or its key where the application names
-// none.
+// what a sign-in hook carried, else the person of the session a generated frame stamped a
+// caller in, else the application; the tenant is the one the act named, else the one the
+// request was checked in; and the tenant's name is the application's, or its key where
+// the application names none.
 func TestManager_record(t *testing.T) {
 	t.Parallel()
 
@@ -131,6 +146,11 @@ func TestManager_record(t *testing.T) {
 		},
 		{
 			name: "a call outside any request", ctx: context.Background(),
+			wantSource: eventsource.ProcessEvent(auditlog.ProcessApplication),
+			wantWho:    "the application", wantColumns: []string{"Process"},
+		},
+		{
+			name: "a caller stamped where no session is", ctx: asCaller(context.Background(), User(recordActor)),
 			wantSource: eventsource.ProcessEvent(auditlog.ProcessApplication),
 			wantWho:    "the application", wantColumns: []string{"Process"},
 		},

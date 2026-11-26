@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -143,6 +144,7 @@ func TestManager_RenameUser(t *testing.T) {
 					t.Errorf("buffered writes (-want +got):\n%s", diff)
 				}
 			}
+			wantAccountRow(t, store, err, auditlog.ActUsernameChanged, userID)
 			if engine.changed != 0 {
 				t.Errorf("the engine was told %d times, want none: a rename changes nothing the engine holds", engine.changed)
 			}
@@ -325,6 +327,7 @@ func TestManager_RevokeTrustedDevices(t *testing.T) {
 	if diff := cmp.Diff(want, store.writes); diff != "" {
 		t.Errorf("buffered writes (-want +got):\n%s", diff)
 	}
+	wantAccountRow(t, store, nil, auditlog.ActBrowsersForgotten, userID)
 
 	// The person is told once the reset has committed, and not when it did not.
 	mail := &fakeMail{}
@@ -368,6 +371,7 @@ func TestManager_RevokeTrustedDevices(t *testing.T) {
 	if !errors.Is(err, errStore) {
 		t.Errorf("RevokeTrustedDevices() error = %v, want the store's failure", err)
 	}
+	wantAccountRow(t, store, err, auditlog.ActBrowsersForgotten, userID)
 }
 
 // TestManager_UnlockSignIn pins the cleared lockout: the row of the name is removed,

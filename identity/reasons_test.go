@@ -306,7 +306,7 @@ func TestManager_TakeRole(t *testing.T) {
 		{
 			name: "a session that views as someone else takes nothing",
 			ctx: func(ctx context.Context) context.Context {
-				viewing := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: string(erin), ActorRealm: managedAuth}}
+				viewing := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{Actor: string(erin), ActorRealm: managedAuth}}
 
 				return context.WithValue(asDana(ctx), sessioninfo.CtxSessionInfo, viewing)
 			},
