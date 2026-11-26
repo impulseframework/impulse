@@ -201,7 +201,7 @@ func (m *tenantMaker) Make(ctx context.Context, txn resource.ReadWriteTransactio
 	// What the tenant is called, which the rows of its making name it by: the roster
 	// learns of it only after the commit.
 	if patch.NameIsSet() {
-		tenant.Name = patch.Name()
+		tenant.Name = string(patch.Name())
 	}
 	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
 		return "", errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")

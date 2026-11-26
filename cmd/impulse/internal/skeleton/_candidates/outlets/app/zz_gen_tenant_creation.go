@@ -183,7 +183,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			// The rows of the tenant's making name it by the name it is made with, as its
 			// later rows do: the roster learns of it only after the commit.
 			if patch.NameIsSet() {
-				byCreator = identity.MakingTenant(byCreator, domain, patch.Name())
+				byCreator = identity.MakingTenant(byCreator, domain, string(patch.Name()))
 			}
 			// The creator's directory, written with the row only where the application
 			// holds a person to one tenant: the organization's directory the creator is
