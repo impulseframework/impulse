@@ -216,17 +216,20 @@ func (c *stillHolds) met(held spanner.NullString) bool {
 	return held.Valid && held.StringVal == *c.email
 }
 
-// ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own.
-func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string) (bool, error) {
+// ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own, which writes
+// record with the address where the claim wrote it, and none where it wrote nothing.
+func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string, record *auditlog.Record) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	var claimed bool
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var err error
-		claimed, err = s.ClaimVerifiedEmailIn(ctx, txn, userID, email)
+		if claimed, err = s.ClaimVerifiedEmailIn(ctx, txn, userID, email); err != nil || !claimed {
+			return err
+		}
 
-		return err
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		return false, errors.Wrap(err, "spannertxn.Serializable()")

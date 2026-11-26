@@ -312,30 +312,30 @@ func testClaimVerifiedEmail(ctx context.Context, t *testing.T, h *AuthHarness) {
 	sam := createUser(ctx, t, in.Driver, "sam")
 
 	// A user without an address takes the method's verified one.
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, pat.ID, "pat@lakeside.edu"); err != nil || !claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, pat.ID, "pat@lakeside.edu", nil); err != nil || !claimed {
 		t.Fatalf("ClaimVerifiedEmail() = %v, %v; want claimed", claimed, err)
 	}
 	assertEmail(t, "User() after the claim", mustUser(ctx, t, in.Driver, pat.ID), strPtr("pat@lakeside.edu"), true)
 
 	// A verified address stays: another claim changes nothing.
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, pat.ID, "other@lakeside.edu"); err != nil || claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, pat.ID, "other@lakeside.edu", nil); err != nil || claimed {
 		t.Errorf("ClaimVerifiedEmail() over a verified address = %v, %v; want not claimed", claimed, err)
 	}
 	assertEmail(t, "User() after the second claim", mustUser(ctx, t, in.Driver, pat.ID), strPtr("pat@lakeside.edu"), true)
 
 	// An address another user holds, even unverified, is never taken.
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "ALEX@lakeside.edu"); err != nil || claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "ALEX@lakeside.edu", nil); err != nil || claimed {
 		t.Errorf("ClaimVerifiedEmail() of another user's address = %v, %v; want not claimed", claimed, err)
 	}
 	assertEmail(t, "User() of the claimer", mustUser(ctx, t, in.Driver, sam.ID), nil, false)
 	assertEmail(t, "User() of the holder", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), false)
 
 	// The holder's own unverified address is verified by the claim.
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, alex.ID, "alex@lakeside.edu"); err != nil || !claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, alex.ID, "alex@lakeside.edu", nil); err != nil || !claimed {
 		t.Errorf("ClaimVerifiedEmail() of the user's own reserved address = %v, %v; want claimed", claimed, err)
 	}
 	assertEmail(t, "User() after the holder's claim", mustUser(ctx, t, in.Driver, alex.ID), strPtr("alex@lakeside.edu"), true)
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, impulse.Must(impulse.NewUUID()), "x@lakeside.edu"); err != nil || claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, impulse.Must(impulse.NewUUID()), "x@lakeside.edu", nil); err != nil || claimed {
 		t.Errorf("ClaimVerifiedEmail() of an unknown user = %v, %v; want not claimed and no error", claimed, err)
 	}
 }
@@ -391,10 +391,10 @@ func testUsernameIsEmail(ctx context.Context, t *testing.T, h *AuthHarness) {
 
 	// A method's verified address is claimed only when it is the username.
 	sam := createUser(ctx, t, in.Driver, "sam@lakeside.edu")
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "other@lakeside.edu"); err != nil || claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "other@lakeside.edu", nil); err != nil || claimed {
 		t.Errorf("ClaimVerifiedEmail() of an address that is not the username = %v, %v; want not claimed", claimed, err)
 	}
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "SAM@lakeside.edu"); err != nil || !claimed {
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "SAM@lakeside.edu", nil); err != nil || !claimed {
 		t.Errorf("ClaimVerifiedEmail() of the username = %v, %v; want claimed", claimed, err)
 	}
 	assertEmail(t, "User() after the claim", mustUser(ctx, t, in.Driver, sam.ID), strPtr("sam@lakeside.edu"), true)

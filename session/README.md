@@ -662,10 +662,12 @@ time inside a sentence is in UTC.
 
 The library that makes an act's write records it. The generated management records
 an administrator's acts and what a sign-in gives or takes. The session library
-records a person's own acts and the links it mails. The permission store records the
-roles a directory gives and takes at a sign-in. A sign-in itself is no act of the
-log, and neither is a session ended: the session's own events and the Sessions page
-hold those. A change an application makes by calling `access.UserManager` itself is
+records a person's own acts and the links it mails, and an address a sign-in writes
+onto the person's account (the one Google vouches for, or one a mailed code proved),
+done by the person through the sign-in. The permission store records the roles a
+directory gives and takes at a sign-in. A sign-in itself is no act of the log, and
+neither is a session ended: the session's own events and the Sessions page hold
+those. A change an application makes by calling `access.UserManager` itself is
 not recorded.
 
 Each storage method that makes one of the log's acts takes the act's record as its

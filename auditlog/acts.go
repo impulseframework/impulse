@@ -425,4 +425,8 @@ const (
 	ProcessDevice = "Device"
 	// ProcessPeriodEnd is a period's end, which clears what it ended.
 	ProcessPeriodEnd = "PeriodEnd"
+	// ProcessSignIn is a sign-in, through which the person who signs in writes onto their
+	// own account an address they have just proven: the one Google vouches for, or one a
+	// mailed code proved.
+	ProcessSignIn = "SignIn"
 )

@@ -108,6 +108,12 @@ func byProcess(name string) actedBy {
 	return actedBy{person: impulse.NilUUID, username: "", process: name}
 }
 
+// byPersonThrough is a person who acted through a process of the library's, as a sign-in
+// writes onto their account the address they have just proven.
+func byPersonThrough(id impulse.UUID, username, process string) actedBy {
+	return actedBy{person: id, username: username, process: process}
+}
+
 // checkRecord holds the record call was handed to want, its act, subject and parts, and
 // to who as who acted; the record must validate, a confirmation's once the store fills
 // its addresses (finished).
@@ -124,14 +130,18 @@ func checkRecord(t *testing.T, call string, got, want *auditlog.Record, who acte
 		t.Errorf("the record %s was handed (-want +got):\n%s", call, diff)
 	}
 	columns := got.Source.Columns()
-	if who.process != "" {
+	if who.process != "" && who.person == impulse.NilUUID {
 		if diff := cmp.Diff(map[string]any{"Process": who.process}, columns); diff != "" {
 			t.Errorf("who acted, in the record %s was handed (-want +got):\n%s", call, diff)
 		}
 
 		return
 	}
-	if columns["ActorUserId"] != who.person.String() || columns["ActorUsername"] != who.username || columns["Process"] != nil {
+	var process any
+	if who.process != "" {
+		process = who.process
+	}
+	if columns["ActorUserId"] != who.person.String() || columns["ActorUsername"] != who.username || columns["Process"] != process {
 		t.Errorf("who acted, in the record %s was handed = %v, want the person %s (%s)", call, columns, who.username, who.person)
 	}
 }

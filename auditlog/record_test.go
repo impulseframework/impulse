@@ -432,7 +432,10 @@ func TestSentencesWho(t *testing.T) {
 		{name: "a device", source: eventsource.ProcessEvent(ProcessDevice), want: "a device the person approved"},
 		{name: "a period's end", source: eventsource.ProcessEvent(ProcessPeriodEnd), want: "the end of its period"},
 		{name: "a directory", source: eventsource.ProcessEvent(ProcessDirectorySignIn), directory: "Acme", want: "the directory Acme"},
-		{name: "a person through a process", source: eventsource.UserProcessEvent(accountCtx("alice", aliceID, nil), ProcessSignUp), want: "alice, through the process SignUp"},
+		{name: "a person through a process of the library's", source: eventsource.UserProcessEvent(accountCtx("alice", aliceID, nil), ProcessSignUp), want: "alice, through a sign-up"},
+		{name: "a person through a sign-in", source: eventsource.UserProcessEvent(accountCtx("bob", bobID, nil), ProcessSignIn), want: "bob, through a sign-in"},
+		{name: "a sign-in", source: eventsource.ProcessEvent(ProcessSignIn), want: "a sign-in"},
+		{name: "a person through a process the library does not know", source: eventsource.UserProcessEvent(accountCtx("alice", aliceID, nil), "Nightly"), want: "alice, through the process Nightly"},
 		{name: "a process the library does not know", source: eventsource.ProcessEvent("Nightly"), want: "the process Nightly"},
 	}
 	for _, tt := range tests {

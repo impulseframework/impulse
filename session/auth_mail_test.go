@@ -1780,13 +1780,26 @@ func TestAuth_ClaimVerifiedEmail(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			store := mockstore.NewAuthStore[mockTx](ctrl)
 			store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
-			store.EXPECT().ClaimVerifiedEmail(gomock.Any(), userID, "pat@lakeside.edu").Return(true, nil).Times(tt.claims)
+			var got *auditlog.Record
+			store.EXPECT().ClaimVerifiedEmail(gomock.Any(), userID, "pat@lakeside.edu", gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ impulse.UUID, _ string, record *auditlog.Record) (bool, error) {
+					keep(&got, record)
+
+					return true, nil
+				}).Times(tt.claims)
 			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			a.claimVerifiedEmail(context.Background(), userID, tt.identity)
+			a.claimVerifiedEmail(context.Background(), userID, "pat", tt.identity)
+			if tt.claims == 0 {
+				return
+			}
+			// The address is the sign-in's act, done by the person to their own account.
+			set := wantAccount(auditlog.ActAddressChanged, userID, "pat")
+			set.NewValue = "pat@lakeside.edu"
+			checkRecord(t, "ClaimVerifiedEmail", got, set, byPersonThrough(userID, "pat", auditlog.ProcessSignIn))
 		})
 	}
 }

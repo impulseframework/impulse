@@ -55,7 +55,7 @@ func newAuthStoreMock(ctrl *gomock.Controller) *mockstore.AuthStore[mockTx] {
 	storage.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
 	// The bookkeeping after a sign-in, and the hint the session read looks for, read
 	// an empty store unless a test says otherwise.
-	storage.EXPECT().ClaimVerifiedEmail(gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
+	storage.EXPECT().ClaimVerifiedEmail(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
 	storage.EXPECT().IdentitiesByUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, userID impulse.UUID) ([]*sessionstorage.SessionIdentity, error) {
 		identityReadsOf(userID).Add(1)
 		links, _ := linkedIdentities.Load(userID)

@@ -331,18 +331,18 @@ func (mr *MockdbMockRecorder) ClaimUserName(ctx, id, name any) *gomock.Call {
 }
 
 // ClaimVerifiedEmail mocks base method.
-func (m *Mockdb) ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error) {
+func (m *Mockdb) ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string, record *auditlog.Record) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClaimVerifiedEmail", ctx, id, email)
+	ret := m.ctrl.Call(m, "ClaimVerifiedEmail", ctx, id, email, record)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ClaimVerifiedEmail indicates an expected call of ClaimVerifiedEmail.
-func (mr *MockdbMockRecorder) ClaimVerifiedEmail(ctx, id, email any) *gomock.Call {
+func (mr *MockdbMockRecorder) ClaimVerifiedEmail(ctx, id, email, record any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimVerifiedEmail", reflect.TypeOf((*Mockdb)(nil).ClaimVerifiedEmail), ctx, id, email)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimVerifiedEmail", reflect.TypeOf((*Mockdb)(nil).ClaimVerifiedEmail), ctx, id, email, record)
 }
 
 // ClearSignInAttempts mocks base method.

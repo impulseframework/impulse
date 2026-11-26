@@ -173,7 +173,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 		if err := a.storage.TouchUserSignIn(ctx, req.UserID); err != nil {
 			logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.TouchUserSignIn()"))
 		}
-		a.claimVerifiedEmail(ctx, req.UserID, at.identity)
+		a.claimVerifiedEmail(ctx, req.UserID, req.Username, at.identity)
 		a.claimName(ctx, req.UserID, at.identity)
 
 		return id, nil

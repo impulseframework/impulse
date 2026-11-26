@@ -32,21 +32,26 @@ func (s *Stored) Sentences(tenantWord string) Sentences {
 }
 
 // who is who or what acted, as a person reads it: the directory, where one acted; the
-// library's own process, where it acted with no person; and otherwise the sentence of
-// who made a change that every record of the library writes (eventsource.Stored.String),
-// without the RPC: the person and whom they acted as say who, the act says what, and the
-// RPC's name stays in its column and in the change history.
+// library's own process, where it acted with no person, and after the person where they
+// acted through it ("bob, through a sign-in"); and otherwise the sentence of who made a
+// change that every record of the library writes (eventsource.Stored.String), without
+// the RPC: the person and whom they acted as say who, the act says what, and the RPC's
+// name stays in its column and in the change history.
 func (s *Stored) who() string {
 	if s.Directory != "" {
 		return "the directory " + s.Directory
 	}
-	if s.Source.ActorUserID == "" {
-		if sentence, ok := processWords(s.Source.Process); ok {
-			return sentence
-		}
+	process, ofTheLibrary := processWords(s.Source.Process)
+	if s.Source.ActorUserID == "" && ofTheLibrary {
+		return process
 	}
 	source := s.Source
 	source.RPC = ""
+	if ofTheLibrary {
+		source.Process = ""
+
+		return source.String() + ", through " + process
+	}
 
 	return source.String()
 }
@@ -74,6 +79,8 @@ func processWords(process string) (string, bool) {
 		return "a device the person approved", true
 	case ProcessPeriodEnd:
 		return "the end of its period", true
+	case ProcessSignIn:
+		return "a sign-in", true
 	default:
 		return "", false
 	}

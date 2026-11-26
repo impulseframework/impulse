@@ -75,7 +75,7 @@ type AuthDriver interface {
 	SetUserEmail(ctx context.Context, id impulse.UUID, email *string, record *auditlog.Record) error
 	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string, record *auditlog.Record) error
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
-	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error)
+	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string, record *auditlog.Record) (bool, error)
 	SetUserName(ctx context.Context, id impulse.UUID, name *string) error
 	ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error)
 	SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error

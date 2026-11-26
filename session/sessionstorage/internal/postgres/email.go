@@ -182,17 +182,20 @@ func (s *SessionStorageDriver) VerifyUserEmailIn(ctx context.Context, tx pgx.Tx,
 	return nil
 }
 
-// ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own.
-func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string) (bool, error) {
+// ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own, which writes
+// record after the address where the claim wrote it, and none where it wrote nothing.
+func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string, record *auditlog.Record) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	var claimed bool
 	err := s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		claimed, err = s.ClaimVerifiedEmailIn(ctx, tx, userID, email)
+		if claimed, err = s.ClaimVerifiedEmailIn(ctx, tx, userID, email); err != nil || !claimed {
+			return err
+		}
 
-		return err
+		return s.InsertAuditRecordIn(ctx, tx, record)
 	})
 	if err != nil {
 		return false, err

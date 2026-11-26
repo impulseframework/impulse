@@ -559,6 +559,36 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 			},
 		},
 		{
+			name: "ClaimVerifiedEmail",
+			run: func(ctx context.Context, t *testing.T, in *AuthInstance, n byte) auditRun {
+				// A user with no confirmed address takes the one a sign-in's method vouches
+				// for.
+				user := auditUser(ctx, t, in.Driver, "vouched", n, nil)
+				address := fmt.Sprintf("vouched-%d@gmail.example", n)
+				record := accountRow(auditlog.ActAddressChanged, user)
+				record.NewValue = address
+
+				return auditRun{record: record, write: func(record *auditlog.Record) error {
+					return claimed(in.Driver.ClaimVerifiedEmail(ctx, user.ID, address, record))
+				}}
+			},
+			none: func(ctx context.Context, t *testing.T, in *AuthInstance, n byte) auditRun {
+				// A user who holds a confirmed address keeps it: nothing is claimed.
+				user := createUserConfirmed(ctx, t, in.Driver, fmt.Sprintf("vouched-%d", n), fmt.Sprintf("vouched-%d@lakeside.edu", n))
+				address := fmt.Sprintf("vouched-%d@gmail.example", n)
+				record := accountRow(auditlog.ActAddressChanged, user)
+				record.NewValue = address
+
+				return auditRun{record: record, write: func(record *auditlog.Record) error {
+					if took, err := in.Driver.ClaimVerifiedEmail(ctx, user.ID, address, record); err != nil || took {
+						return errors.Newf("ClaimVerifiedEmail() over a confirmed address = %t, %v, want nothing claimed", took, err)
+					}
+
+					return nil
+				}}
+			},
+		},
+		{
 			name: "ConfirmAddressByLink",
 			run: func(ctx context.Context, t *testing.T, in *AuthInstance, n byte) auditRun {
 				// The record is handed with who acted and the account; the flow writes the
@@ -603,6 +633,15 @@ func linkSecrets(link *dbtype.MailLink) []writtenSecret {
 // tokenSecrets are the secrets of a token: its hash.
 func tokenSecrets(token *dbtype.Token) []writtenSecret {
 	return []writtenSecret{{what: "a token's hash", value: token.TokenHash}}
+}
+
+// claimed answers the error of a claim, and an error where it claimed nothing.
+func claimed(took bool, err error) error {
+	if err == nil && !took {
+		return errors.New("ClaimVerifiedEmail() of a user with no confirmed address claimed nothing, want the address")
+	}
+
+	return err
 }
 
 // noLiveToken answers an error where userID still holds a live token.
