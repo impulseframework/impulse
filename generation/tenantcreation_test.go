@@ -440,7 +440,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 
 	r := tenantCreationFixtureGenerator(t, "Station", nil)
 	key, fields, setters := tenantCreationFields(r.resources[0])
-	out, err := r.generateTemplateOutput("tenantCreationTemplate", tenantCreationTemplate, &tenantCreationData{
+	data := &tenantCreationData{
 		Source:              "resources",
 		Package:             "app",
 		LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
@@ -464,7 +464,9 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		Refusal:             tenantCreationRefusal("Station"),
 		ClosedRefusal:       tenantCreationClosedRefusal("Station"),
 		OwnCreation:         tenantCreationOwnCreation("Station"),
-	})
+		NameField:           "Name",
+	}
+	out, err := r.generateTemplateOutput("tenantCreationTemplate", tenantCreationTemplate, data)
 	if err != nil {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
 	}
@@ -519,6 +521,9 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		// The first administrator's role is the creator's act: its row names the
 		// person of the session, though no grant judges it.
 		"byCreator := identity.ActingInSession(ctx)",
+		// The rows of the station's making name it by the name it is made with, as its
+		// later rows do: the roster learns of it only after the commit.
+		"if patch.NameIsSet() {\n\t\t\t\tbyCreator = identity.MakingTenant(byCreator, domain, patch.Name())\n\t\t\t}",
 		"if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
 		"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 		"if err := a.TenantRoster().Reload(ctx); err != nil {",
@@ -584,6 +589,9 @@ func Test_tenantCreationTemplate(t *testing.T) {
 	commit := strings.Index(s, "}); err != nil {")
 	roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
 	given := strings.Index(s, "identityClient.AssignRole(byCreator, txn,")
+	if setter, named := strings.Index(s, "patch.SetOpened(req.Opened)"), strings.Index(s, "identity.MakingTenant(byCreator, domain,"); setter < 0 || setter >= named || named >= given {
+		t.Errorf("order: the patch's last setter %d, the name carried %d, the membership %d; want ascending:\n%s", setter, named, given, out)
+	}
 	seat := strings.Index(s, "resource.AwaitFirstAdministrator(")
 	signal := strings.Index(s, "Signal(ctx, resource.KindTenants)")
 	answer := strings.Index(s, "return httpio.NewEncoder(w).Ok(")
@@ -608,6 +616,32 @@ func Test_tenantCreationTemplate(t *testing.T) {
 	}
 	if gate >= decode || decode >= begin || begin >= generated || generated >= row || row >= given || given >= commit || commit >= roster || roster >= seat || seat >= signal || signal >= answer {
 		t.Errorf("order: gate %d, decode %d, transaction %d, generated id %d, row %d, membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", gate, decode, begin, generated, row, given, commit, roster, seat, signal, answer, out)
+	}
+
+	// A name the record keeps in a nullable column is the one it points to; a record that
+	// marks no name carries none, and its rows name the station by its key.
+	for _, tt := range []struct {
+		name, field string
+		nullable    bool
+		want        string
+	}{
+		{name: "a nullable name", field: "Motto", nullable: true, want: "if patch.MottoIsSet() && patch.Motto() != nil {\n\t\t\t\tbyCreator = identity.MakingTenant(byCreator, domain, *patch.Motto())\n\t\t\t}"},
+		{name: "no name"},
+	} {
+		named := *data
+		named.NameField, named.NameNullable = tt.field, tt.nullable
+		out, err := r.generateTemplateOutput("tenantCreationTemplate", tenantCreationTemplate, &named)
+		if err != nil {
+			t.Fatalf("%s: generateTemplateOutput() error = %v", tt.name, err)
+		}
+		if _, err := format.Source(out); err != nil {
+			t.Fatalf("%s: the rendered file does not parse: %v\n%s", tt.name, err, out)
+		}
+		if tt.want == "" {
+			assertContains(t, "tenantCreationTemplate", string(out), nil, []string{"MakingTenant"})
+		} else {
+			assertContains(t, "tenantCreationTemplate", string(out), []string{tt.want}, nil)
+		}
 	}
 }
 
