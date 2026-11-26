@@ -72,7 +72,9 @@ func holdsText(t *testing.T, record *auditlog.Record, text string) bool {
 // invitation by its id and the invited address; an invitation with the roles and the
 // place it stores, in its tenant; one that makes a tenant in its form, with no role and
 // no tenant; a withdrawal; and an invitation sent again as one row of its own, done to
-// the new invitation. No row holds the invitation's secret.
+// the new invitation. A withdrawal and a second sending are in the tenant the invitation
+// invites into, whoever acted, and in the tenant the request was checked in where the
+// invitation names none. No row holds the invitation's secret.
 func TestInvitationActsRecorded(t *testing.T) {
 	t.Parallel()
 
@@ -81,6 +83,8 @@ func TestInvitationActsRecorded(t *testing.T) {
 	nightKey := access.NewMembershipKey(alphaScope, "", "NightShiftLead")
 	alphaNightShiftLead := access.RoleKey{Kind: nightKey.Kind, Axis: nightKey.Axis, Domain: nightKey.Domain, Role: "NightShiftLead"}
 	alphaCaller := recordCaller(accesstypes.DomainScope("alpha"))
+	// globalCaller is an administrator of the whole application, checked in no tenant.
+	globalCaller := recordCaller(accesstypes.GlobalScope())
 	// The roles of the tests' engine, and Keeper, the role that administers a tenant an
 	// invitation makes.
 	roles := map[accesstypes.PolicyScope][]accesstypes.Role{globalScope: {"Steward"}, alphaScope: {"Reader"}, everyScope: {"Reader", "Keeper"}}
@@ -176,6 +180,26 @@ func TestInvitationActsRecorded(t *testing.T) {
 			wantWhat: "Withdrew the invitation",
 		},
 		{
+			name: "a withdrawal of an invitation into a tenant, by an administrator checked in no tenant",
+			store: func() *fakeStore {
+				return &fakeStore{
+					links: map[impulse.UUID]*MailLink{invitationID: {Invitation: true, ExpiresAt: ahead}},
+					sentInvitations: map[impulse.UUID]*SentInvitation{
+						invitationID: {Invitation: Invitation{Email: "pat@example.com", Domain: ptr("alpha"), Roles: []accesstypes.Role{"Reader"}}, ExpiresAt: ahead},
+					},
+				}
+			},
+			ctx: globalCaller,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.WithdrawInvitation(ctx, txn, invitationID)
+			},
+			want: auditlog.Record{
+				Act: auditlog.ActInvitationWithdrawn, SubjectKind: auditlog.SubjectInvitation, SubjectID: invitationID.String(), SubjectName: "pat@example.com",
+				TenantID: "alpha", TenantName: "Alpha Sector",
+			},
+			wantWhat: "Withdrew the invitation",
+		},
+		{
 			name: "a withdrawal of an invitation whose address the store does not answer",
 			store: func() *fakeStore {
 				return &fakeStore{links: map[impulse.UUID]*MailLink{invitationID: {Invitation: true, ExpiresAt: ahead}}}
@@ -223,6 +247,25 @@ func TestInvitationActsRecorded(t *testing.T) {
 			},
 			wantWhat: "Sent the invitation again",
 		},
+		{
+			name: "an invitation into a tenant sent again by an administrator checked in no tenant",
+			store: func() *fakeStore {
+				return &fakeStore{sentInvitations: map[impulse.UUID]*SentInvitation{
+					oldID: {Invitation: Invitation{Email: "pat@example.com", Domain: ptr("alpha"), Roles: []accesstypes.Role{"Reader"}}, ExpiresAt: ahead},
+				}}
+			},
+			ctx: globalCaller,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				_, err := m.ResendInvitation(ctx, txn, oldID, nil)
+
+				return err
+			},
+			want: auditlog.Record{
+				Act: auditlog.ActInvitationSentAgain, SubjectKind: auditlog.SubjectInvitation, SubjectID: invitationID.String(), SubjectName: "pat@example.com",
+				TenantID: "alpha", TenantName: "Alpha Sector",
+			},
+			wantWhat: "Sent the invitation again",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -243,8 +286,8 @@ func TestInvitationActsRecorded(t *testing.T) {
 
 			want := tt.want
 			want.Source = eventsource.ProcessEvent(auditlog.ProcessApplication)
-			if tt.ctx == alphaCaller {
-				want.Source = eventsource.UserEvent(alphaCaller)
+			if tt.ctx == alphaCaller || tt.ctx == globalCaller {
+				want.Source = eventsource.UserEvent(tt.ctx)
 			}
 			if diff := cmp.Diff([]auditlog.Record{want}, store.audit, cmp.AllowUnexported(eventsource.EventSource{})); diff != "" {
 				t.Fatalf("audit rows (-want +got):\n%s", diff)

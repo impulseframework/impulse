@@ -97,19 +97,30 @@ func invitationRecord(act auditlog.Act, id impulse.UUID, address string) *auditl
 }
 
 // invitationSubject answers a row of an act done to an invitation, with its subject set
-// and nothing else: the invitation's id and the address it was mailed to, the id where
-// the store answers none.
+// and the tenant it invites into (invitationTenant), and nothing else: the invitation's id
+// and the address it was mailed to, the id and no tenant where the store answers none.
 func (m *Manager) invitationSubject(ctx context.Context, txn resource.ReadWriteTransaction, invitationID impulse.UUID) (*auditlog.Record, error) {
 	sent, found, err := m.store.SentInvitation(ctx, txn, invitationID)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.SentInvitation()")
 	}
-	address := invitationID.String()
-	if found {
-		address = sent.Invitation.Email
+	if !found {
+		return invitationRecord("", invitationID, invitationID.String()), nil
 	}
+	r := invitationRecord("", invitationID, sent.Invitation.Email)
+	invitationTenant(r, &sent.Invitation)
 
-	return invitationRecord("", invitationID, address), nil
+	return r, nil
+}
+
+// invitationTenant puts the row of an act done to the invitation in the tenant the
+// invitation invites into, so that tenant's own log shows what became of it whoever
+// acted; an invitation into every tenant or into the whole application names none, and
+// its row is in the tenant the request was checked in (record).
+func invitationTenant(r *auditlog.Record, inv *Invitation) {
+	if inv.Domain != nil {
+		r.TenantID = *inv.Domain
+	}
 }
 
 // groupWhere answers a group's name for a row of the audit log, as the store answers it

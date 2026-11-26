@@ -397,7 +397,9 @@ func (m *Manager) ResendInvitation(ctx context.Context, txn resource.ReadWriteTr
 		}
 	}
 	// One row for the act, done to the new invitation: sent again is not invited anew.
-	if err := m.record(ctx, txn, invitationRecord(auditlog.ActInvitationSentAgain, row.ID, row.Email)); err != nil {
+	again := invitationRecord(auditlog.ActInvitationSentAgain, row.ID, row.Email)
+	invitationTenant(again, &old.Invitation)
+	if err := m.record(ctx, txn, again); err != nil {
 		return impulse.NilUUID, err
 	}
 
