@@ -351,7 +351,8 @@ func Test_prepareIdentity_recordSharing(t *testing.T) {
 	assertContains(t, "the take method", readIdentityFile(t, "crewidentity/take_crew_role_on_voyage.go"), squashEach([]string{
 		"// TakeCrewRoleOnVoyage takes away a role a person holds on one Voyage of one Ship.",
 		"// @answers(204)\n// @class(access)\ntype TakeCrewRoleOnVoyage struct {",
-		"// @target(Voyage)\n\tRecordID impulse.UUID\n\tUserID impulse.UUID\n\tRole string `validate:\"required\"`\n}",
+		// A grant's condition reads the role taken as new.role, as the give's reads the role given.
+		"// @target(Voyage)\n\tRecordID impulse.UUID\n\tUserID impulse.UUID\n\t// Role is the role taken away. A grant's condition reads it as new.role, so a role file\n\t// can limit which roles the grant's holder takes away.\n\t//\n\t// @attribute(role)\n\tRole string `validate:\"required\"`\n}",
 		"if err := tenant.TakeRoleOn(ctx, txn, \"Voyages\", m.RecordID.String(), m.UserID, accesstypes.Role(m.Role)); err != nil {",
 	}), nil)
 	assertContains(t, "the group's give method", readIdentityFile(t, "crewidentity/give_crew_group_role_on_voyage.go"), squashEach([]string{
@@ -362,7 +363,7 @@ func Test_prepareIdentity_recordSharing(t *testing.T) {
 		"if err := tenant.GiveGroupRoleOn(ctx, txn, \"Voyages\", m.RecordID.String(), m.GroupID, accesstypes.Role(m.Role), period); err != nil {",
 	}), nil)
 	assertContains(t, "the group's take method", readIdentityFile(t, "crewidentity/take_crew_group_role_on_voyage.go"), squashEach([]string{
-		"// @target(Voyage)\n\tRecordID impulse.UUID\n\tGroupID impulse.UUID\n\tRole string `validate:\"required\"`\n}",
+		"// @target(Voyage)\n\tRecordID impulse.UUID\n\tGroupID impulse.UUID\n\t// Role is the role taken away. A grant's condition reads it as new.role, so a role file\n\t// can limit which roles the grant's holder takes away.\n\t//\n\t// @attribute(role)\n\tRole string `validate:\"required\"`\n}",
 		"if err := tenant.TakeGroupRoleOn(ctx, txn, \"Voyages\", m.RecordID.String(), m.GroupID, accesstypes.Role(m.Role)); err != nil {",
 	}), nil)
 	assertContains(t, "the roles to give on a voyage", readIdentityFile(t, "crewidentity/crew_voyage_roles.go"), squashEach([]string{

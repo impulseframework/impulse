@@ -162,6 +162,11 @@ FROM (
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
+  SELECT rr.DomainId AS DomainId, rr.UserId AS UserId
+  FROM CrewRecordUserRoles rr
+  WHERE rr.Axis = ''
+    AND (rr.StartsAt IS NULL OR rr.StartsAt <= CURRENT_TIMESTAMP()) AND (rr.EndsAt IS NULL OR rr.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
   SELECT dr.SectorId AS DomainId, du AS UserId
   FROM SectorDirectories dr, UNNEST(ARRAY(
     SELECT dl.UserId FROM CrewSessionIdentities dl

@@ -82,6 +82,12 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // admits the role, or what is left of the grant's condition reads the row the method
 // names (a person, a group), so the role could be given to some of them.
 //
+// The methods that give a role on one record of the tenant are asked the same way, with
+// the role alone, for the list a role on a record is picked from; what is left of the
+// grant's condition there reads the record:
+//
+//	GiveCrewRoleOnMission, GiveCrewGroupRoleOnMission
+//
 // For a request made for the whole application, the method is one of the whole
 // application's whose role field picks from the roles to give
 // (CrewGivableRoles), asked the same way, with the role and where it is held:
@@ -109,9 +115,13 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 			return couldGiveBy(ctx, caller, method, &InviteCrewSectorUser{Roles: []string{string(role)}})
 		case GiveCrewSectorGroupRole{}.Method():
 			return couldGiveBy(ctx, caller, method, &GiveCrewSectorGroupRole{Role: string(role)})
+		case GiveCrewRoleOnMission{}.Method():
+			return couldGiveBy(ctx, caller, method, &GiveCrewRoleOnMission{Role: string(role)})
+		case GiveCrewGroupRoleOnMission{}.Method():
+			return couldGiveBy(ctx, caller, method, &GiveCrewGroupRoleOnMission{Role: string(role)})
 		}
 
-		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: AssignCrewSectorRole, InviteCrewSectorUser, GiveCrewSectorGroupRole", method)
+		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: AssignCrewSectorRole, InviteCrewSectorUser, GiveCrewSectorGroupRole, GiveCrewRoleOnMission, GiveCrewGroupRoleOnMission", method)
 	}
 
 	domain, everyDomain := scopeFields(scope)

@@ -48,6 +48,10 @@ const (
 	CrewListedSectorID                httpio.ParamType = "crewListedSectorID"
 	CrewListedSessionID               httpio.ParamType = "crewListedSessionID"
 	CrewListedUserID                  httpio.ParamType = "crewListedUserID"
+	CrewMissionHolderRecordID         httpio.ParamType = "crewMissionHolderRecordID"
+	CrewMissionHolderMemberKind       httpio.ParamType = "crewMissionHolderMemberKind"
+	CrewMissionHolderMemberID         httpio.ParamType = "crewMissionHolderMemberID"
+	CrewMissionHolderRole             httpio.ParamType = "crewMissionHolderRole"
 	CrewSectorGroupID                 httpio.ParamType = "crewSectorGroupID"
 	CrewSectorGroupRoleGroupID        httpio.ParamType = "crewSectorGroupRoleGroupID"
 	CrewSectorGroupRoleRole           httpio.ParamType = "crewSectorGroupRoleRole"
@@ -242,6 +246,11 @@ type GeneratedHandlers interface {
 	CrewListedUsers() http.HandlerFunc
 	CrewListedUser() http.HandlerFunc
 
+	CrewMissionHolders() http.HandlerFunc
+	CrewMissionHolder() http.HandlerFunc
+
+	CrewMissionRoles() http.HandlerFunc
+
 	CrewRememberLengths() http.HandlerFunc
 
 	CrewRoles() http.HandlerFunc
@@ -408,6 +417,10 @@ type GeneratedHandlers interface {
 	FeeByKind() http.HandlerFunc
 
 	GiveCrewGroupRole() http.HandlerFunc
+
+	GiveCrewGroupRoleOnMission() http.HandlerFunc
+
+	GiveCrewRoleOnMission() http.HandlerFunc
 
 	GiveCrewSectorGroupRole() http.HandlerFunc
 
@@ -683,7 +696,11 @@ type GeneratedHandlers interface {
 
 	TakeCrewGroupRole() http.HandlerFunc
 
+	TakeCrewGroupRoleOnMission() http.HandlerFunc
+
 	TakeCrewRole() http.HandlerFunc
+
+	TakeCrewRoleOnMission() http.HandlerFunc
 
 	TakeCrewSectorGroupRole() http.HandlerFunc
 
@@ -924,6 +941,18 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewListedUserHandler := h.CrewListedUser()
 	bounded.Get("/console/api/crew-listed-users/{crewListedUserID}", crewListedUserHandler)
 	bounded.Post("/console/api/crew-listed-users/{crewListedUserID}", crewListedUserHandler)
+
+	crewMissionHoldersHandler := domainGuard(h.CrewMissionHolders())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-mission-holders", crewMissionHoldersHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-mission-holders", crewMissionHoldersHandler)
+
+	crewMissionHolderHandler := domainGuard(h.CrewMissionHolder())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-mission-holders/{crewMissionHolderRecordID}/{crewMissionHolderMemberKind}/{crewMissionHolderMemberID}/{crewMissionHolderRole}", crewMissionHolderHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-mission-holders/{crewMissionHolderRecordID}/{crewMissionHolderMemberKind}/{crewMissionHolderMemberID}/{crewMissionHolderRole}", crewMissionHolderHandler)
+
+	crewMissionRolesHandler := domainGuard(h.CrewMissionRoles())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-mission-roles", crewMissionRolesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-mission-roles", crewMissionRolesHandler)
 
 	crewRememberLengthsHandler := h.CrewRememberLengths()
 	bounded.Get("/console/api/crew-remember-lengths", crewRememberLengthsHandler)
@@ -1244,6 +1273,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Post("/console/api/fee-by-kinds/{feeByKindKindID}", feeByKindHandler)
 
 	asked.Post("/console/api/give-crew-group-role", h.GiveCrewGroupRole())
+
+	asked.Post("/console/api/sectors/{sectorID}/give-crew-group-role-on-mission", domainGuard(h.GiveCrewGroupRoleOnMission()))
+
+	asked.Post("/console/api/sectors/{sectorID}/give-crew-role-on-mission", domainGuard(h.GiveCrewRoleOnMission()))
 
 	asked.Post("/console/api/sectors/{sectorID}/give-crew-sector-group-role", domainGuard(h.GiveCrewSectorGroupRole()))
 
@@ -1749,7 +1782,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	asked.Post("/console/api/take-crew-group-role", h.TakeCrewGroupRole())
 
+	asked.Post("/console/api/sectors/{sectorID}/take-crew-group-role-on-mission", domainGuard(h.TakeCrewGroupRoleOnMission()))
+
 	asked.Post("/console/api/take-crew-role", h.TakeCrewRole())
+
+	asked.Post("/console/api/sectors/{sectorID}/take-crew-role-on-mission", domainGuard(h.TakeCrewRoleOnMission()))
 
 	asked.Post("/console/api/sectors/{sectorID}/take-crew-sector-group-role", domainGuard(h.TakeCrewSectorGroupRole()))
 

@@ -54,6 +54,15 @@ type (
 	// once is not among them: HeldInEveryTenant says it, and a role file grants or keeps back
 	// each by itself. It is no filter key.
 	//
+	// A person who holds a role on one of the tenant's records is one of its people, whether
+	// or not they hold anything else there. RecordsHeld (recordsHeld) is how many of the
+	// tenant's records the person holds a role on that has not ended, their own or through a
+	// group; RecordsHeldKind (recordsHeldKind) is the records' resource where they are all of
+	// one kind, and empty otherwise; RecordHeldName (recordHeldName) is the record's name
+	// where the person holds a role on one record and its kind declares a name (@name), and
+	// empty otherwise. HeldHere and the facts beside it speak of what the person holds in the
+	// tenant itself, and a role on a record is none of it. None of the three is a filter key.
+	//
 	// LockedUntil (lockedUntil) is until when the person's sign-in is locked by failed
 	// tries, and nothing for a person who is not locked: the latest lock still ahead among
 	// the counts the session library keeps for the account under its username and under its
@@ -103,8 +112,11 @@ type (
 		CreatedAt              time.Time  `spanner:"CreatedAt"`
 		LastSignInAt           *time.Time `spanner:"LastSignInAt"`
 		// @roleOf(Crew)
-		Roles       []string   `spanner:"Roles"`
-		LockedUntil *time.Time `spanner:"LockedUntil"`
+		Roles           []string   `spanner:"Roles"`
+		RecordsHeld     int64      `spanner:"RecordsHeld"`
+		RecordsHeldKind string     `spanner:"RecordsHeldKind"`
+		RecordHeldName  string     `spanner:"RecordHeldName"`
+		LockedUntil     *time.Time `spanner:"LockedUntil"`
 		// @attribute(heldElsewhere)
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
@@ -125,15 +137,21 @@ type (
 
 // crewSectorUserQuery selects the people of every tenant: who holds a role in a
 // tenant (CrewUserRoles, one tenant's memberships, and the memberships held in
-// every tenant once per row of Sectors), and who signs in through a tenant's
+// every tenant once per row of Sectors), who holds a role on one of its records
+// (CrewRecordUserRoles), and who signs in through a tenant's
 // directory (SectorDirectories and CrewSessionIdentities), joined to the account by the id a
 // membership names its person by. Who manages each account is read over the columns of
 // that select, so where the person holds roles is read once for a row.
 const crewSectorUserQuery = `
 SELECT
-  * EXCEPT (ThroughHere, ThroughAnother),
+  * EXCEPT (ThroughHere, ThroughAnother, RecordsHeldOn),
   (ThroughHere OR (NOT ThroughAnother AND HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally)) AS ManagedHere,
-  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory
+  (ThroughAnother AND NOT ThroughHere) AS ManagedByAnotherDirectory,
+  ARRAY_LENGTH(RecordsHeldOn) AS RecordsHeld,
+  IF((SELECT COUNT(DISTINCT h.Resource) FROM UNNEST(RecordsHeldOn) h) = 1, RecordsHeldOn[SAFE_OFFSET(0)].Resource, '') AS RecordsHeldKind,
+  IF(ARRAY_LENGTH(RecordsHeldOn) = 1, CASE RecordsHeldOn[SAFE_OFFSET(0)].Resource
+    WHEN 'Missions' THEN COALESCE((SELECT n.Title FROM Missions n WHERE n.Id = RecordsHeldOn[SAFE_OFFSET(0)].RecordId), '')
+    ELSE '' END, '') AS RecordHeldName
 FROM (
 SELECT
   u.Id AS Id,
@@ -177,6 +195,26 @@ SELECT
     ) hr
     ORDER BY hr.Role
   ) AS Roles,
+  ARRAY(
+    SELECT AS STRUCT hr.Resource AS Resource, hr.RecordId AS RecordId
+    FROM (
+      SELECT o.Resource AS Resource, o.RecordId AS RecordId
+      FROM CrewRecordUserRoles o
+      WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId
+        AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+      UNION ALL
+      SELECT gr.Resource AS Resource, gr.RecordId AS RecordId
+      FROM CrewGroupMembers gm, UNNEST(ARRAY(
+        SELECT AS STRUCT r.Resource AS Resource, r.RecordId AS RecordId
+        FROM CrewRecordGroupRoles r
+        WHERE r.GroupId = gm.GroupId AND r.Axis = '' AND r.DomainId = t.DomainId
+          AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+      )) AS gr
+      WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+    ) hr
+    GROUP BY hr.Resource, hr.RecordId
+    ORDER BY hr.Resource, hr.RecordId
+  ) AS RecordsHeldOn,
   (SELECT MAX(la.LockedUntil) FROM CrewSessionSignInAttempts la
    WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))
      AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,
@@ -344,6 +382,11 @@ FROM (
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
+  SELECT rr.DomainId AS DomainId, rr.UserId AS UserId
+  FROM CrewRecordUserRoles rr
+  WHERE rr.Axis = ''
+    AND (rr.StartsAt IS NULL OR rr.StartsAt <= CURRENT_TIMESTAMP()) AND (rr.EndsAt IS NULL OR rr.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
   SELECT dr.SectorId AS DomainId, du AS UserId
   FROM SectorDirectories dr, UNNEST(ARRAY(
     SELECT dl.UserId FROM CrewSessionIdentities dl
@@ -401,6 +444,11 @@ FROM (
   WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT rr.DomainId AS DomainId, rr.UserId AS UserId
+  FROM CrewRecordUserRoles rr
+  WHERE rr.Axis = ''
+    AND (rr.StartsAt IS NULL OR rr.StartsAt <= CURRENT_TIMESTAMP()) AND (rr.EndsAt IS NULL OR rr.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
   SELECT dr.SectorId AS DomainId, du AS UserId
   FROM SectorDirectories dr, UNNEST(ARRAY(

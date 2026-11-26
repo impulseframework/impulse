@@ -104,6 +104,13 @@ var LiveDerivations = &live.Derivations{
 			{Name: resources.SectorDirectory{}.Resource()},
 			{Name: resources.Sector{}.Resource(), Global: true},
 		}},
+		// CrewMissionHolders: the tables its query reads.
+		{Resource: crewresources.CrewMissionHolder{}.Resource(), Tables: []live.SourceTable{
+			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewRecordGroupRole{}.Resource()},
+			{Name: crewresources.CrewRecordUserRole{}.Resource()},
+			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
+		}},
 		// CrewSectorGroups: the tables its query reads.
 		{Resource: crewresources.CrewSectorGroup{}.Resource(), Tables: []live.SourceTable{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
@@ -138,6 +145,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewRecordUserRole{}.Resource()},
 			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
@@ -163,10 +171,13 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewRecordGroupRole{}.Resource()},
+			{Name: crewresources.CrewRecordUserRole{}.Resource()},
 			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
+			{Name: resources.Mission{}.Resource()},
 			{Name: resources.SectorDirectory{}.Resource()},
 			{Name: resources.Sector{}.Resource(), Global: true},
 		}},

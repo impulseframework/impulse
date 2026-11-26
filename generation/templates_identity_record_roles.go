@@ -673,8 +673,12 @@ type {{ .Sharing.Take }} struct {
 	//
 	// @target({{ .SharedRecord }})
 	RecordID {{ .SharedKeyType }}
-	UserID   impulse.UUID
-	Role     string ` + "`validate:\"required\"`" + `
+	UserID impulse.UUID
+	// Role is the role taken away. A grant's condition reads it as new.role, so a role file
+	// can limit which roles the grant's holder takes away.
+	//
+	// @attribute(role)
+	Role string ` + "`validate:\"required\"`" + `
 }
 
 // Execute buffers the removal into the caller's transaction.
@@ -780,8 +784,12 @@ type {{ .Sharing.TakeGroup }} struct {
 	//
 	// @target({{ .SharedRecord }})
 	RecordID {{ .SharedKeyType }}
-	GroupID  impulse.UUID
-	Role     string ` + "`validate:\"required\"`" + `
+	GroupID impulse.UUID
+	// Role is the role taken away. A grant's condition reads it as new.role, so a role file
+	// can limit which roles the grant's holder takes away.
+	//
+	// @attribute(role)
+	Role string ` + "`validate:\"required\"`" + `
 }
 
 // Execute buffers the removal into the caller's transaction.

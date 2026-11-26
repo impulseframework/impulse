@@ -120,6 +120,14 @@ func (a *App) CrewListedUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedUser()
 }
 
+func (a *App) CrewMissionHolders() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewMissionHolders()
+}
+
+func (a *App) CrewMissionHolder() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewMissionHolder()
+}
+
 func (a *App) CrewRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewRoles()
 }
@@ -316,6 +324,10 @@ func (a *App) CrewListedRoleGrants() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedRoleGrants()
 }
 
+func (a *App) CrewMissionRoles() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewMissionRoles()
+}
+
 func (a *App) CrewRememberLengths() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewRememberLengths()
 }
@@ -434,6 +446,14 @@ func (a *App) EndCrewUserSessions() http.HandlerFunc {
 
 func (a *App) GiveCrewGroupRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).GiveCrewGroupRole()
+}
+
+func (a *App) GiveCrewGroupRoleOnMission() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).GiveCrewGroupRoleOnMission()
+}
+
+func (a *App) GiveCrewRoleOnMission() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).GiveCrewRoleOnMission()
 }
 
 func (a *App) GiveCrewSectorGroupRole() http.HandlerFunc {
@@ -568,8 +588,16 @@ func (a *App) TakeCrewGroupRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).TakeCrewGroupRole()
 }
 
+func (a *App) TakeCrewGroupRoleOnMission() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).TakeCrewGroupRoleOnMission()
+}
+
 func (a *App) TakeCrewRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).TakeCrewRole()
+}
+
+func (a *App) TakeCrewRoleOnMission() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).TakeCrewRoleOnMission()
 }
 
 func (a *App) TakeCrewSectorGroupRole() http.HandlerFunc {

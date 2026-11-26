@@ -12,9 +12,10 @@ type Method interface {
 		DeleteCrewSectorUser | DeleteCrewUser | DescribeCrewGroup | DescribeCrewSectorGroup |
 		DisableCrewSectorUser | DisableCrewUser | EnableCrewSectorUser | EnableCrewUser |
 		EndCrewSectorUserSessions | EndCrewSession | EndCrewSessionImpersonation |
-		EndCrewUserSessions | GiveCrewGroupRole | GiveCrewSectorGroupRole | InviteCrewSector |
-		InviteCrewSectorUser | InviteCrewUser | MakeCrewInviteOnly | OpenCrewSignUp |
-		RemoveCrewGroupMember | RemoveCrewPassword | RemoveCrewRole | RemoveCrewSectorGroupMember |
+		EndCrewUserSessions | GiveCrewGroupRole | GiveCrewGroupRoleOnMission |
+		GiveCrewRoleOnMission | GiveCrewSectorGroupRole | InviteCrewSector | InviteCrewSectorUser |
+		InviteCrewUser | MakeCrewInviteOnly | OpenCrewSignUp | RemoveCrewGroupMember |
+		RemoveCrewPassword | RemoveCrewRole | RemoveCrewSectorGroupMember |
 		RemoveCrewSectorPassword | RemoveCrewSectorRole | RemoveCrewSectorUser |
 		RenameCrewSectorUser | RenameCrewUser | RequireCrewPasswordChange |
 		RequireCrewSecondFactor | RequireCrewSectorPasswordChange | ResendCrewInvitation |
@@ -23,8 +24,8 @@ type Method interface {
 		SendCrewSectorUserPasswordResetLink | SendCrewUserPasswordResetLink |
 		SetCrewRememberedBrowsers | SetCrewSectorUserEmail | SetCrewSectorUserName |
 		SetCrewSelfServiceReset | SetCrewUserEmail | SetCrewUserName |
-		StopRequiringCrewSecondFactor | TakeCrewGroupRole | TakeCrewRole |
-		TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity |
-		UnlockCrewSignIn | WithdrawCrewInvitation | WithdrawCrewInvitedSector |
-		WithdrawCrewSectorInvitation
+		StopRequiringCrewSecondFactor | TakeCrewGroupRole | TakeCrewGroupRoleOnMission |
+		TakeCrewRole | TakeCrewRoleOnMission | TakeCrewSectorGroupRole |
+		UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity | UnlockCrewSignIn |
+		WithdrawCrewInvitation | WithdrawCrewInvitedSector | WithdrawCrewSectorInvitation
 }

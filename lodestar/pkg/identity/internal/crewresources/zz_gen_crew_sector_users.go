@@ -38,6 +38,9 @@ type crewSectorUserRead struct {
 	CreatedAt                 time.Time    `json:"createdAt"`
 	LastSignInAt              *time.Time   `json:"lastSignInAt"`
 	Roles                     []string     `json:"roles"`
+	RecordsHeld               int64        `json:"recordsHeld"`
+	RecordsHeldKind           string       `json:"recordsHeldKind"`
+	RecordHeldName            string       `json:"recordHeldName"`
 	LockedUntil               *time.Time   `json:"lockedUntil"`
 	HeldElsewhere             bool         `json:"heldElsewhere"`
 	HeldGlobally              bool         `json:"heldGlobally"`
@@ -168,6 +171,9 @@ func (c *CrewSectorUserColumns) All() *CrewSectorUserColumns {
 		"CreatedAt",
 		"LastSignInAt",
 		"Roles",
+		"RecordsHeld",
+		"RecordsHeldKind",
+		"RecordHeldName",
 		"LockedUntil",
 		"HeldElsewhere",
 		"HeldGlobally",
@@ -251,6 +257,24 @@ func (c *CrewSectorUserColumns) LastSignInAt() *CrewSectorUserColumns {
 
 func (c *CrewSectorUserColumns) Roles() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "Roles")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) RecordsHeld() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "RecordsHeld")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) RecordsHeldKind() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "RecordsHeldKind")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) RecordHeldName() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "RecordHeldName")
 
 	return c
 }
@@ -487,6 +511,18 @@ func (c *crewSectorUserSort) LastSignInAt() *CrewSectorUserSort {
 
 func (c *crewSectorUserSort) Roles() *CrewSectorUserSort {
 	return c.addField("Roles")
+}
+
+func (c *crewSectorUserSort) RecordsHeld() *CrewSectorUserSort {
+	return c.addField("RecordsHeld")
+}
+
+func (c *crewSectorUserSort) RecordsHeldKind() *CrewSectorUserSort {
+	return c.addField("RecordsHeldKind")
+}
+
+func (c *crewSectorUserSort) RecordHeldName() *CrewSectorUserSort {
+	return c.addField("RecordHeldName")
 }
 
 func (c *crewSectorUserSort) LockedUntil() *CrewSectorUserSort {

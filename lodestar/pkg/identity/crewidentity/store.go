@@ -1249,8 +1249,10 @@ func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTr
 	// The tenant's delete took the application's rows under the tenant before it reached
 	// the groups: the group's delete takes its members and its roles, and leaves the
 	// application's rows out.
+	// Its roles on records keep a change history, which records their delete as the
+	// request's person's (deletedBy).
 	patch := crewresources.NewCrewGroupDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
-	if err := patch.Buffer(ctx, txn); err != nil {
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
 		return nil, errors.Wrap(err, "crewresources.CrewGroupDeletePatch.Buffer()")
 	}
 
@@ -1682,37 +1684,196 @@ func (store) GroupPeriods(ctx context.Context, txn resource.ReadOnlyTransaction,
 	return periods, nil
 }
 
-// errNoRecordRoles answers a call that gives or takes a role on a record for an auth whose
-// role file holds no role on a record the application marks: the generator declared
-// neither table of the roles held on a record, and the tables hold no row.
-var errNoRecordRoles = errors.New("no record of this application holds roles: mark one with @holdsRoles and name it in a role's heldOn")
+// SetRecordMembership writes the person's role on the record with its period: a row that
+// is not there is created, and one that is, committed or written earlier in this
+// transaction, keeps the time the role was given and takes the period handed. Each write
+// leaves its change event under the caller.
+func (store) SetRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey, period accesstypes.Period) error {
+	create := crewresources.NewCrewRecordUserRoleCreatePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), string(key.User)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr()).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := create.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewRecordUserRoleCreatePatch.Buffer()")
+	}
+	if !create.RowSkipped() {
+		return nil
+	}
+	update := crewresources.NewCrewRecordUserRoleUpdatePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), string(key.User)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := update.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewRecordUserRoleUpdatePatch.Buffer()")
+	}
 
-func (store) SetRecordMembership(context.Context, resource.ReadWriteTransaction, *access.RecordMembershipKey, accesstypes.Period) error {
-	return errNoRecordRoles
+	return nil
 }
 
-func (store) DeleteRecordMembership(context.Context, resource.ReadWriteTransaction, *access.RecordMembershipKey) error {
-	return errNoRecordRoles
+// DeleteRecordMembership removes the person's role on the record, the delete recorded as
+// the request's person's (deletedBy). A role the person does not hold there is no error:
+// the delete stays buffered, as on a table that keeps no change records, and no change
+// record is written.
+func (store) DeleteRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey) error {
+	patch := crewresources.NewCrewRecordUserRoleDeletePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), string(key.User))
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		if httpio.HasNotFound(err) {
+			return nil
+		}
+
+		return errors.Wrap(err, "crewresources.CrewRecordUserRoleDeletePatch.Buffer()")
+	}
+
+	return nil
 }
 
-func (store) SetRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey, accesstypes.Period) error {
-	return errNoRecordRoles
+// SetRecordGroupRole writes the group's role on the record with its period, as
+// SetRecordMembership writes a person's.
+func (store) SetRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey, period accesstypes.Period) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	create := crewresources.NewCrewRecordGroupRoleCreatePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), id).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr()).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := create.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewRecordGroupRoleCreatePatch.Buffer()")
+	}
+	if !create.RowSkipped() {
+		return nil
+	}
+	update := crewresources.NewCrewRecordGroupRoleUpdatePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), id).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := update.Buffer(ctx, txn, eventsource.UserEvent(ctx)); err != nil {
+		return errors.Wrap(err, "crewresources.CrewRecordGroupRoleUpdatePatch.Buffer()")
+	}
+
+	return nil
 }
 
-func (store) DeleteRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey) error {
-	return errNoRecordRoles
+// DeleteRecordGroupRole removes the group's role on the record, as DeleteRecordMembership
+// removes a person's.
+func (store) DeleteRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	patch := crewresources.NewCrewRecordGroupRoleDeletePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), id)
+	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
+		if httpio.HasNotFound(err) {
+			return nil
+		}
+
+		return errors.Wrap(err, "crewresources.CrewRecordGroupRoleDeletePatch.Buffer()")
+	}
+
+	return nil
 }
 
-// Nobody holds a role on a record no role can be held on.
+func (store) RecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	// Both tables' keys lead with the record: each list is the rows under the record's
+	// part of the key.
+	record := access.NewRecordMembershipKey(at, "", "")
+	people, err := recordMemberships(ctx, txn, crewresources.NewCrewRecordUserRoleQuery().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record))
+	if err != nil {
+		return nil, nil, err
+	}
+	groups, err := recordGroupRoles(ctx, txn, crewresources.NewCrewRecordGroupRoleQuery().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record))
+	if err != nil {
+		return nil, nil, err
+	}
 
-func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
-	return nil, nil, nil
+	return people, groups, nil
 }
 
-func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
-	return nil, nil, nil
+func (store) TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	// Both tables' keys lead with the record's tenant: each list is the rows under the
+	// tenant's part of the key.
+	tenant := access.NewRecordMembershipKey(accesstypes.NewRecordScope(domain, "", ""), "", "")
+	people, err := recordMemberships(ctx, txn, crewresources.NewCrewRecordUserRoleQuery().
+		SetAxis(tenant.Axis).SetDomainID(tenant.Domain))
+	if err != nil {
+		return nil, nil, err
+	}
+	groups, err := recordGroupRoles(ctx, txn, crewresources.NewCrewRecordGroupRoleQuery().
+		SetAxis(tenant.Axis).SetDomainID(tenant.Domain))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return people, groups, nil
 }
 
-func (store) RecordMemberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordMembershipKey, error) {
-	return nil, nil
+func (store) RecordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.RecordMembershipKey, error) {
+	// The table's index by user leads with the person, the id of their account. A role
+	// whose period has ended is left out.
+	query := crewresources.NewCrewRecordUserRoleQuery().
+		AddColumns(crewresources.NewCrewRecordUserRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().UserID().EndsAt()).
+		Where(crewresources.NewCrewRecordUserRoleQueryClause().UserID().Equal(userID.String())).
+		Sort(crewresources.NewCrewRecordUserRoleSort().Axis().DomainID().ResourceName().RecordID().Role().UserID())
+	now := time.Now()
+	var keys []access.RecordMembershipKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordUserRoleQuery.List()")
+		}
+		if row.Data.EndsAt != nil && !row.Data.EndsAt.After(now) {
+			continue
+		}
+		keys = append(keys, recordMembershipKey(&row.Data))
+	}
+
+	return keys, nil
+}
+
+// recordMemberships lists the rows a query of the people's roles on records reads, as
+// their keys, in the table's key order.
+func recordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, query *crewresources.CrewRecordUserRoleQuery) ([]access.RecordMembershipKey, error) {
+	query = query.
+		AddColumns(crewresources.NewCrewRecordUserRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().UserID()).
+		Sort(crewresources.NewCrewRecordUserRoleSort().Axis().DomainID().ResourceName().RecordID().Role().UserID())
+	var keys []access.RecordMembershipKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordUserRoleQuery.List()")
+		}
+		keys = append(keys, recordMembershipKey(&row.Data))
+	}
+
+	return keys, nil
+}
+
+// recordMembershipKey is the key of a row of the people's roles on records.
+func recordMembershipKey(held *crewresources.CrewRecordUserRole) access.RecordMembershipKey {
+	return access.RecordMembershipKey{
+		Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+		Role: accesstypes.Role(held.Role), User: accesstypes.User(held.UserID),
+	}
+}
+
+// recordGroupRoles lists the rows a query of the groups' roles on records reads, as their
+// keys, in the table's key order.
+func recordGroupRoles(ctx context.Context, txn resource.ReadWriteTransaction, query *crewresources.CrewRecordGroupRoleQuery) ([]access.RecordGroupRoleKey, error) {
+	query = query.
+		AddColumns(crewresources.NewCrewRecordGroupRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().GroupID()).
+		Sort(crewresources.NewCrewRecordGroupRoleSort().Axis().DomainID().ResourceName().RecordID().Role().GroupID())
+	var keys []access.RecordGroupRoleKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordGroupRoleQuery.List()")
+		}
+		held := row.Data
+		keys = append(keys, access.RecordGroupRoleKey{
+			Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+			Role: accesstypes.Role(held.Role), Group: accesstypes.Group(held.GroupID.String()),
+		})
+	}
+
+	return keys, nil
 }

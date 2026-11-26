@@ -97,11 +97,24 @@ type (
 	// description (DeleteTree in the generated file): expenses first, then sorties and
 	// documents.
 	//
+	// A role can be held on one mission (@holdsRoles): the crew's MissionObserver and
+	// MissionLead name Missions in their heldOn, and the sector's administrator gives either
+	// to a person or a group of the sector on one mission, from the mission's Sharing list.
+	// Its grants then count on that mission, on its sorties, their expenses and its
+	// documents, which are under it by the schema, and on the squadron it names
+	// (AssignedSquadronId), and on nothing else: a person who holds nothing else in the
+	// sector enters it for that mission alone, and the sector's people list says so. A lead
+	// shares the mission with observers, and the mission's delete takes the roles held on
+	// it.
+	//
+	// Demonstrates: @holdsRoles.
+	//
 	// Demonstrates: @state, @attribute, @attribute.decimal, @attribute.timestamp, @attribute.nullable-fk, output_only, default_create_fn, @defaultsCreateType, @validateCreateType, change-tracking, outlet.shared, @order, @page, cell-masking, paging.masked-sort, masking.positional, filter.typed-values, filter.validated-at-decode, condition.now, condition.not-in, condition.prefix-not, condition.subject-scalar, condition.old-vs-new, write-grouping, @attribute.join-path-global, @enumerate.plain-column, @enumerate.key-view, metadata.filterable, index.tenant-second, commit.referential-refusal, commit.constraint-refusal, decode.value-limit, search.box, search.date, search.partitioned, condition.key-only-read, @deleteCascade.
 	//
 	// @resource
 	// @permissionScope(domain)
 	// @deleteCascade(Sortie, SortieExpense, MissionDocument)
+	// @holdsRoles
 	// @listAcrossTenants
 	// @outlet(default, portal)
 	// @order(Deadline asc)

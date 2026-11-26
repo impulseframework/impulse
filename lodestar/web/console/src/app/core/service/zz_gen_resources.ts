@@ -233,6 +233,17 @@ export interface CrewListedUsers {
   managingTenantName?: string;
 }
 
+export interface CrewMissionHolders {
+  recordId: string;
+  memberKind: string;
+  memberId: string;
+  role: string;
+  domainId?: string;
+  name?: string;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+
 export interface CrewRoles {
   kind: string;
   axis: string;
@@ -339,6 +350,9 @@ export interface CrewSectorUsers {
   createdAt?: Date;
   lastSignInAt?: Date;
   roles?: string[];
+  recordsHeld?: number;
+  recordsHeldKind?: string;
+  recordHeldName?: string;
   lockedUntil?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
@@ -1141,6 +1155,12 @@ export interface CrewListedRoleGrants {
   skipped?: string;
 }
 
+export interface CrewMissionRoles {
+  name: string;
+  description?: string;
+  method?: string;
+}
+
 export interface CrewRememberLengths {
   name: string;
   days?: number;
@@ -1447,7 +1467,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
@@ -1480,7 +1500,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 5 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewListedGroups },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
@@ -1503,7 +1523,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
-      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
     ],
     nameFields: [{ fieldName: 'domainName', of: 'domainId', filterable: 'always' }],
   },
@@ -1517,7 +1537,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
@@ -1557,7 +1577,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'userId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'tenantId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.Sectors },
       { fieldName: 'everyTenant', displayType: 'boolean', required: true, isIndex: false },
-      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'sentBy', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'makesTenant', displayType: 'boolean', required: true, isIndex: false },
@@ -1640,13 +1660,28 @@ const resourceMap = defineResourceMap({
       { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
-      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'trustedDevices', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'managedByTenant', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'managingTenant', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
     ],
     nameFields: [{ fieldName: 'managingTenantName', of: 'managingTenant', filterable: 'always' }],
+  },
+  [Resources.CrewMissionHolders]: {
+    route: 'sectors/{sectorID}/crew-mission-holders',
+    live: true,
+    rowWords: { one: 'holder', many: 'holders' },
+    fields: [
+      { fieldName: 'recordId', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'memberKind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'memberId', primaryKey: { ordinalPosition: 2 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
+    ],
   },
   [Resources.CrewRoles]: {
     route: 'crew-roles',
@@ -1677,7 +1712,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'people', displayType: 'number', required: true, isIndex: false },
-      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
     ],
   },
   [Resources.CrewSectorGroupRoles]: {
@@ -1688,7 +1723,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
@@ -1720,7 +1755,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -1764,7 +1799,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'sentBy', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
@@ -1792,7 +1827,10 @@ const resourceMap = defineResourceMap({
       { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
-      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false, sortable: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'recordsHeld', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'recordsHeldKind', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'recordHeldName', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
@@ -1815,7 +1853,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'globalGroup', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
@@ -1831,7 +1869,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
@@ -1909,7 +1947,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'principalKind', displayType: 'string', required: true, isIndex: false, maxLength: 16 },
       { fieldName: 'principalUserId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'principalUsername', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'principalRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'principalRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'mask', displayType: 'string', required: false, isIndex: false, sortable: false },
       { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'startedAt', displayType: 'date', required: true, isIndex: false },
@@ -1933,7 +1971,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewSessionUsers },
       { fieldName: 'tenantId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
       { fieldName: 'everyTenant', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
-      { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false, sortable: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
@@ -2031,7 +2069,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'kind', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'reason', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
@@ -2051,7 +2089,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'kind', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Sectors },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always', roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
@@ -2070,7 +2108,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
@@ -2893,7 +2931,7 @@ const resourceMap = defineResourceMap({
     live: false,
     rowWords: { one: 'role', many: 'roles' },
     fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'group', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
@@ -2919,7 +2957,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'sectorRegion', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'sectorEstablished', displayType: 'civildate', required: false, isIndex: false },
       { fieldName: 'sectorDirectoryOnly', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
@@ -2935,7 +2973,7 @@ const resourceMap = defineResourceMap({
     live: false,
     rowWords: { one: 'role', many: 'roles' },
     fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
@@ -2961,6 +2999,22 @@ const resourceMap = defineResourceMap({
       { fieldName: 'skipped', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewMissionRoles]: {
+    route: 'sectors/{sectorID}/crew-mission-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'role', many: 'roles' },
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+    ],
+    searchFields: ['method'],
+  },
   [Resources.CrewRememberLengths]: {
     route: 'crew-remember-lengths',
     readDisabled: true,
@@ -2985,7 +3039,7 @@ const resourceMap = defineResourceMap({
     live: false,
     rowWords: { one: 'role', many: 'roles' },
     fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
@@ -2999,7 +3053,7 @@ const resourceMap = defineResourceMap({
     live: false,
     rowWords: { one: 'role', many: 'roles' },
     fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
     ],
@@ -3041,7 +3095,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
@@ -3107,7 +3161,7 @@ const resourceMap = defineResourceMap({
     live: false,
     rowWords: { one: 'role', many: 'roles' },
     fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Adjutant", "Archivist", "Armorer", "Assessor", "BookingAgent", "BriefingClerk", "BulletinOfficer", "Cadet", "ClientBrowser", "CommandStaff", "CrewCommon", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FeatureAdministrator", "FlightLead", "Harbormaster", "HazardAnalyst", "Headquarters", "MissionLead", "MissionObserver", "NightWatch", "OrdersDesk", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SalvageDesk", "SectorCrew", "SectorMarshal", "StandIn", "SuperAdministrator", "Supercargo", "Surveyor", "Veteran", "WingCommander"] },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
@@ -3328,6 +3382,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewListedSessions]: PermissionScopes.global,
   [Resources.CrewListedSignInAttempts]: PermissionScopes.global,
   [Resources.CrewListedUsers]: PermissionScopes.global,
+  [Resources.CrewMissionHolders]: PermissionScopes.domain,
   [Resources.CrewRoles]: PermissionScopes.global,
   [Resources.CrewSectorGroups]: PermissionScopes.domain,
   [Resources.CrewSectorGroupRoles]: PermissionScopes.domain,
@@ -3400,6 +3455,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.CrewInvitedSectors]: PermissionScopes.global,
   [Resources.CrewInvitedSectorRoles]: PermissionScopes.global,
   [Resources.CrewListedRoleGrants]: PermissionScopes.global,
+  [Resources.CrewMissionRoles]: PermissionScopes.domain,
   [Resources.CrewRememberLengths]: PermissionScopes.global,
   [Resources.CrewSectorDirectoryRoles]: PermissionScopes.domain,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
