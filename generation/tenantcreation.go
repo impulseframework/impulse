@@ -410,7 +410,9 @@ type tenantCreationData struct {
 	// declares none.
 	Directory *tenantCreationDirectory
 	// NameField is the record's @tenantName field, which the rows of the tenant's making
-	// name it by, "" where the record marks none; NameNullable says it is a *string.
+	// name it by, "" where the record marks none; NameNullable says it is a pointer. The
+	// route hands the name converted to a string: the field's type may be one named over
+	// a string.
 	NameField    string
 	NameNullable bool
 

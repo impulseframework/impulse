@@ -254,7 +254,8 @@ type tenantsData struct {
 	RecordLower string
 	// NameColumn is the record's @tenantName column the roster reads names from, and
 	// NameField its field; both empty where the record marks none. NameNullable says the
-	// field is a *string.
+	// field is a pointer. The maker writes the name converted to a string: the field's
+	// type may be one named over a string.
 	NameColumn   string
 	NameField    string
 	NameNullable bool

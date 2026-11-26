@@ -523,7 +523,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"byCreator := identity.ActingInSession(ctx)",
 		// The rows of the station's making name it by the name it is made with, as its
 		// later rows do: the roster learns of it only after the commit.
-		"if patch.NameIsSet() {\n\t\t\t\tbyCreator = identity.MakingTenant(byCreator, domain, patch.Name())\n\t\t\t}",
+		"if patch.NameIsSet() {\n\t\t\t\tbyCreator = identity.MakingTenant(byCreator, domain, string(patch.Name()))\n\t\t\t}",
 		"if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
 		"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 		"if err := a.TenantRoster().Reload(ctx); err != nil {",
@@ -625,7 +625,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		nullable    bool
 		want        string
 	}{
-		{name: "a nullable name", field: "Motto", nullable: true, want: "if patch.MottoIsSet() && patch.Motto() != nil {\n\t\t\t\tbyCreator = identity.MakingTenant(byCreator, domain, *patch.Motto())\n\t\t\t}"},
+		{name: "a nullable name", field: "Motto", nullable: true, want: "if patch.MottoIsSet() && patch.Motto() != nil {\n\t\t\t\tbyCreator = identity.MakingTenant(byCreator, domain, string(*patch.Motto()))\n\t\t\t}"},
 		{name: "no name"},
 	} {
 		named := *data

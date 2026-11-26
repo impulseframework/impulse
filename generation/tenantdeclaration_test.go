@@ -734,7 +734,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				// the identity library records the take with the tenant's making.
 				"func (m *harborMaker) TakesDirectory() bool {\n\treturn true\n}",
 				// The name the harbor is made with, which the rows of its making name it by.
-				"\tif patch.NameIsSet() {\n\t\ttenant.Name = patch.Name()\n\t}",
+				"\tif patch.NameIsSet() {\n\t\ttenant.Name = string(patch.Name())\n\t}",
 			},
 			// The creator's seat went with the direct create: nothing is asked of the
 			// application for it here.
@@ -742,7 +742,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			wantOrder: []string{
 				"patch.SetDirectoryOnly(true)",
 				"patch.Enforce(tenant.Caller)",
-				"tenant.Name = patch.Name()",
+				"tenant.Name = string(patch.Name())",
 				"patch.Buffer(ctx, txn, tenant.Source)",
 				// The grants answer (the buffer) before a taken value is read for.
 				"resources.NewHarborQuery().SetName(patch.Name())",
@@ -794,7 +794,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			},
 			wantContains: []string{
 				// A name the record keeps in a nullable column is the one it points to.
-				"\tif patch.TitleIsSet() && patch.Title() != nil {\n\t\ttenant.Name = *patch.Title()\n\t}",
+				"\tif patch.TitleIsSet() && patch.Title() != nil {\n\t\ttenant.Name = string(*patch.Title())\n\t}",
 				`if value, ok := carried["Founded"]; ok {`,
 				"var given civil.Date",
 				`return "", httpio.NewBadRequestMessageWithError(err, "the citadel's founded does not read")`,

@@ -84,7 +84,9 @@ type identityTenantInvitation struct {
 	// in a line of text reads (identitySourceData.GroupRoleLines).
 	nameField  string
 	nameColumn string
-	// nameNullable says the name field is a *string: a tenant may be given none.
+	// nameNullable says the name field is a pointer: a tenant may be given none. The name
+	// it points to is written converted to a string: the field's type may be one named
+	// over a string.
 	nameNullable bool
 	// directoryOnly is the record's directory-only switch, nil where it declares none
 	// (Type is unused: the switch is a yes or a no), and seats says the directories

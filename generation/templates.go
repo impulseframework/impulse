@@ -2136,11 +2136,11 @@ func (m *{{ GoCamel $.Name }}Maker) Make(ctx context.Context, txn resource.ReadW
 	// learns of it only after the commit.
 	{{- if $.NameNullable }}
 	if patch.{{ $.NameField }}IsSet() && patch.{{ $.NameField }}() != nil {
-		tenant.Name = *patch.{{ $.NameField }}()
+		tenant.Name = string(*patch.{{ $.NameField }}())
 	}
 	{{- else }}
 	if patch.{{ $.NameField }}IsSet() {
-		tenant.Name = patch.{{ $.NameField }}()
+		tenant.Name = string(patch.{{ $.NameField }}())
 	}
 	{{- end }}
 	{{- end }}
@@ -2430,11 +2430,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			// later rows do: the roster learns of it only after the commit.
 			{{- if .NameNullable }}
 			if patch.{{ .NameField }}IsSet() && patch.{{ .NameField }}() != nil {
-				byCreator = identity.MakingTenant(byCreator, domain, *patch.{{ .NameField }}())
+				byCreator = identity.MakingTenant(byCreator, domain, string(*patch.{{ .NameField }}()))
 			}
 			{{- else }}
 			if patch.{{ .NameField }}IsSet() {
-				byCreator = identity.MakingTenant(byCreator, domain, patch.{{ .NameField }}())
+				byCreator = identity.MakingTenant(byCreator, domain, string(patch.{{ .NameField }}()))
 			}
 			{{- end }}
 			{{- end }}

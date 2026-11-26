@@ -136,7 +136,7 @@ func (m *{{ .InviteTenant }}) Execute(ctx context.Context, reader resource.Clien
 	// The invitation page names the {{ .TenantWord }} by the name the sender gave it, and by
 	// the word for one where they gave none.
 	if m.{{ .TenantName }}{{ .TenantNameField }} != nil {
-		invitation.TenantName = *m.{{ .TenantName }}{{ .TenantNameField }}
+		invitation.TenantName = string(*m.{{ .TenantName }}{{ .TenantNameField }})
 	}
 	{{- end }}
 	if err := client.manager.CheckInvitedTenant(ctx, reader, invitation); err != nil {

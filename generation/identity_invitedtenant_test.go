@@ -597,7 +597,7 @@ func Test_prepareIdentity_invitedTenant_shapes(t *testing.T) {
 		// for one tenant where they gave none, as for a record that marks no name; never
 		// the pointer printed.
 		assertContains(t, "invite_crew_citadel.go", identitySource(t, "crewidentity/invite_crew_citadel.go"),
-			[]string{"CitadelMotto *string\n", "TenantName: fmt.Sprint(\"citadel\"),", "if m.CitadelMotto != nil {\n invitation.TenantName = *m.CitadelMotto\n }"},
+			[]string{"CitadelMotto *string\n", "TenantName: fmt.Sprint(\"citadel\"),", "if m.CitadelMotto != nil {\n invitation.TenantName = string(*m.CitadelMotto)\n }"},
 			[]string{"fmt.Sprint(m.CitadelMotto)"})
 	})
 
