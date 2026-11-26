@@ -11,6 +11,8 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -69,11 +71,16 @@ import (
 // auth names the Auth in the log line a given role leaves.
 func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
+		// What the acceptance writes is the invitation's act, whoever accepts it.
+		ctx = actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessInvitation), "")
 		if inv.NewTenant != nil {
 			return m.tenantInvitationAccepted(ctx, auth, tx, userID, username, inv)
 		}
 		txn := resource.NewSpannerReadWriteTransaction(tx)
 		if err := m.giveInvitedRoles(m.oneTenant.within(ctx, tx), txn, userID, username, inv); err != nil {
+			return nil, err
+		}
+		if err := m.recordAccepted(ctx, txn, userID, username, inv.TenantID); err != nil {
 			return nil, err
 		}
 
@@ -161,6 +168,15 @@ func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*span
 	}
 
 	return session.DirectorySeatedHook[*spanner.ReadWriteTransaction]{Seat: seat, OnlyIn: onlyIn}
+}
+
+// recordAccepted buffers the row of an invitation accepted: done to the account that
+// accepted it, in the tenant the invitation is into ("" for none) or the one it made.
+func (m *Manager) recordAccepted(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username, tenant string) error {
+	accepted := accountRecord(auditlog.ActInvitationAccepted, userID, username)
+	accepted.TenantID = tenant
+
+	return m.record(ctx, txn, accepted)
 }
 
 // giveInvitedRoles buffers the memberships an accepted invitation gives the person:

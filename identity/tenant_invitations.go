@@ -544,6 +544,9 @@ func (m *Manager) tenantInvitationAccepted(
 	if err != nil {
 		return nil, err
 	}
+	if err := m.recordAccepted(ctx, txn, userID, username, string(domain)); err != nil {
+		return nil, err
+	}
 
 	return func(ctx context.Context) {
 		m.oneTenant.forget(tx)

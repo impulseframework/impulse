@@ -146,6 +146,20 @@ func groupTenant(kind, axis, domain string) string {
 	return string(tenant)
 }
 
+// rowScope answers where a role a row holds is held, from the row's kind, axis and
+// domain, as a row of the audit log stores it (auditlog.ScopeOf): one tenant and its key,
+// every tenant, or the whole application.
+func rowScope(kind, axis, domain string) (roleScope auditlog.RoleScope, tenantID string) {
+	if tenant, ok := tenantOf(kind, axis, domain); ok {
+		return auditlog.RoleScopeTenant, string(tenant)
+	}
+	if heldInEveryTenant(kind, axis, domain) {
+		return auditlog.RoleScopeEveryTenant, ""
+	}
+
+	return auditlog.RoleScopeGlobal, ""
+}
+
 // groupRecord answers a row of the act done to the group, by its id and its name, in the
 // tenant it is kept in ("" for none).
 func groupRecord(act auditlog.Act, groupID impulse.UUID, name, tenant string) *auditlog.Record {

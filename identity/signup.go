@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/words"
 	"github.com/impulseframework/impulse/logger"
@@ -560,6 +561,8 @@ func (m *Manager) SignedUp(auth string) session.SignUpSeatedHook[*spanner.ReadWr
 			return nil, errors.Newf("the sign-in method %q names %s as its default role, which nobody is given by signing up: make the method invite only, then open it with another role", method, role)
 		}
 		txn := resource.NewSpannerReadWriteTransaction(tx)
+		// The starting role is the sign-up's act.
+		ctx = actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessSignUp), "")
 		if err := m.AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), userID, accesstypes.Role(role)); err != nil {
 			return nil, errors.Wrapf(err, "the sign-in method %q gives %q its default role %s", method, username, role)
 		}
