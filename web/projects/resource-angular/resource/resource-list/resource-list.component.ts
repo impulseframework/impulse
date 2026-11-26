@@ -82,7 +82,7 @@ import {
   ActionAccessControlWrapperComponent,
   ActionButtonContext,
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
-import { applyFormatting, formatFieldValue } from '../format-fns';
+import { drawnAsMark, formatColumnValue, formatFieldValue } from '../format-fns';
 import { addRowLabel, rowMessage, rowWordsOf } from '../row-words';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import {
@@ -1299,14 +1299,11 @@ export class ResourceListComponent implements OnInit {
       // date, the value's text for the rest.
       // A yes-or-no value is not written at all: the table draws it as a mark
       // (processedRowData).
+      // The rule lives in formatColumnValue, which the pop-up of a record's history
+      // calls too.
       const fieldMeta = this.meta()?.fields?.find((field) => field.fieldName === col.id);
-      const valueFormatter = (params: DataType | null): string => {
-        if (col.formatType) {
-          const retValue = applyFormatting(col.formatType, params as string);
-          return retValue || (col.emptyDataValue as string);
-        }
-        return formatFieldValue(fieldMeta, params) || (col.emptyDataValue as string);
-      };
+      const valueFormatter = (params: DataType | null): string =>
+        formatColumnValue(col, fieldMeta, params) || (col.emptyDataValue as string);
       // A column that says how its cell is read off the row (valueGetter) is read
       // that way, then formatted like any other. A name column, and a column which
       // shows no name (the list carries none beside its id, or the person may not list
@@ -1540,7 +1537,7 @@ export class ResourceListComponent implements OnInit {
         // A yes-or-no value stays what it is, so the table draws it as a check or a dash
         // and not as the word a formatter would make of it. A column that configures a
         // format is written by that format, as its author asked.
-        const mark = typeof updatedRow[col.id] === 'boolean' && !col.formatType;
+        const mark = drawnAsMark(col, updatedRow[col.id]);
         // A list drawn a line each stays a list, each item written as text, so the
         // table draws the items one under another: a role's name in words where the
         // column's field holds one.
