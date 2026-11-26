@@ -37,6 +37,10 @@ import (
 // administrator's to take (everyDomain = false), and an invitation is withdrawn while it
 // stands and not after (pending = true).
 //
+// Before anybody is given a role, the application's administrator is listed the roles
+// to give in a tenant, in every tenant and for the whole application, as the dialog
+// that gives a role asks for them.
+//
 // The people: nora holds a role in north alone; sam in north and in south; gail in
 // north and, for the whole application, FeatureAdministrator. Nobody here signs in
 // through a tenant's directory, so north manages nora's account and nobody else's. The
@@ -71,6 +75,23 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	s := newServed(ctx, t)
 	admin := signedIn(ctx, t, s, s.console, adminUser)
 	member := signedIn(ctx, t, s, s.console, memberUser)
+
+	// The whole application's dialog that gives a role asks where the role is to be held
+	// first, then lists the roles that exist there that the administrator could give with
+	// its method. The list is asked as the dialog asks it, by the method and the place.
+	// The role file grants the administrator the two fields that say where (domain,
+	// everyDomain); without them the list is refused and the dialog offers no role.
+	for _, place := range []struct {
+		where, saidAs, offered, notOffered string
+	}{
+		{where: "domain:eq:" + north, saidAs: "in " + north, offered: "TenantAdministrator", notOffered: "FeatureAdministrator"},
+		{where: "everyDomain:eq:true", saidAs: "in every tenant", offered: "TenantAdministrator", notOffered: "FeatureAdministrator"},
+		{where: "everyDomain:eq:false", saidAs: "for the whole application", offered: "FeatureAdministrator", notOffered: "TenantAdministrator"},
+	} {
+		if roles := rolesToGive(ctx, t, admin, place.where); !slices.Contains(roles, place.offered) || slices.Contains(roles, place.notOffered) {
+			t.Fatalf("the roles the administrator is offered to give %s = %v, want %s among them and not %s", place.saidAs, roles, place.offered, place.notOffered)
+		}
+	}
 
 	// The three have accounts already (staffAccount), and the application's
 	// administrator gives each a role in north; then sam a role in south and gail one of
@@ -521,4 +542,28 @@ func staffAccount(ctx context.Context, t *testing.T, s *served, username, name s
 	}
 
 	return id.String()
+}
+
+// rolesToGive lists the roles the browser b is offered to give a person with the whole
+// application's method that gives one, where the filter says the role is to be held: the
+// list the method's dialog picks the role from, asked as the dialog asks it.
+func rolesToGive(ctx context.Context, t *testing.T, b *browser, where string) []string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/staff-givable-roles?limit=all&filter=method:eq:AssignStaffRole,"+where, nil)
+	if status != http.StatusOK {
+		t.Fatalf("listing the roles to give (%s): status %d: %s", where, status, body)
+	}
+	var rows []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("the roles to give are not a list: %v: %s", err, body)
+	}
+	roles := make([]string, 0, len(rows))
+	for _, row := range rows {
+		roles = append(roles, row.Name)
+	}
+
+	return roles
 }
