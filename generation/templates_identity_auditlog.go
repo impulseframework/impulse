@@ -262,9 +262,45 @@ func List{{ .TenantAuditRecord }}(ctx context.Context, qSet *resource.QuerySet[{
 }
 `
 
-	// identityAuditRecordsStoreTemplate is the store's half of the audit log: the rows of
-	// the table the lists ask for, read by the identity package's one statement.
+	// identityAuditRecordsStoreTemplate is the store's half of the audit log: a record
+	// the rules hand it, buffered as one row in their transaction, and the rows of the
+	// table the lists ask for, read by the identity package's one statement.
 	identityAuditRecordsStoreTemplate = `{{ if .Has "auditRecords" }}
+// auditRecordWrite names the row of the audit log a record is written as. It goes past
+// the declarations as the invitation's write does: the table has no declaration, and
+// nothing but InsertAuditRecord writes it.
+type auditRecordWrite struct {
+	id string
+}
+
+func (auditRecordWrite) PatchType() resource.PatchType {
+	return resource.CreatePatchType
+}
+
+func (w auditRecordWrite) PrimaryKey() resource.KeySet {
+	return resource.KeySet{}.Add("ID", w.id)
+}
+
+func (auditRecordWrite) Resource() accesstypes.Resource {
+	return "{{ .Tables.AuditRecords }}"
+}
+
+func (store) InsertAuditRecord(_ context.Context, txn resource.ReadWriteTransaction, record *auditlog.Record) error {
+	// The row as the audit log says a record is written (auditlog.Record.Columns), which
+	// refuses a record that is not its act's, at the commit's own time.
+	columns, err := record.Columns()
+	if err != nil {
+		return errors.Wrap(err, "auditlog.Record.Columns()")
+	}
+	columns["CreatedAt"] = spanner.CommitTimestamp
+	id, _ := columns["Id"].(string)
+	if err := txn.BufferMap(auditRecordWrite{id: id}, columns); err != nil {
+		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
+	}
+
+	return nil
+}
+
 func (store) AuditRecords(ctx context.Context, reader resource.ReadOnlyTransaction, query *identity.AuditQuery) iter.Seq2[*auditlog.Stored, error] {
 	// A read that goes past the declarations, as InvitedTenants' does: the table has no
 	// declaration, and the identity package writes the one statement its lists read it
@@ -366,7 +402,11 @@ func (r *auditRecordRow) stored() *auditlog.Stored {
 }
 {{ else }}
 // The schema holds no audit records table for the {{ .Auth }} auth
-// ({{ .Tables.AuditRecords }}): its log has no rows.
+// ({{ .Tables.AuditRecords }}): its log has no rows, and a record is written nowhere.
+
+func (store) InsertAuditRecord(context.Context, resource.ReadWriteTransaction, *auditlog.Record) error {
+	return nil
+}
 
 func (store) AuditRecords(context.Context, resource.ReadOnlyTransaction, *identity.AuditQuery) iter.Seq2[*auditlog.Stored, error] {
 	return func(func(*auditlog.Stored, error) bool) {}

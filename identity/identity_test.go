@@ -145,6 +145,9 @@ type fakeStore struct {
 	// and auditAsked the queries it was asked (audit_read_test.go).
 	auditRows  []auditlog.Stored
 	auditAsked []*AuditQuery
+	// audit are the rows of the audit log the rules buffered, in order, each as the
+	// record was handed to the store (audit_test.go).
+	audit []auditlog.Record
 	// fakeGroupTables are the groups of people, their members and the roles they hold
 	// (groups_test.go).
 	fakeGroupTables

@@ -32,8 +32,9 @@ func auditLogFiles(t *testing.T) []string {
 // whole log, a computed resource beside the methods for the auth whose schema holds the
 // table and for no other, which declares no write and no read of a row, filters by the
 // five fields the table holds, and reads the log through the identity package; and the
-// store's read, in both forms: the statement over the table where the schema holds it,
-// and no rows where it does not.
+// store's read and write, in both forms: the statement over the table and a buffered row
+// of the record's columns, at the commit's time, where the schema holds it, and no rows
+// and no write where it does not.
 func Test_prepareIdentity_auditLog(t *testing.T) { //nolint:paralleltest // t.Chdir: the working directory belongs to the whole process
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
@@ -83,11 +84,21 @@ func Test_prepareIdentity_auditLog(t *testing.T) { //nolint:paralleltest // t.Ch
 		"reader.SpannerReadOnlyTransaction().Query(ctx, spanner.Statement{SQL: sql, Params: params})",
 		"OtherRoleNames    []spanner.NullString `spanner:\"OtherRoleNames\"`",
 		"Source: eventsource.Stored{",
+		"type auditRecordWrite struct {\n\tid string\n}",
+		"func (auditRecordWrite) PatchType() resource.PatchType {\n\treturn resource.CreatePatchType\n}",
+		`return resource.KeySet{}.Add("ID", w.id)`,
+		"func (auditRecordWrite) Resource() accesstypes.Resource {\n\treturn \"CrewSessionAuditRecords\"\n}",
+		"func (store) InsertAuditRecord(_ context.Context, txn resource.ReadWriteTransaction, record *auditlog.Record) error {",
+		"columns, err := record.Columns()\n\tif err != nil {\n\t\treturn errors.Wrap(err, \"auditlog.Record.Columns()\")\n\t}",
+		`columns["CreatedAt"] = spanner.CommitTimestamp`,
+		`id, _ := columns["Id"].(string)`,
+		"txn.BufferMap(auditRecordWrite{id: id}, columns)",
 	}), nil)
 	assertContains(t, "the members auth's store", squashSpace(readTreeFile(t, "membersidentity/store.go")), squashEach([]string{
-		"// The schema holds no audit records table for the Members auth\n// (MembersSessionAuditRecords): its log has no rows.",
+		"// The schema holds no audit records table for the Members auth\n// (MembersSessionAuditRecords): its log has no rows, and a record is written nowhere.",
 		"func (store) AuditRecords(context.Context, resource.ReadOnlyTransaction, *identity.AuditQuery) iter.Seq2[*auditlog.Stored, error] {\n\treturn func(func(*auditlog.Stored, error) bool) {}\n}",
-	}), []string{"identity.AuditStatement("})
+		"func (store) InsertAuditRecord(context.Context, resource.ReadWriteTransaction, *auditlog.Record) error {\n\treturn nil\n}",
+	}), []string{"identity.AuditStatement(", "auditRecordWrite"})
 }
 
 // Test_resourceGenerator_auditLogSources pins where the audit log's lists are written:

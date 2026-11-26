@@ -254,6 +254,9 @@ type Store interface {
 	TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
 	// RevokeTrustedDevice buffers the revocation of one remembered browser.
 	RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// InsertAuditRecord buffers one row of the auth's audit log. An auth whose schema
+	// holds no audit records table writes nothing.
+	InsertAuditRecord(ctx context.Context, txn resource.ReadWriteTransaction, record *auditlog.Record) error
 
 	// GroupStore is the auth's groups of people, their members and the roles they hold
 	// (groups.go).
