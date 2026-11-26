@@ -2,8 +2,11 @@ import { ValidDisplayTypes } from '@impulseframework/resource-angular/types';
 import { format, parseISO } from 'date-fns';
 import {
   base64ByteLength,
+  columnHeading,
+  drawnAsMark,
   formatByDisplayType,
   formatByteSize,
+  formatColumnValue,
   formatFieldValue,
   OBJECT_CELL_LENGTH,
 } from './format-fns';
@@ -269,6 +272,130 @@ describe('formatFieldValue', () => {
   for (const tt of cases) {
     it(tt.name, () => {
       expect(formatFieldValue(tt.field, tt.value)).toBe(tt.want);
+    });
+  }
+});
+
+describe('columnHeading', () => {
+  const cases: { name: string; id: string; header: string | undefined; named: boolean; want: string }[] = [
+    { name: "a heading of the page's is kept", id: 'shipName', header: 'Vessel', named: false, want: 'Vessel' },
+    { name: 'an empty heading falls to the title', id: 'shipName', header: '', named: false, want: 'Ship Name' },
+    { name: 'no heading falls to the title', id: 'shipName', header: undefined, named: false, want: 'Ship Name' },
+    {
+      name: 'a named column drops the trailing Id',
+      id: 'squadronId',
+      header: undefined,
+      named: true,
+      want: 'Squadron',
+    },
+    {
+      name: 'a named column of two words drops the trailing Id',
+      id: 'assignedSquadronId',
+      header: undefined,
+      named: true,
+      want: 'Assigned Squadron',
+    },
+    {
+      name: 'a column that is not named keeps its Id',
+      id: 'statusId',
+      header: undefined,
+      named: false,
+      want: 'Status Id',
+    },
+    { name: "a heading of the page's wins over a name", id: 'squadronId', header: 'Wing', named: true, want: 'Wing' },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(columnHeading(tt.id, tt.header, tt.named)).toBe(tt.want);
+    });
+  }
+});
+
+describe('formatColumnValue', () => {
+  const moment = { displayType: 'date' as const };
+  const status = {
+    displayType: 'enumerated' as const,
+    enumeration: [
+      { id: 'on_hold', display: 'On hold' },
+      { id: 'open', display: 'Open' },
+    ],
+  };
+  const role = { displayType: 'string' as const, roles: ['NightShiftLead'] };
+  const formatted = { formatType: 'MMM d, yyyy' };
+  const cases: {
+    name: string;
+    column: Parameters<typeof formatColumnValue>[0];
+    field: Parameters<typeof formatColumnValue>[1];
+    value: unknown;
+    want: string;
+  }[] = [
+    {
+      name: "a column's format writes the value",
+      column: formatted,
+      field: moment,
+      value: '2026-11-23T15:15:00',
+      want: 'Nov 23, 2026',
+    },
+    {
+      name: "with no format, a moment is written on the viewer's clock",
+      column: {},
+      field: moment,
+      value: '2026-09-21T12:00:00Z',
+      want: atViewersClock('2026-09-21T12:00:00Z'),
+    },
+    {
+      name: 'with no column, a moment is written by its field',
+      column: undefined,
+      field: moment,
+      value: '2026-09-21T12:00:00Z',
+      want: atViewersClock('2026-09-21T12:00:00Z'),
+    },
+    {
+      name: 'a day is M/d/yyyy',
+      column: {},
+      field: { displayType: 'civildate' },
+      value: '2026-02-03',
+      want: '2/3/2026',
+    },
+    { name: 'a number is its text', column: {}, field: { displayType: 'number' }, value: 42, want: '42' },
+    { name: 'a fixed value is its name', column: {}, field: status, value: 'on_hold', want: 'On hold' },
+    {
+      name: "a role's name is in words",
+      column: undefined,
+      field: role,
+      value: 'NightShiftLead',
+      want: 'Night shift lead',
+    },
+    { name: 'a null with no column is nothing', column: undefined, field: moment, value: null, want: '' },
+    { name: 'an undefined with no column is nothing', column: undefined, field: moment, value: undefined, want: '' },
+    { name: 'a null under a column is nothing', column: {}, field: status, value: null, want: '' },
+    { name: 'an undefined under a format is nothing', column: formatted, field: moment, value: undefined, want: '' },
+    { name: 'a null under a format is nothing', column: formatted, field: moment, value: null, want: '' },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(formatColumnValue(tt.column, tt.field, tt.value)).toBe(tt.want);
+    });
+  }
+});
+
+describe('drawnAsMark', () => {
+  const cases: { name: string; column: Parameters<typeof drawnAsMark>[0]; value: unknown; want: boolean }[] = [
+    { name: 'a yes with no column is a mark', column: undefined, value: true, want: true },
+    { name: 'a no with no column is a mark', column: undefined, value: false, want: true },
+    { name: 'a yes under a column with no format is a mark', column: {}, value: true, want: true },
+    { name: 'a no under a column with no format is a mark', column: {}, value: false, want: true },
+    { name: 'a yes under a format is no mark', column: { formatType: 'MMM d, yyyy' }, value: true, want: false },
+    { name: 'a text is no mark', column: {}, value: 'true', want: false },
+    { name: 'a number is no mark', column: {}, value: 1, want: false },
+    { name: 'a null is no mark', column: {}, value: null, want: false },
+  ];
+
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(drawnAsMark(tt.column, tt.value)).toBe(tt.want);
     });
   }
 });

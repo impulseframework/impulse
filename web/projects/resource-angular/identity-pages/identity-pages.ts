@@ -479,7 +479,12 @@ class SideBuilder {
           [methods.describeGroup, { label: 'Change the description', icon: 'edit' }],
           [
             methods.addGroupMember,
-            { label: 'Add a person', icon: 'person_add', labels: periodWords, throughDay: periodEnds },
+            {
+              label: 'Add a person',
+              icon: 'person_add',
+              labels: { userId: 'Person', ...periodWords },
+              throughDay: periodEnds,
+            },
           ],
           [
             methods.giveGroupRole,
@@ -1660,7 +1665,12 @@ class SideBuilder {
       listMethods: this.present([
         [
           methods.addGroupMember,
-          { label: 'Add a person', icon: 'person_add', labels: periodWords, throughDay: periodEnds },
+          {
+            label: 'Add a person',
+            icon: 'person_add',
+            labels: { userId: 'Person', ...periodWords },
+            throughDay: periodEnds,
+          },
         ],
       ]),
       elements: [],

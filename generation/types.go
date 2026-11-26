@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"cmp"
 	"fmt"
 	"go/types"
 	"iter"
@@ -1811,22 +1812,30 @@ func (r *resourceInfo) HasValidateDeleteType() bool {
 	return r.ValidateDeleteType != ""
 }
 
+// PrimaryKeys yields the resource's key fields in the key's own order: a table's in the order
+// of its PRIMARY KEY, whatever order the struct lists them in, and a view's in the order its
+// struct declares its @primarykey fields. Every place the generator spells a row's key takes it
+// from here (a route's parameters, a constructor's parameters and the key it sets, a handler's
+// key, the TypeScript client's key), so they agree with the key a delete gives the database and
+// the key a change record is filed under.
 func (r *resourceInfo) PrimaryKeys() iter.Seq2[int, *resourceField] {
-	var i int
+	return slices.All(r.keyFields())
+}
 
-	return func(yield func(int, *resourceField) bool) {
-		for _, f := range r.Fields {
-			if !f.IsPrimaryKey {
-				continue
-			}
-
-			if !yield(i, f) {
-				return
-			}
-
-			i++
+// keyFields lists the fields that are part of the key, sorted stably by their key ordinal:
+// fields whose ordinals are equal keep the struct's order.
+func (r *resourceInfo) keyFields() []*resourceField {
+	var keys []*resourceField
+	for _, f := range r.Fields {
+		if f.IsPrimaryKey {
+			keys = append(keys, f)
 		}
 	}
+	slices.SortStableFunc(keys, func(a, b *resourceField) int {
+		return cmp.Compare(a.KeyOrdinalPosition, b.KeyOrdinalPosition)
+	})
+
+	return keys
 }
 
 // IsEnumeration reports whether the struct backs an @enumerate table (read-only by derivation).
@@ -1890,23 +1899,22 @@ func (r *resourceInfo) OperationPathPattern() string {
 }
 
 func (r *resourceInfo) PrimaryKeyType() string {
-	for _, f := range r.Fields {
-		if f.IsPrimaryKey {
-			return f.Type()
-		}
+	if f := r.PrimaryKey(); f != nil {
+		return f.Type()
 	}
 
 	return ""
 }
 
+// PrimaryKey is the first field of the key in the key's order (PrimaryKeys): the whole key of a
+// resource keyed by one column.
 func (r *resourceInfo) PrimaryKey() *resourceField {
-	for _, f := range r.Fields {
-		if f.IsPrimaryKey {
-			return f
-		}
+	keys := r.keyFields()
+	if len(keys) == 0 {
+		return nil
 	}
 
-	return nil
+	return keys[0]
 }
 
 func (r *resourceInfo) IsQueryClauseEligible() bool {

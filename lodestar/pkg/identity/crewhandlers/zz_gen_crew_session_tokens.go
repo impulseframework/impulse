@@ -20,7 +20,7 @@ import (
 
 func (h *Handlers) CrewSessionTokens() http.HandlerFunc {
 	type crewSessionToken struct {
-		ID            impulse.UUID  `json:"id"            index:"true" perm:"-"`
+		ID            impulse.UUID  `json:"id"            index:"true"    perm:"-"`
 		Kind          string        `json:"kind"`
 		UserID        impulse.UUID  `json:"userId"        index:"true"`
 		Outlet        string        `json:"outlet"`
@@ -32,6 +32,7 @@ func (h *Handlers) CrewSessionTokens() http.HandlerFunc {
 		LastUsedAt    *time.Time    `json:"lastUsedAt"`
 		RevokedAt     *time.Time    `json:"revokedAt"`
 		RevokedReason *string       `json:"revokedReason"`
+		UserName      *string       `json:"userName"      nameof:"UserID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -70,7 +71,7 @@ func (h *Handlers) CrewSessionTokens() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*crewSessionToken)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -124,6 +125,11 @@ func (h *Handlers) CrewSessionTokens() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -145,7 +151,7 @@ func (h *Handlers) CrewSessionTokens() http.HandlerFunc {
 
 func (h *Handlers) CrewSessionToken() http.HandlerFunc {
 	type response struct {
-		ID            impulse.UUID  `json:"id"            index:"true" perm:"-"`
+		ID            impulse.UUID  `json:"id"            index:"true"    perm:"-"`
 		Kind          string        `json:"kind"`
 		UserID        impulse.UUID  `json:"userId"`
 		Outlet        string        `json:"outlet"`
@@ -157,6 +163,7 @@ func (h *Handlers) CrewSessionToken() http.HandlerFunc {
 		LastUsedAt    *time.Time    `json:"lastUsedAt"`
 		RevokedAt     *time.Time    `json:"revokedAt"`
 		RevokedReason *string       `json:"revokedReason"`
+		UserName      *string       `json:"userName"      nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSessionToken, response](h, accesstypes.Read)
@@ -183,7 +190,7 @@ func (h *Handlers) CrewSessionToken() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -237,6 +244,11 @@ func (h *Handlers) CrewSessionToken() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
@@ -249,7 +261,7 @@ func (h *Handlers) CrewSessionToken() http.HandlerFunc {
 // CrewSessionTokenChangeHistory answers a page of one crew session token's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
 func (h *Handlers) CrewSessionTokenChangeHistory() http.HandlerFunc {
 	type response struct {
-		ID            impulse.UUID  `json:"id"            index:"true" perm:"-"`
+		ID            impulse.UUID  `json:"id"            index:"true"    perm:"-"`
 		Kind          string        `json:"kind"`
 		UserID        impulse.UUID  `json:"userId"`
 		Outlet        string        `json:"outlet"`
@@ -261,6 +273,7 @@ func (h *Handlers) CrewSessionTokenChangeHistory() http.HandlerFunc {
 		LastUsedAt    *time.Time    `json:"lastUsedAt"`
 		RevokedAt     *time.Time    `json:"revokedAt"`
 		RevokedReason *string       `json:"revokedReason"`
+		UserName      *string       `json:"userName"      nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSessionToken, response](h, accesstypes.Read)

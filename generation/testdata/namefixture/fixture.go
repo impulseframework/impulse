@@ -293,6 +293,63 @@ type (
 		GroupID  impulse.UUID `spanner:"GroupId"`  // @enumerate(CrewBaseGroups)
 	}
 
+	// CrewSessionUser is shaped as the library declares an auth's users table, for an
+	// auth Crew: the whole application's accounts, of no tenant, each known by its
+	// username.
+	//
+	// @resource
+	CrewSessionUser struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Username string `spanner:"Username"`
+	}
+
+	// CrewGroup is shaped as the library declares an auth's groups table, for an auth
+	// Crew: the groups, of no tenant whichever domain each is kept in, each known by its
+	// name.
+	//
+	// @resource
+	CrewGroup struct {
+		ID       impulse.UUID `spanner:"Id"`
+		DomainID string       `spanner:"DomainId"`
+		// @name
+		Name string `spanner:"Name"`
+	}
+
+	// Chore is a tenant's resource that points at the whole application's accounts and
+	// groups: a holder and a group that pick from the lists of a tenant's people and of
+	// its groups on columns with foreign keys to the two tables, an assignee and a team by
+	// the foreign key alone, and an assignee and a team that pick from the two tables'
+	// own lists on columns with none.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Chore struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID           impulse.UUID `spanner:"BaseId"`
+		HolderID         impulse.UUID `spanner:"HolderId"` // @enumerate(CrewBaseUsers)
+		GroupID          impulse.UUID `spanner:"GroupId"`  // @enumerate(CrewBaseGroups)
+		AssigneeID       impulse.UUID `spanner:"AssigneeId"`
+		TeamID           impulse.UUID `spanner:"TeamId"`
+		PickedAssigneeID impulse.UUID `spanner:"PickedAssigneeId"` // @enumerate(CrewSessionUsers)
+		PickedTeamID     impulse.UUID `spanner:"PickedTeamId"`     // @enumerate(CrewGroups)
+	}
+
+	// Errand is a resource of no tenant that points at the whole application's accounts
+	// and groups: a holder and a group that pick from the lists of a tenant's people and
+	// of its groups on columns with foreign keys to the two tables, and an assignee and a
+	// team by the foreign key alone.
+	//
+	// @resource
+	Errand struct {
+		ID         impulse.UUID `spanner:"Id"`
+		HolderID   impulse.UUID `spanner:"HolderId"` // @enumerate(CrewBaseUsers)
+		GroupID    impulse.UUID `spanner:"GroupId"`  // @enumerate(CrewBaseGroups)
+		AssigneeID impulse.UUID `spanner:"AssigneeId"`
+		TeamID     impulse.UUID `spanner:"TeamId"`
+	}
+
 	// Route is a tenant's resource whose fields pick from an application's views on
 	// columns with foreign keys, each beside a sibling with the same foreign key and no
 	// picker: into a named table of no tenant and a tenant's named table, through a view

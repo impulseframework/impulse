@@ -131,11 +131,16 @@ func TestIdentityListedSessions_signedInWith(t *testing.T) {
 				"  (SELECT CASE e.Method\n      WHEN 'google' THEN 'Google'\n      WHEN 'password' THEN 'Password'\n" +
 					impersonation + stored("azure", "workos", "oidc") + application,
 				"    FROM CrewSessionAuthEvents e\n    WHERE e.SessionId = ls.Id\n    ORDER BY e.Seq\n    LIMIT 1) AS SignedInWith,",
-				"// @enumerate(CrewSessionUsers)\n\t\tUserID *impulse.UUID",
 				"  COALESCE(u.Username, ls.Username) AS Username,\n  NULLIF(u.Name, '') AS Name,",
 				") ls\nLEFT JOIN CrewSessionUsers u ON u.Id = ls.UserId\n`",
 			},
-			wantNotContains: []string{"'application'"},
+			wantNotContains: []string{"'application'", "@enumerate"},
+		},
+		{
+			name:         "the accounts' list is the one with what each holds",
+			tables:       []identityTable{identitySessions, identityUsers, identityMemberships},
+			signIns:      []identitySignIn{{Name: "password", Label: "Password", method: "password"}},
+			wantContains: []string{"// @enumerate(CrewListedUsers)\n\t\tUserID *impulse.UUID"},
 		},
 		{
 			name:   "two registrations of one method, one with a quote in its label",

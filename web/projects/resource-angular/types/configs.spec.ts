@@ -27,6 +27,15 @@ describe('singleColumnConfig', () => {
     // @ts-expect-error a column is a button or an icon, never both
     expect(() => singleColumnConfig(both)).not.toThrow();
   });
+
+  it("refuses a formatter of the page's own on a column, at compile time: the list writes each cell itself", () => {
+    const column = singleColumnConfig({
+      id: 'name' as FieldName,
+      // @ts-expect-error a column takes no valueFormatter: the list writes a cell by its formatType or by its field
+      valueFormatter: (value: unknown) => String(value),
+    });
+    expect(column.id).toBe('name');
+  });
 });
 
 // A page's live option is its own word, resolved against the resource's metadata by the

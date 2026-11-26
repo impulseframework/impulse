@@ -3,18 +3,25 @@ import { MatButtonModule } from '@angular/material/button';
 import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
-import { ChangedField, ChangeHistoryPage, ChangeHistoryQuery, ChangeRecord } from '@impulseframework/resource';
+import {
+  ChangedField,
+  ChangeHistoryPage,
+  ChangeHistoryQuery,
+  ChangeRecord,
+  FieldMeta,
+  Resource,
+} from '@impulseframework/resource';
 import { AppGridComponent } from '@impulseframework/resource-angular/grid';
-import { ColumnConfig, FieldName, momentFormat, RecordData } from '@impulseframework/resource-angular/types';
+import { columnHeading, drawnAsMark, formatColumnValue } from '@impulseframework/resource-angular/resource';
+import {
+  ColumnConfig,
+  DataType,
+  FieldName,
+  momentFormat,
+  RecordData,
+  RESOURCE_META,
+} from '@impulseframework/resource-angular/types';
 import { format, isValid, parseISO } from 'date-fns';
-
-/** A field the pop-up names by the label its page gives it. */
-export interface ChangeHistoryField {
-  /** The field's JSON name, as a change record names it (`statusId`). */
-  name: string;
-  /** The field's label on the record's page ("Status"). */
-  label: string;
-}
 
 /** The record a history pop-up is opened for. */
 export interface ChangeHistoryDialogData {
@@ -26,11 +33,22 @@ export interface ChangeHistoryDialogData {
    */
   read: (query: ChangeHistoryQuery) => Promise<ChangeHistoryPage>;
   /**
-   * The fields the record's page shows, with their labels: the Field column writes a
-   * field by its label, and the pop-up offers them to narrow to. A field not listed is
-   * written by its JSON name; with none given there is nothing to narrow to.
+   * The resource the record is a row of. Its generated metadata says how each field's
+   * value is written (a moment, a day, a yes or no, one of a fixed set of values, a role)
+   * and what a field no column is on is called.
    */
-  fields?: ChangeHistoryField[];
+  resource: Resource;
+  /**
+   * The page's columns, as its list has them (`listColumns`), and a column for any other
+   * field the page gives a heading of its own. A changed field one of them is on reads
+   * under that column's heading and is written by its `formatType` where it sets one; the
+   * first column on a field that is drawn (not `hidden`, no button column) is the one
+   * taken. The fields to narrow to are the ones the columns are on. Nothing else of a
+   * column is read: its `emptyDataValue`, `valueGetter`, `iconConfig`, `said`, `fallback`,
+   * `tenantKey` and `lines` shape a row of the list, and a change record holds one value
+   * and not the row as it was.
+   */
+  columns?: readonly ColumnConfig[];
 }
 
 /** The columns of a record's history: when, by whom, what kind of change, which field, from what, to what. */
@@ -59,21 +77,53 @@ const changeWords: Record<ChangeRecord['operation'], string> = {
   delete: 'Deleted',
 };
 
+/** A field the Field choice offers: its JSON name, which a choice sends, and its heading. */
+interface FieldOption {
+  name: string;
+  label: string;
+}
+
 /**
- * A value as a person reads it: a text as it is, a number or a boolean as its text,
- * nothing for null, and an object or a list as its JSON on one line.
+ * How the pop-up names and writes one changed field: the heading the Field column writes,
+ * the page's column that speaks for the field, where one does, and the field's metadata,
+ * where the resource's metadata lists it.
  */
-function written(value: unknown): string {
-  if (value === null || value === undefined) {
-    return '';
+interface FieldWriting {
+  heading: string;
+  column: ColumnConfig | undefined;
+  meta: FieldMeta | undefined;
+}
+
+/**
+ * Whether a column may speak for its field: it is drawn and is no button column. A button
+ * column's id is no field, and a hidden column is not one the page lists.
+ */
+function speaks(column: ColumnConfig): boolean {
+  return column.hidden !== true && column.buttonConfig === undefined;
+}
+
+/** The column that speaks for a field: the first handed on it that may (speaks). */
+function speakingColumn(columns: readonly ColumnConfig[], field: string): ColumnConfig | undefined {
+  return columns.find((column) => column.id === field && speaks(column));
+}
+
+/**
+ * One side of a changed field as From or To writes it: "Not kept" for a secret, the name
+ * the record kept of the row the value pointed at where it kept one, a yes or no as the
+ * value itself, which the grid draws as the list's check or dash, and every other value
+ * as a list's cell on the field writes it (formatColumnValue), nothing for no value.
+ */
+function sideOf(changed: ChangedField, value: unknown, name: string | undefined, writing: FieldWriting): DataType {
+  if (changed.secret) {
+    return notKept;
   }
-  if (typeof value === 'string') {
+  if (name !== undefined) {
+    return name;
+  }
+  if (drawnAsMark(writing.column, value)) {
     return value;
   }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-  return JSON.stringify(value);
+  return formatColumnValue(writing.column, writing.meta, value);
 }
 
 /** A moment as every list writes one (momentFormat), or as it came where it cannot be read as one. */
@@ -85,36 +135,40 @@ function writtenAt(at: string): string {
 /**
  * The rows of one change record: one for each field it lists, each with when, by whom and
  * what kind of change, so a row reads alone; and one row with only those three for a
- * record that lists no field the caller may see. From and To write the name the record
- * kept of the row a value pointed at, where it kept one, and the value otherwise.
+ * record that lists no field the caller may see. Each field is named and each value
+ * written as `writingOf` says for the field (sideOf).
  */
-function recordRows(record: ChangeRecord, labels: ReadonlyMap<string, string>): RecordData[] {
+function recordRows(record: ChangeRecord, writingOf: (field: string) => FieldWriting): RecordData[] {
   const at = writtenAt(record.at);
   const change = changeWords[record.operation];
   if (record.fields.length === 0) {
     return [{ at, by: record.source, change, field: '', from: '', to: '' }];
   }
-  return record.fields.map((changed: ChangedField) => ({
-    at,
-    by: record.source,
-    change,
-    field: labels.get(changed.field) ?? changed.field,
-    from: changed.secret ? notKept : (changed.oldName ?? written(changed.old)),
-    to: changed.secret ? notKept : (changed.newName ?? written(changed.new)),
-  }));
+  return record.fields.map((changed: ChangedField) => {
+    const writing = writingOf(changed.field);
+    return {
+      at,
+      by: record.source,
+      change,
+      field: writing.heading,
+      from: sideOf(changed, changed.old, changed.oldName, writing),
+      to: sideOf(changed, changed.new, changed.newName, writing),
+    };
+  });
 }
 
 /**
  * One record's history, read only: each change, newest first, with when it was made, by
  * whom, what kind of change it was, and each field it changed from what to what, in the
- * library's table. It reads the
- * record's history through the caller's `read`, the record's own `changes` route, which
- * the server serves to whoever may read the record, each change with only the fields the
- * person may see on it. The table is drawn once the answer is known; a refusal, by the
+ * library's table. It reads the record's history through the caller's `read`, the
+ * record's own `changes` route, which the server serves to whoever may read the record,
+ * each change with only the fields the person may see on it. The caller hands the
+ * resource and the page's columns, by which each field is named and each value written as
+ * the page's list does. The table is drawn once the answer is known; a refusal, by the
  * server or by the network, is shown in its place in the server's words. Where older
  * changes are left out of the page, "Show older" reads them and adds their rows; where
- * the caller names the page's fields, a choice of one narrows the table to its changes.
- * Open it with `openChangeHistory`.
+ * the page's columns are on the resource's fields, a choice of one narrows the table to
+ * its changes. Open it with `openChangeHistory`.
  */
 @Component({
   selector: 'impulse-change-history-dialog',
@@ -126,13 +180,20 @@ export class ChangeHistoryDialogComponent implements OnInit {
   readonly history = inject<ChangeHistoryDialogData>(MAT_DIALOG_DATA);
   /** Each read is registered as pending work, so the application is stable only once it has answered. */
   private pendingTasks = inject(PendingTasks);
-  private labels = new Map((this.history.fields ?? []).map((field) => [field.name, field.label]));
+  /** The resource's generated metadata: each field's, by JSON name, and the fields a name stands beside. */
+  private readonly meta = inject(RESOURCE_META)(this.history.resource);
+  private readonly fieldMetas = new Map((this.meta?.fields ?? []).map((field) => [field.fieldName, field]));
+  private readonly named = new Set((this.meta?.nameFields ?? []).map((name) => name.of));
+  private readonly handed = this.history.columns ?? [];
   /** The reads made, so an answer to one that a later read replaced is dropped. */
   private reads = 0;
 
   readonly columns = changeHistoryColumns;
-  /** The fields to narrow to; empty where the caller names none, and no choice is drawn. */
-  readonly fields = this.history.fields ?? [];
+  /**
+   * The fields to narrow to: each a handed column speaks for and the metadata lists, by
+   * its heading, in the order handed; empty where there is none, and no choice is drawn.
+   */
+  readonly fields: FieldOption[] = this.optionsOf();
   /** The field chosen, by its JSON name; empty for all fields. */
   readonly field = signal('');
   /** The change records read so far, newest first; undefined until the first read has answered. */
@@ -144,7 +205,9 @@ export class ChangeHistoryDialogComponent implements OnInit {
   /** The refusal, in the server's words; undefined while no read has failed. */
   readonly error = signal<string | undefined>(undefined);
   /** The records as the table writes them, a row for each field each record changed. */
-  readonly rows = computed(() => (this.records() ?? []).flatMap((record) => recordRows(record, this.labels)));
+  readonly rows = computed(() =>
+    (this.records() ?? []).flatMap((record) => recordRows(record, (field) => this.writingOf(field))),
+  );
   /** What the empty table says: of the record, or of the field chosen. */
   readonly empty = computed(() => (this.field() === '' ? noChanges : noChangesToField));
 
@@ -166,6 +229,37 @@ export class ChangeHistoryDialogComponent implements OnInit {
     }
     const field = this.field();
     void this.load(field === '' ? { after } : { after, field }, true);
+  }
+
+  /**
+   * How a changed field is named and written: by the column that speaks for it and its
+   * metadata. With no column's heading it is named as a list heads a column that sets
+   * none, without its trailing `Id` where the resource carries a name beside it and the
+   * field takes no fixed set of values.
+   */
+  private writingOf(field: string): FieldWriting {
+    const column = speakingColumn(this.handed, field);
+    const meta = this.fieldMetas.get(field);
+    const namedWithoutId = this.named.has(field) && meta?.enumeration === undefined;
+    return { heading: columnHeading(field, column?.header, namedWithoutId), column, meta };
+  }
+
+  /**
+   * The Field choice's options: each field a handed column speaks for and the metadata
+   * lists, once, where the column that speaks for it stands, by its heading.
+   */
+  private optionsOf(): FieldOption[] {
+    const options: FieldOption[] = [];
+    for (const column of this.handed) {
+      const name: string = column.id;
+      if (!speaks(column) || !this.fieldMetas.has(name)) {
+        continue;
+      }
+      if (!options.some((option) => option.name === name)) {
+        options.push({ name, label: this.writingOf(name).heading });
+      }
+    }
+    return options;
   }
 
   private async load(query: ChangeHistoryQuery, adding: boolean): Promise<void> {

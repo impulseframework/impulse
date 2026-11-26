@@ -868,3 +868,111 @@ func TestNameField_peopleNameQuery(t *testing.T) {
 		})
 	}
 }
+
+// TestNameField_accountsOfTheWholeApplication pins a list that shows one of the whole
+// application's accounts by its username: a pilot's account is picked from the crew's
+// accounts (@enumerate(CrewSessionUsers)), whose table says what its rows are known by.
+// Pilots belong to no sector, so the list stands for one of an application with no
+// tenants. A reader who may list the accounts' usernames reads every pilot whose account
+// exists with the account's username beside its id, as the users table holds it; a
+// reader who may not is refused the name in words, and a request that names no columns
+// answers each pilot's account id and no name.
+func TestNameField_accountsOfTheWholeApplication(t *testing.T) {
+	t.Parallel()
+
+	w := newIdentityWorld(t)
+	usernames := make(map[string]string)
+	if err := w.db.Single().Query(t.Context(), spanner.Statement{SQL: "SELECT Id, Username FROM CrewSessionUsers"}).Do(func(row *spanner.Row) error {
+		var id, username string
+		if err := row.Columns(&id, &username); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		usernames[id] = username
+
+		return nil
+	}); err != nil {
+		t.Fatalf("reading the crew's accounts: %v", err)
+	}
+	pilots := withFields("Pilots", "userId", "displayName")
+	const asked = consoleAPI + "/pilots?columns=id,userId,userName&limit=all"
+
+	named := newTestApp(w.db, grants{accesstypes.List: append(slices.Clone(pilots), fieldResource("CrewSessionUsers", "username"))})
+	shown := 0
+	for _, row := range listRows(t, named, "integration-test-user", asked) {
+		want := usernames[cell[string](t, row, "userId")]
+		if got, _ := row["userName"].(string); got != want {
+			t.Errorf("pilot %v of account %v shows userName %q, want %q, the account's username", row["id"], row["userId"], got, want)
+		}
+		if want != "" {
+			shown++
+		}
+	}
+	if shown == 0 {
+		t.Fatalf("no pilot names an account the world holds; the test needs one")
+	}
+
+	h := newTestApp(w.db, grants{accesstypes.List: pilots})
+	status, body := doRequestAs(t, h, "integration-test-user", http.MethodGet, asked, "")
+	assertStatus(t, status, http.StatusForbidden, body)
+	var refusal struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(body, &refusal); err != nil {
+		t.Fatalf("json.Unmarshal(%s): %v", body, err)
+	}
+	if want := "You may not list the user name of pilots here."; refusal.Message != want {
+		t.Errorf("message = %q, want %q", refusal.Message, want)
+	}
+	for _, row := range listRows(t, h, "integration-test-user", consoleAPI+"/pilots?limit=all") {
+		if _, ok := row["userId"]; !ok {
+			t.Errorf("pilot %v carries no userId", row)
+		}
+		if name, ok := row["userName"]; ok {
+			t.Errorf("pilot %v carries userName %v, which the reader may not list", row["id"], name)
+		}
+	}
+}
+
+// TestNameField_groupsOfTheWholeApplication pins a list that shows one of the whole
+// application's groups by its name: a member's group is a row of the crew's groups table,
+// by a foreign key, and the table says what its rows are known by. The governor makes a
+// group of the whole application and puts an account the test makes in it; a reader who
+// may list the groups' names reads the member's row with the group's name beside its id,
+// and a reader who may not, naming no columns, reads the id and no name.
+func TestNameField_groupsOfTheWholeApplication(t *testing.T) {
+	t.Parallel()
+
+	w := newIdentityWorld(t)
+	status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/create-crew-group", `{"name":"Fleet inspectors","description":"Headquarters' inspectors."}`)
+	assertStatus(t, status, http.StatusOK, body)
+	group := cell[string](t, decodeRow(t, body), "id")
+	inspector := makeCrewAccount(t.Context(), t, w.db, "inspector")
+	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/add-crew-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, group, inspector))
+	assertStatus(t, status, http.StatusNoContent, body)
+
+	members := withFields("CrewGroupMembers", "groupId", "userId")
+	// memberOf is the row of the group's one member on the list as h reads it.
+	memberOf := func(h http.Handler, target string) map[string]any {
+		t.Helper()
+
+		for _, row := range listRows(t, h, "integration-test-user", target) {
+			if row["groupId"] == group {
+				return row
+			}
+		}
+		t.Fatalf("%s lists no member of the group %s", target, group)
+
+		return nil
+	}
+
+	named := newTestApp(w.db, grants{accesstypes.List: append(slices.Clone(members), fieldResource("CrewGroups", "name"))})
+	if row := memberOf(named, consoleAPI+"/crew-group-members?columns=groupId,userId,groupName&limit=200"); row["groupName"] != "Fleet inspectors" {
+		t.Errorf("the member's row %v shows groupName %v, want %q", row, row["groupName"], "Fleet inspectors")
+	}
+
+	// The row is found by its groupId, so it carries the id.
+	row := memberOf(newTestApp(w.db, grants{accesstypes.List: members}), consoleAPI+"/crew-group-members?limit=200")
+	if name, ok := row["groupName"]; ok {
+		t.Errorf("the member's row %v carries groupName %v, which the reader may not list", row, name)
+	}
+}

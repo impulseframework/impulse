@@ -1,7 +1,16 @@
 import { FieldMeta } from '@impulseframework/resource';
-import { FormatType, momentFormat, roleInWords, ValidDisplayTypes } from '@impulseframework/resource-angular/types';
+import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
+import {
+  ColumnConfig,
+  FormatType,
+  momentFormat,
+  roleInWords,
+  ValidDisplayTypes,
+} from '@impulseframework/resource-angular/types';
 import { format, isValid, parseISO } from 'date-fns';
 import { placeWords } from './place-words';
+
+const title = new CamelCaseToTitlePipe();
 
 export type FormatterFn = (value: string) => string;
 
@@ -157,4 +166,46 @@ export function formatFieldValue(
       : roleInWords(String(value));
   }
   return formatByDisplayType(field?.displayType, value);
+}
+
+/**
+ * The heading a list writes over a column on the field `id`: the page's own `header`
+ * where it is not empty, otherwise the field's name as a title (`shipName` reads "Ship
+ * Name"), without a trailing `Id` where the column is `named`, that is, drawn by the name
+ * beside its id (`squadronId` reads "Squadron"). The list heads its name columns by it,
+ * and the pop-up of a record's history names each changed field by it.
+ */
+export function columnHeading(id: string, header: string | undefined, named: boolean): string {
+  if (header) {
+    return header;
+  }
+  return title.transform(named ? id.replace(/Id$/, '') : id);
+}
+
+/**
+ * A value as a list's cell on the column writes it, before the column's `emptyDataValue`
+ * is applied: by the column's `formatType` where it configures one (applyFormatting), and
+ * by the field otherwise (formatFieldValue). Null and undefined are the empty string. The
+ * list writes its cells by it, and the pop-up of a record's history writes each value by
+ * it.
+ */
+export function formatColumnValue(
+  column: Pick<ColumnConfig, 'formatType'> | undefined,
+  field: Pick<FieldMeta, 'displayType' | 'enumeration' | 'roles'> | undefined,
+  value: unknown,
+): string {
+  if (column?.formatType) {
+    return applyFormatting(column.formatType, value as string);
+  }
+  return formatFieldValue(field, value);
+}
+
+/**
+ * Whether a list draws the value as a mark (a check for yes, a dash for no) and not as
+ * text: the value is a boolean and the column configures no `formatType`, which would
+ * write it as its author asked. The list draws its cells by it, and the pop-up of a
+ * record's history hands such a value to the grid as it is.
+ */
+export function drawnAsMark(column: Pick<ColumnConfig, 'formatType'> | undefined, value: unknown): value is boolean {
+  return typeof value === 'boolean' && !column?.formatType;
 }

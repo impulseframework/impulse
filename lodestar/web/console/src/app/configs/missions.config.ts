@@ -5,6 +5,7 @@ import { BriefingTemplates, ClientRosters, MissionBoards, Missions, Resources } 
 import { DomainRoutePath } from '@app/service/zz_gen_resources';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import {
+  ColumnConfig,
   enumeratedConfig,
   field,
   FieldElement,
@@ -52,14 +53,41 @@ const callSheet: FieldElement[] = [
   field({ name: Missions.fieldName.notes, label: 'Notes', cols: 12 }),
 ];
 
+/** The list's columns: the board's fields, under the headings the list gives them. */
+const boardColumns: ColumnConfig[] = [
+  { id: MissionBoards.fieldName.title },
+  { id: MissionBoards.fieldName.clientId, header: 'Client' },
+  { id: MissionBoards.fieldName.squadronId, header: 'Squadron' },
+  { id: MissionBoards.fieldName.statusId, header: 'Status' },
+  { id: MissionBoards.fieldName.briefingTemplateId, header: 'Briefing' },
+  { id: MissionBoards.fieldName.deadline },
+  { id: MissionBoards.fieldName.daysLeft, header: 'Days left' },
+];
+
+/**
+ * The columns a mission's history names its fields by: the board's, then a column for each
+ * field of the call sheet the board does not show, under the label the page gives it.
+ */
+const historyColumns: ColumnConfig[] = [
+  ...boardColumns,
+  { id: Missions.fieldName.kindId, header: 'Kind' },
+  { id: Missions.fieldName.hazard, header: 'Hazard' },
+  { id: Missions.fieldName.fee, header: 'Fee' },
+  { id: Missions.fieldName.brief, header: 'Brief' },
+  { id: Missions.fieldName.notes, header: 'Notes' },
+];
+
 /**
  * Opens a mission's history over the page, from its row on the list and from its own
  * page alike: the library's pop-up (`@impulseframework/resource-angular/change-history`),
  * loaded when a person first asks for one, titled with the mission's name. It reads the
- * mission's change records in the open sector, and names each field of the call sheet by
- * the label the page gives it, the fields a person can narrow the history to. Where a
- * change record kept the name of the row a field pointed at (the squadron, the status),
- * From and To read the name as it was then.
+ * mission's change records in the open sector, and hands the pop-up the Missions resource
+ * and the page's columns (`historyColumns`: the list's, then the call sheet's other
+ * fields), so each field is named and each value written as the list does, the deadline as
+ * the list's Deadline cell writes a moment, and a field no column is on (the assigned
+ * squadron) by its name in words; the fields a person can narrow the history to are the
+ * ones the columns are on. Where a change record kept the name of the row a field pointed
+ * at (the squadron, the status), From and To read the name as it was then.
  *
  * Demonstrates: change-history, change-history.names, change-tracking, event-source.
  */
@@ -75,7 +103,8 @@ export function openMissionHistory(row: RecordData, injector: Injector): void {
     history.openChangeHistory(dialog, {
       title: `History of ${String(row['title'] ?? '')}`,
       read: (query) => missions.changes([id], query),
-      fields: callSheet.map(({ name, label }) => ({ name, label })),
+      resource: Resources.Missions,
+      columns: historyColumns,
     }),
   );
 }
@@ -142,15 +171,7 @@ export const missionsConfig = rootConfig({
     title: 'Missions',
     createTitle: 'Mission',
     primaryResource: Resources.MissionBoards,
-    listColumns: [
-      { id: MissionBoards.fieldName.title },
-      { id: MissionBoards.fieldName.clientId, header: 'Client' },
-      { id: MissionBoards.fieldName.squadronId, header: 'Squadron' },
-      { id: MissionBoards.fieldName.statusId, header: 'Status' },
-      { id: MissionBoards.fieldName.briefingTemplateId, header: 'Briefing' },
-      { id: MissionBoards.fieldName.deadline },
-      { id: MissionBoards.fieldName.daysLeft, header: 'Days left' },
-    ],
+    listColumns: boardColumns,
     elements: [
       section({
         label: 'Call sheet',

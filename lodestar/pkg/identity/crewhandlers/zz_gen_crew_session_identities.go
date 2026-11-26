@@ -20,7 +20,7 @@ import (
 
 func (h *Handlers) CrewSessionIdentities() http.HandlerFunc {
 	type crewSessionIdentity struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"    perm:"-"`
 		UserID      impulse.UUID `json:"userId"      index:"true"`
 		Method      string       `json:"method"      index:"true"`
 		Connection  string       `json:"connection"`
@@ -29,6 +29,7 @@ func (h *Handlers) CrewSessionIdentities() http.HandlerFunc {
 		EmailAtLink *string      `json:"emailAtLink"`
 		CreatedAt   time.Time    `json:"createdAt"`
 		LastUsedAt  time.Time    `json:"lastUsedAt"`
+		UserName    *string      `json:"userName"    nameof:"UserID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -67,7 +68,7 @@ func (h *Handlers) CrewSessionIdentities() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*crewSessionIdentity)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -109,6 +110,11 @@ func (h *Handlers) CrewSessionIdentities() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -130,7 +136,7 @@ func (h *Handlers) CrewSessionIdentities() http.HandlerFunc {
 
 func (h *Handlers) CrewSessionIdentity() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"    perm:"-"`
 		UserID      impulse.UUID `json:"userId"`
 		Method      string       `json:"method"`
 		Connection  string       `json:"connection"`
@@ -139,6 +145,7 @@ func (h *Handlers) CrewSessionIdentity() http.HandlerFunc {
 		EmailAtLink *string      `json:"emailAtLink"`
 		CreatedAt   time.Time    `json:"createdAt"`
 		LastUsedAt  time.Time    `json:"lastUsedAt"`
+		UserName    *string      `json:"userName"    nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSessionIdentity, response](h, accesstypes.Read)
@@ -165,7 +172,7 @@ func (h *Handlers) CrewSessionIdentity() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -207,6 +214,11 @@ func (h *Handlers) CrewSessionIdentity() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
@@ -219,7 +231,7 @@ func (h *Handlers) CrewSessionIdentity() http.HandlerFunc {
 // CrewSessionIdentityChangeHistory answers a page of one crew session identity's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
 func (h *Handlers) CrewSessionIdentityChangeHistory() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID `json:"id"          index:"true"    perm:"-"`
 		UserID      impulse.UUID `json:"userId"`
 		Method      string       `json:"method"`
 		Connection  string       `json:"connection"`
@@ -228,6 +240,7 @@ func (h *Handlers) CrewSessionIdentityChangeHistory() http.HandlerFunc {
 		EmailAtLink *string      `json:"emailAtLink"`
 		CreatedAt   time.Time    `json:"createdAt"`
 		LastUsedAt  time.Time    `json:"lastUsedAt"`
+		UserName    *string      `json:"userName"    nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSessionIdentity, response](h, accesstypes.Read)
