@@ -31,6 +31,10 @@ func Test_tenantDirectoryTakeTemplate(t *testing.T) {
 			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
 		}
 	}
+	// The auth whose management opens a harbor to its directory's people keeps the log
+	// the take is recorded in.
+	recorded := data(true)
+	recorded.IdentityAccessor, recorded.Namers = "StaffIdentity", "a.StaffIdentity().DirectoryName"
 	tests := []struct {
 		name            string
 		data            *directoryTakeData
@@ -77,7 +81,23 @@ func Test_tenantDirectoryTakeTemplate(t *testing.T) {
 			},
 			// The directory is never typed: the body carries nothing, and no column of
 			// the record is set by the handler itself.
-			wantNotContains: []string{"SetMethod(", "SetConnection(", "NewHarborDirectoryCreatePatch", "TakeDirectoryWarning(directory, true)"},
+			wantNotContains: []string{
+				"SetMethod(", "SetConnection(", "NewHarborDirectoryCreatePatch", "TakeDirectoryWarning(directory, true)",
+				// An application with no auth that opens a harbor to its directory has no log
+				// to record the take in.
+				"RecordTenantSignIn", "auditlog.",
+			},
+		},
+		{
+			name: "the take is recorded in the auth's audit log after the row, naming the directory as the rules' sentences do, before a dry run rolls back",
+			data: recorded,
+			wantInOrder: []string{
+				"said := rules.TakeDirectoryWarning(directory, false)",
+				"return resource.ErrWarningAsked",
+				"if err := SetHarborDirectory(ctx, txn, tenant, directory, eventSource); err != nil {",
+				"if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryWords(directory, a.StaffIdentity().DirectoryName)); err != nil {\n\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().RecordTenantSignIn()\")\n\t\t\t}",
+				"if dryRun {\n\t\t\t\treturn resource.ErrDryRun\n\t\t\t}",
+			},
 		},
 		{
 			name:            "a tenant column that holds the id's text takes the domain as it is",
@@ -225,6 +245,38 @@ func Test_directoryTake(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantGrants, grants); diff != "" {
 				t.Errorf("signInSettingsGrants() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_resourceGenerator_tenantSignInRecorder pins the auth whose audit log a tenant's
+// sign-in settings are recorded in: the one whose management opens a tenant to its
+// directory's people, by the application's accessor of its client, and none where no
+// auth's does, whose handlers record nothing.
+func Test_resourceGenerator_tenantSignInRecorder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		identity []*identityInstance
+		want     string
+	}{
+		{
+			name:     "the second of two auths opens a tenant to its directory",
+			identity: []*identityInstance{{auth: "Staff"}, {auth: "Members", opensToDirectory: true}},
+			want:     "MembersIdentity",
+		},
+		{name: "no auth does", identity: []*identityInstance{{auth: "Staff"}}},
+		{name: "no auth's management is generated"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{identity: tt.identity}}
+			if got := r.tenantSignInRecorder(); got != tt.want {
+				t.Errorf("tenantSignInRecorder() = %q, want %q", got, tt.want)
 			}
 		})
 	}

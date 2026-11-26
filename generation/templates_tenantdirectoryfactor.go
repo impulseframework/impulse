@@ -15,6 +15,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -62,6 +63,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Stop.Name }}() http.Handl
 // {{ GoCamel .Name }}DirectoryFactor is the frame of the two methods of a {{ .Word }}'s word for its
 // directory's second factor: method is the one served, as grants name it, and vouch
 // whether it says the word or takes it back.
+{{- if .IdentityAccessor }} A word changed is recorded in the audit log of the auth whose
+// people the directories record's outlets sign in ({{ .IdentityAccessor }}().RecordTenantSignIn),
+// in the same transaction.
+{{- end }}
 func {{ GoCamel .Name }}DirectoryFactor({{ .ReceiverName }} *{{ .ApplicationName }}, method accesstypes.Resource, vouch bool) http.HandlerFunc {
 	// Neither method takes anything in its body: the route names the {{ .Word }}.
 	type request struct{}
@@ -76,6 +81,13 @@ func {{ GoCamel .Name }}DirectoryFactor({{ .ReceiverName }} *{{ .ApplicationName
 	if vouch {
 		hold, rule = rules.VouchForDirectory, "resource.TenantDirectoryRules.VouchForDirectory()"
 	}
+	{{- if .IdentityAccessor }}
+	// act is what the auth's audit log records of the method served.
+	act := auditlog.ActDirectorySecondFactorUnvouched
+	if vouch {
+		act = auditlog.ActDirectorySecondFactorVouched
+	}
+	{{- end }}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -139,6 +151,11 @@ func {{ GoCamel .Name }}DirectoryFactor({{ .ReceiverName }} *{{ .ApplicationName
 				if err := {{ .ResourcePackage }}.New{{ .Directories }}UpdatePatch(id).Set{{ .Field }}({{ if .FlagType }}{{ .FlagType }}(vouch){{ else }}vouch{{ end }}).Buffer(ctx, txn, eventSource); err != nil {
 					return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}UpdatePatch.Buffer()")
 				}
+				{{- if .IdentityAccessor }}
+				if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, act, ""); err != nil {
+					return errors.Wrap(err, "{{ .IdentityAccessor }}().RecordTenantSignIn()")
+				}
+				{{- end }}
 			}
 			if dryRun {
 				return resource.ErrDryRun

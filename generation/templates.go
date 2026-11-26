@@ -2550,6 +2550,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -2628,6 +2629,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .End.Name }}() http.Handle
 // {{ GoCamel .Name }}DirectoryOnly is the frame of the two methods that turn a {{ .Word }}'s
 // directory-only switch: method is the one served, as grants name it, and only the way
 // it turns the switch.
+{{- if .IdentityAccessor }} The switch turned is recorded in the audit log of the auth
+// whose people the directories record's outlets sign in
+// ({{ .IdentityAccessor }}().RecordTenantSignIn), in the same transaction.
+{{- end }}
 func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }}, method accesstypes.Resource, only bool) http.HandlerFunc {
 	// Neither method takes anything in its body: the route names the {{ .Word }}.
 	type request struct{}
@@ -2637,6 +2642,13 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 	// registrations call it, never by its connection, and the rules ask each auth's
 	// client whether the caller has a password.
 	rules := {{ .SwitchRules }}
+	{{- if .IdentityAccessor }}
+	// act is what the auth's audit log records of the method served.
+	act := auditlog.ActDirectoryOnlyOff
+	if only {
+		act = auditlog.ActDirectoryOnlyOn
+	}
+	{{- end }}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -2701,6 +2713,11 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 			if err := {{ .ResourcePackage }}.New{{ .Name }}UpdatePatch(id).Set{{ .Field }}({{ if .FlagType }}{{ .FlagType }}(only){{ else }}only{{ end }}).Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}UpdatePatch.Buffer()")
 			}
+			{{- if .IdentityAccessor }}
+			if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, act, ""); err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().RecordTenantSignIn()")
+			}
+			{{- end }}
 			if dryRun {
 				return resource.ErrDryRun
 			}
@@ -2749,6 +2766,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -2783,7 +2801,9 @@ import (
 // that the directory's people who belong to another {{ .Word }} are moved to this one when
 // they sign in (resource.TenantDirectoryRules.OpenTakesPeopleNote). The role is written through the record's update patch, so its change event
 // is written with it; the sign-in reads it in its own transaction, so the next sign-in
-// is decided by it. A dry run (X-Dry-Run: true) runs the whole frame and rolls back.
+// is decided by it. The {{ .Word }} opened is recorded in the {{ .Auth }} auth's audit log, with the
+// role ({{ .IdentityAccessor }}().RecordTenantSignIn), in the same transaction. A dry run
+// (X-Dry-Run: true) runs the whole frame and rolls back.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.HandlerFunc {
 	type request struct {
 		Role string ` + "`json:\"role\"`" + `
@@ -2863,6 +2883,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 			if err := {{ .ResourcePackage }}.New{{ .Directories }}UpdatePatch(id).Set{{ .Field }}({{ if .SeatIsPointer }}&seat{{ else }}seat{{ end }}).Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}UpdatePatch.Buffer()")
 			}
+			if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryOpened, seat); err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().RecordTenantSignIn()")
+			}
 			if dryRun {
 				return resource.ErrDryRun
 			}
@@ -2889,7 +2912,8 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 // {{ .InviteOnly.Name }} in the {{ .Word }}: from the commit on, a person from the directory who
 // holds no role in the {{ .Word }} enters once they are invited, and the people the directory
 // already seated keep what they hold. It clears the role ({{ .Directories }}.{{ .Field }}) through
-// the record's update patch; a {{ .Word }} that is invite only already is left as it is. It
+// the record's update patch, and records it in the {{ .Auth }} auth's audit log in the same
+// transaction; a {{ .Word }} that is invite only already is left as it is, and nothing is recorded. It
 // is plain: no rule holds it and it declares no warning, so a request that asks for one
 // is refused (400) and never runs the call. A {{ .Word }} with no directory is refused (409).
 // A dry run (X-Dry-Run: true) runs the whole frame and rolls back.
@@ -2946,6 +2970,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .InviteOnly.Name }}() http
 				}
 				if err := {{ .ResourcePackage }}.New{{ .Directories }}UpdatePatch(id).Set{{ .Field }}({{ if .SeatIsPointer }}nil{{ else }}""{{ end }}).Buffer(ctx, txn, eventSource); err != nil {
 					return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}UpdatePatch.Buffer()")
+				}
+				if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryInviteOnly, ""); err != nil {
+					return errors.Wrap(err, "{{ .IdentityAccessor }}().RecordTenantSignIn()")
 				}
 			}
 			if dryRun {

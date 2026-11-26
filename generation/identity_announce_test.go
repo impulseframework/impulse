@@ -47,6 +47,8 @@ func TestIdentityAnnounce_client(t *testing.T) {
 				signedIn,
 				"func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {",
 				"func (c *Client) OwnTenants(db resource.Client) session.OwnTenantsHook {",
+				"func (c *Client) RecordTenantSignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, act auditlog.Act, named string) error {",
+				`if err := c.manager.RecordTenantSignIn(ctx, txn, tenant, act, named); err != nil { return errors.Wrap(err, "identity.Manager.RecordTenantSignIn()") }`,
 			},
 		},
 		{
@@ -57,6 +59,7 @@ func TestIdentityAnnounce_client(t *testing.T) {
 				"func (c *Client) InvitationAccepted()",
 				"func (c *Client) DirectorySeated()",
 				"func (c *Client) DirectoryRole(",
+				"func (c *Client) RecordTenantSignIn(",
 				"func (c *Client) OwnTenants(",
 			},
 		},

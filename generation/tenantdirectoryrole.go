@@ -188,8 +188,9 @@ type directoryRoleData struct {
 	// NULL; a plain string holds none as the empty string.
 	SeatIsPointer bool
 	// Auth is the Pascal name of the auth whose generated identity client judges the
-	// role, IdentityAccessor the application's accessor of that client, and Picker the
-	// list of the roles that exist in one tenant.
+	// role, IdentityAccessor the application's accessor of that client, whose audit log
+	// the two methods are recorded in (tenantSignInRecorder names the same), and Picker
+	// the list of the roles that exist in one tenant.
 	Auth             string
 	IdentityAccessor string
 	Picker           string
@@ -242,4 +243,23 @@ func (r *resourceGenerator) generateDirectoryRole() error {
 	log.Printf("Generated the directory's default role file in %s: %s", time.Since(begin), destinationFilePath)
 
 	return nil
+}
+
+// tenantSignInRecorder is the application's accessor of the generated identity client
+// whose audit log a tenant's sign-in settings are recorded in: that of the auth whose
+// management opens a tenant to its directory's people (identityInstance.opensToDirectory),
+// whose session outlets serve the directories record. The seven methods of a tenant's
+// directory (the take, the directory-only switch, the default role and the second factor's
+// word) record their act through it, in their transaction, after their write. It is ""
+// where no auth's management does, and the methods are written with no record.
+//
+// The tenant's sign-in settings are recorded in the audit log of the auth whose people the directories record's outlets sign in. An application with no such auth has no log to write them to.
+func (r *resourceGenerator) tenantSignInRecorder() string {
+	for _, inst := range r.identity {
+		if inst.opensToDirectory {
+			return inst.accessor()
+		}
+	}
+
+	return ""
 }

@@ -139,6 +139,7 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 		`.CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword}, ` +
 		`resource.DirectoryPeople{Label: "Member", List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword})`
 	named.SwitchRules = switchRules
+	named.IdentityAccessor = "StaffIdentity"
 	tests := []struct {
 		name            string
 		data            *directoryOnlyData
@@ -158,6 +159,8 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				`resource.MustNewRPCDecoder[request](a, method, accesstypes.Execute).WithCollection(router.Collection())`,
 				// The rules' sentences name the directory as each auth's registrations do.
 				"rules := " + switchRules + "\n",
+				// What the auth's audit log records of the method served.
+				"act := auditlog.ActDirectoryOnlyOff\n\tif only {\n\t\tact = auditlog.ActDirectoryOnlyOn\n\t}",
 				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
 				"ctx = resource.WithCaller(ctx, caller)\n\t\tctx = resource.WithRPC(ctx, method)",
@@ -171,7 +174,8 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 				"return resource.ErrWarningAsked",
 				"if err := rules.DirectoryOnly(ctx, txn, domain, only); err != nil {",
 				"if err := resources.NewHarborUpdatePatch(id).SetDirectoryOnly(only).Buffer(ctx, txn, eventSource); err != nil {",
-				"return resource.ErrDryRun",
+				"if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, act, \"\"); err != nil {\n\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().RecordTenantSignIn()\")\n\t\t\t}",
+				"if dryRun {\n\t\t\t\treturn resource.ErrDryRun\n\t\t\t}",
 				"if asksWarning && resource.WarningAsked(err) {",
 				"return httpio.NewEncoder(w).Ok(warning)",
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
@@ -195,13 +199,14 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 			name:            "a program that generates no auth's management counts and names no person",
 			data:            data(),
 			wantContains:    []string{"The program generates no auth's management, so the warning counts and names no person", "said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)", "rules := NewHarborDirectoryRules()\n"},
-			wantNotContains: []string{"resource.DirectoryPeople{", "NamedBy(", "PasswordsBy("},
+			wantNotContains: []string{"resource.DirectoryPeople{", "NamedBy(", "PasswordsBy(", "RecordTenantSignIn", "auditlog."},
 		},
 		{
-			name:            "a record keyed by text, with a flag of a type named over a boolean",
-			data:            textKey,
-			wantContains:    []string{"id := string(domain)", "resources.NewHarborUpdatePatch(id).SetDirectoryOnly(resources.Flag(only)).Buffer(ctx, txn, eventSource)"},
-			wantNotContains: []string{"impulse.UUIDFromString"},
+			name:         "a record keyed by text, with a flag of a type named over a boolean",
+			data:         textKey,
+			wantContains: []string{"id := string(domain)", "resources.NewHarborUpdatePatch(id).SetDirectoryOnly(resources.Flag(only)).Buffer(ctx, txn, eventSource)"},
+			// No auth opens a harbor to its directory: the switch is recorded nowhere.
+			wantNotContains: []string{"impulse.UUIDFromString", "RecordTenantSignIn", "auditlog."},
 		},
 	}
 	for _, tt := range tests {
@@ -325,6 +330,8 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"return resource.ErrWarningAsked",
 				"id, err := impulse.UUIDFromString(directory.Key)",
 				"if err := resources.NewHarborDirectoryUpdatePatch(id).SetDefaultSeat(&seat).Buffer(ctx, txn, eventSource); err != nil {",
+				// The role as the row stores it.
+				"if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryOpened, seat); err != nil {\n\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().RecordTenantSignIn()\")\n\t\t\t}",
 				"return resource.ErrDryRun",
 				"if asksWarning && resource.WarningAsked(err) {",
 				"live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)",
@@ -338,6 +345,8 @@ func Test_tenantDirectoryRoleTemplate(t *testing.T) {
 				"directory, err := rules.Directory(ctx, txn, domain)",
 				`if directory.DefaultRole != "" {`,
 				"if err := resources.NewHarborDirectoryUpdatePatch(id).SetDefaultSeat(nil).Buffer(ctx, txn, eventSource); err != nil {",
+				// A harbor invite only already writes nothing and records nothing.
+				"if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryInviteOnly, \"\"); err != nil {\n\t\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().RecordTenantSignIn()\")\n\t\t\t\t}\n\t\t\t}\n\t\t\tif dryRun {",
 				"return resource.ErrDryRun",
 			},
 			wantContains: []string{
