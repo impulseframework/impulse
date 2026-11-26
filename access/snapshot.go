@@ -765,7 +765,10 @@ func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection P
 	}
 
 	customs, storeGrants, findings := definedRoles(records, defaults)
-	grants, skipped, err := s.intern(defaults.allGrants(), storeGrants, collection, defaults.authName())
+	// The roles held on records are the release's roles, compiled for what a record
+	// reaches (snapshot_records.go).
+	heldGrants, heldMemberships, heldFindings := compileRecordRoles(records, defaults, collection)
+	grants, skipped, err := s.intern(slices.Concat(defaults.allGrants(), heldGrants), storeGrants, collection, defaults.authName())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -778,6 +781,8 @@ func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection P
 	findings = append(findings, skippedRoles...)
 	memberships, orphaned := resolvedMemberships(folded, defaults, customs)
 	findings = append(findings, orphaned...)
+	memberships = append(memberships, heldMemberships...)
+	findings = append(findings, heldFindings...)
 	sortFindings(findings)
 	var timed bool
 	memberships, s.since, s.until, timed = countingAt(memberships, at)

@@ -145,6 +145,38 @@ func (e *OrphanedMembership) String() string {
 
 func (*OrphanedMembership) warning() {}
 
+// SkippedRecordRole reports a role the policy store holds on one record of a tenant
+// that the running release gives nobody: the role is not one the role file marks as
+// held on a record of the kind (Role.HeldOn), or the row is a group's and the group's
+// own row is not there, or the group is not kept in the record's tenant. The snapshot
+// loaded without the row, so its holder holds nothing from it and the rest of the policy
+// is in force. One report per such row reaches the reload-error hook each time a
+// snapshot compiles, and the deploy check (Client.CheckPolicy) lists it as a Warning. A
+// role taken out of a role file's heldOn leaves its rows behind this way until they are
+// taken.
+type SkippedRecordRole struct {
+	Scope accesstypes.RecordScope
+	Role  accesstypes.Role
+	// Member is the person's id or, for a group's row, the group's.
+	Member string
+	// Group reports whether the row is a group's.
+	Group bool
+	// Reason says why the row gives nothing.
+	Reason string
+}
+
+// Error prints the role, the record, who holds it and why the row gives nothing.
+func (e *SkippedRecordRole) Error() string {
+	return fmt.Sprintf("skipped the role %s held on %s by %s: %s", e.Role, e.Scope.String(), e.Member, e.Reason)
+}
+
+// String renders the finding as the one line the deploy check prints.
+func (e *SkippedRecordRole) String() string {
+	return e.Error()
+}
+
+func (*SkippedRecordRole) warning() {}
+
 // newSkippedGrant builds the report for a grant record.
 func newSkippedGrant(g *policy.Grant, reason error) *SkippedGrant {
 	return &SkippedGrant{
