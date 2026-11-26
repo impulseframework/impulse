@@ -142,6 +142,8 @@ describe("sharingConfig, a record's Sharing", () => {
       // page's record: the list is under its record, so a role held on that record alone
       // lists them.
       expect(give.narrows?.['role']?.({ recordId: 'v1' })).toBe(`method:eq:${method},recordId:eq:v1`);
+      // A key the filter's grammar would read as more than a value travels in quotes.
+      expect(give.narrows?.['role']?.({ recordId: 'a,b' })).toBe(`method:eq:${method},recordId:eq:"a,b"`);
     }
   });
 

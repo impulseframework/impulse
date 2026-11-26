@@ -1,4 +1,4 @@
-import { ApiDescriptor, IdentityRecordSharing, Resource } from '@impulseframework/resource';
+import { ApiDescriptor, IdentityRecordSharing, quoteFilterValue, Resource } from '@impulseframework/resource';
 import {
   ChildResourceConfig,
   ColumnConfig,
@@ -83,7 +83,9 @@ function sharing(
     // The roles the list offers are the ones the caller could give with this method on the
     // page's record, which the dialog holds as the method's recordId: the list is under its
     // record, so a role held on that record alone lists them.
-    narrows: { role: (values) => `method:eq:${method},recordId:eq:${String(values['recordId'] ?? '')}` },
+    narrows: {
+      role: (values) => `method:eq:${method},recordId:eq:${quoteFilterValue(String(values['recordId'] ?? ''))}`,
+    },
   });
   const removing = (method: string, kind: string, filled: string, icon: string): MethodPresentation => ({
     method: method as Method,

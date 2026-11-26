@@ -551,12 +551,12 @@ func (d *identitySourceData) Sharing() recordSharing {
 	return d.sharing(d.HeldRecord)
 }
 
-// SharedRecord is the struct of the record the file shares (Mission).
+// SharedRecord is the struct of the record the file shares (Project).
 func (d *identitySourceData) SharedRecord() string {
 	return d.HeldRecord.name
 }
 
-// SharedResource is the resource name of the record the file shares (Missions), which the
+// SharedResource is the resource name of the record the file shares (Projects), which the
 // identity package's methods name its kind by.
 func (d *identitySourceData) SharedResource() string {
 	return string(d.HeldRecord.resource)

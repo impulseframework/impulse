@@ -6912,9 +6912,12 @@ type Project struct {
 }
 ```
 
-The record is a tenant's resource with a table of its own, keyed by one column, and not the
-tenant record itself (a role held on the tenant is the role held in the tenant). The
-generator refuses each of the others in a sentence that names the struct and what to do.
+The record is a tenant's resource with a table of its own, keyed by one text column, and not
+the tenant record itself (a role held on the tenant is the role held in the tenant). The
+generator refuses each of the others in a sentence that names the struct and what to do. It
+also refuses a record that names a row by a foreign key of several columns, and one with a
+row under it by such a key, unless the key carries the record's own down (an interleaved
+table).
 
 **Naming it in a role.** A domain role of the auth's role file says which kinds of record it
 can be held on, under `heldOn`, by their resource names:
@@ -6944,7 +6947,8 @@ role. Write @holdsRoles on the Project struct, or take Projects out of the role'
   passes a table twice, so a row that hangs under the record only through another row of its
   own kind (a task under a task) is reached through its own foreign key to the record alone.
 - The one row of each kind the record names by a foreign key (the project's client), and no
-  other row of that kind. Such a row is read, never created: a Create there gives nothing.
+  other row of that kind. Such a row is reached by the role's other grants on its kind (a
+  Read, an Update, a Delete) and never created: a Create there gives nothing.
 - A create of a row under the record, by the record it names: a task created on the project.
   A role held on one project creates no other project.
 - Nothing on a view of the application's or on a resource apart from the record.
@@ -7005,6 +7009,11 @@ project's rows alone. A role file gives the tenant's administrator the four meth
 two lists with no condition, as Lodestar's does. The roles list is asked for one record and one method, and a computed
 list filters only by a field granted with no condition, so a role file grants `method` and
 `recordId` on it among the fields of a grant with no condition.
+
+The dialogs pick the person from the tenant's list of its people and the group from its
+groups. Those are the tenant's lists, and a role held on one project lists neither: a person
+who is to share from the page also holds, in the tenant, a role that lists them. The methods
+run without it, for a request that names the person or the group by id.
 
 **A person who holds only records.** A person whose only role in a tenant is held on one of
 its records is let into the tenant, for those records alone. They are one of the tenant's

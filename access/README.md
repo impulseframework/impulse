@@ -698,7 +698,10 @@ mgr.DeleteRecordRoles(ctx, apollo)              // every role held on the projec
 
 `accesstypes.RecordScope` names the record: its tenant, its kind by its resource name and its
 key as text. The library never reads the record: that the key names a row is the caller's,
-as for every label the store holds.
+as for every label the store holds. The collection keeps each auth's tables of the roles held
+on records under the auth's name, so the engine is opened under that name
+(`WithDefaultRoles(Roles(), Name)`): one opened under no name finds no tables, and its roles
+give nothing on a record.
 
 - A give is refused (400, in a sentence a person can act on) where no tenant, record or person
   is named, the kind is not marked (`No role can be held on one project. Give the role in the
@@ -1401,10 +1404,10 @@ on one at a time, beside its grants (see Roles held on one record):
 ```json
 {
   "name": "DocumentReviewer",
-  "description": "Reads one folder and the documents in it.",
-  "heldOn": ["Folders"],
+  "description": "Reads one project and the documents in it.",
+  "heldOn": ["Projects"],
   "permissions": {
-    "List": [{"resource": "Folders", "fields": ["name"]}, {"resource": "Documents", "fields": ["title", "author"]}],
+    "List": [{"resource": "Projects", "fields": ["name"]}, {"resource": "Documents", "fields": ["title", "author"]}],
     "Read": [{"resource": "Documents", "fields": ["title", "author", "body"]}]
   }
 }

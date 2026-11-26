@@ -2520,11 +2520,6 @@ class SideBuilder {
   }
 
   /**
-   * The field a tenant's side reads with a person and does not draw besides the State's:
-   * whether the person holds something in the tenant itself (heldHere), by which the
-   * removal from the tenant is offered. Only where the list has it.
-   */
-  /**
    * What the Roles cell of the people list says of a person: the roles they hold, a line
    * each, and for a person who holds none here and a role on some of the tenant's records,
    * the one line that says which (recordsOnly).
@@ -2538,6 +2533,11 @@ class SideBuilder {
     return only === undefined ? [] : [only];
   }
 
+  /**
+   * The field a tenant's side reads with a person and does not draw besides the State's:
+   * whether the person holds something in the tenant itself (heldHere), by which the
+   * removal from the tenant is offered. Only where the list has it.
+   */
   private tenantFacts(resource: Resource): string[] {
     return this.tenant && this.has(resource, 'heldHere') ? ['heldHere'] : [];
   }
