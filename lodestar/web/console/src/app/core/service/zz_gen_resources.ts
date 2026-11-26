@@ -972,8 +972,8 @@ export interface Refits {
 }
 
 export interface RefitTasks {
-  refitId: string;
   taskNumber: number;
+  refitId: string;
   instructions?: string;
   done?: boolean;
   notes?: string;
@@ -2675,8 +2675,8 @@ const resourceMap = defineResourceMap({
     live: true,
     rowWords: { one: 'refit task', many: 'refit tasks' },
     fields: [
-      { fieldName: 'refitId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Refits },
       { fieldName: 'taskNumber', primaryKey: { ordinalPosition: 1 }, displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'refitId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Refits },
       { fieldName: 'instructions', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'done', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },

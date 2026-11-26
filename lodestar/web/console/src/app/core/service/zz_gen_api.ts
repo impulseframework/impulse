@@ -453,8 +453,8 @@ export type RefitsKey = [id: string];
  * absent; a server-generated key is absent, a client-assigned key is required.
  */
 export interface RefitTasksCreate {
-  refitId: string;
   taskNumber: number;
+  refitId: string;
   instructions: string;
   done?: boolean;
   notes?: string | null;

@@ -128,6 +128,13 @@ Primary keys are exempt — their readability follows the resource-level grant. 
 no per-field permission tag to write: a `perm:` tag on a source struct is a generation
 error, and a stale one in a generated request struct fails Set construction at startup.
 
+A struct may list its key fields in any order. Everything generated takes a table's key in
+the table's own order, the order of its `PRIMARY KEY`: the row's route, the parameters of the
+generated patch constructors (`New<Name>CreatePatch`, `New<Name>UpdatePatch`,
+`New<Name>DeletePatch`), the TypeScript client's key, the key a write gives the database and
+the key a change record is filed under. A view's key is in the order its struct declares its
+`@primarykey` fields.
+
 | Tag | Where | Effect |
 | --- | --- | --- |
 | `spanner:"ColumnName"` | every field of `@resource`/`@virtual` structs | Maps the field to its Spanner column. Required — a missing tag or unknown column is a generation error, and field nullability must match the column's: a pointer or a Null wrapper on a nullable column, a plain value on a NOT NULL one. A slice-typed field follows the column's nullability, since a Go slice has one form: the Spanner client reads NULL into a nil slice and writes nil as NULL, so `[]byte` types a nullable `BYTES` column and a NOT NULL one alike, as `[]T` does an `ARRAY<T>` (section 12, nullable slices). A pointer to a slice is refused. |

@@ -487,10 +487,8 @@ func (c *client) validateTransitionStates(pStruct *parser.Struct, rootName strin
 // to the request's tenant already, so a method names a row within one.
 func targetRootKeys(pStruct *parser.Struct, rootName string, root *resourceInfo, declKeyword string) ([]*resourceField, error) {
 	var keys []*resourceField
-	for _, f := range root.Fields {
-		if f.IsPrimaryKey {
-			keys = append(keys, f)
-		}
+	for _, f := range root.PrimaryKeys() {
+		keys = append(keys, f)
 	}
 
 	switch {
