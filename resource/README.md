@@ -6975,6 +6975,9 @@ role. Write @holdsRoles on the Project struct, or take Projects out of the role'
   A role held on one project creates no other project.
 - Nothing on a view of the application's or on a resource apart from the record.
 
+An update is asked of the row before and after: a row that an update would move out from
+under every record the role is held on is refused.
+
 The grants are the ones the role file writes, with their fields and their conditions: the
 record says which rows a grant reaches and never what it allows. The check of a role file
 warns for each grant that gives nothing when the role is held on one record (the role keeps

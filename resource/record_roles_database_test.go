@@ -11,7 +11,8 @@ import (
 
 // TestGeneratedCollection_RecordCondition_onSpanner holds the conditions a role held on a
 // record counts under to the fixture's rows on the Spanner emulator (askOnRecord): the
-// rows of each resource a holder reaches, and a task being created.
+// rows of each resource a holder reaches, and a task being created; and the updates
+// (askOnRecordUpdates), which the resource package writes on Spanner alone.
 func TestGeneratedCollection_RecordCondition_onSpanner(t *testing.T) {
 	t.Parallel()
 
@@ -59,7 +60,7 @@ func TestGeneratedCollection_RecordCondition_onSpanner(t *testing.T) {
 			}
 		}
 	}
-	askOnRecord(t, onRecordDatabase{
+	spannerDB := onRecordDatabase{
 		dialect: Spanner,
 		keys: func(t *testing.T, sql string, params map[string]any) []string {
 			t.Helper()
@@ -87,5 +88,7 @@ func TestGeneratedCollection_RecordCondition_onSpanner(t *testing.T) {
 
 			return holds.Valid && holds.Bool
 		},
-	})
+	}
+	askOnRecord(t, spannerDB)
+	askOnRecordUpdates(t, spannerDB)
 }

@@ -40,9 +40,9 @@ func compileRecordRoles(records *policy.Records, defaults *defaultRoles, collect
 // recordRoleGrants renders, for each domain role held on a kind of record, the role's
 // grants as the role held there gives them, held in every domain: each grant on a
 // resource the record reaches, or an Execute grant on a method whose target it reaches,
-// under the condition the collection answers, joined by AND to the grant's own. A grant
-// the record does not reach, one for the whole of a scope and one on a method with no
-// target are left out.
+// under the condition the collection answers for the grant's permission, joined by AND to
+// the grant's own. A grant the record does not reach, one for the whole of a scope and one
+// on a method with no target are left out.
 func recordRoleGrants(defaults *defaultRoles, collection PermissionCollection) []policy.Grant {
 	every := accesstypes.EveryDomainPolicyScope()
 	auth := defaults.authName()
@@ -64,7 +64,7 @@ func recordRoleGrants(defaults *defaultRoles, collection PermissionCollection) [
 					}
 					target = method
 				}
-				held, reached := recordCondition(collection, auth, role, record, target, g.Perm == accesstypes.Create)
+				held, reached := recordCondition(collection, auth, role, record, target, g.Perm)
 				if !reached {
 					continue
 				}

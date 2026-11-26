@@ -17,7 +17,7 @@ var onRecordPostgresSchema = []string{
 	`CREATE TABLE "Clients" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL)`,
 	`CREATE TABLE "Projects" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL, "ClientId" text REFERENCES "Clients" ("Id"))`,
 	`CREATE TABLE "Tasks" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL, "ProjectId" text REFERENCES "Projects" ("Id"), "FormerProjectId" text REFERENCES "Projects" ("Id"))`,
-	`CREATE TABLE "Comments" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL, "TaskId" text REFERENCES "Tasks" ("Id"))`,
+	`CREATE TABLE "Comments" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL, "TaskId" text REFERENCES "Tasks" ("Id"), "Body" text)`,
 	`CREATE TABLE "Invoices" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL)`,
 	`CREATE TABLE "StaffGroups" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL)`,
 	`CREATE TABLE "StaffGroupMembers" ("GroupId" text NOT NULL REFERENCES "StaffGroups" ("Id"), "UserId" text NOT NULL, "StartsAt" timestamptz, "EndsAt" timestamptz, PRIMARY KEY ("GroupId", "UserId"))`,

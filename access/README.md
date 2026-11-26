@@ -718,9 +718,11 @@ give nothing on a record.
 
 How the engine counts one: the snapshot compiles a role held on a kind of record as a role
 of its own (`Viewer@Projects`), whose grants are the role's, each joined by AND to the
-condition the collection answers for the grant's resource (`RecordCondition`): the row's
-way to the record is in a subject set of the records the person holds the role on, or their
-groups do. A grant on a resource the record does not reach is left out. A membership of the
+condition the collection answers for the grant's resource and permission
+(`RecordCondition`): the row's way to the record is in a subject set of the records the
+person holds the role on, or their groups do. An update is asked of the row before and
+after: a row that an update would move out from under every record the role is held on is
+refused. A grant on a resource the record does not reach is left out. A membership of the
 record's row is a membership of that role in the record's tenant, with its period, so a
 check, the digest and `UserHasGrants` read it as they read any role. The subject sets are
 declared nowhere: their names say what they are, and the collection answers them.

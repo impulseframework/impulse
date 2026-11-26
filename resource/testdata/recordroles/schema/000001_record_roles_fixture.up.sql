@@ -1,7 +1,8 @@
 -- The fixture of the conditions a role held on a record counts under: projects, each
--- naming a client; tasks in a project and from another; comments on a task; invoices
--- apart; and the groups, their members and the roles held on records of the auth staff,
--- with the columns the access library's tables give them. Names are the fixture's own.
+-- naming a client; tasks in a project and from another; comments on a task, with a body;
+-- invoices apart; and the groups, their members and the roles held on records of the auth
+-- staff, with the columns the access library's tables give them. Names are the fixture's
+-- own.
 
 CREATE TABLE Clients (
   Id STRING(36) NOT NULL,
@@ -28,6 +29,7 @@ CREATE TABLE Comments (
   Id STRING(36) NOT NULL,
   DomainId STRING(128) NOT NULL,
   TaskId STRING(36),
+  Body STRING(MAX),
   CONSTRAINT CommentsTask FOREIGN KEY (TaskId) REFERENCES Tasks (Id),
 ) PRIMARY KEY (Id);
 

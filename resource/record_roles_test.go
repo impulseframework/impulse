@@ -257,7 +257,7 @@ type onRecordRow struct {
 // erin holds ProjectEditor on p1, and on p2 until a time already past; omar holds it on
 // p2; the group crew holds ProjectViewer on p2 and erin has a place in it; the group
 // guests holds it on p3 and erin's place there has ended. Task t2 is in p2 and came from
-// p1. In south erin holds ProjectEditor on p9.
+// p1; task t7 is in p1 and came from it. In south erin holds ProjectEditor on p9.
 func onRecordRows() []onRecordRow {
 	row := func(table string, values map[string]any) onRecordRow {
 		return onRecordRow{table: table, values: values}
@@ -291,6 +291,7 @@ func onRecordRows() []onRecordRow {
 		row("Tasks", map[string]any{"Id": "t2", "DomainId": onRecordNorth, "ProjectId": "p2", "FormerProjectId": "p1"}),
 		row("Tasks", map[string]any{"Id": "t3", "DomainId": onRecordNorth, "ProjectId": "p2"}),
 		row("Tasks", map[string]any{"Id": "t4", "DomainId": onRecordNorth, "ProjectId": "p3"}),
+		row("Tasks", map[string]any{"Id": "t7", "DomainId": onRecordNorth, "ProjectId": "p1", "FormerProjectId": "p1"}),
 		row("Tasks", map[string]any{"Id": "t9", "DomainId": onRecordSouth, "ProjectId": "p9"}),
 		row("Comments", map[string]any{"Id": "k1", "DomainId": onRecordNorth, "TaskId": "t1"}),
 		row("Comments", map[string]any{"Id": "k2", "DomainId": onRecordNorth, "TaskId": "t2"}),
@@ -325,7 +326,7 @@ type onRecordRead struct {
 func onRecordReads() []onRecordRead {
 	return []onRecordRead{
 		{name: "erin's project", user: "erin", role: "ProjectEditor", resource: "Projects", want: []string{"p1"}},
-		{name: "erin's project's tasks, one by the project it came from alone", user: "erin", role: "ProjectEditor", resource: "Tasks", want: []string{"t1", "t2"}},
+		{name: "erin's project's tasks, one by the project it came from alone", user: "erin", role: "ProjectEditor", resource: "Tasks", want: []string{"t1", "t2", "t7"}},
 		{name: "the comments on those tasks", user: "erin", role: "ProjectEditor", resource: "Comments", want: []string{"k1", "k2"}},
 		{name: "the client erin's project names, and not the ended one's", user: "erin", role: "ProjectEditor", resource: "Clients", want: []string{"c1"}},
 		{name: "through a group: the group's project", user: "erin", role: "ProjectViewer", resource: "Projects", want: []string{"p2"}},
@@ -355,14 +356,40 @@ func onRecordCreates() []onRecordCreate {
 	}
 }
 
-// onRecordStatement lowers the condition a holder of role reaches resource's rows under, over
-// the row read as "r" in a request of a tenant, or over the row being created.
-func onRecordStatement(t *testing.T, collection *GeneratedCollection, dialect SQLDialect, role accesstypes.Role, res accesstypes.Resource, proposed map[string]any) (string, *paramRegistry) {
+// onRecordUpdate is one update the fixture's rows answer: whether erin, holding
+// ProjectEditor on p1 alone, may change the row of the resource keyed id by the columns
+// proposed.
+type onRecordUpdate struct {
+	name     string
+	resource accesstypes.Resource
+	id       string
+	proposed map[string]any
+	want     bool
+}
+
+// onRecordUpdates are the updates Spanner is held to: a row the update leaves under p1 is
+// written, and one it moves out from under p1 is not.
+func onRecordUpdates() []onRecordUpdate {
+	return []onRecordUpdate{
+		{name: "a comment moved to another task of erin's project", resource: "Comments", id: "k2", proposed: map[string]any{"TaskId": "t1"}, want: true},
+		{name: "a comment moved to a task of another project", resource: "Comments", id: "k1", proposed: map[string]any{"TaskId": "t3"}, want: false},
+		{name: "a comment's body alone", resource: "Comments", id: "k1", proposed: map[string]any{"Body": "Seen to."}, want: true},
+		{name: "a task moved to another project", resource: "Tasks", id: "t1", proposed: map[string]any{"ProjectId": "p2"}, want: false},
+		{name: "a task under erin's project both ways, the project it came from moved", resource: "Tasks", id: "t7", proposed: map[string]any{"FormerProjectId": "p2"}, want: true},
+		{name: "a task under erin's project by the project it came from alone, that moved", resource: "Tasks", id: "t2", proposed: map[string]any{"FormerProjectId": "p2"}, want: false},
+	}
+}
+
+// onRecordStatement lowers the condition a holder of role reaches resource's rows under for
+// perm: a read's and an update's over the row read as "r" in a request of a tenant, an
+// update's with proposed as the columns it touches, and a create's over the row being
+// created, whose columns proposed holds.
+func onRecordStatement(t *testing.T, collection *GeneratedCollection, dialect SQLDialect, role accesstypes.Role, res accesstypes.Resource, perm accesstypes.Permission, proposed map[string]any) (string, *paramRegistry) {
 	t.Helper()
 
-	source, ok := collection.RecordCondition(onRecordAuth, role, "Projects", res, proposed != nil)
+	source, ok := collection.RecordCondition(onRecordAuth, role, "Projects", res, perm)
 	if !ok {
-		t.Fatalf("RecordCondition(%s, %s, Projects, %s) is not ok", onRecordAuth, role, res)
+		t.Fatalf("RecordCondition(%s, %s, Projects, %s, %s) is not ok", onRecordAuth, role, res, perm)
 	}
 	expr, err := condition.Parse(source)
 	if err != nil {
@@ -370,8 +397,12 @@ func onRecordStatement(t *testing.T, collection *GeneratedCollection, dialect SQ
 	}
 	bindings, _ := collection.Bindings(accesstypes.DomainPermissionScope, res)
 	lctx := &loweringContext{outer: "r", bindings: bindings, collection: collection, partitioned: true}
-	if proposed != nil {
+	switch perm {
+	case accesstypes.Create:
 		lctx.outer, lctx.proposed, lctx.insertImage = "", newProposedOverlay(proposed), true
+	case accesstypes.Update:
+		lctx.proposed = newProposedOverlay(proposed)
+	default:
 	}
 	registry := newParamRegistry()
 	sql, err := lowerToSQL(expr, lctx, newSQLGenerator(dialect), registry)
@@ -424,7 +455,7 @@ func askOnRecord(t *testing.T, db onRecordDatabase) {
 		t.Run(read.name, func(t *testing.T) {
 			t.Parallel()
 
-			sql, registry := onRecordStatement(t, collection, db.dialect, read.role, read.resource, nil)
+			sql, registry := onRecordStatement(t, collection, db.dialect, read.role, read.resource, accesstypes.Read, nil)
 			statement := fmt.Sprintf("SELECT %[1]s.%[2]s FROM %[3]s %[1]s WHERE %[4]s ORDER BY %[1]s.%[2]s", quote("r"), quote("Id"), quote(string(read.resource)), sql)
 			if got := db.keys(t, statement, onRecordParams(registry, read.user)); !slices.Equal(got, read.want) {
 				t.Errorf("%s holding %s reaches %s %v, want %v\n%s", read.user, read.role, read.resource, got, read.want, statement)
@@ -435,7 +466,7 @@ func askOnRecord(t *testing.T, db onRecordDatabase) {
 		t.Run(create.name, func(t *testing.T) {
 			t.Parallel()
 
-			sql, registry := onRecordStatement(t, collection, db.dialect, "ProjectEditor", "Tasks", create.proposed)
+			sql, registry := onRecordStatement(t, collection, db.dialect, "ProjectEditor", "Tasks", accesstypes.Create, create.proposed)
 			statement := "SELECT (" + sql + ")"
 			if got := db.holds(t, statement, onRecordParams(registry, "erin")); got != create.want {
 				t.Errorf("erin holding ProjectEditor may create %v: %v, want %v\n%s", create.proposed, got, create.want, statement)
@@ -444,10 +475,34 @@ func askOnRecord(t *testing.T, db onRecordDatabase) {
 	}
 }
 
+// askOnRecordUpdates holds the database to the fixture's updates: each update's condition
+// is run against the row it changes, read as "r", with the columns it touches as their
+// proposed values.
+func askOnRecordUpdates(t *testing.T, db onRecordDatabase) {
+	t.Helper()
+
+	collection := onRecordConditionCollection(t)
+	quote := newSQLGenerator(db.dialect).quoteIdentifier
+	for _, update := range onRecordUpdates() {
+		t.Run(update.name, func(t *testing.T) {
+			t.Parallel()
+
+			sql, registry := onRecordStatement(t, collection, db.dialect, "ProjectEditor", update.resource, accesstypes.Update, update.proposed)
+			statement := fmt.Sprintf("SELECT (%[4]s) FROM %[3]s %[1]s WHERE %[1]s.%[2]s = @onRecordKey", quote("r"), quote("Id"), quote(string(update.resource)), sql)
+			params := onRecordParams(registry, "erin")
+			params["onRecordKey"] = update.id
+			if got := db.holds(t, statement, params); got != update.want {
+				t.Errorf("erin holding ProjectEditor may change %s %s by %v: %v, want %v\n%s", update.resource, update.id, update.proposed, got, update.want, statement)
+			}
+		})
+	}
+}
+
 // TestGeneratedCollection_RecordCondition pins the condition a role held on a record counts
 // under, as text: the ways of a resource to the record, then the record's names of it, a
 // person's set before a group's; a create's, which leaves the record's own way and its
-// names out; and where there is none.
+// names out; an update's, the read's asked of the row as stored and again of the row as the
+// update leaves it; and where there is none.
 func TestGeneratedCollection_RecordCondition(t *testing.T) {
 	t.Parallel()
 
@@ -455,27 +510,37 @@ func TestGeneratedCollection_RecordCondition(t *testing.T) {
 	set := func(kind, role string) string {
 		return "subject.held_" + kind + "_staff_" + role + "_Projects"
 	}
+	member := func(image, attribute, kind string) string {
+		return image + attribute + " IN " + set(kind, "ProjectEditor") + " OR " + image + attribute + " IN " + set(kind[:len(kind)-2]+"bygroup", "ProjectEditor")
+	}
 	tests := []struct {
-		name   string
-		auth   string
-		res    accesstypes.Resource
-		create bool
-		want   string
+		name string
+		auth string
+		res  accesstypes.Resource
+		perm accesstypes.Permission
+		want string
 	}{
-		{name: "the record itself", auth: onRecordAuth, res: "Projects", want: "held_way0_Projects IN " + set("by", "ProjectEditor") + " OR held_way0_Projects IN " + set("bygroup", "ProjectEditor")},
+		{name: "the record itself", auth: onRecordAuth, res: "Projects", want: member("", "held_way0_Projects", "by")},
+		{name: "a resource under the record by two ways", auth: onRecordAuth, res: "Tasks", want: member("", "held_way0_Projects", "by") + " OR " + member("", "held_way1_Projects", "by")},
+		{name: "a resource the record names", auth: onRecordAuth, res: "Clients", want: member("", "held_named0_Projects", "named0by")},
+		{name: "a create under the record", auth: onRecordAuth, res: "Tasks", perm: accesstypes.Create, want: member("", "held_way0_Projects", "by") + " OR " + member("", "held_way1_Projects", "by")},
+		{name: "a create of the record's own kind", auth: onRecordAuth, res: "Projects", perm: accesstypes.Create},
+		{name: "a create of a resource the record names", auth: onRecordAuth, res: "Clients", perm: accesstypes.Create},
 		{
-			name: "a resource under the record by two ways", auth: onRecordAuth, res: "Tasks",
-			want: "held_way0_Projects IN " + set("by", "ProjectEditor") + " OR held_way0_Projects IN " + set("bygroup", "ProjectEditor") +
-				" OR held_way1_Projects IN " + set("by", "ProjectEditor") + " OR held_way1_Projects IN " + set("bygroup", "ProjectEditor"),
+			name: "an update of the record itself, by its one way", auth: onRecordAuth, res: "Projects", perm: accesstypes.Update,
+			want: "(" + member("", "held_way0_Projects", "by") + ") AND (" + member("new.", "held_way0_Projects", "by") + ")",
 		},
-		{name: "a resource the record names", auth: onRecordAuth, res: "Clients", want: "held_named0_Projects IN " + set("named0by", "ProjectEditor") + " OR held_named0_Projects IN " + set("named0bygroup", "ProjectEditor")},
 		{
-			name: "a create under the record", auth: onRecordAuth, res: "Tasks", create: true,
-			want: "held_way0_Projects IN " + set("by", "ProjectEditor") + " OR held_way0_Projects IN " + set("bygroup", "ProjectEditor") +
-				" OR held_way1_Projects IN " + set("by", "ProjectEditor") + " OR held_way1_Projects IN " + set("bygroup", "ProjectEditor"),
+			name: "an update of a resource under the record by two ways", auth: onRecordAuth, res: "Tasks", perm: accesstypes.Update,
+			want: "(" + member("", "held_way0_Projects", "by") + " OR " + member("", "held_way1_Projects", "by") + ") AND (" +
+				member("new.", "held_way0_Projects", "by") + " OR " + member("new.", "held_way1_Projects", "by") + ")",
 		},
-		{name: "a create of the record's own kind", auth: onRecordAuth, res: "Projects", create: true},
-		{name: "a create of a resource the record names", auth: onRecordAuth, res: "Clients", create: true},
+		{
+			name: "an update of a resource the record names", auth: onRecordAuth, res: "Clients", perm: accesstypes.Update,
+			want: "(" + member("", "held_named0_Projects", "named0by") + ") AND (" + member("new.", "held_named0_Projects", "named0by") + ")",
+		},
+		{name: "a method's target reads as a read", auth: onRecordAuth, res: "Tasks", perm: accesstypes.Execute, want: member("", "held_way0_Projects", "by") + " OR " + member("", "held_way1_Projects", "by")},
+		{name: "an update of a resource apart", auth: onRecordAuth, res: "Invoices", perm: accesstypes.Update},
 		{name: "a resource apart", auth: onRecordAuth, res: "Invoices"},
 		{name: "an auth that keeps no roles on records", auth: "crew", res: "Tasks"},
 	}
@@ -483,9 +548,13 @@ func TestGeneratedCollection_RecordCondition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, ok := collection.RecordCondition(tt.auth, "ProjectEditor", "Projects", tt.res, tt.create)
+			perm := tt.perm
+			if perm == "" {
+				perm = accesstypes.Read
+			}
+			got, ok := collection.RecordCondition(tt.auth, "ProjectEditor", "Projects", tt.res, perm)
 			if got != tt.want || ok != (tt.want != "") {
-				t.Errorf("RecordCondition(%s, ProjectEditor, Projects, %s, %v) = (%q, %v), want (%q, %v)", tt.auth, tt.res, tt.create, got, ok, tt.want, tt.want != "")
+				t.Errorf("RecordCondition(%s, ProjectEditor, Projects, %s, %s) = (%q, %v), want (%q, %v)", tt.auth, tt.res, perm, got, ok, tt.want, tt.want != "")
 			}
 		})
 	}
@@ -493,7 +562,7 @@ func TestGeneratedCollection_RecordCondition(t *testing.T) {
 	t.Run("a record that is not marked", func(t *testing.T) {
 		t.Parallel()
 
-		if got, ok := collection.RecordCondition(onRecordAuth, "ProjectEditor", "Tasks", "Comments", false); ok {
+		if got, ok := collection.RecordCondition(onRecordAuth, "ProjectEditor", "Tasks", "Comments", accesstypes.Read); ok {
 			t.Errorf("RecordCondition(staff, ProjectEditor, Tasks, Comments) = (%q, true), want nothing", got)
 		}
 	})
@@ -508,7 +577,7 @@ func TestGeneratedCollection_RecordCondition(t *testing.T) {
 			t.Fatalf("NewGeneratedCollection() error = %v", err)
 		}
 		want := "held_named0_Projects IN " + set("named0by", "ProjectEditor")
-		if got, _ := g.RecordCondition(onRecordAuth, "ProjectEditor", "Projects", "Clients", false); got != want {
+		if got, _ := g.RecordCondition(onRecordAuth, "ProjectEditor", "Projects", "Clients", accesstypes.Read); got != want {
 			t.Errorf("RecordCondition(staff, ProjectEditor, Projects, Clients) = %q, want %q", got, want)
 		}
 		if _, ok := g.SubjectSet("held_bygroup_staff_ProjectEditor_Projects"); ok {
@@ -593,7 +662,7 @@ func TestGeneratedCollection_recordConditionRendering(t *testing.T) {
 		Spanner:    onRecordCommentsSpanner,
 		PostgreSQL: onRecordCommentsPostgres,
 	} {
-		sql, _ := onRecordStatement(t, collection, dialect, "ProjectEditor", "Comments", nil)
+		sql, _ := onRecordStatement(t, collection, dialect, "ProjectEditor", "Comments", accesstypes.Read, nil)
 		if sql != want {
 			t.Errorf("the comments' statement on %v =\n%s\nwant\n%s", dialect, sql, want)
 		}

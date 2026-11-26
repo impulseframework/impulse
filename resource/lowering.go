@@ -328,9 +328,12 @@ func lowerOperand(operand condition.Operand, typ AttributeType, ctx *loweringCon
 // plan §05). Generation validates each hop many-to-one, so a hop yields at
 // most one row. A post-write reference resolves to the proposed value's
 // parameter where the mutation touches the column, and to the existing
-// column where it doesn't — the overlay semantics. In an insert's check
-// context there is one image, written unqualified: every local column is
-// its proposed parameter, and a join path leaves through the proposed
+// column where it doesn't — the overlay semantics. A post-write reference to
+// an attribute read through a join path leaves through the proposed foreign
+// key where the mutation touches it, held to the request's tenant as an
+// insert's is, and through the stored one where it does not. In an insert's
+// check context there is one image, written unqualified: every local column
+// is its proposed parameter, and a join path leaves through the proposed
 // foreign-key value.
 func (ctx *loweringContext) resolveRef(ref condition.Ref, registry *paramRegistry) (comparand, error) {
 	if ref.IsTemporal() {
@@ -372,14 +375,21 @@ func (ctx *loweringContext) resolveRef(ref condition.Ref, registry *paramRegistr
 		if ctx.proposed == nil {
 			return comparand{}, errors.Newf("condition lowering: new.%s outside a write context", ref.Name)
 		}
-		if len(binding.Path) > 0 {
-			return comparand{}, errors.Newf("condition lowering: new.%s reads a join-path attribute, which has no proposed value", ref.Name)
-		}
-		if param, touched := ctx.proposed.param(binding.Column, registry); touched {
-			return namedComparand(param), nil
-		}
+		param, touched := ctx.proposed.param(binding.Column, registry)
+		switch {
+		case touched && len(binding.Path) > 0:
+			start := namedComparand(param)
 
-		return columnComparand(ctx.outer, binding.Column), nil
+			return ctx.insertPathScalar(&start, binding.Path, registry), nil
+		case touched:
+			return namedComparand(param), nil
+		case len(binding.Path) > 0:
+			stored := columnComparand(ctx.outer, binding.Column)
+
+			return pathScalar(&stored, binding.Path, registry), nil
+		default:
+			return columnComparand(ctx.outer, binding.Column), nil
+		}
 	}
 
 	outerColumn := columnComparand(ctx.outer, binding.Column)
@@ -417,14 +427,14 @@ func pathScalar(start *comparand, path []BindingHop, registry *paramRegistry) co
 	return previous
 }
 
-// insertPathScalar renders a join path read from an insert's image as
-// pathScalar does, except that in a partitioned request the first hop reads its
-// row only where it is the request's tenant's: where the first hop's table is
-// a resource of the collection with a domain binding, its subquery also holds
-// that table's tenancy filter, the one a subject anchor's takes
-// (withTenancy). A row of another tenant then reads as no row, as one that is
-// not there does. The hops after the first follow from that row as they
-// stand.
+// insertPathScalar renders a join path read from a proposed foreign key, an
+// insert's image or the key an update sets, as pathScalar does, except that in
+// a partitioned request the first hop reads its row only where it is the
+// request's tenant's: where the first hop's table is a resource of the
+// collection with a domain binding, its subquery also holds that table's
+// tenancy filter, the one a subject anchor's takes (withTenancy). A row of
+// another tenant then reads as no row, as one that is not there does. The hops
+// after the first follow from that row as they stand.
 func (ctx *loweringContext) insertPathScalar(start *comparand, path []BindingHop, registry *paramRegistry) comparand {
 	previous := *start
 	for i, hop := range path {

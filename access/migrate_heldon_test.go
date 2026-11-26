@@ -57,7 +57,7 @@ func (heldOnRelease) RecordReach(record, res accesstypes.Resource) (self, under,
 	return res == "Projects", res == "Tasks" || res == "Comments", res == "Clients"
 }
 
-func (heldOnRelease) RecordCondition(string, accesstypes.Role, accesstypes.Resource, accesstypes.Resource, bool) (string, bool) {
+func (heldOnRelease) RecordCondition(string, accesstypes.Role, accesstypes.Resource, accesstypes.Resource, accesstypes.Permission) (string, bool) {
 	return "", false
 }
 

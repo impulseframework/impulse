@@ -25,10 +25,11 @@ type recordRoles interface {
 	// (self), it is under it by foreign keys (under), or the record names it (named).
 	RecordReach(record, res accesstypes.Resource) (self, under, named bool)
 
-	// RecordCondition is the condition under which a grant on res counts for a holder of
-	// role on a record of the kind, for the people of auth; create asks for a row being
-	// created. ok is false where the role held there gives nothing on res.
-	RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, create bool) (condition string, ok bool)
+	// RecordCondition is the condition under which a grant of perm on res counts for a
+	// holder of role on a record of the kind, for the people of auth: Create asks it of a
+	// row being created, and Update of the row as stored and as the update leaves it. ok
+	// is false where the role held there gives nothing on res.
+	RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, perm accesstypes.Permission) (condition string, ok bool)
 }
 
 // holdsRoles reports whether store marks res as a record a role can be held on.
@@ -66,14 +67,14 @@ func recordReach(store PermissionCollection, record, res accesstypes.Resource) (
 	return marker.RecordReach(record, res)
 }
 
-// recordCondition returns the condition under which a grant on res counts for a holder
-// of role on a record of the kind record, for the people of auth, as store answers it;
-// a collection that does not answer gives nothing.
-func recordCondition(store PermissionCollection, auth string, role accesstypes.Role, record, res accesstypes.Resource, create bool) (string, bool) {
+// recordCondition returns the condition under which a grant of perm on res counts for a
+// holder of role on a record of the kind record, for the people of auth, as store answers
+// it; a collection that does not answer gives nothing.
+func recordCondition(store PermissionCollection, auth string, role accesstypes.Role, record, res accesstypes.Resource, perm accesstypes.Permission) (string, bool) {
 	marker, ok := store.(recordRoles)
 	if !ok {
 		return "", false
 	}
 
-	return marker.RecordCondition(auth, role, record, res, create)
+	return marker.RecordCondition(auth, role, record, res, perm)
 }

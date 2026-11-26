@@ -11,10 +11,12 @@ import (
 )
 
 // The conditions the record tests' collection gives a holder of a role on a project:
-// one for a row of Tasks that is read or changed, one for a row of Tasks being created.
+// one for a row of Tasks that is read, one for a row of Tasks being created, and one for a
+// row of Tasks being updated, asked of the row before and after.
 const (
 	heldTasks        = "projectId IN subject.heldProjects"
 	heldTasksCreated = "new.projectId IN subject.heldProjects"
+	heldTasksUpdated = "projectId IN subject.heldProjects AND new.projectId IN subject.heldProjects"
 )
 
 // recordRolesRelease is the release of the record tests: Projects is marked as a record
@@ -54,15 +56,18 @@ func (recordRolesRelease) RecordReach(record, res accesstypes.Resource) (self, u
 	return record == "Projects" && res == "Projects", record == "Projects" && res == "Tasks", false
 }
 
-func (recordRolesRelease) RecordCondition(_ string, _ accesstypes.Role, record, res accesstypes.Resource, create bool) (string, bool) {
+func (recordRolesRelease) RecordCondition(_ string, _ accesstypes.Role, record, res accesstypes.Resource, perm accesstypes.Permission) (string, bool) {
 	if record != "Projects" || res != "Tasks" {
 		return "", false
 	}
-	if create {
+	switch perm {
+	case accesstypes.Create:
 		return heldTasksCreated, true
+	case accesstypes.Update:
+		return heldTasksUpdated, true
+	default:
+		return heldTasks, true
 	}
-
-	return heldTasks, true
 }
 
 // recordRolesFile is the role file of the record tests: ProjectEditor can be held on a
@@ -154,9 +159,9 @@ func TestClient_recordRoles(t *testing.T) {
 		conds []string
 	}{
 		{name: "a row under the record is read under the collection's condition", user: "ann", scope: tenant1Scope, perm: "List", res: "Tasks", want: "conditional", conds: []string{heldTasks}},
-		{name: "a grant's own condition and the record's are both held", user: "ann", scope: tenant1Scope, perm: "Update", res: "Tasks", want: "conditional", conds: []string{"status = 'open' AND " + heldTasks}},
+		{name: "a grant's own condition and the record's for an update are both held", user: "ann", scope: tenant1Scope, perm: "Update", res: "Tasks", want: "conditional", conds: []string{"status = 'open' AND " + heldTasksUpdated}},
 		{name: "a grant's own condition of two parts is held whole beside the record's", user: "ann", scope: tenant1Scope, perm: "Read", res: "Tasks", want: "conditional", conds: []string{"(status = 'open' OR status = 'held') AND " + heldTasks}},
-		{name: "a field grant carries both conditions too", user: "ann", scope: tenant1Scope, perm: "Update", res: "Tasks.title", want: "conditional", conds: []string{"status = 'open' AND " + heldTasks}},
+		{name: "a field grant carries both conditions too", user: "ann", scope: tenant1Scope, perm: "Update", res: "Tasks.title", want: "conditional", conds: []string{"status = 'open' AND " + heldTasksUpdated}},
 		{name: "a row being created is held to the create condition", user: "ann", scope: tenant1Scope, perm: "Create", res: "Tasks", want: "conditional", conds: []string{heldTasksCreated}},
 		{name: "a method whose target is under the record is conditional the same way", user: "ann", scope: tenant1Scope, perm: "Execute", res: "CloseTask", want: "conditional", conds: []string{heldTasks}},
 		{name: "a method with no target gives nothing", user: "ann", scope: tenant1Scope, perm: "Execute", res: "Archive", want: "denied"},

@@ -197,9 +197,12 @@ func (m markingCollection) RecordReach(record, res accesstypes.Resource) (self, 
 	return record == res && slices.Contains(m.records, record), false, false
 }
 
-func (m markingCollection) RecordCondition(_ string, _ accesstypes.Role, record, res accesstypes.Resource, _ bool) (string, bool) {
+func (m markingCollection) RecordCondition(_ string, _ accesstypes.Role, record, res accesstypes.Resource, perm accesstypes.Permission) (string, bool) {
 	if record != res || !slices.Contains(m.records, record) {
 		return "", false
+	}
+	if perm == accesstypes.Update {
+		return "id = 'held' AND new.id = 'held'", true
 	}
 
 	return "id = 'held'", true
@@ -423,10 +426,13 @@ func Test_recordRoles_helpers(t *testing.T) {
 	if self, under, named := recordReach(plain, "Projects", "Projects"); self || under || named {
 		t.Error("a collection that does not answer reaches a row")
 	}
-	if cond, ok := recordCondition(marking, "", "ProjectEditor", "Projects", "Projects", false); !ok || cond != "id = 'held'" {
+	if cond, ok := recordCondition(marking, "", "ProjectEditor", "Projects", "Projects", accesstypes.Read); !ok || cond != "id = 'held'" {
 		t.Errorf("recordCondition() = (%q, %v), want the collection's condition", cond, ok)
 	}
-	if _, ok := recordCondition(plain, "", "ProjectEditor", "Projects", "Projects", false); ok {
+	if cond, ok := recordCondition(marking, "", "ProjectEditor", "Projects", "Projects", accesstypes.Update); !ok || cond != "id = 'held' AND new.id = 'held'" {
+		t.Errorf("recordCondition(Update) = (%q, %v), want the collection's condition for an update", cond, ok)
+	}
+	if _, ok := recordCondition(plain, "", "ProjectEditor", "Projects", "Projects", accesstypes.Read); ok {
 		t.Error("a collection that does not answer gives a condition")
 	}
 }
@@ -462,10 +468,13 @@ func TestUnionCollection_recordRoles(t *testing.T) {
 	if self, _, _ := recordReach(union, "Clients", "Clients"); !self {
 		t.Error("recordReach(Clients, Clients) is not self through the union")
 	}
-	if _, ok := recordCondition(union, "", "AccountLead", "Clients", "Clients", false); !ok {
+	if _, ok := recordCondition(union, "", "AccountLead", "Clients", "Clients", accesstypes.Read); !ok {
 		t.Error("the union gives no condition on Clients, which its third member answers")
 	}
-	if _, ok := recordCondition(union, "", "AccountLead", "Invoices", "Invoices", false); ok {
+	if cond, _ := recordCondition(union, "", "AccountLead", "Clients", "Clients", accesstypes.Update); cond != "id = 'held' AND new.id = 'held'" {
+		t.Errorf("the union's condition for an update on Clients = %q, want the member's for an update: the union hands the permission through", cond)
+	}
+	if _, ok := recordCondition(union, "", "AccountLead", "Invoices", "Invoices", accesstypes.Read); ok {
 		t.Error("the union gives a condition on Invoices, which no member marks")
 	}
 }

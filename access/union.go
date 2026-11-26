@@ -564,9 +564,9 @@ func (u *unionCollection) RecordReach(record, res accesstypes.Resource) (self, u
 // RecordCondition answers from the first collection that gives a condition: an auth's
 // tables are known only to the site whose program generates that auth's management, so
 // one collection answers for an auth and the others do not.
-func (u *unionCollection) RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, create bool) (string, bool) {
+func (u *unionCollection) RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, perm accesstypes.Permission) (string, bool) {
 	for _, c := range u.collections {
-		if condition, ok := recordCondition(c, auth, role, record, res, create); ok {
+		if condition, ok := recordCondition(c, auth, role, record, res, perm); ok {
 			return condition, true
 		}
 	}

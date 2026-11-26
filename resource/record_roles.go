@@ -293,18 +293,22 @@ func (g *GeneratedCollection) waysUnder(res accesstypes.Resource) []RecordWayDat
 	return nil
 }
 
-// RecordCondition is the condition under which a grant on res counts for a holder of
-// role on a record of the kind record, for the people of auth: the tests below joined by
-// OR, and ok false where there is none, the auth keeps no roles on records, or record is
-// no record a role can be held on.
+// RecordCondition is the condition under which a grant of perm on res counts for a holder
+// of role on a record of the kind record, for the people of auth: the tests below joined
+// by OR, and ok false where there is none, the auth keeps no roles on records, or record
+// is no record a role can be held on.
 //
 // For each way of res to the record, in the order of Under, the way's attribute is in the
 // set of the records the person holds the role on, then in the set of those their groups
-// hold it on (where the store keeps groups). Unless create, the same follows for each name
-// of res by the record, its attribute in the sets of the rows those records name. A create
-// is under the record by the row it writes: a row the record names is reached and never
-// made, and neither is the record's own kind (its Self way), by a role held on one record.
-func (g *GeneratedCollection) RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, create bool) (condition string, ok bool) {
+// hold it on (where the store keeps groups). Unless perm is Create, the same follows for
+// each name of res by the record, its attribute in the sets of the rows those records
+// name. A create is under the record by the row it writes: a row the record names is
+// reached and never made, and neither is the record's own kind (its Self way), by a role
+// held on one record. An update asks the tests twice, of the row as stored and of the row
+// as the update leaves it (new.), so a row moved out from under every record the role is
+// held on is refused; a row reached by the record's own key or by a name is the same row
+// after, and the second asking is the first.
+func (g *GeneratedCollection) RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, perm accesstypes.Permission) (condition string, ok bool) {
 	if g == nil {
 		return "", false
 	}
@@ -314,30 +318,39 @@ func (g *GeneratedCollection) RecordCondition(auth string, role accesstypes.Role
 		return "", false
 	}
 
-	var tests []string
-	member := func(attribute string, named int) {
-		tests = append(tests, attribute+" IN subject."+recordSetName(named, false, auth, role, record))
-		if store.keepsGroups() {
-			tests = append(tests, attribute+" IN subject."+recordSetName(named, true, auth, role, record))
-		}
-	}
-	for _, way := range g.waysUnder(res) {
-		if way.Record == record && (!create || !way.Self) {
-			member(way.Attribute, -1)
-		}
-	}
-	if !create {
-		for n, name := range data.Names {
-			if name.Resource == res {
-				member(name.Attribute, n)
+	create := perm == accesstypes.Create
+	tests := func(image string) []string {
+		var tests []string
+		member := func(attribute string, named int) {
+			tests = append(tests, image+attribute+" IN subject."+recordSetName(named, false, auth, role, record))
+			if store.keepsGroups() {
+				tests = append(tests, image+attribute+" IN subject."+recordSetName(named, true, auth, role, record))
 			}
 		}
+		for _, way := range g.waysUnder(res) {
+			if way.Record == record && (!create || !way.Self) {
+				member(way.Attribute, -1)
+			}
+		}
+		if !create {
+			for n, name := range data.Names {
+				if name.Resource == res {
+					member(name.Attribute, n)
+				}
+			}
+		}
+
+		return tests
 	}
-	if len(tests) == 0 {
+	stored := tests("")
+	if len(stored) == 0 {
 		return "", false
 	}
+	if perm == accesstypes.Update {
+		return "(" + strings.Join(stored, " OR ") + ") AND (" + strings.Join(tests("new."), " OR ") + ")", true
+	}
 
-	return strings.Join(tests, " OR "), true
+	return strings.Join(stored, " OR "), true
 }
 
 // recordSet reads a subject set of the records a person holds a role on from its name
