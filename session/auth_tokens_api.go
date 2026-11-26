@@ -182,6 +182,7 @@ func (p *AuthAPI[S, U, Tx]) RevokeUserTokens(ctx context.Context, userID impulse
 	if err != nil {
 		return err
 	}
+	revoked.Form = auditlog.FormEveryToken
 	if err := p.auth.storage.RevokeUserTokens(ctx, userID, sessionstorage.TokenRevokedWithUser, revoked); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeUserTokens()")
 	}

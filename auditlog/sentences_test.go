@@ -50,6 +50,7 @@ func TestWhat(t *testing.T) {
 		{name: "token made", row: Stored{Act: ActTokenMade, NewValue: "deploy"}, want: "Made the token deploy"},
 		{name: "token made, no name", row: Stored{Act: ActTokenMade}, want: "Made a token"},
 		{name: "token revoked", row: Stored{Act: ActTokenRevoked}, want: "Revoked a token"},
+		{name: "every token revoked", row: Stored{Act: ActTokenRevoked, Form: FormEveryToken}, want: "Revoked every token"},
 		{name: "browsers forgotten", row: Stored{Act: ActBrowsersForgotten}, want: "Forgot the remembered browsers"},
 		{name: "role given, no period", row: Stored{Act: ActRoleGiven, RoleNames: []string{"Editor"}, RoleScope: RoleScopeTenant}, want: "Gave the role Editor"},
 		{name: "role given, from", row: Stored{Act: ActRoleGiven, RoleNames: []string{"Editor"}, RoleScope: RoleScopeTenant, PeriodStart: start}, want: "Gave the role Editor from 2026-12-01 09:30 UTC"},

@@ -139,6 +139,7 @@ func acceptedRecords() []Record {
 		with(account(ActTokenMade, ""), func(r *Record) { r.NewValue = "deploy" }),
 		account(ActTokenMade, ""),
 		account(ActTokenRevoked, ""),
+		account(ActTokenRevoked, FormEveryToken),
 		account(ActBrowsersForgotten, ""),
 		with(account(ActRoleGiven, ""), role),
 		with(account(ActRoleGiven, ""), func(r *Record) { role(r); r.Period = accesstypes.Period{Start: time.Time{}, End: end} }),

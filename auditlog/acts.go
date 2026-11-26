@@ -212,6 +212,7 @@ func shapes() []actShape {
 		formShape(ActAccountDeleted, FormWithTenant, SubjectAccount, "Deleted the account with its {tenant word}"),
 		shapeOrWhenEmpty(ActTokenMade, SubjectAccount, "Token made", "Made the token {NewValue}", "{NewValue}", "Made a token", mayBeEmpty(columnNewValue)),
 		shape(ActTokenRevoked, SubjectAccount, "Token revoked", "Revoked a token"),
+		formShape(ActTokenRevoked, FormEveryToken, SubjectAccount, "Revoked every token"),
 		shape(ActBrowsersForgotten, SubjectAccount, "Remembered browsers forgotten", "Forgot the remembered browsers"),
 		shape(ActRoleGiven, SubjectAccount, "Role given", "Gave the role {role}{place}{period}", need(columnRoleName, columnRoleScope), mayBeEmpty(columnPeriodStart, columnPeriodEnd)),
 		formShape(ActRoleGiven, FormSeat, SubjectAccount, "Gave the role {role}, the role its directory's people start with", need(columnRoleName, columnRoleScope)),
@@ -355,6 +356,8 @@ const (
 	// FormMove is a role or a place in a group taken from a person whom another tenant's
 	// directory seated (ActRoleTaken, ActGroupMemberRemoved).
 	FormMove Form = "move"
+	// FormEveryToken is every live token of an account revoked at once (ActTokenRevoked).
+	FormEveryToken Form = "everyToken"
 )
 
 // RoleScope is where the role an act names is held, as a row stores it in its RoleScope

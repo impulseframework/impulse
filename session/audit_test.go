@@ -186,6 +186,8 @@ func TestAuth_ownActsAreRecorded(t *testing.T) {
 	renamed.OldValue, renamed.NewValue = "pat", "robin"
 	days := wantSetting(auditlog.ActRememberedBrowsersSet, auditlog.SettingRememberedBrowsers)
 	days.NewValue = "30"
+	everyToken := wantAccount(auditlog.ActTokenRevoked, userID, "pat")
+	everyToken.Form = auditlog.FormEveryToken
 
 	tests := []struct {
 		name string
@@ -343,7 +345,7 @@ func TestAuth_ownActsAreRecorded(t *testing.T) {
 
 				return got, f.auth.API().RevokeUserTokens(ctx, userID)
 			},
-			want: wantAccount(auditlog.ActTokenRevoked, userID, "pat"), who: byAdmin,
+			want: everyToken, who: byAdmin,
 		},
 		{
 			name: "the remembered browsers forgotten at an administrator's reset of the second factor",
