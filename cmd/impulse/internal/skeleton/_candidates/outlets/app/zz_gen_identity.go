@@ -300,6 +300,10 @@ func (a *App) StaffInvitedTenantRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffInvitedTenantRoles()
 }
 
+func (a *App) StaffListedAuditRecords() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedAuditRecords()
+}
+
 func (a *App) StaffListedRoleGrants() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedRoleGrants()
 }
@@ -326,6 +330,10 @@ func (a *App) StaffTakeLengths() http.HandlerFunc {
 
 func (a *App) StaffTakeableRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffTakeableRoles()
+}
+
+func (a *App) StaffTenantAuditRecords() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTenantAuditRecords()
 }
 
 func (a *App) StaffTenantDirectoryRoles() http.HandlerFunc {
@@ -854,6 +862,10 @@ func (a *App) MembersGivableRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersGivableRoles()
 }
 
+func (a *App) MembersListedAuditRecords() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedAuditRecords()
+}
+
 func (a *App) MembersListedRoleGrants() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersListedRoleGrants()
 }
@@ -876,6 +888,10 @@ func (a *App) MembersTakeLengths() http.HandlerFunc {
 
 func (a *App) MembersTakeableRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersTakeableRoles()
+}
+
+func (a *App) MembersTenantAuditRecords() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersTenantAuditRecords()
 }
 
 func (a *App) MembersTenantRoles() http.HandlerFunc {

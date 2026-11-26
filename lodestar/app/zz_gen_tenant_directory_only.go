@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
@@ -82,7 +83,9 @@ func (a *App) EndSectorDirectoryOnly() http.HandlerFunc {
 
 // sectorDirectoryOnly is the frame of the two methods that turn a sector's
 // directory-only switch: method is the one served, as grants name it, and only the way
-// it turns the switch.
+// it turns the switch. The switch turned is recorded in the audit log of the auth
+// whose people the directories record's outlets sign in
+// (CrewIdentity().RecordTenantSignIn), in the same transaction.
 func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.HandlerFunc {
 	// Neither method takes anything in its body: the route names the sector.
 	type request struct{}
@@ -92,6 +95,11 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 	// registrations call it, never by its connection, and the rules ask each auth's
 	// client whether the caller has a password.
 	rules := NewSectorDirectoryRules().NamedBy(a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName).PasswordsBy(a.CrewIdentity().CallerPassword, a.MembersIdentity().CallerPassword).CountedBy(resource.DirectoryPeople{Label: "Crew", List: "CrewSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.CrewIdentity().SeatedCount, Outsiders: a.CrewIdentity().DirectoryOutsiders, AdministratorsEnter: a.CrewIdentity().AdministratorsEnterWithPassword, Administrators: a.CrewIdentity().DirectoryAdministrators, InvitationList: "CrewSectorInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.CrewIdentity().DirectoryInvitations}, resource.DirectoryPeople{Label: "Members", List: "MembersSectorUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.MembersIdentity().SeatedCount, Outsiders: a.MembersIdentity().DirectoryOutsiders, AdministratorsEnter: a.MembersIdentity().AdministratorsEnterWithPassword}).SecondFactorsBy(a.CrewIdentity().AuthSecondFactor, a.MembersIdentity().AuthSecondFactor)
+	// act is what the auth's audit log records of the method served.
+	act := auditlog.ActDirectoryOnlyOff
+	if only {
+		act = auditlog.ActDirectoryOnlyOn
+	}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -151,6 +159,9 @@ func sectorDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 			}
 			if err := resources.NewSectorUpdatePatch(id).SetDirectoryOnly(only).Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.SectorUpdatePatch.Buffer()")
+			}
+			if err := a.CrewIdentity().RecordTenantSignIn(ctx, txn, domain, act, ""); err != nil {
+				return errors.Wrap(err, "CrewIdentity().RecordTenantSignIn()")
 			}
 			if dryRun {
 				return resource.ErrDryRun

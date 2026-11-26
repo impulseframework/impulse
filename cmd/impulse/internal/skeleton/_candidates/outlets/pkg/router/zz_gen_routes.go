@@ -273,6 +273,8 @@ type GeneratedHandlers interface {
 
 	StaffInvitedTenantRoles() http.HandlerFunc
 
+	StaffListedAuditRecords() http.HandlerFunc
+
 	StaffListedGroups() http.HandlerFunc
 	StaffListedGroup() http.HandlerFunc
 
@@ -340,6 +342,8 @@ type GeneratedHandlers interface {
 	StaffTakeableRoles() http.HandlerFunc
 
 	StaffTakenRoles() http.HandlerFunc
+
+	StaffTenantAuditRecords() http.HandlerFunc
 
 	StaffTenantDirectoryRoles() http.HandlerFunc
 
@@ -624,6 +628,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-invited-tenant-roles", staffInvitedTenantRolesHandler)
 	bounded.Post("/console/api/staff-invited-tenant-roles", staffInvitedTenantRolesHandler)
 
+	staffListedAuditRecordsHandler := h.StaffListedAuditRecords()
+	bounded.Get("/console/api/staff-listed-audit-records", staffListedAuditRecordsHandler)
+	bounded.Post("/console/api/staff-listed-audit-records", staffListedAuditRecordsHandler)
+
 	staffListedGroupsHandler := h.StaffListedGroups()
 	bounded.Get("/console/api/staff-listed-groups", staffListedGroupsHandler)
 	bounded.Post("/console/api/staff-listed-groups", staffListedGroupsHandler)
@@ -783,6 +791,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffTakenRolesHandler := h.StaffTakenRoles()
 	bounded.Get("/console/api/staff-taken-roles", staffTakenRolesHandler)
 	bounded.Post("/console/api/staff-taken-roles", staffTakenRolesHandler)
+
+	staffTenantAuditRecordsHandler := domainGuard(h.StaffTenantAuditRecords())
+	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-audit-records", staffTenantAuditRecordsHandler)
+	bounded.Post("/console/api/tenants/{tenantID}/staff-tenant-audit-records", staffTenantAuditRecordsHandler)
 
 	staffTenantDirectoryRolesHandler := domainGuard(h.StaffTenantDirectoryRoles())
 	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-directory-roles", staffTenantDirectoryRolesHandler)
@@ -1012,6 +1024,8 @@ type GeneratedPortalHandlers interface {
 
 	MembersHeldRoles() http.HandlerFunc
 
+	MembersListedAuditRecords() http.HandlerFunc
+
 	MembersListedGroups() http.HandlerFunc
 	MembersListedGroup() http.HandlerFunc
 
@@ -1074,6 +1088,8 @@ type GeneratedPortalHandlers interface {
 	MembersTakeableRoles() http.HandlerFunc
 
 	MembersTakenRoles() http.HandlerFunc
+
+	MembersTenantAuditRecords() http.HandlerFunc
 
 	MembersTenantGroups() http.HandlerFunc
 	MembersTenantGroup() http.HandlerFunc
@@ -1296,6 +1312,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-held-roles", membersHeldRolesHandler)
 	bounded.Post("/portal/api/members-held-roles", membersHeldRolesHandler)
 
+	membersListedAuditRecordsHandler := h.MembersListedAuditRecords()
+	bounded.Get("/portal/api/members-listed-audit-records", membersListedAuditRecordsHandler)
+	bounded.Post("/portal/api/members-listed-audit-records", membersListedAuditRecordsHandler)
+
 	membersListedGroupsHandler := h.MembersListedGroups()
 	bounded.Get("/portal/api/members-listed-groups", membersListedGroupsHandler)
 	bounded.Post("/portal/api/members-listed-groups", membersListedGroupsHandler)
@@ -1443,6 +1463,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersTakenRolesHandler := h.MembersTakenRoles()
 	bounded.Get("/portal/api/members-taken-roles", membersTakenRolesHandler)
 	bounded.Post("/portal/api/members-taken-roles", membersTakenRolesHandler)
+
+	membersTenantAuditRecordsHandler := domainGuard(h.MembersTenantAuditRecords())
+	bounded.Get("/portal/api/tenants/{tenantID}/members-tenant-audit-records", membersTenantAuditRecordsHandler)
+	bounded.Post("/portal/api/tenants/{tenantID}/members-tenant-audit-records", membersTenantAuditRecordsHandler)
 
 	membersTenantGroupsHandler := domainGuard(h.MembersTenantGroups())
 	bounded.Get("/portal/api/tenants/{tenantID}/members-tenant-groups", membersTenantGroupsHandler)

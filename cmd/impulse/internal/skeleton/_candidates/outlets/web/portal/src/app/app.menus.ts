@@ -35,7 +35,7 @@ export const appMenus: Menu[] = [
       {
         entries: [
           // The members' accounts across the whole application, their mailed links,
-          // sessions and failed sign-ins.
+          // sessions, failed sign-ins and audit log.
           ...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }),
         ],
       },

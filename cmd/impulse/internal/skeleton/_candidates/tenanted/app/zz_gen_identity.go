@@ -297,6 +297,10 @@ func (a *App) StaffInvitedTenantRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffInvitedTenantRoles()
 }
 
+func (a *App) StaffListedAuditRecords() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedAuditRecords()
+}
+
 func (a *App) StaffListedRoleGrants() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedRoleGrants()
 }
@@ -323,6 +327,10 @@ func (a *App) StaffTakeLengths() http.HandlerFunc {
 
 func (a *App) StaffTakeableRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffTakeableRoles()
+}
+
+func (a *App) StaffTenantAuditRecords() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTenantAuditRecords()
 }
 
 func (a *App) StaffTenantDirectoryRoles() http.HandlerFunc {

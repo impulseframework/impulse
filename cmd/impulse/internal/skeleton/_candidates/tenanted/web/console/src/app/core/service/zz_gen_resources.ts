@@ -510,6 +510,23 @@ export interface StaffInvitedTenantRoles {
   description?: string;
 }
 
+export interface StaffListedAuditRecords {
+  id: string;
+  at?: Date;
+  act?: string;
+  who?: string;
+  what?: string;
+  doneTo?: string;
+  actorUsername?: string;
+  subjectKind?: string;
+  subjectName?: string;
+  userId?: string;
+  role?: string;
+  tenantId?: string;
+  tenantName?: string;
+  reason?: string;
+}
+
 export interface StaffListedRoleGrants {
   kind: string;
   axis: string;
@@ -565,6 +582,21 @@ export interface StaffTakeLengths {
 export interface StaffTakeableRoles {
   name: string;
   description?: string;
+}
+
+export interface StaffTenantAuditRecords {
+  id: string;
+  at?: Date;
+  act?: string;
+  who?: string;
+  what?: string;
+  doneTo?: string;
+  actorUsername?: string;
+  subjectKind?: string;
+  subjectName?: string;
+  userId?: string;
+  role?: string;
+  reason?: string;
 }
 
 export interface StaffTenantDirectoryRoles {
@@ -1359,6 +1391,33 @@ const resourceMap = defineResourceMap({
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.StaffListedAuditRecords]: {
+    route: 'staff-listed-audit-records',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'audit record', many: 'audit records' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'at', displayType: 'date', required: false, isIndex: false, filterable: 'always' },
+      { fieldName: 'act', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'who', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'what', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'doneTo', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'actorUsername', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'subjectKind', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'subjectName', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.StaffListedUsers },
+      { fieldName: 'role', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'], roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
+      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'tenantName', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    searchFields: ['act', 'actorUsername', 'subjectName', 'role'],
+  },
   [Resources.StaffListedRoleGrants]: {
     route: 'staff-listed-role-grants',
     readDisabled: true,
@@ -1478,6 +1537,31 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Administrator", "FeatureAdministrator", "SuperAdministrator", "TenantAdministrator"] },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
+  },
+  [Resources.StaffTenantAuditRecords]: {
+    route: 'tenants/{tenantID}/staff-tenant-audit-records',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'audit record', many: 'audit records' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'at', displayType: 'date', required: false, isIndex: false, filterable: 'always' },
+      { fieldName: 'act', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'who', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'what', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'doneTo', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'actorUsername', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'subjectKind', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'subjectName', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.StaffListedUsers },
+      { fieldName: 'role', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'], roles: ["TenantAdministrator"] },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    searchFields: ['act', 'actorUsername', 'subjectName', 'role'],
   },
   [Resources.StaffTenantDirectoryRoles]: {
     route: 'tenants/{tenantID}/staff-tenant-directory-roles',
@@ -1607,6 +1691,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffGivableRoles]: PermissionScopes.global,
   [Resources.StaffInvitedTenants]: PermissionScopes.global,
   [Resources.StaffInvitedTenantRoles]: PermissionScopes.global,
+  [Resources.StaffListedAuditRecords]: PermissionScopes.global,
   [Resources.StaffListedRoleGrants]: PermissionScopes.global,
   [Resources.StaffRememberLengths]: PermissionScopes.global,
   [Resources.StaffSignInMethods]: PermissionScopes.global,
@@ -1614,6 +1699,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffSignInWays]: PermissionScopes.global,
   [Resources.StaffTakeLengths]: PermissionScopes.global,
   [Resources.StaffTakeableRoles]: PermissionScopes.global,
+  [Resources.StaffTenantAuditRecords]: PermissionScopes.domain,
   [Resources.StaffTenantDirectoryRoles]: PermissionScopes.domain,
   [Resources.StaffTenantRoles]: PermissionScopes.domain,
   [Resources.StaffTenantSignInWays]: PermissionScopes.domain,

@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/router"
 	"github.com/impulseframework/impulse/eventsource"
@@ -82,7 +83,9 @@ func (a *App) EndTenantDirectoryOnly() http.HandlerFunc {
 
 // tenantDirectoryOnly is the frame of the two methods that turn a tenant's
 // directory-only switch: method is the one served, as grants name it, and only the way
-// it turns the switch.
+// it turns the switch. The switch turned is recorded in the audit log of the auth
+// whose people the directories record's outlets sign in
+// (StaffIdentity().RecordTenantSignIn), in the same transaction.
 func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.HandlerFunc {
 	// Neither method takes anything in its body: the route names the tenant.
 	type request struct{}
@@ -92,6 +95,11 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 	// registrations call it, never by its connection, and the rules ask each auth's
 	// client whether the caller has a password.
 	rules := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName).PasswordsBy(a.StaffIdentity().CallerPassword).CountedBy(resource.DirectoryPeople{Label: "Staff", List: "StaffTenantUsers", Fields: []accesstypes.Tag{"username", "name"}, Seated: a.StaffIdentity().SeatedCount, Outsiders: a.StaffIdentity().DirectoryOutsiders, AdministratorsEnter: a.StaffIdentity().AdministratorsEnterWithPassword, Administrators: a.StaffIdentity().DirectoryAdministrators, InvitationList: "StaffTenantInvitations", InvitationFields: []accesstypes.Tag{"email", "name"}, Invitations: a.StaffIdentity().DirectoryInvitations}).SecondFactorsBy(a.StaffIdentity().AuthSecondFactor)
+	// act is what the auth's audit log records of the method served.
+	act := auditlog.ActDirectoryOnlyOff
+	if only {
+		act = auditlog.ActDirectoryOnlyOn
+	}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -151,6 +159,9 @@ func tenantDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.Ha
 			}
 			if err := resources.NewTenantUpdatePatch(id).SetDirectoryOnly(only).Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.TenantUpdatePatch.Buffer()")
+			}
+			if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, act, ""); err != nil {
+				return errors.Wrap(err, "StaffIdentity().RecordTenantSignIn()")
 			}
 			if dryRun {
 				return resource.ErrDryRun

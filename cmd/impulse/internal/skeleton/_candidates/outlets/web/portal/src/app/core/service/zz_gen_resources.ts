@@ -455,6 +455,23 @@ export interface MembersGivableRoles {
   everyDomain?: boolean;
 }
 
+export interface MembersListedAuditRecords {
+  id: string;
+  at?: Date;
+  act?: string;
+  who?: string;
+  what?: string;
+  doneTo?: string;
+  actorUsername?: string;
+  subjectKind?: string;
+  subjectName?: string;
+  userId?: string;
+  role?: string;
+  tenantId?: string;
+  tenantName?: string;
+  reason?: string;
+}
+
 export interface MembersListedRoleGrants {
   kind: string;
   axis: string;
@@ -501,6 +518,21 @@ export interface MembersTakeLengths {
 export interface MembersTakeableRoles {
   name: string;
   description?: string;
+}
+
+export interface MembersTenantAuditRecords {
+  id: string;
+  at?: Date;
+  act?: string;
+  who?: string;
+  what?: string;
+  doneTo?: string;
+  actorUsername?: string;
+  subjectKind?: string;
+  subjectName?: string;
+  userId?: string;
+  role?: string;
+  reason?: string;
 }
 
 export interface MembersTenantRoles {
@@ -1187,6 +1219,33 @@ const resourceMap = defineResourceMap({
     ],
     searchFields: ['method', 'group', 'domain'],
   },
+  [Resources.MembersListedAuditRecords]: {
+    route: 'members-listed-audit-records',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'audit record', many: 'audit records' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'at', displayType: 'date', required: false, isIndex: false, filterable: 'always' },
+      { fieldName: 'act', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'who', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'what', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'doneTo', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'actorUsername', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'subjectKind', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'subjectName', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.MembersListedUsers },
+      { fieldName: 'role', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'], roles: ["SuperAdministrator", "TenantAdministrator"] },
+      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'tenantName', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    searchFields: ['act', 'actorUsername', 'subjectName', 'role'],
+  },
   [Resources.MembersListedRoleGrants]: {
     route: 'members-listed-role-grants',
     readDisabled: true,
@@ -1289,6 +1348,31 @@ const resourceMap = defineResourceMap({
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.MembersTenantAuditRecords]: {
+    route: 'tenants/{tenantID}/members-tenant-audit-records',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    computed: true,
+    live: false,
+    rowWords: { one: 'audit record', many: 'audit records' },
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'at', displayType: 'date', required: false, isIndex: false, filterable: 'always' },
+      { fieldName: 'act', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'who', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'what', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'doneTo', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'actorUsername', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'subjectKind', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'subjectName', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: false, enumeratedResource: Resources.MembersListedUsers },
+      { fieldName: 'role', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'], roles: ["TenantAdministrator"] },
+      { fieldName: 'reason', displayType: 'string', required: false, isIndex: false },
+    ],
+    searchFields: ['act', 'actorUsername', 'subjectName', 'role'],
+  },
   [Resources.MembersTenantRoles]: {
     route: 'tenants/{tenantID}/members-tenant-roles',
     readDisabled: true,
@@ -1376,12 +1460,14 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.MembersUserGroupRoles]: PermissionScopes.global,
   [Resources.MembersUserRoles]: PermissionScopes.global,
   [Resources.MembersGivableRoles]: PermissionScopes.global,
+  [Resources.MembersListedAuditRecords]: PermissionScopes.global,
   [Resources.MembersListedRoleGrants]: PermissionScopes.global,
   [Resources.MembersRememberLengths]: PermissionScopes.global,
   [Resources.MembersSignInMethods]: PermissionScopes.global,
   [Resources.MembersSignInSettings]: PermissionScopes.global,
   [Resources.MembersTakeLengths]: PermissionScopes.global,
   [Resources.MembersTakeableRoles]: PermissionScopes.global,
+  [Resources.MembersTenantAuditRecords]: PermissionScopes.domain,
   [Resources.MembersTenantRoles]: PermissionScopes.domain,
   [Resources.FeatureFlags]: PermissionScopes.global,
 };

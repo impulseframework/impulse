@@ -24,7 +24,8 @@ type Resourcer interface {
 		membersresources.MembersSessionSignInMethod |
 		membersresources.MembersSessionSignInSetting |
 		membersresources.MembersSessionTrustedDevice | membersresources.MembersSessionUser |
-		membersresources.MembersUserRole | membersidentity.MembersListedRoleGrant |
-		membersidentity.MembersRememberLength | membersidentity.MembersSignInMethod |
+		membersresources.MembersUserRole | membersidentity.MembersListedAuditRecord |
+		membersidentity.MembersListedRoleGrant | membersidentity.MembersRememberLength |
+		membersidentity.MembersSectorAuditRecord | membersidentity.MembersSignInMethod |
 		membersidentity.MembersSignInSetting
 }

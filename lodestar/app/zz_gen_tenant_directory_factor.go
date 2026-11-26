@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
@@ -57,7 +58,9 @@ func (a *App) StopVouchingForSectorDirectorySecondFactor() http.HandlerFunc {
 
 // sectorDirectoryFactor is the frame of the two methods of a sector's word for its
 // directory's second factor: method is the one served, as grants name it, and vouch
-// whether it says the word or takes it back.
+// whether it says the word or takes it back. A word changed is recorded in the audit log of the auth whose
+// people the directories record's outlets sign in (CrewIdentity().RecordTenantSignIn),
+// in the same transaction.
 func sectorDirectoryFactor(a *App, method accesstypes.Resource, vouch bool) http.HandlerFunc {
 	// Neither method takes anything in its body: the route names the sector.
 	type request struct{}
@@ -71,6 +74,11 @@ func sectorDirectoryFactor(a *App, method accesstypes.Resource, vouch bool) http
 	hold, rule := rules.StopVouchingForDirectory, "resource.TenantDirectoryRules.StopVouchingForDirectory()"
 	if vouch {
 		hold, rule = rules.VouchForDirectory, "resource.TenantDirectoryRules.VouchForDirectory()"
+	}
+	// act is what the auth's audit log records of the method served.
+	act := auditlog.ActDirectorySecondFactorUnvouched
+	if vouch {
+		act = auditlog.ActDirectorySecondFactorVouched
 	}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
@@ -134,6 +142,9 @@ func sectorDirectoryFactor(a *App, method accesstypes.Resource, vouch bool) http
 				}
 				if err := resources.NewSectorDirectoryUpdatePatch(id).SetAsksSecondFactor(vouch).Buffer(ctx, txn, eventSource); err != nil {
 					return errors.Wrap(err, "resources.SectorDirectoryUpdatePatch.Buffer()")
+				}
+				if err := a.CrewIdentity().RecordTenantSignIn(ctx, txn, domain, act, ""); err != nil {
+					return errors.Wrap(err, "CrewIdentity().RecordTenantSignIn()")
 				}
 			}
 			if dryRun {

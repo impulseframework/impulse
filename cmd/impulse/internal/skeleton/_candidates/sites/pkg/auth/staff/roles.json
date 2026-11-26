@@ -206,6 +206,24 @@
               ]
             },
             {
+              "resource": "StaffListedAuditRecords",
+              "fields": [
+                "at",
+                "act",
+                "who",
+                "what",
+                "doneTo",
+                "actorUsername",
+                "subjectKind",
+                "subjectName",
+                "userId",
+                "role",
+                "tenantId",
+                "tenantName",
+                "reason"
+              ]
+            },
+            {
               "resource": "StaffUserRoles",
               "fields": [
                 "createdAt",
@@ -979,6 +997,22 @@
                 "withdrawnAt",
                 "state",
                 "pending"
+              ]
+            },
+            {
+              "resource": "StaffTenantAuditRecords",
+              "fields": [
+                "at",
+                "act",
+                "who",
+                "what",
+                "doneTo",
+                "actorUsername",
+                "subjectKind",
+                "subjectName",
+                "userId",
+                "role",
+                "reason"
               ]
             },
             {

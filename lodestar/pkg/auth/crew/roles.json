@@ -202,6 +202,24 @@
               ]
             },
             {
+              "resource": "CrewListedAuditRecords",
+              "fields": [
+                "at",
+                "act",
+                "who",
+                "what",
+                "doneTo",
+                "actorUsername",
+                "subjectKind",
+                "subjectName",
+                "userId",
+                "role",
+                "tenantId",
+                "tenantName",
+                "reason"
+              ]
+            },
+            {
               "resource": "CrewUserRoles",
               "fields": [
                 "createdAt",
@@ -266,6 +284,24 @@
                 "authenticatedAt",
                 "createdAt",
                 "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersListedAuditRecords",
+              "fields": [
+                "at",
+                "act",
+                "who",
+                "what",
+                "doneTo",
+                "actorUsername",
+                "subjectKind",
+                "subjectName",
+                "userId",
+                "role",
+                "tenantId",
+                "tenantName",
+                "reason"
               ]
             },
             {
@@ -1960,6 +1996,22 @@
                 "withdrawnAt",
                 "state",
                 "pending"
+              ]
+            },
+            {
+              "resource": "CrewSectorAuditRecords",
+              "fields": [
+                "at",
+                "act",
+                "who",
+                "what",
+                "doneTo",
+                "actorUsername",
+                "subjectKind",
+                "subjectName",
+                "userId",
+                "role",
+                "reason"
               ]
             },
             {

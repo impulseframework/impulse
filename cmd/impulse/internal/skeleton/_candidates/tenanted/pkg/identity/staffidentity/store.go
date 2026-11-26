@@ -5,6 +5,7 @@ package staffidentity
 
 import (
 	"context"
+	"iter"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -12,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/identity/internal/staffresources"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
@@ -20,6 +22,7 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"google.golang.org/api/iterator"
 )
 
 var _ identity.Store = store{}
@@ -872,6 +875,141 @@ func signInSettingsRowFound(ctx context.Context, txn resource.ReadWriteTransacti
 		return false, nil
 	default:
 		return false, errors.Wrap(err, "staffresources.StaffSessionSignInSettingQuery.Read()")
+	}
+}
+
+// auditRecordWrite names the row of the audit log a record is written as. It goes past
+// the declarations as the invitation's write does: the table has no declaration, and
+// nothing but InsertAuditRecord writes it.
+type auditRecordWrite struct {
+	id string
+}
+
+func (auditRecordWrite) PatchType() resource.PatchType {
+	return resource.CreatePatchType
+}
+
+func (w auditRecordWrite) PrimaryKey() resource.KeySet {
+	return resource.KeySet{}.Add("ID", w.id)
+}
+
+func (auditRecordWrite) Resource() accesstypes.Resource {
+	return "StaffSessionAuditRecords"
+}
+
+func (store) InsertAuditRecord(_ context.Context, txn resource.ReadWriteTransaction, record *auditlog.Record) error {
+	// The row as the audit log says a record is written (auditlog.Record.Columns), which
+	// refuses a record that is not its act's, at the commit's own time.
+	columns, err := record.Columns()
+	if err != nil {
+		return errors.Wrap(err, "auditlog.Record.Columns()")
+	}
+	columns["CreatedAt"] = spanner.CommitTimestamp
+	id, _ := columns["Id"].(string)
+	if err := txn.BufferMap(auditRecordWrite{id: id}, columns); err != nil {
+		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
+	}
+
+	return nil
+}
+
+func (store) AuditRecords(ctx context.Context, reader resource.ReadOnlyTransaction, query *identity.AuditQuery) iter.Seq2[*auditlog.Stored, error] {
+	// A read that goes past the declarations, as InvitedTenants' does: the table has no
+	// declaration, and the identity package writes the one statement its lists read it
+	// by.
+	return func(yield func(*auditlog.Stored, error) bool) {
+		sql, params, err := identity.AuditStatement("StaffSessionAuditRecords", query)
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.AuditStatement()"))
+
+			return
+		}
+		rows := reader.SpannerReadOnlyTransaction().Query(ctx, spanner.Statement{SQL: sql, Params: params})
+		defer rows.Stop()
+		for {
+			row, err := rows.Next()
+			if errors.Is(err, iterator.Done) {
+				return
+			}
+			if err != nil {
+				yield(nil, errors.Wrap(err, "spanner.RowIterator.Next()"))
+
+				return
+			}
+			var record auditRecordRow
+			if err := row.ToStruct(&record); err != nil {
+				yield(nil, errors.Wrap(err, "spanner.Row.ToStruct()"))
+
+				return
+			}
+			if !yield(record.stored(), nil) {
+				return
+			}
+		}
+	}
+}
+
+// auditRecordRow is one row of StaffSessionAuditRecords, every column as the table
+// types it.
+type auditRecordRow struct {
+	ID                string               `spanner:"Id"`
+	CreatedAt         time.Time            `spanner:"CreatedAt"`
+	Act               string               `spanner:"Act"`
+	Form              spanner.NullString   `spanner:"Form"`
+	Auth              spanner.NullString   `spanner:"Auth"`
+	ActorUserID       spanner.NullString   `spanner:"ActorUserId"`
+	ActorUsername     spanner.NullString   `spanner:"ActorUsername"`
+	PrincipalUserID   spanner.NullString   `spanner:"PrincipalUserId"`
+	PrincipalUsername spanner.NullString   `spanner:"PrincipalUsername"`
+	PrincipalRole     spanner.NullString   `spanner:"PrincipalRole"`
+	SessionID         spanner.NullString   `spanner:"SessionId"`
+	Process           spanner.NullString   `spanner:"Process"`
+	RPC               spanner.NullString   `spanner:"Rpc"`
+	Directory         spanner.NullString   `spanner:"Directory"`
+	SubjectKind       string               `spanner:"SubjectKind"`
+	SubjectID         string               `spanner:"SubjectId"`
+	SubjectName       spanner.NullString   `spanner:"SubjectName"`
+	TenantID          spanner.NullString   `spanner:"TenantId"`
+	TenantName        spanner.NullString   `spanner:"TenantName"`
+	RoleName          spanner.NullString   `spanner:"RoleName"`
+	OtherRoleNames    []spanner.NullString `spanner:"OtherRoleNames"`
+	RoleScope         spanner.NullString   `spanner:"RoleScope"`
+	GroupID           spanner.NullString   `spanner:"GroupId"`
+	GroupName         spanner.NullString   `spanner:"GroupName"`
+	OldValue          spanner.NullString   `spanner:"OldValue"`
+	NewValue          spanner.NullString   `spanner:"NewValue"`
+	PeriodStart       spanner.NullTime     `spanner:"PeriodStart"`
+	PeriodEnd         spanner.NullTime     `spanner:"PeriodEnd"`
+	SeatingTenantID   spanner.NullString   `spanner:"SeatingTenantId"`
+	SeatingTenantName spanner.NullString   `spanner:"SeatingTenantName"`
+	Reason            spanner.NullString   `spanner:"Reason"`
+}
+
+// stored is the row as the identity package reads it: a NULL as the empty text, the
+// empty list or the zero time, and the nine columns of who acted as its Source.
+func (r *auditRecordRow) stored() *auditlog.Stored {
+	var roles []string
+	if r.RoleName.Valid {
+		roles = append(roles, r.RoleName.StringVal)
+	}
+	for _, role := range r.OtherRoleNames {
+		if role.Valid {
+			roles = append(roles, role.StringVal)
+		}
+	}
+
+	return &auditlog.Stored{
+		ID: r.ID, At: r.CreatedAt, Act: auditlog.Act(r.Act), Form: auditlog.Form(r.Form.StringVal),
+		Source: eventsource.Stored{
+			Auth: r.Auth.StringVal, ActorUserID: r.ActorUserID.StringVal, ActorUsername: r.ActorUsername.StringVal,
+			PrincipalUserID: r.PrincipalUserID.StringVal, PrincipalUsername: r.PrincipalUsername.StringVal, PrincipalRole: r.PrincipalRole.StringVal,
+			SessionID: r.SessionID.StringVal, Process: r.Process.StringVal, RPC: r.RPC.StringVal,
+		},
+		Directory: r.Directory.StringVal, SubjectKind: auditlog.SubjectKind(r.SubjectKind), SubjectID: r.SubjectID, SubjectName: r.SubjectName.StringVal,
+		TenantID: r.TenantID.StringVal, TenantName: r.TenantName.StringVal, RoleNames: roles, RoleScope: auditlog.RoleScope(r.RoleScope.StringVal),
+		GroupID: r.GroupID.StringVal, GroupName: r.GroupName.StringVal, OldValue: r.OldValue.StringVal, NewValue: r.NewValue.StringVal,
+		PeriodStart: r.PeriodStart.Time, PeriodEnd: r.PeriodEnd.Time,
+		SeatingTenantID: r.SeatingTenantID.StringVal, SeatingTenantName: r.SeatingTenantName.StringVal, Reason: r.Reason.StringVal,
 	}
 }
 
