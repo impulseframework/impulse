@@ -152,6 +152,7 @@ type actShape struct {
 	sentence  string      // the act in words
 	ifEmpty   string      // a part whose emptiness picks the other sentence; "" for none
 	otherwise string      // the sentence of a row whose part ifEmpty is empty
+	same      string      // the sentence of a row whose old and new value are one; "" for none
 }
 
 // partNeed is one part a row of an act's form holds beyond the always-set ones, who
@@ -201,10 +202,12 @@ func shapes() []actShape {
 		shape(ActPasswordRemoved, SubjectAccount, "Password removed", "Removed the password"),
 		shape(ActPasswordChangeRequired, SubjectAccount, "New password required", "Required a new password"),
 		shape(ActIdentityUnlinked, SubjectAccount, "Sign-in identity unlinked", "Unlinked the sign-in through {OldValue}", need(columnOldValue)),
-		shapeOrWhenEmpty(ActAddressChangeAsked, SubjectAccount, "Address change asked", "Asked to change the email address from {OldValue} to {NewValue}",
+		orWhenSame(shapeOrWhenEmpty(ActAddressChangeAsked, SubjectAccount, "Address change asked", "Asked to change the email address from {OldValue} to {NewValue}",
 			"{OldValue}", "Asked to set the email address to {NewValue}", mayBeEmpty(columnOldValue), need(columnNewValue)),
-		shapeOrWhenEmpty(ActAddressChanged, SubjectAccount, "Address changed", "Changed the email address from {OldValue} to {NewValue}",
+			"Asked to confirm the email address {NewValue}"),
+		orWhenSame(shapeOrWhenEmpty(ActAddressChanged, SubjectAccount, "Address changed", "Changed the email address from {OldValue} to {NewValue}",
 			"{OldValue}", "Set the email address to {NewValue}", mayBeEmpty(columnOldValue), need(columnNewValue)),
+			"Confirmed the email address {NewValue}"),
 		shape(ActUsernameChanged, SubjectAccount, "Username changed", "Changed the username from {OldValue} to {NewValue}", need(columnOldValue, columnNewValue)),
 		shape(ActAccountDisabled, SubjectAccount, "Account disabled", "Disabled the account"),
 		shape(ActAccountEnabled, SubjectAccount, "Account enabled", "Enabled the account"),
@@ -250,20 +253,28 @@ func shapes() []actShape {
 // shape is an act's own form: what it is done to, its words as a filter's choice, its
 // sentence, and its parts.
 func shape(act Act, kind SubjectKind, words, sentence string, parts ...[]partNeed) actShape {
-	return actShape{act: act, form: "", kind: kind, parts: slices.Concat(parts...), words: words, sentence: sentence, ifEmpty: "", otherwise: ""}
+	return actShape{act: act, form: "", kind: kind, parts: slices.Concat(parts...), words: words, sentence: sentence, ifEmpty: "", otherwise: "", same: ""}
 }
 
 // formShape is another form of an act, which a filter's choice says as the act.
 func formShape(act Act, form Form, kind SubjectKind, sentence string, parts ...[]partNeed) actShape {
-	return actShape{act: act, form: form, kind: kind, parts: slices.Concat(parts...), words: "", sentence: sentence, ifEmpty: "", otherwise: ""}
+	return actShape{act: act, form: form, kind: kind, parts: slices.Concat(parts...), words: "", sentence: sentence, ifEmpty: "", otherwise: "", same: ""}
 }
 
 // shapeOrWhenEmpty is an act's own form whose sentence is another for a row whose part is
 // empty.
 func shapeOrWhenEmpty(act Act, kind SubjectKind, words, sentence, part, otherwise string, parts ...[]partNeed) actShape {
 	return actShape{
-		act: act, form: "", kind: kind, parts: slices.Concat(parts...), words: words, sentence: sentence, ifEmpty: part, otherwise: otherwise,
+		act: act, form: "", kind: kind, parts: slices.Concat(parts...), words: words, sentence: sentence, ifEmpty: part, otherwise: otherwise, same: "",
 	}
+}
+
+// orWhenSame is the shape s whose sentence is another for a row whose old value is its new
+// one: an address confirmed where it was the one the account held already.
+func orWhenSame(s actShape, sentence string) actShape {
+	s.same = sentence
+
+	return s
 }
 
 // formOf answers the shape of exactly an act's form, and false where the act is not one of

@@ -76,7 +76,8 @@ func processWords(process string) (string, bool) {
 }
 
 // what is the act of the row in words, from its parts, by the sentence its act and form
-// are written with (shapes). tenantWord is what the application calls a tenant ("" reads
+// are written with (shapes), or the other its shape gives a row whose part is empty or
+// whose old value is its new one. tenantWord is what the application calls a tenant ("" reads
 // "tenant"). It never fails: an act it does not know is its stored name, and a part the
 // sentence needs that the row lacks is written as nothing.
 func (s *Stored) what(tenantWord string) string {
@@ -86,8 +87,11 @@ func (s *Stored) what(tenantWord string) string {
 	}
 	parts := s.parts(tenantWord)
 	sentence := shape.sentence
-	if shape.ifEmpty != "" && parts[shape.ifEmpty] == "" {
+	switch {
+	case shape.ifEmpty != "" && parts[shape.ifEmpty] == "":
 		sentence = shape.otherwise
+	case shape.same != "" && s.OldValue == s.NewValue:
+		sentence = shape.same
 	}
 	pairs := make([]string, 0, 2*len(parts))
 	for _, part := range slices.Sorted(maps.Keys(parts)) {
