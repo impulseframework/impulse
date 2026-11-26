@@ -683,11 +683,11 @@ func (f *fakeStore) TenantMemberships(_ context.Context, _ resource.ReadWriteTra
 
 // TenantHoldings answers the people the tenant's delete considers as the generated store
 // reads them: everyone who holds a membership in the tenant, a place in one of its groups
-// or a role on one of its records, ended or not, and everyone whose tenants that manage
-// them hold it, in the order of their ids. Each is what the fake's per-person reads
-// answer for them, read with no call failing, so a test that fails one of those reads
-// shows the delete asks it of nobody; DirectoryTenants are what managing holds for a
-// person with an identity link.
+// or a role on one of its records, ended or not, and everyone with an identity link whose
+// tenants that manage them hold it, in the order of their ids. Each is what the fake's
+// per-person reads answer for them, read with no call failing, so a test that fails one of
+// those reads shows the delete asks it of nobody; DirectoryTenants are what managing holds
+// for a person with an identity link.
 func (f *fakeStore) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]PersonHoldings, error) {
 	if err := f.fail("TenantHoldings"); err != nil {
 		return nil, err
@@ -721,7 +721,11 @@ func (f *fakeStore) TenantHoldings(ctx context.Context, txn resource.ReadWriteTr
 		users = append(users, members...)
 	}
 	for id, tenants := range f.managing {
-		if slices.Contains(tenants, domain) {
+		links, err := reads.Identities(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		if len(links) > 0 && slices.Contains(tenants, domain) {
 			users = append(users, User(id))
 		}
 	}

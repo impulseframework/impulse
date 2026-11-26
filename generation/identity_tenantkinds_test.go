@@ -213,16 +213,16 @@ func Test_identityUserCascades(t *testing.T) {
 		{
 			Table:        "CrewSessionAuthEvents",
 			Count:        "(SELECT COUNT(*) FROM CrewSessionAuthEvents c0 WHERE EXISTS (SELECT 1 FROM CrewSessions c1 WHERE c1.Id = c0.SessionId AND c1.UserId = @userId))",
-			PersonCount:  "(SELECT COUNT(*) FROM CrewSessionAuthEvents c0 WHERE EXISTS (SELECT 1 FROM CrewSessions c1 WHERE c1.Id = c0.SessionId AND c1.UserId = p))",
+			PersonCount:  "(SELECT COUNT(*) FROM CrewSessionAuthEvents c0 WHERE EXISTS (SELECT 1 FROM CrewSessions c1 WHERE c1.Id = c0.SessionId AND c1.UserId = p.UserId))",
 			IndexEntries: 0,
 		},
 		{
 			Table: "CrewSessionIdentities", Count: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId)",
-			PersonCount: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p)", IndexEntries: 2,
+			PersonCount: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p.UserId)", IndexEntries: 2,
 		},
 		{
 			Table: "CrewSessions", Count: "(SELECT COUNT(*) FROM CrewSessions c0 WHERE c0.UserId = @userId)",
-			PersonCount: "(SELECT COUNT(*) FROM CrewSessions c0 WHERE c0.UserId = p)", IndexEntries: 1,
+			PersonCount: "(SELECT COUNT(*) FROM CrewSessions c0 WHERE c0.UserId = p.UserId)", IndexEntries: 1,
 		},
 	}
 	got := c.identityUserCascades("CrewSessionUsers")
@@ -346,7 +346,7 @@ func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 	directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"}
 	identities := identityUserCascade{
 		Table: "CrewSessionIdentities", Count: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId)",
-		PersonCount: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p)", IndexEntries: 2,
+		PersonCount: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p.UserId)", IndexEntries: 2,
 	}
 	data := func(tenant *identityTenant, cascades []identityUserCascade, tables ...identityTable) *identitySourceData {
 		inst := &identityInstance{auth: "Crew", tenant: tenant, tables: map[identityTable]bool{}, heldRecords: []identityHeldRecord{{}}, userCascades: cascades}
@@ -380,13 +380,13 @@ func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 		through    = "SELECT i.UserId FROM SectorDirectories d JOIN CrewSessionIdentities i ON i.Method = d.Method AND i.Connection = d.Connection WHERE d.SectorId = @tenant"
 		signature  = "func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]identity.PersonHoldings, error) {"
 		stub       = "func (store) TenantHoldings(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]identity.PersonHoldings, error) {\n\treturn nil, nil\n}"
-		sessions   = "SELECT p AS UserId, ARRAY(SELECT AS STRUCT s.Id"
+		sessions   = "SELECT p.UserId, ARRAY(SELECT AS STRUCT s.Id"
 		records    = ", EXISTS (SELECT 1 FROM CrewSessionImpersonations r WHERE r.SessionId = s.Id AND r.EndedAt IS NULL) AS Record"
-		ownRows    = " FROM CrewSessions s WHERE s.UserId = p AND s.Expired = FALSE) AS Sessions"
+		ownRows    = " FROM CrewSessions s WHERE s.UserId = p.UserId AND s.Expired = FALSE) AS Sessions"
 		held       = ", ARRAY(SELECT AS STRUCT r.SessionId, EXISTS (SELECT 1 FROM CrewSessions s WHERE s.Id = r.SessionId AND s.Expired = FALSE) AS Session" +
-			" FROM CrewSessionUsers u JOIN CrewSessionImpersonations r ON r.ActorUsername = u.Username WHERE u.Id = p AND r.ActorRealm IS NULL AND r.EndedAt IS NULL) AS Held"
-		withUser = ", (SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p) AS WithUser0"
-		overThem = " FROM UNNEST(@people) AS p ORDER BY p"
+			" FROM CrewSessionUsers u JOIN CrewSessionImpersonations r ON r.ActorUsername = u.Username WHERE u.Id = p.UserId AND r.ActorRealm IS NULL AND r.EndedAt IS NULL) AS Held"
+		withUser = ", (SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p.UserId) AS WithUser0"
+		overThem = " FROM (SELECT id AS UserId FROM UNNEST(@people) AS id) p ORDER BY p.UserId"
 	)
 	for _, tt := range []struct {
 		name            string
@@ -409,9 +409,9 @@ func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 				signature, "type tenantHoldingsMembership struct {", "type tenantHoldingsPlace struct {", "type tenantHoldingsRecordRole struct {",
 				"Tenants []string `spanner:\"Tenants\"`", `stmt.Params["tenant"] = string(domain)`,
 				"Record bool `spanner:\"Record\"`", "type tenantHoldingsHeld struct {", "costs := []int{\n\t\tresource.DeleteCost{IndexEntries: 2}.Mutations(0),\n\t}",
-				`row.ColumnByName("WithUser"+strconv.Itoa(i), &count)`,
+				`row.ColumnByName("WithUser"+strconv.Itoa(i), &count)`, "ids = append(ids, user)",
 			},
-			wantNotContains: []string{stub, "ManagingTenants", "DirectoryUsers"},
+			wantNotContains: []string{stub, "ManagingTenants", "DirectoryUsers", "people[i].ID.String()"},
 			notInRead:       []string{"NewCrewSectorUserQuery", "CrewSectorUser"},
 		},
 		{
@@ -424,6 +424,17 @@ func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 			wantNotContains: []string{
 				stub, "SectorDirectories", "Tenants []string", `stmt.Params["tenant"]`, "tenantHoldingsHeld", "Record bool", `row.ColumnByName("WithUser"`,
 			},
+		},
+		{
+			// An auth that keeps identities and no memberships, under a tenant record with a
+			// directory: the people are those who sign in through the tenant's directory.
+			name: "the identities alone, a tenant record with a directory",
+			data: data(&identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory},
+				nil, identityUsers, identitySessions, identityIdentities),
+			wantSQL:         "SELECT p.UserId, " + username + ", " + links + " FROM (" + through + ") p ORDER BY p.UserId",
+			wantSessionsSQL: sessions + ownRows + overThem,
+			wantContains:    []string{signature, "Tenants []string `spanner:\"Tenants\"`", `stmt.Params["tenant"] = string(domain)`},
+			wantNotContains: []string{stub, "tenantHoldingsMembership", "tenantHoldingsPlace", "tenantHoldingsRecordRole", `stmt.Params["kind"]`},
 		},
 		{
 			name:            "the users and sessions alone",

@@ -94,6 +94,9 @@ func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransacti
 	stmt.Params["tenant"] = string(domain)
 	{{- end }}
 	var people []identity.PersonHoldings
+	// ids are the people's ids as the statement read them, which no two of its rows share:
+	// the second statement is asked by them and its rows are matched by them.
+	var ids []string
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
 		var user string
 		var username spanner.NullString
@@ -168,6 +171,7 @@ func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransacti
 		{{- end }}
 		{{- end }}
 		people = append(people, person)
+		ids = append(ids, user)
 
 		return nil
 	}); err != nil {
@@ -177,11 +181,9 @@ func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransacti
 		return nil, nil
 	}
 
-	ids := make([]string, 0, len(people))
-	at := make(map[string]int, len(people))
-	for i := range people {
-		ids = append(ids, people[i].ID.String())
-		at[people[i].ID.String()] = i
+	at := make(map[string]int, len(ids))
+	for i, id := range ids {
+		at[id] = i
 	}
 	{{- if .UserCascades }}
 	costs := []int{

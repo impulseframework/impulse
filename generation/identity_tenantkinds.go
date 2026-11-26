@@ -35,8 +35,11 @@ type identityUserCascade struct {
 }
 
 // heldPerson is the id of one person the second statement of the store's TenantHoldings
-// reads, each a row of the people the first found (TenantHoldingsSessionsSQL).
-const heldPerson = "p"
+// reads, each a row of the people the first found (TenantHoldingsSessionsSQL). It is
+// written with the people's alias, as the first statement writes it: a bare name is read
+// as a column of that name of the table a count reads, where the table has one, and the
+// count would compare each row with itself.
+const heldPerson = "p.UserId"
 
 // withdrawnColumns are the columns of the mail links table the withdrawal of an
 // invitation writes (the store's ConsumeMailLink).
@@ -313,7 +316,7 @@ func (d *identitySourceData) TenantHoldingsSessionsSQL() string {
 		sessions += ", EXISTS (SELECT 1 FROM " + d.Tables.Impersonations + " r WHERE r.SessionId = s.Id AND r.EndedAt IS NULL) AS Record"
 	}
 	columns := []string{
-		heldPerson + " AS UserId",
+		heldPerson,
 		sessions + " FROM " + d.Tables.Sessions + " s WHERE s.UserId = " + heldPerson + " AND s.Expired = FALSE) AS Sessions",
 	}
 	if d.has(identityImpersonations) {
@@ -325,7 +328,7 @@ func (d *identitySourceData) TenantHoldingsSessionsSQL() string {
 		columns = append(columns, cascade.PersonCount+" AS WithUser"+strconv.Itoa(i))
 	}
 
-	return strconv.Quote("SELECT " + strings.Join(columns, ", ") + " FROM UNNEST(@people) AS " + heldPerson + " ORDER BY " + heldPerson)
+	return strconv.Quote("SELECT " + strings.Join(columns, ", ") + " FROM (SELECT id AS UserId FROM UNNEST(@people) AS id) p ORDER BY " + heldPerson)
 }
 
 // RowsWithUserSQL is the statement the store's RowsWithUser counts by, as a Go string
