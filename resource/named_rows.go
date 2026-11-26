@@ -11,12 +11,15 @@ import (
 )
 
 // A column that names a row of another table (a foreign key, or a column picked from a
-// table's list) is set only to a row its writer can list. The picker of such a column
-// lists its source under the person's own List grant, so it offers only those rows; the
-// patch set holds a create and an update to the same rows, and answers any other as it
-// answers a row that is not there. "Can list" is what the person's own list of that kind
-// would show, asked in the scope that list is asked in: the grant on the kind, its
-// condition, and the request's tenant for a kind that belongs to one. The rule is held
+// table's list), or a row of a view (a column picked from a view's list), is set only to a
+// row its writer can list. The picker of such a column lists its source under the
+// person's own List grant, so it offers only those rows; the patch set holds a create and
+// an update to the same rows, and answers any other as it answers a row that is not there.
+// "Can list" is what the person's own list of that kind would show, asked in the scope
+// that list is asked in: the grant on the kind, its condition, and the request's tenant
+// for a kind that belongs to one. A view's row is always read, from the view's query,
+// which the write is handed (NamedRowSources): which rows a view has is its query's to
+// say, so the pass with no read is a table's alone. The rule is held
 // here once, for every write an armed patch carries; a patch that is not armed (a job, a
 // bootstrap) runs trusted and is not asked. A create is asked right after the grant's own
 // check. An update and an update-or-create are asked once their row is found in the
@@ -40,6 +43,17 @@ type NamedRow struct {
 	// NameField's do; both are empty for a kind that belongs to no tenant.
 	TenantColumn string
 	TenantPath   []BindingHop
+	// View says the column is picked from a view: Resource is the view's resource, Table
+	// its resource's name, KeyColumn the view's one key column and TenantColumn the
+	// view's own tenant column, empty for a view of the whole application. A view has no
+	// TenantPath. The row is read from the view's query, which the write is handed
+	// (NamedRowSources).
+	View bool
+	// Stored is the table the column's foreign key references, where the column is picked
+	// from a view or a computed list: a row an earlier patch of the same request created
+	// there passes as a table's does. Its Table, KeyColumn, TenantColumn and TenantPath
+	// are read and nothing else of it. Nil where the column has no foreign key.
+	Stored *NamedRow
 }
 
 // namedRower is the generated declaration of which columns of a resource name a row of
@@ -98,17 +112,19 @@ type namedValue struct {
 // to a value that is not empty, a create's key parts among them, the caller's List on the
 // named kind is asked in its scope (grantScope):
 //
-//   - granted, for a kind that belongs to no tenant, or for the column the row's own way
+//   - granted, for a table that belongs to no tenant, or for the column the row's own way
 //     to its tenant leaves through, whose row the tenancy term already holds to the
-//     request's tenant: it passes, with no read;
+//     request's tenant: it passes, with no read. A view's row is always read;
 //   - otherwise an update, or an update-or-create whose row is there, that leaves the
 //     column naming the row it already names is not judged, and a row an earlier patch of
 //     the same transaction created in the request's tenant passes, its create held to its
-//     own checks (createdInTransaction);
+//     own checks (createdInTransaction): for a view, a row of the table the column's
+//     foreign key references (Stored), and none where the declaration names no such table;
 //   - denied: refused;
-//   - granted: the row is read by key within the request's tenant (tenantTest);
+//   - granted: the row is read by key within the request's tenant (tenantTest), a view's
+//     from the view's query;
 //   - conditional: the row is read by key, within the tenant, under the grant's condition
-//     lowered against the named table as a name's lookup lowers it.
+//     lowered against the named table, or the view, as a name's lookup lowers it.
 //
 // A refusal, and a read that finds no row, is answered as a row that is not there:
 // 404, "A record this one refers to does not exist." (referencedNotFound), so the answer
@@ -126,7 +142,7 @@ func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTr
 
 	for _, n := range named {
 		decision := decisions[n.row.grantScope(q.scope)][n.row.Resource]
-		if decision.IsGranted() && (n.row.TenantColumn == "" || p.leavesForTenant(n.row.Field)) {
+		if decision.IsGranted() && !n.row.View && (n.row.TenantColumn == "" || p.leavesForTenant(n.row.Field)) {
 			continue
 		}
 		mocked := txn.DBType() == SpannerDBType && txn.SpannerReadOnlyTransaction() == nil
@@ -231,6 +247,17 @@ func (p *PatchSet[Resource]) namedRowDecisions(ctx context.Context, named []name
 	return decisions, nil
 }
 
+// storedRow is the row of a table a row the column names is created as: the named
+// table's own, or, for a view, the table the column's foreign key references (Stored),
+// nil where the declaration names none.
+func (n *NamedRow) storedRow() *NamedRow {
+	if !n.View {
+		return n
+	}
+
+	return n.Stored
+}
+
 // leavesForTenant reports whether field is the one the row's own way to its tenant
 // leaves through, a way of at least one hop: the tenancy term of the write's check holds
 // the row it names to the request's tenant (mutationTenancy).
@@ -267,6 +294,8 @@ func (p *PatchSet[Resource]) namesStoredRow(ctx context.Context, txn ReadWriteTr
 // createdInTransaction reports whether an earlier patch of the transaction created the
 // named row (transactionRows.namedWrite) in the request's tenant: a transaction that keeps
 // no record of its rows (the Mock's, PostgreSQL) created none that a read would not see.
+// A column picked from a view names a row of the table its foreign key references
+// (storedRow), and one that declares none names no row a patch created.
 // For a kind that belongs to a tenant, the created row's tenant column, as its image holds
 // it, is followed along the kind's way to its tenant by the transaction's point reads
 // (followTenantPath), which see what the request buffered, and must spell the request's
@@ -274,26 +303,30 @@ func (p *PatchSet[Resource]) namesStoredRow(ctx context.Context, txn ReadWriteTr
 // tenant, and a request of the whole application, which writes for no one tenant, pass a
 // created row as it is.
 func (p *PatchSet[Resource]) createdInTransaction(ctx context.Context, txn ReadWriteTransaction, n namedValue) (bool, error) {
+	stored := n.row.storedRow()
+	if stored == nil {
+		return false, nil
+	}
 	recorder, ok := txn.(rowsRecorder)
 	if !ok {
 		return false, nil
 	}
 	rows := recorder.transactionRows()
-	write, named := rows.namedWrite(pointRead{table: n.row.Table, keyColumn: n.row.KeyColumn, value: n.spelled})
+	write, named := rows.namedWrite(pointRead{table: stored.Table, keyColumn: stored.KeyColumn, value: n.spelled})
 	if !named {
 		return false, nil
 	}
-	image, ok := rows.image(n.row.Table, write.row)
+	image, ok := rows.image(stored.Table, write.row)
 	if !ok || image.state != rowCreated {
 		return false, nil
 	}
 	domain, partitioned := p.querySet.scope.Domain()
-	if n.row.TenantColumn == "" || !partitioned {
+	if stored.TenantColumn == "" || !partitioned {
 		return true, nil
 	}
-	tenant, _, err := followTenantPath(ctx, transactionPointReader(txn, namedRowsNotImplemented), n.row.Field, image.columns[n.row.TenantColumn], n.row.TenantPath)
+	tenant, _, err := followTenantPath(ctx, transactionPointReader(txn, namedRowsNotImplemented), n.row.Field, image.columns[stored.TenantColumn], stored.TenantPath)
 	if err != nil {
-		return false, errors.Wrapf(err, "the tenant of the %s row a write of %s names", n.row.Table, p.Resource())
+		return false, errors.Wrapf(err, "the tenant of the %s row a write of %s names", stored.Table, p.Resource())
 	}
 
 	return tenant == string(domain), nil
@@ -301,10 +334,15 @@ func (p *PatchSet[Resource]) createdInTransaction(ctx context.Context, txn ReadW
 
 // listsNamedRow reads the named row by key as the caller's list of its kind would read
 // it: within the request's tenant for a kind that belongs to one, and under the grant's
-// condition where the decision carries one. It answers whether there is such a row.
+// condition where the decision carries one. A view's row is read from the view's query,
+// under the view's resource's name (namedViewItem). It answers whether there is such a
+// row.
 func (p *PatchSet[Resource]) listsNamedRow(ctx context.Context, txn ReadWriteTransaction, n namedValue, decision accesstypes.Decision) (bool, error) {
 	registry := newParamRegistry()
 	alias := registry.alias()
+	if n.row.View {
+		alias = string(n.row.Resource)
+	}
 	terms := []ExpressionNode{&loweredComparisonNode{left: columnComparand(alias, n.row.KeyColumn), op: "=", right: valueComparand(n.value)}}
 	if test := n.row.tenantTest(alias, registry); test != nil {
 		terms = append(terms, test)
@@ -327,8 +365,15 @@ func (p *PatchSet[Resource]) listsNamedRow(ctx context.Context, txn ReadWriteTra
 	if err := p.mergeCheckParams(registry, params); err != nil {
 		return false, err
 	}
+	withClause, from := "", gen.quoteIdentifier(n.row.Table)+" "+gen.quoteIdentifier(alias)
+	if n.row.View {
+		withClause, from, err = p.namedViewItem(n.row, params)
+		if err != nil {
+			return false, err
+		}
+	}
 	stmt := spanner.Statement{
-		SQL:    "SELECT 1 FROM " + gen.quoteIdentifier(n.row.Table) + " " + gen.quoteIdentifier(alias) + " WHERE " + where,
+		SQL:    withClause + "SELECT 1 FROM " + from + " WHERE " + where,
 		Params: params,
 	}
 	_, found, err := spannerFirstRow(ctx, txn.SpannerReadOnlyTransaction(), stmt)

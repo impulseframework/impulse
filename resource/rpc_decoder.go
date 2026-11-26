@@ -18,6 +18,9 @@ type RPCDecoder[Request any] struct {
 	// collection lets a body's armed writes render conditional grants into their
 	// live check; nil when the application generates no collection.
 	collection *GeneratedCollection
+	// namedRowSources are the views a row a body's armed write names is read from
+	// (WithNamedRowSources).
+	namedRowSources NamedRowSources
 }
 
 // NewRPCDecoder creates a new RPCDecoder for a given request type, method name, and required permission.
@@ -53,6 +56,15 @@ func MustNewRPCDecoder[Request any](a DecoderAccessor, methodName accesstypes.Re
 func (s *RPCDecoder[Request]) WithCollection(collection *GeneratedCollection) *RPCDecoder[Request] {
 	decoder := *s
 	decoder.collection = collection
+
+	return &decoder
+}
+
+// WithNamedRowSources installs the views a row a write names is read from, so the
+// caller the decoder stamps carries them to a body's armed writes (NamedRowSources).
+func (s *RPCDecoder[Request]) WithNamedRowSources(sources NamedRowSources) *RPCDecoder[Request] {
+	decoder := *s
+	decoder.namedRowSources = sources
 
 	return &decoder
 }
@@ -126,5 +138,8 @@ func (s *RPCDecoder[Request]) DecodeCaller(request *http.Request, scope accessty
 		}
 	}
 
-	return req, &Caller{Permissions: userPermissions, Scope: scope, Env: env, collection: s.collection, method: s.res, permission: s.requiredPermission}, nil
+	return req, &Caller{
+		Permissions: userPermissions, Scope: scope, Env: env, collection: s.collection, namedRowSources: s.namedRowSources,
+		method: s.res, permission: s.requiredPermission,
+	}, nil
 }

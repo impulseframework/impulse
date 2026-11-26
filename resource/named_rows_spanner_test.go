@@ -3,6 +3,9 @@ package resource
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -307,6 +310,12 @@ func arm[Resource Resourcer](t *testing.T, q *QuerySet[Resource], collection *Ge
 		rSet, err = NewSet[namedPathComment, namedCommentRequest](perm)
 	case *QuerySet[namedOpenTask]:
 		rSet, err = NewSet[namedOpenTask, namedOpenTaskRequest](perm)
+	case *QuerySet[viewTask]:
+		rSet, err = NewSet[viewTask, namedTaskRequest](perm)
+	case *QuerySet[viewTaskBare]:
+		rSet, err = NewSet[viewTaskBare, namedTaskRequest](perm)
+	case *QuerySet[openViewTask]:
+		rSet, err = NewSet[openViewTask, namedTaskRequest](perm)
 	}
 	if err != nil {
 		t.Fatalf("NewSet() error = %v", err)
@@ -700,4 +709,307 @@ func TestPatchSet_namedRows_sameRequest_onSpanner(t *testing.T) {
 			judgeNamed(t, err, tt.written)
 		})
 	}
+}
+
+// The views of the fixture's projects a task's former project is picked from: the
+// tenant's projects but p3, the same through a WITH clause and a parameter, and the
+// projects of every tenant but p3, a view of the whole application.
+const (
+	activeProjectsQuery     = "SELECT Id, DomainId, ClientId FROM Projects WHERE Id != 'p3'"
+	activeProjectsWithQuery = "WITH kept AS (SELECT Id, DomainId, ClientId FROM Projects WHERE Id != @leftOut) SELECT Id, DomainId, ClientId FROM kept"
+	openProjectsQuery       = "SELECT Id, ClientId FROM Projects WHERE Id != 'p3'"
+)
+
+// activeProject is the row a task's former project is picked from: the view's key, its
+// own tenant column, which a write names a row by and holds it to.
+func activeProject(stored bool) NamedRow {
+	row := NamedRow{Field: "FormerProjectID", Resource: "ActiveProjects", Table: "ActiveProjects", KeyColumn: "Id", TenantColumn: "DomainId", View: true}
+	if stored {
+		row.Stored = &NamedRow{Resource: "Projects", Table: "Projects", KeyColumn: "Id", TenantColumn: "DomainId"}
+	}
+
+	return row
+}
+
+// viewTask is a task whose former project is picked from the view ActiveProjects, the
+// column's foreign key referencing Projects.
+type viewTask struct {
+	ID              string  `spanner:"Id"`
+	DomainID        string  `spanner:"DomainId"`
+	ProjectID       *string `spanner:"ProjectId"`
+	FormerProjectID *string `spanner:"FormerProjectId"`
+}
+
+func (viewTask) Resource() accesstypes.Resource { return "Tasks" }
+
+func (viewTask) NamedRows() []NamedRow {
+	return []NamedRow{activeProject(true)}
+}
+
+// viewTaskBare is a viewTask whose declaration says nothing of the table the column's
+// foreign key references.
+type viewTaskBare struct {
+	ID              string  `spanner:"Id"`
+	DomainID        string  `spanner:"DomainId"`
+	ProjectID       *string `spanner:"ProjectId"`
+	FormerProjectID *string `spanner:"FormerProjectId"`
+}
+
+func (viewTaskBare) Resource() accesstypes.Resource { return "Tasks" }
+
+func (viewTaskBare) NamedRows() []NamedRow {
+	return []NamedRow{activeProject(false)}
+}
+
+// openViewTask is a task whose former project is picked from OpenProjects, a view of the
+// whole application.
+type openViewTask struct {
+	ID              string  `spanner:"Id"`
+	DomainID        string  `spanner:"DomainId"`
+	ProjectID       *string `spanner:"ProjectId"`
+	FormerProjectID *string `spanner:"FormerProjectId"`
+}
+
+func (openViewTask) Resource() accesstypes.Resource { return "Tasks" }
+
+func (openViewTask) NamedRows() []NamedRow {
+	return []NamedRow{{Field: "FormerProjectID", Resource: "OpenProjects", Table: "OpenProjects", KeyColumn: "Id", View: true}}
+}
+
+// namedProject is a row of the fixture's Projects, written in a request before a task
+// that names it.
+type namedProject struct {
+	ID       string `spanner:"Id"`
+	DomainID string `spanner:"DomainId"`
+}
+
+func (namedProject) Resource() accesstypes.Resource { return "Projects" }
+
+// namedViewCollection is the named-row tests' collection with the view ActiveProjects, a
+// view of a tenant whose client a List on it may be held under.
+func namedViewCollection(t *testing.T) *GeneratedCollection {
+	t.Helper()
+
+	data := onRecordConditionData()
+	data.Resources = append(data.Resources, CollectionResource{
+		Name: "ActiveProjects", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List},
+		Domain:     &DomainBindingData{Column: "DomainId"},
+		Attributes: []AttributeData{{Name: "client", Column: "ClientId", Type: AttributeTypeString}},
+	})
+	g, err := NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+
+	return g
+}
+
+// viewTaskPatch builds the write of one task of the declaration Task, handed sources, as
+// taskPatch builds a task's.
+func viewTaskPatch[Task Resourcer](t *testing.T, collection *GeneratedCollection, sources NamedRowSources, w *namedWrite) *PatchSet[Task] {
+	t.Helper()
+
+	p := NewPatchSet(NewMetadata[Task]()).SetPatchType(w.patchType)
+	p.SetKey("ID", w.id)
+	for field, value := range w.columns {
+		p.Set(field, value)
+	}
+	if w.patchType != UpdatePatchType {
+		p.Set("DomainID", onRecordNorth)
+	}
+	arm(t, p.querySet, collection, w)
+	p.querySet.namedRowSources = sources
+
+	return p
+}
+
+// Callers of the view tests.
+func listsActiveProjects() *namedRowsCaller {
+	return &namedRowsCaller{user: "vera", list: map[accesstypes.Resource]accesstypes.Decision{"ActiveProjects": accesstypes.Granted()}}
+}
+
+func listsFirstClientsActiveProjects() *namedRowsCaller {
+	return &namedRowsCaller{user: "cora", list: map[accesstypes.Resource]accesstypes.Decision{"ActiveProjects": listedUnder("ActiveProjects", "client = 'c1'")}}
+}
+
+// TestPatchSet_namedRows_view_onSpanner pins the rule for a column picked from a view: a
+// create and an update set it only to a row the caller's list of the view shows, which
+// the write reads from the view's query, so a row the view's own query leaves out is
+// answered as a row that is not there though the caller's List carries no condition. The
+// view is read even for a view of the whole application listed outright, and not at all
+// for a caller who may not list it. A row the same request created passes where the
+// column's foreign key is declared (Stored) and in the request's tenant.
+func TestPatchSet_namedRows_view_onSpanner(t *testing.T) {
+	t.Parallel()
+
+	client := namedRowsDatabase(t, "named-rows-view")
+	db := NewSpannerClient(client)
+	collection := namedViewCollection(t)
+	ctx := context.Background()
+	project := func(id string) *string { return &id }
+	sources := NamedRowSources{"ActiveProjects": ViewRows(&countedView{query: activeProjectsQuery})}
+
+	cases := []struct {
+		name    string
+		caller  func() *namedRowsCaller
+		former  string
+		written bool
+	}{
+		{name: "a caller who lists the view names a project it shows", caller: listsActiveProjects, former: "p2", written: true},
+		{name: "a caller who lists the view names the project its query leaves out", caller: listsActiveProjects, former: "p3"},
+		{name: "a caller who lists the view names a project of another tenant", caller: listsActiveProjects, former: "p9"},
+		{name: "a caller who lists the view under a condition names a project it holds for", caller: listsFirstClientsActiveProjects, former: "p1", written: true},
+		{name: "a caller who lists the view under a condition names one it does not hold for", caller: listsFirstClientsActiveProjects, former: "p2"},
+	}
+	for i, tt := range cases {
+		t.Run("a create: "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			id := fmt.Sprintf("vc%d", i)
+			err := viewTaskPatch[viewTask](t, collection, sources, &namedWrite{patchType: CreatePatchType, caller: tt.caller(), id: id, columns: map[accesstypes.Field]any{"FormerProjectID": project(tt.former)}}).Apply(ctx, db)
+			judgeNamed(t, err, tt.written)
+			if _, found := storedColumn(t, client, id, "FormerProjectId"); found != tt.written {
+				t.Errorf("the task is stored %v, want %v", found, tt.written)
+			}
+		})
+		t.Run("an update: "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			id := fmt.Sprintf("vu%d", i)
+			if err := viewTaskPatch[viewTask](t, collection, nil, &namedWrite{patchType: CreatePatchType, id: id}).Apply(ctx, db); err != nil {
+				t.Fatalf("writing the task to update: %v", err)
+			}
+			err := viewTaskPatch[viewTask](t, collection, sources, &namedWrite{patchType: UpdatePatchType, caller: tt.caller(), id: id, columns: map[accesstypes.Field]any{"FormerProjectID": project(tt.former)}}).Apply(ctx, db)
+			judgeNamed(t, err, tt.written)
+			want := ""
+			if tt.written {
+				want = tt.former
+			}
+			if got, _ := storedColumn(t, client, id, "FormerProjectId"); got != want {
+				t.Errorf("the stored task names %q, want %q", got, want)
+			}
+		})
+	}
+
+	t.Run("a caller with no List on the view: refused, and the view is not read", func(t *testing.T) {
+		t.Parallel()
+
+		unread := &countedView{query: activeProjectsQuery}
+		err := viewTaskPatch[viewTask](t, collection, NamedRowSources{"ActiveProjects": ViewRows(unread)}, &namedWrite{patchType: CreatePatchType, caller: listsNoProject(), id: "v-none", columns: map[accesstypes.Field]any{"FormerProjectID": project("p1")}}).Apply(ctx, db)
+		judgeNamed(t, err, false)
+		if reads := unread.readsMade(); reads != 0 {
+			t.Errorf("the view's query was read %d times, want none", reads)
+		}
+	})
+
+	t.Run("a view of the whole application listed outright is read", func(t *testing.T) {
+		t.Parallel()
+
+		open := &countedView{query: openProjectsQuery}
+		caller := func() *namedRowsCaller {
+			return &namedRowsCaller{user: "olga", list: map[accesstypes.Resource]accesstypes.Decision{"OpenProjects": accesstypes.Granted()}}
+		}
+		openSources := NamedRowSources{"OpenProjects": ViewRows(open)}
+		err := viewTaskPatch[openViewTask](t, collection, openSources, &namedWrite{patchType: CreatePatchType, caller: caller(), id: "v-open-out", columns: map[accesstypes.Field]any{"FormerProjectID": project("p3")}}).Apply(ctx, db)
+		judgeNamed(t, err, false)
+		if open.readsMade() == 0 {
+			t.Error("the view's query was not read")
+		}
+		err = viewTaskPatch[openViewTask](t, collection, openSources, &namedWrite{patchType: CreatePatchType, caller: caller(), id: "v-open-in", columns: map[accesstypes.Field]any{"FormerProjectID": project("p1")}}).Apply(ctx, db)
+		judgeNamed(t, err, true)
+	})
+
+	t.Run("what is not judged: the column as it is, set to nothing, a patch that is not armed", func(t *testing.T) {
+		t.Parallel()
+
+		// p3 is the project the view leaves out, and the caller lists nothing.
+		err := viewTaskPatch[viewTask](t, collection, sources, &namedWrite{patchType: CreatePatchType, id: "v-same", columns: map[accesstypes.Field]any{"FormerProjectID": project("p3")}}).Apply(ctx, db)
+		judgeNamed(t, err, true)
+		err = viewTaskPatch[viewTask](t, collection, sources, &namedWrite{patchType: UpdatePatchType, caller: listsNoProject(), id: "v-same", columns: map[accesstypes.Field]any{"FormerProjectID": project("p3")}}).Apply(ctx, db)
+		judgeNamed(t, err, true)
+		var none *string
+		err = viewTaskPatch[viewTask](t, collection, sources, &namedWrite{patchType: UpdatePatchType, caller: listsNoProject(), id: "v-same", columns: map[accesstypes.Field]any{"FormerProjectID": none}}).Apply(ctx, db)
+		judgeNamed(t, err, true)
+		err = viewTaskPatch[viewTask](t, collection, sources, &namedWrite{patchType: CreatePatchType, caller: listsNoProject(), id: "v-nothing", columns: map[accesstypes.Field]any{"FormerProjectID": none}}).Apply(ctx, db)
+		judgeNamed(t, err, true)
+	})
+
+	t.Run("a project created earlier in the same request", func(t *testing.T) {
+		t.Parallel()
+
+		created := func(id, tenant string, write func(ctx context.Context, txn ReadWriteTransaction) error) error {
+			return db.ExecuteFunc(ctx, func(ctx context.Context, txn ReadWriteTransaction) error {
+				p := NewPatchSet(NewMetadata[namedProject]()).SetPatchType(CreatePatchType)
+				p.SetKey("ID", id)
+				p.Set("DomainID", tenant)
+				if err := p.Buffer(ctx, txn); err != nil {
+					return err
+				}
+
+				return write(ctx, txn)
+			})
+		}
+		names := func(id, project string) *namedWrite {
+			return &namedWrite{patchType: CreatePatchType, caller: listsActiveProjects(), id: id, columns: map[accesstypes.Field]any{"FormerProjectID": &project}}
+		}
+		err := created("vp-stored", onRecordNorth, func(ctx context.Context, txn ReadWriteTransaction) error {
+			return viewTaskPatch[viewTask](t, collection, sources, names("v-stored", "vp-stored")).Buffer(ctx, txn)
+		})
+		judgeNamed(t, err, true)
+		err = created("vp-bare", onRecordNorth, func(ctx context.Context, txn ReadWriteTransaction) error {
+			return viewTaskPatch[viewTaskBare](t, collection, sources, names("v-bare", "vp-bare")).Buffer(ctx, txn)
+		})
+		judgeNamed(t, err, false)
+		err = created("vp-south", onRecordSouth, func(ctx context.Context, txn ReadWriteTransaction) error {
+			return viewTaskPatch[viewTask](t, collection, sources, names("v-south", "vp-south")).Buffer(ctx, txn)
+		})
+		judgeNamed(t, err, false)
+	})
+
+	t.Run("a view whose query opens with a WITH clause and binds a parameter", func(t *testing.T) {
+		t.Parallel()
+
+		with := NamedRowSources{"ActiveProjects": ViewRows(&countedView{query: activeProjectsWithQuery, params: map[string]any{"leftOut": "p3"}})}
+		err := viewTaskPatch[viewTask](t, collection, with, &namedWrite{patchType: CreatePatchType, caller: listsActiveProjects(), id: "v-with-in", columns: map[accesstypes.Field]any{"FormerProjectID": project("p2")}}).Apply(ctx, db)
+		judgeNamed(t, err, true)
+		err = viewTaskPatch[viewTask](t, collection, with, &namedWrite{patchType: CreatePatchType, caller: listsActiveProjects(), id: "v-with-out", columns: map[accesstypes.Field]any{"FormerProjectID": project("p3")}}).Apply(ctx, db)
+		judgeNamed(t, err, false)
+	})
+
+	t.Run("a write a body arms with the caller its method's decode answered", func(t *testing.T) {
+		t.Parallel()
+
+		enforced := func(decoder *RPCDecoder[rpcEnforcementRequest], id, former string) error {
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(`{"name":"n"}`))
+			_, caller, err := decoder.DecodeCaller(request, accesstypes.DomainScope(onRecordNorth))
+			if err != nil {
+				t.Fatalf("RPCDecoder.DecodeCaller() error = %v", err)
+			}
+			set, err := NewSet[viewTask, namedTaskRequest](accesstypes.Create)
+			if err != nil {
+				t.Fatalf("NewSet() error = %v", err)
+			}
+			p := NewPatchSet(NewMetadata[viewTask]()).SetPatchType(CreatePatchType)
+			p.SetKey("ID", id)
+			p.Set("DomainID", onRecordNorth)
+			p.Set("FormerProjectID", &former)
+
+			return p.Enforce(caller, set, accesstypes.Create).Apply(ctx, db)
+		}
+		decoder, err := NewRPCDecoder[rpcEnforcementRequest](func(*http.Request) UserPermissions { return listsActiveProjects() }, rpcEnforcedMethod, accesstypes.Execute)
+		if err != nil {
+			t.Fatalf("NewRPCDecoder() error = %v", err)
+		}
+		decoder = decoder.WithCollection(collection)
+		judgeNamed(t, enforced(decoder.WithNamedRowSources(sources), "v-body-in", "p2"), true)
+		judgeNamed(t, enforced(decoder.WithNamedRowSources(sources), "v-body-out", "p3"), false)
+
+		err = enforced(decoder, "v-body-none", "p2")
+		if err == nil || httpio.HasNotFound(err) || !strings.Contains(err.Error(), "WithNamedRowSources") {
+			t.Errorf("error = %v, want the error that the write was handed no source of the view", err)
+		}
+		if _, found := storedColumn(t, client, "v-body-none", "FormerProjectId"); found {
+			t.Error("the task written with no source is stored")
+		}
+	})
 }
