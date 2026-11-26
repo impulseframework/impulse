@@ -440,8 +440,9 @@ func TestAuditLog_aRowKeepsItsPartsAndTheNamesOfItsDay(t *testing.T) {
 // TestAuditLog_filtersAndPages holds the list's filters, each answering exactly the rows
 // of the whole log it admits, in the same order: by the act, by the username of the
 // person who acted, by the name of whom it was done to, by the role and by a range of
-// the time, and by a text match on the name, which the handler applies to the rows. A
-// page of the list links the next, which goes on where the first stopped.
+// the time, and by a text match on the name, which the handler applies to the rows. The
+// rows a person did include the address their own sign-in wrote. A page of the list links
+// the next, which goes on where the first stopped.
 func TestAuditLog_filtersAndPages(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -521,10 +522,19 @@ func TestAuditLog_filtersAndPages(t *testing.T) {
 	if len(matched) != 1 || lineOf(matched[0]) != dispatched {
 		t.Errorf("the log filtered by a part of the dispatcher's username = %v, want the one row %+v", matched, dispatched)
 	}
+	// The marshal's own acts, newest first: the role she gave, and the address her sign-in
+	// wrote onto her account, which a code proved.
 	byMarshal := auditRows(ctx, t, hq, "", "actorUsername:eq:marshal")
-	byHer := auditLine{Act: "roleGiven", Who: "marshal", What: "Gave the role Engineer", DoneTo: "cadet", SubjectName: "cadet", TenantName: "Anvil"}
-	if len(byMarshal) != 1 || lineOf(byMarshal[0]) != byHer {
-		t.Errorf("the log filtered by the marshal's username = %v, want the one row %+v", byMarshal, byHer)
+	byHer := []auditLine{
+		{Act: "roleGiven", Who: "marshal", What: "Gave the role Engineer", DoneTo: "cadet", SubjectName: "cadet", TenantName: "Anvil"},
+		{Act: "addressChanged", Who: "marshal, through a sign-in", What: "Set the email address to marshal@mail.example", DoneTo: "marshal", SubjectName: "marshal"},
+	}
+	got := make([]auditLine, 0, len(byMarshal))
+	for _, row := range byMarshal {
+		got = append(got, lineOf(row))
+	}
+	if !slices.Equal(got, byHer) {
+		t.Errorf("the log filtered by the marshal's username = %+v, want %+v", got, byHer)
 	}
 
 	// A page of two links the next, which goes on where the first stopped.
