@@ -180,6 +180,11 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			// tenant's first administrator and of the directory it is made with name the
 			// person of the session, though no grant judges the gift.
 			byCreator := identity.ActingInSession(ctx)
+			// The rows of the tenant's making name it by the name it is made with, as its
+			// later rows do: the roster learns of it only after the commit.
+			if patch.NameIsSet() {
+				byCreator = identity.MakingTenant(byCreator, domain, patch.Name())
+			}
 			// The creator's directory, written with the row only where the application
 			// holds a person to one tenant: the organization's directory the creator is
 			// signed in through, held to the rules of a tenant's directory, so a
