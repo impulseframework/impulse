@@ -2046,7 +2046,7 @@ func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction
 	}
 	costs := []int{
 		{{- range .UserCascades }}
-		resource.DeleteCost{IndexEntries: {{ .IndexEntries }}}.Mutations(false),
+		resource.DeleteCost{IndexEntries: {{ .IndexEntries }}}.Mutations(0),
 		{{- end }}
 	}
 	rows := 0

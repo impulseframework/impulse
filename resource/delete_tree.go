@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/eventsource"
 )
 
 const (
@@ -24,13 +25,24 @@ const (
 	fileReleaseMutations = 0
 )
 
-// changeRecordMutations is what the change record of one removed row is counted to cost.
-// An insert counts once for each column it writes, and a record writes no more than the
-// table's sixteen columns. A record sets only the columns that hold something (the
-// delete of a tenant's row by an ordinary person sets eleven), but a save is filled to
-// DeleteMutationLimit with no margin, so the count is the most a record can cost. The
-// change history table has no index to enter the record in.
-const changeRecordMutations = 16
+// ChangeRecordMutations is what the change record of one removed row costs in a commit.
+// An insert counts once for each column it sets, and the change history table has no index
+// to enter the record in. A record sets the six columns every record sets, the tenant's
+// where the row has one, and each column of who made the change that holds something
+// (DataChangeEvent.Columns): eleven for a person in a session. The tenant's column is
+// counted for every row. With no source it is sixteen, the table's columns, which is the
+// most a record can set.
+func ChangeRecordMutations(source ...eventsource.EventSource) int {
+	if len(source) == 0 || source[0].IsZero() {
+		return changeRecordColumns + len(eventsource.ColumnNames())
+	}
+
+	return changeRecordColumns + len(source[0].Columns())
+}
+
+// changeRecordColumns are the columns of a change record besides who made the change:
+// TableName, RowId, EventTime, Sequence, Operation, ChangeSet and TenantId.
+const changeRecordColumns = 7
 
 // DeleteLink is one step from a row up toward the record it is under: the row's Columns
 // hold the key of a row of Table, in that table's References columns. A foreign key
@@ -99,15 +111,11 @@ type DeleteCost struct {
 }
 
 // Mutations is what the delete of one row costs in a commit: the delete, an entry in
-// each of the table's indexes, the change record written for the removal where changes
-// are tracked, and the release of each file the row stores.
-func (c DeleteCost) Mutations(tracked bool) int {
-	mutations := rowDeleteMutations + c.IndexEntries + c.Files*fileReleaseMutations
-	if tracked {
-		mutations += changeRecordMutations
-	}
-
-	return mutations
+// each of the table's indexes, the release of each file the row stores, and changeRecord,
+// what the change record written for the removal costs (ChangeRecordMutations), which is 0
+// for a kind that keeps no change history.
+func (c DeleteCost) Mutations(changeRecord int) int {
+	return rowDeleteMutations + c.IndexEntries + c.Files*fileReleaseMutations + changeRecord
 }
 
 // DeleteKind is one kind of row under a record.
@@ -256,12 +264,13 @@ func (t *DeleteTree) rowNameInside() string {
 // Mutations is the one count of what a delete of the record and everything it takes
 // costs in a commit: the record's own row, and for each taken kind the number of its
 // rows under the record (rows, by the kind's resource) times what one of them costs. A
-// kind's rows cost a change record each where the kind's changes are tracked (tracked,
-// by resource, the record's own among them). A round of a delete is sized by it.
-func (t *DeleteTree) Mutations(rows map[accesstypes.Resource]int, tracked func(accesstypes.Resource) bool) int {
-	mutations := t.Cost.Mutations(tracked(t.Record))
+// kind's rows cost a change record each where the kind's changes are tracked, as
+// changeRecord answers it by resource, the record's own among them, and 0 where they are
+// not. A round of a delete is sized by it.
+func (t *DeleteTree) Mutations(rows map[accesstypes.Resource]int, changeRecord func(accesstypes.Resource) int) int {
+	mutations := t.Cost.Mutations(changeRecord(t.Record))
 	for i := range t.Taken {
-		mutations += rows[t.Taken[i].Resource] * t.Taken[i].Cost.Mutations(tracked(t.Taken[i].Resource))
+		mutations += rows[t.Taken[i].Resource] * t.Taken[i].Cost.Mutations(changeRecord(t.Taken[i].Resource))
 	}
 
 	return mutations

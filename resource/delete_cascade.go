@@ -887,8 +887,13 @@ func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[
 	if size == 0 {
 		size = DeleteMutationLimit
 	}
-	isTracked := func(res accesstypes.Resource) bool {
-		return tracked[res]
+	record := ChangeRecordMutations(eventSource...)
+	changeRecord := func(res accesstypes.Resource) int {
+		if tracked[res] {
+			return record
+		}
+
+		return 0
 	}
 	taken := make(map[accesstypes.Resource]int, len(tree.Taken))
 	round := &takenRound{counted: counted}
@@ -898,7 +903,7 @@ func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[
 			if levels.at(kind, level) == 0 {
 				continue
 			}
-			most := (size - tree.Mutations(taken, isTracked)) / kind.Cost.Mutations(tracked[kind.Resource])
+			most := (size - tree.Mutations(taken, changeRecord)) / kind.Cost.Mutations(changeRecord(kind.Resource))
 			if most <= 0 {
 				if round.deleted == 0 {
 					return nil, errors.Newf("the delete of a %s can take nothing in one save: one of its %s costs more than a save holds", tree.Words.One, kind.Words.Many)
@@ -917,7 +922,7 @@ func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[
 			}
 		}
 	}
-	spent := tree.Mutations(taken, isTracked)
+	spent := tree.Mutations(taken, changeRecord)
 	before := spent
 	for i, kind := range d.also {
 		if handed[i] == 0 {

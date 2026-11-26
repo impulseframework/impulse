@@ -251,19 +251,22 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		task("small-1", "small", ""), task("small-2", "small", "small-1"), comment("small-c1", "small-2"),
 		spanner.InsertMap("CascadeProjects", map[string]any{"Id": "two"}),
 		task("two-1", "two", ""), task("two-2", "two", ""),
+		spanner.InsertMap("CascadeProjects", map[string]any{"Id": "exact"}),
+		task("exact-1", "exact", ""), task("exact-2", "exact", ""),
 	}); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
 
 	// What one row's delete costs, by the package's own count: a task's carries its change
-	// record.
-	const recordCost, commentCost, taskCost = 1, 1, rowDeleteMutations + changeRecordMutations
+	// record, by the process that deletes it.
+	const recordCost, commentCost = 1, 1
+	taskCost := rowDeleteMutations + ChangeRecordMutations(eventsource.ProcessEvent("test"))
 
 	t.Run("a delete larger than one save runs in rounds, the deepest first, and the record goes last", func(t *testing.T) {
 		t.Parallel()
 
 		// The record, a comment and two tasks.
-		const size = recordCost + commentCost + 2*taskCost
+		size := recordCost + commentCost + 2*taskCost
 		rounds := []*DeleteLeft{{Deleted: 3, Left: 8}, {Deleted: 2, Left: 6}, {Deleted: 2, Left: 4}, {Deleted: 3, Left: 1}, nil}
 		before := readRoundState(t, db, "big")
 		for i, want := range rounds {
@@ -278,11 +281,11 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 			if after.record != (want != nil) {
 				t.Errorf("round %d: the record is there = %t, want %t", i+1, after.record, want != nil)
 			}
-			mutations := (before.tasks-after.tasks)*taskCost + (before.comments-after.comments)*commentCost
+			mutations := (before.tasks-after.tasks)*int64(taskCost) + (before.comments-after.comments)*commentCost
 			if !after.record {
 				mutations += recordCost
 			}
-			if mutations > size {
+			if mutations > int64(size) {
 				t.Errorf("round %d: the save cost %d mutations, more than the %d it holds", i+1, mutations, size)
 			}
 			if got := roundCount(t, db, "SELECT COUNT(*) FROM CascadeTasks t WHERE t.ProjectId = @project AND t.ParentTaskId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM CascadeTasks p WHERE p.Id = t.ParentTaskId)", "big"); got != 0 {
@@ -308,7 +311,7 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		t.Parallel()
 
 		// The record and two tasks.
-		const size = recordCost + 2*taskCost
+		size := recordCost + 2*taskCost
 		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2, Left: 3}) {
 			t.Fatalf("the first round = %+v, %v, want {Deleted: 2, Left: 3}", got, err)
 		}
@@ -340,7 +343,7 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		// The record, tracked, and one task: the first round takes a task and comes back
 		// full. The second has room for two: it takes the other task, and with room left,
 		// the record.
-		const record = rowDeleteMutations + changeRecordMutations
+		record := rowDeleteMutations + ChangeRecordMutations(eventsource.ProcessEvent("first round"))
 		if got, err := deleteRound[trackedRoundProject](t, db, "two", record+taskCost, eventsource.ProcessEvent("first round")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 1, Left: 1}) {
 			t.Fatalf("the first round = %+v, %v, want {Deleted: 1, Left: 1}", got, err)
 		}
@@ -378,6 +381,23 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 			if got := records[0]; got.Operation != string(ChangeDelete) || got.eventSourceColumns != want || got.TenantID.Valid {
 				t.Errorf("%s %s's change record = %+v, want a delete by the process %q and no other column of who or of a tenant", row.table, row.id, got, row.process)
 			}
+		}
+	})
+
+	t.Run("a save is filled by what each task's change record costs, not by the most a record can cost", func(t *testing.T) {
+		t.Parallel()
+
+		// The record and both tasks at what their change records cost; counted at the most a
+		// record can cost, the same size holds the record and one task.
+		size := recordCost + 2*taskCost
+		if most := rowDeleteMutations + ChangeRecordMutations(); (size-recordCost)/most != 1 {
+			t.Fatalf("the save of %d holds %d tasks at %d a task, want 1", size, (size-recordCost)/most, most)
+		}
+		if got, err := deleteRound[roundProject](t, db, "exact", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2, Left: 0}) {
+			t.Fatalf("the first round = %+v, %v, want {Deleted: 2, Left: 0}", got, err)
+		}
+		if state := readRoundState(t, db, "exact"); !state.record || state.tasks != 0 {
+			t.Errorf("after the first round the record is there = %t with %d tasks, want it there with none", state.record, state.tasks)
 		}
 	})
 

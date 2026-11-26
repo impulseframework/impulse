@@ -69,10 +69,11 @@ func (c *client) identityDeleteCosts(inst *identityInstance) []identityDeleteCos
 		if !ok || !inst.has(field.kind) {
 			continue
 		}
-		costs = append(costs, identityDeleteCost{Field: field.name, Cost: fmt.Sprintf("resource.DeleteCost{IndexEntries: %d}.Mutations(false)", table.secondaryIndexes())})
+		costs = append(costs, identityDeleteCost{Field: field.name, Cost: fmt.Sprintf("resource.DeleteCost{IndexEntries: %d}.Mutations(0)", table.secondaryIndexes())})
 	}
 	// The declarations of the roles held on a record write a change record with each write
-	// (identityRecordUserRolesTemplate), so a row's delete costs one more.
+	// (identityRecordUserRolesTemplate), so a row's delete costs its change record too,
+	// counted at the most a record can cost: the generated store decides who it names.
 	for _, field := range []struct {
 		name string
 		kind identityTable
@@ -84,7 +85,7 @@ func (c *client) identityDeleteCosts(inst *identityInstance) []identityDeleteCos
 		if !ok || !inst.has(field.kind) {
 			continue
 		}
-		costs = append(costs, identityDeleteCost{Field: field.name, Cost: fmt.Sprintf("resource.DeleteCost{IndexEntries: %d}.Mutations(true)", table.secondaryIndexes())})
+		costs = append(costs, identityDeleteCost{Field: field.name, Cost: fmt.Sprintf("resource.DeleteCost{IndexEntries: %d}.Mutations(resource.ChangeRecordMutations())", table.secondaryIndexes())})
 	}
 	for _, field := range []struct {
 		name    string

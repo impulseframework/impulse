@@ -272,11 +272,11 @@ func Test_identityDeleteCosts_recordRoles(t *testing.T) {
 	}
 	want := map[string][]identityDeleteCost{
 		"Crew": {
-			{Field: "RecordMembership", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(true)"},
-			{Field: "RecordGroupRole", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(true)"},
+			{Field: "RecordMembership", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(resource.ChangeRecordMutations())"},
+			{Field: "RecordGroupRole", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(resource.ChangeRecordMutations())"},
 		},
 		"Members": {
-			{Field: "RecordMembership", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(true)"},
+			{Field: "RecordMembership", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(resource.ChangeRecordMutations())"},
 		},
 	}
 	for _, inst := range instances {

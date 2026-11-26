@@ -90,13 +90,13 @@ func Test_identityDeleteCosts(t *testing.T) {
 	every := crewTablesInstance(t, identityUsers, identitySessions, identityIdentities, identityMailLinks, identityMemberships, identityRoles,
 		identityGroups, identityGroupMembers, identityGroupRoles, identityImpersonations)
 	want := []identityDeleteCost{
-		{Field: "Membership", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(false)"},
-		{Field: "Group", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(false)"},
-		{Field: "GroupMember", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
-		{Field: "GroupRole", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(false)"},
-		{Field: "Role", Cost: "resource.DeleteCost{IndexEntries: 0}.Mutations(false)"},
-		{Field: "Identity", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
-		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
+		{Field: "Membership", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(0)"},
+		{Field: "Group", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(0)"},
+		{Field: "GroupMember", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(0)"},
+		{Field: "GroupRole", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(0)"},
+		{Field: "Role", Cost: "resource.DeleteCost{IndexEntries: 0}.Mutations(0)"},
+		{Field: "Identity", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(0)"},
+		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(0)"},
 		// The key, ConsumedAt and WithdrawnAt, two for the index by kind, three for the
 		// index by tenant.
 		{Field: "Invitation", Cost: "8"},
@@ -111,7 +111,7 @@ func Test_identityDeleteCosts(t *testing.T) {
 
 	bare := crewTablesInstance(t, identityUsers, identitySessions)
 	wantBare := []identityDeleteCost{
-		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
+		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(0)"},
 		{Field: "SessionEnd", Cost: "5"},
 	}
 	if diff := cmp.Diff(wantBare, c.identityDeleteCosts(bare)); diff != "" {
@@ -254,8 +254,8 @@ func Test_identityStoreTemplate_tenantKinds(t *testing.T) {
 	}
 	sector := &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory}
 	costs := []identityDeleteCost{
-		{Field: "Membership", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(false)"},
-		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(false)"},
+		{Field: "Membership", Cost: "resource.DeleteCost{IndexEntries: 1}.Mutations(0)"},
+		{Field: "User", Cost: "resource.DeleteCost{IndexEntries: 2}.Mutations(0)"},
 		{Field: "Invitation", Cost: "4"},
 	}
 	cascades := []identityUserCascade{{Table: "CrewSessionIdentities", Count: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId)", IndexEntries: 2}}
@@ -268,14 +268,14 @@ func Test_identityStoreTemplate_tenantKinds(t *testing.T) {
 		tenantRoles      = "func (store) TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {"
 		noTenantRoles    = "func (store) TenantRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) (int, error) {\n\treturn 0, nil\n}"
 		deleteCosts      = "func (store) DeleteCosts() identity.TenantDeleteCosts {\n\treturn identity.TenantDeleteCosts{\n" +
-			"\t\tMembership: resource.DeleteCost{IndexEntries: 1}.Mutations(false),\n" +
-			"\t\tUser: resource.DeleteCost{IndexEntries: 2}.Mutations(false),\n" +
+			"\t\tMembership: resource.DeleteCost{IndexEntries: 1}.Mutations(0),\n" +
+			"\t\tUser: resource.DeleteCost{IndexEntries: 2}.Mutations(0),\n" +
 			"\t\tInvitation: 4,\n\t}\n}"
-		bareCosts    = "func (store) DeleteCosts() identity.TenantDeleteCosts {\n\treturn identity.TenantDeleteCosts{\n\t\tUser: resource.DeleteCost{IndexEntries: 2}.Mutations(false),\n\t}\n}"
+		bareCosts    = "func (store) DeleteCosts() identity.TenantDeleteCosts {\n\treturn identity.TenantDeleteCosts{\n\t\tUser: resource.DeleteCost{IndexEntries: 2}.Mutations(0),\n\t}\n}"
 		rowsWithUser = "func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (int, error) {\n" +
 			"\tstmt := spanner.Statement{\n\t\tSQL: \"SELECT (SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId)\",\n" +
 			"\t\tParams: map[string]any{\"userId\": userID.String()},\n\t}\n" +
-			"\tcosts := []int{\n\t\tresource.DeleteCost{IndexEntries: 2}.Mutations(false),\n\t}"
+			"\tcosts := []int{\n\t\tresource.DeleteCost{IndexEntries: 2}.Mutations(0),\n\t}"
 		noRowsWithUser = "func (store) RowsWithUser(context.Context, resource.ReadWriteTransaction, impulse.UUID) (int, error) {\n\treturn 0, nil\n}"
 		grantDelete    = "RoleGrantDeletePatch"
 	)
