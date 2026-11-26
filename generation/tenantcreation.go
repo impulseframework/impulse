@@ -429,6 +429,12 @@ type tenantCreationDirectory struct {
 	// the directories record's write paths ask, named by the program's auths, so the
 	// statement names the directory as their refusals do.
 	Rules string
+	// Recorder is the application's accessor of the generated identity client whose
+	// audit log the directory set is recorded in, "" where none is
+	// (tenantSignInRecorder), and Namers the program's namers of a directory
+	// (directoryNamers), which name it in the row as the take's own row names it.
+	Recorder string
+	Namers   string
 }
 
 func (d *tenantCreationData) typeImports() []fixerImport {
@@ -531,25 +537,31 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 		Refusal:             tenantCreationRefusal(record.Name()),
 		ClosedRefusal:       tenantCreationClosedRefusal(record.Name()),
 		OwnCreation:         tenantCreationOwnCreation(record.Name()),
-		Directory:           tenantCreationDirectoryData(record),
+		Directory:           r.tenantCreationDirectoryData(record),
 		record:              record,
 	}
 }
 
 // tenantCreationDirectoryData is the directories record as the route sets the
-// creator's directory where the application holds a person to one tenant, nil where
-// the record declares none.
-func tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory {
+// creator's directory where the application holds a person to one tenant, and the auth
+// whose audit log records it, nil where the record declares none.
+func (r *resourceGenerator) tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory {
 	if !record.HasDeclaration() {
 		return nil
 	}
 	directories := record.declaration.Directories
-
-	return &tenantCreationDirectory{
+	directory := &tenantCreationDirectory{
 		Record:      directories.Name(),
 		TenantValue: tenantValueFor(directories.DomainBinding.Anchor),
 		Rules:       directories.DirectoryRules(),
+		Recorder:    r.tenantSignInRecorder(),
+		Namers:      "",
 	}
+	if directory.Recorder != "" {
+		directory.Namers = strings.Join(r.directoryNamers(), ", ")
+	}
+
+	return directory
 }
 
 // tenantCreationRefusal is the sentence a person who already holds a role in a tenant

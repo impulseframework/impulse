@@ -30,10 +30,11 @@ const madeTenant = accesstypes.Domain("made")
 // fakeMaker is the application's maker of a tenant as a test scripts it: it records what
 // it was asked to make, and answers the tenant or the failure the test names.
 type fakeMaker struct {
-	// seats and directoryOnly say what the application's records keep: a default role
-	// on a tenant's directory, and the directory-only switch.
+	// seats, directoryOnly and takes say what the application's records keep: a default
+	// role on a tenant's directory, the directory-only switch, and a tenant's directory.
 	seats         bool
 	directoryOnly bool
+	takes         bool
 	err           error
 	made          []string
 	// sources are who each tenant made was handed as having made its rows.
@@ -69,6 +70,10 @@ func (f *fakeMaker) SeatsDefaultRole() bool {
 
 func (f *fakeMaker) DeclaresDirectoryOnly() bool {
 	return f.directoryOnly
+}
+
+func (f *fakeMaker) TakesDirectory() bool {
+	return f.takes
 }
 
 // invitedTenantRoles are the roles the fake engine holds for the tests of a tenant invitation:

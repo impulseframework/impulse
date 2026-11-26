@@ -59,6 +59,9 @@ func TestSignInActsRecorded(t *testing.T) {
 	nightKey := access.NewMembershipKey(alphaScope, "", "NightShiftLead")
 	alphaNightShiftLead := access.RoleKey{Kind: nightKey.Kind, Axis: nightKey.Axis, Domain: nightKey.Domain, Role: "NightShiftLead"}
 	danaAccount := "account dana"
+	// lakesideConnection is an organization's Microsoft Entra tenant a person signs in
+	// through.
+	const lakesideConnection = "6f2c1b7e-0000-4000-8000-000000000001"
 
 	t.Run("an invitation accepted, with two roles", func(t *testing.T) {
 		t.Parallel()
@@ -97,6 +100,84 @@ func TestSignInActsRecorded(t *testing.T) {
 			t.Errorf("audit rows (-want +got):\n%s", diff)
 		}
 	})
+
+	// The tenant an invitation makes through an organization's directory: the rows of what
+	// it was made with, the directory taken, directory only and the starting role, by the
+	// invitation that made it, in the tenant it made, before its administrator's.
+	t.Run("an invitation that makes a tenant, accepted through an organization's directory", func(t *testing.T) {
+		t.Parallel()
+
+		store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}}
+		sessions := fakeSessions{mail: &fakeMail{}, named: map[string]string{lakesideConnection: "Lakeside"}}
+		maker := &fakeMaker{seats: true, directoryOnly: true, takes: true}
+		m, err := New(managedAuth, store, &fakeEngine{roles: invitedTenantRoles}, sessions,
+			WithAdministratorRoles([]accesstypes.Role{"Keeper"}), WithRoleGrants(&fakeGrants{}), WithTenantMaker(maker))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		inv := tenantInvitation(true, sessioninfo.MethodAzure, lakesideConnection)
+		if _, err := m.InvitationAccepted("Staff")(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", inv); err != nil {
+			t.Fatalf("InvitationAccepted() error = %v", err)
+		}
+		made := "tenant " + string(madeTenant)
+		want := []actedRow{
+			{act: auditlog.ActDirectoryTaken, subject: made, tenant: string(madeTenant), who: "an invitation"},
+			{act: auditlog.ActDirectoryOnlyOn, subject: made, tenant: string(madeTenant), who: "an invitation"},
+			{act: auditlog.ActDirectoryOpened, subject: made, role: "Reader", tenant: string(madeTenant), who: "an invitation"},
+			{act: auditlog.ActRoleGiven, subject: danaAccount, role: "Keeper", tenant: string(madeTenant), who: "an invitation"},
+			{act: auditlog.ActInvitationAccepted, subject: danaAccount, tenant: string(madeTenant), who: "an invitation"},
+		}
+		if diff := cmp.Diff(want, actedRows(t, store), cmp.AllowUnexported(actedRow{})); diff != "" {
+			t.Fatalf("audit rows (-want +got):\n%s", diff)
+		}
+		taken := storedOf(t, &store.audit[0])
+		if what := taken.Sentences("tenant").What; what != "Took the directory Microsoft Entra tenant Lakeside as its own" {
+			t.Errorf("the directory's row reads %q", what)
+		}
+	})
+
+	// A tenant made through an organization's directory, open to nobody by a starting
+	// role and not directory only, has the one row of its directory; one whose records
+	// keep no directory, or one made by password, has none.
+	for _, tt := range []struct {
+		name  string
+		maker *fakeMaker
+		inv   *sessioninfo.Invitation
+		want  []auditlog.Act
+	}{
+		{
+			name: "through an organization's directory, with no starting role", maker: &fakeMaker{takes: true},
+			inv:  tenantInvitation(false, sessioninfo.MethodAzure, lakesideConnection),
+			want: []auditlog.Act{auditlog.ActDirectoryTaken, auditlog.ActRoleGiven, auditlog.ActInvitationAccepted},
+		},
+		{
+			name: "through an organization's directory, where the records keep no directory", maker: &fakeMaker{},
+			inv:  tenantInvitation(false, sessioninfo.MethodAzure, lakesideConnection),
+			want: []auditlog.Act{auditlog.ActRoleGiven, auditlog.ActInvitationAccepted},
+		},
+		{
+			name: "by password", maker: &fakeMaker{seats: true, takes: true},
+			inv:  tenantInvitation(false, sessioninfo.MethodPassword, ""),
+			want: []auditlog.Act{auditlog.ActRoleGiven, auditlog.ActInvitationAccepted},
+		},
+	} {
+		t.Run("an invitation that makes a tenant, accepted "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}}
+			m := newTenantInviter(t, store, tt.maker, &fakeMail{}, &fakeGrants{})
+			if _, err := m.InvitationAccepted("Staff")(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", tt.inv); err != nil {
+				t.Fatalf("InvitationAccepted() error = %v", err)
+			}
+			got := make([]auditlog.Act, 0, len(store.audit))
+			for _, row := range actedRows(t, store) {
+				got = append(got, row.act)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("acts recorded (-want +got):\n%s", diff)
+			}
+		})
+	}
 
 	t.Run("an invitation whose role can no longer be given fails, and records no acceptance", func(t *testing.T) {
 		t.Parallel()

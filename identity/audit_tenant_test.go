@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // TestManager_RecordTenantSignIn pins the row of a tenant's own sign-in setting: done to
@@ -98,6 +100,54 @@ func TestManager_RecordTenantSignIn(t *testing.T) {
 			stored := storedOf(t, &store.audit[0])
 			if got := stored.Sentences("sector").What; got != tt.wantWhat {
 				t.Errorf("the row reads %q, want %q", got, tt.wantWhat)
+			}
+		})
+	}
+}
+
+// TestManager_RecordTenantSignIn_byTheSessionsPerson pins who a tenant's sign-in act is
+// done by where a request's session is and no frame stamped a caller, as in the route by
+// which a person makes their own tenant: the person of the session, not the application.
+// What a sign-in's hook carries stays who acted.
+func TestManager_RecordTenantSignIn_byTheSessionsPerson(t *testing.T) {
+	t.Parallel()
+
+	session := context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+		SessionInfo: &sessioninfo.SessionInfo{ID: danaSession, Username: "dana"},
+		UserID:      impulse.NullUUIDFromUUID(userID),
+	})
+	tests := []struct {
+		name string
+		ctx  context.Context
+		// wantPerson is the person the row is by, "" for none; wantProcess what acted
+		// with them or alone.
+		wantPerson  string
+		wantProcess string
+	}{
+		{name: "a request's session, with no caller stamped", ctx: session, wantPerson: "dana"},
+		{name: "outside any request", ctx: t.Context(), wantProcess: auditlog.ProcessApplication},
+		{name: "a sign-in's hook", ctx: actingAs(session, eventsource.ProcessEvent(auditlog.ProcessInvitation), ""), wantProcess: auditlog.ProcessInvitation},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{}
+			m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, fakeSessions{}, WithTenantWord("sector"))
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			if err := inTransaction(t, func(_ context.Context, txn resource.ReadWriteTransaction) error {
+				return m.RecordTenantSignIn(tt.ctx, txn, "alpha", auditlog.ActDirectoryTaken, "Lakeside")
+			}); err != nil {
+				t.Fatalf("RecordTenantSignIn() error = %v", err)
+			}
+			if len(store.audit) != 1 {
+				t.Fatalf("RecordTenantSignIn() recorded %d row(s), want one", len(store.audit))
+			}
+			who := storedOf(t, &store.audit[0]).Source
+			if who.ActorUsername != tt.wantPerson || who.Process != tt.wantProcess {
+				t.Errorf("the row is by %+v, want the person %q and the process %q", who, tt.wantPerson, tt.wantProcess)
 			}
 		})
 	}

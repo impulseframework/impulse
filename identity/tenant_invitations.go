@@ -91,6 +91,10 @@ type TenantMaker interface {
 	// DeclaresDirectoryOnly reports whether the tenant record declares the
 	// directory-only switch. An invitation says directory only where it does.
 	DeclaresDirectoryOnly() bool
+	// TakesDirectory reports whether a tenant keeps a directory: the application
+	// declares the tenant record's directories record. A tenant made through an
+	// organization's directory takes it as its own only where it does.
+	TakesDirectory() bool
 }
 
 // WithTenantMaker hands the manager what makes a tenant from an accepted invitation
@@ -522,6 +526,9 @@ func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadW
 	if err != nil {
 		return "", errors.Wrapf(err, "the invitation to %s makes a %s", inv.Email, m.tenantWord)
 	}
+	if err := m.recordMadeWithDirectory(ctx, txn, domain, directory, inv.NewTenant.DirectoryOnly, accesstypes.Role(details.DefaultRole)); err != nil {
+		return "", err
+	}
 	for _, role := range m.administrators.domain {
 		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userID, role); err != nil {
 			return "", errors.Wrapf(err, "the invitation to %s seats %q as the new %s's administrator with the role %s", inv.Email, username, m.tenantWord, role)
@@ -532,6 +539,36 @@ func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadW
 	inv.MadeTenantID = string(domain)
 
 	return domain, nil
+}
+
+// recordMadeWithDirectory records what a tenant was made with of its own sign-in
+// settings, in the auth's audit log, in the tenant: the organization's directory it took
+// as its own, where it keeps one (TenantMaker.TakesDirectory), that it is directory only,
+// and the role its directory's people start with, where its directory keeps one
+// (TenantMaker.SeatsDefaultRole). Each is the row its own act writes later
+// (RecordTenantSignIn), by what made the tenant. A tenant made with no directory records
+// none.
+func (m *Manager) recordMadeWithDirectory(
+	ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, directory signin.Directory, directoryOnly bool, role accesstypes.Role,
+) error {
+	if !directory.Organization() || !m.tenants.TakesDirectory() {
+		return nil
+	}
+	if err := m.RecordTenantSignIn(ctx, txn, tenant, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory, m.DirectoryName)); err != nil {
+		return err
+	}
+	if directoryOnly {
+		if err := m.RecordTenantSignIn(ctx, txn, tenant, auditlog.ActDirectoryOnlyOn, ""); err != nil {
+			return err
+		}
+	}
+	if role != "" && m.tenants.SeatsDefaultRole() {
+		if err := m.RecordTenantSignIn(ctx, txn, tenant, auditlog.ActDirectoryOpened, string(role)); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // tenantInvitationAccepted answers the session library's hook for an invitation that

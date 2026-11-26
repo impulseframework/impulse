@@ -2207,6 +2207,13 @@ func (m *{{ GoCamel $.Name }}Maker) SeatsDefaultRole() bool {
 func (m *{{ GoCamel $.Name }}Maker) DeclaresDirectoryOnly() bool {
 	return {{ if .Flag }}true{{ else }}false{{ end }}
 }
+
+// TakesDirectory reports whether a {{ $.RecordLower }} keeps a directory: {{ if $.Declaration }}the
+// {{ $.Directories }} record holds it, so one made through an organization's directory takes it
+// as its own{{ else }}the application's records keep none{{ end }}.
+func (m *{{ GoCamel $.Name }}Maker) TakesDirectory() bool {
+	return {{ if $.Declaration }}true{{ else }}false{{ end }}
+}
 {{- end }}
 `
 
@@ -2224,6 +2231,9 @@ import (
 
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse/accesstypes"
+	{{- if and .Directory .Directory.Recorder }}
+	"github.com/impulseframework/impulse/auditlog"
+	{{- end }}
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -2287,6 +2297,11 @@ var _ interface {
 // organization has a {{ .RecordLower }} already is refused (409) with nothing written. A
 // creator who signed in by password, or with a personal account, sets none in either
 // kind of application.
+{{- if .Directory.Recorder }}
+// The directory set is recorded in the new {{ .RecordLower }}, done by its creator, in the
+// audit log of the auth that records a {{ .RecordLower }}'s sign-in settings
+// ({{ .Directory.Recorder }}().RecordTenantSignIn), as a take of a directory is.
+{{- end }}
 // The roster must list the {{ .RecordLower }} and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a {{ .RecordLower }} the roster does
 // not know admits nobody who came through a directory.
@@ -2406,6 +2421,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 						if err := Set{{ .Record }}Directory(ctx, txn, {{ .Directory.TenantValue }}, directory, eventSource); err != nil {
 							return errors.Wrap(err, "Set{{ .Record }}Directory()")
 						}
+						{{- if .Directory.Recorder }}
+						// The directory the {{ .RecordLower }} was made with is recorded in it, by its
+						// creator, as a take is: the first row of its sign-in settings.
+						if err := {{ .ReceiverName }}.{{ .Directory.Recorder }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory{{ if .Directory.Namers }}, {{ .Directory.Namers }}{{ end }})); err != nil {
+							return errors.Wrap(err, "{{ .Directory.Recorder }}().RecordTenantSignIn()")
+						}
+						{{- end }}
 					}
 				}
 			}

@@ -104,10 +104,12 @@ var recordedMethods = map[string]recordRule{
 	"Tenant.Invite":                    {by: "Manager.Invite"},
 
 	// The hooks the session library runs as a person signs in.
-	"Manager.SignedIn":           {by: "Manager.ClearEnded"},
-	"Manager.SignedUp":           {by: "Manager.AssignRoleFor"},
-	"Manager.InvitationAccepted": {acts: []auditlog.Act{auditlog.ActInvitationAccepted, auditlog.ActRoleGiven}},
-	"Manager.DirectorySeated":    {acts: []auditlog.Act{auditlog.ActRoleGiven, auditlog.ActRoleTaken, auditlog.ActGroupMemberRemoved}},
+	"Manager.SignedIn": {by: "Manager.ClearEnded"},
+	"Manager.SignedUp": {by: "Manager.AssignRoleFor"},
+	"Manager.InvitationAccepted": {acts: []auditlog.Act{
+		auditlog.ActInvitationAccepted, auditlog.ActRoleGiven, auditlog.ActDirectoryTaken, auditlog.ActDirectoryOnlyOn, auditlog.ActDirectoryOpened,
+	}},
+	"Manager.DirectorySeated": {acts: []auditlog.Act{auditlog.ActRoleGiven, auditlog.ActRoleTaken, auditlog.ActGroupMemberRemoved}},
 
 	// How people sign in: a sign-in method, every sign-in of the auth, and a tenant's
 	// directory.

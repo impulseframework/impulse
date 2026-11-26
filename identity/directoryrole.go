@@ -89,8 +89,10 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 // directory-only switch turned on or off, the tenant opened to its directory's people or
 // made invite only for them, and its word for its directory's second factor said or taken
 // back. The row is done to the tenant, by its key and the name the application gives it
-// (its key where it gives none), in that tenant, by who acted: the request's caller, or
-// the application outside a request. named is the act's one part: the role's stored name
+// (its key where it gives none), in that tenant, by who acted: the request's caller, the
+// person of the request's session where no frame stamped a caller (the route by which a
+// person makes their own tenant), what a sign-in's hook carries, or the application
+// outside a request. named is the act's one part: the role's stored name
 // for directoryOpened, the directory for directoryTaken by its kind and its name, or its
 // kind alone where no name is known (resource.DirectoryNameOrKind), and empty for the
 // other six. Another act, a part handed to an act that takes none and none handed to one that
@@ -125,6 +127,11 @@ func (m *Manager) RecordTenantSignIn(ctx context.Context, txn resource.ReadWrite
 	r.SubjectName = m.sessions.TenantName(tenant)
 	if r.SubjectName == "" {
 		r.SubjectName = string(tenant)
+	}
+	// A route that stamps no caller still serves the person of its session, whose act it
+	// is; what a sign-in's hook carries is who acted there.
+	if _, carried := ctx.Value(actingKey{}).(acting); !carried && resource.CallerFrom(ctx).IsZero() {
+		ctx = actingInOwnSession(ctx)
 	}
 
 	return m.record(ctx, txn, &r)
