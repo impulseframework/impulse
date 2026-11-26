@@ -183,19 +183,38 @@ func (s *SessionStorageDriver) VerifyUserEmailIn(ctx context.Context, tx pgx.Tx,
 }
 
 // ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own, which writes
-// record after the address where the claim wrote it, and none where it wrote nothing.
+// record after the address where the claim wrote it, and none where it wrote nothing. The
+// row written is a copy of record with the address the user held before as its old value
+// ("" for none), read in the claim's transaction before the claim, under a lock that
+// holds the row until it ends.
 func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string, record *auditlog.Record) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	var claimed bool
 	err := s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var held *string
+		if record != nil {
+			user, err := s.userIn(ctx, tx, userID, "FOR UPDATE")
+			switch {
+			case httpio.HasNotFound(err):
+				return nil
+			case err != nil:
+				return err
+			}
+			held = user.Email
+		}
 		var err error
-		if claimed, err = s.ClaimVerifiedEmailIn(ctx, tx, userID, email); err != nil || !claimed {
+		if claimed, err = s.ClaimVerifiedEmailIn(ctx, tx, userID, email); err != nil || !claimed || record == nil {
 			return err
 		}
+		set := *record
+		set.OldValue = ""
+		if held != nil {
+			set.OldValue = *held
+		}
 
-		return s.InsertAuditRecordIn(ctx, tx, record)
+		return s.InsertAuditRecordIn(ctx, tx, &set)
 	})
 	if err != nil {
 		return false, err

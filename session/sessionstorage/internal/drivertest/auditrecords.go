@@ -562,13 +562,16 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 			name: "ClaimVerifiedEmail",
 			run: func(ctx context.Context, t *testing.T, in *AuthInstance, n byte) auditRun {
 				// A user with no confirmed address takes the one a sign-in's method vouches
-				// for.
-				user := auditUser(ctx, t, in.Driver, "vouched", n, nil)
+				// for; the row keeps the address the account held before, which the driver
+				// reads in the claim's transaction, on its copy.
+				user := createUserHolding(ctx, t, in.Driver, fmt.Sprintf("vouched-%d", n), fmt.Sprintf("vouched-%d@work.example", n))
 				address := fmt.Sprintf("vouched-%d@gmail.example", n)
 				record := accountRow(auditlog.ActAddressChanged, user)
 				record.NewValue = address
+				want := *record
+				want.OldValue = fmt.Sprintf("vouched-%d@work.example", n)
 
-				return auditRun{record: record, write: func(record *auditlog.Record) error {
+				return auditRun{record: record, want: &want, write: func(record *auditlog.Record) error {
 					return claimed(in.Driver.ClaimVerifiedEmail(ctx, user.ID, address, record))
 				}}
 			},
