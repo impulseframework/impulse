@@ -37,6 +37,8 @@ import {
 } from '@impulseframework/resource-angular/types';
 import { format, isSameDay } from 'date-fns';
 import { directoryGroupsSaysKey, DirectoryGroupsSays } from './directory-groups-says';
+import { lastDay, periodEnds, periodWords } from './periods';
+import { recordsOnly } from './sharing';
 
 // The pages over an Auth's people, built from the API's own description.
 //
@@ -360,9 +362,19 @@ class SideBuilder {
         rowTitle: (row: RecordData) => this.personTitle(row),
         listColumns: [
           ...this.leadingColumns(users),
-          // What the person holds, a line for each role, where the server says it.
+          // What the person holds, a line for each role, where the server says it. A person
+          // who holds no role here and a role on some of the tenant's records is said by
+          // the records (recordsOnly): "Voyage Apollo only".
           ...(this.has(users, 'roles')
-            ? [{ id: 'roles' as FieldName, header: 'Roles', lines: true, filterable: false }]
+            ? [
+                {
+                  id: 'roles' as FieldName,
+                  header: 'Roles',
+                  lines: true,
+                  filterable: false,
+                  valueGetter: this.has(users, 'recordsHeld') ? (row: RecordData) => this.rolesHeld(row) : undefined,
+                },
+              ]
             : []),
           // The person's state, on the field it says first.
           ...(this.has(users, 'disabled')
@@ -403,6 +415,7 @@ class SideBuilder {
             ).map(([name]) => name),
             ...this.lockOf(users),
             ...this.tenantFacts(users),
+            ...this.known(users, recordsHeldFields).map(([name]) => name),
           ].map((name) => ({ id: name as FieldName, hidden: true })),
         ],
         rowMethods: this.onPerson(),
@@ -2511,6 +2524,20 @@ class SideBuilder {
    * whether the person holds something in the tenant itself (heldHere), by which the
    * removal from the tenant is offered. Only where the list has it.
    */
+  /**
+   * What the Roles cell of the people list says of a person: the roles they hold, a line
+   * each, and for a person who holds none here and a role on some of the tenant's records,
+   * the one line that says which (recordsOnly).
+   */
+  private rolesHeld(row: RecordData): string[] {
+    const roles = Array.isArray(row['roles']) ? (row['roles'] as unknown[]).map((role) => String(role)) : [];
+    if (roles.length > 0) {
+      return roles;
+    }
+    const only = recordsOnly(row, this.side.sharing);
+    return only === undefined ? [] : [only];
+  }
+
   private tenantFacts(resource: Resource): string[] {
     return this.tenant && this.has(resource, 'heldHere') ? ['heldHere'] : [];
   }
@@ -2754,23 +2781,22 @@ function mailed(sent: string): (answer: unknown) => { message: string; failed?: 
   };
 }
 
-/** The words for the two times of a method that gives something for a period. */
-const periodWords: Record<string, string> = { startsAt: 'From', endsAt: 'Until' };
-
-/**
- * The fields that hold the end of a period. The server keeps an end as the first
- * instant the assignment no longer counts, and a person picks and reads a day: "until
- * 1 December" is through the end of 1 December. So a method's dialog sends the day
- * picked as the first instant of the day after it, in the viewer's time zone (the
- * method's `throughDay`), and a list shows the last day the assignment counts (lastDay).
- */
-const periodEnds: readonly string[] = ['endsAt'];
-
 /**
  * The role the deployment's first administrator is invited to hold, as the server names
  * it. The invitation that gives it and that nobody sent is the first administrator's own.
  */
 const superAdministrator = 'SuperAdministrator';
+
+/**
+ * The fields a tenant's people list says the records a person holds a role on by, where
+ * the Auth's role file holds a role on a record: how many, their kind, and the one
+ * record's name. The Roles cell reads them (recordsOnly).
+ */
+const recordsHeldFields: Named[] = [
+  ['recordsHeld', 'Records held'],
+  ['recordsHeldKind', 'Kind of records held'],
+  ['recordHeldName', 'Record held'],
+];
 
 /**
  * What the Sent, Expires and Used cells of a mailed link say when its message could not
@@ -2830,20 +2856,6 @@ const linkStateColumn: ColumnConfig = linkWordsColumn('state', 'State', linkStat
 
 /** The Kind column of the whole application's mailed links (linkKindWords). */
 const linkKindColumn: ColumnConfig = linkWordsColumn('kind', 'Kind', linkKindWords);
-
-/**
- * The last day a period that ends at the instant counts, as a list shows it: the day of
- * the instant before the end, in the viewer's time zone, which the list writes as a
- * calendar date. For an end a dialog of these pages sent it is the day that was picked,
- * and for any other instant the last day some of the period falls on. Empty for no end.
- */
-function lastDay(end: unknown): string {
-  if (typeof end !== 'string' && !(end instanceof Date)) {
-    return '';
-  }
-  const instant = new Date(end).getTime();
-  return Number.isNaN(instant) ? '' : new Date(instant - 1).toISOString();
-}
 
 /**
  * How a page writes the day of an instant, in the viewer's time zone and with the year,

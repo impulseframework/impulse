@@ -273,6 +273,34 @@ export interface IdentitySideDescriptor {
   readonly scope: ScopeKind;
   readonly lists: IdentityLists;
   readonly methods: IdentityMethods;
+  /**
+   * The tenant's records a role can be held on, on a tenant's side, each with the lists
+   * and the methods its sharing is drawn from (sharingConfig). Absent where the Auth's role
+   * file holds a role on no record the application marks, and on a description from a
+   * generator that predates it.
+   */
+  readonly sharing?: readonly IdentityRecordSharing[];
+}
+
+/**
+ * One kind of record of the tenant a role can be held on, as a tenant's side shares it:
+ * the record's resource; its words, one and many ("voyage", "voyages"); the list of who
+ * holds what on one record (`holders`: a row for each role a person or a group holds on
+ * it, `memberKind` saying which, `memberId` naming the holder, with the holder's name and
+ * the role's period); the list a role to give on it is picked from (`roles`); and the
+ * methods that give a person a role on one record and take it away, with a group's pair
+ * where the Auth keeps groups. Each method sends the record as `recordId`.
+ */
+export interface IdentityRecordSharing {
+  readonly record: string;
+  readonly one: string;
+  readonly many: string;
+  readonly holders: string;
+  readonly roles: string;
+  readonly give: string;
+  readonly take: string;
+  readonly giveGroup?: string;
+  readonly takeGroup?: string;
 }
 
 /**
