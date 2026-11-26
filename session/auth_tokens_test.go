@@ -363,9 +363,9 @@ func TestAuthAPI_TokensAndRevocation(t *testing.T) {
 		t.Parallel()
 		f := newTokenFixture(t, gomock.NewController(t))
 		id := impulse.Must(impulse.NewUUID())
-		f.store.EXPECT().User(gomock.Any(), f.user.ID).Return(f.user, nil)
+		f.store.EXPECT().User(gomock.Any(), f.user.ID).Return(f.user, nil).Times(2)
 		f.store.EXPECT().RevokeUserToken(gomock.Any(), f.user.ID, id, sessionstorage.TokenRevokedByHand, aRecord()).Return(nil)
-		f.store.EXPECT().RevokeUserTokens(gomock.Any(), f.user.ID, sessionstorage.TokenRevokedWithUser).Return(nil)
+		f.store.EXPECT().RevokeUserTokens(gomock.Any(), f.user.ID, sessionstorage.TokenRevokedWithUser, aRecord()).Return(nil)
 		if err := f.auth.API().RevokeToken(context.Background(), f.user.ID, id); err != nil {
 			t.Errorf("RevokeToken() error = %v", err)
 		}

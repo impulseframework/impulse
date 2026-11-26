@@ -242,8 +242,10 @@ type AuthStore[Tx any] interface {
 	// alone, or its whole family when it has one. A token that is not live, or not the
 	// user's, is NotFound.
 	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, reason TokenRevocation, record *auditlog.Record) error
-	// RevokeUserTokens revokes every live token of a user with reason.
-	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason TokenRevocation) error
+	// RevokeUserTokens revokes every live token of a user with reason, and writes record
+	// in the revocation's transaction where it revoked one token or more: one row for
+	// the act, however many tokens go, and none where no token was live.
+	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason TokenRevocation, record *auditlog.Record) error
 	// ExchangeRefreshToken rotates the live refresh token holding tokenHash, in one
 	// transaction: it is revoked as rotated and access and refresh are inserted in its
 	// family, as its user, for its outlet and client, which the store fills in on the
@@ -1749,11 +1751,11 @@ func (a *Auth[Tx]) RevokeUserToken(ctx context.Context, userID, id impulse.UUID,
 }
 
 // RevokeUserTokens implements AuthStore.
-func (a *Auth[Tx]) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason TokenRevocation) error {
+func (a *Auth[Tx]) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.RevokeUserTokens(ctx, userID, reason); err != nil {
+	if err := a.db.RevokeUserTokens(ctx, userID, reason, record); err != nil {
 		return errors.Wrap(err, "db.RevokeUserTokens()")
 	}
 

@@ -92,7 +92,7 @@ type AuthDriver interface {
 	TokensByUser(ctx context.Context, userID impulse.UUID, now time.Time) ([]*dbtype.Token, error)
 	TouchToken(ctx context.Context, id impulse.UUID, now time.Time) error
 	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation, record *auditlog.Record) error
-	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error
+	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation, record *auditlog.Record) error
 	ExchangeRefreshToken(ctx context.Context, tokenHash []byte, now time.Time, access, refresh *dbtype.Token) error
 	InsertDeviceCode(ctx context.Context, d *dbtype.DeviceCode) error
 	DeviceCodeByUserCode(ctx context.Context, userCode string, now time.Time) (*dbtype.DeviceCode, error)

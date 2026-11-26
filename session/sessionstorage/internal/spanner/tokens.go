@@ -311,15 +311,24 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 	return nil
 }
 
-// RevokeUserTokens revokes every live token of userID, at the commit time, with reason.
-func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error {
+// RevokeUserTokens revokes every live token of userID, at the commit time, with reason,
+// and writes record in the same transaction where one token or more was revoked: one
+// row for the act, however many tokens go.
+func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		_, err := s.revokeIn(ctx, txn, "UserId", userID.String(), reason)
+		revoked, err := s.revokeIn(ctx, txn, "UserId", userID.String(), reason)
+		if err != nil {
+			return err
+		}
+		// A revocation that found no live token is no act, and is not recorded.
+		if revoked == 0 {
+			return nil
+		}
 
-		return err
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")

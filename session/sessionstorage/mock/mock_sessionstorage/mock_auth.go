@@ -886,17 +886,17 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) RevokeUserToken(ctx, userID, id,
 }
 
 // RevokeUserTokens mocks base method.
-func (m *MockAuthStoreMethods[Tx]) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason sessionstorage.TokenRevocation) error {
+func (m *MockAuthStoreMethods[Tx]) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason sessionstorage.TokenRevocation, record *auditlog.Record) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RevokeUserTokens", ctx, userID, reason)
+	ret := m.ctrl.Call(m, "RevokeUserTokens", ctx, userID, reason, record)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RevokeUserTokens indicates an expected call of RevokeUserTokens.
-func (mr *MockAuthStoreMethodsMockRecorder[Tx]) RevokeUserTokens(ctx, userID, reason any) *gomock.Call {
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) RevokeUserTokens(ctx, userID, reason, record any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeUserTokens", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).RevokeUserTokens), ctx, userID, reason)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeUserTokens", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).RevokeUserTokens), ctx, userID, reason, record)
 }
 
 // Session mocks base method.

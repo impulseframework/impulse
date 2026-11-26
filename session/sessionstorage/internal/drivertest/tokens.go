@@ -218,7 +218,7 @@ func testTokenTouchAndRevoke(ctx context.Context, t *testing.T, h *AuthHarness) 
 	// Every token of a user, at once; another user's stays.
 	more, moreRefresh := newFamily(user.ID, tokenHash(5), tokenHash(6))
 	insertTokens(ctx, t, in.Driver, more, moreRefresh)
-	if err := in.Driver.RevokeUserTokens(ctx, user.ID, dbtype.TokenRevokedWithUser); err != nil {
+	if err := in.Driver.RevokeUserTokens(ctx, user.ID, dbtype.TokenRevokedWithUser, nil); err != nil {
 		t.Fatalf("RevokeUserTokens() error = %v", err)
 	}
 	if tokens, err := in.Driver.TokensByUser(ctx, user.ID, time.Now()); err != nil || len(tokens) != 0 {

@@ -465,6 +465,37 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 			},
 		},
 		{
+			name: "RevokeUserTokens",
+			run: func(ctx context.Context, t *testing.T, in *AuthInstance, n byte) auditRun {
+				// Both live tokens of the person go, and the act is one row.
+				user := auditUser(ctx, t, in.Driver, "revoke-all", n, nil)
+				app, other := newToken(dbtype.TokenAccess, user.ID, tokenHash(n)), newToken(dbtype.TokenAccess, user.ID, tokenHash(n+100))
+				insertTokens(ctx, t, in.Driver, app, other)
+
+				return auditRun{record: accountRow(auditlog.ActTokenRevoked, user), secrets: slices.Concat(tokenSecrets(app), tokenSecrets(other)), write: func(record *auditlog.Record) error {
+					if err := in.Driver.RevokeUserTokens(ctx, user.ID, dbtype.TokenRevokedWithUser, record); err != nil {
+						return errors.Wrap(err, "AuthDriver.RevokeUserTokens()")
+					}
+
+					return noLiveToken(ctx, in.Driver, user.ID)
+				}}
+			},
+			none: func(ctx context.Context, t *testing.T, in *AuthInstance, n byte) auditRun {
+				// A person whose one token was revoked already holds no live token:
+				// nothing changes.
+				user := auditUser(ctx, t, in.Driver, "revoke-all", n, nil)
+				token := newToken(dbtype.TokenAccess, user.ID, tokenHash(n))
+				insertTokens(ctx, t, in.Driver, token)
+				if err := in.Driver.RevokeUserToken(ctx, user.ID, token.ID, time.Now(), dbtype.TokenRevokedByHand, nil); err != nil {
+					t.Fatalf("RevokeUserToken() error = %v", err)
+				}
+
+				return auditRun{record: accountRow(auditlog.ActTokenRevoked, user), secrets: tokenSecrets(token), write: func(record *auditlog.Record) error {
+					return in.Driver.RevokeUserTokens(ctx, user.ID, dbtype.TokenRevokedWithUser, record)
+				}}
+			},
+		},
+		{
 			name: "RedeemDeviceCode",
 			run: func(ctx context.Context, t *testing.T, in *AuthInstance, n byte) auditRun {
 				user := auditUser(ctx, t, in.Driver, "device", n, nil)
@@ -572,6 +603,19 @@ func linkSecrets(link *dbtype.MailLink) []writtenSecret {
 // tokenSecrets are the secrets of a token: its hash.
 func tokenSecrets(token *dbtype.Token) []writtenSecret {
 	return []writtenSecret{{what: "a token's hash", value: token.TokenHash}}
+}
+
+// noLiveToken answers an error where userID still holds a live token.
+func noLiveToken(ctx context.Context, d AuthDriver, userID impulse.UUID) error {
+	tokens, err := d.TokensByUser(ctx, userID, time.Now())
+	if err != nil {
+		return errors.Wrap(err, "AuthDriver.TokensByUser()")
+	}
+	if len(tokens) != 0 {
+		return errors.Newf("%d token(s) of the person still live, want none", len(tokens))
+	}
+
+	return nil
 }
 
 // deviceSecrets are the secrets of a device code: its hash and the code a person types.

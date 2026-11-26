@@ -184,17 +184,18 @@ func (s *SessionStorageDriver) TouchToken(ctx context.Context, id impulse.UUID, 
 }
 
 // revokeIn revokes, through q at the database's time, the live tokens whose column
-// holds value.
-func (s *SessionStorageDriver) revokeIn(ctx context.Context, q execer, column string, value any, reason dbtype.TokenRevocation) error {
+// holds value, and reports how many it revoked.
+func (s *SessionStorageDriver) revokeIn(ctx context.Context, q execer, column string, value any, reason dbtype.TokenRevocation) (int64, error) {
 	if err := reason.Validate(); err != nil {
-		return errors.Wrap(err, "dbtype.TokenRevocation.Validate()")
+		return 0, errors.Wrap(err, "dbtype.TokenRevocation.Validate()")
 	}
 	query := fmt.Sprintf(`UPDATE %s SET "RevokedAt" = now(), "RevokedReason" = $2 WHERE %s = $1 AND "RevokedAt" IS NULL`, s.tokensTable(), column)
-	if _, err := q.Exec(ctx, query, value, string(reason)); err != nil {
-		return errors.Wrap(err, "Exec()")
+	tag, err := q.Exec(ctx, query, value, string(reason))
+	if err != nil {
+		return 0, errors.Wrap(err, "Exec()")
 	}
 
-	return nil
+	return tag.RowsAffected(), nil
 }
 
 // RevokeUserToken revokes the live token id of userID, at the database's time, with
@@ -218,7 +219,7 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 		if t := tokens[0]; t.FamilyID.Valid {
 			column, value = `"FamilyId"`, any(t.FamilyID.UUID)
 		}
-		if err := s.revokeIn(ctx, tx, column, value, reason); err != nil {
+		if _, err := s.revokeIn(ctx, tx, column, value, reason); err != nil {
 			return err
 		}
 
@@ -227,16 +228,33 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 }
 
 // RevokeUserTokens revokes every live token of userID, at the database's time, with
-// reason.
-func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error {
+// reason. Handed nil it is one statement on the connection; handed a record it runs in
+// a transaction that writes the record where one token or more was revoked, so the
+// revocation and its row commit together or neither does.
+func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := s.revokeIn(ctx, s.conn, `"UserId"`, userID, reason); err != nil {
-		return err
+	if record == nil {
+		if _, err := s.revokeIn(ctx, s.conn, `"UserId"`, userID, reason); err != nil {
+			return err
+		}
+
+		return nil
 	}
 
-	return nil
+	return s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		revoked, err := s.revokeIn(ctx, tx, `"UserId"`, userID, reason)
+		if err != nil {
+			return err
+		}
+		// A revocation that found no live token is no act, and is not recorded.
+		if revoked == 0 {
+			return nil
+		}
+
+		return s.InsertAuditRecordIn(ctx, tx, record)
+	})
 }
 
 // ExchangeRefreshToken rotates the refresh token holding tokenHash, in one
@@ -266,7 +284,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 			if old.RevokedReason != dbtype.TokenRevokedRotated || !old.FamilyID.Valid {
 				return dbtype.RefreshTokenNotFound()
 			}
-			if err := s.revokeIn(ctx, tx, `"FamilyId"`, old.FamilyID.UUID, dbtype.TokenRevokedReuse); err != nil {
+			if _, err := s.revokeIn(ctx, tx, `"FamilyId"`, old.FamilyID.UUID, dbtype.TokenRevokedReuse); err != nil {
 				return err
 			}
 			reused = true
@@ -279,7 +297,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 		if old.FamilyID.Valid {
 			column, key = `"FamilyId"`, old.FamilyID.UUID
 		}
-		if err := s.revokeIn(ctx, tx, column, key, dbtype.TokenRevokedRotated); err != nil {
+		if _, err := s.revokeIn(ctx, tx, column, key, dbtype.TokenRevokedRotated); err != nil {
 			return err
 		}
 		for _, t := range []*dbtype.Token{access, refresh} {

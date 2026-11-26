@@ -178,7 +178,11 @@ func (p *AuthAPI[S, U, Tx]) RevokeUserTokens(ctx context.Context, userID impulse
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.auth.storage.RevokeUserTokens(ctx, userID, sessionstorage.TokenRevokedWithUser); err != nil {
+	revoked, err := p.auth.accountRecordOf(ctx, auditlog.ActTokenRevoked, p.auth.acting(ctx), userID)
+	if err != nil {
+		return err
+	}
+	if err := p.auth.storage.RevokeUserTokens(ctx, userID, sessionstorage.TokenRevokedWithUser, revoked); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeUserTokens()")
 	}
 

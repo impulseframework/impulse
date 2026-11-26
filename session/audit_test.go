@@ -330,6 +330,22 @@ func TestAuth_ownActsAreRecorded(t *testing.T) {
 			want: wantAccount(auditlog.ActTokenRevoked, userID, "pat"), who: byAdmin,
 		},
 		{
+			name: "every token of a person revoked at once",
+			act: func(ctx context.Context, t *testing.T, f *authFixture) (*auditlog.Record, error) {
+				var got *auditlog.Record
+				f.store.EXPECT().User(gomock.Any(), userID).Return(user(t), nil)
+				f.store.EXPECT().RevokeUserTokens(gomock.Any(), userID, sessionstorage.TokenRevokedWithUser, gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ impulse.UUID, _ sessionstorage.TokenRevocation, record *auditlog.Record) error {
+						keep(&got, record)
+
+						return nil
+					})
+
+				return got, f.auth.API().RevokeUserTokens(ctx, userID)
+			},
+			want: wantAccount(auditlog.ActTokenRevoked, userID, "pat"), who: byAdmin,
+		},
+		{
 			name: "the remembered browsers forgotten at an administrator's reset of the second factor",
 			act: func(ctx context.Context, t *testing.T, f *authFixture) (*auditlog.Record, error) {
 				var got *auditlog.Record

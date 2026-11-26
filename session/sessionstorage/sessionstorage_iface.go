@@ -283,8 +283,8 @@ type db interface {
 	TouchToken(ctx context.Context, id impulse.UUID, now time.Time) error
 	// RevokeUserToken revokes the live token id of userID, its family with it; NotFound when it is not live or not the user's.
 	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation, record *auditlog.Record) error
-	// RevokeUserTokens revokes every live token of userID.
-	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error
+	// RevokeUserTokens revokes every live token of userID; record is written in the same transaction where a token was revoked, and nil records nothing.
+	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation, record *auditlog.Record) error
 	// ExchangeRefreshToken rotates the live refresh token holding tokenHash into access and refresh, in one transaction;
 	// NotFound when it is not live, dbtype.ErrTokenReuse (the family revoked) when it was rotated before.
 	ExchangeRefreshToken(ctx context.Context, tokenHash []byte, now time.Time, access, refresh *dbtype.Token) error
