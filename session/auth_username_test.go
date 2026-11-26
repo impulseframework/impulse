@@ -161,7 +161,7 @@ func TestAuth_ChangeUsername(t *testing.T) {
 		gomock.InOrder(
 			c.signedIn(),
 			c.f.store.EXPECT().UserByUserName(gomock.Any(), "Robin").Return(nil, httpio.NewNotFoundMessage("no such user")),
-			c.f.store.EXPECT().SetUserUsername(gomock.Any(), c.userID, "Robin").Return(nil),
+			c.f.store.EXPECT().SetUserUsername(gomock.Any(), c.userID, "Robin", aRecord()).Return(nil),
 			c.f.store.EXPECT().User(gomock.Any(), c.userID).Return(&sessionstorage.SessionUser{ID: c.userID, Username: "Robin"}, nil),
 		)
 
@@ -177,7 +177,7 @@ func TestAuth_ChangeUsername(t *testing.T) {
 		gomock.InOrder(
 			c.signedIn(),
 			c.f.store.EXPECT().UserByUserName(gomock.Any(), "PAT").Return(&sessionstorage.SessionUser{ID: c.userID, Username: "pat"}, nil),
-			c.f.store.EXPECT().SetUserUsername(gomock.Any(), c.userID, "PAT").Return(nil),
+			c.f.store.EXPECT().SetUserUsername(gomock.Any(), c.userID, "PAT", aRecord()).Return(nil),
 			c.f.store.EXPECT().User(gomock.Any(), c.userID).Return(&sessionstorage.SessionUser{ID: c.userID, Username: "PAT"}, nil),
 		)
 
@@ -192,7 +192,7 @@ func TestAuth_ChangeUsername(t *testing.T) {
 		c := newUsernameCase(t)
 		c.signedIn()
 		c.holder("robin", nil)
-		c.f.store.EXPECT().SetUserUsername(gomock.Any(), c.userID, "robin").Return(httpio.NewConflictMessagef("username %q already exists", "robin"))
+		c.f.store.EXPECT().SetUserUsername(gomock.Any(), c.userID, "robin", aRecord()).Return(httpio.NewConflictMessagef("username %q already exists", "robin"))
 
 		rr := c.post(c.f.auth.ChangeUsername(), `{"username":"robin"}`)
 		if rr.Code != http.StatusConflict || messageOf(t, rr) != usernameHeldWords {
@@ -347,7 +347,7 @@ func TestAuth_usernameHandlers_addressAsUsername(t *testing.T) {
 				gomock.InOrder(
 					read,
 					c.f.store.EXPECT().UserByUserName(gomock.Any(), "Pat@Lakeside.EDU").Return(nil, httpio.NewNotFoundMessage("no such user")),
-					c.f.store.EXPECT().SetUserUsername(gomock.Any(), c.userID, "Pat@Lakeside.EDU").Return(nil),
+					c.f.store.EXPECT().SetUserUsername(gomock.Any(), c.userID, "Pat@Lakeside.EDU", aRecord()).Return(nil),
 					c.f.store.EXPECT().User(gomock.Any(), c.userID).Return(&sessionstorage.SessionUser{ID: c.userID, Username: "Pat@Lakeside.EDU"}, nil),
 				)
 			},

@@ -128,12 +128,12 @@ func periodMemberships(t *testing.T, store access.Store, p *periods) {
 		period accesstypes.Period
 	}{{dan, p.ended}, {eve, p.upcoming}, {fay, p.current}}
 	for _, a := range assigned {
-		if err := store.InsertUserRole(ctx, periodTenant, a.user, watch, a.period, ""); err != nil {
+		if err := store.InsertUserRole(ctx, periodTenant, a.user, watch, a.period, "", nil); err != nil {
 			t.Fatalf("InsertUserRole(%s) error = %v", a.user, err)
 		}
 	}
 	// The same period again is the no-op an insert always was.
-	if err := store.InsertUserRole(ctx, periodTenant, fay, watch, p.current, ""); err != nil {
+	if err := store.InsertUserRole(ctx, periodTenant, fay, watch, p.current, "", nil); err != nil {
 		t.Fatalf("InsertUserRole() with the period the membership has: error = %v", err)
 	}
 
@@ -167,7 +167,7 @@ func periodMemberships(t *testing.T, store access.Store, p *periods) {
 
 	// Assigning again replaces the period: with none, dan's role counts until it
 	// is removed, and with the ended one again it counts for nothing.
-	if err := store.InsertUserRole(ctx, periodTenant, dan, watch, accesstypes.Period{}, ""); err != nil {
+	if err := store.InsertUserRole(ctx, periodTenant, dan, watch, accesstypes.Period{}, "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	if roles, err := store.ListUserRoles(ctx, periodTenant, dan); err != nil || !cmp.Equal(roles, []accesstypes.Role{watch}) {
@@ -177,7 +177,7 @@ func periodMemberships(t *testing.T, store access.Store, p *periods) {
 	if len(memberships) != 3 || !memberships[0].Period.IsZero() {
 		t.Errorf("ReadPolicy() after the role was given again = %v, want three memberships, dan's with no period", memberships)
 	}
-	if err := store.InsertUserRole(ctx, periodTenant, dan, watch, p.ended, ""); err != nil {
+	if err := store.InsertUserRole(ctx, periodTenant, dan, watch, p.ended, "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	if roles, err := store.ListUserRoles(ctx, periodTenant, dan); err != nil || len(roles) != 0 {
@@ -267,7 +267,7 @@ func periodChecks(t *testing.T, store access.Store, p *periods) {
 	// gil holds the watch himself from the third hour until the fourth; hal is
 	// in the relief from the sixth hour until the ninth, and the relief holds
 	// the watch from the seventh until the eighth.
-	if err := store.InsertUserRole(ctx, periodTenant, gil, watch, between(3, 4), ""); err != nil {
+	if err := store.InsertUserRole(ctx, periodTenant, gil, watch, between(3, 4), "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	if err := store.InsertGroupMember(ctx, reliefGroup, hal, between(6, 9)); err != nil {
@@ -337,7 +337,7 @@ func periodChecks(t *testing.T, store access.Store, p *periods) {
 	// The check's own assignments go, so the deletions after it find the rows
 	// the phases before it left.
 	if err := errors.Join(
-		store.DeleteUserRole(ctx, periodTenant, gil, watch),
+		store.DeleteUserRole(ctx, periodTenant, gil, watch, nil),
 		store.DeleteGroupMember(ctx, reliefGroup, hal),
 		store.DeleteGroupRole(ctx, reliefGroup, periodTenant, watch),
 	); err != nil {
@@ -415,7 +415,7 @@ func periodDeletes(t *testing.T, store access.Store) {
 		if _, err := store.DeleteRole(ctx, periodTenant, watch); !errors.Is(err, policy.ErrStillAssigned) {
 			t.Fatalf("DeleteRole() while %s holds the role or will: error = %v, want policy.ErrStillAssigned", holder, err)
 		}
-		if err := store.DeleteUserRole(ctx, periodTenant, holder, watch); err != nil {
+		if err := store.DeleteUserRole(ctx, periodTenant, holder, watch, nil); err != nil {
 			t.Fatalf("DeleteUserRole(%s) error = %v", holder, err)
 		}
 	}

@@ -15,6 +15,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -48,8 +49,12 @@ import (
 // would answer, in the same words. The row is written through Set{{ .Name }}Directory, so its
 // change event is written with it; this instance's roster rereads what the {{ .Word }} declares
 // once the transaction has committed, and the tenants kind is signaled, so the next request
-// on every instance is decided by it. A dry run (X-Dry-Run: true) runs the whole frame and
-// rolls back.
+// on every instance is decided by it.
+{{- if .IdentityAccessor }} The take is recorded in the audit log of the auth whose
+// people the {{ .Directories }} record's outlets sign in ({{ .IdentityAccessor }}().RecordTenantSignIn), in
+// the same transaction, naming the directory as the statement does.
+{{- end }} A dry run (X-Dry-Run: true) runs the
+// whole frame and rolls back.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Take.Name }}() http.HandlerFunc {
 	// The method takes nothing in its body: the route names the {{ .Word }}, and the session
 	// the directory.
@@ -120,6 +125,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Take.Name }}() http.Handl
 			if err := Set{{ .Name }}Directory(ctx, txn, tenant, directory, eventSource); err != nil {
 				return errors.Wrap(err, "Set{{ .Name }}Directory()")
 			}
+			{{- if .IdentityAccessor }}
+			if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory{{ if .Namers }}, {{ .Namers }}{{ end }})); err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().RecordTenantSignIn()")
+			}
+			{{- end }}
 			if dryRun {
 				return resource.ErrDryRun
 			}

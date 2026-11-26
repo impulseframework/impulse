@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/access/internal/storetest"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -66,6 +67,49 @@ func TestStore_conformance_namedStore(t *testing.T) {
 	storetest.Run(t, store, roleWriter(database, store))
 }
 
+// TestStore_auditRecords runs the shared audit phase on PostgreSQL: the store named the
+// audit records table, made by auditlog.PostgresDDL, and a store of the same tables that
+// names none.
+func TestStore_auditRecords(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	const table = "SessionAuditRecords"
+	recording, database := prepareStore(ctx, t, WithAuditRecords(table))
+	for _, stmt := range auditlog.PostgresDDL(table) {
+		if _, err := database.Exec(ctx, stmt); err != nil {
+			t.Fatalf("executing DDL statement %q: %v", stmt, err)
+		}
+	}
+	plain, err := New(database.Pool)
+	if err != nil {
+		t.Fatalf("postgresstore.New(): %v", err)
+	}
+
+	storetest.RunAuditRecords(t, recording, plain, func(t *testing.T) []storetest.AuditRow {
+		t.Helper()
+		rows, err := database.Query(t.Context(), `SELECT "Act", COALESCE("Process", ''), COALESCE("Directory", ''), "SubjectId",
+			COALESCE("RoleName", '') FROM "`+table+`" ORDER BY "CreatedAt"`)
+		if err != nil {
+			t.Fatalf("read the audit records: %v", err)
+		}
+		defer rows.Close()
+		var got []storetest.AuditRow
+		for rows.Next() {
+			var r storetest.AuditRow
+			if err := rows.Scan(&r.Act, &r.Process, &r.Directory, &r.SubjectID, &r.RoleName); err != nil {
+				t.Fatalf("read the audit records: %v", err)
+			}
+			got = append(got, r)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("read the audit records: %v", err)
+		}
+
+		return got
+	})
+}
+
 // TestStore_isolation proves separate stores in one database cannot see each
 // other's rows: cross-store leakage is structurally impossible, not filtered.
 func TestStore_isolation(t *testing.T) {
@@ -84,7 +128,7 @@ func TestStore_isolation(t *testing.T) {
 	if err := adminStore.InsertRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor", "Edits the records of the tenant."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor", accesstypes.Period{}, ""); err != nil {
+	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor", accesstypes.Period{}, "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -359,7 +403,7 @@ func TestStore_writeUnderAParent_takesItsTurnWithItsDelete(t *testing.T) {
 		{
 			name: "InsertCustomUserRole under its role",
 			write: func(ctx context.Context, store *Store) error {
-				return store.InsertCustomUserRole(ctx, turnScope, "alice", turnRole, accesstypes.Period{}, "")
+				return store.InsertCustomUserRole(ctx, turnScope, "alice", turnRole, accesstypes.Period{}, "", nil)
 			},
 			want: policy.ErrNoRole,
 		},

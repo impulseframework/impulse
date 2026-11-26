@@ -32,6 +32,7 @@ export const Resources = {
   CrewHeldRoles: 'CrewHeldRoles' as Resource,
   CrewInvitedSectorRoles: 'CrewInvitedSectorRoles' as Resource,
   CrewInvitedSectors: 'CrewInvitedSectors' as Resource,
+  CrewListedAuditRecords: 'CrewListedAuditRecords' as Resource,
   CrewListedGroupRoles: 'CrewListedGroupRoles' as Resource,
   CrewListedGroups: 'CrewListedGroups' as Resource,
   CrewListedIdentities: 'CrewListedIdentities' as Resource,
@@ -43,6 +44,7 @@ export const Resources = {
   CrewListedUsers: 'CrewListedUsers' as Resource,
   CrewRememberLengths: 'CrewRememberLengths' as Resource,
   CrewRoles: 'CrewRoles' as Resource,
+  CrewSectorAuditRecords: 'CrewSectorAuditRecords' as Resource,
   CrewSectorDirectoryRoles: 'CrewSectorDirectoryRoles' as Resource,
   CrewSectorGroupRoles: 'CrewSectorGroupRoles' as Resource,
   CrewSectorGroupUsers: 'CrewSectorGroupUsers' as Resource,
@@ -80,6 +82,7 @@ export const Resources = {
   HangarPasses: 'HangarPasses' as Resource,
   Hangars: 'Hangars' as Resource,
   MembersHeldRoles: 'MembersHeldRoles' as Resource,
+  MembersListedAuditRecords: 'MembersListedAuditRecords' as Resource,
   MembersListedIdentities: 'MembersListedIdentities' as Resource,
   MembersListedMailLinks: 'MembersListedMailLinks' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
@@ -88,6 +91,7 @@ export const Resources = {
   MembersListedUsers: 'MembersListedUsers' as Resource,
   MembersRememberLengths: 'MembersRememberLengths' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
+  MembersSectorAuditRecords: 'MembersSectorAuditRecords' as Resource,
   MembersSectorHeldRoles: 'MembersSectorHeldRoles' as Resource,
   MembersSectorIdentities: 'MembersSectorIdentities' as Resource,
   MembersSectorInvitations: 'MembersSectorInvitations' as Resource,
@@ -544,6 +548,41 @@ export namespace CrewInvitedSectors {
   };
 }
 
+export namespace CrewListedAuditRecords {
+  export const fieldName = {
+    act: 'act' as FieldName,
+    actorUsername: 'actorUsername' as FieldName,
+    at: 'at' as FieldName,
+    doneTo: 'doneTo' as FieldName,
+    id: 'id' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    subjectKind: 'subjectKind' as FieldName,
+    subjectName: 'subjectName' as FieldName,
+    tenantId: 'tenantId' as FieldName,
+    tenantName: 'tenantName' as FieldName,
+    userId: 'userId' as FieldName,
+    what: 'what' as FieldName,
+    who: 'who' as FieldName,
+  };
+  export const resourceName = {
+    act: 'CrewListedAuditRecords.act' as Resource,
+    actorUsername: 'CrewListedAuditRecords.actorUsername' as Resource,
+    at: 'CrewListedAuditRecords.at' as Resource,
+    doneTo: 'CrewListedAuditRecords.doneTo' as Resource,
+    id: 'CrewListedAuditRecords.id' as Resource,
+    reason: 'CrewListedAuditRecords.reason' as Resource,
+    role: 'CrewListedAuditRecords.role' as Resource,
+    subjectKind: 'CrewListedAuditRecords.subjectKind' as Resource,
+    subjectName: 'CrewListedAuditRecords.subjectName' as Resource,
+    tenantId: 'CrewListedAuditRecords.tenantId' as Resource,
+    tenantName: 'CrewListedAuditRecords.tenantName' as Resource,
+    userId: 'CrewListedAuditRecords.userId' as Resource,
+    what: 'CrewListedAuditRecords.what' as Resource,
+    who: 'CrewListedAuditRecords.who' as Resource,
+  };
+}
+
 export namespace CrewListedGroupRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -848,6 +887,37 @@ export namespace CrewRoles {
     kind: 'CrewRoles.kind' as Resource,
     role: 'CrewRoles.role' as Resource,
     updatedAt: 'CrewRoles.updatedAt' as Resource,
+  };
+}
+
+export namespace CrewSectorAuditRecords {
+  export const fieldName = {
+    act: 'act' as FieldName,
+    actorUsername: 'actorUsername' as FieldName,
+    at: 'at' as FieldName,
+    doneTo: 'doneTo' as FieldName,
+    id: 'id' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    subjectKind: 'subjectKind' as FieldName,
+    subjectName: 'subjectName' as FieldName,
+    userId: 'userId' as FieldName,
+    what: 'what' as FieldName,
+    who: 'who' as FieldName,
+  };
+  export const resourceName = {
+    act: 'CrewSectorAuditRecords.act' as Resource,
+    actorUsername: 'CrewSectorAuditRecords.actorUsername' as Resource,
+    at: 'CrewSectorAuditRecords.at' as Resource,
+    doneTo: 'CrewSectorAuditRecords.doneTo' as Resource,
+    id: 'CrewSectorAuditRecords.id' as Resource,
+    reason: 'CrewSectorAuditRecords.reason' as Resource,
+    role: 'CrewSectorAuditRecords.role' as Resource,
+    subjectKind: 'CrewSectorAuditRecords.subjectKind' as Resource,
+    subjectName: 'CrewSectorAuditRecords.subjectName' as Resource,
+    userId: 'CrewSectorAuditRecords.userId' as Resource,
+    what: 'CrewSectorAuditRecords.what' as Resource,
+    who: 'CrewSectorAuditRecords.who' as Resource,
   };
 }
 
@@ -1762,6 +1832,41 @@ export namespace MembersHeldRoles {
   };
 }
 
+export namespace MembersListedAuditRecords {
+  export const fieldName = {
+    act: 'act' as FieldName,
+    actorUsername: 'actorUsername' as FieldName,
+    at: 'at' as FieldName,
+    doneTo: 'doneTo' as FieldName,
+    id: 'id' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    subjectKind: 'subjectKind' as FieldName,
+    subjectName: 'subjectName' as FieldName,
+    tenantId: 'tenantId' as FieldName,
+    tenantName: 'tenantName' as FieldName,
+    userId: 'userId' as FieldName,
+    what: 'what' as FieldName,
+    who: 'who' as FieldName,
+  };
+  export const resourceName = {
+    act: 'MembersListedAuditRecords.act' as Resource,
+    actorUsername: 'MembersListedAuditRecords.actorUsername' as Resource,
+    at: 'MembersListedAuditRecords.at' as Resource,
+    doneTo: 'MembersListedAuditRecords.doneTo' as Resource,
+    id: 'MembersListedAuditRecords.id' as Resource,
+    reason: 'MembersListedAuditRecords.reason' as Resource,
+    role: 'MembersListedAuditRecords.role' as Resource,
+    subjectKind: 'MembersListedAuditRecords.subjectKind' as Resource,
+    subjectName: 'MembersListedAuditRecords.subjectName' as Resource,
+    tenantId: 'MembersListedAuditRecords.tenantId' as Resource,
+    tenantName: 'MembersListedAuditRecords.tenantName' as Resource,
+    userId: 'MembersListedAuditRecords.userId' as Resource,
+    what: 'MembersListedAuditRecords.what' as Resource,
+    who: 'MembersListedAuditRecords.who' as Resource,
+  };
+}
+
 export namespace MembersListedIdentities {
   export const fieldName = {
     connection: 'connection' as FieldName,
@@ -1985,6 +2090,37 @@ export namespace MembersRoles {
     kind: 'MembersRoles.kind' as Resource,
     role: 'MembersRoles.role' as Resource,
     updatedAt: 'MembersRoles.updatedAt' as Resource,
+  };
+}
+
+export namespace MembersSectorAuditRecords {
+  export const fieldName = {
+    act: 'act' as FieldName,
+    actorUsername: 'actorUsername' as FieldName,
+    at: 'at' as FieldName,
+    doneTo: 'doneTo' as FieldName,
+    id: 'id' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    subjectKind: 'subjectKind' as FieldName,
+    subjectName: 'subjectName' as FieldName,
+    userId: 'userId' as FieldName,
+    what: 'what' as FieldName,
+    who: 'who' as FieldName,
+  };
+  export const resourceName = {
+    act: 'MembersSectorAuditRecords.act' as Resource,
+    actorUsername: 'MembersSectorAuditRecords.actorUsername' as Resource,
+    at: 'MembersSectorAuditRecords.at' as Resource,
+    doneTo: 'MembersSectorAuditRecords.doneTo' as Resource,
+    id: 'MembersSectorAuditRecords.id' as Resource,
+    reason: 'MembersSectorAuditRecords.reason' as Resource,
+    role: 'MembersSectorAuditRecords.role' as Resource,
+    subjectKind: 'MembersSectorAuditRecords.subjectKind' as Resource,
+    subjectName: 'MembersSectorAuditRecords.subjectName' as Resource,
+    userId: 'MembersSectorAuditRecords.userId' as Resource,
+    what: 'MembersSectorAuditRecords.what' as Resource,
+    who: 'MembersSectorAuditRecords.who' as Resource,
   };
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -43,6 +44,10 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 	if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "disable their account"); err != nil {
 		return err
 	}
+	subject, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
 	// The sessions are read before anything is buffered: they are the ones live now.
 	if err := m.endUserSessions(ctx, txn, userID); err != nil {
 		return err
@@ -52,7 +57,7 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 
-	return nil
+	return m.recordAct(ctx, txn, auditlog.ActAccountDisabled, subject)
 }
 
 // EnableUser buffers the enabling of a disabled user, who may sign in again once it
@@ -74,12 +79,16 @@ func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransact
 	if err := m.requireEnteringFor(ctx, txn, userID); err != nil {
 		return err
 	}
+	subject, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
 	disabled := false
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 
-	return nil
+	return m.recordAct(ctx, txn, auditlog.ActAccountEnabled, subject)
 }
 
 // RequirePasswordChange buffers the requirement that a user change their password: once
@@ -115,12 +124,16 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 	if !has {
 		return httpio.NewBadRequestMessage("This account has no password, so a password change cannot be required of it.")
 	}
+	subject, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
 	required := true
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: &required, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 
-	return nil
+	return m.recordAct(ctx, txn, auditlog.ActPasswordChangeRequired, subject)
 }
 
 // SetEmail asks for a change of a user's address, in the caller's transaction. Nothing

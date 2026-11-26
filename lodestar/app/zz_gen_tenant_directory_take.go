@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
@@ -43,8 +44,10 @@ import (
 // would answer, in the same words. The row is written through SetSectorDirectory, so its
 // change event is written with it; this instance's roster rereads what the sector declares
 // once the transaction has committed, and the tenants kind is signaled, so the next request
-// on every instance is decided by it. A dry run (X-Dry-Run: true) runs the whole frame and
-// rolls back.
+// on every instance is decided by it. The take is recorded in the audit log of the auth whose
+// people the SectorDirectory record's outlets sign in (CrewIdentity().RecordTenantSignIn), in
+// the same transaction, naming the directory as the statement does. A dry run (X-Dry-Run: true) runs the
+// whole frame and rolls back.
 func (a *App) TakeSectorDirectory() http.HandlerFunc {
 	// The method takes nothing in its body: the route names the sector, and the session
 	// the directory.
@@ -110,6 +113,9 @@ func (a *App) TakeSectorDirectory() http.HandlerFunc {
 			}
 			if err := SetSectorDirectory(ctx, txn, tenant, directory, eventSource); err != nil {
 				return errors.Wrap(err, "SetSectorDirectory()")
+			}
+			if err := a.CrewIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory, a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName)); err != nil {
+				return errors.Wrap(err, "CrewIdentity().RecordTenantSignIn()")
 			}
 			if dryRun {
 				return resource.ErrDryRun

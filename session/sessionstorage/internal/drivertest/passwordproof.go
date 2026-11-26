@@ -35,7 +35,7 @@ func provenWrites() []provenWrite {
 		{
 			name: "a user's own change",
 			write: func(ctx context.Context, d AuthDriver, userID impulse.UUID, proven, replacement *securehash.Hash) error {
-				return d.ChangeUserPassword(ctx, userID, proven, replacement)
+				return d.ChangeUserPassword(ctx, userID, proven, replacement, nil)
 			},
 		},
 		{
@@ -46,7 +46,7 @@ func provenWrites() []provenWrite {
 					return err
 				}
 
-				return d.RemoveProvenUserPassword(ctx, userID, proven, standing)
+				return d.RemoveProvenUserPassword(ctx, userID, proven, standing, nil)
 			},
 		},
 	}
@@ -117,7 +117,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 	}
 
 	changed := markedPasswordUser(ctx, t, h, in, "changed", temporary)
-	if err := in.Driver.ChangeUserPassword(ctx, changed.ID, mustUser(ctx, t, in.Driver, changed.ID).PasswordHash, replacement); err != nil {
+	if err := in.Driver.ChangeUserPassword(ctx, changed.ID, mustUser(ctx, t, in.Driver, changed.ID).PasswordHash, replacement, nil); err != nil {
 		t.Fatalf("ChangeUserPassword() on proof of the hash the row holds error = %v", err)
 	}
 	if got := mustUser(ctx, t, in.Driver, changed.ID); !sameHash(got.PasswordHash, replacement) || got.PasswordChangeRequired {
@@ -125,7 +125,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 	}
 
 	removed := markedPasswordUser(ctx, t, h, in, "removed", temporary)
-	if err := in.Driver.RemoveProvenUserPassword(ctx, removed.ID, mustUser(ctx, t, in.Driver, removed.ID).PasswordHash, standingLinks(ctx, t, in.Driver, removed.ID)); err != nil {
+	if err := in.Driver.RemoveProvenUserPassword(ctx, removed.ID, mustUser(ctx, t, in.Driver, removed.ID).PasswordHash, standingLinks(ctx, t, in.Driver, removed.ID), nil); err != nil {
 		t.Fatalf("RemoveProvenUserPassword() on proof of the hash the row holds error = %v", err)
 	}
 	if got := mustUser(ctx, t, in.Driver, removed.ID); got.PasswordHash != nil || got.PasswordChangeRequired {
@@ -138,7 +138,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
-	err = in.Driver.RemoveProvenUserPassword(ctx, alone.ID, mustUser(ctx, t, in.Driver, alone.ID).PasswordHash, nil)
+	err = in.Driver.RemoveProvenUserPassword(ctx, alone.ID, mustUser(ctx, t, in.Driver, alone.ID).PasswordHash, nil, nil)
 	if !errors.Is(err, dbtype.ErrLastSignInMethod) || !httpio.HasConflict(err) {
 		t.Errorf("RemoveProvenUserPassword() of a user with no identity error = %v, want ErrLastSignInMethod (Conflict)", err)
 	}
@@ -194,7 +194,7 @@ func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T,
 		{
 			name: "a change",
 			commit: func(userID impulse.UUID, read *securehash.Hash) (*securehash.Hash, bool, error) {
-				return other, false, in.Driver.ChangeUserPassword(ctx, userID, read, other)
+				return other, false, in.Driver.ChangeUserPassword(ctx, userID, read, other, nil)
 			},
 		},
 		{
@@ -255,7 +255,7 @@ func testOwnChangeEndsSessions(ctx context.Context, t *testing.T, h *AuthHarness
 			other := linkedPasswordUser(ctx, t, in.Driver, "other", old)
 			first, second, others := start(pat), start(pat), start(other)
 
-			if err := in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, replacement); err != nil {
+			if err := in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, replacement, nil); err != nil {
 				t.Fatalf("ChangeUserPassword() on proof of the hash the row holds error = %v", err)
 			}
 			if got := mustUser(ctx, t, in.Driver, pat.ID); !sameHash(got.PasswordHash, replacement) || got.PasswordChangeRequired {
@@ -272,7 +272,7 @@ func testOwnChangeEndsSessions(ctx context.Context, t *testing.T, h *AuthHarness
 
 			// A change on proof of the password just replaced is refused, and ends nothing.
 			later := start(pat)
-			err := in.Driver.ChangeUserPassword(ctx, pat.ID, old, another)
+			err := in.Driver.ChangeUserPassword(ctx, pat.ID, old, another, nil)
 			if !errors.Is(err, dbtype.ErrPasswordChanged) || !httpio.HasConflict(err) {
 				t.Fatalf("ChangeUserPassword() on proof of a replaced password error = %v, want ErrPasswordChanged (Conflict)", err)
 			}
@@ -285,7 +285,7 @@ func testOwnChangeEndsSessions(ctx context.Context, t *testing.T, h *AuthHarness
 			if err := in.Driver.SetSessionTableName(table); err != nil {
 				t.Fatalf("SetSessionTableName() error = %v", err)
 			}
-			err = in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, another)
+			err = in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, another, nil)
 			if err == nil || errors.Is(err, dbtype.ErrPasswordChanged) || !strings.Contains(err.Error(), table) {
 				t.Fatalf("ChangeUserPassword() where the sessions cannot be ended error = %v, want the failure of the sessions table, naming %s", err, table)
 			}

@@ -24,6 +24,8 @@ func Test_tenantDirectoryFactorTemplate(t *testing.T) {
 			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
 		}
 	}
+	recorded := data()
+	recorded.IdentityAccessor = "StaffIdentity"
 	named := data()
 	named.FlagType = "resources.Vouched"
 	tests := []struct {
@@ -34,8 +36,8 @@ func Test_tenantDirectoryFactorTemplate(t *testing.T) {
 		wantNotContains []string
 	}{
 		{
-			name: "each method asks its grant, then the warning or its rule, then writes the column where the word changes",
-			data: data(),
+			name: "each method asks its grant, then the warning or its rule, then writes the column where the word changes, and records it",
+			data: recorded,
 			wantInOrder: []string{
 				"// VouchForHarborDirectorySecondFactor serves the method by which a harbor says its directory asks its\n// people for a second factor of its own,",
 				"func (a *App) VouchForHarborDirectorySecondFactor() http.HandlerFunc {",
@@ -48,6 +50,8 @@ func Test_tenantDirectoryFactorTemplate(t *testing.T) {
 				"rules := " + rules + "\n",
 				`hold, rule := rules.StopVouchingForDirectory, "resource.TenantDirectoryRules.StopVouchingForDirectory()"`,
 				"if vouch {\n\t\thold, rule = rules.VouchForDirectory, \"resource.TenantDirectoryRules.VouchForDirectory()\"\n\t}",
+				// What the auth's audit log records of the method served.
+				"act := auditlog.ActDirectorySecondFactorUnvouched\n\tif vouch {\n\t\tact = auditlog.ActDirectorySecondFactorVouched\n\t}",
 				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
 				"r.Body = http.MaxBytesReader(w, r.Body, router.BodyLimit)",
 				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
@@ -63,7 +67,8 @@ func Test_tenantDirectoryFactorTemplate(t *testing.T) {
 				"if directory.SecondFactor != vouch {",
 				"id, err := impulse.UUIDFromString(directory.Key)",
 				"if err := resources.NewHarborDirectoryUpdatePatch(id).SetAsksSecondFactor(vouch).Buffer(ctx, txn, eventSource); err != nil {",
-				"if dryRun {\n\t\t\t\treturn resource.ErrDryRun\n\t\t\t}",
+				// A harbor whose word is already what the method says records nothing.
+				"if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, act, \"\"); err != nil {\n\t\t\t\t\treturn errors.Wrap(err, \"StaffIdentity().RecordTenantSignIn()\")\n\t\t\t\t}\n\t\t\t}\n\t\t\tif dryRun {\n\t\t\t\treturn resource.ErrDryRun\n\t\t\t}",
 				"if asksWarning && resource.WarningAsked(err) {",
 				"return httpio.NewEncoder(w).Ok(warning)",
 				"if dryRun && resource.DryRunRolledBack(err) {",
@@ -80,10 +85,11 @@ func Test_tenantDirectoryFactorTemplate(t *testing.T) {
 			wantNotContains: []string{"TenantRoster().Reload", "resource.KindTenants", "SetAsksSecondFactor(resources."},
 		},
 		{
-			name:            "a column of a type named over a boolean is written converted",
-			data:            named,
-			wantContains:    []string{"resources.NewHarborDirectoryUpdatePatch(id).SetAsksSecondFactor(resources.Vouched(vouch)).Buffer(ctx, txn, eventSource)"},
-			wantNotContains: []string{"SetAsksSecondFactor(vouch)"},
+			name:         "a column of a type named over a boolean is written converted",
+			data:         named,
+			wantContains: []string{"resources.NewHarborDirectoryUpdatePatch(id).SetAsksSecondFactor(resources.Vouched(vouch)).Buffer(ctx, txn, eventSource)"},
+			// No auth opens a harbor to its directory: the word is recorded nowhere.
+			wantNotContains: []string{"SetAsksSecondFactor(vouch)", "RecordTenantSignIn", "auditlog."},
 		},
 	}
 	for _, tt := range tests {

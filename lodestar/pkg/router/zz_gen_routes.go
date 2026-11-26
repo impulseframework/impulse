@@ -218,6 +218,8 @@ type GeneratedHandlers interface {
 
 	CrewInvitedSectorRoles() http.HandlerFunc
 
+	CrewListedAuditRecords() http.HandlerFunc
+
 	CrewListedGroups() http.HandlerFunc
 	CrewListedGroup() http.HandlerFunc
 
@@ -245,6 +247,8 @@ type GeneratedHandlers interface {
 	CrewRememberLengths() http.HandlerFunc
 
 	CrewRoles() http.HandlerFunc
+
+	CrewSectorAuditRecords() http.HandlerFunc
 
 	CrewSectorDirectoryRoles() http.HandlerFunc
 
@@ -440,6 +444,8 @@ type GeneratedHandlers interface {
 
 	MembersHeldRoles() http.HandlerFunc
 
+	MembersListedAuditRecords() http.HandlerFunc
+
 	MembersListedIdentities() http.HandlerFunc
 	MembersListedIdentity() http.HandlerFunc
 
@@ -459,6 +465,8 @@ type GeneratedHandlers interface {
 	MembersRememberLengths() http.HandlerFunc
 
 	MembersRoles() http.HandlerFunc
+
+	MembersSectorAuditRecords() http.HandlerFunc
 
 	MembersSectorHeldRoles() http.HandlerFunc
 
@@ -865,6 +873,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/crew-invited-sector-roles", crewInvitedSectorRolesHandler)
 	bounded.Post("/console/api/crew-invited-sector-roles", crewInvitedSectorRolesHandler)
 
+	crewListedAuditRecordsHandler := h.CrewListedAuditRecords()
+	bounded.Get("/console/api/crew-listed-audit-records", crewListedAuditRecordsHandler)
+	bounded.Post("/console/api/crew-listed-audit-records", crewListedAuditRecordsHandler)
+
 	crewListedGroupsHandler := h.CrewListedGroups()
 	bounded.Get("/console/api/crew-listed-groups", crewListedGroupsHandler)
 	bounded.Post("/console/api/crew-listed-groups", crewListedGroupsHandler)
@@ -932,6 +944,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewRolesHandler := h.CrewRoles()
 	bounded.Get("/console/api/crew-roles", crewRolesHandler)
 	bounded.Post("/console/api/crew-roles", crewRolesHandler)
+
+	crewSectorAuditRecordsHandler := domainGuard(h.CrewSectorAuditRecords())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-audit-records", crewSectorAuditRecordsHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-audit-records", crewSectorAuditRecordsHandler)
 
 	crewSectorDirectoryRolesHandler := domainGuard(h.CrewSectorDirectoryRoles())
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-directory-roles", crewSectorDirectoryRolesHandler)
@@ -1291,6 +1307,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/members-held-roles", membersHeldRolesHandler)
 	bounded.Post("/console/api/members-held-roles", membersHeldRolesHandler)
 
+	membersListedAuditRecordsHandler := h.MembersListedAuditRecords()
+	bounded.Get("/console/api/members-listed-audit-records", membersListedAuditRecordsHandler)
+	bounded.Post("/console/api/members-listed-audit-records", membersListedAuditRecordsHandler)
+
 	membersListedIdentitiesHandler := h.MembersListedIdentities()
 	bounded.Get("/console/api/members-listed-identities", membersListedIdentitiesHandler)
 	bounded.Post("/console/api/members-listed-identities", membersListedIdentitiesHandler)
@@ -1338,6 +1358,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/console/api/members-roles", membersRolesHandler)
 	bounded.Post("/console/api/members-roles", membersRolesHandler)
+
+	membersSectorAuditRecordsHandler := domainGuard(h.MembersSectorAuditRecords())
+	bounded.Get("/console/api/sectors/{sectorID}/members-sector-audit-records", membersSectorAuditRecordsHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/members-sector-audit-records", membersSectorAuditRecordsHandler)
 
 	membersSectorHeldRolesHandler := domainGuard(h.MembersSectorHeldRoles())
 	bounded.Get("/console/api/sectors/{sectorID}/members-sector-held-roles", membersSectorHeldRolesHandler)
@@ -1928,6 +1952,8 @@ type GeneratedPortalHandlers interface {
 
 	MembersHeldRoles() http.HandlerFunc
 
+	MembersListedAuditRecords() http.HandlerFunc
+
 	MembersListedIdentities() http.HandlerFunc
 	MembersListedIdentity() http.HandlerFunc
 
@@ -1947,6 +1973,8 @@ type GeneratedPortalHandlers interface {
 	MembersRememberLengths() http.HandlerFunc
 
 	MembersRoles() http.HandlerFunc
+
+	MembersSectorAuditRecords() http.HandlerFunc
 
 	MembersSectorHeldRoles() http.HandlerFunc
 
@@ -2130,6 +2158,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/members-held-roles", membersHeldRolesHandler)
 	bounded.Post("/portal/api/members-held-roles", membersHeldRolesHandler)
 
+	membersListedAuditRecordsHandler := h.MembersListedAuditRecords()
+	bounded.Get("/portal/api/members-listed-audit-records", membersListedAuditRecordsHandler)
+	bounded.Post("/portal/api/members-listed-audit-records", membersListedAuditRecordsHandler)
+
 	membersListedIdentitiesHandler := h.MembersListedIdentities()
 	bounded.Get("/portal/api/members-listed-identities", membersListedIdentitiesHandler)
 	bounded.Post("/portal/api/members-listed-identities", membersListedIdentitiesHandler)
@@ -2177,6 +2209,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/portal/api/members-roles", membersRolesHandler)
 	bounded.Post("/portal/api/members-roles", membersRolesHandler)
+
+	membersSectorAuditRecordsHandler := domainGuard(h.MembersSectorAuditRecords())
+	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-audit-records", membersSectorAuditRecordsHandler)
+	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-audit-records", membersSectorAuditRecordsHandler)
 
 	membersSectorHeldRolesHandler := domainGuard(h.MembersSectorHeldRoles())
 	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-held-roles", membersSectorHeldRolesHandler)

@@ -199,7 +199,7 @@ func testDirectorySeatAtFirstLink(ctx context.Context, t *testing.T, h *AuthHarn
 		t.Error("Invitation.Accepted = false after the sign-in that carried Riverside's invitation, want accepted")
 	}
 	assertAccepted(t, acc, "accepted:"+name, pat.ID.String()+" "+name+" riverside Teacher")
-	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member"}}
+	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member", Directory: entraTenantOne}}
 	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
 		t.Errorf("seats granted at the first sign-in through the directory (-want +got):\n%s", diff)
 	}
@@ -270,7 +270,7 @@ func testDirectorySeatAtConfirmedLink(ctx context.Context, t *testing.T, h *Auth
 		t.Fatalf("LinkConfirmed() error = %v", err)
 	}
 	assertLinkedTo(ctx, t, in.Driver, identity, kim.ID, "tenant-1")
-	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member"}}
+	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member", Directory: entraTenantOne}}
 	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
 		t.Errorf("seats granted with the confirmed link (-want +got):\n%s", diff)
 	}
@@ -302,7 +302,7 @@ func testDirectorySeatAtConfirmedLink(ctx context.Context, t *testing.T, h *Auth
 	if err != nil {
 		t.Fatalf("Identity() error = %v", err)
 	}
-	if err := in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn); err != nil {
+	if err := in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn, nil); err != nil {
 		t.Fatalf("UnlinkIdentity() error = %v", err)
 	}
 	_, err = signInAs()
@@ -340,7 +340,7 @@ func testDirectorySeatNotForDisabledLink(ctx context.Context, t *testing.T, h *A
 	gus := createUser(ctx, t, in.Driver, name)
 	identity := entra("oid-gus", name)
 	mustLink(ctx, t, in.Driver, gus.ID, identity)
-	if err := in.Driver.DeactivateUser(ctx, gus.ID); err != nil {
+	if err := in.Driver.DeactivateUser(ctx, gus.ID, nil); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-gus", name)}
@@ -367,7 +367,7 @@ func testDirectorySeatNotForDisabledFirstLink(ctx context.Context, t *testing.T,
 	const name = "gus@lakeside.edu"
 	gus := createUser(ctx, t, in.Driver, name)
 	rec.roleAhead(gus.ID, "lakeside")
-	if err := in.Driver.DeactivateUser(ctx, gus.ID); err != nil {
+	if err := in.Driver.DeactivateUser(ctx, gus.ID, nil); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
 	identity := entra("oid-gus", name)
@@ -393,7 +393,7 @@ func testDirectorySeatNotForDisabledConfirmedLink(ctx context.Context, t *testin
 	// made, as before, and the directory's default seat is not handed to the hook.
 	const name = "kim@lakeside.edu"
 	kim := passwordUser(ctx, t, in.Driver, name)
-	if err := in.Driver.DeactivateUser(ctx, kim.ID); err != nil {
+	if err := in.Driver.DeactivateUser(ctx, kim.ID, nil); err != nil {
 		t.Fatalf("DeactivateUser() error = %v", err)
 	}
 	identity := entra("oid-kim", name)
@@ -502,7 +502,7 @@ func testSecondDirectoryRefusedBeforeConfirmation(ctx context.Context, t *testin
 	}
 	assertRefused(t, err, sessioninfo.RefusedSecondDirectory, signin.ErrLinkSecondDirectory)
 	assertNoLink(ctx, t, in.Driver, south)
-	want := []signin.DirectorySeat{{Tenant: "north", Role: "Member"}}
+	want := []signin.DirectorySeat{{Tenant: "north", Role: "Member", Directory: entraTenantOne}}
 	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
 		t.Errorf("seats after the refused sign-in (-want +got):\n%s", diff)
 	}
@@ -534,7 +534,7 @@ func testSecondDirectoryRefusedAtConfirmedLink(ctx context.Context, t *testing.T
 	err := in.LinkConfirmed(ctx, kim.ID, name, south, "tenant-2")
 	assertRefused(t, err, sessioninfo.RefusedSecondDirectory, signin.ErrLinkSecondDirectory)
 	assertNoLink(ctx, t, in.Driver, south)
-	want := []signin.DirectorySeat{{Tenant: "north", Role: "Member"}}
+	want := []signin.DirectorySeat{{Tenant: "north", Role: "Member", Directory: entraTenantOne}}
 	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
 		t.Errorf("seats after the refused confirmation (-want +got):\n%s", diff)
 	}
@@ -664,7 +664,7 @@ func testDirectorySeatHookFailsAtLink(ctx context.Context, t *testing.T, h *Auth
 	if err := in.LinkConfirmed(ctx, kim.ID, confirmed, kimIdentity, "tenant-1"); err != nil {
 		t.Fatalf("LinkConfirmed() once the hook works error = %v", err)
 	}
-	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member"}}
+	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member", Directory: entraTenantOne}}
 	for _, username := range []string{name, confirmed} {
 		if diff := cmp.Diff(want, rec.of(username)); diff != "" {
 			t.Errorf("seats granted to %s once the hook works (-want +got):\n%s", username, diff)
@@ -697,7 +697,7 @@ func testDirectoryDefaultSeat(ctx context.Context, t *testing.T, h *AuthHarness)
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
 	err := signInRequest(ctx, in, req)
 	assertProvisioned(ctx, t, in.Driver, err, req, identity, "tenant-1")
-	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member"}}
+	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member", Directory: entraTenantOne}}
 	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
 		t.Errorf("seats granted (-want +got):\n%s", diff)
 	}
@@ -864,7 +864,7 @@ func testDirectorySeatHookFails(ctx context.Context, t *testing.T, h *AuthHarnes
 	again := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
 	err = signInRequest(ctx, in, again)
 	assertProvisioned(ctx, t, in.Driver, err, again, identity, "tenant-1")
-	if diff := cmp.Diff([]signin.DirectorySeat{{Tenant: "lakeside", Role: "Member"}}, rec.of(name)); diff != "" {
+	if diff := cmp.Diff([]signin.DirectorySeat{{Tenant: "lakeside", Role: "Member", Directory: entraTenantOne}}, rec.of(name)); diff != "" {
 		t.Errorf("seats granted once the hook works (-want +got):\n%s", diff)
 	}
 	assertRecorded(ctx, t, h, in.Raw, "seated:"+name, "lakeside=Member")

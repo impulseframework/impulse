@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/tracer"
 )
@@ -73,7 +74,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 			return httpio.NewBadRequestMessage("No person is named. Name the person the role is for.")
 		}
 
-		if err := u.giveUserRole(ctx, scope, user, role, accesstypes.Period{}, ""); err != nil {
+		if err := u.giveUserRole(ctx, scope, user, role, accesstypes.Period{}, "", nil); err != nil {
 			return err
 		}
 	}
@@ -84,20 +85,26 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 // AddUserRoles assigns roles to user, the memberships held in scope, each with
 // no period and no reason: a role the user holds for a period is theirs until
 // it is removed, and the reason it was given for goes with the period. Errors
-// if any role doesn't exist in scope.
+// if any role doesn't exist in scope. Where ctx carries a directory's sync
+// (auditlog.WithDirectorySync), each role given is recorded as the directory's act
+// on the person (directoryRoleRecord).
 func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
-	return u.assignUserRoles(ctx, scope, user, accesstypes.Period{}, "", roles...)
+	return u.assignUserRoles(ctx, scope, user, accesstypes.Period{}, "", directoryRecords(ctx, auditlog.ActRoleGiven, scope), roles...)
 }
 
 // assignUserRoles gives user each role in scope for the period and with the
 // reason, once every role is one the user may be given there for it and the
-// reason is one a role carries.
-func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, period accesstypes.Period, reason string, roles ...accesstypes.Role) error {
+// reason is one a role carries. record makes the record of each role's write, nil
+// for none.
+func (u *userManager) assignUserRoles(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, period accesstypes.Period, reason string,
+	record func(role accesstypes.Role) *auditlog.Record, roles ...accesstypes.Role,
+) error {
 	reason, err := ValidateReason(reason)
 	if err != nil {
 		return err
@@ -123,7 +130,11 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 	}
 
 	for _, role := range roles {
-		if err := u.giveUserRole(ctx, scope, user, role, period, reason); err != nil {
+		var given *auditlog.Record
+		if record != nil {
+			given = record(role)
+		}
+		if err := u.giveUserRole(ctx, scope, user, role, period, reason, given); err != nil {
 			return err
 		}
 	}
@@ -134,12 +145,15 @@ func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.Pol
 // giveUserRole gives user the role in scope for the period and with the reason: one of
 // the release's default roles by its name, and a custom role only while its row is
 // there. A custom role deleted since the call found it is answered as a role that does
-// not exist, and nothing is given.
-func (u *userManager) giveUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+// not exist, and nothing is given. The store is handed record, the record of the act
+// (nil for none).
+func (u *userManager) giveUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
 	if u.defaults.exists(scope, role) {
-		return u.store.assignUserRole(ctx, scope, user, role, period, reason)
+		return u.store.assignUserRole(ctx, scope, user, role, period, reason, record)
 	}
-	if err := u.store.assignCustomUserRole(ctx, scope, user, role, period, reason); err != nil {
+	if err := u.store.assignCustomUserRole(ctx, scope, user, role, period, reason, record); err != nil {
 		if errors.Is(err, policy.ErrNoRole) {
 			return roleNotFound(role)
 		}
@@ -167,7 +181,7 @@ func (u *userManager) DeleteRoleUsers(ctx context.Context, scope accesstypes.Pol
 	}
 
 	for _, user := range users {
-		if err := u.store.deleteUserRole(ctx, scope, user, role); err != nil {
+		if err := u.store.deleteUserRole(ctx, scope, user, role, nil); err != nil {
 			return err
 		}
 	}
@@ -194,15 +208,23 @@ func (u *userManager) DeleteAllRolePermissions(ctx context.Context, scope access
 
 // DeleteUserRoles removes user's memberships of roles held in scope. The
 // operation succeeds regardless of whether the roles were previously assigned
-// to the user.
+// to the user. Where ctx carries a directory's sync (auditlog.WithDirectorySync),
+// each role taken is recorded as the directory's act on the person
+// (directoryRoleRecord); a role the person did not hold is no act, and is not
+// recorded.
 func (u *userManager) DeleteUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 	u, announce := u.holdAnnouncement()
 	defer announce()
 
+	record := directoryRecords(ctx, auditlog.ActRoleTaken, scope)
 	for _, role := range roles {
-		if err := u.store.deleteUserRole(ctx, scope, user, role); err != nil {
+		var taken *auditlog.Record
+		if record != nil {
+			taken = record(role)
+		}
+		if err := u.store.deleteUserRole(ctx, scope, user, role, taken); err != nil {
 			return err
 		}
 	}

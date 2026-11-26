@@ -210,14 +210,14 @@ or invite only (see "Storage and schema" and "Open to sign-up, or invite only").
 
 ### Storage and schema
 
-Each auth group owns eleven tables: sessions and users (the base migrations,
+Each auth group owns fifteen tables: sessions and users (the base migrations,
 `schema/*/migrations`), identities, auth events, pending sign-ins, sign-in attempts,
-mail links, factor codes, trusted devices and sign-in methods (the auth migrations,
-`schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt`,
-`ProviderSessionId`, `ProviderSessionIssuer` and `Browser` to the sessions table and the email
-address columns and the person's name to the users table), and impersonations
-(`schema/*/impersonation/migrations`) if you use it. A new group applies the base set,
-then the auth set.
+mail links, tokens, device codes, factor codes, trusted devices, sign-in methods,
+sign-in settings and audit records (the auth migrations, `schema/*/auth/migrations`,
+which also add `UserId`, `AuthenticatedAt`, `ProviderSessionId`, `ProviderSessionIssuer`
+and `Browser` to the sessions table and the email address columns and the person's name
+to the users table), and impersonations (`schema/*/impersonation/migrations`) if you use
+it. A new group applies the base set, then the auth set.
 
 The mail links table holds the tenant an invitation makes in one nullable column,
 `NewTenant`: a JSON document, `{"name", "directoryOnly", "details"}`, null on a
@@ -251,8 +251,8 @@ removed" under "Schema"); auth events last exactly as long as their session rows
 An application whose groups are named applies the sets under the group's names and
 tells the `Auth` them: `WithSessionTableName`, `WithUserTableName`,
 `WithIdentitiesTableName`, `WithPendingSignInsTableName`,
-`WithSignInAttemptsTableName`, `WithMailLinksTableName`, `WithFactorCodesTableName`
-and `WithTrustedDevicesTableName` on `NewAuth`, and
+`WithSignInAttemptsTableName`, `WithMailLinksTableName`, `WithFactorCodesTableName`,
+`WithTrustedDevicesTableName` and `WithAuditRecordsTableName` on `NewAuth`, and
 `NewAuthEventsTable(name)` / `NewImpersonationTable(name)` on the store. A table name
 must be a plain identifier (a letter or underscore, then up to 127 letters, digits or
 underscores): the store refuses any other, and the constructor reports it under the
@@ -635,6 +635,59 @@ sso := azure.SignIn(auth, "entra", entraAccountRule, &azure.Config{ // *azure.Me
     RedirectURL: cfg.SSORedirectURL, RoleSync: signin.DisableRoleSync(), LoginURL: "/login",
 })
 ```
+
+### The audit log
+
+Every Auth keeps an audit log, the table `SessionAuditRecords`: one row for each act
+that changes an account, who holds what, or how people sign in. A row holds the
+parts of the act and no sentence: when; the act by a fixed name; who acted; whom or
+what it was done to; the tenant it was done in; the role, the group, the old and
+new value and the period, where the act has them; and the reason, where it carried
+one. Every name is kept as it was when the act happened, beside its id: the
+account's username, the group's name, the tenant's, the role's. So a row still says
+what happened after the role is removed, the group is deleted or the account is
+gone. Who acted is kept as the change history keeps it (`eventsource.EventSource`):
+the real person by account and by the username they had then, who or what their
+session acted as, the session, and a process or an RPC where one made the write. An
+act no person made says what acted: a directory at a sign-in, a password reset
+link, an invitation, the migrate command. No row holds a password, a token, a code
+or a link. A row is written in the transaction of the act, so an act that did not
+happen has no row, and nothing changes or removes a row by hand.
+
+What a person reads is written when the log is read, by one function,
+`auditlog.Stored.Sentences`: who acted ("alice, acting as bob", "the directory
+Acme"), what they did ("Gave the role Editor until 2026-12-31 00:00 UTC") and whom
+or what it was done to. A change to those words reaches every row, old and new. A
+time inside a sentence is in UTC.
+
+The library that makes an act's write records it. The generated management records
+an administrator's acts and what a sign-in gives or takes. The session library
+records a person's own acts and the links it mails, and an address a sign-in writes
+onto the person's account (the one Google vouches for, or one a mailed code proved),
+done by the person through the sign-in. The permission store records the roles a
+directory gives and takes at a sign-in. A sign-in itself is no act of the log, and
+neither is a session ended: the session's own events and the Sessions page hold
+those. A change an application makes by calling `access.UserManager` itself is
+not recorded.
+
+Each storage method that makes one of the log's acts takes the act's record as its
+last parameter and writes it in the transaction of its own write. A caller that
+records nothing passes nil.
+
+A new application keeps its audit records forever. To keep them for a period on
+Spanner, add the row deletion policy `auditlog.SpannerDDL` gives for
+`auditlog.KeepDays(n)` to a migration; on PostgreSQL pass
+`session.KeepAuditRecords(auditlog.KeepDays(n))` to the Auth, and the store removes
+older rows as it writes one. On Spanner `NewAuth` refuses the option, and its error
+names the statement to write. A deleted tenant's rows stay until the period takes
+them.
+
+An assignment that ends by its period is recorded when its row is cleared, at the
+person's next sign-in, not at the moment it ended; the row that gave it says when
+it would end. On PostgreSQL the roles an accepted invitation or a sign-up gives
+are written by no generated management, so they have no row there. A link's row is
+written when the link is stored, before it is mailed. Where the mail then fails, the
+person who asked is told so and the row stays.
 
 ### Open to sign-up, or invite only
 

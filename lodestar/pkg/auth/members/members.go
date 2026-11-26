@@ -286,7 +286,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if settings.Mail.Sender == nil {
 		return nil, errors.New("members.Settings.Mail.Sender is required: the auth mails its invitations and address verifications through it (the configuration's driver, or mail.Log in development)")
 	}
-	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
+	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix), spannerstore.WithAuditRecords(auditRecordsTable))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}

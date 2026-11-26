@@ -447,7 +447,7 @@ func seamEmailCodeAddressTakenOff[Tx any](ctx context.Context, t *testing.T, a *
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/login", map[string]string{"username": "pat", "password": seedPassword})
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
 	mailedBefore := a.lastCode(t, "pat@lakeside.edu")
-	if err := a.setEmail(ctx, pat, nil); err != nil {
+	if err := a.setEmail(ctx, pat, nil, nil); err != nil {
 		t.Fatalf("SetUserEmail(nil) error = %v", err)
 	}
 
@@ -645,7 +645,7 @@ func seamTypedAddressRightCodeWithinBudget[Tx any](ctx context.Context, t *testi
 
 	// An administrator takes the address off; lee signs in again and types it, and a
 	// wrong code is the first of a new count.
-	if err := a.setEmail(ctx, lee, nil); err != nil {
+	if err := a.setEmail(ctx, lee, nil, nil); err != nil {
 		t.Fatalf("SetUserEmail(nil) error = %v", err)
 	}
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)

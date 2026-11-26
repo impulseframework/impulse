@@ -1106,6 +1106,20 @@ const (
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 					}`
 
+	// directoryRemovalRecorded is spliced into the directories record's delete, once the
+	// row's removal is buffered (domain, which the splice's place binds), where the auth
+	// whose management opens a tenant to its directory's people records the tenant's
+	// sign-in acts (resourceGenerator.directoryRemovalRecorder): the removal is recorded
+	// in that auth's audit log, in the delete's transaction, as the record's other write
+	// paths record theirs. A delete that takes rows under the record records it in the save
+	// that deletes the row (patch.Left nil). The splice reads the accessor of the auth's
+	// identity client as its dot, and the receiver as $.ReceiverName.
+	directoryRemovalRecorded = `// The directory's removal is recorded in the audit log of the auth whose people
+					// the directories record's outlets sign in.
+					if err := {{ $.ReceiverName }}.{{ . }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryRemoved, ""); err != nil {
+						return errors.Wrap(err, "{{ . }}().RecordTenantSignIn()")
+					}`
+
 	// tenantDisabledRequired is spliced into the tenant record's delete, before the row's
 	// removal is buffered (patchSet and id, which the splice's place sets), where the
 	// record marks the column saying a tenant is disabled: a tenant is disabled before it
@@ -2193,6 +2207,13 @@ func (m *{{ GoCamel $.Name }}Maker) SeatsDefaultRole() bool {
 func (m *{{ GoCamel $.Name }}Maker) DeclaresDirectoryOnly() bool {
 	return {{ if .Flag }}true{{ else }}false{{ end }}
 }
+
+// TakesDirectory reports whether a {{ $.RecordLower }} keeps a directory: {{ if $.Declaration }}the
+// {{ $.Directories }} record holds it, so one made through an organization's directory takes it
+// as its own{{ else }}the application's records keep none{{ end }}.
+func (m *{{ GoCamel $.Name }}Maker) TakesDirectory() bool {
+	return {{ if $.Declaration }}true{{ else }}false{{ end }}
+}
 {{- end }}
 `
 
@@ -2210,6 +2231,9 @@ import (
 
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse/accesstypes"
+	{{- if and .Directory .Directory.Recorder }}
+	"github.com/impulseframework/impulse/auditlog"
+	{{- end }}
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -2258,7 +2282,8 @@ var _ interface {
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
-// committed together or not at all; this instance's roster rereads its table, so it
+// committed together or not at all, and its row in the auth's audit log names the creator
+// (identity.ActingInSession); this instance's roster rereads its table, so it
 // lists the new {{ .RecordLower }}; the answer waits until the permission engine answers the
 // new membership as a foothold the session reaches, so the person's next request stands
 // in the {{ .RecordLower }}; the tenants kind is signaled last, so every instance serves it at
@@ -2273,6 +2298,11 @@ var _ interface {
 // organization has a {{ .RecordLower }} already is refused (409) with nothing written. A
 // creator who signed in by password, or with a personal account, sets none in either
 // kind of application.
+{{- if .Directory.Recorder }}
+// The directory set is recorded in the new {{ .RecordLower }}, done by its creator, in the
+// audit log of the auth that records a {{ .RecordLower }}'s sign-in settings
+// ({{ .Directory.Recorder }}().RecordTenantSignIn), as a take of a directory is.
+{{- end }}
 // The roster must list the {{ .RecordLower }} and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a {{ .RecordLower }} the roster does
 // not know admits nobody who came through a directory.
@@ -2378,6 +2408,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Record }}CreatePatch.Buffer()")
 			}
+			// What the route gives the creator is the creator's act: the rows of the
+			// {{ .RecordLower }}'s first administrator{{ if .Directory }} and of the directory it is made with{{ end }} name the
+			// person of the session, though no grant judges the gift.
+			byCreator := identity.ActingInSession(ctx)
 			{{- if .Directory }}
 			// The creator's directory, written with the row only where the application
 			// holds a person to one tenant: the organization's directory the creator is
@@ -2392,6 +2426,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 						if err := Set{{ .Record }}Directory(ctx, txn, {{ .Directory.TenantValue }}, directory, eventSource); err != nil {
 							return errors.Wrap(err, "Set{{ .Record }}Directory()")
 						}
+						{{- if .Directory.Recorder }}
+						// The directory the {{ .RecordLower }} was made with is recorded in it, by its
+						// creator, as a take is: the first row of its sign-in settings.
+						if err := {{ .ReceiverName }}.{{ .Directory.Recorder }}().RecordTenantSignIn(byCreator, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory{{ if .Directory.Namers }}, {{ .Directory.Namers }}{{ end }})); err != nil {
+							return errors.Wrap(err, "{{ .Directory.Recorder }}().RecordTenantSignIn()")
+						}
+						{{- end }}
 					}
 				}
 			}
@@ -2399,7 +2440,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			// The first administrator: the person's membership of each role, in the row's
 			// transaction.
 			for _, role := range roles {
-				if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
+				if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
 					return errors.Wrap(err, "{{ .IdentityAccessor }}().AssignRole()")
 				}
 			}
@@ -2532,6 +2573,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -2610,6 +2652,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .End.Name }}() http.Handle
 // {{ GoCamel .Name }}DirectoryOnly is the frame of the two methods that turn a {{ .Word }}'s
 // directory-only switch: method is the one served, as grants name it, and only the way
 // it turns the switch.
+{{- if .IdentityAccessor }} The switch turned is recorded in the audit log of the auth
+// whose people the directories record's outlets sign in
+// ({{ .IdentityAccessor }}().RecordTenantSignIn), in the same transaction.
+{{- end }}
 func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }}, method accesstypes.Resource, only bool) http.HandlerFunc {
 	// Neither method takes anything in its body: the route names the {{ .Word }}.
 	type request struct{}
@@ -2619,6 +2665,13 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 	// registrations call it, never by its connection, and the rules ask each auth's
 	// client whether the caller has a password.
 	rules := {{ .SwitchRules }}
+	{{- if .IdentityAccessor }}
+	// act is what the auth's audit log records of the method served.
+	act := auditlog.ActDirectoryOnlyOff
+	if only {
+		act = auditlog.ActDirectoryOnlyOn
+	}
+	{{- end }}
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -2683,6 +2736,11 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 			if err := {{ .ResourcePackage }}.New{{ .Name }}UpdatePatch(id).Set{{ .Field }}({{ if .FlagType }}{{ .FlagType }}(only){{ else }}only{{ end }}).Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}UpdatePatch.Buffer()")
 			}
+			{{- if .IdentityAccessor }}
+			if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, act, ""); err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().RecordTenantSignIn()")
+			}
+			{{- end }}
 			if dryRun {
 				return resource.ErrDryRun
 			}
@@ -2731,6 +2789,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -2765,7 +2824,9 @@ import (
 // that the directory's people who belong to another {{ .Word }} are moved to this one when
 // they sign in (resource.TenantDirectoryRules.OpenTakesPeopleNote). The role is written through the record's update patch, so its change event
 // is written with it; the sign-in reads it in its own transaction, so the next sign-in
-// is decided by it. A dry run (X-Dry-Run: true) runs the whole frame and rolls back.
+// is decided by it. The {{ .Word }} opened is recorded in the {{ .Auth }} auth's audit log, with the
+// role ({{ .IdentityAccessor }}().RecordTenantSignIn), in the same transaction. A dry run
+// (X-Dry-Run: true) runs the whole frame and rolls back.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.HandlerFunc {
 	type request struct {
 		Role string ` + "`json:\"role\"`" + `
@@ -2845,6 +2906,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 			if err := {{ .ResourcePackage }}.New{{ .Directories }}UpdatePatch(id).Set{{ .Field }}({{ if .SeatIsPointer }}&seat{{ else }}seat{{ end }}).Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}UpdatePatch.Buffer()")
 			}
+			if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryOpened, seat); err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().RecordTenantSignIn()")
+			}
 			if dryRun {
 				return resource.ErrDryRun
 			}
@@ -2871,7 +2935,8 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 // {{ .InviteOnly.Name }} in the {{ .Word }}: from the commit on, a person from the directory who
 // holds no role in the {{ .Word }} enters once they are invited, and the people the directory
 // already seated keep what they hold. It clears the role ({{ .Directories }}.{{ .Field }}) through
-// the record's update patch; a {{ .Word }} that is invite only already is left as it is. It
+// the record's update patch, and records it in the {{ .Auth }} auth's audit log in the same
+// transaction; a {{ .Word }} that is invite only already is left as it is, and nothing is recorded. It
 // is plain: no rule holds it and it declares no warning, so a request that asks for one
 // is refused (400) and never runs the call. A {{ .Word }} with no directory is refused (409).
 // A dry run (X-Dry-Run: true) runs the whole frame and rolls back.
@@ -2928,6 +2993,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .InviteOnly.Name }}() http
 				}
 				if err := {{ .ResourcePackage }}.New{{ .Directories }}UpdatePatch(id).Set{{ .Field }}({{ if .SeatIsPointer }}nil{{ else }}""{{ end }}).Buffer(ctx, txn, eventSource); err != nil {
 					return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}UpdatePatch.Buffer()")
+				}
+				if err := {{ .ReceiverName }}.{{ .IdentityAccessor }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryInviteOnly, ""); err != nil {
+					return errors.Wrap(err, "{{ .IdentityAccessor }}().RecordTenantSignIn()")
 				}
 			}
 			if dryRun {
@@ -3409,6 +3477,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -3900,10 +3969,18 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
 					` + deleteLeftKept + `
+					{{- with .DirectoryRemovalRecorder }}
+					if patch.Left() == nil {
+					` + directoryRemovalRecorded + `
+					}
+					{{- end }}
 					{{- else }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
+					{{- with .DirectoryRemovalRecorder }}
+					` + directoryRemovalRecorded + `
+					{{- end }}
 					{{- end }}
 				{{- end }}
 				}
@@ -3944,6 +4021,7 @@ import (
 	{{ .LocalPackageImports }}
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -4234,10 +4312,18 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
 							` + deleteLeftKept + `
+							{{- with .DirectoryRemovalRecorder }}
+							if patch.Left() == nil {
+							` + directoryRemovalRecorded + `
+							}
+							{{- end }}
 							{{- else }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
+							{{- with .DirectoryRemovalRecorder }}
+							` + directoryRemovalRecorded + `
+							{{- end }}
 							{{- end }}
 							{{- end }}
 						}

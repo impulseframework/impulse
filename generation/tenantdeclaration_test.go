@@ -729,6 +729,9 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"if err := m.signals.Signal(ctx, resource.KindTenants); err != nil {",
 				"func (m *harborMaker) SeatsDefaultRole() bool {\n\treturn true\n}",
 				"func (m *harborMaker) DeclaresDirectoryOnly() bool {\n\treturn true\n}",
+				// A harbor made through an organization's directory takes it as its own:
+				// the identity library records the take with the tenant's making.
+				"func (m *harborMaker) TakesDirectory() bool {\n\treturn true\n}",
 			},
 			// The creator's seat went with the direct create: nothing is asked of the
 			// application for it here.
@@ -761,6 +764,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				`return "", errors.New("the Sector record declares no directory-only switch, so no sector is made directory only")`,
 				"func (m *sectorMaker) SeatsDefaultRole() bool {\n\treturn false\n}",
 				"func (m *sectorMaker) DeclaresDirectoryOnly() bool {\n\treturn false\n}",
+				"func (m *sectorMaker) TakesDirectory() bool {\n\treturn false\n}",
 				// The reader of whether a sector is disabled stands beside the maker, its
 				// imports after the standard library's.
 				"\t\"encoding/json\"\n\n\t\"cloud.google.com/go/spanner\"\n\t\"github.com/go-playground/errors/v5\"\n",
@@ -837,7 +841,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 // writes neither the method nor the connection; the create answers the caller's grants
 // and is then refused, naming the tenant's own method that takes a directory
 // (Take<Record>Directory), and builds and stamps nothing; and the delete asks the rules
-// before the row's removal is buffered.
+// before the row's removal is buffered, and once it is buffered records the directory's
+// removal in the audit log of the auth that records a tenant's sign-in acts.
 func Test_directoriesRecord_writes(t *testing.T) {
 	t.Parallel()
 
@@ -846,6 +851,7 @@ func Test_directoriesRecord_writes(t *testing.T) {
 		t.Fatalf("declarationResources() error = %v", err)
 	}
 	r.resource = "testdata/tenantfixture"
+	r.identity = []*identityInstance{{auth: "Staff", opensToDirectory: true, recordsTenantSignIn: true}}
 	var directories *resourceInfo
 	for _, res := range r.resources {
 		if res.IsTenantDirectory {
@@ -873,6 +879,7 @@ func Test_directoriesRecord_writes(t *testing.T) {
 		Resources: []*resourceInfo{directories},
 		DomainCases: []consolidatedCaseData{{
 			resourceInfo: directories, DomainPatternPrefix: "/harbors/{harborID}", ResourcePackage: "resources", ReceiverName: "a",
+			DirectoryRemovalRecorder: r.directoryRemovalRecorder(directories),
 		}},
 		HasTenant:           true,
 		DomainRouteSegment:  "harbors",
@@ -909,6 +916,8 @@ func Test_directoriesRecord_writes(t *testing.T) {
 				"if err := NewHarborDirectoryRules().Remove(ctx, txn, domain); err != nil {",
 				`return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")`,
 				".NewHarborDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
+				`.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryRemoved, ""); err != nil {`,
+				`return errors.Wrap(err, "StaffIdentity().RecordTenantSignIn()")`,
 			)
 			// The create builds no row and stamps no directory: the tenant's own method
 			// takes it.
@@ -918,6 +927,28 @@ func Test_directoriesRecord_writes(t *testing.T) {
 			assertContains(t, name, out, []string{"tenantsWritten = true", "a.TenantRoster().Reload(ctx)", "resource.KindTenants"}, nil)
 		})
 	}
+
+	// A directories record whose delete takes rows under it records the removal in the
+	// save that deletes its row, and in none that leaves it standing.
+	taking := *directories
+	taking.deleteCascade = &deleteCascadeDecl{Taken: []string{"HarborDirectoryNote"}}
+	taking.DeleteTree = &deleteTree{Taken: []*deleteKind{{}}}
+	if !taking.TakesRowsUnder() {
+		t.Fatal("the directories record given a kind under it does not take rows under it")
+	}
+	rounds, err := r.handlerContent(PatchHandler, &taking)
+	if err != nil {
+		t.Fatalf("handlerContent() of the record that takes rows error = %v", err)
+	}
+	if _, err := format.Source(append([]byte("package app\n\n"), rounds...)); err != nil {
+		t.Fatalf("the rendered handler of the record that takes rows does not parse: %v\n%s", err, rounds)
+	}
+	assertInOrder(t, string(rounds),
+		"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+		"if taken := patch.Left(); taken != nil {",
+		"if patch.Left() == nil {",
+		`.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryRemoved, ""); err != nil {`,
+	)
 }
 
 // assertInOrder fails unless every want appears in out, each after the one before it.
@@ -996,7 +1027,10 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 			if _, err := format.Source(append([]byte("package app\n\n"), standalone...)); err != nil {
 				t.Fatalf("the rendered handler does not parse: %v\n%s", err, standalone)
 			}
-			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", KindsFrom: r.tenantKindSources(res)}
+			segment := consolidatedCaseData{
+				resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", KindsFrom: r.tenantKindSources(res),
+				DirectoryRemovalRecorder: r.directoryRemovalRecorder(res),
+			}
 			data := consolidatedPatchData{
 				Resources:           []*resourceInfo{res},
 				HasTenant:           true,
@@ -1029,8 +1063,9 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 			// package the data names.
 			packageOf := map[string]string{"the record's own handler": "tenantfixture", "the consolidated handler": "resources"}
 			for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
-				// No removal of a directory beside the row's own.
-				assertContains(t, name, out, nil, []string{"Directory(ctx, txn, id"})
+				// No removal of a directory beside the row's own, and none recorded: no auth
+				// of the fixture records a tenant's sign-in acts.
+				assertContains(t, name, out, nil, []string{"Directory(ctx, txn, id", "RecordTenantSignIn"})
 				if !tt.tenant {
 					continue
 				}
@@ -1176,27 +1211,52 @@ func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
 // string. A creator who came by password or with a personal account sets none. The
 // route's GET answers, where a creation by the session would set the directory, the
 // statement the person reads and types under before they create, said by the rules the
-// directories record's write paths ask.
+// directories record's write paths ask. The directory set is recorded in the new
+// tenant, in the audit log of the auth that records a tenant's sign-in acts
+// (tenantSignInRecorder), named as the rules name it, in the row's transaction, and in
+// none where no auth records them.
 func Test_tenantCreationTemplate_declaration(t *testing.T) {
 	t.Parallel()
 
+	records := []*identityInstance{{auth: "Staff"}, {auth: "Members", opensToDirectory: true, recordsTenantSignIn: true}}
+	recorded := "if err := a.MembersIdentity().RecordTenantSignIn(byCreator, txn, domain, auditlog.ActDirectoryTaken, " +
+		"resource.DirectoryNameOrKind(directory, a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)); err != nil {"
 	tests := []struct {
 		name          string
 		directories   string
+		identity      []*identityInstance
 		wantDirectory *tenantCreationDirectory
 		wantWritten   string
+		// wantRecorded is the record of the directory set, "" for none.
+		wantRecorded string
 	}{
 		{
-			name:          "a directories record whose tenant column is an id takes the generated id",
+			name:        "a directories record whose tenant column is an id takes the generated id",
+			directories: "HarborDirectory",
+			identity:    records,
+			wantDirectory: &tenantCreationDirectory{
+				Record: "HarborDirectory", TenantValue: "id", Rules: "NewHarborDirectoryRules()",
+				Recorder: "MembersIdentity", Namers: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
+			},
+			wantWritten:  "if err := SetHarborDirectory(ctx, txn, id, directory, eventSource); err != nil {",
+			wantRecorded: recorded,
+		},
+		{
+			name:        "a directories record whose tenant column is a string takes the generated id's text",
+			directories: "Marina",
+			identity:    records,
+			wantDirectory: &tenantCreationDirectory{
+				Record: "Marina", TenantValue: "id.String()", Rules: "NewHarborDirectoryRules()",
+				Recorder: "MembersIdentity", Namers: "a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName",
+			},
+			wantWritten:  "if err := SetHarborDirectory(ctx, txn, id.String(), directory, eventSource); err != nil {",
+			wantRecorded: recorded,
+		},
+		{
+			name:          "where no auth records a tenant's sign-in acts, the directory set is not recorded",
 			directories:   "HarborDirectory",
 			wantDirectory: &tenantCreationDirectory{Record: "HarborDirectory", TenantValue: "id", Rules: "NewHarborDirectoryRules()"},
 			wantWritten:   "if err := SetHarborDirectory(ctx, txn, id, directory, eventSource); err != nil {",
-		},
-		{
-			name:          "a directories record whose tenant column is a string takes the generated id's text",
-			directories:   "Marina",
-			wantDirectory: &tenantCreationDirectory{Record: "Marina", TenantValue: "id.String()", Rules: "NewHarborDirectoryRules()"},
-			wantWritten:   "if err := SetHarborDirectory(ctx, txn, id.String(), directory, eventSource); err != nil {",
 		},
 	}
 
@@ -1208,6 +1268,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 			if err != nil {
 				t.Fatalf("declaration error = %v", err)
 			}
+			r.identity = tt.identity
 			record := r.tenantRecord()
 			key, fields, setters := tenantCreationFields(record)
 			if diff := cmp.Diff([]string{"Name"}, setters); diff != "" {
@@ -1216,7 +1277,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 			if len(fields) != 1 || fields[0].Name != "Name" || key == nil || key.Name != "ID" || key.Type != "impulse.UUID" {
 				t.Errorf("fields = %v, key = %v; want the name alone in the request, and the generated id as the key", fields, key)
 			}
-			directory := tenantCreationDirectoryData(record)
+			directory := r.tenantCreationDirectoryData(record)
 			if diff := cmp.Diff(tt.wantDirectory, directory); diff != "" {
 				t.Errorf("Directory mismatch (-want +got):\n%s", diff)
 			}
@@ -1271,7 +1332,8 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				"if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {",
 				tt.wantWritten,
 				`return errors.Wrap(err, "SetHarborDirectory()")`,
-				"if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
+				"byCreator := identity.ActingInSession(ctx)",
+				"if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 				"return httpio.NewEncoder(w).Ok(response{ID: id})",
@@ -1295,15 +1357,27 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				"New" + tt.directories + "CreatePatch()", "ThroughDirectory()",
 			})
 
+			// The directory set is recorded right after it is written, in the row's
+			// transaction; where no auth records a tenant's sign-in acts, nothing is.
+			s := string(out)
+			if tt.wantRecorded != "" {
+				assertContains(t, "tenantCreationTemplate", s, []string{tt.wantRecorded, `"github.com/impulseframework/impulse/auditlog"`}, nil)
+				written, recorded, given := strings.Index(s, tt.wantWritten), strings.Index(s, tt.wantRecorded), strings.Index(s, "identityClient.AssignRole(byCreator, txn,")
+				if written < 0 || written >= recorded || recorded >= given {
+					t.Errorf("order: directory %d, its record %d, membership %d; want ascending:\n%s", written, recorded, given, out)
+				}
+			} else {
+				assertContains(t, "tenantCreationTemplate", s, nil, []string{"RecordTenantSignIn", "auditlog"})
+			}
+
 			// The id is generated before the row is buffered; the directory and the
 			// administrator's membership are written in the row's transaction: after the
 			// row, before the commit; the roster reloads before the answer waits on the
 			// membership.
-			s := string(out)
 			generated := strings.Index(s, "id = patch.ID()")
 			row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
 			written := strings.Index(s, "SetHarborDirectory(ctx, txn,")
-			given := strings.Index(s, "identityClient.AssignRole(ctx, txn,")
+			given := strings.Index(s, "identityClient.AssignRole(byCreator, txn,")
 			commit := strings.Index(s, "}); err != nil {")
 			roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
 			wait := strings.Index(s, "resource.AwaitFirstAdministrator(")

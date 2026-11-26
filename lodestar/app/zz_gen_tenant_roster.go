@@ -283,3 +283,10 @@ func (m *sectorMaker) SeatsDefaultRole() bool {
 func (m *sectorMaker) DeclaresDirectoryOnly() bool {
 	return true
 }
+
+// TakesDirectory reports whether a sector keeps a directory: the
+// SectorDirectory record holds it, so one made through an organization's directory takes it
+// as its own.
+func (m *sectorMaker) TakesDirectory() bool {
+	return true
+}

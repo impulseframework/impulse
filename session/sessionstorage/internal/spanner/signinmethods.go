@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -96,7 +97,7 @@ func (s *SessionStorageDriver) SignInMethods(ctx context.Context) ([]*dbtype.Sig
 
 // SetSignInMethod writes the row of the sign-in method m names, replacing the one it
 // had, with UpdatedAt the commit time.
-func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error {
+func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -110,7 +111,11 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 	if m.DefaultRole != nil {
 		row["DefaultRole"] = spanner.NullString{StringVal: *m.DefaultRole, Valid: true}
 	}
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{spanner.InsertOrUpdateMap(s.signInMethodsTableName, row)}); err != nil {
+	audit, err := s.auditRecordMutations(record)
+	if err != nil {
+		return err
+	}
+	if _, err := s.spanner.Apply(ctx, append([]*spanner.Mutation{spanner.InsertOrUpdateMap(s.signInMethodsTableName, row)}, audit...)); err != nil {
 		return errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
@@ -122,7 +127,7 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 // commit time, and leaves what else the row says as it stands. The row is read inside
 // a serializable transaction that buffers the write: a row there has the one field and
 // its time updated, and a method with no row gets one that is invite only.
-func (s *SessionStorageDriver) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
+func (s *SessionStorageDriver) SetSelfServiceReset(ctx context.Context, method string, on bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -143,7 +148,7 @@ func (s *SessionStorageDriver) SetSelfServiceReset(ctx context.Context, method s
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")

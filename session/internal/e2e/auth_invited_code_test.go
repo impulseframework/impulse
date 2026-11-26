@@ -447,7 +447,7 @@ func seamInvitedAccountGivenAnotherAddress[Tx any](ctx context.Context, t *testi
 	// address on the account: the code goes to the address the account holds now, and
 	// proves that mailbox, not the invited one.
 	harbor := "dana@harbor.example"
-	if err := a.setEmail(ctx, dana, &harbor); err != nil {
+	if err := a.setEmail(ctx, dana, &harbor, nil); err != nil {
 		t.Fatalf("SetUserEmail(%s) error = %v", harbor, err)
 	}
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)

@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -209,6 +210,19 @@ func (h *tenantHeld) refuseImpersonator(ctx context.Context, accounts []tenantAc
 	return nil
 }
 
+// auditRecordMutations is what the row of the audit log an account the tenant's delete
+// takes writes is counted to cost: an insert counts once for each column it writes, and a
+// row writes no more than the table's columns (auditlog.Columns), and once for each of
+// the table's two indexes it enters. A save is filled to the limit with no margin, so the
+// count is the most a row can cost.
+func auditRecordMutations() int {
+	return len(auditlog.Columns()) + auditRecordIndexes
+}
+
+// auditRecordIndexes is the number of indexes the audit records table declares
+// (auditlog.SpannerDDL): by its time, and by its tenant and its time.
+const auditRecordIndexes = 2
+
 // tenantAccounts is the kind of the accounts that are the tenant's alone. One costs its
 // memberships, its places, its identity links, its row, the ending of its sessions and of
 // the impersonation records it holds, and what the database removes with the row, and is
@@ -279,7 +293,8 @@ func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransac
 
 // cost is what taking the account costs in the commit: its memberships, its places, its
 // identity links, its row, the ending of its sessions and of the impersonation records it
-// holds, and what the database removes with the row.
+// holds, what the database removes with the row, and the row of the audit log that
+// records its delete (auditRecordMutations).
 func (k *tenantAccounts) cost(ctx context.Context, txn resource.ReadWriteTransaction, account *tenantAccount, costs *TenantDeleteCosts) (int, error) {
 	links, err := k.manager.store.Identities(ctx, txn, account.id)
 	if err != nil {
@@ -304,10 +319,12 @@ func (k *tenantAccounts) cost(ctx context.Context, txn resource.ReadWriteTransac
 	}
 
 	return len(account.memberships)*costs.Membership + len(account.places)*costs.GroupMember +
-		len(links)*costs.Identity + costs.User + ended + withUser, nil
+		len(links)*costs.Identity + costs.User + ended + withUser + auditRecordMutations(), nil
 }
 
-// take buffers the delete of the account and of what it holds in the tenant.
+// take buffers the delete of the account and of what it holds in the tenant, and the row
+// of the audit log that records it: the account deleted with its tenant, by its username,
+// in the tenant, by the round's caller. What it held there has no row of its own.
 func (k *tenantAccounts) take(ctx context.Context, txn resource.ReadWriteTransaction, account *tenantAccount) error {
 	store := k.manager.store
 	for i := range account.memberships {
@@ -321,6 +338,11 @@ func (k *tenantAccounts) take(ctx context.Context, txn resource.ReadWriteTransac
 		}
 	}
 	if err := k.manager.deleteAccount(ctx, txn, account.id); err != nil {
+		return err
+	}
+	deleted := accountRecord(auditlog.ActAccountDeleted, account.id, account.username)
+	deleted.Form, deleted.TenantID = auditlog.FormWithTenant, string(k.domain)
+	if err := k.manager.record(ctx, txn, deleted); err != nil {
 		return err
 	}
 	logger.FromCtx(ctx).Infof("identity: %q belonged to the tenant %s alone, which is deleted, so the account is deleted with its identity links; its sessions are ended", account.username, k.domain)

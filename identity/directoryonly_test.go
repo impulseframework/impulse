@@ -134,7 +134,7 @@ func TestManager_CallerPassword(t *testing.T) {
 		{
 			name: "a person of another application has no password here",
 			ctx: func(ctx context.Context) context.Context {
-				foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
+				foreign := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
 
 				return context.WithValue(asCallerThrough(ctx, managedAuth, dana), sessioninfo.CtxSessionInfo, foreign)
 			},

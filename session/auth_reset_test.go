@@ -289,7 +289,7 @@ func authResetCase5(t *testing.T) {
 
 	// The store writes the password over the one the account held when the link was
 	// followed, and ends the sessions with it, in its one transaction.
-	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, user.PasswordHash, gomock.Not(gomock.Nil())).Return(nil)
+	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, user.PasswordHash, gomock.Not(gomock.Nil()), aRecord()).Return(nil)
 	rr = f.serve(f.auth.PasswordReset().Complete(), http.MethodPost, "/reset/complete", map[string]string{"token": first, "password": chosenPassword}, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Complete() = %d %s, want 200 and the username", rr.Code, rr.Body.String())
@@ -363,7 +363,7 @@ func authResetCase11(t *testing.T) {
 	// link writes: the store is asked to write over the one that was read, and refuses.
 	// It is the one write the link asks for, so the password that was set meanwhile
 	// stands; the mocked store expects no other write, and one made here fails the test.
-	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, user.PasswordHash, gomock.Not(gomock.Nil())).Return(sessionstorage.ErrPasswordChanged)
+	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, user.PasswordHash, gomock.Not(gomock.Nil()), aRecord()).Return(sessionstorage.ErrPasswordChanged)
 	rr := f.serve(f.auth.PasswordReset().Complete(), http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": chosenPassword}, nil)
 	const want = "Your password was changed while you were choosing a new one, so this link did not change it. Sign in with your password, or ask for a new link"
 	if rr.Code != http.StatusConflict || decoded(t, rr)["message"] != want {
@@ -693,7 +693,7 @@ func TestAuth_Notices(t *testing.T) {
 		userID, _ := newIDs()
 		f, recorder, _ := newMailFixture(t, gomock.NewController(t))
 		f.store.EXPECT().User(gomock.Any(), userID).Return(passwordPerson(t, userID), nil).AnyTimes()
-		f.store.EXPECT().RevokeTrustedDevices(gomock.Any(), userID).Return(nil)
+		f.store.EXPECT().RevokeTrustedDevices(gomock.Any(), userID, aRecord()).Return(nil)
 
 		if err := f.auth.API().ResetFactors(context.Background(), userID); err != nil {
 			t.Fatalf("ResetFactors() error = %v", err)
@@ -783,7 +783,7 @@ func authResetCase10(t *testing.T) {
 	// are never read and written back, so the mocked store expects neither
 	// SignInMethods nor SetSignInMethod, and a call of either fails the test.
 	for _, on := range []bool{true, false} {
-		f.store.EXPECT().SetSelfServiceReset(gomock.Any(), "password", on).Return(nil).Times(1)
+		f.store.EXPECT().SetSelfServiceReset(gomock.Any(), "password", on, aRecord()).Return(nil).Times(1)
 		if err := f.auth.API().SetSelfServiceReset(context.Background(), on); err != nil {
 			t.Fatalf("SetSelfServiceReset(%v) error = %v", on, err)
 		}

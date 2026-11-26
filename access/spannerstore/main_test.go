@@ -73,11 +73,13 @@ func prepareStore(ctx context.Context, t *testing.T, opts ...Option) (*Store, *d
 	return store, database
 }
 
-func applyDDL(t *testing.T, database *db.SpannerDB, store *Store) error {
+// applyDDL applies the store's DDL, and after it the statements of extra, as one
+// migration.
+func applyDDL(t *testing.T, database *db.SpannerDB, store *Store, extra ...string) error {
 	t.Helper()
 
 	dir := t.TempDir()
-	migration := strings.Join(store.DDL(), ";\n") + ";\n"
+	migration := strings.Join(append(store.DDL(), extra...), ";\n") + ";\n"
 	if err := os.WriteFile(filepath.Join(dir, "000001_access.up.sql"), []byte(migration), 0o600); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}

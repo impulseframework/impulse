@@ -10,6 +10,8 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -458,8 +460,20 @@ func (m *Manager) ClearEnded(ctx context.Context, txn resource.ReadWriteTransact
 		return 0, nil
 	}
 	sortEnded(memberships, places)
+	// Each row is the end of its period's act, whoever's request found it, and what it
+	// names is read before anything is buffered.
+	ended, err := m.endedRecords(ctx, txn, userID, memberships, places)
+	if err != nil {
+		return 0, err
+	}
 	if err := m.store.RemoveEnded(ctx, txn, memberships, places); err != nil {
 		return 0, errors.Wrap(err, "identity.Store.RemoveEnded()")
+	}
+	byPeriod := actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessPeriodEnd), "")
+	for _, r := range ended {
+		if err := m.record(byPeriod, txn, r); err != nil {
+			return 0, err
+		}
 	}
 	for _, key := range memberships {
 		logger.FromCtx(ctx).Infof("identity: the role %s of %s, held in %s, ended by itself and its row is removed", key.Role, key.User, heldWhere(key.Kind, key.Domain))
@@ -469,6 +483,35 @@ func (m *Manager) ClearEnded(ctx context.Context, txn resource.ReadWriteTransact
 	}
 
 	return len(memberships) + len(places), nil
+}
+
+// endedRecords answers the rows of the assignments ClearEnded removes: a roleEnded for
+// each membership, the role where it was held, and a groupPlaceEnded for each place, the
+// group by its name, the id where the store answers none, in the tenant it is kept in.
+func (m *Manager) endedRecords(
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, memberships []access.MembershipKey, places []access.GroupMemberKey,
+) ([]*auditlog.Record, error) {
+	person, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]*auditlog.Record, 0, len(memberships)+len(places))
+	for i := range memberships {
+		ended := *person
+		ended.Act, ended.RoleNames = auditlog.ActRoleEnded, []string{string(memberships[i].Role)}
+		ended.RoleScope, ended.TenantID = rowScope(memberships[i].Kind, memberships[i].Axis, memberships[i].Domain)
+		records = append(records, &ended)
+	}
+	for i := range places {
+		ended := *person
+		ended.Act, ended.GroupID = auditlog.ActGroupPlaceEnded, string(places[i].Group)
+		if ended.GroupName, ended.TenantID, err = m.groupWhere(ctx, txn, places[i].Group); err != nil {
+			return nil, err
+		}
+		records = append(records, &ended)
+	}
+
+	return records, nil
 }
 
 // heldWhere says where a row is held, for a log line.

@@ -383,7 +383,9 @@ func seamDirectoryDefaultSeat[Tx any](ctx context.Context, t *testing.T, be back
 	a.db.seatDirectory(ctx, t, tenantLakeside, lakesideWorkspace, "Member")
 	a.db.seatDirectory(ctx, t, tenantLakeside, lakesideEntra, "Member")
 	a.db.declareTenant(ctx, t, tenantRiverside, false, lakesideWorkspace)
-	want := []signin.DirectorySeat{{Tenant: tenantLakeside, Role: "Member"}}
+	// Each seat names the directory the person signed in through.
+	want := []signin.DirectorySeat{{Tenant: tenantLakeside, Role: "Member", Directory: lakesideWorkspace}}
+	wantEntra := []signin.DirectorySeat{{Tenant: tenantLakeside, Role: "Member", Directory: lakesideEntra}}
 
 	// The Workspace stranger: created, seated in lakeside alone (riverside declares
 	// the directory without a seat), and admitted by the policy on that membership.
@@ -398,8 +400,8 @@ func seamDirectoryDefaultSeat[Tx any](ctx context.Context, t *testing.T, be back
 	entra := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, entra, azureClaims(azureTenant, "oid-sam", "sam@lakeside.edu")), "/home", url.Values{})
 	signedInAs(ctx, t, entra, "sam@lakeside.edu")
-	if got := a.roles.seatsOf("sam@lakeside.edu"); !slices.Equal(got, want) {
-		t.Errorf("seats granted to the Entra stranger = %v, want %v", got, want)
+	if got := a.roles.seatsOf("sam@lakeside.edu"); !slices.Equal(got, wantEntra) {
+		t.Errorf("seats granted to the Entra stranger = %v, want %v", got, wantEntra)
 	}
 
 	// A second sign-in finds the link and hands the hook the seat again, which gives

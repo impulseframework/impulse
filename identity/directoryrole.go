@@ -8,6 +8,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/signin"
@@ -81,6 +82,52 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 	}
 
 	return nil
+}
+
+// RecordTenantSignIn buffers one row of the auth's audit log in the caller's transaction,
+// of an act on a tenant's own sign-in settings: its directory taken or removed, its
+// directory-only switch turned on or off, the tenant opened to its directory's people or
+// made invite only for them, and its word for its directory's second factor said or taken
+// back. The row is done to the tenant, by its key and the name the application gives it
+// (its key where it gives none), in that tenant, by who acted: the request's caller, or
+// the application outside a request. named is the act's one part: the role's stored name
+// for directoryOpened, the directory for directoryTaken by its kind and its name, or its
+// kind alone where no name is known (resource.DirectoryNameOrKind), and empty for the
+// other six. Another act, a part handed to an act that takes none and none handed to one that
+// takes one are a fault of the code that calls it: an error, and nothing is written. The
+// generated methods of a tenant's directory call it through the auth's client, after
+// their write.
+func (m *Manager) RecordTenantSignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, act auditlog.Act, named string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	var r auditlog.Record
+	r.Act, r.SubjectKind, r.SubjectID, r.TenantID = act, auditlog.SubjectTenant, string(tenant), string(tenant)
+	switch act {
+	case auditlog.ActDirectoryOpened:
+		if named == "" {
+			return errors.Newf("%s names the role the tenant is opened with, and none was handed", act)
+		}
+		r.RoleNames = []string{named}
+	case auditlog.ActDirectoryTaken:
+		if named == "" {
+			return errors.Newf("%s names the directory taken, and none was handed", act)
+		}
+		r.NewValue = named
+	case auditlog.ActDirectoryRemoved, auditlog.ActDirectoryOnlyOn, auditlog.ActDirectoryOnlyOff, auditlog.ActDirectoryInviteOnly,
+		auditlog.ActDirectorySecondFactorVouched, auditlog.ActDirectorySecondFactorUnvouched:
+		if named != "" {
+			return errors.Newf("%s takes no part, and was handed %q", act, named)
+		}
+	default:
+		return errors.Newf("%s is not an act on a tenant's sign-in", act)
+	}
+	r.SubjectName = m.sessions.TenantName(tenant)
+	if r.SubjectName == "" {
+		r.SubjectName = string(tenant)
+	}
+
+	return m.record(ctx, txn, &r)
 }
 
 // DirectoryRoles lists the roles a tenant may be opened to its directory's people with,

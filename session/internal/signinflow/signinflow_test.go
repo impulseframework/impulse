@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/util"
@@ -82,6 +83,8 @@ type memStore struct {
 	// asks nobody for a second factor, so a sign-in the rules let through gets its
 	// session.
 	settings *dbtype.SignInSettings
+	// audit are the rows of the audit log the transactions committed.
+	audit    []auditlog.Record
 	sessions int
 	steps    []string
 	next     []commitOutcome
@@ -358,6 +361,15 @@ func (d *memDriver) VerifyUserEmailIfHeldIn(_ context.Context, tx *memTx, userID
 	tx.buffer(func() { user.email, user.confirmed = email, true })
 
 	return true, nil
+}
+
+// InsertAuditRecordIn keeps a copy of record as a row of the audit log once the
+// transaction commits.
+func (d *memDriver) InsertAuditRecordIn(_ context.Context, tx *memTx, record *auditlog.Record) error {
+	kept := *record
+	tx.buffer(func() { d.store.audit = append(d.store.audit, kept) })
+
+	return nil
 }
 
 // VerifyUserEmailIn writes email on the user, confirmed, replacing what the user held;

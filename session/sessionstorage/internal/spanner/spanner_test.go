@@ -607,7 +607,7 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Client)
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
-			err = c.SetUserUsername(ctx, tt.id, tt.newUsername)
+			err = c.SetUserUsername(ctx, tt.id, tt.newUsername, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.SetUserUsername() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -743,7 +743,7 @@ func TestSessionStorageDriver_DeactivateUser(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Client)
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
-			err = c.DeactivateUser(ctx, tt.id)
+			err = c.DeactivateUser(ctx, tt.id, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.DeactivateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -803,7 +803,7 @@ func TestSessionStorageDriver_DeleteUser(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Client)
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
-			err = c.DeleteUser(ctx, tt.id)
+			err = c.DeleteUser(ctx, tt.id, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.DeleteUser() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -852,7 +852,7 @@ func TestSessionStorageDriver_ActivateUser(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Client)
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
-			err = c.ActivateUser(ctx, tt.id)
+			err = c.ActivateUser(ctx, tt.id, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SessionStorageDriver.ActivateUser() error = %v, wantErr %v", err, tt.wantErr)
 			}

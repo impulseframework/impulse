@@ -9,6 +9,7 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -53,8 +54,11 @@ type SessionStorageDriver struct {
 	signInMethodsTableName string
 	// signInSettingsTableName names the auth schema's sign-in settings table.
 	signInSettingsTableName string
-	// auditRecordsTableName names the auth schema's audit records table.
+	// auditRecordsTableName names the auth schema's audit records table, and
+	// auditRecordsHours how long its rows are kept, 0 for forever
+	// (SetAuditRecordsPeriod).
 	auditRecordsTableName string
+	auditRecordsHours     int
 	// tokensTableName names the auth schema's tokens table.
 	tokensTableName string
 	// deviceCodesTableName names the auth schema's device codes table.
@@ -773,7 +777,7 @@ func (s *SessionStorageDriver) execUserInsert(ctx context.Context, id impulse.UU
 // under a stale username. On a store whose usernames are the addresses the rename is
 // refused: the address, and with it the username, changes through a verified link
 // (VerifyUserEmail).
-func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impulse.UUID, newUsername string) error {
+func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impulse.UUID, newUsername string, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -781,13 +785,18 @@ func (s *SessionStorageDriver) SetUserUsername(ctx context.Context, userID impul
 		return errUsernameIsEmail()
 	}
 
-	return s.renameUser(ctx, userID, newUsername, "")
+	return s.renameUser(ctx, userID, newUsername, "", record)
 }
 
-// renameUser is renameUserIn in a transaction of its own. A taken name is a Conflict.
-func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername, set string) error {
+// renameUser is renameUserIn in a transaction of its own, which inserts record, nil for
+// none, after the rename. A taken name is a Conflict.
+func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UUID, newUsername, set string, record *auditlog.Record) error {
 	err := s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		return s.renameUserIn(ctx, tx, userID, newUsername, set)
+		if err := s.renameUserIn(ctx, tx, userID, newUsername, set); err != nil {
+			return err
+		}
+
+		return s.InsertAuditRecordIn(ctx, tx, record)
 	})
 	switch {
 	case s.isUsernameConflict(err):
@@ -895,7 +904,7 @@ func (s *SessionStorageDriver) UpgradeUserPasswordHash(ctx context.Context, user
 // first: the write waits for a sign-in that is inserting a session on proof of the
 // password being replaced (the flow shares the user row's lock while it decides), so the
 // expiry that follows finds that session and ends it.
-func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID impulse.UUID, proven, hash *securehash.Hash) error {
+func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID impulse.UUID, proven, hash *securehash.Hash, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -925,6 +934,9 @@ func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID im
 	if err := s.destroyUserSessionsIn(ctx, txn, userID); err != nil {
 		return err
 	}
+	if err := s.InsertAuditRecordIn(ctx, txn, record); err != nil {
+		return err
+	}
 
 	if err := txn.Commit(ctx); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Commit()")
@@ -937,7 +949,7 @@ func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID im
 // and clears the password change mark. The write names the absent hash, so it lands
 // only while the row holds none: a user who holds a password keeps it (ErrPasswordHeld,
 // a Conflict), and an unknown user is NotFound. No session is ended.
-func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash) error {
+func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -949,24 +961,26 @@ func (s *SessionStorageDriver) SetFirstUserPassword(ctx context.Context, userID 
 		UPDATE %s SET "PasswordHash" = $2, "PasswordChangeRequired" = FALSE
 		WHERE "Id" = $1 AND "PasswordHash" IS NULL`, s.userTable())
 
-	cmdTag, err := s.conn.Exec(ctx, query, userID, hash)
-	if err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
-	}
-	if cmdTag.RowsAffected() == 0 {
-		var exists bool
-		query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE "Id" = $1)`, s.userTable())
-		if err := s.conn.QueryRow(ctx, query, userID).Scan(&exists); err != nil {
-			return errors.Wrap(err, "QueryRow().Scan()")
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		cmdTag, err := db.Exec(ctx, query, userID, hash)
+		if err != nil {
+			return errors.Wrap(err, "Exec()")
 		}
-		if !exists {
-			return dbtype.AccountNotFound(userID)
+		if cmdTag.RowsAffected() == 0 {
+			var exists bool
+			query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE "Id" = $1)`, s.userTable())
+			if err := db.QueryRow(ctx, query, userID).Scan(&exists); err != nil {
+				return errors.Wrap(err, "QueryRow().Scan()")
+			}
+			if !exists {
+				return dbtype.AccountNotFound(userID)
+			}
+
+			return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, dbtype.PasswordHeldMessage)
 		}
 
-		return httpio.NewConflictMessageWithError(dbtype.ErrPasswordHeld, dbtype.PasswordHeldMessage)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // rowQuerier is the one-row read a connection and a transaction share.
@@ -1020,7 +1034,7 @@ func (s *SessionStorageDriver) TouchUserSignIn(ctx context.Context, userID impul
 }
 
 // DeactivateUser deactivates a user
-func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id impulse.UUID) error {
+func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -1028,18 +1042,20 @@ func (s *SessionStorageDriver) DeactivateUser(ctx context.Context, id impulse.UU
 		UPDATE %s SET "Disabled" = TRUE
 		WHERE "Id" = $1`, s.userTable())
 
-	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
-	} else if cmdTag.RowsAffected() == 0 {
-		return dbtype.AccountNotFound(id)
-	}
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		if cmdTag, err := db.Exec(ctx, query, id); err != nil {
+			return errors.Wrap(err, "Exec()")
+		} else if cmdTag.RowsAffected() == 0 {
+			return dbtype.AccountNotFound(id)
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // DeleteUser deletes a user. On the auth schema, the user's identity links are
 // deleted with it, in the same transaction.
-func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) error {
+func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -1048,13 +1064,15 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 		WHERE "Id" = $1`, s.userTable())
 
 	if !s.users {
-		if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
-			return errors.Wrap(err, "Queryer.Exec()")
-		} else if cmdTag.RowsAffected() == 0 {
-			return dbtype.AccountNotFound(id)
-		}
+		return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+			if cmdTag, err := db.Exec(ctx, query, id); err != nil {
+				return errors.Wrap(err, "Exec()")
+			} else if cmdTag.RowsAffected() == 0 {
+				return dbtype.AccountNotFound(id)
+			}
 
-		return nil
+			return nil
+		})
 	}
 
 	txn, err := s.begin(ctx)
@@ -1073,6 +1091,9 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 	} else if cmdTag.RowsAffected() == 0 {
 		return dbtype.AccountNotFound(id)
 	}
+	if err := s.InsertAuditRecordIn(ctx, txn, record); err != nil {
+		return err
+	}
 
 	if err := txn.Commit(ctx); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Commit()")
@@ -1082,7 +1103,7 @@ func (s *SessionStorageDriver) DeleteUser(ctx context.Context, id impulse.UUID) 
 }
 
 // ActivateUser activates a user
-func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id impulse.UUID) error {
+func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -1090,13 +1111,15 @@ func (s *SessionStorageDriver) ActivateUser(ctx context.Context, id impulse.UUID
 		UPDATE %s SET "Disabled" = FALSE
 		WHERE "Id" = $1`, s.userTable())
 
-	if cmdTag, err := s.conn.Exec(ctx, query, id); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
-	} else if cmdTag.RowsAffected() == 0 {
-		return dbtype.AccountNotFound(id)
-	}
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		if cmdTag, err := db.Exec(ctx, query, id); err != nil {
+			return errors.Wrap(err, "Exec()")
+		} else if cmdTag.RowsAffected() == 0 {
+			return dbtype.AccountNotFound(id)
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // DestroyAllUserSessions destroys all sessions for a given user

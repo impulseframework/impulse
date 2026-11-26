@@ -24,6 +24,7 @@ export const Resources = {
   DistressCalls: 'DistressCalls' as Resource,
   FeatureFlags: 'FeatureFlags' as Resource,
   MembersHeldRoles: 'MembersHeldRoles' as Resource,
+  MembersListedAuditRecords: 'MembersListedAuditRecords' as Resource,
   MembersListedIdentities: 'MembersListedIdentities' as Resource,
   MembersListedMailLinks: 'MembersListedMailLinks' as Resource,
   MembersListedRoleGrants: 'MembersListedRoleGrants' as Resource,
@@ -32,6 +33,7 @@ export const Resources = {
   MembersListedUsers: 'MembersListedUsers' as Resource,
   MembersRememberLengths: 'MembersRememberLengths' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
+  MembersSectorAuditRecords: 'MembersSectorAuditRecords' as Resource,
   MembersSectorHeldRoles: 'MembersSectorHeldRoles' as Resource,
   MembersSectorIdentities: 'MembersSectorIdentities' as Resource,
   MembersSectorInvitations: 'MembersSectorInvitations' as Resource,
@@ -206,6 +208,41 @@ export namespace MembersHeldRoles {
     startsAt: 'MembersHeldRoles.startsAt' as Resource,
     userId: 'MembersHeldRoles.userId' as Resource,
     username: 'MembersHeldRoles.username' as Resource,
+  };
+}
+
+export namespace MembersListedAuditRecords {
+  export const fieldName = {
+    act: 'act' as FieldName,
+    actorUsername: 'actorUsername' as FieldName,
+    at: 'at' as FieldName,
+    doneTo: 'doneTo' as FieldName,
+    id: 'id' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    subjectKind: 'subjectKind' as FieldName,
+    subjectName: 'subjectName' as FieldName,
+    tenantId: 'tenantId' as FieldName,
+    tenantName: 'tenantName' as FieldName,
+    userId: 'userId' as FieldName,
+    what: 'what' as FieldName,
+    who: 'who' as FieldName,
+  };
+  export const resourceName = {
+    act: 'MembersListedAuditRecords.act' as Resource,
+    actorUsername: 'MembersListedAuditRecords.actorUsername' as Resource,
+    at: 'MembersListedAuditRecords.at' as Resource,
+    doneTo: 'MembersListedAuditRecords.doneTo' as Resource,
+    id: 'MembersListedAuditRecords.id' as Resource,
+    reason: 'MembersListedAuditRecords.reason' as Resource,
+    role: 'MembersListedAuditRecords.role' as Resource,
+    subjectKind: 'MembersListedAuditRecords.subjectKind' as Resource,
+    subjectName: 'MembersListedAuditRecords.subjectName' as Resource,
+    tenantId: 'MembersListedAuditRecords.tenantId' as Resource,
+    tenantName: 'MembersListedAuditRecords.tenantName' as Resource,
+    userId: 'MembersListedAuditRecords.userId' as Resource,
+    what: 'MembersListedAuditRecords.what' as Resource,
+    who: 'MembersListedAuditRecords.who' as Resource,
   };
 }
 
@@ -432,6 +469,37 @@ export namespace MembersRoles {
     kind: 'MembersRoles.kind' as Resource,
     role: 'MembersRoles.role' as Resource,
     updatedAt: 'MembersRoles.updatedAt' as Resource,
+  };
+}
+
+export namespace MembersSectorAuditRecords {
+  export const fieldName = {
+    act: 'act' as FieldName,
+    actorUsername: 'actorUsername' as FieldName,
+    at: 'at' as FieldName,
+    doneTo: 'doneTo' as FieldName,
+    id: 'id' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    subjectKind: 'subjectKind' as FieldName,
+    subjectName: 'subjectName' as FieldName,
+    userId: 'userId' as FieldName,
+    what: 'what' as FieldName,
+    who: 'who' as FieldName,
+  };
+  export const resourceName = {
+    act: 'MembersSectorAuditRecords.act' as Resource,
+    actorUsername: 'MembersSectorAuditRecords.actorUsername' as Resource,
+    at: 'MembersSectorAuditRecords.at' as Resource,
+    doneTo: 'MembersSectorAuditRecords.doneTo' as Resource,
+    id: 'MembersSectorAuditRecords.id' as Resource,
+    reason: 'MembersSectorAuditRecords.reason' as Resource,
+    role: 'MembersSectorAuditRecords.role' as Resource,
+    subjectKind: 'MembersSectorAuditRecords.subjectKind' as Resource,
+    subjectName: 'MembersSectorAuditRecords.subjectName' as Resource,
+    userId: 'MembersSectorAuditRecords.userId' as Resource,
+    what: 'MembersSectorAuditRecords.what' as Resource,
+    who: 'MembersSectorAuditRecords.who' as Resource,
   };
 }
 

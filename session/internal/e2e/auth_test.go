@@ -17,6 +17,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/azure"
@@ -211,7 +212,7 @@ type authApp[Tx any] struct {
 	verified func(ctx context.Context, userID impulse.UUID, email string) error
 	// setEmail writes a person's address as an administrator does, the store's own
 	// write; nil takes the address off the account.
-	setEmail func(ctx context.Context, userID impulse.UUID, email *string) error
+	setEmail func(ctx context.Context, userID impulse.UUID, email *string, record *auditlog.Record) error
 	// signInAttempts reads a count the sign-in attempts table keeps, and
 	// clearSignInAttempts clears one, the store's own calls.
 	signInAttempts      func(ctx context.Context, name string) (*sessionstorage.SignInAttempts, error)

@@ -352,6 +352,9 @@ type directoryOnlyData struct {
 	// takes of the caller: a read given rules that ask no auth would never say the
 	// password the method asks.
 	SwitchRules string
+	// IdentityAccessor is the application's accessor of the generated identity client
+	// whose audit log the switch is recorded in, "" where none is (tenantSignInRecorder).
+	IdentityAccessor string
 
 	LocalPackageImports string
 	ResourcePackage     string
@@ -385,6 +388,7 @@ func (r *resourceGenerator) generateDirectoryOnly() error {
 		KeyIsUUID:           record.PrimaryKey().Type() == impulseUUIDGoType,
 		People:              r.directoryOnlyPeople(),
 		SwitchRules:         r.switchDirectoryRules(record),
+		IdentityAccessor:    r.tenantSignInRecorder(),
 		LocalPackageImports: r.localPackageImports(),
 		ResourcePackage:     r.resource.Package(),
 		RouterPackage:       r.router.Package(),

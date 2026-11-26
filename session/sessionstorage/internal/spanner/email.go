@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -87,7 +88,7 @@ func (s *SessionStorageDriver) UserByEmail(ctx context.Context, email string) (*
 // address. An address another user holds is a Conflict. On a store whose usernames
 // are the addresses the entry is refused: the address is the username. Taking the
 // address off ends the sign-in codes mailed for the user before it (takeUserEmail).
-func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.UUID, email *string) error {
+func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.UUID, email *string, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -95,10 +96,14 @@ func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.
 		return errUsernameIsEmail()
 	}
 	if email == nil {
-		return s.takeUserEmail(ctx, userID)
+		return s.takeUserEmail(ctx, userID, record)
 	}
 	row := map[string]any{idColumn: userID, emailColumn: spanner.NullString{StringVal: *email, Valid: true}, emailVerifiedAtColumn: spanner.NullTime{}}
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap(s.userTableName, row)}); err != nil {
+	audit, err := s.auditRecordMutations(record)
+	if err != nil {
+		return err
+	}
+	if _, err := s.spanner.Apply(ctx, append([]*spanner.Mutation{spanner.UpdateMap(s.userTableName, row)}, audit...)); err != nil {
 		switch {
 		case spanner.ErrCode(err) == codes.NotFound:
 			return dbtype.AccountNotFound(userID)
@@ -120,8 +125,9 @@ func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.
 // gave, and write the address back. With the codes ended, the only code that stands on
 // an account that holds no address is one mailed after the change. An address replaced
 // by another needs none of this: its codes are dead while the account holds the other,
-// and taking that one off ends them all.
-func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse.UUID) error {
+// and taking that one off ends them all. record, nil for none, is buffered with the
+// address's removal.
+func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error {
 	row := map[string]any{idColumn: userID, emailColumn: spanner.NullString{}, emailVerifiedAtColumn: spanner.NullTime{}}
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		stmt := spanner.NewStatement(fmt.Sprintf(`UPDATE %s SET ConsumedAt = PENDING_COMMIT_TIMESTAMP() WHERE ConsumedAt IS NULL AND PendingId IN (SELECT Id FROM %s WHERE UserId = @userId)`,
@@ -134,7 +140,7 @@ func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		if spanner.ErrCode(err) == codes.NotFound {
@@ -210,17 +216,20 @@ func (c *stillHolds) met(held spanner.NullString) bool {
 	return held.Valid && held.StringVal == *c.email
 }
 
-// ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own.
-func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string) (bool, error) {
+// ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own, which writes
+// record with the address where the claim wrote it, and none where it wrote nothing.
+func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string, record *auditlog.Record) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	var claimed bool
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		var err error
-		claimed, err = s.ClaimVerifiedEmailIn(ctx, txn, userID, email)
+		if claimed, err = s.ClaimVerifiedEmailIn(ctx, txn, userID, email); err != nil || !claimed {
+			return err
+		}
 
-		return err
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		return false, errors.Wrap(err, "spannertxn.Serializable()")

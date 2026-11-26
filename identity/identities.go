@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -64,11 +65,13 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 	if !found {
 		return accountNotFound(userID)
 	}
+	// The links are read for the row's directory, and for the rule where the user holds
+	// no password.
+	links, err := m.store.Identities(ctx, txn, userID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.Identities()")
+	}
 	if !hasPassword {
-		links, err := m.store.Identities(ctx, txn, userID)
-		if err != nil {
-			return errors.Wrap(err, "identity.Store.Identities()")
-		}
 		others := slices.DeleteFunc(slices.Clone(links), func(link Link) bool {
 			return link.ID == identityID
 		})
@@ -81,11 +84,18 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 					"Link a directory sign-in the login page offers first, or give the account a password.")
 		}
 	}
+	unlinked, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	if i := slices.IndexFunc(links, func(link Link) bool { return link.ID == identityID }); i >= 0 {
+		unlinked.OldValue = m.directoryCalled(&links[i])
+	}
 	if err := m.store.DeleteIdentity(ctx, txn, identityID); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteIdentity()")
 	}
 
-	return nil
+	return m.recordAct(ctx, txn, auditlog.ActIdentityUnlinked, unlinked)
 }
 
 // RemovePassword buffers the removal of a user's password, in the caller's transaction:
@@ -157,6 +167,9 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 	}
 	if err := m.store.ClearAttempts(ctx, txn, session.SignInAttemptName(username)); err != nil {
 		return errors.Wrap(err, "identity.Store.ClearAttempts()")
+	}
+	if err := m.record(ctx, txn, accountRecord(auditlog.ActPasswordRemoved, userID, username)); err != nil {
+		return err
 	}
 
 	return m.resetLinksEndAtCommit(txn, userID)

@@ -18,8 +18,77 @@ const (
 	periodLayout = "2006-01-02 15:04 UTC"
 )
 
+// Sentences is what a person reads of one row of the audit log.
+type Sentences struct {
+	Who    string // who or what acted
+	What   string // the act in words
+	DoneTo string // whom or what it was done to
+}
+
+// Sentences writes what a person reads of the row, from its parts. tenantWord is what the
+// application calls a tenant ("" reads "tenant").
+func (s *Stored) Sentences(tenantWord string) Sentences {
+	return Sentences{Who: s.who(), What: s.what(tenantWord), DoneTo: s.doneTo()}
+}
+
+// who is who or what acted, as a person reads it: the directory, where one acted; the
+// library's own process, where it acted with no person, and after the person where they
+// acted through it ("bob, through a sign-in"); and otherwise the sentence of who made a
+// change that every record of the library writes (eventsource.Stored.String), without
+// the RPC: the person and whom they acted as say who, the act says what, and the RPC's
+// name stays in its column and in the change history.
+func (s *Stored) who() string {
+	if s.Directory != "" {
+		return "the directory " + s.Directory
+	}
+	process, ofTheLibrary := processWords(s.Source.Process)
+	if s.Source.ActorUserID == "" && ofTheLibrary {
+		return process
+	}
+	source := s.Source
+	source.RPC = ""
+	if ofTheLibrary {
+		source.Process = ""
+
+		return source.String() + ", through " + process
+	}
+
+	return source.String()
+}
+
+// processWords is a process of the library's own that acts with no person behind it, in
+// words, and false for any other. The directory sign-in process is not one: its row names
+// the directory (who).
+func processWords(process string) (string, bool) {
+	switch process {
+	case ProcessApplication:
+		return "the application", true
+	case ProcessMigrate:
+		return "the migrate command", true
+	case ProcessResetLink:
+		return "a password reset link", true
+	case ProcessAddressLink:
+		return "an address confirmation link", true
+	case ProcessInvitation:
+		return "an invitation", true
+	case ProcessSignUp:
+		return "a sign-up", true
+	case ProcessSignInPage:
+		return "the sign-in page", true
+	case ProcessDevice:
+		return "a device the person approved", true
+	case ProcessPeriodEnd:
+		return "the end of its period", true
+	case ProcessSignIn:
+		return "a sign-in", true
+	default:
+		return "", false
+	}
+}
+
 // what is the act of the row in words, from its parts, by the sentence its act and form
-// are written with (shapes). tenantWord is what the application calls a tenant ("" reads
+// are written with (shapes), or the other its shape gives a row whose part is empty or
+// whose old value is its new one. tenantWord is what the application calls a tenant ("" reads
 // "tenant"). It never fails: an act it does not know is its stored name, and a part the
 // sentence needs that the row lacks is written as nothing.
 func (s *Stored) what(tenantWord string) string {
@@ -29,8 +98,11 @@ func (s *Stored) what(tenantWord string) string {
 	}
 	parts := s.parts(tenantWord)
 	sentence := shape.sentence
-	if shape.ifEmpty != "" && parts[shape.ifEmpty] == "" {
+	switch {
+	case shape.ifEmpty != "" && parts[shape.ifEmpty] == "":
 		sentence = shape.otherwise
+	case shape.same != "" && s.OldValue == s.NewValue:
+		sentence = shape.same
 	}
 	pairs := make([]string, 0, 2*len(parts))
 	for _, part := range slices.Sorted(maps.Keys(parts)) {
@@ -61,7 +133,18 @@ func (s *Stored) parts(tenantWord string) map[string]string {
 		"{SeatingTenantName}": s.SeatingTenantName,
 		"{SubjectName}":       s.SubjectName,
 		"{length}":            rememberedLength(s.NewValue),
+		"{to tenant}":         s.toTenant(),
 	}
+}
+
+// toTenant is the tenant the row names, as a sentence ends with it: " to" and the
+// tenant's name, nothing where the row names no tenant.
+func (s *Stored) toTenant() string {
+	if s.TenantName == "" {
+		return ""
+	}
+
+	return " to " + s.TenantName
 }
 
 // role is the first role the row names, in words.

@@ -195,7 +195,7 @@ func TestClient_storedGrantHeldToItsAuthsSets(t *testing.T) {
 				for _, err := range []error{
 					store.InsertRole(ctx, tenant1Policy, clerk, aDescription),
 					store.InsertGrant(ctx, tenant1Policy, clerk, accesstypes.Read, "Widgets", "", grant.cond),
-					store.InsertUserRole(ctx, tenant1Policy, "dana", clerk, accesstypes.Period{}, ""),
+					store.InsertUserRole(ctx, tenant1Policy, "dana", clerk, accesstypes.Period{}, "", nil),
 				} {
 					if err != nil {
 						t.Fatalf("seeding fake store: %v", err)

@@ -13,10 +13,12 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
 
@@ -140,6 +142,13 @@ type fakeStore struct {
 	openedFor  *string
 	// settingsRow is the row of the sign-in settings table, nil for none.
 	settingsRow *SignInSettingsRow
+	// auditRows are the rows of the audit records table AuditRecords answers, in order,
+	// and auditAsked the queries it was asked (audit_read_test.go).
+	auditRows  []auditlog.Stored
+	auditAsked []*AuditQuery
+	// audit are the rows of the audit log the rules buffered, in order, each as the
+	// record was handed to the store (audit_test.go).
+	audit []auditlog.Record
 	// fakeGroupTables are the groups of people, their members and the roles they hold
 	// (groups_test.go).
 	fakeGroupTables
@@ -861,6 +870,10 @@ type fakeSessions struct {
 	signInFailureLimit int
 }
 
+// acmeDirectory is the directory the tests' seats are offered through, as the session
+// library names it on each seat.
+var acmeDirectory = signin.Directory{Method: sessioninfo.MethodAzure, Connection: "acme-tenant"}
+
 func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
 	return s.named[connection], s.labels[method]
 }
@@ -945,7 +958,7 @@ func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.Invitati
 	return &fakePrepared{
 		mail: s.mail,
 		row: session.InvitationRow{
-			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, EveryTenant: req.EveryTenant,
+			ID: s.mail.id, TokenHash: []byte(preparedTokenHash), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, EveryTenant: req.EveryTenant,
 			RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID, ExpiresAt: time.Time{}, NewTenant: req.NewTenant,
 		},
 	}, nil

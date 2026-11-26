@@ -356,7 +356,7 @@ func (s *Store) queryGroups(ctx context.Context, sql string, args ...any) ([]pol
 // writes, as writeUnder says, and wraps policy.ErrNoGroup where the row is not
 // there.
 func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
-	return s.writeUnder(ctx, "assign group member", s.groups.insertMember, []any{group, user, period.StartPtr(), period.EndPtr()}, s.groupRow(group))
+	return s.writeUnder(ctx, "assign group member", s.groups.insertMember, []any{group, user, period.StartPtr(), period.EndPtr()}, nil, s.groupRow(group))
 }
 
 // groupRow is the parent of a group's member and of a group's role: the group's
@@ -403,7 +403,7 @@ func (s *Store) ListGroupMembers(ctx context.Context, group accesstypes.Group) (
 func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 
-	return s.writeUnder(ctx, "assign group role", s.groups.insertRole, []any{group, kind, axis, domain, role, period.StartPtr(), period.EndPtr()}, s.groupRow(group))
+	return s.writeUnder(ctx, "assign group role", s.groups.insertRole, []any{group, kind, axis, domain, role, period.StartPtr(), period.EndPtr()}, nil, s.groupRow(group))
 }
 
 // InsertCustomGroupRole writes what InsertGroupRole writes, only while the roles
@@ -415,7 +415,8 @@ func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, sc
 func (s *Store) InsertCustomGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
 
-	return s.writeUnder(ctx, "assign group role", s.groups.insertRole, []any{group, kind, axis, domain, role, period.StartPtr(), period.EndPtr()}, s.customRole(scope, role), s.groupRow(group))
+	return s.writeUnder(ctx, "assign group role", s.groups.insertRole, []any{group, kind, axis, domain, role, period.StartPtr(), period.EndPtr()}, nil, s.customRole(scope, role),
+		s.groupRow(group))
 }
 
 // DeleteGroupRole removes one role a group holds in scope; removing one it

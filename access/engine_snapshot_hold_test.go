@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 // rowStore is the engine's fake store with the row writes of the calls that store
@@ -79,28 +80,32 @@ func (s *rowStore) row() error {
 	return nil
 }
 
-func (s *rowStore) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+func (s *rowStore) InsertUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
 	if err := s.row(); err != nil {
 		return err
 	}
 
-	return s.fakeStore.InsertUserRole(ctx, scope, user, role, period, reason)
+	return s.fakeStore.InsertUserRole(ctx, scope, user, role, period, reason, record)
 }
 
-func (s *rowStore) InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+func (s *rowStore) InsertCustomUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
 	if err := s.row(); err != nil {
 		return err
 	}
 
-	return s.fakeStore.InsertCustomUserRole(ctx, scope, user, role, period, reason)
+	return s.fakeStore.InsertCustomUserRole(ctx, scope, user, role, period, reason, record)
 }
 
-func (s *rowStore) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
+func (s *rowStore) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error {
 	if err := s.row(); err != nil {
 		return err
 	}
 
-	return s.fakeStore.DeleteUserRole(ctx, scope, user, role)
+	return s.fakeStore.DeleteUserRole(ctx, scope, user, role, record)
 }
 
 func (s *rowStore) DeleteGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission, resource, field, condition string) error {
@@ -630,7 +635,7 @@ func Test_userManager_holdAnnouncement(t *testing.T) {
 			t.Error("holdAnnouncement() inside a held call returned a manager of its own, want the outer call's")
 		}
 		for _, user := range people(2) {
-			if err := inner.store.assignUserRole(t.Context(), tenant1Policy, user, "Editor", accesstypes.Period{}, ""); err != nil {
+			if err := inner.store.assignUserRole(t.Context(), tenant1Policy, user, "Editor", accesstypes.Period{}, "", nil); err != nil {
 				t.Fatalf("assignUserRole() error = %v", err)
 			}
 		}
@@ -644,7 +649,7 @@ func Test_userManager_holdAnnouncement(t *testing.T) {
 			t.Errorf("announcements made as the outer call ended = %d, want 1", got)
 		}
 		// A write that is not held announces for itself, as before the call.
-		if err := manager.store.assignUserRole(t.Context(), tenant1Policy, "frank", "Editor", accesstypes.Period{}, ""); err != nil {
+		if err := manager.store.assignUserRole(t.Context(), tenant1Policy, "frank", "Editor", accesstypes.Period{}, "", nil); err != nil {
 			t.Fatalf("assignUserRole() error = %v", err)
 		}
 		if got := signal.begun.Load(); got != 2 {

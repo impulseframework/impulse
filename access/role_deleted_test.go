@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -48,16 +49,20 @@ func (s *goneStore) dropGroup(group accesstypes.Group) {
 	delete(s.groups.rows, group)
 }
 
-func (s *goneStore) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+func (s *goneStore) InsertUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
 	s.dropRole(role)
 
-	return s.fakeStore.InsertUserRole(ctx, scope, user, role, period, reason)
+	return s.fakeStore.InsertUserRole(ctx, scope, user, role, period, reason, record)
 }
 
-func (s *goneStore) InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+func (s *goneStore) InsertCustomUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
 	s.dropRole(role)
 
-	return s.fakeStore.InsertCustomUserRole(ctx, scope, user, role, period, reason)
+	return s.fakeStore.InsertCustomUserRole(ctx, scope, user, role, period, reason, record)
 }
 
 func (s *goneStore) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {

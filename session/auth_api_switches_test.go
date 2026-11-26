@@ -128,7 +128,8 @@ func TestAuthAPI_accountSwitches_refuseTheImpersonatorsOwnAccount(t *testing.T) 
 				return f.auth.API().DeactivateSessionUser(ctx, id)
 			},
 			expect: func(f *authFixture, id impulse.UUID) {
-				f.store.EXPECT().DeactivateUser(gomock.Any(), id).Return(nil)
+				f.store.EXPECT().User(gomock.Any(), id).Return(&sessionstorage.SessionUser{ID: id, Username: "pat"}, nil)
+				f.store.EXPECT().DeactivateUser(gomock.Any(), id, aRecord()).Return(nil)
 				f.store.EXPECT().DestroyUserSessions(gomock.Any(), id).Return(nil)
 			},
 		},
@@ -138,7 +139,8 @@ func TestAuthAPI_accountSwitches_refuseTheImpersonatorsOwnAccount(t *testing.T) 
 				return f.auth.API().ActivateSessionUser(ctx, id)
 			},
 			expect: func(f *authFixture, id impulse.UUID) {
-				f.store.EXPECT().ActivateUser(gomock.Any(), id).Return(nil)
+				f.store.EXPECT().User(gomock.Any(), id).Return(&sessionstorage.SessionUser{ID: id, Username: "pat"}, nil)
+				f.store.EXPECT().ActivateUser(gomock.Any(), id, aRecord()).Return(nil)
 			},
 		},
 		{
@@ -147,9 +149,9 @@ func TestAuthAPI_accountSwitches_refuseTheImpersonatorsOwnAccount(t *testing.T) 
 				return f.auth.API().DeleteSessionUser(ctx, id)
 			},
 			expect: func(f *authFixture, id impulse.UUID) {
-				f.store.EXPECT().User(gomock.Any(), id).Return(&sessionstorage.SessionUser{ID: id}, nil)
+				f.store.EXPECT().User(gomock.Any(), id).Return(&sessionstorage.SessionUser{ID: id, Username: "pat"}, nil)
 				f.store.EXPECT().DestroyUserSessions(gomock.Any(), id).Return(nil)
-				f.store.EXPECT().DeleteUser(gomock.Any(), id).Return(nil)
+				f.store.EXPECT().DeleteUser(gomock.Any(), id, aRecord()).Return(nil)
 			},
 		},
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/signinflow"
@@ -28,16 +29,18 @@ type AuthDriver interface {
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	Users(ctx context.Context) ([]*dbtype.SessionUser, error)
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
-	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
-	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
-	DeactivateUser(ctx context.Context, id impulse.UUID) error
-	DeleteUser(ctx context.Context, id impulse.UUID) error
+	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash, record *auditlog.Record) error
+	SetFirstUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, record *auditlog.Record) error
+	DeactivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
+	ActivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
+	DeleteUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
+	IdentityByID(ctx context.Context, identityID impulse.UUID) (*dbtype.SessionIdentity, error)
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
-	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
-	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, record *auditlog.Record) error
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID, record *auditlog.Record) error
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID, record *auditlog.Record) error
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	TouchUserSignIn(ctx context.Context, userID impulse.UUID) error
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
@@ -53,14 +56,14 @@ type AuthDriver interface {
 	// at a table that is not there.
 	SetSignInMethodsTableName(name string) error
 	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
-	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
-	SetSelfServiceReset(ctx context.Context, method string, on bool) error
+	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod, record *auditlog.Record) error
+	SetSelfServiceReset(ctx context.Context, method string, on bool, record *auditlog.Record) error
 	// SetSignInSettingsTableName renames the sign-in settings table; the suite points it
 	// at a table that is not there.
 	SetSignInSettingsTableName(name string) error
 	SignInSettings(ctx context.Context) (*dbtype.SignInSettings, error)
-	SetRequireSecondFactor(ctx context.Context, on bool) error
-	SetRememberBrowserDays(ctx context.Context, days int64) error
+	SetRequireSecondFactor(ctx context.Context, on bool, record *auditlog.Record) error
+	SetRememberBrowserDays(ctx context.Context, days int64, record *auditlog.Record) error
 	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
 	// it at a table that is not there.
 	SetSignInAttemptsTableName(name string) error
@@ -69,33 +72,33 @@ type AuthDriver interface {
 	SetSessionTableName(name string) error
 	SetUsernameIsEmail(same bool)
 	UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error)
-	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
-	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
+	SetUserEmail(ctx context.Context, id impulse.UUID, email *string, record *auditlog.Record) error
+	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string, record *auditlog.Record) error
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
-	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error)
+	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string, record *auditlog.Record) (bool, error)
 	SetUserName(ctx context.Context, id impulse.UUID, name *string) error
 	ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error)
 	SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error
-	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
+	InsertMailLink(ctx context.Context, l *dbtype.MailLink, record *auditlog.Record) error
 	MailLinkByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.MailLink, error)
 	LiveMailLinks(ctx context.Context, kind dbtype.MailLinkKind, now time.Time) ([]*dbtype.MailLink, error)
 	ConsumeMailLink(ctx context.Context, tokenHash []byte, now time.Time) error
-	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
+	RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time, record *auditlog.Record) error
 	FailMailLink(ctx context.Context, id impulse.UUID, now time.Time) error
 	SetTokensTableName(name string) error
 	SetDeviceCodesTableName(name string) error
-	InsertToken(ctx context.Context, t *dbtype.Token) error
+	InsertToken(ctx context.Context, t *dbtype.Token, record *auditlog.Record) error
 	TokenByHash(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.Token, error)
 	TokensByUser(ctx context.Context, userID impulse.UUID, now time.Time) ([]*dbtype.Token, error)
 	TouchToken(ctx context.Context, id impulse.UUID, now time.Time) error
-	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation) error
-	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error
+	RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation, record *auditlog.Record) error
+	RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation, record *auditlog.Record) error
 	ExchangeRefreshToken(ctx context.Context, tokenHash []byte, now time.Time, access, refresh *dbtype.Token) error
 	InsertDeviceCode(ctx context.Context, d *dbtype.DeviceCode) error
 	DeviceCodeByUserCode(ctx context.Context, userCode string, now time.Time) (*dbtype.DeviceCode, error)
 	ApproveDeviceCode(ctx context.Context, id, userID impulse.UUID, now time.Time) error
 	DenyDeviceCode(ctx context.Context, id impulse.UUID, now time.Time) error
-	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)
+	RedeemDeviceCode(ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token, record *auditlog.Record) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error)
 	// TokenState and DeviceCodeState read a row whatever its state: the suite's look
 	// at what the live reads no longer return.
 	TokenState(ctx context.Context, tokenHash []byte) (*dbtype.Token, error)
@@ -110,7 +113,7 @@ type AuthDriver interface {
 	TrustedDeviceByToken(ctx context.Context, tokenHash []byte, now, rememberedAfter time.Time) (*dbtype.TrustedDevice, error)
 	TouchTrustedDevice(ctx context.Context, id impulse.UUID, now time.Time) error
 	RevokeTrustedDevice(ctx context.Context, tokenHash []byte, now time.Time) error
-	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
+	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error
 	// FactorCodeState and TrustedDeviceState read a row whatever its state.
 	FactorCodeState(ctx context.Context, id impulse.UUID) (*dbtype.FactorCode, error)
 	TrustedDeviceState(ctx context.Context, tokenHash []byte) (*dbtype.TrustedDevice, error)
@@ -317,7 +320,7 @@ func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg *Auth
 	if cfg.DefaultRole != "" {
 		m.DefaultRole = &cfg.DefaultRole
 	}
-	if err := d.SetSignInMethod(ctx, m); err != nil {
+	if err := d.SetSignInMethod(ctx, m, nil); err != nil {
 		t.Fatalf("SetSignInMethod() error = %v", err)
 	}
 }
@@ -376,7 +379,7 @@ type AuthInstance struct {
 	// ConfirmAddressByLink confirms an address by its mail link as the Auth does when a
 	// person's own link or an administrator's link is followed: the flow's one
 	// transaction over the driver. The harness builds it with NewConfirmAddressByLink.
-	ConfirmAddressByLink func(ctx context.Context, c *signinflow.AddressConfirmation) (*signinflow.ConfirmedAddress, error)
+	ConfirmAddressByLink func(ctx context.Context, c *signinflow.AddressConfirmation, record *auditlog.Record) (*signinflow.ConfirmedAddress, error)
 	// SignInSettingsIn reads the sign-in settings row as a sign-in's transaction reads
 	// it, in a transaction of the driver's. The harness builds it with
 	// NewSignInSettingsIn.
@@ -387,9 +390,9 @@ type AuthInstance struct {
 // confirmation of an address by its mail link.
 func NewConfirmAddressByLink[Tx any](
 	d signinflow.Driver[Tx],
-) func(ctx context.Context, c *signinflow.AddressConfirmation) (*signinflow.ConfirmedAddress, error) {
-	return func(ctx context.Context, c *signinflow.AddressConfirmation) (*signinflow.ConfirmedAddress, error) {
-		confirmed, err := signinflow.ConfirmAddressByLink(ctx, d, c)
+) func(ctx context.Context, c *signinflow.AddressConfirmation, record *auditlog.Record) (*signinflow.ConfirmedAddress, error) {
+	return func(ctx context.Context, c *signinflow.AddressConfirmation, record *auditlog.Record) (*signinflow.ConfirmedAddress, error) {
+		confirmed, err := signinflow.ConfirmAddressByLink(ctx, d, c, record)
 		if err != nil {
 			return nil, errors.Wrap(err, "signinflow.ConfirmAddressByLink()")
 		}
@@ -626,6 +629,11 @@ type AuthHarness struct {
 	// requires a new password: the library reads the mark and clears it, and no write of
 	// the driver's sets it.
 	RequirePasswordChange func(ctx context.Context, t *testing.T, raw any, userID impulse.UUID)
+	// AuditRows reads every row of the audit records table directly, the oldest first:
+	// each by its columns' names (auditlog.Columns), with the columns that hold
+	// nothing left out, the text as strings, OtherRoleNames as []string and the times as
+	// time.Time in UTC.
+	AuditRows func(ctx context.Context, t *testing.T, raw any) []map[string]any
 	// ClockLead is how far the backend's clock may run ahead of the host's; see
 	// Harness.ClockLead.
 	ClockLead time.Duration
@@ -661,6 +669,8 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "an invitation accepted through a directory that asserts an address it did not verify waits for the code as one that asserts none: the claim makes no account, spends no invitation and makes no linked account the one invited", run: testInvitationUnverifiedAddress},
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
 		{name: "the sign-in settings are one row for the whole Auth, absent until a setting is written: each write sets its one field and leaves the other as it stands, a write with no row makes it with the other field at its default, and a sign-in's transaction reads what a plain read does", run: testSignInSettingsOneField},
+		{name: "each write that takes the record of its act writes it in its own transaction: handed none it writes no row and does what it did, refused or finding nothing to change it writes none, and handed one it writes that one row, which holds no secret the writes wrote", run: testAuditRecords},
+		{name: "a row of the audit log is read back as it was handed: a role given with its period's two times and a reason, and an invitation's two role names", run: testAuditRecordParts},
 		{name: "a driver whose sign-in settings table is not there says so: both reads fail with an error naming the table, never a row read as absent", run: testSignInSettingsMissingTable},
 		{name: "the sign-in settings decide after the sign-in rule: while they ask everyone for a second factor, a sign-in the rule allows, or any where there is no rule, is held for the mailed code, as it is with no row; a refusal and the rule's own hold stand either way", run: testSecondFactorSetting},
 		{name: "the setting is read at each sign-in: turned off between two sign-ins the second gets its session, and turned on again the next is held", run: testSecondFactorSettingTurnedOffAndOn},
@@ -698,7 +708,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},
-		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
+		{name: "links are managed outside sign-in, a link is read by its id, and the last means of sign-in stays", run: testLinkManagement},
 		{name: "an identity is unlinked from a password-less user only while another that signs them in remains", run: testUnlinkKeepsAMeansOfSignIn},
 		{name: "two unlinks of a password-less user's two identities, asked at once, leave the user one", run: testUnlinksRace},
 		{name: "a password is removed from a user that has an identity, with its change mark, and stays as the last means of sign-in", run: testPasswordRemoval},

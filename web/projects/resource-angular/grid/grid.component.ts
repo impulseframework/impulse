@@ -145,6 +145,29 @@ function cellContentWidth(cell: Element, range: Range, scale: number): number {
 }
 
 /**
+ * How wide the longest word a cell holds is laid out on one line: each run of letters
+ * between spaces, read by its boxes together. A word longer than its column is drawn broken
+ * over lines, each piece a box of its own, so it is read as its pieces together and not by
+ * the one box around them, which is no wider than the column. A column whose words wrap
+ * (`wraps`) is at least this wide, so a word is broken only where the frame cannot hold it.
+ */
+function longestWordWidth(cell: Element, range: Range, scale: number): number {
+  let widest = 0;
+  const walker = cell.ownerDocument.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    const text = node.textContent ?? '';
+    const words = /\S+/g;
+    for (let word = words.exec(text); word !== null; word = words.exec(text)) {
+      range.setStart(node, word.index);
+      range.setEnd(node, word.index + word[0].length);
+      const pieces = Array.from(range.getClientRects()).reduce((sum, piece) => sum + piece.width, 0);
+      widest = Math.max(widest, laidOut(pieces, scale));
+    }
+  }
+  return widest;
+}
+
+/**
  * How long the lists of a page wait for the fonts the page asked for, in milliseconds,
  * counted from when one of them first found a font on its way: the three seconds a browser
  * itself gives a font before it draws other letters in its place. A list that has not been
@@ -341,7 +364,8 @@ export class AppGridComponent {
    * What each column's heading and the values it has shown need, in pixels, by column id:
    * the narrowest a column goes where nobody dragged it and the page gave it no width. A
    * column is here once it has been measured, between the least a column goes and
-   * MIN_TEXT_COLUMN_WIDTH, and its entry only grows while the list keeps its columns, so
+   * MIN_TEXT_COLUMN_WIDTH, or for a column whose words wrap as wide as its longest word
+   * where that is more (`wraps`, as far as the frame), and its entry only grows while the list keeps its columns, so
    * a page of shorter values, a sort or a filter narrows nothing under a person's eyes. A
    * font that arrives changes how wide every text is drawn: the list is read again then,
    * and a column grows where its text needs more in the font's letters and narrows nowhere.
@@ -883,11 +907,13 @@ export class AppGridComponent {
         need = Math.max(need, this.headingNeeds(heading, range, view, scale));
       }
       let around: number | undefined;
+      // The longest word of a column whose words wrap, which it is never narrower than.
+      let word = 0;
       const read = new Set<string>();
       for (const row of rows) {
         const cell = row.cells[before + index] as HTMLTableCellElement | undefined;
         const words = cell?.textContent ?? '';
-        if (need >= farthest) {
+        if (need >= farthest && (!col.wraps || word >= farthest)) {
           break;
         }
         if (!cell || read.has(words)) {
@@ -896,10 +922,17 @@ export class AppGridComponent {
         read.add(words);
         around ??= aroundContent(cell, view);
         need = Math.max(need, Math.ceil(cellContentWidth(cell, range, scale) + around) + SPARE_WIDTH);
+        if (col.wraps) {
+          word = Math.max(word, Math.ceil(longestWordWidth(cell, range, scale) + around) + SPARE_WIDTH);
+        }
       }
       need = Math.min(farthest, Math.max(MIN_COLUMN_WIDTH, need));
       wholes.set(col.id, need);
-      next.set(col.id, Math.min(MIN_TEXT_COLUMN_WIDTH, need));
+      // A column whose words wrap is as wide as its longest word where that is more than a
+      // column of one line goes to, as far as the frame: a word breaks only where the frame
+      // cannot hold it. Its need only grows, as every column's does.
+      const narrowest = Math.min(MIN_TEXT_COLUMN_WIDTH, need);
+      next.set(col.id, col.wraps ? Math.max(narrowest, Math.min(farthest, word), known.get(col.id) ?? 0) : narrowest);
     });
     // The reads laid the list out, and that started the load of a font it had not asked
     // for before: what was read is in the letters drawn in the font's place.
@@ -1375,14 +1408,16 @@ export class AppGridComponent {
    * read down, a line each, and does not grow wide for a long line. So it takes none of the
    * room the list gives first to a column that cuts a value, shares the frame as a column
    * that cuts nothing does, and is as wide as the columns that share beside it and no wider;
-   * a line longer than that is cut short and offered whole with the cell's other lines.
+   * a line longer than that is cut short and offered whole with the cell's other lines. A
+   * column whose words wrap (`wraps`) asks the same, and its words break at that width; its
+   * narrowest is never less than its longest word (`needs`).
    */
   private wholeFor(col: ColumnConfig): number {
     const own = this.widthFor(col);
     if (own !== null) {
       return own;
     }
-    if (col.lines) {
+    if (col.lines || col.wraps) {
       return this.narrowestFor(col);
     }
     return Math.max(this.narrowestFor(col), this.wholes().get(col.id) ?? 0);

@@ -159,7 +159,7 @@ func testRenameLeavesLastUse(ctx context.Context, t *testing.T, h *AuthHarness) 
 	borrowed := start(pat.Username, sam.ID)
 
 	const renamed = "patricia@lakeside.edu"
-	if err := in.Driver.SetUserUsername(ctx, pat.ID, renamed); err != nil {
+	if err := in.Driver.SetUserUsername(ctx, pat.ID, renamed, nil); err != nil {
 		t.Fatalf("SetUserUsername() error = %v", err)
 	}
 

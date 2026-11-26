@@ -55,7 +55,7 @@ const sampleRows = (resource: Resource): RecordData[] => {
 };
 
 describe("the library's pages over an auth's generated management", () => {
-  it('are the accounts, groups, mailed links, sessions, failed sign-ins, sign-in methods and Break glass of the whole service, and the people, groups and invitations of a sector', () => {
+  it('are the accounts, groups, mailed links, sessions, failed sign-ins, audit log, sign-in methods and Break glass of the whole service, and the people, groups, invitations and audit log of a sector', () => {
     const routes = (auth: string, scope: 'global' | 'domain'): (string | undefined)[] =>
       identityPages(apiDescriptor, resourceMeta, { auth, scope }).map((page) => page.routeData.route);
 
@@ -72,6 +72,7 @@ describe("the library's pages over an auth's generated management", () => {
       'crew-mailed-links',
       'crew-sessions',
       'crew-failed-sign-ins',
+      'crew-audit-log',
       'crew-sign-in',
       'crew-break-glass',
     ]);
@@ -79,6 +80,7 @@ describe("the library's pages over an auth's generated management", () => {
       'sectors/:sectorID/crew-people',
       'sectors/:sectorID/crew-groups',
       'sectors/:sectorID/crew-invitations',
+      'sectors/:sectorID/crew-audit-log',
     ]);
     // The members' roles are their directory's, and so are its groups: no list of groups.
     expect(routes('Members', 'global')).toEqual([
@@ -86,6 +88,7 @@ describe("the library's pages over an auth's generated management", () => {
       'members-mailed-links',
       'members-sessions',
       'members-failed-sign-ins',
+      'members-audit-log',
       'members-sign-in',
     ]);
   });
@@ -98,6 +101,7 @@ describe("the library's pages over an auth's generated management", () => {
       ['Mailed links', ['members-mailed-links']],
       ['Sessions', ['members-sessions']],
       ['Failed sign-ins', ['members-failed-sign-ins']],
+      ['Audit log', ['members-audit-log']],
       ['Sign-in', ['members-sign-in']],
     ]);
     // The description names the directory, in the words its sign-in button carries.

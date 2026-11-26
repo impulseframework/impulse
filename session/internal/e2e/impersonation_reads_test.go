@@ -915,7 +915,7 @@ func readsDisabledAccountKept[Tx any](ctx context.Context, t *testing.T, a *read
 		t.Fatalf("the session = %+v, want pat@lakeside.edu's own (%s)", v, pat)
 	}
 
-	if err := a.store.DeactivateUser(ctx, pat); err != nil {
+	if err := a.store.DeactivateUser(ctx, pat, nil); err != nil {
 		t.Fatalf("DeactivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	own.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/session", nil)
@@ -923,7 +923,7 @@ func readsDisabledAccountKept[Tx any](ctx context.Context, t *testing.T, a *read
 		t.Errorf("the wrapper's User was never asked for %s: the account of an ordinary session is the store's to answer", pat)
 	}
 
-	if err := a.store.ActivateUser(ctx, pat); err != nil {
+	if err := a.store.ActivateUser(ctx, pat, nil); err != nil {
 		t.Fatalf("ActivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	if v := own.readsSession(ctx); v.User != pat.String() {
@@ -982,7 +982,7 @@ func readsTokenAccountKept[Tx any](ctx context.Context, t *testing.T, a *readsAp
 	a.store.set(keptAs[Tx](false))
 	runsAs("while the account is enabled", http.StatusOK)
 
-	if err := a.store.DeactivateUser(ctx, pat); err != nil {
+	if err := a.store.DeactivateUser(ctx, pat, nil); err != nil {
 		t.Fatalf("DeactivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	runsAs("once the library's store holds the account disabled and the wrapper still answers it enabled", http.StatusUnauthorized)
@@ -990,7 +990,7 @@ func readsTokenAccountKept[Tx any](ctx context.Context, t *testing.T, a *readsAp
 		t.Errorf("the wrapper's User was never asked for %s: the account of a token is the store's to answer", pat)
 	}
 
-	if err := a.store.ActivateUser(ctx, pat); err != nil {
+	if err := a.store.ActivateUser(ctx, pat, nil); err != nil {
 		t.Fatalf("ActivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	runsAs("once the library's store holds the account enabled again", http.StatusOK)
@@ -1059,7 +1059,7 @@ func readsTokenIssueHeld[Tx any](ctx context.Context, t *testing.T, a *readsApp[
 	}
 
 	a.store.set(keptAs[Tx](false))
-	if err := a.store.DeactivateUser(ctx, pat); err != nil {
+	if err := a.store.DeactivateUser(ctx, pat, nil); err != nil {
 		t.Fatalf("DeactivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	refused("once the library's store holds the account disabled and the wrapper still answers it enabled")
@@ -1067,7 +1067,7 @@ func readsTokenIssueHeld[Tx any](ctx context.Context, t *testing.T, a *readsApp[
 		t.Errorf("the wrapper's User was never asked for %s: the account a token is issued for is the store's to answer", pat)
 	}
 
-	if err := a.store.ActivateUser(ctx, pat); err != nil {
+	if err := a.store.ActivateUser(ctx, pat, nil); err != nil {
 		t.Fatalf("ActivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	a.store.set(keptAs[Tx](true))
@@ -1131,7 +1131,7 @@ func readsDisabledAccountSignIn[Tx any](ctx context.Context, t *testing.T, a *re
 	}
 
 	a.store.set(keptAs[Tx](false))
-	if err := a.store.DeactivateUser(ctx, pat); err != nil {
+	if err := a.store.DeactivateUser(ctx, pat, nil); err != nil {
 		t.Fatalf("DeactivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	refused("once the library's store holds the account disabled and the wrapper still answers it enabled")
@@ -1139,7 +1139,7 @@ func readsDisabledAccountSignIn[Tx any](ctx context.Context, t *testing.T, a *re
 		t.Error("the wrapper's UserByUserName was never asked for pat@lakeside.edu: the account of a password sign-in is the store's to answer")
 	}
 
-	if err := a.store.ActivateUser(ctx, pat); err != nil {
+	if err := a.store.ActivateUser(ctx, pat, nil); err != nil {
 		t.Fatalf("ActivateUser(%s) on the library's store error = %v", pat, err)
 	}
 	if id, err := a.api.ValidateCredentials(ctx, "pat@lakeside.edu", seedPassword); err != nil || id != pat {

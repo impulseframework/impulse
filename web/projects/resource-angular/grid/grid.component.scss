@@ -93,6 +93,13 @@
     padding: 4px 8px;
     overflow: visible;
   }
+
+  // A column whose words wrap (wraps): its cells are drawn over as many lines as their
+  // words take, and the row grows to fit; a word longer than the column breaks.
+  td.wraps {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .expand-col .mat-mdc-icon-button.mat-mdc-button-base,

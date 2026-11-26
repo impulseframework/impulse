@@ -1924,6 +1924,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "MembersListedAuditRecords (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/members-listed-audit-records",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MembersListedAuditRecords (portal) granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/members-listed-audit-records",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "MembersListedRoleGrants (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/members-listed-role-grants",
@@ -2002,6 +2015,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "MembersTenantAuditRecords (portal) denied",
+			method:       http.MethodGet,
+			target:       "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-audit-records",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "MembersTenantAuditRecords (portal) granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-audit-records",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "MembersTenantRoles (portal) denied",
 			method:       http.MethodGet,
 			target:       "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/members-tenant-roles",
@@ -2051,6 +2077,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.List: true},
 			method:       http.MethodGet,
 			target:       "/console/api/staff-invited-tenant-roles",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "StaffListedAuditRecords denied",
+			method:       http.MethodGet,
+			target:       "/console/api/staff-listed-audit-records",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "StaffListedAuditRecords granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/staff-listed-audit-records",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
@@ -2142,6 +2181,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.List: true},
 			method:       http.MethodGet,
 			target:       "/console/api/staff-takeable-roles",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "StaffTenantAuditRecords denied",
+			method:       http.MethodGet,
+			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-audit-records",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "StaffTenantAuditRecords granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-audit-records",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{

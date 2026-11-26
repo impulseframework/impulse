@@ -1066,6 +1066,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "StaffListedAuditRecords denied",
+			method:       http.MethodGet,
+			target:       "/api/staff-listed-audit-records",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "StaffListedAuditRecords granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/api/staff-listed-audit-records",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "StaffListedRoleGrants denied",
 			method:       http.MethodGet,
 			target:       "/api/staff-listed-role-grants",
@@ -1154,6 +1167,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.List: true},
 			method:       http.MethodGet,
 			target:       "/api/staff-takeable-roles",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "StaffTenantAuditRecords denied",
+			method:       http.MethodGet,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-audit-records",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "StaffTenantAuditRecords granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-audit-records",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{

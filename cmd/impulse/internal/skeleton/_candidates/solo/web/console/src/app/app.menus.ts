@@ -24,7 +24,7 @@ export function appMenus(): Menu[] {
       groups: [
         {
           entries: [
-            // The staff's accounts, their mailed links, sessions and failed sign-ins.
+            // The staff's accounts, their mailed links, sessions, failed sign-ins and audit log.
             ...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
           ],
         },

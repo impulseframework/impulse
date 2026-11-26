@@ -2380,8 +2380,9 @@ describe('a list and the width of its frame', () => {
   // character), how wide an icon, and what a cell's padding and lines are, as the list's
   // stylesheet gives them to a browser: 25 around a cell's content, 13 around a heading's.
   describe('what a column needs', () => {
-    const ranges = Range.prototype as { getBoundingClientRect?: () => DOMRect };
+    const ranges = Range.prototype as { getBoundingClientRect?: () => DOMRect; getClientRects?: () => DOMRectList };
     const own = ranges.getBoundingClientRect;
+    const ownRects = ranges.getClientRects;
     const character = 8;
     const aroundCell = 25;
     const aroundHeading = 13;
@@ -2433,6 +2434,8 @@ describe('a list and the width of its frame', () => {
     let scale: number;
     /** The length the list's stylesheet gives its rule, which a browser lays out and jsdom does not. */
     const ruleLength = 100;
+    /** How wide the characters a range over part of a text takes in are laid out, on one line. */
+    const wordOf = (range: Range): number => (range.endOffset - range.startOffset) * character * wider;
     /** How wide the box of an icon is laid out, whatever is drawn in it: a check's, any other icon's, and nothing for what is no icon. */
     const iconBox = (drawn: Element): number => {
       return drawn.tagName !== 'MAT-ICON' ? 0 : drawn.classList.contains('cell-yes') ? 30 : 24;
@@ -2473,6 +2476,12 @@ describe('a list and the width of its frame', () => {
         if (startsFont) {
           fonts.status = 'loading';
         }
+        // A range over part of a text takes in that part's characters, a word the list
+        // reads; a word longer than a column at the library's width is drawn broken over
+        // lines there, and its box is as wide as its widest piece.
+        if (this.startContainer.nodeType === Node.TEXT_NODE) {
+          return { width: asDrawn(Math.min(wordOf(this), text - aroundCell)) } as DOMRect;
+        }
         // What a range over what an element holds takes in, as a browser has it: the box
         // of each element in it and the line of each text in it, an icon's letters with
         // its box and the box of a line set on its own with the line's text.
@@ -2485,6 +2494,15 @@ describe('a list and the width of its frame', () => {
             ? Math.max(lineBox, letters)
             : letters;
         return { width: asDrawn(width) } as DOMRect;
+      };
+      // Each piece of a word broken over lines is a box of its own, as wide as the column's
+      // text at the library's width, the last what is left.
+      ranges.getClientRects = function (this: Range): DOMRectList {
+        const pieces: DOMRect[] = [];
+        for (let left = wordOf(this); left > 0; left -= text - aroundCell) {
+          pieces.push({ width: asDrawn(Math.min(left, text - aroundCell)) } as DOMRect);
+        }
+        return pieces as unknown as DOMRectList;
       };
       const view = document.defaultView as Window;
       const real = view.getComputedStyle.bind(view);
@@ -2539,6 +2557,11 @@ describe('a list and the width of its frame', () => {
         ranges.getBoundingClientRect = own;
       } else {
         delete ranges.getBoundingClientRect;
+      }
+      if (ownRects) {
+        ranges.getClientRects = ownRects;
+      } else {
+        delete ranges.getClientRects;
       }
       delete (document as { fonts?: unknown }).fonts;
       vi.useRealTimers();
@@ -3332,6 +3355,95 @@ describe('a list and the width of its frame', () => {
           expect(widths()[1]).toBe('285px');
           frameIs(3 * longestLine);
           expect(widths()[1]).toBe('285px');
+        });
+      });
+
+      describe('beside a column whose words wrap over several lines', () => {
+        // An audit log's rows: what was done, and why. "Gave the role Briefing clerk for the
+        // whole application" is fifty-four characters, a sentence the What column draws whole
+        // over several lines where it wraps; as a column of one line it would need far more
+        // than the library's width. "Covering the briefing desk", twenty-six, is a Reason the
+        // column cuts at its narrowest.
+        const acts: RecordData[] = [
+          { what: 'Gave the role Briefing clerk for the whole application', reason: 'Covering the briefing desk' },
+          { what: 'Required a new password', reason: '' },
+        ];
+        const sentence = cellOf(54);
+        const why = cellOf(26);
+        /** The list of acts, its What column wrapping unless a case says otherwise. */
+        const listOfActs = async (what: { wraps?: boolean } = { wraps: true }): Promise<void> => {
+          const fixture = TestBed.createComponent(AppGridComponent);
+          fixture.componentRef.setInput('rowData', acts);
+          fixture.componentRef.setInput('columnDefs', [{ id: 'what', ...what }, { id: 'reason' }]);
+          element = fixture.nativeElement as HTMLElement;
+          detect = (): void => fixture.detectChanges();
+          give = (name, value): void => fixture.componentRef.setInput(name, value);
+          leave = (): void => fixture.destroy();
+          await settle(fixture);
+        };
+
+        it('draws a long text whole over as many lines as its words take, and gives it no room of its own', async () => {
+          await listOfActs();
+          expect(sentence).toBeGreaterThan(text);
+          expect(why).toBeGreaterThan(text);
+          // An equal share of the frame holds the Reason whole and not the sentence on one
+          // line. The sentence asks no room of its own: no column is given a width.
+          frameIs(700);
+          expect(700 / 2).toBeGreaterThan(why);
+          expect(700 / 2).toBeLessThan(sentence);
+
+          expect(held()).toBe(false);
+          expect(widths()).toEqual(['', '']);
+          const cell = cells(0)[0];
+          expect(cell.textContent?.trim()).toBe('Gave the role Briefing clerk for the whole application');
+          expect(getComputedStyle(cell).whiteSpace).toBe('normal');
+          expect(declares(['td', 'wraps'])).toContain('overflow-wrap: anywhere');
+        });
+
+        it('leaves a column without it cut short on one line, and given the room first: the column that wraps keeps its narrowest', async () => {
+          await listOfActs();
+          // Fifty over the columns at their narrowest. The Reason, the one column that cuts a
+          // value, takes all fifty: the last to take, it is given no width and takes what is
+          // left. The What keeps the library's width and wraps there.
+          frameIs(text + text + 50);
+
+          expect(held()).toBe(false);
+          expect(widths()).toEqual([`${text}px`, '']);
+          const reason = cells(0)[1];
+          expect(reason.textContent?.trim()).toBe('Covering the briefing desk');
+          expect(getComputedStyle(reason).whiteSpace).toBe('nowrap');
+          expect(getComputedStyle(reason).textOverflow).toBe('ellipsis');
+        });
+
+        it('is at least as wide as its longest word while the frame has room, so no word is broken', async () => {
+          // Who acted, through an RPC whose name, "GiveCrewSectorGroupRole", is twenty-three
+          // characters: one word that needs more than the library's width.
+          const word = cellOf(23);
+          const fixture = TestBed.createComponent(AppGridComponent);
+          fixture.componentRef.setInput('rowData', [
+            { who: 'governor, through the RPC GiveCrewSectorGroupRole', reason: 'Covering the briefing desk' },
+          ]);
+          fixture.componentRef.setInput('columnDefs', [{ id: 'who', wraps: true }, { id: 'reason' }]);
+          element = fixture.nativeElement as HTMLElement;
+          detect = (): void => fixture.detectChanges();
+          leave = (): void => fixture.destroy();
+          await settle(fixture);
+          expect(word).toBeGreaterThan(text);
+          // Fifty over the word and the Reason at its narrowest: the column that wraps keeps
+          // what its longest word needs, and the Reason, which cuts, takes what is left.
+          frameIs(word + text + 50);
+
+          expect(held()).toBe(false);
+          expect(widths()).toEqual([`${word}px`, '']);
+          expect(cells(0)[0].textContent?.trim()).toBe('governor, through the RPC GiveCrewSectorGroupRole');
+        });
+
+        it('is a rule of the column: the same column drawn on one line asks what its sentence needs', async () => {
+          await listOfActs({});
+          frameIs(700);
+
+          expect(widths()).toEqual([`${sentence}px`, '']);
+          expect(getComputedStyle(cells(0)[0]).whiteSpace).toBe('nowrap');
         });
       });
     });

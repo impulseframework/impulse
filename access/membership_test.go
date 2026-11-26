@@ -235,7 +235,7 @@ func TestClient_PolicyChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Membership() error = %v", err)
 	}
-	if err := store.InsertUserRole(ctx, globalPolicy, key.User, key.Role, accesstypes.Period{}, ""); err != nil {
+	if err := store.InsertUserRole(ctx, globalPolicy, key.User, key.Role, accesstypes.Period{}, "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	if granted() {

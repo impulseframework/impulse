@@ -63,7 +63,7 @@ func insertTokens(ctx context.Context, t *testing.T, d AuthDriver, tokens ...*db
 	t.Helper()
 
 	for _, tok := range tokens {
-		if err := d.InsertToken(ctx, tok); err != nil {
+		if err := d.InsertToken(ctx, tok, nil); err != nil {
 			t.Fatalf("InsertToken(%s) error = %v", tok.Kind, err)
 		}
 	}
@@ -111,7 +111,7 @@ func testTokenRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			w := startWindow(h.ClockLead)
-			if err := in.Driver.InsertToken(ctx, tt.token); err != nil {
+			if err := in.Driver.InsertToken(ctx, tt.token, nil); err != nil {
 				t.Fatalf("InsertToken() error = %v", err)
 			}
 			w.done()
@@ -132,7 +132,7 @@ func testTokenRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if _, err := in.Driver.TokenByHash(ctx, tokenHash(9), time.Now()); !httpio.HasNotFound(err) {
 		t.Errorf("TokenByHash() of an unknown hash error = %v, want NotFound", err)
 	}
-	if err := in.Driver.InsertToken(ctx, newToken("magic", user.ID, tokenHash(4))); err == nil {
+	if err := in.Driver.InsertToken(ctx, newToken("magic", user.ID, tokenHash(4)), nil); err == nil {
 		t.Error("InsertToken() of an unknown kind error = nil, want a refusal")
 	}
 
@@ -171,19 +171,19 @@ func testTokenTouchAndRevoke(ctx context.Context, t *testing.T, h *AuthHarness) 
 	}
 
 	// Only the token's own user revokes it.
-	if err := in.Driver.RevokeUserToken(ctx, other.ID, app.ID, time.Now(), dbtype.TokenRevokedByHand); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeUserToken(ctx, other.ID, app.ID, time.Now(), dbtype.TokenRevokedByHand, nil); !httpio.HasNotFound(err) {
 		t.Errorf("RevokeUserToken() by another user error = %v, want NotFound", err)
 	}
 	if _, err := in.Driver.TokenByHash(ctx, app.TokenHash, time.Now()); err != nil {
 		t.Errorf("TokenByHash() after another user's attempt error = %v, want the token live", err)
 	}
-	if err := in.Driver.RevokeUserToken(ctx, user.ID, app.ID, time.Now(), "gone"); err == nil {
+	if err := in.Driver.RevokeUserToken(ctx, user.ID, app.ID, time.Now(), "gone", nil); err == nil {
 		t.Error("RevokeUserToken() with an unknown reason error = nil, want a refusal")
 	}
 
 	// The user's revocation is stamped, once; the token is dead to the live reads.
 	w = startWindow(h.ClockLead)
-	if err := in.Driver.RevokeUserToken(ctx, user.ID, app.ID, time.Now(), dbtype.TokenRevokedByHand); err != nil {
+	if err := in.Driver.RevokeUserToken(ctx, user.ID, app.ID, time.Now(), dbtype.TokenRevokedByHand, nil); err != nil {
 		t.Fatalf("RevokeUserToken() error = %v", err)
 	}
 	w.done()
@@ -195,7 +195,7 @@ func testTokenTouchAndRevoke(ctx context.Context, t *testing.T, h *AuthHarness) 
 	if _, err := in.Driver.TokenByHash(ctx, app.TokenHash, time.Now()); !httpio.HasNotFound(err) {
 		t.Errorf("TokenByHash() of a revoked token error = %v, want NotFound", err)
 	}
-	if err := in.Driver.RevokeUserToken(ctx, user.ID, app.ID, time.Now(), dbtype.TokenRevokedByHand); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeUserToken(ctx, user.ID, app.ID, time.Now(), dbtype.TokenRevokedByHand, nil); !httpio.HasNotFound(err) {
 		t.Errorf("second RevokeUserToken() error = %v, want NotFound", err)
 	}
 	if err := in.Driver.TouchToken(ctx, app.ID, time.Now()); err != nil {
@@ -206,7 +206,7 @@ func testTokenTouchAndRevoke(ctx context.Context, t *testing.T, h *AuthHarness) 
 	}
 
 	// Revoking one token of a family revokes the family, with one time.
-	if err := in.Driver.RevokeUserToken(ctx, user.ID, access.ID, time.Now(), dbtype.TokenRevokedByHand); err != nil {
+	if err := in.Driver.RevokeUserToken(ctx, user.ID, access.ID, time.Now(), dbtype.TokenRevokedByHand, nil); err != nil {
 		t.Fatalf("RevokeUserToken() of a family member error = %v", err)
 	}
 	gotAccess, gotRefresh := tokenState(ctx, t, in.Driver, access.TokenHash), tokenState(ctx, t, in.Driver, refresh.TokenHash)
@@ -218,7 +218,7 @@ func testTokenTouchAndRevoke(ctx context.Context, t *testing.T, h *AuthHarness) 
 	// Every token of a user, at once; another user's stays.
 	more, moreRefresh := newFamily(user.ID, tokenHash(5), tokenHash(6))
 	insertTokens(ctx, t, in.Driver, more, moreRefresh)
-	if err := in.Driver.RevokeUserTokens(ctx, user.ID, dbtype.TokenRevokedWithUser); err != nil {
+	if err := in.Driver.RevokeUserTokens(ctx, user.ID, dbtype.TokenRevokedWithUser, nil); err != nil {
 		t.Fatalf("RevokeUserTokens() error = %v", err)
 	}
 	if tokens, err := in.Driver.TokensByUser(ctx, user.ID, time.Now()); err != nil || len(tokens) != 0 {
@@ -251,7 +251,7 @@ func testTokenExpired(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if got := tokenState(ctx, t, in.Driver, expired.TokenHash); got.LastUsedAt != nil {
 		t.Errorf("TouchToken() of an expired token set LastUsedAt = %v, want nil", got.LastUsedAt)
 	}
-	if err := in.Driver.RevokeUserToken(ctx, user.ID, expired.ID, time.Now(), dbtype.TokenRevokedByHand); !httpio.HasNotFound(err) {
+	if err := in.Driver.RevokeUserToken(ctx, user.ID, expired.ID, time.Now(), dbtype.TokenRevokedByHand, nil); !httpio.HasNotFound(err) {
 		t.Errorf("RevokeUserToken() of an expired token error = %v, want NotFound", err)
 	}
 }
@@ -326,7 +326,7 @@ func testRefreshExchange(ctx context.Context, t *testing.T, h *AuthHarness) {
 	expired.ExpiresAt = time.Now().Add(-time.Second)
 	byHand := newToken(dbtype.TokenRefresh, user.ID, tokenHash(21))
 	insertTokens(ctx, t, in.Driver, expired, byHand)
-	if err := in.Driver.RevokeUserToken(ctx, user.ID, byHand.ID, time.Now(), dbtype.TokenRevokedByHand); err != nil {
+	if err := in.Driver.RevokeUserToken(ctx, user.ID, byHand.ID, time.Now(), dbtype.TokenRevokedByHand, nil); err != nil {
 		t.Fatalf("RevokeUserToken() error = %v", err)
 	}
 	for _, tt := range []struct {
@@ -410,7 +410,7 @@ func deviceCodePolls(ctx context.Context, t *testing.T, h *AuthHarness, in *Auth
 	t.Helper()
 
 	w := startWindow(h.ClockLead)
-	_, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh)
+	_, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh, nil)
 	w.done()
 	if err != nil || status != dbtype.DevicePending {
 		t.Fatalf("RedeemDeviceCode() before the approval = %q, %v; want pending", status, err)
@@ -420,13 +420,13 @@ func deviceCodePolls(ctx context.Context, t *testing.T, h *AuthHarness, in *Auth
 		t.Fatalf("DeviceCodeState() after a poll = %+v, %v; want LastPolledAt stamped", polled, err)
 	}
 	w.assertStamped(t, "LastPolledAt", *polled.LastPolledAt)
-	if _, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh); err != nil || status != dbtype.DeviceSlowDown {
+	if _, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh, nil); err != nil || status != dbtype.DeviceSlowDown {
 		t.Errorf("RedeemDeviceCode() within the interval = %q, %v; want slow_down", status, err)
 	}
 	if again, err := in.Driver.DeviceCodeState(ctx, code.DeviceCodeHash); err != nil || !again.LastPolledAt.Equal(*polled.LastPolledAt) {
 		t.Errorf("a poll within the interval moved LastPolledAt to %v, want %v kept", again.LastPolledAt, polled.LastPolledAt)
 	}
-	if _, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now().Add(devicePollInterval+time.Second), devicePollInterval, access, refresh); err != nil || status != dbtype.DevicePending {
+	if _, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now().Add(devicePollInterval+time.Second), devicePollInterval, access, refresh, nil); err != nil || status != dbtype.DevicePending {
 		t.Errorf("RedeemDeviceCode() after the interval = %q, %v; want pending", status, err)
 	}
 	if _, err := in.Driver.TokenState(ctx, access.TokenHash); !httpio.HasNotFound(err) {
@@ -467,7 +467,7 @@ func deviceCodeRedemption(ctx context.Context, t *testing.T, h *AuthHarness, in 
 	t.Helper()
 
 	w := startWindow(h.ClockLead)
-	redeemed, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh)
+	redeemed, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh, nil)
 	w.done()
 	if err != nil || status != dbtype.DeviceApproved {
 		t.Fatalf("RedeemDeviceCode() of an approved code = %q, %v; want approved", status, err)
@@ -480,7 +480,7 @@ func deviceCodeRedemption(ctx context.Context, t *testing.T, h *AuthHarness, in 
 		t.Fatalf("DeviceCodeState() after the redemption = %+v, %v; want consumed", consumed, err)
 	}
 	w.assertStamped(t, "ConsumedAt", *consumed.ConsumedAt)
-	if _, _, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh); !httpio.HasNotFound(err) {
+	if _, _, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh, nil); !httpio.HasNotFound(err) {
 		t.Errorf("second RedeemDeviceCode() error = %v, want NotFound", err)
 	}
 
@@ -499,7 +499,7 @@ func deviceCodeDenied(ctx context.Context, t *testing.T, in *AuthInstance, userI
 	if err := in.Driver.DenyDeviceCode(ctx, denied.ID, time.Now()); err != nil {
 		t.Fatalf("DenyDeviceCode() error = %v", err)
 	}
-	if _, status, err := in.Driver.RedeemDeviceCode(ctx, denied.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh); err != nil || status != dbtype.DeviceDenied {
+	if _, status, err := in.Driver.RedeemDeviceCode(ctx, denied.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh, nil); err != nil || status != dbtype.DeviceDenied {
 		t.Errorf("RedeemDeviceCode() of a denied code = %q, %v; want denied", status, err)
 	}
 	if err := in.Driver.ApproveDeviceCode(ctx, denied.ID, userID, time.Now()); !httpio.HasNotFound(err) {
@@ -517,7 +517,7 @@ func deviceCodeExpiredAndUnknown(ctx context.Context, t *testing.T, in *AuthInst
 	if err := in.Driver.InsertDeviceCode(ctx, expired); err != nil {
 		t.Fatalf("InsertDeviceCode() error = %v", err)
 	}
-	if _, status, err := in.Driver.RedeemDeviceCode(ctx, expired.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh); err != nil || status != dbtype.DeviceExpired {
+	if _, status, err := in.Driver.RedeemDeviceCode(ctx, expired.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh, nil); err != nil || status != dbtype.DeviceExpired {
 		t.Errorf("RedeemDeviceCode() of an expired code = %q, %v; want expired", status, err)
 	}
 	if _, err := in.Driver.DeviceCodeByUserCode(ctx, expired.UserCode, time.Now()); !httpio.HasNotFound(err) {
@@ -526,7 +526,7 @@ func deviceCodeExpiredAndUnknown(ctx context.Context, t *testing.T, in *AuthInst
 	if err := in.Driver.ApproveDeviceCode(ctx, expired.ID, userID, time.Now()); !httpio.HasNotFound(err) {
 		t.Errorf("ApproveDeviceCode() of an expired code error = %v, want NotFound", err)
 	}
-	if _, _, err := in.Driver.RedeemDeviceCode(ctx, tokenHash(99), time.Now(), devicePollInterval, access, refresh); !httpio.HasNotFound(err) {
+	if _, _, err := in.Driver.RedeemDeviceCode(ctx, tokenHash(99), time.Now(), devicePollInterval, access, refresh, nil); !httpio.HasNotFound(err) {
 		t.Errorf("RedeemDeviceCode() of an unknown code error = %v, want NotFound", err)
 	}
 }
@@ -544,7 +544,7 @@ func testTokensCascade(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Fatalf("ApproveDeviceCode() error = %v", err)
 	}
 
-	if err := in.Driver.DeleteUser(ctx, user.ID); err != nil {
+	if err := in.Driver.DeleteUser(ctx, user.ID, nil); err != nil {
 		t.Fatalf("DeleteUser() error = %v", err)
 	}
 	if _, err := in.Driver.TokenState(ctx, app.TokenHash); !httpio.HasNotFound(err) {

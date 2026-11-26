@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -98,13 +99,42 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	prepared, place, err := m.prepareInvitation(ctx, txn, inv)
+	if err != nil {
+		return impulse.NilUUID, err
+	}
+	row := prepared.Row()
+	if err := m.refuseImpersonatorsAddress(ctx, txn, row.Email); err != nil {
+		return impulse.NilUUID, err
+	}
+	if err := m.sendInvitation(ctx, txn, inv, prepared, sent); err != nil {
+		return impulse.NilUUID, err
+	}
+	// The row names the roles and the place as the invitation stores them, and is in its
+	// tenant where it has one.
+	invited := invitationRecord(auditlog.ActInvited, row.ID, row.Email)
+	invited.RoleNames = slices.Clone(row.RoleNames)
+	invited.RoleScope, invited.TenantID = auditlog.ScopeOf(place)
+	if err := m.record(ctx, txn, invited); err != nil {
+		return impulse.NilUUID, err
+	}
+
+	return row.ID, nil
+}
+
+// prepareInvitation holds an invitation to the rules of its address, its roles and its
+// place, and has the session library prepare it, writing nothing: it answers the
+// prepared invitation and the place its roles go. Invite and ResendInvitation each ask
+// the guard on the prepared address, send it (sendInvitation), and record their own act.
+func (m *Manager) prepareInvitation(ctx context.Context, txn resource.ReadWriteTransaction, inv *Invitation) (session.PreparedInvitation, accesstypes.PolicyScope, error) {
+	var none accesstypes.PolicyScope
 	email := strings.TrimSpace(inv.Email)
 	if email == "" {
-		return impulse.NilUUID, httpio.NewBadRequestMessage("The invitation has no email address. Give the address to mail it to.")
+		return nil, none, httpio.NewBadRequestMessage("The invitation has no email address. Give the address to mail it to.")
 	}
 	roles := distinctRoles(inv.Roles)
 	if len(roles) == 0 {
-		return impulse.NilUUID, httpio.NewBadRequestMessage("The invitation names no role. Choose at least one role for it to give.")
+		return nil, none, httpio.NewBadRequestMessage("The invitation names no role. Choose at least one role for it to give.")
 	}
 	req := &session.InvitationRequest{
 		Email: email, Name: "", TenantID: "", EveryTenant: inv.EveryDomain, RoleNames: make([]string, 0, len(roles)), NewTenant: nil,
@@ -115,14 +145,14 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	}
 	scope, err := Scope(inv.Domain, inv.EveryDomain)
 	if err != nil {
-		return impulse.NilUUID, err
+		return nil, none, err
 	}
 	if inv.Domain != nil {
 		req.TenantID = *inv.Domain
 	}
 	for _, role := range roles {
 		if err := m.refuseUninvitable(ctx, txn, inv, role, scope); err != nil {
-			return impulse.NilUUID, err
+			return nil, none, err
 		}
 		req.RoleNames = append(req.RoleNames, string(role))
 	}
@@ -133,7 +163,7 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 		if id, ok := UserID(caller.Permissions.User()); ok {
 			_, found, err := m.store.Username(ctx, txn, id)
 			if err != nil {
-				return impulse.NilUUID, errors.Wrap(err, "identity.Store.Username()")
+				return nil, none, errors.Wrap(err, "identity.Store.Username()")
 			}
 			if found {
 				req.InvitedByUserID = impulse.NullUUIDFromUUID(id)
@@ -143,17 +173,22 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 
 	prepared, err := m.sessions.PrepareInvitation(ctx, req)
 	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "identity.SessionAPI.PrepareInvitation()")
+		return nil, none, errors.Wrap(err, "identity.SessionAPI.PrepareInvitation()")
 	}
+
+	return prepared, scope, nil
+}
+
+// sendInvitation writes a prepared invitation, refused where the address is invited
+// elsewhere, and has it mailed once the transaction has committed, telling sent how it
+// went.
+func (m *Manager) sendInvitation(ctx context.Context, txn resource.ReadWriteTransaction, inv *Invitation, prepared session.PreparedInvitation, sent func(sent bool)) error {
 	row := prepared.Row()
-	if err := m.refuseImpersonatorsAddress(ctx, txn, row.Email); err != nil {
-		return impulse.NilUUID, err
-	}
 	if err := m.refuseInvitedElsewhere(ctx, txn, inv.Domain, row.Email); err != nil {
-		return impulse.NilUUID, err
+		return err
 	}
 	if err := m.store.InsertInvitation(ctx, txn, row); err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "identity.Store.InsertInvitation()")
+		return errors.Wrap(err, "identity.Store.InsertInvitation()")
 	}
 	if err := resource.AfterCommit(txn, func(ctx context.Context) {
 		err := prepared.Send(ctx)
@@ -164,10 +199,10 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 			sent(err == nil)
 		}
 	}); err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "resource.AfterCommit()")
+		return errors.Wrap(err, "resource.AfterCommit()")
 	}
 
-	return row.ID, nil
+	return nil
 }
 
 // distinctRoles returns the roles a request names, each once, in the order given: a
@@ -299,11 +334,15 @@ func (m *Manager) WithdrawInvitation(ctx context.Context, txn resource.ReadWrite
 	if makesTenant {
 		return invitationNotFound(invitationID)
 	}
+	withdrawn, err := m.invitationSubject(ctx, txn, invitationID)
+	if err != nil {
+		return err
+	}
 	if err := m.store.ConsumeMailLink(ctx, txn, invitationID); err != nil {
 		return errors.Wrap(err, "identity.Store.ConsumeMailLink()")
 	}
 
-	return nil
+	return m.recordAct(ctx, txn, auditlog.ActInvitationWithdrawn, withdrawn)
 }
 
 // ResendInvitation sends an invitation again, in the caller's transaction: a new
@@ -341,8 +380,15 @@ func (m *Manager) ResendInvitation(ctx context.Context, txn resource.ReadWriteTr
 	if err := m.refuseImpersonatorsAddress(ctx, txn, old.Invitation.Email); err != nil {
 		return impulse.NilUUID, err
 	}
-	id, err := m.Invite(ctx, txn, &old.Invitation, sent)
+	prepared, _, err := m.prepareInvitation(ctx, txn, &old.Invitation)
 	if err != nil {
+		return impulse.NilUUID, err
+	}
+	row := prepared.Row()
+	if err := m.refuseImpersonatorsAddress(ctx, txn, row.Email); err != nil {
+		return impulse.NilUUID, err
+	}
+	if err := m.sendInvitation(ctx, txn, &old.Invitation, prepared, sent); err != nil {
 		return impulse.NilUUID, err
 	}
 	if !old.NotMailed && m.now().Before(old.ExpiresAt) {
@@ -350,8 +396,14 @@ func (m *Manager) ResendInvitation(ctx context.Context, txn resource.ReadWriteTr
 			return impulse.NilUUID, errors.Wrap(err, "identity.Store.ConsumeMailLink()")
 		}
 	}
+	// One row for the act, done to the new invitation: sent again is not invited anew.
+	again := invitationRecord(auditlog.ActInvitationSentAgain, row.ID, row.Email)
+	invitationTenant(again, &old.Invitation)
+	if err := m.record(ctx, txn, again); err != nil {
+		return impulse.NilUUID, err
+	}
 
-	return id, nil
+	return row.ID, nil
 }
 
 // makesTenant reports whether the standing invitation of the id is one that makes a

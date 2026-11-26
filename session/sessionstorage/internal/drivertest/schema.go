@@ -42,7 +42,7 @@ func testDeleteUserKeepsSessionRows(ctx context.Context, t *testing.T, h *AuthHa
 	if err := in.Driver.DestroyUserSessions(ctx, gone.ID); err != nil {
 		t.Fatalf("DestroyUserSessions() error = %v", err)
 	}
-	if err := in.Driver.DeleteUser(ctx, gone.ID); err != nil {
+	if err := in.Driver.DeleteUser(ctx, gone.ID, nil); err != nil {
 		t.Fatalf("DeleteUser() error = %v", err)
 	}
 

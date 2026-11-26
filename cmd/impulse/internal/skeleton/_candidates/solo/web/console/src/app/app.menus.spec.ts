@@ -21,6 +21,7 @@ describe('the menu file', () => {
       'Mailed links',
       'Sessions',
       'Failed sign-ins',
+      'Audit log',
       'Sign-in',
       'Break glass',
       'Feature flags',

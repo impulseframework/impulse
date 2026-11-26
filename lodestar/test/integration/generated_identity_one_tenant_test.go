@@ -81,6 +81,9 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		return n
 	}
 	anvilSector, bastionSector := anvil, bastion
+	// anvilDirectory is the directory a sign-in through Anvil's directory came through, which
+	// the session library names on each seat it hands the hook.
+	anvilDirectory := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "anvil-workspace"}
 	suffix := identitySuffix()
 
 	// odell is a person of Anvil, with an address nobody has confirmed.
@@ -364,7 +367,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		if err != nil {
 			t.Fatalf("creating the account the sign-in is for: %v", err)
 		}
-		seat := []signin.DirectorySeat{{Tenant: accesstypes.Domain(anvil), Role: "Cadet"}}
+		seat := []signin.DirectorySeat{{Tenant: accesstypes.Domain(anvil), Role: "Cadet", Directory: anvilDirectory}}
 		invitation := func(sector, role string) *sessioninfo.Invitation {
 			return &sessioninfo.Invitation{Email: newcomer + "@example.com", TenantID: sector, RoleNames: []string{role}}
 		}
@@ -431,7 +434,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 		seat := func(userID impulse.UUID, username string) error {
 			var committed func(context.Context)
 			_, err := s.db.ReadWriteTransaction(ctx, func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
-				seated, err := strict.DirectorySeated().Seat(ctx, tx, userID, username, []signin.DirectorySeat{{Tenant: accesstypes.Domain(anvil), Role: "Cadet"}})
+				seated, err := strict.DirectorySeated().Seat(ctx, tx, userID, username, []signin.DirectorySeat{{Tenant: accesstypes.Domain(anvil), Role: "Cadet", Directory: anvilDirectory}})
 				if err != nil {
 					return fmt.Errorf("DirectorySeated().Seat(%s): %w", username, err)
 				}

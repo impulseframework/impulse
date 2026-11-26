@@ -137,6 +137,9 @@ type directoryFactorData struct {
 	// the program's auths and told what each auth's sign-in settings ask
 	// (switchDirectoryRules).
 	Rules string
+	// IdentityAccessor is the application's accessor of the generated identity client
+	// whose audit log the word is recorded in, "" where none is (tenantSignInRecorder).
+	IdentityAccessor string
 
 	LocalPackageImports string
 	ResourcePackage     string
@@ -168,6 +171,7 @@ func (r *resourceGenerator) generateDirectoryFactor() error {
 		Stop:                methods[1],
 		DomainRoute:         fmt.Sprintf("%s/{%s}", r.domainRouteSegment, r.domainRouteParam),
 		Rules:               r.switchDirectoryRules(factor.record),
+		IdentityAccessor:    r.tenantSignInRecorder(),
 		LocalPackageImports: r.localPackageImports(),
 		ResourcePackage:     r.resource.Package(),
 		RouterPackage:       r.router.Package(),

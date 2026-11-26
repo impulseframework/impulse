@@ -5339,6 +5339,17 @@ grants each like any resource.
   period has not begun, or one the group gives its members nothing by. A tenant's list
   (`CrewSectorGroupRoles`) carries the count itself.
 
+**The audit log.** The generated management lists the log twice:
+`<Auth>ListedAuditRecords` for the whole application and `<Auth><Tenant>AuditRecords` for
+the acts done in one tenant. Both are computed resources: the rows come from the table,
+and the three texts a person reads (`who`, `what`, `doneTo`) are written by the library as
+each row is read. A role file grants each as it grants any list, and the Audit log page
+draws it, newest first. A list filters by the time, the act, the username of the person
+who acted, the name of whom or what it was done to, and the role. A filter that matches
+part of a text (starts with, ends with, contains) is applied to the rows in memory, so on
+a long log it reads every row the other filters admit. It is not filtered or sorted by the
+three texts, which no column holds, and it shows no total. Both lists are read only.
+
 **The custom roles' grants.** `CrewListedRoleGrants` is the custom roles' grants as the
 store holds them, each with `skipped`: empty for a grant its role holds, and for one the
 permission engine leaves out when it loads the policy, why, in the words the deploy
@@ -6252,8 +6263,9 @@ library builds the pages from the block at run time
 `@impulseframework/resource-angular/identity-pages`): the people with a menu on each row
 holding the methods the server lists for that row, a person's row page with the roles
 held, the ways they sign in and the sign-in identities under it (and the sessions, for
-the whole application), the invitations, and for the whole application the sessions,
-the failed sign-ins and the Sign-in page: one row for each sign-in method, Open sign-up on a
+the whole application), the invitations, the audit log, and for the whole application
+the sessions, the failed sign-ins and the Sign-in page: one row for each sign-in method,
+Open sign-up on a
 method that is invite only and Make invite only on one that is open, each only where the
 caller holds the grant and never on a method the directory or the application's own rule
 decides, the method's warning drawn by the method dialog, and a notice above the list

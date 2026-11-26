@@ -11,6 +11,8 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -69,11 +71,16 @@ import (
 // auth names the Auth in the log line a given role leaves.
 func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
+		// What the acceptance writes is the invitation's act, whoever accepts it.
+		ctx = actingOn(actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessInvitation), ""), userID, username)
 		if inv.NewTenant != nil {
 			return m.tenantInvitationAccepted(ctx, auth, tx, userID, username, inv)
 		}
 		txn := resource.NewSpannerReadWriteTransaction(tx)
 		if err := m.giveInvitedRoles(m.oneTenant.within(ctx, tx), txn, userID, username, inv); err != nil {
+			return nil, err
+		}
+		if err := m.recordAccepted(ctx, txn, userID, username, inv.TenantID); err != nil {
 			return nil, err
 		}
 
@@ -132,7 +139,7 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	seat := func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
 		txn := resource.NewSpannerReadWriteTransaction(tx)
-		given, taken, err := m.giveDirectoryRoles(m.oneTenant.within(ctx, tx), txn, userID, username, seats)
+		given, taken, err := m.giveDirectoryRoles(m.oneTenant.within(actingOn(ctx, userID, username), tx), txn, userID, username, seats)
 		if err != nil {
 			return nil, err
 		}
@@ -161,6 +168,15 @@ func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*span
 	}
 
 	return session.DirectorySeatedHook[*spanner.ReadWriteTransaction]{Seat: seat, OnlyIn: onlyIn}
+}
+
+// recordAccepted buffers the row of an invitation accepted: done to the account that
+// accepted it, in the tenant the invitation is into ("" for none) or the one it made.
+func (m *Manager) recordAccepted(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username, tenant string) error {
+	accepted := accountRecord(auditlog.ActInvitationAccepted, userID, username)
+	accepted.TenantID = tenant
+
+	return m.record(ctx, txn, accepted)
 }
 
 // giveInvitedRoles buffers the memberships an accepted invitation gives the person:
@@ -310,6 +326,11 @@ func (m *Manager) giveUnlessHeld(ctx context.Context, txn resource.ReadWriteTran
 // what is committed, which still sees the rows just deleted (movingInto). The
 // application's own people, who hold a role for the whole application or in every
 // tenant, are given the seat and keep everything.
+//
+// The seat's directory acts, by the name the auth's registrations give it
+// (directoryNamed): the seat's row is a role given in its form auditlog.FormSeat, in
+// the seat's tenant, and each row a move deletes is recorded in the tenant it was taken
+// from, in the form auditlog.FormMove, naming the seat's tenant (takeOtherTenants).
 func (m *Manager) giveDirectoryRoles(
 	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat,
 ) (given []signin.DirectorySeat, taken []accesstypes.Domain, err error) {
@@ -329,9 +350,10 @@ func (m *Manager) giveDirectoryRoles(
 		if inTenant(held, scope) {
 			continue
 		}
-		assigning := ctx
+		directory := m.directoryNamed(seat.Directory)
+		assigning := seatingAs(ctx, directory)
 		if m.oneTenant != nil && !outsideTenants(held) && inAnotherTenant(held, scope) {
-			from, err := m.takeOtherTenants(ctx, txn, rows, seat.Tenant)
+			from, err := m.takeOtherTenants(actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessDirectorySignIn), directory), txn, rows, seat.Tenant)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -340,7 +362,7 @@ func (m *Manager) giveDirectoryRoles(
 					taken = append(taken, tenant)
 				}
 			}
-			assigning = movingInto(ctx, userID, scope)
+			assigning = movingInto(assigning, userID, scope)
 		}
 		if err := m.AssignRole(assigning, txn, scope, userID, seat.Role); err != nil {
 			return nil, nil, errors.Wrapf(err, "the directory's default role gives %q the role %s in %s", username, seat.Role, seat.Tenant)
@@ -360,8 +382,20 @@ func (m *Manager) giveDirectoryRoles(
 // than tenant (tenantOf): each membership of the person's own and each place in a
 // group, whatever its period, and answers the tenants it took rows from, each once. No
 // rule is asked and nothing is mailed: a row held for the whole application, in every
-// tenant or on another axis is no tenant's, and stays.
+// tenant or on another axis is no tenant's, and stays. Each deletion is recorded by what
+// acts in ctx (actingAs), in the tenant the row was taken from, in the form
+// auditlog.FormMove, naming tenant, the one that seats the person, by the name the
+// application gives it (its key where it gives none): a membership as a role taken, a
+// place as a removal from the group, the group by its name.
 func (m *Manager) takeOtherTenants(ctx context.Context, txn resource.ReadWriteTransaction, rows *heldRows, tenant accesstypes.Domain) ([]accesstypes.Domain, error) {
+	person, err := m.accountSubject(ctx, txn, rows.userID)
+	if err != nil {
+		return nil, err
+	}
+	person.Form, person.SeatingTenantID = auditlog.FormMove, string(tenant)
+	if person.SeatingTenantName = m.sessions.TenantName(tenant); person.SeatingTenantName == "" {
+		person.SeatingTenantName = string(tenant)
+	}
 	var from []accesstypes.Domain
 	takenFrom := func(held accesstypes.Domain) {
 		if !slices.Contains(from, held) {
@@ -376,6 +410,12 @@ func (m *Manager) takeOtherTenants(ctx context.Context, txn resource.ReadWriteTr
 		if err := m.store.DeleteMembership(ctx, txn, &rows.own[i]); err != nil {
 			return nil, errors.Wrap(err, "identity.Store.DeleteMembership()")
 		}
+		taken := *person
+		taken.Act, taken.RoleNames = auditlog.ActRoleTaken, []string{string(rows.own[i].Role)}
+		taken.RoleScope, taken.TenantID = auditlog.RoleScopeTenant, string(held)
+		if err := m.record(ctx, txn, &taken); err != nil {
+			return nil, err
+		}
 		takenFrom(held)
 	}
 	for _, place := range rows.places {
@@ -386,6 +426,14 @@ func (m *Manager) takeOtherTenants(ctx context.Context, txn resource.ReadWriteTr
 		key := access.GroupMemberKey{Group: GroupID(place.ID), User: User(rows.userID)}
 		if err := m.store.DeleteGroupMember(ctx, txn, &key); err != nil {
 			return nil, errors.Wrap(err, "identity.Store.DeleteGroupMember()")
+		}
+		out := *person
+		out.Act, out.GroupID, out.TenantID = auditlog.ActGroupMemberRemoved, string(key.Group), string(held)
+		if out.GroupName, _, err = m.groupWhere(ctx, txn, key.Group); err != nil {
+			return nil, err
+		}
+		if err := m.record(ctx, txn, &out); err != nil {
+			return nil, err
 		}
 		takenFrom(held)
 	}

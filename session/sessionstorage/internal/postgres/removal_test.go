@@ -376,7 +376,7 @@ func TestAuth_LinkInsertSkipsAHeldRow(t *testing.T) {
 
 	short, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := in.Driver.InsertMailLink(short, newLink("while-held", time.Now().Add(time.Hour))); err != nil {
+	if err := in.Driver.InsertMailLink(short, newLink("while-held", time.Now().Add(time.Hour)), nil); err != nil {
 		t.Fatalf("InsertMailLink() while another transaction holds a due row error = %v, want it to go on without the row", err)
 	}
 	if !exists(ctx, t, in.Raw, `"SessionMailLinks"`, held.ID) {
@@ -405,7 +405,7 @@ func TestAuth_LinkInsertStandsWhenItsRemovalFails(t *testing.T) {
 	age(ctx, t, in.Raw, `INSERT INTO "LinkNotes" ("LinkId") VALUES ($1)`, due.ID)
 
 	link := newLink("new", time.Now().Add(time.Hour))
-	if err := in.Driver.InsertMailLink(ctx, link); err != nil {
+	if err := in.Driver.InsertMailLink(ctx, link, nil); err != nil {
 		t.Fatalf("InsertMailLink() whose removal fails error = %v, want the link inserted", err)
 	}
 	if !exists(ctx, t, in.Raw, `"SessionMailLinks"`, link.ID) {
@@ -543,7 +543,7 @@ func TestAuth_RedemptionRemovesExpiredTokens(t *testing.T) {
 		t.Fatalf("InsertDeviceCode() error = %v", err)
 	}
 
-	_, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), 5*time.Second, testToken(dbtype.TokenAccess, impulse.NilUUID, 3), testToken(dbtype.TokenRefresh, impulse.NilUUID, 4))
+	_, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), 5*time.Second, testToken(dbtype.TokenAccess, impulse.NilUUID, 3), testToken(dbtype.TokenRefresh, impulse.NilUUID, 4), nil)
 	if err != nil || status != dbtype.DevicePending {
 		t.Fatalf("RedeemDeviceCode() of a pending code = %q, %v; want pending", status, err)
 	}
@@ -554,7 +554,7 @@ func TestAuth_RedemptionRemovesExpiredTokens(t *testing.T) {
 	if err := in.Driver.ApproveDeviceCode(ctx, code.ID, user.ID, time.Now()); err != nil {
 		t.Fatalf("ApproveDeviceCode() error = %v", err)
 	}
-	_, status, err = in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), 5*time.Second, testToken(dbtype.TokenAccess, impulse.NilUUID, 5), testToken(dbtype.TokenRefresh, impulse.NilUUID, 6))
+	_, status, err = in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), 5*time.Second, testToken(dbtype.TokenAccess, impulse.NilUUID, 5), testToken(dbtype.TokenRefresh, impulse.NilUUID, 6), nil)
 	if err != nil || status != dbtype.DeviceApproved {
 		t.Fatalf("RedeemDeviceCode() of an approved code = %q, %v; want approved", status, err)
 	}
@@ -838,7 +838,7 @@ func insertLink(ctx context.Context, t *testing.T, d drivertest.AuthDriver, toke
 	t.Helper()
 
 	link := newLink(token, expiresAt)
-	if err := d.InsertMailLink(ctx, link); err != nil {
+	if err := d.InsertMailLink(ctx, link, nil); err != nil {
 		t.Fatalf("InsertMailLink(%q) error = %v", token, err)
 	}
 
@@ -904,7 +904,7 @@ func insertTestTokens(ctx context.Context, t *testing.T, d drivertest.AuthDriver
 	t.Helper()
 
 	for _, tok := range tokens {
-		if err := d.InsertToken(ctx, tok); err != nil {
+		if err := d.InsertToken(ctx, tok, nil); err != nil {
 			t.Fatalf("InsertToken(%s) error = %v", tok.Kind, err)
 		}
 	}

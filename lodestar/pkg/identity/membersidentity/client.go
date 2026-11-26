@@ -17,6 +17,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/membersresources"
@@ -244,4 +245,17 @@ func (c *Client) AnnounceThrough(svc live.Service, derivations *live.Derivations
 // where it builds the auth and this client.
 func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
 	return c.manager.SignedIn("Members", db)
+}
+
+// RecordTenantSignIn records an act on a tenant's own sign-in settings in the Members
+// auth's audit log, in the caller's transaction: done to the tenant, by who acted, with
+// the act's one part, named (identity.Manager.RecordTenantSignIn). The generated methods
+// of a tenant's directory call it after their write, where this auth's people are the
+// ones the directories record's outlets sign in.
+func (c *Client) RecordTenantSignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, act auditlog.Act, named string) error {
+	if err := c.manager.RecordTenantSignIn(ctx, txn, tenant, act, named); err != nil {
+		return errors.Wrap(err, "identity.Manager.RecordTenantSignIn()")
+	}
+
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/tracer"
@@ -170,6 +171,17 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 	if !inserted && !changed {
 		return nil
 	}
+	// The row names the role where it is held, with the period and the reason the
+	// membership now has.
+	gave, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	gave.Act, gave.Form, gave.RoleNames, gave.Period, gave.Reason = auditlog.ActRoleGiven, roleFormOf(ctx), []string{string(role)}, given.period, given.reason
+	gave.RoleScope, gave.TenantID = auditlog.ScopeOf(scope)
+	if err := m.record(ctx, txn, gave); err != nil {
+		return err
+	}
 
 	return m.policyChangesAtCommit(txn)
 }
@@ -222,8 +234,17 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 	if err := m.judgeRoleRemoval(ctx, txn, scope, userID, key); err != nil {
 		return err
 	}
+	took, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {
 		return errors.Wrap(err, "identity.Store.DeleteMembership()")
+	}
+	took.Act, took.RoleNames = auditlog.ActRoleTaken, []string{string(key.Role)}
+	took.RoleScope, took.TenantID = auditlog.ScopeOf(scope)
+	if err := m.record(ctx, txn, took); err != nil {
+		return err
 	}
 
 	return m.policyChangesAtCommit(txn)

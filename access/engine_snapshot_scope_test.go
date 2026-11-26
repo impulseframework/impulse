@@ -19,7 +19,7 @@ func everyTenantEditorStore(t *testing.T) *fakeStore {
 	for _, err := range []error{
 		store.InsertRole(ctx, everyDomainPolicy, "Editor", aDescription),
 		store.InsertGrant(ctx, everyDomainPolicy, "Editor", "Read", "employees", "", ""),
-		store.InsertUserRole(ctx, everyDomainPolicy, "erin", "Editor", accesstypes.Period{}, ""),
+		store.InsertUserRole(ctx, everyDomainPolicy, "erin", "Editor", accesstypes.Period{}, "", nil),
 	} {
 		if err != nil {
 			t.Fatalf("seeding fake store: %v", err)

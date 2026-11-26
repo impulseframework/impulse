@@ -177,8 +177,9 @@ func Tenant(tenant string) ResolutionOption {
 // resolution's transaction, through the Auth's directory seat hook
 // (session.Auth.SetDirectoryAdmission), which gives a seat where the person holds
 // nothing in the tenant: the default seats of the directories the tenants declared,
-// which the standard rule adds itself, or a custom rule's own. A resolution that
-// carries seats on an Auth with no hook fails the sign-in.
+// which the standard rule adds itself, or a custom rule's own; a seat that names no
+// directory is handed to the hook naming the one the person signed in through. A
+// resolution that carries seats on an Auth with no hook fails the sign-in.
 func Seats(seats ...DirectorySeat) ResolutionOption {
 	return func(r *Resolution) {
 		r.seats = append(r.seats, seats...)

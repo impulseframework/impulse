@@ -7,6 +7,7 @@ import (
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"github.com/jackc/pgx/v5"
@@ -79,18 +80,21 @@ func (s *SessionStorageDriver) SignInSettingsIn(ctx context.Context, tx pgx.Tx) 
 // leaves how long a browser is remembered as it stands. It is one statement: with no
 // row, the row is made with the default period, and a row there has the one field and
 // its time written, never the row read and written back.
-func (s *SessionStorageDriver) SetRequireSecondFactor(ctx context.Context, on bool) error {
+func (s *SessionStorageDriver) SetRequireSecondFactor(ctx context.Context, on bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, now())
 		ON CONFLICT ("Name") DO UPDATE SET "RequireSecondFactor" = EXCLUDED."RequireSecondFactor", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
 		s.signInSettingsTable(), signInSettingsColumns)
-	if _, err := s.conn.Exec(ctx, query, dbtype.SignInSettingsName, on, dbtype.DefaultRememberBrowserDays); err != nil {
-		return errors.Wrap(err, "pgx.Conn.Exec()")
-	}
 
-	return nil
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		if _, err := db.Exec(ctx, query, dbtype.SignInSettingsName, on, dbtype.DefaultRememberBrowserDays); err != nil {
+			return errors.Wrap(err, "Exec()")
+		}
+
+		return nil
+	})
 }
 
 // SetRememberBrowserDays writes for how many days a remembered browser skips the code on
@@ -98,16 +102,19 @@ func (s *SessionStorageDriver) SetRequireSecondFactor(ctx context.Context, on bo
 // leaves whether a second factor is required as it stands. It is one statement: with no
 // row, the row is made with the second factor required, and a row there has the one
 // field and its time written, never the row read and written back.
-func (s *SessionStorageDriver) SetRememberBrowserDays(ctx context.Context, days int64) error {
+func (s *SessionStorageDriver) SetRememberBrowserDays(ctx context.Context, days int64, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, true, $2, now())
 		ON CONFLICT ("Name") DO UPDATE SET "RememberBrowserDays" = EXCLUDED."RememberBrowserDays", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
 		s.signInSettingsTable(), signInSettingsColumns)
-	if _, err := s.conn.Exec(ctx, query, dbtype.SignInSettingsName, days); err != nil {
-		return errors.Wrap(err, "pgx.Conn.Exec()")
-	}
 
-	return nil
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		if _, err := db.Exec(ctx, query, dbtype.SignInSettingsName, days); err != nil {
+			return errors.Wrap(err, "Exec()")
+		}
+
+		return nil
+	})
 }

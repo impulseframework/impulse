@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/cookie"
@@ -1268,7 +1269,11 @@ func (p *AuthAPI[S, U, Tx]) ResetFactors(ctx context.Context, userID impulse.UUI
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.auth.storage.RevokeTrustedDevices(ctx, userID); err != nil {
+	forgotten, err := p.auth.accountRecordOf(ctx, auditlog.ActBrowsersForgotten, p.auth.acting(ctx), userID)
+	if err != nil {
+		return err
+	}
+	if err := p.auth.storage.RevokeTrustedDevices(ctx, userID, forgotten); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeTrustedDevices()")
 	}
 	if err := p.NoticeFactorReset(ctx, userID); err != nil {

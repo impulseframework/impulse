@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -104,7 +105,9 @@ func (p *AuthAPI[S, U, Tx]) CreateApplicationToken(ctx context.Context, req *App
 		ID: id, TokenHash: hash, Kind: sessionstorage.TokenApplication, UserID: user.ID, Outlet: req.Outlet, Name: name,
 		ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := a.storage.InsertToken(ctx, tok); err != nil {
+	made := accountRecord(auditlog.ActTokenMade, a.acting(ctx), user.ID, user.Username)
+	made.NewValue = name
+	if err := a.storage.InsertToken(ctx, tok, made); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertToken()")
 	}
 
@@ -158,7 +161,11 @@ func (p *AuthAPI[S, U, Tx]) RevokeToken(ctx context.Context, userID, id impulse.
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.auth.storage.RevokeUserToken(ctx, userID, id, sessionstorage.TokenRevokedByHand); err != nil {
+	revoked, err := p.auth.accountRecordOf(ctx, auditlog.ActTokenRevoked, p.auth.acting(ctx), userID)
+	if err != nil {
+		return err
+	}
+	if err := p.auth.storage.RevokeUserToken(ctx, userID, id, sessionstorage.TokenRevokedByHand, revoked); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeUserToken()")
 	}
 
@@ -171,7 +178,12 @@ func (p *AuthAPI[S, U, Tx]) RevokeUserTokens(ctx context.Context, userID impulse
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.auth.storage.RevokeUserTokens(ctx, userID, sessionstorage.TokenRevokedWithUser); err != nil {
+	revoked, err := p.auth.accountRecordOf(ctx, auditlog.ActTokenRevoked, p.auth.acting(ctx), userID)
+	if err != nil {
+		return err
+	}
+	revoked.Form = auditlog.FormEveryToken
+	if err := p.auth.storage.RevokeUserTokens(ctx, userID, sessionstorage.TokenRevokedWithUser, revoked); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeUserTokens()")
 	}
 
@@ -288,7 +300,9 @@ func (a *Auth[S, U, Tx]) mintPair() (access, refresh *sessionstorage.Token, pair
 // the person approved it, with status DeviceApproved, and once only; otherwise no
 // pair and the status, DevicePending while the person has not decided, DeviceSlowDown
 // when the client polled before the interval passed, DeviceDenied, or DeviceExpired. A
-// device code that is unknown or was redeemed already is NotFound.
+// device code that is unknown or was redeemed already is NotFound. The poll that issues
+// the pair is recorded as a token made by the device (auditlog.ProcessDevice), done to
+// the person who approved it, whom the store names.
 func (p *AuthAPI[S, U, Tx]) RedeemDeviceCode(ctx context.Context, deviceCode string) (*TokenPair, sessionstorage.DeviceCodeStatus, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -298,7 +312,7 @@ func (p *AuthAPI[S, U, Tx]) RedeemDeviceCode(ctx context.Context, deviceCode str
 	if err != nil {
 		return nil, "", err
 	}
-	_, status, err := a.storage.RedeemDeviceCode(ctx, hashToken(deviceCode), a.settings.tokens.pollInterval, access, refresh)
+	_, status, err := a.storage.RedeemDeviceCode(ctx, hashToken(deviceCode), a.settings.tokens.pollInterval, access, refresh, deviceRecord())
 	if err != nil {
 		return nil, "", errors.Wrap(err, "sessionstorage.AuthStore.RedeemDeviceCode()")
 	}

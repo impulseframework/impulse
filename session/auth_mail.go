@@ -11,7 +11,10 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/actor"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/attempts"
@@ -1024,12 +1027,16 @@ func (a *Auth[S, U, Tx]) hashToSet(password string, who passwordstrength.Details
 // has just proven they hold the account) onto the user as verified, when the user holds
 // no verified address and no other user holds it. No other provider's word for an
 // address is written: that address is confirmed by the mailed code. It is bookkeeping
-// after the session stands: a failure is logged.
-func (a *Auth[S, U, Tx]) claimVerifiedEmail(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity) {
+// after the session stands: a failure is logged. An address written is recorded in the
+// auth's audit log, done to the account username names by its person, through the
+// sign-in.
+func (a *Auth[S, U, Tx]) claimVerifiedEmail(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity) {
 	if identity == nil || !identity.EmailVerified || identity.Email == "" {
 		return
 	}
-	if _, err := a.storage.ClaimVerifiedEmail(ctx, userID, identity.Email); err != nil {
+	set := accountRecord(auditlog.ActAddressChanged, eventsource.AccountProcessEvent(ctx, actor.NewAccount(userID, username), auditlog.ProcessSignIn), userID, username)
+	set.NewValue = identity.Email
+	if _, err := a.storage.ClaimVerifiedEmail(ctx, userID, identity.Email, set); err != nil {
 		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClaimVerifiedEmail()"))
 	}
 }

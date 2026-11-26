@@ -205,6 +205,10 @@ func (a *App) StaffGivableRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffGivableRoles()
 }
 
+func (a *App) StaffListedAuditRecords() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffListedAuditRecords()
+}
+
 func (a *App) StaffListedRoleGrants() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffListedRoleGrants()
 }

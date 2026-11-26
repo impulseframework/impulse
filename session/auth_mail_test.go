@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/azure"
@@ -52,6 +54,10 @@ type mailLinks struct {
 	// whatever it answered.
 	beforeConsume func(ctx context.Context)
 	consumes      int
+
+	// records are the records of their acts the links were stored and withdrawn with, by
+	// the link's id, in the order the store was handed them (nil for none).
+	records map[impulse.UUID][]*auditlog.Record
 
 	// unmailed holds the ids of the links the store was told could not be mailed.
 	unmailed map[impulse.UUID]bool
@@ -108,13 +114,16 @@ func (m *mailLinks) expectAccounts(f *authFixture) {
 // expectMailLinks gives the fixture's store a mail links table and returns it.
 func expectMailLinks(f *authFixture) *mailLinks {
 	links := &mailLinks{}
-	f.store.EXPECT().InsertMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, l *sessionstorage.MailLink) error {
+	f.store.EXPECT().InsertMailLink(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, l *sessionstorage.MailLink, record *auditlog.Record) error {
 		links.mu.Lock()
 		defer links.mu.Unlock()
-		l.ID = impulse.Must(impulse.NewUUID())
+		if l.ID.IsNil() {
+			l.ID = impulse.Must(impulse.NewUUID())
+		}
 		l.CreatedAt = time.Now()
 		row := *l
 		links.rows = append(links.rows, &row)
+		links.keep(f.t, "InsertMailLink", l, record)
 
 		return nil
 	}).AnyTimes()
@@ -145,7 +154,7 @@ func expectMailLinks(f *authFixture) *mailLinks {
 
 		return httpio.NewNotFoundMessage("no live mail link")
 	}).AnyTimes()
-	f.store.EXPECT().RevokeMailLink(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, id impulse.UUID) error {
+	f.store.EXPECT().RevokeMailLink(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 		if links.beforeRevoke != nil {
 			links.beforeRevoke(ctx)
 		}
@@ -156,6 +165,7 @@ func expectMailLinks(f *authFixture) *mailLinks {
 			if l.ID != id || l.ConsumedAt != nil {
 				continue
 			}
+			links.keep(f.t, "RevokeMailLink", l, record)
 			now := time.Now()
 			l.ConsumedAt = &now
 			if links.withdrawn == nil {
@@ -202,6 +212,43 @@ func expectMailLinks(f *authFixture) *mailLinks {
 	}).AnyTimes()
 
 	return links
+}
+
+// keep holds the record a write of the link l was handed to the acts the session library
+// records, and keeps it by the link's id: a sign-up's link and a first password's code
+// are recorded by nobody, a withdrawal is recorded for an invitation alone, and any other
+// link stored, an invitation that names no role among them, is handed the record of its
+// act, which must validate. The caller holds the
+// table's lock.
+func (m *mailLinks) keep(t *testing.T, call string, l *sessionstorage.MailLink, record *auditlog.Record) {
+	t.Helper()
+
+	recorded := l.Kind != sessionstorage.MailLinkSignUp && l.Kind != sessionstorage.MailLinkFirstPassword
+	if call == "RevokeMailLink" {
+		recorded = l.Kind == sessionstorage.MailLinkInvitation
+	}
+	switch {
+	case !recorded && record != nil:
+		t.Errorf("%s of a %s link was handed the record %+v, want none", call, l.Kind, record)
+	case recorded && record == nil:
+		t.Errorf("%s of a %s link was handed no record, want the record of its act", call, l.Kind)
+	case record != nil:
+		if err := record.Validate(); err != nil {
+			t.Errorf("%s of a %s link was handed a record that does not validate: %v", call, l.Kind, err)
+		}
+	}
+	if m.records == nil {
+		m.records = make(map[impulse.UUID][]*auditlog.Record)
+	}
+	m.records[l.ID] = append(m.records[l.ID], record)
+}
+
+// recordsOf are the records the writes of the link id were handed, in order.
+func (m *mailLinks) recordsOf(id impulse.UUID) []*auditlog.Record {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return slices.Clone(m.records[id])
 }
 
 // live is the live row holding hash, or nil.
@@ -253,7 +300,7 @@ func (m *mailLinks) insert(l *sessionstorage.MailLink) {
 func (m *mailLinks) expectConfirmation(f *authFixture, userID impulse.UUID, email string, row *sessionstorage.SessionUser) *gomock.Call {
 	return f.store.EXPECT().ConfirmAddressByLink(gomock.Any(), gomock.Cond(func(c *sessionstorage.AddressConfirmation) bool {
 		return c.UserID == userID && c.Email == email
-	})).DoAndReturn(func(_ context.Context, c *sessionstorage.AddressConfirmation) (*sessionstorage.ConfirmedAddress, error) {
+	}), aConfirmationRecord()).DoAndReturn(func(_ context.Context, c *sessionstorage.AddressConfirmation, _ *auditlog.Record) (*sessionstorage.ConfirmedAddress, error) {
 		return m.confirm(f, c, row)
 	})
 }
@@ -1733,13 +1780,26 @@ func TestAuth_ClaimVerifiedEmail(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			store := mockstore.NewAuthStore[mockTx](ctrl)
 			store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
-			store.EXPECT().ClaimVerifiedEmail(gomock.Any(), userID, "pat@lakeside.edu").Return(true, nil).Times(tt.claims)
+			var got *auditlog.Record
+			store.EXPECT().ClaimVerifiedEmail(gomock.Any(), userID, "pat@lakeside.edu", gomock.Any()).
+				DoAndReturn(func(_ context.Context, _ impulse.UUID, _ string, record *auditlog.Record) (bool, error) {
+					keep(&got, record)
+
+					return true, nil
+				}).Times(tt.claims)
 			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), quietMail())
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			a.claimVerifiedEmail(context.Background(), userID, tt.identity)
+			a.claimVerifiedEmail(context.Background(), userID, "pat", tt.identity)
+			if tt.claims == 0 {
+				return
+			}
+			// The address is the sign-in's act, done by the person to their own account.
+			set := wantAccount(auditlog.ActAddressChanged, userID, "pat")
+			set.NewValue = "pat@lakeside.edu"
+			checkRecord(t, "ClaimVerifiedEmail", got, set, byPersonThrough(userID, "pat", auditlog.ProcessSignIn))
 		})
 	}
 }
