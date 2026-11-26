@@ -46,7 +46,7 @@ func TestMergeNamedRowSources(t *testing.T) {
 
 	first, second := ViewRows(&countedView{query: "SELECT 1"}), ViewRows(&countedView{query: "SELECT 2"})
 	merged := MergeNamedRowSources(NamedRowSources{"A": first, "B": first}, NamedRowSources{"B": second})
-	if len(merged) != 2 || merged["A"] != first || merged["B"] != second {
+	if len(merged) != 2 || merged["A"].view != first.view || merged["B"].view != second.view {
 		t.Errorf("MergeNamedRowSources() = %v, want A from the first argument and B from the second", merged)
 	}
 	if none := MergeNamedRowSources(); none == nil {
@@ -67,7 +67,7 @@ func TestNamedRowSources_carried(t *testing.T) {
 	carries := func(t *testing.T, of string, got NamedRowSources) {
 		t.Helper()
 
-		if len(got) != 1 || got["ActiveProjects"] != sources["ActiveProjects"] {
+		if len(got) != 1 || got["ActiveProjects"].view != sources["ActiveProjects"].view {
 			t.Errorf("%s carries %v, want the sources handed to the decoder", of, got)
 		}
 	}
@@ -154,4 +154,42 @@ func TestPatchSet_namedRows_view_mock(t *testing.T) {
 	if err := p.checkNamedRows(context.Background(), NewMockReadWriteTransaction(&bufferingTxn{}), named); err != nil {
 		t.Errorf("checkNamedRows() error = %v, want none on a mocked transaction", err)
 	}
+}
+
+// TestPatchSet_namedRows_computed_mock pins that a mocked transaction passes a column
+// picked from a computed list without running the list's function.
+func TestPatchSet_namedRows_computed_mock(t *testing.T) {
+	t.Parallel()
+
+	former := "p3"
+	list := newProjectList()
+	p := NewPatchSet(NewMetadata[listTask]()).SetPatchType(CreatePatchType)
+	p.SetKey("ID", "l-mock")
+	p.Set("DomainID", onRecordNorth)
+	p.Set("FormerProjectID", &former)
+	arm(t, p.querySet, namedListCollection(t), &namedWrite{patchType: CreatePatchType, caller: listsListedProjects()})
+	p.querySet.namedRowSources = list.sources()
+	named, err := p.namedValues()
+	if err != nil {
+		t.Fatalf("namedValues() error = %v", err)
+	}
+	if err := p.checkNamedRows(context.Background(), NewMockReadWriteTransaction(&bufferingTxn{}), named); err != nil {
+		t.Errorf("checkNamedRows() error = %v, want none on a mocked transaction", err)
+	}
+	if runs := list.runsMade(); runs != 0 {
+		t.Errorf("the list's function ran %d times, want none", runs)
+	}
+}
+
+// TestComputedRows_aKeyTheStructDoesNotHave pins that a source whose key is not a field
+// of the row struct is refused where it is made.
+func TestComputedRows_aKeyTheStructDoesNotHave(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if recover() == nil {
+			t.Error("ComputedRows() with a key the struct does not have did not panic")
+		}
+	}()
+	ComputedRows[listedProject]("Key", newProjectList().list)
 }

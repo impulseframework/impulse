@@ -11,15 +11,17 @@ import (
 )
 
 // A column that names a row of another table (a foreign key, or a column picked from a
-// table's list), or a row of a view (a column picked from a view's list), is set only to a
-// row its writer can list. The picker of such a column lists its source under the
-// person's own List grant, so it offers only those rows; the patch set holds a create and
-// an update to the same rows, and answers any other as it answers a row that is not there.
-// "Can list" is what the person's own list of that kind would show, asked in the scope
-// that list is asked in: the grant on the kind, its condition, and the request's tenant
-// for a kind that belongs to one. A view's row is always read, from the view's query,
-// which the write is handed (NamedRowSources): which rows a view has is its query's to
-// say, so the pass with no read is a table's alone. The rule is held
+// table's list), of a view or of a computed list (a column picked from the view's or the
+// list's own list), is set only to a row its writer can list. The picker of such a column
+// lists its source under the person's own List grant, so it offers only those rows; the
+// patch set holds a create and an update to the same rows, and answers any other as it
+// answers a row that is not there. "Can list" is what the person's own list of that kind
+// would show, asked in the scope that list is asked in: the grant on the kind, its
+// condition, and the request's tenant for a kind that belongs to one. A view's row is
+// always read, from the view's query, and a computed list always asked, through its own
+// function, each of which the write is handed (NamedRowSources): which rows a view or a
+// list has is its query's or its function's to say, so the pass with no read is a
+// table's alone. The rule is held
 // here once, for every write an armed patch carries; a patch that is not armed (a job, a
 // bootstrap) runs trusted and is not asked. A create is asked right after the grant's own
 // check. An update and an update-or-create are asked once their row is found in the
@@ -54,6 +56,14 @@ type NamedRow struct {
 	// there passes as a table's does. Its Table, KeyColumn, TenantColumn and TenantPath
 	// are read and nothing else of it. Nil where the column has no foreign key.
 	Stored *NamedRow
+	// Computed says the column is picked from a computed list: Resource is the list's
+	// resource, and Table, KeyColumn, TenantColumn and TenantPath are empty, since its
+	// rows are made in code. The list is asked through its own function, which the
+	// write is handed (NamedRowSources).
+	Computed bool
+	// GrantInTenant says the List grant on Resource is asked in the request's tenant
+	// although no TenantColumn says so: a computed list of a tenant.
+	GrantInTenant bool
 }
 
 // namedRower is the generated declaration of which columns of a resource name a row of
@@ -68,10 +78,10 @@ const namedRowsNotImplemented = "holding a row a write names to the rows its wri
 
 // grantScope is the scope the caller's List on the named kind is asked in, the scope a
 // name of that kind is asked in (QuerySet.nameGrantScope): the request's own scope for a
-// kind that belongs to a tenant, and the global scope, where its grants are held, for a
-// kind of the whole application.
+// kind that belongs to a tenant, a computed list of a tenant among them (GrantInTenant),
+// and the global scope, where its grants are held, for a kind of the whole application.
 func (n *NamedRow) grantScope(request accesstypes.Scope) accesstypes.Scope {
-	if n.TenantColumn == "" {
+	if n.TenantColumn == "" && !n.GrantInTenant {
 		return accesstypes.GlobalScope()
 	}
 
@@ -114,17 +124,23 @@ type namedValue struct {
 //
 //   - granted, for a table that belongs to no tenant, or for the column the row's own way
 //     to its tenant leaves through, whose row the tenancy term already holds to the
-//     request's tenant: it passes, with no read. A view's row is always read;
+//     request's tenant: it passes, with no read. A view's row is always read, and a
+//     computed list always asked;
 //   - otherwise an update, or an update-or-create whose row is there, that leaves the
 //     column naming the row it already names is not judged, and a row an earlier patch of
 //     the same transaction created in the request's tenant passes, its create held to its
-//     own checks (createdInTransaction): for a view, a row of the table the column's
-//     foreign key references (Stored), and none where the declaration names no such table;
+//     own checks (createdInTransaction): for a view or a computed list, a row of the table
+//     the column's foreign key references (Stored), and none where the declaration names
+//     no such table;
 //   - denied: refused;
 //   - granted: the row is read by key within the request's tenant (tenantTest), a view's
 //     from the view's query;
 //   - conditional: the row is read by key, within the tenant, under the grant's condition
-//     lowered against the named table, or the view, as a name's lookup lowers it.
+//     lowered against the named table, or the view, as a name's lookup lowers it;
+//   - a computed list, granted or conditional: the list's function is run as the
+//     caller's list of it runs, and its rows the caller is shown are read for the key
+//     (listsComputedRow). The library reads nothing itself there, so no database is
+//     refused.
 //
 // A refusal, and a read that finds no row, is answered as a row that is not there:
 // 404, "A record this one refers to does not exist." (referencedNotFound), so the answer
@@ -142,7 +158,7 @@ func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTr
 
 	for _, n := range named {
 		decision := decisions[n.row.grantScope(q.scope)][n.row.Resource]
-		if decision.IsGranted() && !n.row.View && (n.row.TenantColumn == "" || p.leavesForTenant(n.row.Field)) {
+		if decision.IsGranted() && n.row.fromTable() && (n.row.TenantColumn == "" || p.leavesForTenant(n.row.Field)) {
 			continue
 		}
 		mocked := txn.DBType() == SpannerDBType && txn.SpannerReadOnlyTransaction() == nil
@@ -168,13 +184,18 @@ func (p *PatchSet[Resource]) checkNamedRows(ctx context.Context, txn ReadWriteTr
 		if decision.IsDenied() {
 			return referencedNotFound(p.Resource(), n.row.Table)
 		}
-		if txn.DBType() != SpannerDBType {
+		if txn.DBType() != SpannerDBType && !n.row.Computed {
 			return errors.Newf("%s is not implemented for %s", namedRowsNotImplemented, txn.DBType())
 		}
 		if mocked {
 			continue
 		}
-		listed, err := p.listsNamedRow(ctx, txn, n, decision)
+		var listed bool
+		if n.row.Computed {
+			listed, err = p.listsComputedRow(ctx, txn, n, decision)
+		} else {
+			listed, err = p.listsNamedRow(ctx, txn, n, decision)
+		}
 		if err != nil {
 			return err
 		}
@@ -247,11 +268,17 @@ func (p *PatchSet[Resource]) namedRowDecisions(ctx context.Context, named []name
 	return decisions, nil
 }
 
+// fromTable reports whether the column names a row of a table: not one of a view, and
+// not one of a computed list.
+func (n *NamedRow) fromTable() bool {
+	return !n.View && !n.Computed
+}
+
 // storedRow is the row of a table a row the column names is created as: the named
-// table's own, or, for a view, the table the column's foreign key references (Stored),
-// nil where the declaration names none.
+// table's own, or, for a view or a computed list, the table the column's foreign key
+// references (Stored), nil where the declaration names none.
 func (n *NamedRow) storedRow() *NamedRow {
-	if !n.View {
+	if n.fromTable() {
 		return n
 	}
 
@@ -294,8 +321,8 @@ func (p *PatchSet[Resource]) namesStoredRow(ctx context.Context, txn ReadWriteTr
 // createdInTransaction reports whether an earlier patch of the transaction created the
 // named row (transactionRows.namedWrite) in the request's tenant: a transaction that keeps
 // no record of its rows (the Mock's, PostgreSQL) created none that a read would not see.
-// A column picked from a view names a row of the table its foreign key references
-// (storedRow), and one that declares none names no row a patch created.
+// A column picked from a view or a computed list names a row of the table its foreign
+// key references (storedRow), and one that declares none names no row a patch created.
 // For a kind that belongs to a tenant, the created row's tenant column, as its image holds
 // it, is followed along the kind's way to its tenant by the transaction's point reads
 // (followTenantPath), which see what the request buffered, and must spell the request's

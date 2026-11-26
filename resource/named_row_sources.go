@@ -1,30 +1,113 @@
 package resource
 
 import (
+	"context"
+	"fmt"
+	"iter"
 	"maps"
+	"reflect"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 )
 
-// NamedRowSources are the views the rows a write names are asked of, by resource: a
-// column picked from a view (NamedRow.View) is set only to a row the writer's list of the
-// view shows, and the write reads that row from the view's query, which it is handed
-// here. The generated handlers hand the application's to every decoder
+// NamedRowSources are the views and the computed lists the rows a write names are asked
+// of, by resource: a column picked from a view (NamedRow.View) or from a computed list
+// (NamedRow.Computed) is set only to a row the writer's list of it shows, and the write
+// reads that row from the view's query, or asks the list's own function for it, which it
+// is handed here. The generated handlers hand the application's to every decoder
 // (WithNamedRowSources); a caller a decode answers carries them on to a write a body
 // arms (PatchSet.Enforce).
 type NamedRowSources map[accesstypes.Resource]NamedRowSource
 
-// NamedRowSource is one view a named row is asked of. Its zero value is no source.
+// NamedRowSource is one view or one computed list a named row is asked of. Its zero
+// value is no source.
 type NamedRowSource struct {
-	// view is the view whose query the named row is read from.
+	// view is the view whose query the named row is read from; nil for a computed list.
 	view View
+	// computed asks a computed list whether the caller's list of it shows a row
+	// (ComputedRows); nil for a view.
+	computed func(ctx context.Context, ask *computedAsk) (bool, error)
+}
+
+// computedAsk is what a computed list is asked with: the caller of the write, the scope
+// the caller's List on the list was asked in and what it answered, the write's
+// transaction, and the key of the row the write names as spelled (columnText).
+type computedAsk struct {
+	caller   *Caller
+	scope    accesstypes.Scope
+	decision accesstypes.Decision
+	txn      ReadWriteTransaction
+	spelled  string
 }
 
 // ViewRows is the source of a view's rows: a named row is read from the view's query
 // (Subquery), as every statement over the view reads it.
 func ViewRows(view View) NamedRowSource {
 	return NamedRowSource{view: view}
+}
+
+// ComputedRows is the source of a computed list's rows: a row a write names is asked of
+// the list's own function, list, run as the caller's list of it runs. The function is
+// handed a query set of the list's resource in the scope the caller's List was asked in,
+// for the caller, with no filter, no sort, no page and no fields, and the caller stamped
+// on the context (WithCaller). The rows it yields are read in order, each judged by the
+// condition the caller's List carries, as the list's own handler judges it, until one the
+// caller is shown whose key, the struct field key, spells the value the write sends
+// (columnText). key is the Go field of the row struct that holds the list's one key: a
+// field the struct does not have panics, as the Must constructors do, since generated
+// code calls it where the decoders are built.
+func ComputedRows[Resource Resourcer](key accesstypes.Field, list func(ctx context.Context, q *QuerySet[Resource]) iter.Seq2[*Resource, error]) NamedRowSource {
+	rowType := reflect.TypeFor[Resource]()
+	field, ok := structField(rowType, string(key))
+	if !ok {
+		panic(fmt.Sprintf("resource.ComputedRows: %s has no field %s", rowType, key))
+	}
+
+	return NamedRowSource{computed: func(ctx context.Context, ask *computedAsk) (bool, error) {
+		q := NewQuerySet(NewMetadata[Resource]())
+		q.env = ask.caller.Env
+		q.collection = ask.caller.collection
+		q.namedRowSources = ask.caller.namedRowSources
+		q.scope = ask.scope
+		q.requiredPermission = accesstypes.List
+		q.userPermissions = ask.caller.Permissions
+		q.dbType = ask.txn.DBType()
+		if ask.decision.IsConditional() {
+			expr, err := conditionalExpr(q.Resource(), ask.decision)
+			if err != nil {
+				return false, err
+			}
+			if err := q.judgeRowsBy(ctx, &rowConditions{open: true, resource: expr}, q.Resource(), q.userPermissions, ask.txn); err != nil {
+				return false, err
+			}
+		}
+
+		for row, err := range list(WithCaller(ctx, q.Caller()), q) {
+			if err != nil {
+				return false, err
+			}
+			if row == nil {
+				continue
+			}
+			shown, _, err := q.judgeRow(row)
+			if err != nil {
+				return false, err
+			}
+			if !shown {
+				continue
+			}
+			spelled, err := columnText(reflect.ValueOf(row).Elem().FieldByIndex(field.Index).Interface())
+			if err != nil {
+				return false, errors.Wrapf(err, "the key %s of a row of %s", key, q.Resource())
+			}
+			if spelled == ask.spelled {
+				return true, nil
+			}
+		}
+
+		return false, nil
+	}}
 }
 
 // MergeNamedRowSources returns one map holding every entry of its arguments, a later
@@ -67,7 +150,32 @@ func (p *PatchSet[Resource]) namedViewItem(row *NamedRow, params map[string]any)
 	return withClause, item, nil
 }
 
-// noNamedRowSource says a write names a row of a view it was handed no source of.
+// listsComputedRow asks the computed list a column is picked from whether the caller's
+// list of it shows the row the write names: the list's own function, run as the caller's
+// list runs it (ComputedRows), in the scope the caller's List on the list was asked in,
+// with the decision it answered. An error the function yields fails the write with that
+// error. A write handed no source of the list, or a view's, is an error for the log.
+func (p *PatchSet[Resource]) listsComputedRow(ctx context.Context, txn ReadWriteTransaction, n namedValue, decision accesstypes.Decision) (bool, error) {
+	q := p.querySet
+	source := q.namedRowSources[n.row.Resource]
+	if source.computed == nil {
+		return false, noNamedRowSource(p.Resource(), n.row)
+	}
+	listed, err := source.computed(ctx, &computedAsk{caller: q.Caller(), scope: n.row.grantScope(q.scope), decision: decision, txn: txn, spelled: n.spelled})
+	if err != nil {
+		return false, errors.Wrapf(err, "asking the computed list %s for the row a write of %s names", n.row.Resource, p.Resource())
+	}
+
+	return listed, nil
+}
+
+// noNamedRowSource says a write names a row of a view, or of a computed list, it was
+// handed no source of.
 func noNamedRowSource(res accesstypes.Resource, row *NamedRow) error {
-	return errors.Newf("resource %s field %s names a row of the view %s, and the write was handed no source of that name: hand the application's named-row sources to the decoder (WithNamedRowSources), which the generated handlers do; regenerate them", res, row.Field, row.Resource)
+	source := "the view"
+	if row.Computed {
+		source = "the computed list"
+	}
+
+	return errors.Newf("resource %s field %s names a row of %s %s, and the write was handed no source of that name: hand the application's named-row sources to the decoder (WithNamedRowSources), which the generated handlers do; regenerate them", res, row.Field, source, row.Resource)
 }
