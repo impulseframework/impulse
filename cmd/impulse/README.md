@@ -1533,8 +1533,9 @@ signs in through the methods on its Auth. An auth is a package, `pkg/auth/<name>
 the base has one, `staff`. The new package is rendered from the same source as the
 skeletons' auths, so it owns `<Name>Sessions`, `<Name>SessionUsers`,
 `<Name>SessionIdentities`, `<Name>SessionAuthEvents`, `<Name>SessionPendingSignIns`,
-`<Name>SessionSignInAttempts`, `<Name>SessionMailLinks`, `<Name>SessionFactorCodes` and
-`<Name>SessionTrustedDevices`, the `<Name>` store prefix, the `<name>`, `<name>-xsrf` and
+`<Name>SessionSignInAttempts`, `<Name>SessionMailLinks`, `<Name>SessionFactorCodes`,
+`<Name>SessionTrustedDevices` and `<Name>SessionAuditRecords`, the `<Name>` store prefix,
+the `<name>`, `<name>-xsrf` and
 `<name>-trusted` cookies, and
 `pkg/auth/<name>/roles.json` (empty, embedded by the package) from the start, to be
 authored with roles named for their job in PascalCase and never for where they are held,

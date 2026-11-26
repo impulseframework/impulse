@@ -8,6 +8,7 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -323,6 +324,23 @@ func (s *SessionStorageDriver) IdentitiesByUser(ctx context.Context, userID impu
 	return s.identitiesByUser(ctx, s.conn, userID)
 }
 
+// IdentityByID returns the link of the id, or a NotFound error.
+func (s *SessionStorageDriver) IdentityByID(ctx context.Context, identityID impulse.UUID) (*dbtype.SessionIdentity, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "Id" = $1`, identityColumns, s.identitiesTable())
+	var links []*dbtype.SessionIdentity
+	if err := pgxscan.Select(ctx, s.conn, &links, query, identityID); err != nil {
+		return nil, errors.Wrap(err, "pgxscan.Select()")
+	}
+	if len(links) == 0 {
+		return nil, dbtype.SignInIdentityNotFound(identityID)
+	}
+
+	return links[0], nil
+}
+
 // IdentitiesByUserIn lists a user's links inside tx, oldest first.
 func (s *SessionStorageDriver) IdentitiesByUserIn(ctx context.Context, tx pgx.Tx, userID impulse.UUID) ([]*dbtype.SessionIdentity, error) {
 	return s.identitiesByUser(ctx, tx, userID)
@@ -365,7 +383,7 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID impulse.
 // that has no password: the link goes only while another identity linked to the user
 // is a means of sign-in by signsIn, the caller's judgment of a link, asked about the
 // identities the unlinking transaction reads (dbtype.UnlinkKeepsSignIn).
-func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
+func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -405,8 +423,14 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 		}
 	}
 
-	if _, err := txn.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE "Id" = $1`, s.identitiesTable()), identityID); err != nil {
+	tag, err := txn.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE "Id" = $1`, s.identitiesTable()), identityID)
+	if err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if tag.RowsAffected() > 0 {
+		if err := s.InsertAuditRecordIn(ctx, txn, record); err != nil {
+			return err
+		}
 	}
 
 	if err := txn.Commit(ctx); err != nil {
@@ -421,7 +445,7 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 // and refuses to remove the user's last means of sign-in otherwise. The user's sessions
 // stand. A user that holds no password is a BadRequest. It follows no proof of the
 // password and removes whatever hash the row holds.
-func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error {
+func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -429,7 +453,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 		return errors.New("RemoveUserPassword needs the auth schema: use Auth storage")
 	}
 
-	return s.removeUserPassword(ctx, userID, false, nil, standing)
+	return s.removeUserPassword(ctx, userID, false, nil, standing, record)
 }
 
 // RemoveProvenUserPassword removes the password a user proved (proven), as
@@ -437,7 +461,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 // the removal holds on the user row, so the removal goes through only while the row
 // still holds it: a password changed, reset or removed since the caller read it stands
 // as it is (ErrPasswordChanged, a Conflict).
-func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error {
+func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -445,15 +469,17 @@ func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, use
 		return errors.New("RemoveProvenUserPassword needs the auth schema: use Auth storage")
 	}
 
-	return s.removeUserPassword(ctx, userID, true, proven, standing)
+	return s.removeUserPassword(ctx, userID, true, proven, standing, record)
 }
 
 // removeUserPassword removes a user's password and its change mark in one transaction.
 // With followsProof set, the row must still hold proven, the hash the caller proved.
 // standing names the identities the caller judged a means of sign-in: one of them must
 // still be linked to the user when the password goes, counted under the lock an unlink
-// takes too.
-func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven *securehash.Hash, standing []impulse.UUID) error {
+// takes too. record, nil for none, is inserted with the removal.
+func (s *SessionStorageDriver) removeUserPassword(
+	ctx context.Context, userID impulse.UUID, followsProof bool, proven *securehash.Hash, standing []impulse.UUID, record *auditlog.Record,
+) error {
 	txn, err := s.begin(ctx)
 	if err != nil {
 		return errors.Wrap(err, "SessionStorageDriver.begin()")
@@ -501,6 +527,9 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 	removal := fmt.Sprintf(`UPDATE %s SET "PasswordHash" = NULL, "PasswordChangeRequired" = FALSE WHERE "Id" = $1`, s.userTable())
 	if _, err := txn.Exec(ctx, removal, userID); err != nil {
 		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if err := s.InsertAuditRecordIn(ctx, txn, record); err != nil {
+		return err
 	}
 
 	if err := txn.Commit(ctx); err != nil {

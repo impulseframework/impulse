@@ -310,7 +310,7 @@ func testFactorCodesInsertedAtOnce(ctx context.Context, t *testing.T, h *AuthHar
 func testAddressTakenOffEndsCodes(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	pat, lee := createUser(ctx, t, in.Driver, "pat"), createUser(ctx, t, in.Driver, "lee")
-	if err := in.Driver.SetUserEmail(ctx, pat.ID, strPtr(codeAddress)); err != nil {
+	if err := in.Driver.SetUserEmail(ctx, pat.ID, strPtr(codeAddress), nil); err != nil {
 		t.Fatalf("SetUserEmail() error = %v", err)
 	}
 	waits := []*dbtype.PendingSignIn{
@@ -326,7 +326,7 @@ func testAddressTakenOffEndsCodes(ctx context.Context, t *testing.T, h *AuthHarn
 		}
 	}
 
-	if err := in.Driver.SetUserEmail(ctx, pat.ID, nil); err != nil {
+	if err := in.Driver.SetUserEmail(ctx, pat.ID, nil, nil); err != nil {
 		t.Fatalf("SetUserEmail(nil) error = %v", err)
 	}
 	assertEmail(t, "User() after the address was taken off", mustUser(ctx, t, in.Driver, pat.ID), nil, false)
@@ -342,7 +342,7 @@ func testAddressTakenOffEndsCodes(ctx context.Context, t *testing.T, h *AuthHarn
 		t.Errorf("FactorCodeByPending() of another user's pending sign-in = %v, %v, want its code standing", got, err)
 	}
 
-	if err := in.Driver.SetUserEmail(ctx, impulse.Must(impulse.NewUUID()), nil); !httpio.HasNotFound(err) {
+	if err := in.Driver.SetUserEmail(ctx, impulse.Must(impulse.NewUUID()), nil, nil); !httpio.HasNotFound(err) {
 		t.Errorf("SetUserEmail(nil) of a user that does not exist error = %v, want NotFound", err)
 	}
 }
@@ -417,7 +417,7 @@ func testTrustedDeviceLifecycle(ctx context.Context, t *testing.T, h *AuthHarnes
 	// The reset: every device of the user at once, the expired one included, so the
 	// person's next sign-in from any of them asks for the factor.
 	w = startWindow(h.ClockLead)
-	if err := in.Driver.RevokeTrustedDevices(ctx, user.ID); err != nil {
+	if err := in.Driver.RevokeTrustedDevices(ctx, user.ID, nil); err != nil {
 		t.Fatalf("RevokeTrustedDevices() error = %v", err)
 	}
 	w.done()
@@ -454,7 +454,7 @@ func testFactorsCascade(ctx context.Context, t *testing.T, h *AuthHarness) {
 		t.Error("InsertFactorCode() for an unknown pending sign-in error = nil, want the schema's refusal")
 	}
 
-	if err := in.Driver.DeleteUser(ctx, user.ID); err != nil {
+	if err := in.Driver.DeleteUser(ctx, user.ID, nil); err != nil {
 		t.Fatalf("DeleteUser() error = %v", err)
 	}
 	if _, err := in.Driver.TrustedDeviceState(ctx, device.TokenHash); !httpio.HasNotFound(err) {

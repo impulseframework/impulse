@@ -343,7 +343,11 @@
                     }
                   </td>
                 } @else {
-                  <td class="data-col" [class.first-col]="$first" [style.width.px]="widthFor(col)">
+                  <td
+                    class="data-col"
+                    [class.first-col]="$first"
+                    [class.wraps]="col.wraps"
+                    [style.width.px]="widthFor(col)">
                     @if (row[col.id] === true) {
                       <mat-icon class="cell-yes" role="img" aria-hidden="false" aria-label="Yes">check</mat-icon>
                     } @else if (row[col.id] === false) {

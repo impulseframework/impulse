@@ -434,7 +434,7 @@ func (h *Handlers) SeedToken(ctx context.Context, username, outlet, secret strin
 		if tok.Outlet != outlet || tok.Name != seededTokenName {
 			continue
 		}
-		if err := h.store.RevokeUserToken(ctx, userID, tok.ID, sessionstorage.TokenRevokedByHand); err != nil {
+		if err := h.store.RevokeUserToken(ctx, userID, tok.ID, sessionstorage.TokenRevokedByHand, nil); err != nil {
 			return errors.Wrap(err, "sessionstorage.Auth.RevokeUserToken()")
 		}
 	}
@@ -446,7 +446,7 @@ func (h *Handlers) SeedToken(ctx context.Context, username, outlet, secret strin
 		ID: id, TokenHash: hash[:], Kind: sessionstorage.TokenApplication, UserID: userID, Outlet: outlet, Name: seededTokenName,
 		ExpiresAt: time.Now().AddDate(seededTokenLifetime, 0, 0),
 	}
-	if err := h.store.InsertToken(ctx, seeded); err != nil {
+	if err := h.store.InsertToken(ctx, seeded, nil); err != nil {
 		return errors.Wrap(err, "sessionstorage.Auth.InsertToken()")
 	}
 
@@ -674,7 +674,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if err := settings.required(); err != nil {
 		return nil, err
 	}
-	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
+	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix), spannerstore.WithAuditRecords(auditRecordsTable))
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}

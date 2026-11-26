@@ -32,8 +32,9 @@ type Resourcer interface {
 		crewresources.CrewSessionUser | crewresources.CrewTakenRole |
 		crewresources.CrewUserGroupRole | crewresources.CrewUserRole |
 		crewidentity.CrewGivableRole | crewidentity.CrewInvitedSector |
-		crewidentity.CrewInvitedSectorRole | crewidentity.CrewListedRoleGrant |
-		crewidentity.CrewMissionRole | crewidentity.CrewRememberLength |
+		crewidentity.CrewInvitedSectorRole | crewidentity.CrewListedAuditRecord |
+		crewidentity.CrewListedRoleGrant | crewidentity.CrewMissionRole |
+		crewidentity.CrewRememberLength | crewidentity.CrewSectorAuditRecord |
 		crewidentity.CrewSectorDirectoryRole | crewidentity.CrewSectorRole |
 		crewidentity.CrewSectorSignInWay | crewidentity.CrewSignInMethod |
 		crewidentity.CrewSignInSetting | crewidentity.CrewSignInWay |

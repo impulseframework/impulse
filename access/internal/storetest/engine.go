@@ -61,7 +61,7 @@ func RunEngine(t *testing.T, store access.Store, within Transaction) {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
 	for _, user := range []accesstypes.User{alice, bob, carol} {
-		if err := store.InsertUserRole(ctx, tenant1, user, editor, accesstypes.Period{}, ""); err != nil {
+		if err := store.InsertUserRole(ctx, tenant1, user, editor, accesstypes.Period{}, "", nil); err != nil {
 			t.Fatalf("InsertUserRole(%q) error = %v", user, err)
 		}
 	}
@@ -84,7 +84,7 @@ func runEngineLocalWrite(t *testing.T, store access.Store, within Transaction) {
 	if !readsEmployees(ctx, t, client, alice) {
 		t.Fatalf("%s does not read employees before the role is taken away", alice)
 	}
-	if err := store.DeleteUserRole(ctx, tenant1, alice, editor); err != nil {
+	if err := store.DeleteUserRole(ctx, tenant1, alice, editor, nil); err != nil {
 		t.Fatalf("DeleteUserRole() error = %v", err)
 	}
 	reads := gated.reads.Load()
@@ -128,7 +128,7 @@ func runEngineHint(t *testing.T, store access.Store, within Transaction) {
 		t.Fatal("the engine never watched its change signal")
 	}
 	// The other instance's write, straight to the store.
-	if err := store.DeleteUserRole(ctx, tenant1, bob, editor); err != nil {
+	if err := store.DeleteUserRole(ctx, tenant1, bob, editor, nil); err != nil {
 		t.Fatalf("DeleteUserRole() error = %v", err)
 	}
 	reads := gated.reads.Load()
@@ -167,7 +167,7 @@ func runEngineBound(t *testing.T, store access.Store, within Transaction) {
 	if !readsEmployees(ctx, t, client, carol) {
 		t.Fatalf("%s does not read employees before the role is taken away", carol)
 	}
-	if err := store.DeleteUserRole(ctx, tenant1, carol, editor); err != nil {
+	if err := store.DeleteUserRole(ctx, tenant1, carol, editor, nil); err != nil {
 		t.Fatalf("DeleteUserRole() error = %v", err)
 	}
 

@@ -14,7 +14,10 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/internal/actor"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/internal/util"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -89,6 +92,10 @@ type Driver[Tx any] interface {
 	// name another user holds ends the transaction with an EmailConflict or a
 	// UsernameConflict.
 	VerifyUserEmailIn(ctx context.Context, tx Tx, userID impulse.UUID, email string) error
+	// InsertAuditRecordIn writes record, one row of the Auth's audit log, inside tx, so
+	// the act it records and its row commit together or neither does. A record that does
+	// not validate is an error, which ends tx.
+	InsertAuditRecordIn(ctx context.Context, tx Tx, record *auditlog.Record) error
 	// ClaimUserNameIn writes name on the user inside tx when the user holds none, and
 	// reports whether it wrote. A user inserted earlier in tx is not claimed for: its
 	// insert carries the name.
@@ -1399,10 +1406,18 @@ var errConfirmationRefused = errors.New("the confirmation by link is refused")
 // account's row and then its links, and the same order here keeps the two from waiting
 // on each other.
 //
+// record, nil for none, is the row of the Auth's audit log the confirmation writes, with
+// who acted and the account and no address: the address the account held is known only
+// in the transaction, so a copy of it with the address held before (OldValue) and the
+// one confirmed (NewValue) is written after the address (Driver.InsertAuditRecordIn), in
+// the same transaction. A refusal ends the transaction before it, and on a store whose
+// usernames are the addresses the one row says the change.
+//
 // A transaction the database ends to break a deadlock or a serialization failure
 // (dbtype.LockConflict) runs once more, and the confirmation is answered by what the
-// second run finds; c.Refuse is asked again there.
-func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressConfirmation) (*ConfirmedAddress, error) {
+// second run finds; c.Refuse is asked again there. The row is written by the run that
+// commits, once.
+func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressConfirmation, record *auditlog.Record) (*ConfirmedAddress, error) {
 	var (
 		confirmed *ConfirmedAddress
 		// refused is the answer of a refusal decided in the run, which ends it with
@@ -1453,6 +1468,17 @@ func ConfirmAddressByLink[Tx any](ctx context.Context, d Driver[Tx], c *AddressC
 		}
 		if err := d.VerifyUserEmailIn(ctx, tx, c.UserID, c.Email); err != nil {
 			return errors.Wrap(err, "Driver.VerifyUserEmailIn()")
+		}
+		if record != nil {
+			// The address held before, none where the account held none.
+			changed := *record
+			changed.OldValue, changed.NewValue = "", c.Email
+			if held.Email != nil {
+				changed.OldValue = *held.Email
+			}
+			if err := d.InsertAuditRecordIn(ctx, tx, &changed); err != nil {
+				return errors.Wrap(err, "Driver.InsertAuditRecordIn()")
+			}
 		}
 		confirmed = &ConfirmedAddress{Held: held, Username: user.Username, Renamed: d.UsernameIsEmail() && user.Username != c.Email}
 
@@ -1554,7 +1580,7 @@ func LinkConfirmed[Tx any](
 		if err != nil {
 			return err
 		}
-		seated, err := seatDeclared(ctx, tx, userID, username, defaultSeats(declared), seat)
+		seated, err := seatDeclared(ctx, tx, userID, username, defaultSeats(identity, declared), seat)
 		if err != nil {
 			return err
 		}
@@ -1691,7 +1717,7 @@ func resolveIn[Tx any](
 		// An invitation carries its own roles: they are what the person gets.
 		signUpRole = ""
 	}
-	seated, err := seatDeclared(ctx, tx, req.UserID, req.Username, seats, rules.Seat)
+	seated, err := seatDeclared(ctx, tx, req.UserID, req.Username, throughDirectory(req.Identity, seats), rules.Seat)
 	if err != nil {
 		return "", "", nil, nil, err
 	}
@@ -1768,7 +1794,7 @@ func resolveLinked[Tx any](
 		return "", nil, false, nil, err
 	}
 
-	return tenant, defaultSeats(declared), live, nil, nil
+	return tenant, defaultSeats(req.Identity, declared), live, nil, nil
 }
 
 // unlinkedUser is how an identity linked to no user resolved: the user's source and
@@ -1958,7 +1984,7 @@ func standardRule[Tx any](
 	switch {
 	case user != nil:
 		// Nothing but the name, or the address, ties the account to the identity.
-		res := signin.Link(user.ID, false, signin.Tenant(tenant), signin.Seats(defaultSeats(declared)...))
+		res := signin.Link(user.ID, false, signin.Tenant(tenant), signin.Seats(defaultSeats(req.Identity, declared)...))
 
 		return accountDecision{res: res, onName: true}, nil, nil
 	case len(declared) > 0:
@@ -2054,7 +2080,7 @@ func seatSignedUp[Tx any](
 func declaredRule(
 	req *sessioninfo.NewSessionRequest, declared []signin.DeclaredDirectory, tenant string,
 ) (res *signin.Resolution, byInvitation bool, stop error) {
-	seats := defaultSeats(declared)
+	seats := defaultSeats(req.Identity, declared)
 	newUser := &signin.NewUser{Username: req.Identity.SignInName}
 	switch {
 	case len(seats) > 0:
@@ -2183,13 +2209,27 @@ func UserDirectories[Tx any](ctx context.Context, d Driver[Tx], userID impulse.U
 	return directories, nil
 }
 
-// defaultSeats are the seats the declarations of a directory offer a person at every
-// sign-in through it: the default seat of each tenant that names one.
-func defaultSeats(declared []signin.DeclaredDirectory) []signin.DirectorySeat {
+// throughDirectory answers seats with the directory identity came through named on each
+// seat that names none, as a custom rule's own seats (signin.Seats).
+func throughDirectory(identity *sessioninfo.Identity, seats []signin.DirectorySeat) []signin.DirectorySeat {
+	for i := range seats {
+		if seats[i].Directory == (signin.Directory{}) {
+			seats[i].Directory = signin.Directory{Method: identity.Method, Connection: identity.Connection}
+		}
+	}
+
+	return seats
+}
+
+// defaultSeats are the seats the declarations of the directory identity came through
+// offer a person at every sign-in through it: the default seat of each tenant that names
+// one, each naming the directory.
+func defaultSeats(identity *sessioninfo.Identity, declared []signin.DeclaredDirectory) []signin.DirectorySeat {
+	directory := signin.Directory{Method: identity.Method, Connection: identity.Connection}
 	seats := make([]signin.DirectorySeat, 0, len(declared))
 	for _, d := range declared {
 		if d.DefaultSeat != "" {
-			seats = append(seats, signin.DirectorySeat{Tenant: d.Tenant, Role: d.DefaultSeat})
+			seats = append(seats, signin.DirectorySeat{Tenant: d.Tenant, Role: d.DefaultSeat, Directory: directory})
 		}
 	}
 
@@ -2936,7 +2976,8 @@ func decideAndInsert[Tx any](
 // codeAddressWrite writes the address the account's own code confirms (claim) on user,
 // confirmed, while the account still holds what it held when the code was checked and
 // no other account holds the address (Driver.VerifyUserEmailIfHeldIn), and reports that
-// it wrote. A user who already holds a confirmed address is written nothing, and goes
+// it wrote; the address written is recorded in the auth's audit log, in the same
+// transaction (codeAddressRecord). A user who already holds a confirmed address is written nothing, and goes
 // ahead only while the account still holds the code's address: one that confirmed
 // another address after the code was checked is not the one the code was mailed to.
 // stop is the code_expired refusal where the code no longer stands (codeAddressGone).
@@ -2959,8 +3000,21 @@ func codeAddressWrite[Tx any](ctx context.Context, d Driver[Tx], tx Tx, user *db
 	if !wrote {
 		return codeAddressGone(user.ID, claim), false, nil
 	}
+	if err := d.InsertAuditRecordIn(ctx, tx, codeAddressRecord(ctx, user, claim.Email)); err != nil {
+		return nil, false, errors.Wrap(err, "Driver.InsertAuditRecordIn()")
+	}
 
 	return nil, true, nil
+}
+
+// codeAddressRecord is the row of the auth's audit log the address a mailed sign-in code
+// proved writes: the address set on user's account, by its person, through the sign-in.
+func codeAddressRecord(ctx context.Context, user *dbtype.User, address string) *auditlog.Record {
+	var r auditlog.Record
+	r.Act, r.SubjectKind, r.SubjectID, r.SubjectName = auditlog.ActAddressChanged, auditlog.SubjectAccount, user.ID.String(), user.Username
+	r.Source, r.NewValue = eventsource.AccountProcessEvent(ctx, actor.NewAccount(user.ID, user.Username), auditlog.ProcessSignIn), address
+
+	return &r
 }
 
 // verdict is decideSignIn's answer. The zero verdict lets the sign-in go ahead. A

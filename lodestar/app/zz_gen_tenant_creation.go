@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
@@ -58,7 +59,8 @@ var _ interface {
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // Crew auth's generated identity client, so the sector and its administrator are
-// committed together or not at all; this instance's roster rereads its table, so it
+// committed together or not at all, and its row in the auth's audit log names the creator
+// (identity.ActingInSession); this instance's roster rereads its table, so it
 // lists the new sector; the answer waits until the permission engine answers the
 // new membership as a foothold the session reaches, so the person's next request stands
 // in the sector; the tenants kind is signaled last, so every instance serves it at
@@ -72,6 +74,9 @@ var _ interface {
 // organization has a sector already is refused (409) with nothing written. A
 // creator who signed in by password, or with a personal account, sets none in either
 // kind of application.
+// The directory set is recorded in the new sector, done by its creator, in the
+// audit log of the auth that records a sector's sign-in settings
+// (CrewIdentity().RecordTenantSignIn), as a take of a directory is.
 // The roster must list the sector and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a sector the roster does
 // not know admits nobody who came through a directory.
@@ -176,6 +181,10 @@ func (a *App) CreateSector() http.HandlerFunc {
 			if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
 			}
+			// What the route gives the creator is the creator's act: the rows of the
+			// sector's first administrator and of the directory it is made with name the
+			// person of the session, though no grant judges the gift.
+			byCreator := identity.ActingInSession(ctx)
 			// The creator's directory, written with the row only where the application
 			// holds a person to one tenant: the organization's directory the creator is
 			// signed in through, held to the rules of a sector's directory, so a
@@ -189,13 +198,18 @@ func (a *App) CreateSector() http.HandlerFunc {
 						if err := SetSectorDirectory(ctx, txn, id, directory, eventSource); err != nil {
 							return errors.Wrap(err, "SetSectorDirectory()")
 						}
+						// The directory the sector was made with is recorded in it, by its
+						// creator, as a take is: the first row of its sign-in settings.
+						if err := a.CrewIdentity().RecordTenantSignIn(byCreator, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory, a.CrewIdentity().DirectoryName, a.MembersIdentity().DirectoryName)); err != nil {
+							return errors.Wrap(err, "CrewIdentity().RecordTenantSignIn()")
+						}
 					}
 				}
 			}
 			// The first administrator: the person's membership of each role, in the row's
 			// transaction.
 			for _, role := range roles {
-				if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
+				if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
 					return errors.Wrap(err, "CrewIdentity().AssignRole()")
 				}
 			}

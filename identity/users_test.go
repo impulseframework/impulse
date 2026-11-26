@@ -9,6 +9,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -110,6 +111,7 @@ func TestManager_DisableUser(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantAccountRow(t, store, err, auditlog.ActAccountDisabled, userID)
 		})
 	}
 }
@@ -130,6 +132,7 @@ func TestManager_EnableUser(t *testing.T) {
 	if diff := cmp.Diff([]string{"update user " + userID.String() + " disabled=false"}, store.writes); diff != "" {
 		t.Errorf("buffered writes (-want +got):\n%s", diff)
 	}
+	wantAccountRow(t, store, nil, auditlog.ActAccountEnabled, userID)
 }
 
 // TestManager_SetName pins a person's name written by an operator: without the space

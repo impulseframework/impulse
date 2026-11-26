@@ -188,8 +188,9 @@ type directoryRoleData struct {
 	// NULL; a plain string holds none as the empty string.
 	SeatIsPointer bool
 	// Auth is the Pascal name of the auth whose generated identity client judges the
-	// role, IdentityAccessor the application's accessor of that client, and Picker the
-	// list of the roles that exist in one tenant.
+	// role, IdentityAccessor the application's accessor of that client, whose audit log
+	// the two methods are recorded in (tenantSignInRecorder names the same), and Picker
+	// the list of the roles that exist in one tenant.
 	Auth             string
 	IdentityAccessor string
 	Picker           string
@@ -242,4 +243,36 @@ func (r *resourceGenerator) generateDirectoryRole() error {
 	log.Printf("Generated the directory's default role file in %s: %s", time.Since(begin), destinationFilePath)
 
 	return nil
+}
+
+// tenantSignInRecorder is the application's accessor of the generated identity client
+// whose audit log a tenant's sign-in settings are recorded in: that of the auth the
+// directories record's session outlets are bound to (identityInstance.recordsTenantSignIn),
+// whether or not its management opens a tenant to its directory's people with a starting
+// role. The seven methods of a tenant's directory (the take, the directory-only switch,
+// the default role and the second factor's word) record their act through it, in their
+// transaction, after their write. It is "" where no auth's management is generated for
+// those outlets, and the methods are written with no record.
+//
+// The tenant's sign-in settings are recorded in the audit log of the auth whose people the directories record's outlets sign in. An application with no such auth has no log to write them to.
+func (r *resourceGenerator) tenantSignInRecorder() string {
+	for _, inst := range r.identity {
+		if inst.recordsTenantSignIn {
+			return inst.accessor()
+		}
+	}
+
+	return ""
+}
+
+// directoryRemovalRecorder is the application's accessor of the identity client whose
+// audit log the delete of res records the directory's removal in: the auth that records
+// a tenant's sign-in acts (tenantSignInRecorder) for the directories record, and none for
+// any other resource or where no auth records them.
+func (r *resourceGenerator) directoryRemovalRecorder(res *resourceInfo) string {
+	if !res.IsTenantDirectory {
+		return ""
+	}
+
+	return r.tenantSignInRecorder()
 }

@@ -33,7 +33,7 @@ func laterWrites() []laterWrite {
 		{
 			name: "the person's own change",
 			write: func(ctx context.Context, d AuthDriver, userID impulse.UUID, held, replacement *securehash.Hash) error {
-				return d.ChangeUserPassword(ctx, userID, held, replacement)
+				return d.ChangeUserPassword(ctx, userID, held, replacement, nil)
 			},
 		},
 		{

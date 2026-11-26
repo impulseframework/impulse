@@ -8,6 +8,7 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -104,11 +105,13 @@ func (s *SessionStorageDriver) insertTokens(ctx context.Context, q execer, token
 }
 
 // InsertToken inserts t, then removes the tokens that expired more than 30 days ago.
-func (s *SessionStorageDriver) InsertToken(ctx context.Context, t *dbtype.Token) error {
+func (s *SessionStorageDriver) InsertToken(ctx context.Context, t *dbtype.Token, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := s.insertTokens(ctx, s.conn, t); err != nil {
+	if err := s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		return s.insertTokens(ctx, db, t)
+	}); err != nil {
 		return err
 	}
 	s.removeExpiredTokens(ctx)
@@ -181,24 +184,25 @@ func (s *SessionStorageDriver) TouchToken(ctx context.Context, id impulse.UUID, 
 }
 
 // revokeIn revokes, through q at the database's time, the live tokens whose column
-// holds value.
-func (s *SessionStorageDriver) revokeIn(ctx context.Context, q execer, column string, value any, reason dbtype.TokenRevocation) error {
+// holds value, and reports how many it revoked.
+func (s *SessionStorageDriver) revokeIn(ctx context.Context, q execer, column string, value any, reason dbtype.TokenRevocation) (int64, error) {
 	if err := reason.Validate(); err != nil {
-		return errors.Wrap(err, "dbtype.TokenRevocation.Validate()")
+		return 0, errors.Wrap(err, "dbtype.TokenRevocation.Validate()")
 	}
 	query := fmt.Sprintf(`UPDATE %s SET "RevokedAt" = now(), "RevokedReason" = $2 WHERE %s = $1 AND "RevokedAt" IS NULL`, s.tokensTable(), column)
-	if _, err := q.Exec(ctx, query, value, string(reason)); err != nil {
-		return errors.Wrap(err, "Exec()")
+	tag, err := q.Exec(ctx, query, value, string(reason))
+	if err != nil {
+		return 0, errors.Wrap(err, "Exec()")
 	}
 
-	return nil
+	return tag.RowsAffected(), nil
 }
 
 // RevokeUserToken revokes the live token id of userID, at the database's time, with
 // reason: the token alone, or its whole family when it has one, so revoking a device
 // grant's refresh token revokes its access token with it. A token that is not live,
 // or is not the user's, is NotFound.
-func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation) error {
+func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -215,25 +219,42 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 		if t := tokens[0]; t.FamilyID.Valid {
 			column, value = `"FamilyId"`, any(t.FamilyID.UUID)
 		}
-		if err := s.revokeIn(ctx, tx, column, value, reason); err != nil {
+		if _, err := s.revokeIn(ctx, tx, column, value, reason); err != nil {
 			return err
 		}
 
-		return nil
+		return s.InsertAuditRecordIn(ctx, tx, record)
 	})
 }
 
 // RevokeUserTokens revokes every live token of userID, at the database's time, with
-// reason.
-func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error {
+// reason. Handed nil it is one statement on the connection; handed a record it runs in
+// a transaction that writes the record where one token or more was revoked, so the
+// revocation and its row commit together or neither does.
+func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := s.revokeIn(ctx, s.conn, `"UserId"`, userID, reason); err != nil {
-		return err
+	if record == nil {
+		if _, err := s.revokeIn(ctx, s.conn, `"UserId"`, userID, reason); err != nil {
+			return err
+		}
+
+		return nil
 	}
 
-	return nil
+	return s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		revoked, err := s.revokeIn(ctx, tx, `"UserId"`, userID, reason)
+		if err != nil {
+			return err
+		}
+		// A revocation that found no live token is no act, and is not recorded.
+		if revoked == 0 {
+			return nil
+		}
+
+		return s.InsertAuditRecordIn(ctx, tx, record)
+	})
 }
 
 // ExchangeRefreshToken rotates the refresh token holding tokenHash, in one
@@ -263,7 +284,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 			if old.RevokedReason != dbtype.TokenRevokedRotated || !old.FamilyID.Valid {
 				return dbtype.RefreshTokenNotFound()
 			}
-			if err := s.revokeIn(ctx, tx, `"FamilyId"`, old.FamilyID.UUID, dbtype.TokenRevokedReuse); err != nil {
+			if _, err := s.revokeIn(ctx, tx, `"FamilyId"`, old.FamilyID.UUID, dbtype.TokenRevokedReuse); err != nil {
 				return err
 			}
 			reused = true
@@ -276,7 +297,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 		if old.FamilyID.Valid {
 			column, key = `"FamilyId"`, old.FamilyID.UUID
 		}
-		if err := s.revokeIn(ctx, tx, column, key, dbtype.TokenRevokedRotated); err != nil {
+		if _, err := s.revokeIn(ctx, tx, column, key, dbtype.TokenRevokedRotated); err != nil {
 			return err
 		}
 		for _, t := range []*dbtype.Token{access, refresh} {
@@ -426,7 +447,7 @@ func (s *SessionStorageDriver) DenyDeviceCode(ctx context.Context, id impulse.UU
 // NotFound. A poll that issued the tokens then removes the tokens that expired more than
 // 30 days ago, in a statement of its own.
 func (s *SessionStorageDriver) RedeemDeviceCode(
-	ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token,
+	ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token, record *auditlog.Record,
 ) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -444,8 +465,18 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 		}
 		code = codes[0]
 		status, err = s.redeemIn(ctx, tx, code, now, interval, access, refresh)
+		if err != nil || status != dbtype.DeviceApproved {
+			return err
+		}
 
-		return err
+		// Only the poll that issues the tokens is recorded, done to the account that
+		// approved the code.
+		approved, err := s.approverRecord(ctx, tx, code, record)
+		if err != nil {
+			return err
+		}
+
+		return s.InsertAuditRecordIn(ctx, tx, approved)
 	})
 	if err != nil {
 		return nil, "", err
@@ -455,6 +486,23 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 	}
 
 	return code, status, nil
+}
+
+// approverRecord answers a copy of record, the record of the redemption of code, done to
+// the account that approved the code: its id and its username, read inside tx, the id
+// where no account holds it. A nil record answers nil.
+func (s *SessionStorageDriver) approverRecord(ctx context.Context, tx pgx.Tx, code *dbtype.DeviceCode, record *auditlog.Record) (*auditlog.Record, error) {
+	if record == nil {
+		return nil, nil
+	}
+	approved := *record
+	approved.SubjectID, approved.SubjectName = code.UserID.String(), code.UserID.String()
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT "Username" FROM %s WHERE "Id" = $1`, s.userTable()), code.UserID.UUID).Scan(&approved.SubjectName)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+
+	return &approved, nil
 }
 
 // redeemIn decides the poll of code inside tx and writes what it decides.

@@ -43,7 +43,7 @@ func testAddressConfirmedFirst(ctx context.Context, t *testing.T, h *AuthHarness
 	assertEmail(t, "User() after the held sign-in", user, nil, false)
 
 	// An address on the row that nobody confirmed changes nothing.
-	if err := in.Driver.SetUserEmail(ctx, user.ID, strPtr("pat@lakeside.edu")); err != nil {
+	if err := in.Driver.SetUserEmail(ctx, user.ID, strPtr("pat@lakeside.edu"), nil); err != nil {
 		t.Fatalf("SetUserEmail() error = %v", err)
 	}
 	if again := held("an account that holds an unconfirmed address"); again.UserID.UUID != user.ID {

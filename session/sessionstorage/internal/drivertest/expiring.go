@@ -28,7 +28,7 @@ func InsertExpiring(ctx context.Context, t *testing.T, d AuthDriver, userID impu
 
 	token := newToken(dbtype.TokenApplication, userID, tokenHash(n))
 	token.ExpiresAt = expiresAt
-	if err := d.InsertToken(ctx, token); err != nil {
+	if err := d.InsertToken(ctx, token, nil); err != nil {
 		t.Fatalf("InsertToken(%d) error = %v", n, err)
 	}
 

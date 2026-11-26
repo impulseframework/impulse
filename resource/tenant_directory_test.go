@@ -144,7 +144,8 @@ func TestTenantDirectoryStatements(t *testing.T) {
 // where none names it, by the label of the button a person signs in to it with; and
 // where no registration answers, by what the directory alone says. It never says a
 // Microsoft Entra tenant's id. DirectoryName is the same words with the kind of
-// directory before a name.
+// directory before a name; DirectoryNameOrKind, a row of the audit log's, is the kind
+// and the name, or the kind alone where no name is known.
 func TestDirectoryWords(t *testing.T) {
 	t.Parallel()
 
@@ -161,51 +162,61 @@ func TestDirectoryWords(t *testing.T) {
 		namers    []DirectoryNamer
 		wantWords string
 		wantName  string
+		// wantRecorded is the directory as a row of the audit log keeps it
+		// (DirectoryNameOrKind).
+		wantRecorded string
 	}{
 		{
 			name: "a tenant a registration names is its name", directory: entra, namers: []DirectoryNamer{answers("Lakeside", "Staff")},
-			wantWords: "Lakeside", wantName: "Microsoft Entra tenant Lakeside",
+			wantWords: "Lakeside", wantName: "Microsoft Entra tenant Lakeside", wantRecorded: "Microsoft Entra tenant Lakeside",
 		},
 		{
 			name: "a tenant no registration names is said by the label of its button", directory: entra, namers: []DirectoryNamer{answers("", "Microsoft")},
 			wantWords: "your organization's Microsoft directory", wantName: "your organization's Microsoft directory",
+			wantRecorded: "Microsoft Entra tenant",
 		},
 		{
 			name: "a label that ends in the word directory is not given it twice", directory: entra, namers: []DirectoryNamer{answers("", "Staff directory")},
 			wantWords: "your organization's Staff directory", wantName: "your organization's Staff directory",
+			wantRecorded: "Microsoft Entra tenant",
 		},
 		{
 			name: "a name from one auth is said before a label from another", directory: entra, namers: []DirectoryNamer{answers("", "Microsoft"), answers("Lakeside", "Portal")},
-			wantWords: "Lakeside", wantName: "Microsoft Entra tenant Lakeside",
+			wantWords: "Lakeside", wantName: "Microsoft Entra tenant Lakeside", wantRecorded: "Microsoft Entra tenant Lakeside",
 		},
 		{
 			name: "the first label is the one said", directory: entra, namers: []DirectoryNamer{nil, answers("", ""), answers("", "Microsoft"), answers("", "Portal")},
 			wantWords: "your organization's Microsoft directory", wantName: "your organization's Microsoft directory",
+			wantRecorded: "Microsoft Entra tenant",
 		},
 		{
 			name: "a tenant no registration takes is said by its kind, never by its id", directory: entra, namers: []DirectoryNamer{answers("", "")},
 			wantWords: "your organization's Microsoft directory", wantName: "your organization's Microsoft directory",
+			wantRecorded: "Microsoft Entra tenant",
 		},
-		{name: "with nobody to ask, a tenant is said by its kind", directory: entra, wantWords: "your organization's Microsoft directory", wantName: "your organization's Microsoft directory"},
+		{
+			name: "with nobody to ask, a tenant is said by its kind", directory: entra, wantWords: "your organization's Microsoft directory", wantName: "your organization's Microsoft directory",
+			wantRecorded: "Microsoft Entra tenant",
+		},
 		{
 			name: "with nobody to ask, a Workspace is its connection, the application's name for it or its domain", directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "acme.example"},
-			wantWords: "acme.example", wantName: "Google Workspace acme.example",
+			wantWords: "acme.example", wantName: "Google Workspace acme.example", wantRecorded: "Google Workspace acme.example",
 		},
 		{
 			name: "with nobody to ask, a provider the application named is its name", directory: signin.Directory{Method: sessioninfo.MethodOIDC, Connection: "idp"},
-			wantWords: "idp", wantName: "OpenID Connect provider idp",
+			wantWords: "idp", wantName: "OpenID Connect provider idp", wantRecorded: "OpenID Connect provider idp",
 		},
 		{
 			name: "with nobody to ask, a provider known by its issuer is the issuer's host", directory: signin.Directory{Method: sessioninfo.MethodOIDC, Connection: "https://id.acme.example/realms/staff"},
-			wantWords: "id.acme.example", wantName: "OpenID Connect provider id.acme.example",
+			wantWords: "id.acme.example", wantName: "OpenID Connect provider id.acme.example", wantRecorded: "OpenID Connect provider id.acme.example",
 		},
 		{
 			name: "with nobody to ask, a connection that is an id of another kind is not said", directory: signin.Directory{Method: sessioninfo.MethodWorkOS, Connection: "conn_01"},
-			wantWords: "your organization's directory", wantName: "your organization's directory",
+			wantWords: "your organization's directory", wantName: "your organization's directory", wantRecorded: "WorkOS connection",
 		},
 		{
 			name: "a method the library does not know", directory: signin.Directory{Method: "saml", Connection: "idp"},
-			wantWords: "your organization's directory", wantName: "your organization's directory",
+			wantWords: "your organization's directory", wantName: "your organization's directory", wantRecorded: "saml",
 		},
 	}
 	for _, tt := range tests {
@@ -218,7 +229,10 @@ func TestDirectoryWords(t *testing.T) {
 			if got := DirectoryName(tt.directory, tt.namers...); got != tt.wantName {
 				t.Errorf("DirectoryName() = %q, want %q", got, tt.wantName)
 			}
-			for _, got := range []string{DirectoryWords(tt.directory, tt.namers...), DirectoryName(tt.directory, tt.namers...)} {
+			if got := DirectoryNameOrKind(tt.directory, tt.namers...); got != tt.wantRecorded {
+				t.Errorf("DirectoryNameOrKind() = %q, want %q", got, tt.wantRecorded)
+			}
+			for _, got := range []string{DirectoryWords(tt.directory, tt.namers...), DirectoryName(tt.directory, tt.namers...), DirectoryNameOrKind(tt.directory, tt.namers...)} {
 				if strings.Contains(got, tenantID) || strings.Contains(got, "conn_01") {
 					t.Errorf("%q says the connection, want words a person knows", got)
 				}

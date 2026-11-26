@@ -127,6 +127,13 @@ type directoryTakeData struct {
 	// Rules is the expression that builds the rules of the record's directory, named by
 	// the program's auths (namedDirectoryRules).
 	Rules string
+	// IdentityAccessor is the application's accessor of the generated identity client
+	// whose audit log the take is recorded in, "" where none is (tenantSignInRecorder),
+	// and Namers the program's namers of a directory, as the rules are named by
+	// (directoryNamers), which name the directory taken in the row as the rules'
+	// sentences say it.
+	IdentityAccessor string
+	Namers           string
 
 	LocalPackageImports string
 	ResourcePackage     string
@@ -155,6 +162,8 @@ func (r *resourceGenerator) generateDirectoryTake() error {
 		DomainRoute:         fmt.Sprintf("%s/{%s}", r.domainRouteSegment, r.domainRouteParam),
 		TenantIsUUID:        take.directories.DomainBinding.Anchor.Type() == impulseUUIDGoType,
 		Rules:               r.namedDirectoryRules(take.record),
+		IdentityAccessor:    r.tenantSignInRecorder(),
+		Namers:              strings.Join(r.directoryNamers(), ", "),
 		LocalPackageImports: r.localPackageImports(),
 		ResourcePackage:     r.resource.Package(),
 		RouterPackage:       r.router.Package(),

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -179,7 +180,7 @@ func (m *Manager) RequireSecondFactor(ctx context.Context, txn resource.ReadWrit
 		return errors.Wrap(err, "identity.Store.SetRequireSecondFactor()")
 	}
 
-	return nil
+	return m.record(ctx, txn, settingRecord(auditlog.ActSecondFactorRequired, auditlog.SettingSecondFactor, ""))
 }
 
 // StopRequiringSecondFactorWarning says what no longer requiring a second factor would
@@ -215,7 +216,7 @@ func (m *Manager) StopRequiringSecondFactor(ctx context.Context, txn resource.Re
 		return errors.Wrap(err, "identity.Store.SetRequireSecondFactor()")
 	}
 
-	return nil
+	return m.record(ctx, txn, settingRecord(auditlog.ActSecondFactorNotRequired, auditlog.SettingSecondFactor, ""))
 }
 
 // SetRememberedBrowsers buffers an administrator's choice of how long a browser a person
@@ -236,8 +237,11 @@ func (m *Manager) SetRememberedBrowsers(ctx context.Context, txn resource.ReadWr
 		if err := m.store.SetRememberBrowserDays(ctx, txn, l.Days); err != nil {
 			return errors.Wrap(err, "identity.Store.SetRememberBrowserDays()")
 		}
+		// The row keeps the days, and the log writes the length in the list's words.
+		set := settingRecord(auditlog.ActRememberedBrowsersSet, auditlog.SettingRememberedBrowsers, "")
+		set.NewValue = strconv.FormatInt(l.Days, 10)
 
-		return nil
+		return m.record(ctx, txn, set)
 	}
 
 	return httpio.NewBadRequestMessage("That is not one of the lengths a browser can be remembered for. Pick one from the list.")

@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
@@ -224,7 +225,15 @@ func (p *AuthAPI[S, U, Tx]) UserByUsername(ctx context.Context, username string)
 // ChangeSessionUserUsername changes a user's username, and atomically the username
 // on its live sessions.
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userID impulse.UUID, username string) error {
-	if err := p.auth.storage.SetUserUsername(ctx, userID, username); err != nil {
+	a := p.auth
+	// The old name is read for the record of the change.
+	user, err := a.storage.User(ctx, userID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+	renamed := accountRecord(auditlog.ActUsernameChanged, a.acting(ctx), user.ID, username)
+	renamed.OldValue, renamed.NewValue = user.Username, username
+	if err := a.storage.SetUserUsername(ctx, userID, username, renamed); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetUserUsername()")
 	}
 
@@ -288,7 +297,8 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 	}
 	// One store call writes the password and ends the user's sessions, in one
 	// transaction: no failure leaves the password changed and a session alive.
-	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash); err != nil {
+	changed := accountRecord(auditlog.ActPasswordChanged, a.acting(ctx), user.ID, user.Username)
+	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash, changed); err != nil {
 		if errors.Is(err, sessionstorage.ErrPasswordChanged) {
 			return httpio.NewConflictMessageWithError(err, "Your password has changed since you entered it, so this change was not made: try again with your current password")
 		}
@@ -393,7 +403,8 @@ func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userI
 		return errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
 	}
 	standing := a.linksThatSignIn(links)
-	if err := a.storage.RemoveUserPassword(ctx, user.ID, standing); err != nil {
+	removed := accountRecord(auditlog.ActPasswordRemoved, a.acting(ctx), user.ID, user.Username)
+	if err := a.storage.RemoveUserPassword(ctx, user.ID, standing, removed); err != nil {
 		if errors.Is(err, sessionstorage.ErrLastSignInMethod) && len(links) > 0 && len(standing) == 0 {
 			return httpio.NewConflictMessageWithError(err, dbtype.PasswordIsLastWorkingSignInMessage)
 		}
@@ -444,7 +455,11 @@ func (p *AuthAPI[S, U, Tx]) DeactivateSessionUser(ctx context.Context, userID im
 	if err := refuseImpersonatorsOwnAccount(ctx, userID, "disable your own account"); err != nil {
 		return err
 	}
-	if err := p.auth.storage.DeactivateUser(ctx, userID); err != nil {
+	disabled, err := p.auth.accountRecordOf(ctx, auditlog.ActAccountDisabled, p.auth.acting(ctx), userID)
+	if err != nil {
+		return err
+	}
+	if err := p.auth.storage.DeactivateUser(ctx, userID, disabled); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DeactivateUser()")
 	}
 	if err := p.auth.storage.DestroyUserSessions(ctx, userID); err != nil {
@@ -460,7 +475,11 @@ func (p *AuthAPI[S, U, Tx]) ActivateSessionUser(ctx context.Context, userID impu
 	if err := refuseImpersonatorsOwnAccount(ctx, userID, "enable your own account"); err != nil {
 		return err
 	}
-	if err := p.auth.storage.ActivateUser(ctx, userID); err != nil {
+	enabled, err := p.auth.accountRecordOf(ctx, auditlog.ActAccountEnabled, p.auth.acting(ctx), userID)
+	if err != nil {
+		return err
+	}
+	if err := p.auth.storage.ActivateUser(ctx, userID, enabled); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.ActivateUser()")
 	}
 
@@ -477,13 +496,15 @@ func (p *AuthAPI[S, U, Tx]) DeleteSessionUser(ctx context.Context, userID impuls
 	if err := refuseImpersonatorsOwnAccount(ctx, userID, "delete your own account"); err != nil {
 		return err
 	}
-	if _, err := p.auth.storage.User(ctx, userID); err != nil {
+	user, err := p.auth.storage.User(ctx, userID)
+	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
 	if err := p.auth.storage.DestroyUserSessions(ctx, userID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
 	}
-	if err := p.auth.storage.DeleteUser(ctx, userID); err != nil {
+	deleted := accountRecord(auditlog.ActAccountDeleted, p.auth.acting(ctx), user.ID, user.Username)
+	if err := p.auth.storage.DeleteUser(ctx, userID, deleted); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DeleteUser()")
 	}
 
@@ -519,8 +540,22 @@ func (p *AuthAPI[S, U, Tx]) Identities(ctx context.Context, userID impulse.UUID)
 // two unlinks asked at once cannot take the user's last two between them. A user that
 // holds a password may lose every link; the password of a user with no link that
 // counts is refused the same way (RemoveSessionUserPassword).
+//
+// The unlink is recorded (auditlog.ActIdentityUnlinked), done to the link's account by
+// who acts in ctx, naming the directory the link came through as the Auth's
+// registrations name it (directorySaid). The link is read by its id before the unlink:
+// an id no link holds is NotFound, as is a link unlinked between the read and the unlink.
 func (p *AuthAPI[S, U, Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
-	if err := p.auth.storage.UnlinkIdentity(ctx, identityID, p.auth.signsIn); err != nil {
+	link, err := p.auth.storage.IdentityByID(ctx, identityID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.IdentityByID()")
+	}
+	unlinked, err := p.auth.accountRecordOf(ctx, auditlog.ActIdentityUnlinked, p.auth.acting(ctx), link.UserID)
+	if err != nil {
+		return err
+	}
+	unlinked.OldValue = p.auth.directorySaid(link.Method, link.Connection)
+	if err := p.auth.storage.UnlinkIdentity(ctx, identityID, p.auth.signsIn, unlinked); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.UnlinkIdentity()")
 	}
 

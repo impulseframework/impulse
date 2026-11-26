@@ -31,9 +31,10 @@ type Resourcer interface {
 		staffresources.StaffTenantUserRole | staffresources.StaffUserGroupRole |
 		staffresources.StaffUserRole | staffidentity.StaffGivableRole |
 		staffidentity.StaffInvitedTenant | staffidentity.StaffInvitedTenantRole |
-		staffidentity.StaffListedRoleGrant | staffidentity.StaffRememberLength |
-		staffidentity.StaffSignInMethod | staffidentity.StaffSignInSetting |
-		staffidentity.StaffSignInWay | staffidentity.StaffTakeLength |
-		staffidentity.StaffTakeableRole | staffidentity.StaffTenantDirectoryRole |
+		staffidentity.StaffListedAuditRecord | staffidentity.StaffListedRoleGrant |
+		staffidentity.StaffRememberLength | staffidentity.StaffSignInMethod |
+		staffidentity.StaffSignInSetting | staffidentity.StaffSignInWay |
+		staffidentity.StaffTakeLength | staffidentity.StaffTakeableRole |
+		staffidentity.StaffTenantAuditRecord | staffidentity.StaffTenantDirectoryRole |
 		staffidentity.StaffTenantRole | staffidentity.StaffTenantSignInWay
 }

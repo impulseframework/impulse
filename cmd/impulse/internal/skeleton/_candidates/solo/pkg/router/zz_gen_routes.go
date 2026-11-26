@@ -141,6 +141,8 @@ type GeneratedHandlers interface {
 
 	StaffHeldRoles() http.HandlerFunc
 
+	StaffListedAuditRecords() http.HandlerFunc
+
 	StaffListedGroups() http.HandlerFunc
 	StaffListedGroup() http.HandlerFunc
 
@@ -351,6 +353,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffHeldRolesHandler := h.StaffHeldRoles()
 	bounded.Get("/api/staff-held-roles", staffHeldRolesHandler)
 	bounded.Post("/api/staff-held-roles", staffHeldRolesHandler)
+
+	staffListedAuditRecordsHandler := h.StaffListedAuditRecords()
+	bounded.Get("/api/staff-listed-audit-records", staffListedAuditRecordsHandler)
+	bounded.Post("/api/staff-listed-audit-records", staffListedAuditRecordsHandler)
 
 	staffListedGroupsHandler := h.StaffListedGroups()
 	bounded.Get("/api/staff-listed-groups", staffListedGroupsHandler)

@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/azure"
@@ -54,7 +55,7 @@ func newAuthStoreMock(ctrl *gomock.Controller) *mockstore.AuthStore[mockTx] {
 	storage.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
 	// The bookkeeping after a sign-in, and the hint the session read looks for, read
 	// an empty store unless a test says otherwise.
-	storage.EXPECT().ClaimVerifiedEmail(gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
+	storage.EXPECT().ClaimVerifiedEmail(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
 	storage.EXPECT().IdentitiesByUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, userID impulse.UUID) ([]*sessionstorage.SessionIdentity, error) {
 		identityReadsOf(userID).Add(1)
 		links, _ := linkedIdentities.Load(userID)
@@ -617,6 +618,27 @@ func TestNewAuth(t *testing.T) {
 			},
 			options:    []AuthOption{WithSessionTableName("StaffSessions"), WithUserTableName("Staff Users")},
 			wantErrHas: "WithUserTableName",
+		},
+		{
+			name: "a period the audit records are kept for is set on the store",
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
+				s := newAuthStoreMock(ctrl)
+				s.EXPECT().SetAuditRecordsPeriod(auditlog.KeepDays(90)).Return(nil)
+
+				return s
+			},
+			options: []AuthOption{KeepAuditRecords(auditlog.KeepDays(90))},
+		},
+		{
+			name: "a period the store refuses, as Spanner's does, is NewAuth's refusal under its option's name",
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
+				s := newAuthStoreMock(ctrl)
+				s.EXPECT().SetAuditRecordsPeriod(auditlog.KeepDays(90)).Return(errors.New("write the row deletion policy into a migration"))
+
+				return s
+			},
+			options:    []AuthOption{KeepAuditRecords(auditlog.KeepDays(90))},
+			wantErrHas: "KeepAuditRecords()",
 		},
 	}
 	for _, tt := range tests {
@@ -3103,7 +3125,7 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 		f.store.EXPECT().User(gomock.Any(), userID).Return(marked(), nil).Times(2)
 		// The one store call ends the user's sessions with the write; the mock refuses
 		// a destruction of its own.
-		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, temporary, gomock.Not(gomock.Nil())).Return(nil)
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, temporary, gomock.Not(gomock.Nil()), aRecord()).Return(nil)
 		createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
 			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID {
 				t.Errorf("CreateSession() request = %+v", req)
@@ -3165,7 +3187,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		// sessions as a call of its own, whose failure would leave the password changed
 		// and every session alive. It refuses a CreateSession too: the call holds no
 		// session of the user's to continue.
-		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(nil)
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil()), aRecord()).Return(nil)
 
 		if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password, chosen with care"}); err != nil {
 			t.Errorf("ChangeSessionUserPassword() error = %v", err)
@@ -3178,7 +3200,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		old := hashed(t, "old")
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil)
 		// The mock refuses a call it was not told of: nothing follows the failed write.
-		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(errors.New("the database is away"))
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil()), aRecord()).Return(errors.New("the database is away"))
 
 		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password, chosen with care"})
 		if err == nil || httpio.HasConflict(err) {
@@ -3198,7 +3220,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		old := hashed(t, "old")
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil)
 		// The mock refuses a call it was not told of: no session is destroyed or created.
-		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil()), aRecord()).
 			Return(httpio.NewConflictMessageWithError(sessionstorage.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry"))
 
 		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "a new password, chosen with care"})
@@ -3279,9 +3301,9 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		gomock.InOrder(
-			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID}, nil),
+			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil),
 			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().DeleteUser(gomock.Any(), userID).Return(nil),
+			f.store.EXPECT().DeleteUser(gomock.Any(), userID, aRecord()).Return(nil),
 		)
 		if err := f.auth.API().DeleteSessionUser(context.Background(), userID); err != nil {
 			t.Errorf("DeleteSessionUser() error = %v", err)
@@ -3293,7 +3315,8 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		gomock.InOrder(
-			f.store.EXPECT().DeactivateUser(gomock.Any(), userID).Return(nil),
+			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil),
+			f.store.EXPECT().DeactivateUser(gomock.Any(), userID, aRecord()).Return(nil),
 			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
 		)
 		if err := f.auth.API().DeactivateSessionUser(context.Background(), userID); err != nil {
@@ -3306,7 +3329,9 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		identityID := impulse.Must(impulse.NewUUID())
-		f.store.EXPECT().UnlinkIdentity(gomock.Any(), identityID, gomock.Any()).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
+		f.store.EXPECT().IdentityByID(gomock.Any(), identityID).Return(&sessionstorage.SessionIdentity{ID: identityID, UserID: userID, Method: sessioninfo.MethodAzure, Connection: "tenant-1"}, nil)
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+		f.store.EXPECT().UnlinkIdentity(gomock.Any(), identityID, gomock.Any(), aRecord()).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
 
 		if err := f.auth.API().UnlinkIdentity(context.Background(), identityID); !errors.Is(err, sessionstorage.ErrLastSignInMethod) || !httpio.HasConflict(err) {
 			t.Errorf("UnlinkIdentity() error = %v, want ErrLastSignInMethod (Conflict)", err)

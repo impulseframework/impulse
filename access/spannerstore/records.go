@@ -137,7 +137,7 @@ func (s *Store) InsertRecordUserRole(ctx context.Context, at accesstypes.RecordS
 	return s.assign(ctx, s.names.recordUserRoles,
 		[]string{colAxis, colDomain, colResource, colRecord, colRole, colUser},
 		append(recordKey(at), string(role), string(user)),
-		period, nil, "spannertxn.Serializable() assign record user role")
+		period, nil, nil, "spannertxn.Serializable() assign record user role")
 }
 
 // DeleteRecordUserRole removes one role a person holds on a record; removing one they do
@@ -159,7 +159,7 @@ func (s *Store) InsertRecordGroupRole(ctx context.Context, group accesstypes.Gro
 	return s.assign(ctx, s.names.recordGroupRoles,
 		[]string{colAxis, colDomain, colResource, colRecord, colRole, colGroupID},
 		append(recordKey(at), string(role), string(group)),
-		period, []requirement{s.groupHeld(group)}, "spannertxn.Serializable() assign record group role")
+		period, []requirement{s.groupHeld(group)}, nil, "spannertxn.Serializable() assign record group role")
 }
 
 // DeleteRecordGroupRole removes one role a group holds on a record; removing one it does

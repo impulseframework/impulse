@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -95,6 +96,7 @@ func TestManager_DisableUser_ownAccount(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantAccountRow(t, store, err, auditlog.ActAccountDisabled, userID)
 		})
 	}
 }
@@ -184,7 +186,7 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 		{
 			name: "a person of another application, viewing as dana, acts on the account they view as",
 			ctx: func(ctx context.Context) context.Context {
-				foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
+				foreign := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
 
 				return context.WithValue(asCallerThrough(ctx, managedAuth, dana), sessioninfo.CtxSessionInfo, foreign)
 			},

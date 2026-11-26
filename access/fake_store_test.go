@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 var _ Store = (*fakeStore)(nil)
@@ -64,8 +65,8 @@ type fakeStore struct {
 	writes int
 	// groups are the groups of people (fake_store_groups_test.go).
 	groups fakeGroups
-	// records are the roles held on records (fake_store_records_test.go).
-	records fakeRecords
+	// recordRoles are the roles held on records (fake_store_records_test.go).
+	recordRoles fakeRecords
 	// batchWrites counts InsertGrants calls, so tests can pin that a bulk
 	// write reached the store as one call.
 	batchWrites int
@@ -75,6 +76,9 @@ type fakeStore struct {
 	changeWrites int
 	lastChange   fakeChange
 	deleteCalls  int
+	// records are the records of their acts the writes of a person's role were handed
+	// and wrote, in order, as a store that keeps an audit log writes them.
+	records []*auditlog.Record
 
 	// failWith, when set, makes every method return this error.
 	failWith error
@@ -141,18 +145,23 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 	return records, nil
 }
 
-func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+func (f *fakeStore) InsertUserRole(
+	_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
 	f.insertUserRole(scope, user, role, period, reason)
+	f.keepRecord(record)
 
 	return nil
 }
 
-func (f *fakeStore) InsertCustomUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
+func (f *fakeStore) InsertCustomUserRole(
+	_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
@@ -162,8 +171,24 @@ func (f *fakeStore) InsertCustomUserRole(_ context.Context, scope accesstypes.Po
 		return errors.Wrapf(policy.ErrNoRole, "role %q in scope %s", role, scope)
 	}
 	f.insertUserRole(scope, user, role, period, reason)
+	f.keepRecord(record)
 
 	return nil
+}
+
+// keepRecord keeps the record of a write's act, none for nil; the caller holds mu.
+func (f *fakeStore) keepRecord(record *auditlog.Record) {
+	if record != nil {
+		f.records = append(f.records, record)
+	}
+}
+
+// recordsWritten are the records the writes of a person's role wrote, in order.
+func (f *fakeStore) recordsWritten() []*auditlog.Record {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.records)
 }
 
 // insertUserRole writes the membership with its period and its reason; the caller holds
@@ -188,11 +213,15 @@ func (f *fakeStore) customRoleHeld(scope accesstypes.PolicyScope, role accesstyp
 	return oneDomain && f.hasRole(accesstypes.EveryDomainPolicyScope(), role)
 }
 
-func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
+func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
+	}
+	// A membership that is not there is removed by nobody, and records nothing.
+	if _, held := f.memberships[fakeMembership{scope, user, role}]; held {
+		f.keepRecord(record)
 	}
 	delete(f.memberships, fakeMembership{scope, user, role})
 	delete(f.reasons, fakeMembership{scope, user, role})

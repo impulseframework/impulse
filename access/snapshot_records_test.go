@@ -137,7 +137,7 @@ func TestClient_recordRoles(t *testing.T) {
 		}
 	}
 	for _, user := range []accesstypes.User{"bob", "cal"} {
-		if err := store.InsertUserRole(ctx, tenant1Policy, user, "ProjectEditor", accesstypes.Period{}, ""); err != nil {
+		if err := store.InsertUserRole(ctx, tenant1Policy, user, "ProjectEditor", accesstypes.Period{}, "", nil); err != nil {
 			t.Fatalf("InsertUserRole(%s) error = %v", user, err)
 		}
 	}

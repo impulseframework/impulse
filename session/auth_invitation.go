@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
@@ -871,6 +873,11 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	return p.invite(ctx, req, p.auth.acting(ctx))
+}
+
+// invite is Invite, recorded as sent by source.
+func (p *AuthAPI[S, U, Tx]) invite(ctx context.Context, req *InvitationRequest, source eventsource.EventSource) (*sessioninfo.Invitation, error) {
 	m, email, err := p.auth.invitee(req.Email)
 	if err != nil {
 		return nil, err
@@ -890,12 +897,17 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	if err != nil {
 		return nil, err
 	}
+	// The invitation's id is made here, so that its record names it.
+	id, err := impulse.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	}
 	lifetime := m.settings.InvitationTimeout
 	link := &sessionstorage.MailLink{
-		TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Name: name, TenantID: req.TenantID, EveryTenant: req.EveryTenant, RoleNames: req.RoleNames,
-		InvitedByUserID: req.InvitedByUserID, NewTenant: newTenant, ExpiresAt: time.Now().Add(lifetime),
+		ID: id, TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Name: name, TenantID: req.TenantID, EveryTenant: req.EveryTenant,
+		RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID, NewTenant: newTenant, ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := p.auth.storage.InsertMailLink(ctx, link); err != nil {
+	if err := p.auth.storage.InsertMailLink(ctx, link, p.auth.invitedRecord(source, link)); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := p.auth.sendInvitation(ctx, m, link.ID, email, token, lifetime); err != nil {
@@ -1105,11 +1117,37 @@ func (p *AuthAPI[S, U, Tx]) Invitations(ctx context.Context) ([]*sessioninfo.Inv
 }
 
 // RevokeInvitation withdraws an invitation that stands; its link is then dead. One
-// that no longer stands is NotFound.
+// that no longer stands is NotFound. The withdrawal is recorded in the tenant the
+// invitation names, as its sending was.
 func (p *AuthAPI[S, U, Tx]) RevokeInvitation(ctx context.Context, id impulse.UUID) error {
-	if err := p.auth.storage.RevokeMailLink(ctx, id); err != nil {
+	withdrawn, err := p.withdrawnRecord(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := p.auth.storage.RevokeMailLink(ctx, id, withdrawn); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeMailLink()")
 	}
 
 	return nil
+}
+
+// withdrawnRecord answers the record of the request withdrawing the standing invitation
+// id: named by the address it was mailed to, in the tenant it names. Where none stands the
+// record names the id and no tenant: the withdrawal then answers its own NotFound and
+// writes nothing.
+func (p *AuthAPI[S, U, Tx]) withdrawnRecord(ctx context.Context, id impulse.UUID) (*auditlog.Record, error) {
+	links, err := p.auth.storage.LiveMailLinks(ctx, sessionstorage.MailLinkInvitation)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.LiveMailLinks()")
+	}
+	for _, link := range links {
+		if link.ID == id {
+			withdrawn := invitationRecord(auditlog.ActInvitationWithdrawn, p.auth.acting(ctx), id, link.Email)
+			p.auth.inTenant(withdrawn, AskedByTenant(link.TenantID))
+
+			return withdrawn, nil
+		}
+	}
+
+	return invitationRecord(auditlog.ActInvitationWithdrawn, p.auth.acting(ctx), id, id.String()), nil
 }

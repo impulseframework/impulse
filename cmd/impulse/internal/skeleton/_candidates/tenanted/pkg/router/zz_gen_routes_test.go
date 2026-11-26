@@ -954,6 +954,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/staff-listed-audit-records", method: http.MethodGet,
+			handlerFunc: "StaffListedAuditRecords",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-listed-audit-records", method: http.MethodPost,
+			handlerFunc: "StaffListedAuditRecords",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-listed-role-grants", method: http.MethodGet,
 			handlerFunc: "StaffListedRoleGrants",
 			parameters:  map[string]string{},
@@ -1022,6 +1032,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/api/staff-takeable-roles", method: http.MethodPost,
 			handlerFunc: "StaffTakeableRoles",
 			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-audit-records", method: http.MethodGet,
+			handlerFunc: "StaffTenantAuditRecords",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-audit-records", method: http.MethodPost,
+			handlerFunc: "StaffTenantAuditRecords",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
 		},
 		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet,
@@ -1504,6 +1524,10 @@ func (s *generatedHandlersStub) StaffInvitedTenantRoles() http.HandlerFunc {
 	return s.record("StaffInvitedTenantRoles")
 }
 
+func (s *generatedHandlersStub) StaffListedAuditRecords() http.HandlerFunc {
+	return s.record("StaffListedAuditRecords")
+}
+
 func (s *generatedHandlersStub) StaffListedGroups() http.HandlerFunc {
 	return s.record("StaffListedGroups")
 }
@@ -1674,6 +1698,10 @@ func (s *generatedHandlersStub) StaffTakeableRoles() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffTakenRoles() http.HandlerFunc {
 	return s.record("StaffTakenRoles")
+}
+
+func (s *generatedHandlersStub) StaffTenantAuditRecords() http.HandlerFunc {
+	return s.record("StaffTenantAuditRecords")
 }
 
 func (s *generatedHandlersStub) StaffTenantDirectoryRoles() http.HandlerFunc {

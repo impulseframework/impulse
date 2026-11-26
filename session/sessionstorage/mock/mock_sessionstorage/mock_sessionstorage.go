@@ -15,6 +15,7 @@ import (
 	time "time"
 
 	impulse "github.com/impulseframework/impulse"
+	auditlog "github.com/impulseframework/impulse/auditlog"
 	securehash "github.com/impulseframework/impulse/securehash"
 	dbtype "github.com/impulseframework/impulse/session/internal/dbtype"
 	sessioninfo "github.com/impulseframework/impulse/session/sessioninfo"
@@ -580,17 +581,17 @@ func (m *MockUserStoreMethods) EXPECT() *MockUserStoreMethodsMockRecorder {
 }
 
 // ActivateUser mocks base method.
-func (m *MockUserStoreMethods) ActivateUser(ctx context.Context, id impulse.UUID) error {
+func (m *MockUserStoreMethods) ActivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ActivateUser", ctx, id)
+	ret := m.ctrl.Call(m, "ActivateUser", ctx, id, record)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ActivateUser indicates an expected call of ActivateUser.
-func (mr *MockUserStoreMethodsMockRecorder) ActivateUser(ctx, id any) *gomock.Call {
+func (mr *MockUserStoreMethodsMockRecorder) ActivateUser(ctx, id, record any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*MockUserStoreMethods)(nil).ActivateUser), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateUser", reflect.TypeOf((*MockUserStoreMethods)(nil).ActivateUser), ctx, id, record)
 }
 
 // CreateUser mocks base method.
@@ -624,45 +625,45 @@ func (mr *MockUserStoreMethodsMockRecorder) CustomUserData(ctx, userID any) *gom
 }
 
 // DeactivateUser mocks base method.
-func (m *MockUserStoreMethods) DeactivateUser(ctx context.Context, id impulse.UUID) error {
+func (m *MockUserStoreMethods) DeactivateUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeactivateUser", ctx, id)
+	ret := m.ctrl.Call(m, "DeactivateUser", ctx, id, record)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // DeactivateUser indicates an expected call of DeactivateUser.
-func (mr *MockUserStoreMethodsMockRecorder) DeactivateUser(ctx, id any) *gomock.Call {
+func (mr *MockUserStoreMethodsMockRecorder) DeactivateUser(ctx, id, record any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeactivateUser", reflect.TypeOf((*MockUserStoreMethods)(nil).DeactivateUser), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeactivateUser", reflect.TypeOf((*MockUserStoreMethods)(nil).DeactivateUser), ctx, id, record)
 }
 
 // DeleteUser mocks base method.
-func (m *MockUserStoreMethods) DeleteUser(ctx context.Context, id impulse.UUID) error {
+func (m *MockUserStoreMethods) DeleteUser(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteUser", ctx, id)
+	ret := m.ctrl.Call(m, "DeleteUser", ctx, id, record)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // DeleteUser indicates an expected call of DeleteUser.
-func (mr *MockUserStoreMethodsMockRecorder) DeleteUser(ctx, id any) *gomock.Call {
+func (mr *MockUserStoreMethodsMockRecorder) DeleteUser(ctx, id, record any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*MockUserStoreMethods)(nil).DeleteUser), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*MockUserStoreMethods)(nil).DeleteUser), ctx, id, record)
 }
 
 // SetUserUsername mocks base method.
-func (m *MockUserStoreMethods) SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error {
+func (m *MockUserStoreMethods) SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string, record *auditlog.Record) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetUserUsername", ctx, id, newUsername)
+	ret := m.ctrl.Call(m, "SetUserUsername", ctx, id, newUsername, record)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SetUserUsername indicates an expected call of SetUserUsername.
-func (mr *MockUserStoreMethodsMockRecorder) SetUserUsername(ctx, id, newUsername any) *gomock.Call {
+func (mr *MockUserStoreMethodsMockRecorder) SetUserUsername(ctx, id, newUsername, record any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*MockUserStoreMethods)(nil).SetUserUsername), ctx, id, newUsername)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserUsername", reflect.TypeOf((*MockUserStoreMethods)(nil).SetUserUsername), ctx, id, newUsername, record)
 }
 
 // UpdateCustomUserData mocks base method.

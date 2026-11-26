@@ -13,6 +13,10 @@ import (
 	"github.com/impulseframework/impulse/session/signin"
 )
 
+// entraTenantOne is the directory entra's identities come through, as a seat it offers
+// names it.
+var entraTenantOne = signin.Directory{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}
+
 // entra is an external identity of the Entra tenant tenant-1 that signs in under
 // signInName, as the Entra method reports a member: the sign-in name is the user
 // principal name.
@@ -359,7 +363,7 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				t.Helper()
 				for _, open := range []bool{true, false} {
-					if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: MethodName, OpenSignUp: open, OpenedFor: openedFor(MethodAudience())}); err != nil {
+					if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: MethodName, OpenSignUp: open, OpenedFor: openedFor(MethodAudience())}, nil); err != nil {
 						t.Fatalf("SetSignInMethod() error = %v", err)
 					}
 				}
@@ -378,7 +382,7 @@ func testStandardAccountRules(_ context.Context, t *testing.T, h *AuthHarness) {
 			accounts: InviteOnly,
 			seed: func(ctx context.Context, t *testing.T, d AuthDriver) *dbtype.SessionUser {
 				t.Helper()
-				if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "another", OpenSignUp: true, OpenedFor: openedFor(MethodAudience())}); err != nil {
+				if err := d.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "another", OpenSignUp: true, OpenedFor: openedFor(MethodAudience())}, nil); err != nil {
 					t.Fatalf("SetSignInMethod() error = %v", err)
 				}
 

@@ -334,7 +334,7 @@ func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, 
 	return s.assign(ctx, s.names.groupMembers,
 		[]string{colGroupID, colUser},
 		spanner.Key{string(group), string(user)},
-		period, []requirement{s.groupHeld(group)}, "spannertxn.Serializable() assign group member")
+		period, []requirement{s.groupHeld(group)}, nil, "spannertxn.Serializable() assign group member")
 }
 
 // groupHeld is the requirement of a group's member or role: the group's row. Where it
@@ -403,7 +403,7 @@ func (s *Store) assignGroupRole(ctx context.Context, group accesstypes.Group, sc
 	return s.assign(ctx, s.names.groupRoles,
 		[]string{colGroupID, colKind, colAxis, colDomain, colRole},
 		spanner.Key{string(group), kind, axis, domain, string(role)},
-		period, needs, "spannertxn.Serializable() assign group role")
+		period, needs, nil, "spannertxn.Serializable() assign group role")
 }
 
 // DeleteGroupRole removes one role a group holds in scope; removing one it

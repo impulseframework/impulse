@@ -631,7 +631,7 @@ func TestManager_SessionMethodOpen(t *testing.T) {
 			}
 			ctx := t.Context()
 			if !tt.noSession {
-				ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{AuthEvents: tt.events})
+				ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, AuthEvents: tt.events})
 			}
 
 			got, err := m.SessionMethodOpen(ctx, nil)

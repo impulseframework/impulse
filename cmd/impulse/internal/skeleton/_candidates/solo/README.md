@@ -41,8 +41,8 @@ what they hold.
   else holds it, and sets the client's hook on its session manager, through which a
   person who accepts an invitation is given its roles in the transaction that spends it:
   no auth is open without it. The console writes no page for any of it: the library builds
-  the accounts, groups, mailed links, sessions and failed sign-ins pages from the API
-  description (`identityRoutes` in `web/console/src/app/app.routes.ts`). A group of people
+  the accounts, groups, mailed links, sessions, failed sign-ins and audit log pages from
+  the API description (`identityRoutes` in `web/console/src/app/app.routes.ts`). A group of people
   holds roles the way a person does, and a person in it holds the group's roles; the role
   file gives the groups, their members and their roles to the `Administrator`, who manages
   the people. A group gives nobody a power that giving the role directly would not: who is

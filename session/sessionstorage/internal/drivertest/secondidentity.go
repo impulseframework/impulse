@@ -59,7 +59,7 @@ func takenName(ctx context.Context, t *testing.T, in *AuthInstance, own *session
 	if err != nil {
 		t.Fatalf("Identity() of the confirmed link error = %v", err)
 	}
-	if err := in.Driver.RemoveProvenUserPassword(ctx, account.ID, mustUser(ctx, t, in.Driver, account.ID).PasswordHash, []impulse.UUID{linked.ID}); err != nil {
+	if err := in.Driver.RemoveProvenUserPassword(ctx, account.ID, mustUser(ctx, t, in.Driver, account.ID).PasswordHash, []impulse.UUID{linked.ID}, nil); err != nil {
 		t.Fatalf("RemoveProvenUserPassword() error = %v", err)
 	}
 	account = mustUser(ctx, t, in.Driver, account.ID)
@@ -95,7 +95,7 @@ func testSecondIdentityByName(_ context.Context, t *testing.T, h *AuthHarness) {
 			if accounts == InviteOnly {
 				// The choice for the method decides a person with no account, and this
 				// name has one: the answer is the same once the method is closed again.
-				if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: MethodName, OpenSignUp: false}); err != nil {
+				if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: MethodName, OpenSignUp: false}, nil); err != nil {
 					t.Fatalf("SetSignInMethod() error = %v", err)
 				}
 			}
@@ -220,7 +220,7 @@ func testSecondIdentityByName(_ context.Context, t *testing.T, h *AuthHarness) {
 
 		// With a password, the person proves the account is theirs: the sign-in waits
 		// for it, and the confirmed link is a second identity on the same connection.
-		if err := in.Driver.SetFirstUserPassword(ctx, lee.ID, passwordHashes(t, "a password")[0]); err != nil {
+		if err := in.Driver.SetFirstUserPassword(ctx, lee.ID, passwordHashes(t, "a password")[0], nil); err != nil {
 			t.Fatalf("SetFirstUserPassword() error = %v", err)
 		}
 		second := google("google-lee-second", name)

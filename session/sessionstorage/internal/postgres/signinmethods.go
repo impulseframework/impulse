@@ -7,6 +7,7 @@ import (
 
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"github.com/jackc/pgx/v5"
@@ -82,7 +83,7 @@ func (s *SessionStorageDriver) SignInMethods(ctx context.Context) ([]*dbtype.Sig
 
 // SetSignInMethod writes the row of the sign-in method m names, replacing the one it
 // had, with UpdatedAt the database's time.
-func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error {
+func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -90,11 +91,14 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 		ON CONFLICT ("Name") DO UPDATE SET "OpenSignUp" = EXCLUDED."OpenSignUp", "OpenedFor" = EXCLUDED."OpenedFor", "DefaultRole" = EXCLUDED."DefaultRole",
 			"SelfServiceReset" = EXCLUDED."SelfServiceReset", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
 		s.signInMethodsTable(), signInMethodColumns)
-	if _, err := s.conn.Exec(ctx, query, m.Name, m.OpenSignUp, m.OpenedFor, m.DefaultRole, m.SelfServiceReset); err != nil {
-		return errors.Wrap(err, "pgx.Conn.Exec()")
-	}
 
-	return nil
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		if _, err := db.Exec(ctx, query, m.Name, m.OpenSignUp, m.OpenedFor, m.DefaultRole, m.SelfServiceReset); err != nil {
+			return errors.Wrap(err, "Exec()")
+		}
+
+		return nil
+	})
 }
 
 // SetSelfServiceReset writes whether a person may ask for their own password reset
@@ -102,16 +106,19 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 // database's time, and leaves what else the row says as it stands. It is one
 // statement: a method with no row gets one that is invite only, and a row there has
 // the one field and its time written, never the row read and written back.
-func (s *SessionStorageDriver) SetSelfServiceReset(ctx context.Context, method string, on bool) error {
+func (s *SessionStorageDriver) SetSelfServiceReset(ctx context.Context, method string, on bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, false, NULL, NULL, $2, now())
 		ON CONFLICT ("Name") DO UPDATE SET "SelfServiceReset" = EXCLUDED."SelfServiceReset", "UpdatedAt" = EXCLUDED."UpdatedAt"`,
 		s.signInMethodsTable(), signInMethodColumns)
-	if _, err := s.conn.Exec(ctx, query, method, on); err != nil {
-		return errors.Wrap(err, "pgx.Conn.Exec()")
-	}
 
-	return nil
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		if _, err := db.Exec(ctx, query, method, on); err != nil {
+			return errors.Wrap(err, "Exec()")
+		}
+
+		return nil
+	})
 }

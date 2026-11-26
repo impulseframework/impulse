@@ -48,7 +48,7 @@ func TestAuthAPI_SetSecondFactorRequired(t *testing.T) {
 
 	for _, required := range []bool{false, true} {
 		f := newAuthFixture(t, gomock.NewController(t))
-		f.store.EXPECT().SetRequireSecondFactor(gomock.Any(), required).Return(nil)
+		f.store.EXPECT().SetRequireSecondFactor(gomock.Any(), required, aRecord()).Return(nil)
 		if err := f.auth.API().SetSecondFactorRequired(t.Context(), required); err != nil {
 			t.Errorf("SetSecondFactorRequired(%t) error = %v", required, err)
 		}
@@ -63,7 +63,7 @@ func TestAuthAPI_SetRememberedBrowserDays(t *testing.T) {
 
 	for _, days := range []int64{0, 7, MaxRememberedBrowserDays} {
 		f := newAuthFixture(t, gomock.NewController(t))
-		f.store.EXPECT().SetRememberBrowserDays(gomock.Any(), days).Return(nil)
+		f.store.EXPECT().SetRememberBrowserDays(gomock.Any(), days, aRecord()).Return(nil)
 		if err := f.auth.API().SetRememberedBrowserDays(t.Context(), days); err != nil {
 			t.Errorf("SetRememberedBrowserDays(%d) error = %v", days, err)
 		}

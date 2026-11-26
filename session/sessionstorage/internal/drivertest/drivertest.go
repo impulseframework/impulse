@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
@@ -28,7 +29,7 @@ type Driver interface {
 	DestroySession(ctx context.Context, sessionID impulse.UUID) error
 	DestroyAllUserSessions(ctx context.Context, username string) error
 	CreateUser(ctx context.Context, user *dbtype.InsertSessionUser, customData any) (*dbtype.SessionUser, error)
-	SetUserUsername(ctx context.Context, userID impulse.UUID, newUsername string) error
+	SetUserUsername(ctx context.Context, userID impulse.UUID, newUsername string, record *auditlog.Record) error
 }
 
 // Schema names the migration set a database is prepared with.

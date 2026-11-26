@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -119,8 +120,8 @@ func TestDeviceHandlers_Token(t *testing.T) {
 			t.Parallel()
 			f := newTokenFixture(t, gomock.NewController(t), WithTokenLifetimes(2*time.Hour, 24*time.Hour, 48*time.Hour))
 			var access, refreshed *sessionstorage.Token
-			f.store.EXPECT().RedeemDeviceCode(gomock.Any(), hashToken("d"), gomock.Any(), gomock.Any(), gomock.Any()).
-				DoAndReturn(func(_ context.Context, _ []byte, _ time.Duration, a, r *sessionstorage.Token) (*sessionstorage.DeviceCode, sessionstorage.DeviceCodeStatus, error) {
+			f.store.EXPECT().RedeemDeviceCode(gomock.Any(), hashToken("d"), gomock.Any(), gomock.Any(), gomock.Any(), aDeviceRecord()).
+				DoAndReturn(func(_ context.Context, _ []byte, _ time.Duration, a, r *sessionstorage.Token, _ *auditlog.Record) (*sessionstorage.DeviceCode, sessionstorage.DeviceCodeStatus, error) {
 					access, refreshed = a, r
 
 					return &sessionstorage.DeviceCode{}, tt.redeem, tt.redeemErr
@@ -228,7 +229,7 @@ func TestApplicationTokenHandlers(t *testing.T) {
 	f.user = pat(userID)
 	f.expectSession(sessionID, f.user)
 	var stored *sessionstorage.Token
-	f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token) error {
+	f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), aRecord()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
 		stored = tok
 
 		return nil
@@ -236,7 +237,7 @@ func TestApplicationTokenHandlers(t *testing.T) {
 	f.store.EXPECT().Tokens(gomock.Any(), userID).DoAndReturn(func(context.Context, impulse.UUID) ([]*sessionstorage.Token, error) {
 		return []*sessionstorage.Token{stored}, nil
 	})
-	f.store.EXPECT().RevokeUserToken(gomock.Any(), userID, gomock.Any(), sessionstorage.TokenRevokedByHand).DoAndReturn(func(_ context.Context, _, id impulse.UUID, _ sessionstorage.TokenRevocation) error {
+	f.store.EXPECT().RevokeUserToken(gomock.Any(), userID, gomock.Any(), sessionstorage.TokenRevokedByHand, aRecord()).DoAndReturn(func(_ context.Context, _, id impulse.UUID, _ sessionstorage.TokenRevocation, _ *auditlog.Record) error {
 		if id != stored.ID {
 			return httpio.NewNotFoundMessage("no live token")
 		}

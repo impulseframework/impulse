@@ -279,7 +279,7 @@ func openMethod[Tx any](
 	if role != "" {
 		row.DefaultRole = &role
 	}
-	if err := store.SetSignInMethod(ctx, row); err != nil {
+	if err := store.SetSignInMethod(ctx, row, nil); err != nil {
 		t.Fatalf("SetSignInMethod(%q) error = %v", name, err)
 	}
 }
@@ -288,7 +288,7 @@ func openMethod[Tx any](
 func closeMethod[Tx any](ctx context.Context, t *testing.T, store *sessionstorage.Auth[Tx], name string) {
 	t.Helper()
 
-	if err := store.SetSignInMethod(ctx, &sessionstorage.SignInMethod{Name: name}); err != nil {
+	if err := store.SetSignInMethod(ctx, &sessionstorage.SignInMethod{Name: name}, nil); err != nil {
 		t.Fatalf("SetSignInMethod(%q) error = %v", name, err)
 	}
 }
@@ -698,7 +698,7 @@ func seamRulesNameLinkTakesNoAddress[Tx any](ctx context.Context, t *testing.T, 
 	// An administrator takes the address off the account while the sign-in waits. The
 	// step has no address to mail the code to, and takes none from the person who
 	// waits: nothing but the name ties them to the account.
-	if err := a.setEmail(ctx, alice, nil); err != nil {
+	if err := a.setEmail(ctx, alice, nil, nil); err != nil {
 		t.Fatalf("SetUserEmail() error = %v", err)
 	}
 	if status, _ := b.do(ctx, http.MethodPost, "/pending/email", map[string]string{"email": "mallory@elsewhere.example"}); status != http.StatusConflict {
@@ -738,7 +738,7 @@ func seamRulesNameLinkCodeOutlivesNoAddress[Tx any](ctx context.Context, t *test
 	// An administrator learns the mailbox is no longer alice's and takes the address
 	// off the account. The code was mailed to an address the account no longer holds:
 	// the step offers it no more, and entering it is answered as a code that expired.
-	if err := a.setEmail(ctx, alice, nil); err != nil {
+	if err := a.setEmail(ctx, alice, nil, nil); err != nil {
 		t.Fatalf("SetUserEmail() error = %v", err)
 	}
 	if status := b.pendingStatus(ctx); status.EmailCode == nil || status.EmailCode.CodeSent || status.EmailCode.CodeEmail != "" {
@@ -1817,7 +1817,7 @@ func seamRulesOpenedForOneTenant[Tx any](ctx context.Context, t *testing.T, be b
 	// organizations: their names, each once, which the two registrations share. No
 	// migration reads such a row, and it opens the method for nobody.
 	earlier := earlierAudienceKey(t, second.api, "entra")
-	if err := second.store.SetSignInMethod(ctx, &sessionstorage.SignInMethod{Name: "entra", OpenSignUp: true, OpenedFor: &earlier}); err != nil {
+	if err := second.store.SetSignInMethod(ctx, &sessionstorage.SignInMethod{Name: "entra", OpenSignUp: true, OpenedFor: &earlier}, nil); err != nil {
 		t.Fatalf("SetSignInMethod(%q) error = %v", "entra", err)
 	}
 	for _, stranger := range []struct{ tenant, oid, email string }{
@@ -2137,7 +2137,7 @@ func seamRulesAccountCannotHoldItsAddress[Tx any](ctx context.Context, t *testin
 	if email, verified := first.authenticatedEmail(ctx); email != "lee@gmail.com" || !verified {
 		t.Fatalf("the address after the first sign-in = %q (confirmed %v), want lee@gmail.com confirmed by Google's word", email, verified)
 	}
-	if err := a.setEmail(ctx, lee, nil); err != nil {
+	if err := a.setEmail(ctx, lee, nil, nil); err != nil {
 		t.Fatalf("SetUserEmail(nil) error = %v", err)
 	}
 	other := a.createUser(ctx, t, "lee")

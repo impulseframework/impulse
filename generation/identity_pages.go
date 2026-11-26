@@ -54,6 +54,9 @@ const (
 	// The tenant's directory, on a tenant's side: the record a tenant's one directory is
 	// a row of, which the Sign-in settings page sets and removes.
 	identityListDirectories = "directories"
+	// The audit log, the whole log on the whole application's side and a tenant's rows on
+	// a tenant's (identity_auditlog.go).
+	identityListAuditLog = "auditLog"
 )
 
 // identityPart is one list or method of a side: the key a page knows it by and the name
@@ -145,6 +148,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 			{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, true)},
 			{identityListGroupRoles, i.groupListName(listGroupRolesSuffix, true)},
 			{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, true)},
+			{identityListAuditLog, i.listName(listAuditRecordsSuffix)},
 		}
 		if i.tenant != nil && i.tenant.directories != "" {
 			parts = append(parts, identityPart{identityListDirectories, i.tenant.directories})
@@ -186,6 +190,7 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListGroupRoles, groupRoles},
 		{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, false)},
 		{identityListTakenRoles, data.TakenRole()},
+		{identityListAuditLog, data.ListedAuditRecord()},
 	}
 	if i.invitesTenants() {
 		parts = append(parts, identityPart{identityListInvitedTenants, i.invitedTenantName()})

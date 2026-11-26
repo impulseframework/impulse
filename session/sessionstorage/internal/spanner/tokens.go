@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -160,7 +161,7 @@ func (s *SessionStorageDriver) tokenMutations(tokens ...*dbtype.Token) ([]*spann
 }
 
 // InsertToken inserts t.
-func (s *SessionStorageDriver) InsertToken(ctx context.Context, t *dbtype.Token) error {
+func (s *SessionStorageDriver) InsertToken(ctx context.Context, t *dbtype.Token, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -168,7 +169,11 @@ func (s *SessionStorageDriver) InsertToken(ctx context.Context, t *dbtype.Token)
 	if err != nil {
 		return err
 	}
-	if _, err := s.spanner.Apply(ctx, mutations); err != nil {
+	audit, err := s.auditRecordMutations(record)
+	if err != nil {
+		return err
+	}
+	if _, err := s.spanner.Apply(ctx, append(mutations, audit...)); err != nil {
 		return errors.Wrap(err, "spanner.Client.Apply()")
 	}
 
@@ -270,7 +275,7 @@ func (s *SessionStorageDriver) revokeIn(ctx context.Context, txn *spanner.ReadWr
 // reason: the token alone, or its whole family when it has one, so revoking a device
 // grant's refresh token revokes its access token with it. A token that is not live,
 // or is not the user's, is NotFound.
-func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation) error {
+func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id impulse.UUID, now time.Time, reason dbtype.TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -294,7 +299,7 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 			return err
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if errors.Is(err, errTokenNotLive) {
 		return dbtype.TokenNotFound()
@@ -306,15 +311,24 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 	return nil
 }
 
-// RevokeUserTokens revokes every live token of userID, at the commit time, with reason.
-func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation) error {
+// RevokeUserTokens revokes every live token of userID, at the commit time, with reason,
+// and writes record in the same transaction where one token or more was revoked: one
+// row for the act, however many tokens go.
+func (s *SessionStorageDriver) RevokeUserTokens(ctx context.Context, userID impulse.UUID, reason dbtype.TokenRevocation, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		_, err := s.revokeIn(ctx, txn, "UserId", userID.String(), reason)
+		revoked, err := s.revokeIn(ctx, txn, "UserId", userID.String(), reason)
+		if err != nil {
+			return err
+		}
+		// A revocation that found no live token is no act, and is not recorded.
+		if revoked == 0 {
+			return nil
+		}
 
-		return err
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")
@@ -574,7 +588,7 @@ func (s *SessionStorageDriver) DenyDeviceCode(ctx context.Context, id impulse.UU
 // expired code is denied or expired. A code that is not there or was consumed is
 // NotFound.
 func (s *SessionStorageDriver) RedeemDeviceCode(
-	ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token,
+	ctx context.Context, deviceCodeHash []byte, now time.Time, interval time.Duration, access, refresh *dbtype.Token, record *auditlog.Record,
 ) (*dbtype.DeviceCode, dbtype.DeviceCodeStatus, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -593,8 +607,18 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 		}
 		code = codes[0]
 		status, err = s.redeemIn(ctx, txn, code, now, interval, access, refresh)
+		if err != nil || status != dbtype.DeviceApproved {
+			return err
+		}
 
-		return err
+		// Only the poll that issues the tokens is recorded, done to the account that
+		// approved the code.
+		approved, err := s.approverRecord(ctx, txn, code, record)
+		if err != nil {
+			return err
+		}
+
+		return s.bufferAuditRecord(txn, approved)
 	})
 	switch {
 	case errors.Is(err, errDeviceCodeNotPending):
@@ -604,6 +628,31 @@ func (s *SessionStorageDriver) RedeemDeviceCode(
 	}
 
 	return code, status, nil
+}
+
+// approverRecord answers a copy of record, the record of the redemption of code, done to
+// the account that approved the code: its id and its username, read inside txn, the id
+// where no account holds it. A nil record answers nil.
+func (s *SessionStorageDriver) approverRecord(ctx context.Context, txn *spanner.ReadWriteTransaction, code *dbtype.DeviceCode, record *auditlog.Record) (*auditlog.Record, error) {
+	if record == nil {
+		return nil, nil
+	}
+	approved := *record
+	approved.SubjectID, approved.SubjectName = code.UserID.String(), code.UserID.String()
+	iter := txn.Read(ctx, s.userTableName, spanner.Key{code.UserID.String()}, []string{usernameColumn})
+	defer iter.Stop()
+	row, err := iter.Next()
+	switch {
+	case errors.Is(err, iterator.Done):
+		return &approved, nil
+	case err != nil:
+		return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
+	}
+	if err := row.Column(0, &approved.SubjectName); err != nil {
+		return nil, errors.Wrap(err, "spanner.Row.Column()")
+	}
+
+	return &approved, nil
 }
 
 // redeemIn decides the poll of code inside txn and writes what it decides.

@@ -8,6 +8,7 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
 	"github.com/jackc/pgx/v5"
@@ -67,7 +68,7 @@ func (s *SessionStorageDriver) mailLinksTable() string {
 
 // InsertMailLink inserts l, created at the database's time and not consumed, whatever l
 // carries.
-func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.MailLink) error {
+func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.MailLink, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -87,8 +88,14 @@ func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.Mai
 	}
 	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, $10, $11, $12)`, s.mailLinksTable(), mailLinkColumns)
 	args := []any{l.ID, l.TokenHash, string(l.Kind), l.Email, userID, dbtype.OptionalString(l.TenantID), l.RoleNames, invitedBy, l.ExpiresAt, dbtype.OptionalString(l.Name), newTenant, l.EveryTenant}
-	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
+	if err := s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		if _, err := db.Exec(ctx, query, args...); err != nil {
+			return errors.Wrap(err, "Exec()")
+		}
+
+		return nil
+	}); err != nil {
+		return err
 	}
 	// The links that expired more than 30 days ago go with a link's insert, the write that
 	// makes the table grow, in a statement of their own once the link is in: a live link
@@ -158,11 +165,13 @@ func (s *SessionStorageDriver) ConsumeMailLink(ctx context.Context, tokenHash []
 // RevokeMailLink marks the live mail link id consumed and withdrawn, both at the
 // database's time: a link taken back before anyone followed it. A link that is not live
 // is NotFound.
-func (s *SessionStorageDriver) RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
+func (s *SessionStorageDriver) RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return s.endMailLink(ctx, s.conn, mailLinkWithdrawn, `"Id"`, id, now)
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		return s.endMailLink(ctx, db, mailLinkWithdrawn, `"Id"`, id, now)
+	})
 }
 
 // FailMailLink marks the live mail link id consumed and as one whose message could not

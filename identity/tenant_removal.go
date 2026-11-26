@@ -120,7 +120,7 @@ func (m *Manager) RemoveFromTenant(ctx context.Context, txn resource.ReadWriteTr
 	if err != nil {
 		return err
 	}
-	if err := m.applyLeaving(ctx, txn, judged); err != nil {
+	if err := m.applyLeaving(ctx, txn, userID, domain, judged); err != nil {
 		return err
 	}
 	logger.FromCtx(ctx).Infof("identity: %s was removed from the %s %s by an administrator: %d role(s) of their own, %d on its records and %d place(s) in its groups are removed",

@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -79,30 +80,30 @@ func (s *SessionStorageDriver) SignInSettingsIn(ctx context.Context, tx *spanner
 // Auth's row of the sign-in settings table, with UpdatedAt the commit time, and leaves
 // how long a browser is remembered as it stands. With no row, the row is made with the
 // default period.
-func (s *SessionStorageDriver) SetRequireSecondFactor(ctx context.Context, on bool) error {
+func (s *SessionStorageDriver) SetRequireSecondFactor(ctx context.Context, on bool, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return s.setSignInSetting(ctx, requireSecondFactorColumn, on, rememberBrowserDaysColumn, dbtype.DefaultRememberBrowserDays)
+	return s.setSignInSetting(ctx, requireSecondFactorColumn, on, rememberBrowserDaysColumn, dbtype.DefaultRememberBrowserDays, record)
 }
 
 // SetRememberBrowserDays writes for how many days a remembered browser skips the code on
 // the Auth's row of the sign-in settings table, with UpdatedAt the commit time, and
 // leaves whether a second factor is required as it stands. With no row, the row is made
 // with the second factor required.
-func (s *SessionStorageDriver) SetRememberBrowserDays(ctx context.Context, days int64) error {
+func (s *SessionStorageDriver) SetRememberBrowserDays(ctx context.Context, days int64, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	return s.setSignInSetting(ctx, rememberBrowserDaysColumn, days, requireSecondFactorColumn, true)
+	return s.setSignInSetting(ctx, rememberBrowserDaysColumn, days, requireSecondFactorColumn, true, record)
 }
 
 // setSignInSetting writes value to column on the Auth's row of the sign-in settings
 // table, with UpdatedAt the commit time. The row is read inside a serializable
 // transaction that buffers the write: a row there has the one field and its time
 // updated, never the row read and written back, and with no row the row is made with
-// other at its default.
-func (s *SessionStorageDriver) setSignInSetting(ctx context.Context, column string, value any, other string, otherDefault any) error {
+// other at its default. record, nil for none, is buffered with the write.
+func (s *SessionStorageDriver) setSignInSetting(ctx context.Context, column string, value any, other string, otherDefault any, record *auditlog.Record) error {
 	_, err := spannertxn.Serializable(ctx, s.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		standing, err := s.SignInSettingsIn(ctx, txn)
 		if err != nil {
@@ -118,7 +119,7 @@ func (s *SessionStorageDriver) setSignInSetting(ctx context.Context, column stri
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
 		}
 
-		return nil
+		return s.bufferAuditRecord(txn, record)
 	})
 	if err != nil {
 		return errors.Wrap(err, "spannertxn.Serializable()")

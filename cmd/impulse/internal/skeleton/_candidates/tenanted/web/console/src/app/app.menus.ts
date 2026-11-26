@@ -63,7 +63,7 @@ export function appMenus(): Menu[] {
         {
           entries: [
             // The staff's accounts across the whole application, their mailed links,
-            // sessions and failed sign-ins.
+            // sessions, failed sign-ins and audit log.
             ...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
           ],
         },

@@ -156,7 +156,7 @@ func Test_snapshotEngine_periods(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	e, store, clock := periodEngine(t)
-	if err := store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", between(1, 2), ""); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", between(1, 2), "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	written := store.writes
@@ -217,7 +217,7 @@ func Test_snapshotEngine_periods(t *testing.T) {
 	if got := reads(accesstypes.EnvironmentAt(hoursOn(1.5))); !got {
 		t.Error("after a reload of unchanged records: the role does not count inside its period")
 	}
-	if err := store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", between(5, 6), ""); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1Policy, "erin", "Editor", between(5, 6), "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	settle(e)

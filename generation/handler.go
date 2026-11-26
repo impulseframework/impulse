@@ -582,12 +582,13 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 	var segmentCase *consolidatedCaseData
 	for _, res := range resources {
 		c := consolidatedCaseData{
-			resourceInfo:     res,
-			ResourcePackage:  r.resource.Package(),
-			ReceiverName:     r.receiverName,
-			KindsFrom:        r.tenantKindSources(res),
-			RecordKinds:      r.recordKindsHanding(res),
-			RequiresDisabled: r.tenantDisabledRequirement(res),
+			resourceInfo:             res,
+			ResourcePackage:          r.resource.Package(),
+			ReceiverName:             r.receiverName,
+			KindsFrom:                r.tenantKindSources(res),
+			RecordKinds:              r.recordKindsHanding(res),
+			RequiresDisabled:         r.tenantDisabledRequirement(res),
+			DirectoryRemovalRecorder: r.directoryRemovalRecorder(res),
 		}
 		switch {
 		case res.IsDomainScoped():
@@ -638,15 +639,16 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 func (r *resourceGenerator) handlerContent(handler HandlerType, res *resourceInfo) ([]byte, error) {
 	home := r.homeOf(res.identity)
 	output, err := r.generateTemplateOutput("handler", handler.template(), handlerContentData{
-		ResourcePackage:         home.resources.Package(),
-		Resource:                res,
-		VirtualResourcesPackage: home.views.Package(),
-		ApplicationName:         home.applicationName,
-		ReceiverName:            home.receiverName,
-		KindsFrom:               r.tenantKindSources(res),
-		RecordKinds:             r.recordKindsHanding(res),
-		RequiresDisabled:        r.tenantDisabledRequirement(res),
-		Home:                    home,
+		ResourcePackage:          home.resources.Package(),
+		Resource:                 res,
+		VirtualResourcesPackage:  home.views.Package(),
+		ApplicationName:          home.applicationName,
+		ReceiverName:             home.receiverName,
+		KindsFrom:                r.tenantKindSources(res),
+		RecordKinds:              r.recordKindsHanding(res),
+		RequiresDisabled:         r.tenantDisabledRequirement(res),
+		Home:                     home,
+		DirectoryRemovalRecorder: r.directoryRemovalRecorder(res),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "generateTemplateOutput()")

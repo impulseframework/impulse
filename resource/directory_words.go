@@ -63,6 +63,23 @@ func DirectoryName(directory signin.Directory, namers ...DirectoryNamer) string 
 	return directoryKind(directory.Method) + " " + name
 }
 
+// DirectoryNameOrKind says a directory as a row of the audit log keeps it, for the
+// administrators who read the log: by its kind and its name where a name is known, as
+// DirectoryName says it ("Microsoft Entra tenant Lakeside"), and by its kind alone where
+// none is ("Microsoft Entra tenant"), never in the words written for the person who
+// signs in through it. A directory of a method the library does not know is said by
+// the method's own name.
+func DirectoryNameOrKind(directory signin.Directory, namers ...DirectoryNamer) string {
+	if name, _ := directorySaid(directory, namers); name != "" {
+		return directoryKind(directory.Method) + " " + name
+	}
+	if kind, known := directoryKinds[directory.Method]; known {
+		return kind
+	}
+
+	return string(directory.Method)
+}
+
 // directorySaid answers the name the namers give the directory, or, where they give
 // none, the words that say it by a label (byLabel); exactly one of the two is set.
 func directorySaid(directory signin.Directory, namers []DirectoryNamer) (name, byLabel string) {
@@ -123,21 +140,23 @@ func directoryByLabel(label string) string {
 	}
 }
 
+// directoryKinds are the kinds of directory the sign-in methods the library knows reach.
+var directoryKinds = map[sessioninfo.AuthMethod]string{
+	sessioninfo.MethodGoogle: "Google Workspace",
+	sessioninfo.MethodAzure:  "Microsoft Entra tenant",
+	sessioninfo.MethodWorkOS: "WorkOS connection",
+	sessioninfo.MethodOIDC:   "OpenID Connect provider",
+}
+
 // directoryKind is the kind of directory a sign-in method reaches, as a sentence says
-// it before the directory's name.
+// it before the directory's name (directoryKinds), "Directory" for a method the library
+// does not know.
 func directoryKind(method sessioninfo.AuthMethod) string {
-	switch method {
-	case sessioninfo.MethodGoogle:
-		return "Google Workspace"
-	case sessioninfo.MethodAzure:
-		return "Microsoft Entra tenant"
-	case sessioninfo.MethodWorkOS:
-		return "WorkOS connection"
-	case sessioninfo.MethodOIDC:
-		return "OpenID Connect provider"
-	default:
-		return "Directory"
+	if kind, known := directoryKinds[method]; known {
+		return kind
 	}
+
+	return "Directory"
 }
 
 // hostOf is the host of an absolute URL, and the text itself where it is no such URL:

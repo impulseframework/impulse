@@ -28,6 +28,7 @@ export const Resources = {
   StaffHeldRoles: 'StaffHeldRoles' as Resource,
   StaffInvitedTenantRoles: 'StaffInvitedTenantRoles' as Resource,
   StaffInvitedTenants: 'StaffInvitedTenants' as Resource,
+  StaffListedAuditRecords: 'StaffListedAuditRecords' as Resource,
   StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
   StaffListedGroups: 'StaffListedGroups' as Resource,
   StaffListedIdentities: 'StaffListedIdentities' as Resource,
@@ -53,6 +54,7 @@ export const Resources = {
   StaffTakeLengths: 'StaffTakeLengths' as Resource,
   StaffTakeableRoles: 'StaffTakeableRoles' as Resource,
   StaffTakenRoles: 'StaffTakenRoles' as Resource,
+  StaffTenantAuditRecords: 'StaffTenantAuditRecords' as Resource,
   StaffTenantDirectoryRoles: 'StaffTenantDirectoryRoles' as Resource,
   StaffTenantGroupRoles: 'StaffTenantGroupRoles' as Resource,
   StaffTenantGroupUsers: 'StaffTenantGroupUsers' as Resource,
@@ -346,6 +348,41 @@ export namespace StaffInvitedTenants {
     name: 'StaffInvitedTenants.name' as Resource,
     tenantDirectoryOnly: 'StaffInvitedTenants.tenantDirectoryOnly' as Resource,
     tenantName: 'StaffInvitedTenants.tenantName' as Resource,
+  };
+}
+
+export namespace StaffListedAuditRecords {
+  export const fieldName = {
+    act: 'act' as FieldName,
+    actorUsername: 'actorUsername' as FieldName,
+    at: 'at' as FieldName,
+    doneTo: 'doneTo' as FieldName,
+    id: 'id' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    subjectKind: 'subjectKind' as FieldName,
+    subjectName: 'subjectName' as FieldName,
+    tenantId: 'tenantId' as FieldName,
+    tenantName: 'tenantName' as FieldName,
+    userId: 'userId' as FieldName,
+    what: 'what' as FieldName,
+    who: 'who' as FieldName,
+  };
+  export const resourceName = {
+    act: 'StaffListedAuditRecords.act' as Resource,
+    actorUsername: 'StaffListedAuditRecords.actorUsername' as Resource,
+    at: 'StaffListedAuditRecords.at' as Resource,
+    doneTo: 'StaffListedAuditRecords.doneTo' as Resource,
+    id: 'StaffListedAuditRecords.id' as Resource,
+    reason: 'StaffListedAuditRecords.reason' as Resource,
+    role: 'StaffListedAuditRecords.role' as Resource,
+    subjectKind: 'StaffListedAuditRecords.subjectKind' as Resource,
+    subjectName: 'StaffListedAuditRecords.subjectName' as Resource,
+    tenantId: 'StaffListedAuditRecords.tenantId' as Resource,
+    tenantName: 'StaffListedAuditRecords.tenantName' as Resource,
+    userId: 'StaffListedAuditRecords.userId' as Resource,
+    what: 'StaffListedAuditRecords.what' as Resource,
+    who: 'StaffListedAuditRecords.who' as Resource,
   };
 }
 
@@ -959,6 +996,37 @@ export namespace StaffTakenRoles {
     startsAt: 'StaffTakenRoles.startsAt' as Resource,
     userId: 'StaffTakenRoles.userId' as Resource,
     username: 'StaffTakenRoles.username' as Resource,
+  };
+}
+
+export namespace StaffTenantAuditRecords {
+  export const fieldName = {
+    act: 'act' as FieldName,
+    actorUsername: 'actorUsername' as FieldName,
+    at: 'at' as FieldName,
+    doneTo: 'doneTo' as FieldName,
+    id: 'id' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    subjectKind: 'subjectKind' as FieldName,
+    subjectName: 'subjectName' as FieldName,
+    userId: 'userId' as FieldName,
+    what: 'what' as FieldName,
+    who: 'who' as FieldName,
+  };
+  export const resourceName = {
+    act: 'StaffTenantAuditRecords.act' as Resource,
+    actorUsername: 'StaffTenantAuditRecords.actorUsername' as Resource,
+    at: 'StaffTenantAuditRecords.at' as Resource,
+    doneTo: 'StaffTenantAuditRecords.doneTo' as Resource,
+    id: 'StaffTenantAuditRecords.id' as Resource,
+    reason: 'StaffTenantAuditRecords.reason' as Resource,
+    role: 'StaffTenantAuditRecords.role' as Resource,
+    subjectKind: 'StaffTenantAuditRecords.subjectKind' as Resource,
+    subjectName: 'StaffTenantAuditRecords.subjectName' as Resource,
+    userId: 'StaffTenantAuditRecords.userId' as Resource,
+    what: 'StaffTenantAuditRecords.what' as Resource,
+    who: 'StaffTenantAuditRecords.who' as Resource,
   };
 }
 

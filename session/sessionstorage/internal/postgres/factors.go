@@ -8,6 +8,7 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -270,16 +271,31 @@ func (s *SessionStorageDriver) RevokeTrustedDevice(ctx context.Context, tokenHas
 
 // RevokeTrustedDevices revokes every device of userID that is not revoked yet, at the
 // database's time.
-func (s *SessionStorageDriver) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error {
+func (s *SessionStorageDriver) RevokeTrustedDevices(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`UPDATE %s SET "RevokedAt" = now() WHERE "UserId" = $1 AND "RevokedAt" IS NULL`, s.trustedDevicesTable())
-	if _, err := s.conn.Exec(ctx, query, userID); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
+	if record == nil {
+		if _, err := s.conn.Exec(ctx, query, userID); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
+		}
+
+		return nil
 	}
 
-	return nil
+	return s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, query, userID)
+		if err != nil {
+			return errors.Wrap(err, "pgx.Tx.Exec()")
+		}
+		// A revocation that found no device to revoke is no act, and is not recorded.
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+
+		return s.InsertAuditRecordIn(ctx, tx, record)
+	})
 }
 
 // TrustedDeviceState reads the device holding tokenHash whatever its state, for tests:

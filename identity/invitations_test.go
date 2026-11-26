@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -276,6 +277,7 @@ func TestManager_Invite(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantInvitationRow(t, store, auditlog.ActInvited, invitationID)
 			if diff := cmp.Diff(tt.wantMailed, mail.sent); diff != "" {
 				t.Errorf("addresses mailed (-want +got):\n%s", diff)
 			}
@@ -433,6 +435,7 @@ func TestManager_WithdrawInvitation(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantInvitationRow(t, store, auditlog.ActInvitationWithdrawn, invitationID)
 		})
 	}
 }
@@ -567,6 +570,7 @@ func TestManager_ResendInvitation(t *testing.T) {
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
+			wantInvitationRow(t, store, auditlog.ActInvitationSentAgain, invitationID)
 			if diff := cmp.Diff(tt.wantMailed, mail.sent); diff != "" {
 				t.Errorf("addresses mailed (-want +got):\n%s", diff)
 			}

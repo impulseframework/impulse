@@ -524,7 +524,7 @@ func TestManager_LeaveTenant_notIn(t *testing.T) {
 func TestManager_LeaveTenant_impersonator(t *testing.T) {
 	t.Parallel()
 
-	foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
+	foreign := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
 	tests := map[string]func(ctx context.Context) context.Context{
 		"the real person behind the session names themselves": func(ctx context.Context) context.Context {
 			return viewedBy(asCaller(ctx, erin), userID)
@@ -651,5 +651,32 @@ func TestManager_OwnTenants(t *testing.T) {
 				t.Errorf("buffered writes = %v and the engine told %d time(s), want nothing", store.writes, engine.changed)
 			}
 		})
+	}
+}
+
+// TestManager_OwnTenants_leavingNamesThePerson pins who a person's own leaving is
+// recorded as done by: the session library's route hands the hook the request's session
+// and stamps no caller, and the row names the person of the session, not the application.
+func TestManager_OwnTenants_leavingNamesThePerson(t *testing.T) {
+	t.Parallel()
+
+	store := leavingStore()
+	store.memberships[danaAlphaReader], store.memberships[danaBetaReader] = true, true
+	m, _, _ := leavingManager(t, store, false)
+	client := &countingClient{MockClient: resource.NewMockClient(stubTxn{}, nil, nil)}
+	ctx := context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+		SessionInfo: &sessioninfo.SessionInfo{ID: danaSession, Username: "dana"},
+		UserID:      impulse.NullUUIDFromUUID(userID),
+	})
+
+	if err := m.OwnTenants(managedAuth, client).Leave(ctx, userID, "alpha"); err != nil {
+		t.Fatalf("Leave() error = %v", err)
+	}
+	if len(store.audit) != 1 {
+		t.Fatalf("Leave() recorded %d row(s), want the one role taken", len(store.audit))
+	}
+	who := storedOf(t, &store.audit[0]).Source
+	if who.ActorUserID != userID.String() || who.ActorUsername != "dana" || who.Process != "" {
+		t.Errorf("the leaving's row is by %+v, want dana herself and no process", who)
 	}
 }

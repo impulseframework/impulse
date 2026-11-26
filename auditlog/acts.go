@@ -1,6 +1,10 @@
 package auditlog
 
-import "github.com/impulseframework/impulse/accesstypes"
+import (
+	"slices"
+
+	"github.com/impulseframework/impulse/accesstypes"
+)
 
 // Act is the fixed name of one act of the audit log, as a row stores it in its Act column
 // and as a filter of the log names it. Acts lists them all.
@@ -9,7 +13,7 @@ type Act string
 // The acts, in the order Acts gives them. Each is stored under its own words, and each
 // row of one names whom or what it was done to (SubjectKind).
 const (
-	// ActInvited is an invitation sent, with its roles or to make a tenant.
+	// ActInvited is an invitation sent, with its roles, with none, or to make a tenant.
 	ActInvited Act = "invited"
 	// ActInvitationWithdrawn is an invitation withdrawn before it was accepted.
 	ActInvitationWithdrawn Act = "invitationWithdrawn"
@@ -92,7 +96,7 @@ const (
 	// second factor, taken back.
 	ActDirectorySecondFactorUnvouched Act = "directorySecondFactorUnvouched"
 	// ActSignUpOpened is a sign-in method opened to sign-up, with the role a sign-up
-	// starts with.
+	// starts with, or with none where each person who signs up makes a tenant of their own.
 	ActSignUpOpened Act = "signUpOpened"
 	// ActSignUpClosed is a sign-in method made invite only.
 	ActSignUpClosed Act = "signUpClosed"
@@ -114,9 +118,10 @@ const (
 // them.
 func Acts() []Act {
 	var acts []Act
-	for _, s := range shapes() {
-		if s.form == "" {
-			acts = append(acts, s.act)
+	all := shapes()
+	for i := range all {
+		if all[i].form == "" {
+			acts = append(acts, all[i].act)
 		}
 	}
 
@@ -133,16 +138,49 @@ func (a Act) Words() string {
 	return string(a)
 }
 
-// actShape is one form of an act: how a filter's choice says the act, and how the
-// sentence of a row of it is written from the row's parts. A part is written in braces in
-// the sentence (what fills each).
+// actShape is one form of an act: what a row of it is done to, the parts it holds, how a
+// filter's choice says the act, and how the sentence of a row of it is written from the
+// row's parts. A part is written in braces in the sentence (what fills each). A row is
+// refused when it is done to another kind, lacks a part the form needs, or sets one the
+// form does not give (Record.Validate).
 type actShape struct {
 	act       Act
 	form      Form
-	words     string // the act as a filter's choice says it; the act's own form alone has them
-	sentence  string // the act in words
-	ifEmpty   string // a part whose emptiness picks the other sentence; "" for none
-	otherwise string // the sentence of a row whose part ifEmpty is empty
+	kind      SubjectKind // what a row of the form is done to
+	parts     []partNeed  // the parts a row of the form holds beyond the always-set ones
+	words     string      // the act as a filter's choice says it; the act's own form alone has them
+	sentence  string      // the act in words
+	ifEmpty   string      // a part whose emptiness picks the other sentence; "" for none
+	otherwise string      // the sentence of a row whose part ifEmpty is empty
+	same      string      // the sentence of a row whose old and new value are one; "" for none
+}
+
+// partNeed is one part a row of an act's form holds beyond the always-set ones, who
+// acted, the tenant and the reason: the part's column, and whether every row of the form
+// sets it.
+type partNeed struct {
+	column   string
+	required bool
+}
+
+// need is parts every row of the form sets, by their columns.
+func need(columns ...string) []partNeed {
+	needs := make([]partNeed, 0, len(columns))
+	for _, column := range columns {
+		needs = append(needs, partNeed{column: column, required: true})
+	}
+
+	return needs
+}
+
+// mayBeEmpty is parts a row of the form may set or leave empty, by their columns.
+func mayBeEmpty(columns ...string) []partNeed {
+	needs := make([]partNeed, 0, len(columns))
+	for _, column := range columns {
+		needs = append(needs, partNeed{column: column, required: false})
+	}
+
+	return needs
 }
 
 // movedTail ends the sentence of what a move took from a person.
@@ -152,75 +190,105 @@ const movedTail = ": they signed in through the directory of {SeatingTenantName}
 // Acts gives the acts.
 func shapes() []actShape {
 	return []actShape{
-		shape(ActInvited, "Invited", "Invited with the {roles}{place}"),
-		formShape(ActInvited, FormNewTenant, "Invited to make {a tenant word}"),
-		shape(ActInvitationWithdrawn, "Invitation withdrawn", "Withdrew the invitation"),
-		shape(ActInvitationSentAgain, "Invitation sent again", "Sent the invitation again"),
-		shape(ActInvitationAccepted, "Invitation accepted", "Accepted the invitation"),
-		shape(ActPasswordResetLinkSent, "Password reset link sent", "Sent a password reset link"),
-		shape(ActPasswordChosen, "Password chosen", "Chose a password"),
-		shape(ActPasswordChanged, "Password changed", "Changed the password"),
-		shape(ActPasswordRemoved, "Password removed", "Removed the password"),
-		shape(ActPasswordChangeRequired, "New password required", "Required a new password"),
-		shape(ActIdentityUnlinked, "Sign-in identity unlinked", "Unlinked the sign-in through {OldValue}"),
-		shapeOrWhenEmpty(ActAddressChangeAsked, "Address change asked", "Asked to change the email address from {OldValue} to {NewValue}",
-			"{OldValue}", "Asked to set the email address to {NewValue}"),
-		shapeOrWhenEmpty(ActAddressChanged, "Address changed", "Changed the email address from {OldValue} to {NewValue}",
-			"{OldValue}", "Set the email address to {NewValue}"),
-		shape(ActUsernameChanged, "Username changed", "Changed the username from {OldValue} to {NewValue}"),
-		shape(ActAccountDisabled, "Account disabled", "Disabled the account"),
-		shape(ActAccountEnabled, "Account enabled", "Enabled the account"),
-		shape(ActAccountDeleted, "Account deleted", "Deleted the account"),
-		formShape(ActAccountDeleted, FormWithTenant, "Deleted the account with its {tenant word}"),
-		shapeOrWhenEmpty(ActTokenMade, "Token made", "Made the token {NewValue}", "{NewValue}", "Made a token"),
-		shape(ActTokenRevoked, "Token revoked", "Revoked a token"),
-		shape(ActBrowsersForgotten, "Remembered browsers forgotten", "Forgot the remembered browsers"),
-		shape(ActRoleGiven, "Role given", "Gave the role {role}{place}{period}"),
-		formShape(ActRoleGiven, FormSeat, "Gave the role {role}, the role its directory's people start with"),
-		shape(ActRoleTaken, "Role taken", "Took the role {role}{place}"),
-		formShape(ActRoleTaken, FormMove, "Took the role {role}{place}"+movedTail),
-		shape(ActRoleEnded, "Role ended", "The role {role}{place} ended with its period"),
-		shape(ActGroupMade, "Group made", "Made the group"),
-		shape(ActGroupChanged, "Group changed", "Changed the group's description"),
-		shape(ActGroupRemoved, "Group removed", "Removed the group"),
-		shape(ActGroupMemberAdded, "Put in a group", "Put in the group {GroupName}{period}"),
-		shape(ActGroupMemberRemoved, "Taken out of a group", "Took out of the group {GroupName}"),
-		formShape(ActGroupMemberRemoved, FormMove, "Took out of the group {GroupName}"+movedTail),
-		shape(ActGroupPlaceEnded, "Place in a group ended", "The place in the group {GroupName} ended with its period"),
-		shape(ActGroupRoleGiven, "Group given a role", "Gave the group the role {role}{place}{period}"),
-		shape(ActGroupRoleTaken, "Role taken from a group", "Took the role {role}{place} from the group"),
-		shape(ActDirectoryTaken, "Directory taken", "Took the directory {NewValue} as its own"),
-		shape(ActDirectoryRemoved, "Directory removed", "Removed its directory"),
-		shape(ActDirectoryOnlyOn, "Directory only on", "Turned directory only on"),
-		shape(ActDirectoryOnlyOff, "Directory only off", "Turned directory only off"),
-		shape(ActDirectoryOpened, "Opened to its directory", "Opened it to its directory's people with the role {role}"),
-		shape(ActDirectoryInviteOnly, "Made invite only for its directory", "Made it invite only for its directory's people"),
-		shape(ActDirectorySecondFactorVouched, "Directory's second factor vouched for", "Said its directory asks for a second factor"),
-		shape(ActDirectorySecondFactorUnvouched, "Directory's second factor no longer vouched for", "Stopped saying its directory asks for a second factor"),
-		shape(ActSignUpOpened, "Sign-up opened", "Opened {SubjectName} to sign-up with the role {role}"),
-		shape(ActSignUpClosed, "Made invite only", "Made {SubjectName} invite only"),
-		shape(ActSecondFactorRequired, "Second factor required", "Required a second factor of everyone"),
-		shape(ActSecondFactorNotRequired, "Second factor no longer required", "Stopped requiring a second factor"),
-		shape(ActRememberedBrowsersSet, "Remembered browsers set", "Set how long a browser is remembered to {length}"),
-		shape(ActSelfServiceResetOn, "Own password reset turned on", "Let people reset their own password at the sign-in page"),
-		shape(ActSelfServiceResetOff, "Own password reset turned off", "Stopped letting people reset their own password at the sign-in page"),
+		shapeOrWhenEmpty(ActInvited, SubjectInvitation, "Invited", "Invited with the {roles}{place}", "{roles}", "Invited{to tenant}",
+			mayBeEmpty(columnRoleName, columnRoleScope, columnOtherRoleNames)),
+		formShape(ActInvited, FormNewTenant, SubjectInvitation, "Invited to make {a tenant word}"),
+		shape(ActInvitationWithdrawn, SubjectInvitation, "Invitation withdrawn", "Withdrew the invitation"),
+		shape(ActInvitationSentAgain, SubjectInvitation, "Invitation sent again", "Sent the invitation again"),
+		shape(ActInvitationAccepted, SubjectAccount, "Invitation accepted", "Accepted the invitation"),
+		shape(ActPasswordResetLinkSent, SubjectAccount, "Password reset link sent", "Sent a password reset link"),
+		shape(ActPasswordChosen, SubjectAccount, "Password chosen", "Chose a password"),
+		shape(ActPasswordChanged, SubjectAccount, "Password changed", "Changed the password"),
+		shape(ActPasswordRemoved, SubjectAccount, "Password removed", "Removed the password"),
+		shape(ActPasswordChangeRequired, SubjectAccount, "New password required", "Required a new password"),
+		shape(ActIdentityUnlinked, SubjectAccount, "Sign-in identity unlinked", "Unlinked the sign-in through {OldValue}", need(columnOldValue)),
+		addressShape(ActAddressChangeAsked, "Address change asked", "Asked to change the email address from {OldValue} to {NewValue}",
+			"Asked to set the email address to {NewValue}", "Asked to confirm the email address {NewValue}"),
+		addressShape(ActAddressChanged, "Address changed", "Changed the email address from {OldValue} to {NewValue}",
+			"Set the email address to {NewValue}", "Confirmed the email address {NewValue}"),
+		shape(ActUsernameChanged, SubjectAccount, "Username changed", "Changed the username from {OldValue} to {NewValue}", need(columnOldValue, columnNewValue)),
+		shape(ActAccountDisabled, SubjectAccount, "Account disabled", "Disabled the account"),
+		shape(ActAccountEnabled, SubjectAccount, "Account enabled", "Enabled the account"),
+		shape(ActAccountDeleted, SubjectAccount, "Account deleted", "Deleted the account"),
+		formShape(ActAccountDeleted, FormWithTenant, SubjectAccount, "Deleted the account with its {tenant word}"),
+		shapeOrWhenEmpty(ActTokenMade, SubjectAccount, "Token made", "Made the token {NewValue}", "{NewValue}", "Made a token", mayBeEmpty(columnNewValue)),
+		shape(ActTokenRevoked, SubjectAccount, "Token revoked", "Revoked a token"),
+		formShape(ActTokenRevoked, FormEveryToken, SubjectAccount, "Revoked every token"),
+		shape(ActBrowsersForgotten, SubjectAccount, "Remembered browsers forgotten", "Forgot the remembered browsers"),
+		shape(ActRoleGiven, SubjectAccount, "Role given", "Gave the role {role}{place}{period}", need(columnRoleName, columnRoleScope), mayBeEmpty(columnPeriodStart, columnPeriodEnd)),
+		formShape(ActRoleGiven, FormSeat, SubjectAccount, "Gave the role {role}, the role its directory's people start with", need(columnRoleName, columnRoleScope)),
+		shape(ActRoleTaken, SubjectAccount, "Role taken", "Took the role {role}{place}", need(columnRoleName, columnRoleScope)),
+		formShape(ActRoleTaken, FormMove, SubjectAccount, "Took the role {role}{place}"+movedTail, need(columnRoleName, columnRoleScope), need(columnSeatingTenantID, columnSeatingTenantName)),
+		shape(ActRoleEnded, SubjectAccount, "Role ended", "The role {role}{place} ended with its period", need(columnRoleName, columnRoleScope)),
+		shape(ActGroupMade, SubjectGroup, "Group made", "Made the group"),
+		shape(ActGroupChanged, SubjectGroup, "Group changed", "Changed the group's description"),
+		shape(ActGroupRemoved, SubjectGroup, "Group removed", "Removed the group"),
+		shape(ActGroupMemberAdded, SubjectAccount, "Put in a group", "Put in the group {GroupName}{period}", need(columnGroupID, columnGroupName), mayBeEmpty(columnPeriodStart, columnPeriodEnd)),
+		shape(ActGroupMemberRemoved, SubjectAccount, "Taken out of a group", "Took out of the group {GroupName}", need(columnGroupID, columnGroupName)),
+		formShape(ActGroupMemberRemoved, FormMove, SubjectAccount, "Took out of the group {GroupName}"+movedTail, need(columnGroupID, columnGroupName), need(columnSeatingTenantID, columnSeatingTenantName)),
+		shape(ActGroupPlaceEnded, SubjectAccount, "Place in a group ended", "The place in the group {GroupName} ended with its period", need(columnGroupID, columnGroupName)),
+		shape(ActGroupRoleGiven, SubjectGroup, "Group given a role", "Gave the group the role {role}{place}{period}", need(columnRoleName, columnRoleScope), mayBeEmpty(columnPeriodStart, columnPeriodEnd)),
+		shape(ActGroupRoleTaken, SubjectGroup, "Role taken from a group", "Took the role {role}{place} from the group", need(columnRoleName, columnRoleScope)),
+		shape(ActDirectoryTaken, SubjectTenant, "Directory taken", "Took the directory {NewValue} as its own", need(columnNewValue)),
+		shape(ActDirectoryRemoved, SubjectTenant, "Directory removed", "Removed its directory"),
+		shape(ActDirectoryOnlyOn, SubjectTenant, "Directory only on", "Turned directory only on"),
+		shape(ActDirectoryOnlyOff, SubjectTenant, "Directory only off", "Turned directory only off"),
+		shape(ActDirectoryOpened, SubjectTenant, "Opened to its directory", "Opened it to its directory's people with the role {role}", need(columnRoleName)),
+		shape(ActDirectoryInviteOnly, SubjectTenant, "Made invite only for its directory", "Made it invite only for its directory's people"),
+		shape(ActDirectorySecondFactorVouched, SubjectTenant, "Directory's second factor vouched for", "Said its directory asks for a second factor"),
+		shape(ActDirectorySecondFactorUnvouched, SubjectTenant, "Directory's second factor no longer vouched for", "Stopped saying its directory asks for a second factor"),
+		shapeOrWhenEmpty(ActSignUpOpened, SubjectSetting, "Sign-up opened", "Opened {SubjectName} to sign-up with the role {role}",
+			"{role}", "Opened {SubjectName} to sign-up, each person making {a tenant word} of their own", mayBeEmpty(columnRoleName)),
+		shape(ActSignUpClosed, SubjectSetting, "Made invite only", "Made {SubjectName} invite only"),
+		shape(ActSecondFactorRequired, SubjectSetting, "Second factor required", "Required a second factor of everyone"),
+		shape(ActSecondFactorNotRequired, SubjectSetting, "Second factor no longer required", "Stopped requiring a second factor"),
+		shape(ActRememberedBrowsersSet, SubjectSetting, "Remembered browsers set", "Set how long a browser is remembered to {length}", need(columnNewValue)),
+		shape(ActSelfServiceResetOn, SubjectSetting, "Own password reset turned on", "Let people reset their own password at the sign-in page"),
+		shape(ActSelfServiceResetOff, SubjectSetting, "Own password reset turned off", "Stopped letting people reset their own password at the sign-in page"),
 	}
 }
 
-// shape is an act's own form: its words as a filter's choice, and its sentence.
-func shape(act Act, words, sentence string) actShape {
-	return actShape{act: act, form: "", words: words, sentence: sentence, ifEmpty: "", otherwise: ""}
+// shape is an act's own form: what it is done to, its words as a filter's choice, its
+// sentence, and its parts.
+func shape(act Act, kind SubjectKind, words, sentence string, parts ...[]partNeed) actShape {
+	return actShape{act: act, form: "", kind: kind, parts: slices.Concat(parts...), words: words, sentence: sentence, ifEmpty: "", otherwise: "", same: ""}
 }
 
 // formShape is another form of an act, which a filter's choice says as the act.
-func formShape(act Act, form Form, sentence string) actShape {
-	return actShape{act: act, form: form, words: "", sentence: sentence, ifEmpty: "", otherwise: ""}
+func formShape(act Act, form Form, kind SubjectKind, sentence string, parts ...[]partNeed) actShape {
+	return actShape{act: act, form: form, kind: kind, parts: slices.Concat(parts...), words: "", sentence: sentence, ifEmpty: "", otherwise: "", same: ""}
 }
 
 // shapeOrWhenEmpty is an act's own form whose sentence is another for a row whose part is
 // empty.
-func shapeOrWhenEmpty(act Act, words, sentence, part, otherwise string) actShape {
-	return actShape{act: act, form: "", words: words, sentence: sentence, ifEmpty: part, otherwise: otherwise}
+func shapeOrWhenEmpty(act Act, kind SubjectKind, words, sentence, part, otherwise string, parts ...[]partNeed) actShape {
+	return actShape{
+		act: act, form: "", kind: kind, parts: slices.Concat(parts...), words: words, sentence: sentence, ifEmpty: part, otherwise: otherwise, same: "",
+	}
+}
+
+// addressShape is the shape of an act on an account's email address, done to the
+// account: its sentence names the old address and the new one, otherwise is its sentence
+// where the account held none, and same where the new address is the one the account held
+// already (an address confirmed).
+func addressShape(act Act, words, sentence, otherwise, same string) actShape {
+	s := shapeOrWhenEmpty(act, SubjectAccount, words, sentence, "{OldValue}", otherwise, mayBeEmpty(columnOldValue), need(columnNewValue))
+	s.same = same
+
+	return s
+}
+
+// formOf answers the shape of exactly an act's form, and false where the act is not one of
+// Acts' or has no such form.
+func formOf(act Act, form Form) (*actShape, bool) {
+	all := shapes()
+	for i := range all {
+		if all[i].act == act && all[i].form == form {
+			return &all[i], true
+		}
+	}
+
+	return nil, false
 }
 
 // shapeOf answers the shape of an act's form, and the act's own form for a form the act
@@ -228,15 +296,16 @@ func shapeOrWhenEmpty(act Act, words, sentence, part, otherwise string) actShape
 func shapeOf(act Act, form Form) (actShape, bool) {
 	var own actShape
 	found := false
-	for _, s := range shapes() {
-		if s.act != act {
+	all := shapes()
+	for i := range all {
+		if all[i].act != act {
 			continue
 		}
-		if s.form == form {
-			return s, true
+		if all[i].form == form {
+			return all[i], true
 		}
-		if s.form == "" {
-			own, found = s, true
+		if all[i].form == "" {
+			own, found = all[i], true
 		}
 	}
 
@@ -299,6 +368,8 @@ const (
 	// FormMove is a role or a place in a group taken from a person whom another tenant's
 	// directory seated (ActRoleTaken, ActGroupMemberRemoved).
 	FormMove Form = "move"
+	// FormEveryToken is every live token of an account revoked at once (ActTokenRevoked).
+	FormEveryToken Form = "everyToken"
 )
 
 // RoleScope is where the role an act names is held, as a row stores it in its RoleScope
@@ -355,4 +426,8 @@ const (
 	ProcessDevice = "Device"
 	// ProcessPeriodEnd is a period's end, which clears what it ended.
 	ProcessPeriodEnd = "PeriodEnd"
+	// ProcessSignIn is a sign-in, through which the person who signs in writes onto their
+	// own account an address they have just proven: the one Google vouches for, or one a
+	// mailed code proved.
+	ProcessSignIn = "SignIn"
 )

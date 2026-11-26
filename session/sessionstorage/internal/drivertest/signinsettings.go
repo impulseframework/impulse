@@ -50,7 +50,7 @@ func SeedSignInSettings(ctx context.Context, t *testing.T, d AuthDriver, schema 
 		return
 	}
 	required := cfg.Settings == RequiredRow
-	if err := d.SetRequireSecondFactor(ctx, required); err != nil {
+	if err := d.SetRequireSecondFactor(ctx, required, nil); err != nil {
 		t.Fatalf("SetRequireSecondFactor(%t) error = %v", required, err)
 	}
 }
@@ -68,9 +68,9 @@ func testSignInSettingsOneField(ctx context.Context, t *testing.T, h *AuthHarnes
 		write func() error
 		want  *dbtype.SignInSettings
 	}{
-		{name: "SetRequireSecondFactor(false) on no row", write: func() error { return in.Driver.SetRequireSecondFactor(ctx, false) }, want: &dbtype.SignInSettings{RequireSecondFactor: false, RememberBrowserDays: 30}},
-		{name: "SetRememberBrowserDays(7)", write: func() error { return in.Driver.SetRememberBrowserDays(ctx, 7) }, want: &dbtype.SignInSettings{RequireSecondFactor: false, RememberBrowserDays: 7}},
-		{name: "SetRequireSecondFactor(true)", write: func() error { return in.Driver.SetRequireSecondFactor(ctx, true) }, want: &dbtype.SignInSettings{RequireSecondFactor: true, RememberBrowserDays: 7}},
+		{name: "SetRequireSecondFactor(false) on no row", write: func() error { return in.Driver.SetRequireSecondFactor(ctx, false, nil) }, want: &dbtype.SignInSettings{RequireSecondFactor: false, RememberBrowserDays: 30}},
+		{name: "SetRememberBrowserDays(7)", write: func() error { return in.Driver.SetRememberBrowserDays(ctx, 7, nil) }, want: &dbtype.SignInSettings{RequireSecondFactor: false, RememberBrowserDays: 7}},
+		{name: "SetRequireSecondFactor(true)", write: func() error { return in.Driver.SetRequireSecondFactor(ctx, true, nil) }, want: &dbtype.SignInSettings{RequireSecondFactor: true, RememberBrowserDays: 7}},
 	}
 	for _, step := range steps {
 		if err := step.write(); err != nil {
@@ -81,7 +81,7 @@ func testSignInSettingsOneField(ctx context.Context, t *testing.T, h *AuthHarnes
 
 	// A first write of the days makes the row with the second factor required.
 	other := h.New(ctx, t, Auth, AuthConfig{Auth: true, Settings: NoSettingsRow})
-	if err := other.Driver.SetRememberBrowserDays(ctx, 0); err != nil {
+	if err := other.Driver.SetRememberBrowserDays(ctx, 0, nil); err != nil {
 		t.Fatalf("SetRememberBrowserDays(0) error = %v", err)
 	}
 	wantSignInSettings(ctx, t, other, "SetRememberBrowserDays(0) on no row", &dbtype.SignInSettings{RequireSecondFactor: true, RememberBrowserDays: 0})
@@ -206,14 +206,14 @@ func testSecondFactorSettingTurnedOffAndOn(ctx context.Context, t *testing.T, h 
 
 	// The setting is read at each sign-in: turned off, the next sign-in gets its
 	// session, with nothing restarted.
-	if err := in.Driver.SetRequireSecondFactor(ctx, false); err != nil {
+	if err := in.Driver.SetRequireSecondFactor(ctx, false, nil); err != nil {
 		t.Fatalf("SetRequireSecondFactor(false) error = %v", err)
 	}
 	if _, _, err := signIn(ctx, in, lakeside("idp_jane"), sessioninfo.ReasonLogin); err != nil {
 		t.Errorf("sign-in with the setting turned off error = %v, want a session", err)
 	}
 
-	if err := in.Driver.SetRequireSecondFactor(ctx, true); err != nil {
+	if err := in.Driver.SetRequireSecondFactor(ctx, true, nil); err != nil {
 		t.Fatalf("SetRequireSecondFactor(true) error = %v", err)
 	}
 	_, _, err = signIn(ctx, in, lakeside("idp_jane"), sessioninfo.ReasonLogin)

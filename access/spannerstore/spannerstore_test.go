@@ -6,8 +6,11 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/storetest"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
 
@@ -68,6 +71,58 @@ func TestStore_conformance_namedStore(t *testing.T) {
 	storetest.Run(t, store, roleWriter(database, store))
 }
 
+// TestStore_auditRecords runs the shared audit phase on Spanner: the store named the
+// audit records table, made by auditlog.SpannerDDL in the store's own migration, and a
+// store of the same tables that names none.
+func TestStore_auditRecords(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	const table = "SessionAuditRecords"
+	database, err := container.CreateDatabase(ctx, strings.ToLower(t.Name()))
+	if err != nil {
+		t.Fatalf("db.SpannerContainer.CreateDatabase(): %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Logf("db.SpannerDB.Close(): %v", err)
+		}
+	})
+	recording, err := New(database.Client, WithAuditRecords(table))
+	if err != nil {
+		t.Fatalf("spannerstore.New(): %v", err)
+	}
+	if err := applyDDL(t, database, recording, auditlog.SpannerDDL(table, auditlog.KeepForever())...); err != nil {
+		t.Fatalf("applying DDL: %v", err)
+	}
+	plain, err := New(database.Client)
+	if err != nil {
+		t.Fatalf("spannerstore.New(): %v", err)
+	}
+
+	storetest.RunAuditRecords(t, recording, plain, func(t *testing.T) []storetest.AuditRow {
+		t.Helper()
+		iter := database.Single().Query(t.Context(), spanner.Statement{SQL: `SELECT Act, IFNULL(Process, ''), IFNULL(Directory, ''), SubjectId,
+			IFNULL(RoleName, '') FROM ` + table + ` ORDER BY CreatedAt`})
+		defer iter.Stop()
+		var rows []storetest.AuditRow
+		for {
+			row, err := iter.Next()
+			if errors.Is(err, iterator.Done) {
+				return rows
+			}
+			if err != nil {
+				t.Fatalf("read the audit records: %v", err)
+			}
+			var r storetest.AuditRow
+			if err := row.Columns(&r.Act, &r.Process, &r.Directory, &r.SubjectID, &r.RoleName); err != nil {
+				t.Fatalf("read the audit records: %v", err)
+			}
+			rows = append(rows, r)
+		}
+	})
+}
+
 // TestStore_isolation proves separate stores in one database cannot see each
 // other's rows: cross-store leakage is structurally impossible, not filtered.
 func TestStore_isolation(t *testing.T) {
@@ -86,7 +141,7 @@ func TestStore_isolation(t *testing.T) {
 	if err := adminStore.InsertRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor", "Edits the records of the tenant."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor", accesstypes.Period{}, ""); err != nil {
+	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor", accesstypes.Period{}, "", nil); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 

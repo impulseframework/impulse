@@ -31,8 +31,9 @@ type Resourcer interface {
 		membersresources.MembersTenantUserGroupRole |
 		membersresources.MembersTenantUserRole | membersresources.MembersUserGroupRole |
 		membersresources.MembersUserRole | membersidentity.MembersGivableRole |
-		membersidentity.MembersListedRoleGrant | membersidentity.MembersRememberLength |
-		membersidentity.MembersSignInMethod | membersidentity.MembersSignInSetting |
-		membersidentity.MembersTakeLength | membersidentity.MembersTakeableRole |
+		membersidentity.MembersListedAuditRecord | membersidentity.MembersListedRoleGrant |
+		membersidentity.MembersRememberLength | membersidentity.MembersSignInMethod |
+		membersidentity.MembersSignInSetting | membersidentity.MembersTakeLength |
+		membersidentity.MembersTakeableRole | membersidentity.MembersTenantAuditRecord |
 		membersidentity.MembersTenantRole
 }

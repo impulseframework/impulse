@@ -674,6 +674,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -1004,6 +1005,21 @@ func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransa
 
 	return nil
 }
+{{- end }}
+
+// RecordTenantSignIn records an act on a tenant's own sign-in settings in the {{ .Auth }}
+// auth's audit log, in the caller's transaction: done to the tenant, by who acted, with
+// the act's one part, named (identity.Manager.RecordTenantSignIn). The generated methods
+// of a tenant's directory call it after their write, where this auth's people are the
+// ones the directories record's outlets sign in.
+func (c *Client) RecordTenantSignIn(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, act auditlog.Act, named string) error {
+	if err := c.manager.RecordTenantSignIn(ctx, txn, tenant, act, named); err != nil {
+		return errors.Wrap(err, "identity.Manager.RecordTenantSignIn()")
+	}
+
+	return nil
+}
+{{- if not .RolesSynced }}
 
 // OwnTenants answers the session library's own-tenants hook (session.Auth.SetOwnTenants)
 // over the {{ .Auth }} auth's tables: a signed-in person's account page lists the
@@ -1028,6 +1044,7 @@ package {{ .Package }}
 
 import (
 	"context"
+	"iter"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -1035,6 +1052,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
@@ -1042,6 +1060,7 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"google.golang.org/api/iterator"
 	{{ .LocalPackageImports }}
 )
 
@@ -1907,7 +1926,7 @@ func (store) TenantInvitations(context.Context, resource.ReadWriteTransaction, a
 func (store) InvitedTenants(context.Context, resource.ReadOnlyTransaction) ([]identity.InvitedTenantRow, error) {
 	return nil, nil
 }
-{{ end }}` + identitySignInMethodStoreTemplate + identitySignInSettingsStoreTemplate + `{{ if .Has "trustedDevices" }}
+{{ end }}` + identitySignInMethodStoreTemplate + identitySignInSettingsStoreTemplate + identityAuditRecordsStoreTemplate + `{{ if .Has "trustedDevices" }}
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	// The index leads with the user; whether a device is revoked is read off each row.
 	query := {{ .ResourcesPackage }}.New{{ .TrustedDevice }}Query().

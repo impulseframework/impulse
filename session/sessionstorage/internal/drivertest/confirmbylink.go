@@ -31,7 +31,7 @@ func insertLinkFor(ctx context.Context, t *testing.T, d AuthDriver, kind dbtype.
 
 	link := newMailLink(kind, email, hash)
 	link.UserID = impulse.NullUUIDFromUUID(userID)
-	if err := d.InsertMailLink(ctx, link); err != nil {
+	if err := d.InsertMailLink(ctx, link, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 
@@ -123,7 +123,7 @@ func testConfirmAddressByLink(ctx context.Context, t *testing.T, h *AuthHarness)
 	} {
 		link := insertLinkFor(ctx, t, in.Driver, tt.kind, tt.user.ID, tt.to, tokenHash(byte(1+i)))
 		w := startWindow(h.ClockLead)
-		got, err := in.ConfirmAddressByLink(ctx, confirmationOf(link, nil))
+		got, err := in.ConfirmAddressByLink(ctx, confirmationOf(link, nil), nil)
 		w.done()
 		if err != nil {
 			t.Fatalf("ConfirmAddressByLink() of %s error = %v", tt.name, err)
@@ -144,7 +144,7 @@ func testConfirmAddressByLink(ctx context.Context, t *testing.T, h *AuthHarness)
 		// second use names.
 		again := confirmationOf(link, nil)
 		again.Email = "other." + tt.to
-		if _, err := in.ConfirmAddressByLink(ctx, again); !httpio.HasNotFound(err) {
+		if _, err := in.ConfirmAddressByLink(ctx, again, nil); !httpio.HasNotFound(err) {
 			t.Errorf("ConfirmAddressByLink() of %s with its link used again error = %v, want NotFound", tt.name, err)
 		}
 		kept := mustUser(ctx, t, in.Driver, tt.user.ID)
@@ -174,7 +174,7 @@ func testConfirmAddressByLinkRefused(ctx context.Context, t *testing.T, h *AuthH
 		shown = held
 
 		return errCallerRefused
-	}))
+	}), nil)
 	if !errors.Is(err, errCallerRefused) {
 		t.Errorf("ConfirmAddressByLink() refused by the caller's rule error = %v, want the rule's error", err)
 	}
@@ -194,7 +194,7 @@ func testConfirmAddressByLinkRefused(ctx context.Context, t *testing.T, h *AuthH
 		shown = held
 
 		return errCallerRefused
-	})); !errors.Is(err, errCallerRefused) {
+	}), nil); !errors.Is(err, errCallerRefused) {
 		t.Errorf("ConfirmAddressByLink() of the account with a directory's link error = %v, want the rule's error", err)
 	}
 	if shown == nil || !shown.Directory {
@@ -213,7 +213,7 @@ func testConfirmAddressByLinkRefused(ctx context.Context, t *testing.T, h *AuthH
 		{name: "an address another account holds, confirmed", to: "Fay@Lakeside.edu"},
 	} {
 		taken := insertLinkFor(ctx, t, in.Driver, dbtype.MailLinkAddressChange, pat.ID, tt.to, tokenHash(byte(3+i)))
-		_, err := in.ConfirmAddressByLink(ctx, confirmationOf(taken, nil))
+		_, err := in.ConfirmAddressByLink(ctx, confirmationOf(taken, nil), nil)
 		assertAddressInUse(t, "ConfirmAddressByLink() of "+tt.name, err, tt.to)
 		assertEmail(t, "User() after the confirmation of "+tt.name, mustUser(ctx, t, in.Driver, pat.ID), strPtr("pat@lakeside.edu"), true)
 		assertConfirmationLinkLive(ctx, t, h, in, "a confirmation of "+tt.name, taken)
@@ -224,12 +224,12 @@ func testConfirmAddressByLinkRefused(ctx context.Context, t *testing.T, h *AuthH
 	// An account that is not there: NotFound, and the link stands. The link names no
 	// account of its own, so the caller's id is the only one.
 	orphan := newMailLink(dbtype.MailLinkVerification, "gone@lakeside.edu", tokenHash(9))
-	if err := in.Driver.InsertMailLink(ctx, orphan); err != nil {
+	if err := in.Driver.InsertMailLink(ctx, orphan, nil); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
 	gone := confirmationOf(orphan, nil)
 	gone.UserID = impulse.Must(impulse.NewUUID())
-	if _, err := in.ConfirmAddressByLink(ctx, gone); !httpio.HasNotFound(err) {
+	if _, err := in.ConfirmAddressByLink(ctx, gone, nil); !httpio.HasNotFound(err) {
 		t.Errorf("ConfirmAddressByLink() of an account that is not there error = %v, want NotFound", err)
 	}
 	assertConfirmationLinkLive(ctx, t, h, in, "a confirmation of an account that is not there", orphan)
@@ -247,7 +247,7 @@ func testConfirmAddressByLinkUsernameIsEmail(ctx context.Context, t *testing.T, 
 	confirm := func(to string, hash []byte) (*signinflow.ConfirmedAddress, *dbtype.SessionUser) {
 		t.Helper()
 		link := insertLinkFor(ctx, t, in.Driver, dbtype.MailLinkAddressChange, pat.ID, to, hash)
-		got, err := in.ConfirmAddressByLink(ctx, confirmationOf(link, nil))
+		got, err := in.ConfirmAddressByLink(ctx, confirmationOf(link, nil), nil)
 		if err != nil {
 			t.Fatalf("ConfirmAddressByLink(%q) error = %v", to, err)
 		}
@@ -293,7 +293,7 @@ func testConfirmAddressByLinkUsernameIsEmail(ctx context.Context, t *testing.T, 
 
 	// Another account's username: a Conflict, and nothing written.
 	taken := insertLinkFor(ctx, t, in.Driver, dbtype.MailLinkAddressChange, pat.ID, "ALEX@lakeside.edu", tokenHash(4))
-	_, err = in.ConfirmAddressByLink(ctx, confirmationOf(taken, nil))
+	_, err = in.ConfirmAddressByLink(ctx, confirmationOf(taken, nil), nil)
 	assertAddressInUse(t, "ConfirmAddressByLink() of another account's username", err, "ALEX@lakeside.edu")
 	if kept := mustUser(ctx, t, in.Driver, pat.ID); kept.Username != "Patricia@lakeside.edu" {
 		t.Errorf("User().Username = %q after the confirmation of another account's username, want %q: nothing renamed", kept.Username, "Patricia@lakeside.edu")
@@ -326,7 +326,7 @@ func testConfirmAddressByLinkRace(ctx context.Context, t *testing.T, h *AuthHarn
 	errs := make([]error, len(links))
 	for i, link := range links {
 		wg.Go(func() {
-			_, errs[i] = in.ConfirmAddressByLink(ctx, confirmationOf(link, refuse))
+			_, errs[i] = in.ConfirmAddressByLink(ctx, confirmationOf(link, refuse), nil)
 		})
 	}
 	wg.Wait()

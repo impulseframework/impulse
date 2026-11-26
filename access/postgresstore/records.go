@@ -103,8 +103,8 @@ func (s *Store) readRecords(ctx context.Context, tx pgx.Tx, records *policy.Reco
 		kind policy.SubjectKind
 		what string
 	}{
-		{sql: s.records.readUsers, kind: policy.SubjectUser, what: "record user roles"},
-		{sql: s.records.readGroups, kind: policy.SubjectGroup, what: "record group roles"},
+		{sql: s.recordRoles.readUsers, kind: policy.SubjectUser, what: "record user roles"},
+		{sql: s.recordRoles.readGroups, kind: policy.SubjectGroup, what: "record group roles"},
 	} {
 		rows, err := tx.Query(ctx, read.sql)
 		if err != nil {
@@ -140,7 +140,7 @@ func (s *Store) readRecords(ctx context.Context, tx pgx.Tx, records *policy.Reco
 // added where the person does not hold it there, and given the new period where they do.
 // The role is named by name alone.
 func (s *Store) InsertRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
-	if _, err := s.pool.Exec(ctx, s.records.insertUser, recordArgs(at, role, user, period.StartPtr(), period.EndPtr())...); err != nil {
+	if _, err := s.pool.Exec(ctx, s.recordRoles.insertUser, recordArgs(at, role, user, period.StartPtr(), period.EndPtr())...); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() assign record user role")
 	}
 
@@ -150,7 +150,7 @@ func (s *Store) InsertRecordUserRole(ctx context.Context, at accesstypes.RecordS
 // DeleteRecordUserRole removes one role a person holds on a record; removing one they do
 // not hold there is a no-op.
 func (s *Store) DeleteRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) error {
-	if _, err := s.pool.Exec(ctx, s.records.deleteUser, recordArgs(at, role, user)...); err != nil {
+	if _, err := s.pool.Exec(ctx, s.recordRoles.deleteUser, recordArgs(at, role, user)...); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() delete record user role")
 	}
 
@@ -162,13 +162,13 @@ func (s *Store) DeleteRecordUserRole(ctx context.Context, at accesstypes.RecordS
 // It reads the group's row for key share before it writes, as writeUnder says, and wraps
 // policy.ErrNoGroup where the row is not there. The role is named by name alone.
 func (s *Store) InsertRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error {
-	return s.writeUnder(ctx, "assign record group role", s.records.insertGroup, recordArgs(at, role, group, period.StartPtr(), period.EndPtr()), s.groupRow(group))
+	return s.writeUnder(ctx, "assign record group role", s.recordRoles.insertGroup, recordArgs(at, role, group, period.StartPtr(), period.EndPtr()), nil, s.groupRow(group))
 }
 
 // DeleteRecordGroupRole removes one role a group holds on a record; removing one it does
 // not hold there is a no-op.
 func (s *Store) DeleteRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role) error {
-	if _, err := s.pool.Exec(ctx, s.records.deleteGroup, recordArgs(at, role, group)...); err != nil {
+	if _, err := s.pool.Exec(ctx, s.recordRoles.deleteGroup, recordArgs(at, role, group)...); err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Exec() delete record group role")
 	}
 
@@ -188,7 +188,7 @@ func (s *Store) ListRecordRoles(ctx context.Context, at accesstypes.RecordScope)
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 	}()
 
-	userRows, err := tx.Query(ctx, s.records.listUsers, recordArgs(at)...)
+	userRows, err := tx.Query(ctx, s.recordRoles.listUsers, recordArgs(at)...)
 	if err != nil {
 		return nil, errors.Wrap(err, "pgx.Tx.Query() record user roles")
 	}
@@ -207,7 +207,7 @@ func (s *Store) ListRecordRoles(ctx context.Context, at accesstypes.RecordScope)
 	if err != nil {
 		return nil, errors.Wrap(err, "pgx.CollectRows() record user roles")
 	}
-	groupRows, err := tx.Query(ctx, s.records.listGroups, recordArgs(at)...)
+	groupRows, err := tx.Query(ctx, s.recordRoles.listGroups, recordArgs(at)...)
 	if err != nil {
 		return nil, errors.Wrap(err, "pgx.Tx.Query() record group roles")
 	}
@@ -244,7 +244,7 @@ func (s *Store) DeleteRecordRoles(ctx context.Context, at accesstypes.RecordScop
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 	}()
 
-	for _, sql := range []string{s.records.deleteUsers, s.records.deleteGroups} {
+	for _, sql := range []string{s.recordRoles.deleteUsers, s.recordRoles.deleteGroups} {
 		if _, err := tx.Exec(ctx, sql, recordArgs(at)...); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec() delete record roles")
 		}

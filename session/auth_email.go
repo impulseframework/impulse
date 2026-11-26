@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
@@ -223,7 +225,9 @@ func (a *Auth[S, U, Tx]) sendVerification(ctx context.Context, user *sessioninfo
 		TokenHash: hash, Kind: sessionstorage.MailLinkVerification, Email: bare, UserID: impulse.NullUUIDFromUUID(user.ID),
 		ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := a.storage.InsertMailLink(ctx, link); err != nil {
+	asked := accountRecord(auditlog.ActAddressChangeAsked, a.acting(ctx), user.ID, user.Username)
+	asked.OldValue, asked.NewValue = heldAddress(user.Email), bare
+	if err := a.storage.InsertMailLink(ctx, link, asked); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 
@@ -273,7 +277,7 @@ func (a *Auth[S, U, Tx]) emailVerify() http.HandlerFunc {
 
 				return nil
 			},
-		})
+		}, accountRecord(auditlog.ActAddressChanged, a.acting(ctx), user.ID, user.Username))
 		if err != nil {
 			if httpio.HasNotFound(err) {
 				err = errLinkDead()
@@ -381,7 +385,10 @@ func (p *AuthAPI[S, U, Tx]) RequestAddressChange(ctx context.Context, userID imp
 	link := &sessionstorage.MailLink{
 		TokenHash: hash, Kind: sessionstorage.MailLinkAddressChange, Email: bare, UserID: impulse.NullUUIDFromUUID(user.ID), ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := a.storage.InsertMailLink(ctx, link); err != nil {
+	asked := accountRecord(auditlog.ActAddressChangeAsked, a.acting(ctx), user.ID, user.Username)
+	asked.OldValue, asked.NewValue = heldAddress(user.Email), bare
+	a.inTenant(asked, by)
+	if err := a.storage.InsertMailLink(ctx, link, asked); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.addressChangeMessage(bare, token, lifetime, a.administratorOf(m, by))); err != nil {
@@ -434,6 +441,11 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 		return "", errLinkDead()
 	}
 	userID := link.UserID.UUID
+	// The flow fills the addresses, from what the account holds in its transaction.
+	changed, err := a.accountRecordOf(ctx, auditlog.ActAddressChanged, eventsource.ProcessEvent(auditlog.ProcessAddressLink), userID)
+	if err != nil {
+		return "", err
+	}
 	answer, err := a.storage.ConfirmAddressByLink(ctx, &sessionstorage.AddressConfirmation{
 		LinkID: link.ID, UserID: userID, Email: link.Email,
 		Refuse: func(held *sessionstorage.AddressHeld) error {
@@ -450,7 +462,7 @@ func (a *Auth[S, U, Tx]) confirmAddressChange(ctx context.Context, token string)
 
 			return nil
 		},
-	})
+	}, changed)
 	if err != nil {
 		if httpio.HasNotFound(err) {
 			return "", errLinkDead()

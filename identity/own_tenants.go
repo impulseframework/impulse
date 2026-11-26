@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -176,7 +177,7 @@ func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransac
 	if judged.refusal != "" {
 		return httpio.NewForbiddenMessage(judged.refusal)
 	}
-	if err := m.applyLeaving(ctx, txn, judged); err != nil {
+	if err := m.applyLeaving(ctx, txn, userID, domain, judged); err != nil {
 		return err
 	}
 	logger.FromCtx(ctx).Infof("identity: %s left the %s %s themselves: %d role(s) of their own, %d on its records and %d place(s) in its groups are removed",
@@ -212,7 +213,9 @@ func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTen
 			return tenants, nil
 		},
 		Leave: func(ctx context.Context, userID impulse.UUID, domain accesstypes.Domain) error {
-			ctx, announcement := m.announcing(ctx)
+			// The session library's route stamps no caller: the person of the request's
+			// session is carried as who acts, so the rows of the leaving name them.
+			ctx, announcement := m.announcing(actingInOwnSession(ctx))
 			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return m.LeaveTenant(ctx, txn, userID, domain)
 			})
@@ -228,11 +231,30 @@ func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTen
 
 // applyLeaving buffers what a judged leaving takes, a person's own leaving
 // (LeaveTenant) or their removal (RemoveFromTenant): each membership, each role on one of
-// its records and each place in the tenant.
-func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransaction, judged *leaving) error {
+// its records and each place in the tenant, each membership and place with its row of the
+// audit log in the tenant.
+func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain, judged *leaving) error {
+	// What the rows name is read before anything is buffered: the person, and each group
+	// by its name, the id where the store answers none.
+	person, err := m.accountSubject(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	groups := make([]string, len(judged.places))
+	for i := range judged.places {
+		if groups[i], _, err = m.groupWhere(ctx, txn, judged.places[i].Group); err != nil {
+			return err
+		}
+	}
 	for i := range judged.memberships {
 		if err := m.store.DeleteMembership(ctx, txn, &judged.memberships[i]); err != nil {
 			return errors.Wrap(err, "identity.Store.DeleteMembership()")
+		}
+		took := *person
+		took.Act, took.RoleNames = auditlog.ActRoleTaken, []string{string(judged.memberships[i].Role)}
+		took.RoleScope, took.TenantID = auditlog.RoleScopeTenant, string(domain)
+		if err := m.record(ctx, txn, &took); err != nil {
+			return err
 		}
 	}
 	for i := range judged.records {
@@ -243,6 +265,11 @@ func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransa
 	for i := range judged.places {
 		if err := m.store.DeleteGroupMember(ctx, txn, &judged.places[i]); err != nil {
 			return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
+		}
+		out := *person
+		out.Act, out.GroupID, out.GroupName, out.TenantID = auditlog.ActGroupMemberRemoved, string(judged.places[i].Group), groups[i], string(domain)
+		if err := m.record(ctx, txn, &out); err != nil {
+			return err
 		}
 	}
 

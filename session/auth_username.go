@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -127,7 +128,9 @@ func (a *Auth[S, U, Tx]) ChangeUsername() http.HandlerFunc {
 		if !free {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewConflictMessage(usernameHeldMessage))
 		}
-		if err := a.storage.SetUserUsername(ctx, user.ID, name); err != nil {
+		renamed := accountRecord(auditlog.ActUsernameChanged, a.acting(ctx), user.ID, name)
+		renamed.OldValue, renamed.NewValue = user.Username, name
+		if err := a.storage.SetUserUsername(ctx, user.ID, name, renamed); err != nil {
 			// Someone took the name between the lookup and the rename.
 			if httpio.HasConflict(err) {
 				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewConflictMessageWithError(err, usernameHeldMessage))

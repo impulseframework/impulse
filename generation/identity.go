@@ -96,6 +96,11 @@ type identityInstance struct {
 	// admits its directory's people ask this instance's client, and the instance
 	// declares the list the role is picked from (identityOpensToDirectory).
 	opensToDirectory bool
+	// recordsTenantSignIn marks the auth a tenant's sign-in settings are recorded
+	// through (tenantSignInRecorder): the session outlets that serve the directories
+	// record are this auth's, whether or not its management opens a tenant to its
+	// directory's people with a starting role (identityRecordsTenantSignIn).
+	recordsTenantSignIn bool
 	// session and policy name the auth's tables: the session library's and the
 	// permission store's, each by the library's own rule for the prefix.
 	session session.Tables
@@ -141,6 +146,9 @@ const (
 	identityMemberships    identityTable = "memberships"
 	identityRoles          identityTable = "roles"
 	identityRoleGrants     identityTable = "roleGrants"
+	// identityAuditRecords is the auth's audit log, which no declaration covers: its
+	// lists are computed (identity_auditlog.go).
+	identityAuditRecords identityTable = "auditRecords"
 )
 
 // identityDeclaration is one table of an auth as the generated management declares it:
@@ -203,6 +211,8 @@ func (i *identityInstance) tableName(kind identityTable) string {
 		return i.session.Impersonations
 	case identityTrustedDevices:
 		return i.session.TrustedDevices
+	case identityAuditRecords:
+		return i.session.AuditRecords
 	case identityMemberships:
 		return i.policy.UserRoles
 	case identityRoles:
@@ -344,6 +354,10 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 			inst.tables[decl.kind] = true
 		}
 	}
+	// The audit log has no declaration: its lists read the table through the store.
+	if _, ok := r.tableMap[inst.tableName(identityAuditRecords)]; ok {
+		inst.tables[identityAuditRecords] = true
+	}
 	// The permission store's tables come together: a membership's role is read from
 	// the roles table in the transaction that writes the membership.
 	if inst.has(identityMemberships) != inst.has(identityRoles) {
@@ -397,6 +411,7 @@ func (r *resourceGenerator) prepareIdentity() error {
 		inst.tenant = tenant
 		inst.createsTenant = r.identityCreatesTenant(inst)
 		inst.opensToDirectory = r.identityOpensToDirectory(inst)
+		inst.recordsTenantSignIn = r.identityRecordsTenantSignIn(inst)
 		if err := inst.refuseListNamesTaken(); err != nil {
 			return err
 		}
@@ -797,6 +812,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// The sharing of each record a role can be held on: the methods that give and take a
 	// role on one, the roles they pick from and the list of who holds what there.
 	files = append(files, r.recordSharingSources(inst)...)
+	// The audit log as two lists, the whole log and a tenant's, each written from the
+	// row's parts as it is read.
+	files = append(files, r.auditLogSources(inst)...)
 	// What the rules ask of the role file: who may give a role and take one away.
 	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {

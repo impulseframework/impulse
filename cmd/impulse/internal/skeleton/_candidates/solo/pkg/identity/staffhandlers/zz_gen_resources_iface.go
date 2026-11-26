@@ -24,9 +24,9 @@ type Resourcer interface {
 		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
 		staffresources.StaffSessionUser | staffresources.StaffTakenRole |
 		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
-		staffidentity.StaffGivableRole | staffidentity.StaffListedRoleGrant |
-		staffidentity.StaffRememberLength | staffidentity.StaffSignInMethod |
-		staffidentity.StaffSignInSetting | staffidentity.StaffSignInWay |
-		staffidentity.StaffSignUpRole | staffidentity.StaffTakeLength |
-		staffidentity.StaffTakeableRole
+		staffidentity.StaffGivableRole | staffidentity.StaffListedAuditRecord |
+		staffidentity.StaffListedRoleGrant | staffidentity.StaffRememberLength |
+		staffidentity.StaffSignInMethod | staffidentity.StaffSignInSetting |
+		staffidentity.StaffSignInWay | staffidentity.StaffSignUpRole |
+		staffidentity.StaffTakeLength | staffidentity.StaffTakeableRole
 }

@@ -613,7 +613,7 @@ func testUsernameKeyedOperations(ctx context.Context, t *testing.T, h *Harness) 
 		t.Fatalf("CreateUser() error = %v", err)
 	}
 
-	if err := c.SetUserUsername(ctx, user.ID, "dan@example.com"); err != nil {
+	if err := c.SetUserUsername(ctx, user.ID, "dan@example.com", nil); err != nil {
 		t.Fatalf("SetUserUsername() error = %v", err)
 	}
 	renamed := []struct {

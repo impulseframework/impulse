@@ -43,7 +43,7 @@ func TestSessionStorageDriver_PasswordLessUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.SetFirstUserPassword(ctx, user.ID, hash); err != nil {
+	if err := driver.SetFirstUserPassword(ctx, user.ID, hash, nil); err != nil {
 		t.Fatalf("SetFirstUserPassword() error = %v", err)
 	}
 	assertHash(true)

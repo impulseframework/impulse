@@ -266,3 +266,10 @@ func (m *tenantMaker) SeatsDefaultRole() bool {
 func (m *tenantMaker) DeclaresDirectoryOnly() bool {
 	return true
 }
+
+// TakesDirectory reports whether a tenant keeps a directory: the
+// TenantDirectory record holds it, so one made through an organization's directory takes it
+// as its own.
+func (m *tenantMaker) TakesDirectory() bool {
+	return true
+}

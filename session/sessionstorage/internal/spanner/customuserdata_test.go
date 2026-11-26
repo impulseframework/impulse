@@ -279,7 +279,7 @@ func TestSessionStorageDriver_DeleteUser_CustomUserDataCascade(t *testing.T) {
 	c.SetCustomUserData(userDataConfig())
 
 	runAssertions(ctx, t, conn.Client, []string{`SELECT COUNT(*) = 1 FROM UserCustomData`})
-	if err := c.DeleteUser(ctx, dataUserID); err != nil {
+	if err := c.DeleteUser(ctx, dataUserID, nil); err != nil {
 		t.Fatalf("SessionStorageDriver.DeleteUser() error = %v", err)
 	}
 	runAssertions(ctx, t, conn.Client, []string{`SELECT COUNT(*) = 0 FROM UserCustomData`})

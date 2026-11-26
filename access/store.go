@@ -5,6 +5,7 @@ import (
 
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 // Store is the persistence seam for policy data: three typed tables (custom
@@ -102,13 +103,19 @@ type Store interface {
 
 	// Membership. InsertUserRole gives the membership its period and its
 	// reason, replacing the period and the reason of one that is there; the
-	// three listings return the memberships that count now.
-	InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
+	// three listings return the memberships that count now. Each of the three
+	// writes of a person's role is handed the record of its act, nil for none: a
+	// store that keeps an audit log writes a record in the write's own
+	// transaction, and none where the write fails or, for DeleteUserRole, where
+	// there was no row to remove.
+	InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record) error
 	// InsertCustomUserRole writes what InsertUserRole writes, only while the
 	// roles table holds a row of the custom role where the membership reads
 	// it, and wraps policy.ErrNoRole where it holds none.
-	InsertCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
-	DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
+	InsertCustomUserRole(
+		ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+	) error
+	DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error
 	ListUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error)
 	// ListUserMemberships returns every membership the user holds now,
 	// wherever it is held, sorted by scope then role: the no-scope listing,

@@ -16,6 +16,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/tracer"
 )
@@ -84,12 +85,14 @@ type GroupHolding struct {
 // implements both.
 type holdingStore interface {
 	// assignUserRole gives the membership its period and its reason, replacing both on
-	// one that is there.
-	assignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
+	// one that is there, and hands the store the record of the act (nil for none).
+	assignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record) error
 	// assignCustomUserRole writes what assignUserRole writes, only while a row of the
 	// custom role is held where the membership reads it, and wraps policy.ErrNoRole
 	// where none is.
-	assignCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error
+	assignCustomUserRole(
+		ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+	) error
 	// userAssignments lists every membership of the user's own that has not ended, each
 	// with its period and its reason.
 	userAssignments(ctx context.Context, user accesstypes.User) ([]policy.Assignment, error)
@@ -122,8 +125,10 @@ type managementStore interface {
 
 var _ managementStore = (*storeManager)(nil)
 
-func (m *storeManager) assignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
-	if err := m.store.InsertUserRole(ctx, scope, user, role, period, reason); err != nil {
+func (m *storeManager) assignUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
+	if err := m.store.InsertUserRole(ctx, scope, user, role, period, reason, record); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
 	}
 	m.notifyPolicyChange()
@@ -131,8 +136,10 @@ func (m *storeManager) assignUserRole(ctx context.Context, scope accesstypes.Pol
 	return nil
 }
 
-func (m *storeManager) assignCustomUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
-	if err := m.store.InsertCustomUserRole(ctx, scope, user, role, period, reason); err != nil {
+func (m *storeManager) assignCustomUserRole(
+	ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string, record *auditlog.Record,
+) error {
+	if err := m.store.InsertCustomUserRole(ctx, scope, user, role, period, reason, record); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertCustomUserRole(): role %q to %q", role, user)
 	}
 	m.notifyPolicyChange()

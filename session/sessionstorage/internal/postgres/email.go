@@ -7,6 +7,7 @@ import (
 	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -77,7 +78,7 @@ func (s *SessionStorageDriver) UserByEmail(ctx context.Context, email string) (*
 // address. An address another user holds is a Conflict. On a store whose usernames
 // are the addresses the entry is refused: the address is the username. Taking the
 // address off ends the sign-in codes mailed for the user before it (takeUserEmail).
-func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.UUID, email *string) error {
+func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.UUID, email *string, record *auditlog.Record) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -85,22 +86,25 @@ func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.
 		return errUsernameIsEmail()
 	}
 	if email == nil {
-		return s.takeUserEmail(ctx, userID)
+		return s.takeUserEmail(ctx, userID, record)
 	}
 	query := fmt.Sprintf(`UPDATE %s SET "Email" = $2, "EmailVerifiedAt" = NULL WHERE "Id" = $1`, s.userTable())
-	tag, err := s.conn.Exec(ctx, query, userID, email)
-	if err != nil {
-		if s.isEmailConflict(err) {
-			return errEmailTaken(*email)
+
+	return s.recordedWrite(ctx, record, func(ctx context.Context, db statementRunner) error {
+		tag, err := db.Exec(ctx, query, userID, email)
+		if err != nil {
+			if s.isEmailConflict(err) {
+				return errEmailTaken(*email)
+			}
+
+			return errors.Wrap(err, "Exec()")
+		}
+		if tag.RowsAffected() == 0 {
+			return dbtype.AccountNotFound(userID)
 		}
 
-		return errors.Wrap(err, "Queryer.Exec()")
-	}
-	if tag.RowsAffected() == 0 {
-		return dbtype.AccountNotFound(userID)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // takeUserEmail takes the user's address off and, in the same transaction, consumes
@@ -111,8 +115,9 @@ func (s *SessionStorageDriver) SetUserEmail(ctx context.Context, userID impulse.
 // gave, and write the address back. With the codes ended, the only code that stands on
 // an account that holds no address is one mailed after the change. An address replaced
 // by another needs none of this: its codes are dead while the account holds the other,
-// and taking that one off ends them all.
-func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse.UUID) error {
+// and taking that one off ends them all. record, nil for none, is inserted with the
+// address's removal.
+func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse.UUID, record *auditlog.Record) error {
 	return s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		take := fmt.Sprintf(`UPDATE %s SET "Email" = NULL, "EmailVerifiedAt" = NULL WHERE "Id" = $1`, s.userTable())
 		tag, err := tx.Exec(ctx, take, userID)
@@ -128,7 +133,7 @@ func (s *SessionStorageDriver) takeUserEmail(ctx context.Context, userID impulse
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
 
-		return nil
+		return s.InsertAuditRecordIn(ctx, tx, record)
 	})
 }
 
@@ -177,17 +182,20 @@ func (s *SessionStorageDriver) VerifyUserEmailIn(ctx context.Context, tx pgx.Tx,
 	return nil
 }
 
-// ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own.
-func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string) (bool, error) {
+// ClaimVerifiedEmail is ClaimVerifiedEmailIn in a transaction of its own, which writes
+// record after the address where the claim wrote it, and none where it wrote nothing.
+func (s *SessionStorageDriver) ClaimVerifiedEmail(ctx context.Context, userID impulse.UUID, email string, record *auditlog.Record) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	var claimed bool
 	err := s.Transact(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		claimed, err = s.ClaimVerifiedEmailIn(ctx, tx, userID, email)
+		if claimed, err = s.ClaimVerifiedEmailIn(ctx, tx, userID, email); err != nil || !claimed {
+			return err
+		}
 
-		return err
+		return s.InsertAuditRecordIn(ctx, tx, record)
 	})
 	if err != nil {
 		return false, err

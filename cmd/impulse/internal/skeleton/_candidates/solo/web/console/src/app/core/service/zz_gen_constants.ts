@@ -25,6 +25,7 @@ export const Resources = {
   StaffGroupUsers: 'StaffGroupUsers' as Resource,
   StaffGroups: 'StaffGroups' as Resource,
   StaffHeldRoles: 'StaffHeldRoles' as Resource,
+  StaffListedAuditRecords: 'StaffListedAuditRecords' as Resource,
   StaffListedGroupRoles: 'StaffListedGroupRoles' as Resource,
   StaffListedGroups: 'StaffListedGroups' as Resource,
   StaffListedMailLinks: 'StaffListedMailLinks' as Resource,
@@ -237,6 +238,41 @@ export namespace StaffHeldRoles {
     startsAt: 'StaffHeldRoles.startsAt' as Resource,
     userId: 'StaffHeldRoles.userId' as Resource,
     username: 'StaffHeldRoles.username' as Resource,
+  };
+}
+
+export namespace StaffListedAuditRecords {
+  export const fieldName = {
+    act: 'act' as FieldName,
+    actorUsername: 'actorUsername' as FieldName,
+    at: 'at' as FieldName,
+    doneTo: 'doneTo' as FieldName,
+    id: 'id' as FieldName,
+    reason: 'reason' as FieldName,
+    role: 'role' as FieldName,
+    subjectKind: 'subjectKind' as FieldName,
+    subjectName: 'subjectName' as FieldName,
+    tenantId: 'tenantId' as FieldName,
+    tenantName: 'tenantName' as FieldName,
+    userId: 'userId' as FieldName,
+    what: 'what' as FieldName,
+    who: 'who' as FieldName,
+  };
+  export const resourceName = {
+    act: 'StaffListedAuditRecords.act' as Resource,
+    actorUsername: 'StaffListedAuditRecords.actorUsername' as Resource,
+    at: 'StaffListedAuditRecords.at' as Resource,
+    doneTo: 'StaffListedAuditRecords.doneTo' as Resource,
+    id: 'StaffListedAuditRecords.id' as Resource,
+    reason: 'StaffListedAuditRecords.reason' as Resource,
+    role: 'StaffListedAuditRecords.role' as Resource,
+    subjectKind: 'StaffListedAuditRecords.subjectKind' as Resource,
+    subjectName: 'StaffListedAuditRecords.subjectName' as Resource,
+    tenantId: 'StaffListedAuditRecords.tenantId' as Resource,
+    tenantName: 'StaffListedAuditRecords.tenantName' as Resource,
+    userId: 'StaffListedAuditRecords.userId' as Resource,
+    what: 'StaffListedAuditRecords.what' as Resource,
+    who: 'StaffListedAuditRecords.who' as Resource,
   };
 }
 

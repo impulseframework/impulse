@@ -389,7 +389,7 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 	seat := func(tenants ...accesstypes.Domain) []signin.DirectorySeat {
 		seats := make([]signin.DirectorySeat, 0, len(tenants))
 		for _, tenant := range tenants {
-			seats = append(seats, signin.DirectorySeat{Tenant: tenant, Role: "Reader"})
+			seats = append(seats, signin.DirectorySeat{Tenant: tenant, Role: "Reader", Directory: acmeDirectory})
 		}
 
 		return seats

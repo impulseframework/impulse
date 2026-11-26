@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/resources"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
 	"github.com/impulseframework/impulse/eventsource"
@@ -245,6 +246,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 							if err := resources.NewTenantDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantDirectoryDeletePatch.Buffer()")
+							}
+							// The directory's removal is recorded in the audit log of the auth whose people
+							// the directories record's outlets sign in.
+							if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryRemoved, ""); err != nil {
+								return errors.Wrap(err, "StaffIdentity().RecordTenantSignIn()")
 							}
 						}
 					default:

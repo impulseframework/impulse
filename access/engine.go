@@ -5,6 +5,7 @@ import (
 
 	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 )
 
 // evaluator answers permission checks on the request path; the snapshot
@@ -95,7 +96,7 @@ type evaluator interface {
 type policyStore interface {
 	// Membership. A membership is given for a period, which replaces the
 	// period of one that is there, and the listings answer what counts now.
-	deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error
+	deleteUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, record *auditlog.Record) error
 	userRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error)
 	// userMemberships lists every membership the user holds now, wherever it
 	// is held.

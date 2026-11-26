@@ -323,11 +323,11 @@ func seamCodeWindowAddressMoved[Tx any](ctx context.Context, t *testing.T, be ba
 	b := a.browser(t)
 	code := a.waitOnTheName(ctx, t, b, address)
 	a.store.beforeTheWrite(func() {
-		if err := a.setEmail(ctx, pat, nil); err != nil {
+		if err := a.setEmail(ctx, pat, nil, nil); err != nil {
 			t.Errorf("SetUserEmail(pat, nil) error = %v", err)
 		}
 		moved := address
-		if err := a.setEmail(ctx, sam, &moved); err != nil {
+		if err := a.setEmail(ctx, sam, &moved, nil); err != nil {
 			t.Errorf("SetUserEmail(sam, %q) error = %v", address, err)
 		}
 	})
@@ -349,7 +349,7 @@ func seamCodeWindowAddressTakenOff[Tx any](ctx context.Context, t *testing.T, be
 	b := a.browser(t)
 	code := a.waitOnTheName(ctx, t, b, address)
 	a.store.beforeTheWrite(func() {
-		if err := a.setEmail(ctx, pat, nil); err != nil {
+		if err := a.setEmail(ctx, pat, nil, nil); err != nil {
 			t.Errorf("SetUserEmail(pat, nil) error = %v", err)
 		}
 	})
@@ -379,7 +379,7 @@ func seamCodeWindowTakenOffAfterTheConsume[Tx any](ctx context.Context, t *testi
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
 	code := a.lastCode(t, address)
 	a.store.afterTheConsume(func() {
-		if err := a.setEmail(ctx, pat, nil); err != nil {
+		if err := a.setEmail(ctx, pat, nil, nil); err != nil {
 			t.Errorf("SetUserEmail(pat, nil) error = %v", err)
 		}
 	})

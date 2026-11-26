@@ -402,7 +402,7 @@ func TestManager_impersonatorIsNeverTheSubject(t *testing.T) {
 			{
 				name: "a person of another application, who has no account here, acting as erin",
 				ctx: func(ctx context.Context) context.Context {
-					foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
+					foreign := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
 
 					return context.WithValue(asErin(ctx, managedAuth, act.tenant), sessioninfo.CtxSessionInfo, foreign)
 				},
@@ -469,7 +469,7 @@ func TestManager_AddGroupMember_underAMaskThatKeepsTheAction(t *testing.T) {
 		accesstypes.RefuseClassExcept(accesstypes.ClassAccess, accesstypes.ExceptAction("AddGroupMember")),
 	)
 	acting := func(ctx context.Context, tenant bool) context.Context {
-		session := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{ActorID: impulse.NullUUIDFromUUID(userID), Mask: keeps}}
+		session := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{ActorID: impulse.NullUUIDFromUUID(userID), Mask: keeps}}
 
 		return context.WithValue(asErin(ctx, managedAuth, tenant), sessioninfo.CtxSessionInfo, session)
 	}
@@ -734,7 +734,7 @@ func TestManager_RevokeToken_aTokenWithNoOwner(t *testing.T) {
 func TestRefuseImpersonatorAsSubject(t *testing.T) {
 	t.Parallel()
 
-	foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
+	foreign := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{}, Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
 	tests := []struct {
 		name    string
 		ctx     context.Context

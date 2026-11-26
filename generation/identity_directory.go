@@ -329,6 +329,19 @@ func (r *resourceGenerator) identityOpensToDirectory(inst *identityInstance) boo
 	if !inst.seatsDirectory() || !inst.hasList(listPeopleSuffix) || !inst.judgesRoleChanges() {
 		return false
 	}
+
+	return r.identityRecordsTenantSignIn(inst)
+}
+
+// identityRecordsTenantSignIn reports whether the instance's auth is the one a tenant's
+// sign-in settings are recorded through (tenantSignInRecorder): a session outlet serves
+// the directories record, and every session outlet that does is bound to this auth. It
+// asks nothing of what the auth's management gives: an auth whose directory writes its
+// roles, or whose tenants' directories carry no default seat, records them all the same.
+func (r *resourceGenerator) identityRecordsTenantSignIn(inst *identityInstance) bool {
+	if inst.tenant == nil {
+		return false
+	}
 	served := false
 	for _, outlet := range r.allOutlets() {
 		if !outlet.servesSessions || !slices.Contains(inst.tenant.directoryOutlets, outlet.name) {

@@ -320,6 +320,10 @@ func (a *App) CrewInvitedSectorRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewInvitedSectorRoles()
 }
 
+func (a *App) CrewListedAuditRecords() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewListedAuditRecords()
+}
+
 func (a *App) CrewListedRoleGrants() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewListedRoleGrants()
 }
@@ -330,6 +334,10 @@ func (a *App) CrewMissionRoles() http.HandlerFunc {
 
 func (a *App) CrewRememberLengths() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewRememberLengths()
+}
+
+func (a *App) CrewSectorAuditRecords() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSectorAuditRecords()
 }
 
 func (a *App) CrewSectorDirectoryRoles() http.HandlerFunc {
@@ -798,12 +806,20 @@ func (a *App) MembersUserRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersUserRoles()
 }
 
+func (a *App) MembersListedAuditRecords() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersListedAuditRecords()
+}
+
 func (a *App) MembersListedRoleGrants() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersListedRoleGrants()
 }
 
 func (a *App) MembersRememberLengths() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersRememberLengths()
+}
+
+func (a *App) MembersSectorAuditRecords() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).MembersSectorAuditRecords()
 }
 
 func (a *App) MembersSignInMethods() http.HandlerFunc {

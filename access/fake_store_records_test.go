@@ -35,8 +35,8 @@ func (r *fakeRecords) ready() {
 // recordRecords adds the roles held on records to the records of a policy read. The
 // caller holds the lock.
 func (f *fakeStore) recordRecords(records *policy.Records) {
-	f.records.ready()
-	for r, period := range f.records.held {
+	f.recordRoles.ready()
+	for r, period := range f.recordRoles.held {
 		records.RecordMemberships = append(records.RecordMemberships, policy.RecordMembership{Scope: r.at, Member: r.member, Role: r.role, Period: period})
 	}
 }
@@ -44,18 +44,18 @@ func (f *fakeStore) recordRecords(records *policy.Records) {
 // deleteGroupRecords removes the group's rows of the record tables. The caller holds the
 // lock.
 func (f *fakeStore) deleteGroupRecords(group accesstypes.Group) {
-	f.records.ready()
-	for r := range f.records.held {
+	f.recordRoles.ready()
+	for r := range f.recordRoles.held {
 		if r.member.Kind == policy.SubjectGroup && r.member.Name == string(group) {
-			delete(f.records.held, r)
+			delete(f.recordRoles.held, r)
 		}
 	}
 }
 
 func (f *fakeStore) InsertRecordUserRole(_ context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
 	return f.locked(func() error {
-		f.records.ready()
-		f.records.held[fakeRecordRole{at, policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, role}] = period
+		f.recordRoles.ready()
+		f.recordRoles.held[fakeRecordRole{at, policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, role}] = period
 		f.writes++
 
 		return nil
@@ -64,8 +64,8 @@ func (f *fakeStore) InsertRecordUserRole(_ context.Context, at accesstypes.Recor
 
 func (f *fakeStore) DeleteRecordUserRole(_ context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) error {
 	return f.locked(func() error {
-		f.records.ready()
-		delete(f.records.held, fakeRecordRole{at, policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, role})
+		f.recordRoles.ready()
+		delete(f.recordRoles.held, fakeRecordRole{at, policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, role})
 		f.writes++
 
 		return nil
@@ -77,8 +77,8 @@ func (f *fakeStore) InsertRecordGroupRole(_ context.Context, group accesstypes.G
 		if _, ok := f.groups.rows[group]; !ok {
 			return errors.Wrapf(policy.ErrNoGroup, "group %s", group)
 		}
-		f.records.ready()
-		f.records.held[fakeRecordRole{at, policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}, role}] = period
+		f.recordRoles.ready()
+		f.recordRoles.held[fakeRecordRole{at, policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}, role}] = period
 		f.writes++
 
 		return nil
@@ -87,8 +87,8 @@ func (f *fakeStore) InsertRecordGroupRole(_ context.Context, group accesstypes.G
 
 func (f *fakeStore) DeleteRecordGroupRole(_ context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role) error {
 	return f.locked(func() error {
-		f.records.ready()
-		delete(f.records.held, fakeRecordRole{at, policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}, role})
+		f.recordRoles.ready()
+		delete(f.recordRoles.held, fakeRecordRole{at, policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}, role})
 		f.writes++
 
 		return nil
@@ -98,8 +98,8 @@ func (f *fakeStore) DeleteRecordGroupRole(_ context.Context, group accesstypes.G
 func (f *fakeStore) ListRecordRoles(_ context.Context, at accesstypes.RecordScope) ([]policy.RecordAssignment, error) {
 	held := make([]policy.RecordAssignment, 0)
 	err := f.locked(func() error {
-		f.records.ready()
-		for r, period := range f.records.held {
+		f.recordRoles.ready()
+		for r, period := range f.recordRoles.held {
 			if r.at != at || period.Ended(f.now()) {
 				continue
 			}
@@ -126,10 +126,10 @@ func (f *fakeStore) ListRecordRoles(_ context.Context, at accesstypes.RecordScop
 
 func (f *fakeStore) DeleteRecordRoles(_ context.Context, at accesstypes.RecordScope) error {
 	return f.locked(func() error {
-		f.records.ready()
-		for r := range f.records.held {
+		f.recordRoles.ready()
+		for r := range f.recordRoles.held {
 			if r.at == at {
-				delete(f.records.held, r)
+				delete(f.recordRoles.held, r)
 			}
 		}
 		f.writes++
