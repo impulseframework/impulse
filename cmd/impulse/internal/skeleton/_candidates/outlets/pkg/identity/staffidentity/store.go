@@ -949,15 +949,17 @@ func (store) DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransacti
 // table the schema does not hold costs nothing (identity.Store.DeleteCosts).
 func (store) DeleteCosts() identity.TenantDeleteCosts {
 	return identity.TenantDeleteCosts{
-		Membership:  resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		Group:       resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		GroupMember: resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		GroupRole:   resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		Role:        resource.DeleteCost{IndexEntries: 0}.Mutations(false),
-		Identity:    resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		User:        resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		Invitation:  4,
-		SessionEnd:  3,
+		Membership:       resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		Group:            resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		GroupMember:      resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		GroupRole:        resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		Role:             resource.DeleteCost{IndexEntries: 0}.Mutations(false),
+		Identity:         resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		User:             resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		RecordMembership: resource.DeleteCost{IndexEntries: 1}.Mutations(true),
+		RecordGroupRole:  resource.DeleteCost{IndexEntries: 2}.Mutations(true),
+		Invitation:       4,
+		SessionEnd:       3,
 	}
 }
 
@@ -1643,4 +1645,39 @@ func (store) GroupPeriods(ctx context.Context, txn resource.ReadOnlyTransaction,
 	}
 
 	return periods, nil
+}
+
+// errNoRecordRoles answers a call that gives or takes a role on a record for an auth whose
+// role file holds no role on a record the application marks: the generator declared
+// neither table of the roles held on a record, and the tables hold no row.
+var errNoRecordRoles = errors.New("no record of this application holds roles: mark one with @holdsRoles and name it in a role's heldOn")
+
+func (store) SetRecordMembership(context.Context, resource.ReadWriteTransaction, *access.RecordMembershipKey, accesstypes.Period) error {
+	return errNoRecordRoles
+}
+
+func (store) DeleteRecordMembership(context.Context, resource.ReadWriteTransaction, *access.RecordMembershipKey) error {
+	return errNoRecordRoles
+}
+
+func (store) SetRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey, accesstypes.Period) error {
+	return errNoRecordRoles
+}
+
+func (store) DeleteRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey) error {
+	return errNoRecordRoles
+}
+
+// Nobody holds a role on a record no role can be held on.
+
+func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	return nil, nil, nil
+}
+
+func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	return nil, nil, nil
+}
+
+func (store) RecordMemberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordMembershipKey, error) {
+	return nil, nil
 }

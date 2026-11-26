@@ -185,6 +185,16 @@ func (c *Client) TenantKinds(domain accesstypes.Domain) []resource.TakenKind {
 	return c.manager.TenantKinds(domain)
 }
 
+// RecordKinds answers what the Crew auth holds on one record as kinds of the
+// record's delete (identity.Manager.RecordKinds): the roles held on it, a person's and a
+// group's. The generated delete of a record a role can be held on hands them to the
+// delete (resource.PatchSet.DeleteAlso), which counts them in its question and takes them
+// in its rounds; an application that deletes such a record in code of its own hands them
+// to its delete there.
+func (c *Client) RecordKinds(at accesstypes.RecordScope) []resource.TakenKind {
+	return c.manager.RecordKinds(at)
+}
+
 // DirectoryName answers what the Crew auth's sign-in registrations call a
 // directory, for a sentence that names it to a person: the name a registration that
 // takes its connection gives it (a listed Workspace or tenant, a provider), and the
