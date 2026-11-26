@@ -185,6 +185,42 @@ type UserManager interface {
 	// ValidatePeriod first.
 	Membership(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, held RoleReader) (MembershipKey, error)
 
+	// AssignRecordUserRole gives user the role on one record of a tenant for
+	// the period, replacing the period of one the person holds there: the role's
+	// grants then count on that record and what it reaches, and nowhere else of
+	// the tenant. The role is a domain role the role file marks for the record's
+	// kind (Role.HeldOn), the kind one the collection marks as a record that
+	// holds roles, and the period one the role can carry; anything else is a
+	// 400. The library never looks the record up.
+	AssignRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
+
+	// DeleteRecordUserRoles takes the roles user holds on the record away. A
+	// role the person does not hold there is no error.
+	DeleteRecordUserRoles(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, roles ...accesstypes.Role) error
+
+	// RecordHolders returns who holds what on the record and has not ended, one
+	// whose period has not begun among them: the people's first, then the
+	// groups', each with the group's name.
+	RecordHolders(ctx context.Context, at accesstypes.RecordScope) ([]RecordHolder, error)
+
+	// DeleteRecordRoles takes every role held on the record away, a person's
+	// and a group's: what the record's deletion does.
+	DeleteRecordRoles(ctx context.Context, at accesstypes.RecordScope) error
+
+	// RolesHeldOn lists the roles that can be held on a record of the kind,
+	// the domain roles the role file marks for it, with their descriptions,
+	// sorted by name.
+	RolesHeldOn(record accesstypes.Resource) []RoleInfo
+
+	// RecordMembership answers the key of the row that says user holds role on
+	// the record, for a caller that writes it inside a transaction of its own
+	// instead of through AssignRecordUserRole. Errors as AssignRecordUserRole
+	// does, less the period: a caller that writes the row with a period asks
+	// ValidatePeriod first. The caller commits the row and then calls
+	// Controller.PolicyChanged. A row to remove needs no check and is spelled
+	// by NewRecordMembershipKey.
+	RecordMembership(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) (RecordMembershipKey, error)
+
 	// UserRoles returns the roles user holds now, keyed by where each is held:
 	// the memberships of their own and the roles of every group they are in,
 	// each role listed once in each place, and none that is outside its
@@ -301,6 +337,25 @@ type UserManager interface {
 	// commits the row and then calls Controller.PolicyChanged. A row to
 	// remove needs no check and is spelled by NewGroupRoleKey.
 	GroupRole(ctx context.Context, group accesstypes.Group, kept, scope accesstypes.PolicyScope, role accesstypes.Role, held RoleReader) (GroupRoleKey, error)
+
+	// AssignRecordGroupRole gives group the role on one record of a tenant for
+	// the period, replacing the period of one the group holds there. Errors as
+	// AssignRecordUserRole does, and if the group is not kept in the record's
+	// tenant or is not there.
+	AssignRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error
+
+	// DeleteRecordGroupRoles takes the roles group holds on the record away. A
+	// role the group does not hold there is no error.
+	DeleteRecordGroupRoles(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, roles ...accesstypes.Role) error
+
+	// RecordGroupRole answers the key of the row that says group holds role on
+	// the record, for a caller that writes it inside a transaction of its own
+	// instead of through AssignRecordGroupRole. kept is where the group is
+	// kept, read by the caller with the group's row. Errors as
+	// AssignRecordGroupRole does, less the period. The caller commits the row
+	// and then calls Controller.PolicyChanged. A row to remove needs no check
+	// and is spelled by NewRecordGroupRoleKey.
+	RecordGroupRole(ctx context.Context, group accesstypes.Group, kept accesstypes.PolicyScope, at accesstypes.RecordScope, role accesstypes.Role) (RecordGroupRoleKey, error)
 
 	// UserPermissions returns user's effective permissions in each scope —
 	// what the user holds there, from memberships held in the scope and in

@@ -276,7 +276,9 @@ func Test_identityStoreTemplate_tenantKinds(t *testing.T) {
 				t.Fatalf("generateTemplateOutput(identityClientTemplate) error = %v", err)
 			}
 			kinds := "func (c *Client) TenantKinds(domain accesstypes.Domain) []resource.TakenKind {\n\treturn c.manager.TenantKinds(domain)\n}"
-			assertContains(t, "the client", squashSpace(string(client)), squashEach([]string{kinds}), []string{"ClearTenant"})
+			// A record's delete is handed the roles held on it through the client too.
+			recordKinds := "func (c *Client) RecordKinds(at accesstypes.RecordScope) []resource.TakenKind {\n\treturn c.manager.RecordKinds(at)\n}"
+			assertContains(t, "the client", squashSpace(string(client)), squashEach([]string{kinds, recordKinds}), []string{"ClearTenant"})
 		})
 	}
 }

@@ -92,6 +92,28 @@ type Assignment struct {
 	Reason string
 }
 
+// RecordMembership is one role held on one record of a tenant: a person's, or a
+// group's, which the compiler folds at load time into a membership of each person
+// in the group, as it folds a group's role in a tenant. Period is when it counts,
+// as a Membership's is.
+type RecordMembership struct {
+	Scope  accesstypes.RecordScope
+	Member Subject
+	Role   accesstypes.Role
+	Period accesstypes.Period
+}
+
+// RecordAssignment is one role held on a record as the listing of the record's
+// holders returns it: the membership, the reason it was given for (no store
+// keeps one for a role on a record, so it is empty), and, for a group's, the
+// group's name.
+type RecordAssignment struct {
+	RecordMembership
+
+	Reason    string
+	GroupName string
+}
+
 // Role is one custom role row: a role that exists where its Scope says
 // because the store holds it, with or without grants. The release's default
 // roles have no row.
@@ -306,6 +328,9 @@ type Records struct {
 	Roles        []Role
 	Groups       []Group
 	GroupMembers []GroupMember
+	// RecordMemberships are the roles held on one record, a person's and a
+	// group's.
+	RecordMemberships []RecordMembership
 }
 
 // RoleGrant is one stored grant row scoped to an already-known (scope, role):
@@ -333,6 +358,8 @@ func (r *Records) Hash() [sha256.Size]byte {
 	slices.SortFunc(groups, compareGroups)
 	members := slices.Clone(r.GroupMembers)
 	slices.SortFunc(members, compareGroupMembers)
+	held := slices.Clone(r.RecordMemberships)
+	slices.SortFunc(held, compareRecordMemberships)
 
 	h := sha256.New()
 	for _, g := range grants {
@@ -348,6 +375,14 @@ func (r *Records) Hash() [sha256.Size]byte {
 	for _, m := range memberships {
 		hashString(h, "m")
 		hashScope(h, m.Scope)
+		hashByte(h, byte(m.Member.Kind))
+		hashString(h, m.Member.Name)
+		hashString(h, string(m.Role))
+		hashPeriod(h, m.Period)
+	}
+	for _, m := range held {
+		hashString(h, "R")
+		hashRecord(h, m.Scope)
 		hashByte(h, byte(m.Member.Kind))
 		hashString(h, m.Member.Name)
 		hashString(h, string(m.Role))
@@ -395,6 +430,16 @@ func compareMemberships(a, b Membership) int {
 	)
 }
 
+func compareRecordMemberships(a, b RecordMembership) int {
+	return cmpChain(
+		compareRecords(a.Scope, b.Scope),
+		int(a.Member.Kind)-int(b.Member.Kind),
+		strings.Compare(a.Member.Name, b.Member.Name),
+		strings.Compare(string(a.Role), string(b.Role)),
+		comparePeriods(a.Period, b.Period),
+	)
+}
+
 func compareRoles(a, b Role) int {
 	return cmpChain(CompareScopes(a.Scope, b.Scope), strings.Compare(string(a.Name), string(b.Name)))
 }
@@ -420,6 +465,15 @@ func CompareScopes(a, b accesstypes.PolicyScope) int {
 	bk, bx, bd := ScopeColumns(b)
 
 	return cmpChain(strings.Compare(ak, bk), strings.Compare(ax, bx), strings.Compare(ad, bd))
+}
+
+// compareRecords orders two records by their stored columns, the order a store
+// lists rows in.
+func compareRecords(a, b accesstypes.RecordScope) int {
+	ax, ad, ar, ak := RecordColumns(a)
+	bx, bd, br, bk := RecordColumns(b)
+
+	return cmpChain(strings.Compare(ax, bx), strings.Compare(ad, bd), strings.Compare(ar, br), strings.Compare(ak, bk))
 }
 
 // The kinds a store persists in its Kind column: where a row is held. They
@@ -494,6 +548,24 @@ func GroupFromColumns(kind, axis, domain string) (accesstypes.PolicyScope, error
 	return ScopeFromColumns(kind, axis, domain)
 }
 
+// RecordColumns decomposes a record into the columns the stores persist for a
+// role held on it: (axis, domain, resource, record). RecordFromColumns is its
+// inverse.
+func RecordColumns(s accesstypes.RecordScope) (axis, domain, resource, record string) {
+	return s.Axis(), string(s.Domain()), string(s.Resource()), s.Record()
+}
+
+// RecordFromColumns reassembles a record from its stored columns. Only the
+// default axis ("") can be reassembled, as ScopeFromColumns says: a row under
+// another axis is refused and the read fails closed.
+func RecordFromColumns(axis, domain, resource, record string) (accesstypes.RecordScope, error) {
+	if axis != "" {
+		return accesstypes.RecordScope{}, errors.Newf("row belongs to axis %q, and no axis other than the default is declared", axis)
+	}
+
+	return accesstypes.NewRecordScope(accesstypes.Domain(domain), accesstypes.Resource(resource), record), nil
+}
+
 // cmpChain returns the first non-zero comparison result.
 func cmpChain(results ...int) int {
 	for _, r := range results {
@@ -532,6 +604,15 @@ func hashPeriod(h hash.Hash, p accesstypes.Period) {
 		}
 		h.Write(nanos[:])
 	}
+}
+
+// hashRecord writes a record's columns (axis, domain, resource, record).
+func hashRecord(h hash.Hash, s accesstypes.RecordScope) {
+	axis, domain, resource, record := RecordColumns(s)
+	hashString(h, axis)
+	hashString(h, domain)
+	hashString(h, resource)
+	hashString(h, record)
 }
 
 // hashScope writes a scope's structural triple (kind, axis, domain).

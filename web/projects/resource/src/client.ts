@@ -184,8 +184,9 @@ export interface ResourceHandleBase<Row, Key extends unknown[]> {
   /**
    * The fields this handle's digest says the session user may supply for the
    * permission — `Create` narrows a create form to the inputs worth rendering:
-   * sorted JSON field names whose dotted field target is granted, conditional or
-   * conditional on time (either conditional renders; the server judges the write). Undefined when the digest
+   * sorted JSON field names whose dotted field target is granted, conditional,
+   * conditional on time or conditional with its resource (any conditional renders; the
+   * server judges the write). Undefined when the digest
    * carries no field-level entries for the permission — no field information (the
    * permission is denied outright, or the resource has no grant-bearing fields) —
    * so narrow only on a defined answer. Key fields never appear: they are

@@ -709,19 +709,19 @@ func TestClient_storedScopeWideGrantIsHeldToTheCollection(t *testing.T) {
 		collection PermissionCollection
 		wantHeld   bool
 	}{
-		{name: "a release that declares the permission carries the grant", collection: generated(t, resource.CollectionData{
+		{name: "a release that declares the permission carries the grant", collection: generated(t, &resource.CollectionData{
 			Permissions: []accesstypes.Permission{exportLedger},
 			Resources:   []resource.CollectionResource{ledgers},
 		}), wantHeld: true},
-		{name: "a release that dropped the declaration skips the grant", collection: generated(t, resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}), wantHeld: false},
-		{name: "a release that declares nothing skips the grant", collection: generated(t, resource.CollectionData{}), wantHeld: false},
+		{name: "a release that dropped the declaration skips the grant", collection: generated(t, &resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}), wantHeld: false},
+		{name: "a release that declares nothing skips the grant", collection: generated(t, &resource.CollectionData{}), wantHeld: false},
 		{name: "a release of two sites, one of which declares the permission, carries the grant", collection: unionOf(t,
-			generated(t, resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}),
-			generated(t, resource.CollectionData{Permissions: []accesstypes.Permission{exportLedger}}),
+			generated(t, &resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}),
+			generated(t, &resource.CollectionData{Permissions: []accesstypes.Permission{exportLedger}}),
 		), wantHeld: true},
 		{name: "a release of two sites, neither of which declares the permission, skips the grant", collection: unionOf(t,
-			generated(t, resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}),
-			generated(t, resource.CollectionData{}),
+			generated(t, &resource.CollectionData{Resources: []resource.CollectionResource{ledgers}}),
+			generated(t, &resource.CollectionData{}),
 		), wantHeld: false},
 	}
 	for _, tt := range tests {

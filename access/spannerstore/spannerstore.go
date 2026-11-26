@@ -5,7 +5,8 @@
 //
 // Each Store owns three tables named {Prefix}{Store}{Roles|UserRoles|
 // RoleGrants} — defaults yield AccessRoles, AccessUserRoles, AccessRoleGrants —
-// and the three of the groups of people (groups.go).
+// and the three of the groups of people (groups.go), and the two of the roles held on
+// one record of a tenant (records.go).
 // Rows are partitioned by where the policy is held, persisted as the
 // structural column triple (Kind, Axis, DomainId): Kind names the global
 // partition, one domain or every domain — never a distinguished domain value
@@ -111,6 +112,11 @@ type tableNames struct {
 	groupMembersIndex string
 	groupRolesIndex   string
 
+	recordUserRoles  string
+	recordGroupRoles string
+	recordUserIndex  string
+	recordGroupIndex string
+
 	// auditRecords is the audit records table (WithAuditRecords), "" for none.
 	auditRecords string
 }
@@ -138,7 +144,11 @@ func resolveNames(opts []Option) (tableNames, error) {
 		groupMembersIndex: tables.GroupMembersByUserID,
 		groupRolesIndex:   tables.GroupRolesByScope,
 
-		auditRecords: c.auditRecords,
+		recordUserRoles:  tables.RecordUserRoles,
+		recordGroupRoles: tables.RecordGroupRoles,
+		recordUserIndex:  tables.RecordUserRolesByUserID,
+		recordGroupIndex: tables.RecordGroupRolesByGroupID,
+		auditRecords:     c.auditRecords,
 	}, nil
 }
 
@@ -174,6 +184,8 @@ type Store struct {
 
 	// groups are the statements of the group tables (groups.go).
 	groups groupStatements
+	// records are the statements of the record tables (records.go).
+	records recordStatements
 }
 
 // New creates a Store on the given Spanner client. It validates the naming
@@ -205,7 +217,8 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		sqlReadGrants:          fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition FROM %s", names.roleGrants),
 		sqlReadMemberships:     fmt.Sprintf("SELECT Kind, Axis, DomainId, UserId, Role, StartsAt, EndsAt FROM %s", names.userRoles),
 
-		groups: newGroupStatements(&names),
+		groups:  newGroupStatements(&names),
+		records: newRecordStatements(&names),
 	}, nil
 }
 
@@ -302,11 +315,12 @@ func (s *Store) DDL() []string {
   %s,
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT %s ON DELETE CASCADE`, n.roleGrants, kindCheck(n.roleGrants), n.roles),
-	}, s.groupDDL()...)
+	}, slices.Concat(s.groupDDL(), s.recordDDL())...)
 }
 
-// ReadPolicy reads roles, grants, memberships and the groups of people inside
-// one read-only transaction, so the row sets observe the same store state.
+// ReadPolicy reads roles, grants, memberships, the groups of people and the roles held
+// on records inside one read-only transaction, so the row sets observe the same store
+// state.
 func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	txn := s.client.ReadOnlyTransaction()
 	defer txn.Close()
@@ -377,6 +391,9 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 		return nil, errors.Wrap(err, "spanner.ReadOnlyTransaction.Query() memberships")
 	}
 	if err := s.readGroups(ctx, txn, records); err != nil {
+		return nil, err
+	}
+	if err := s.readRecords(ctx, txn, records); err != nil {
 		return nil, err
 	}
 

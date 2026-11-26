@@ -80,6 +80,10 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 		return fmt.Appendf(nil, `{"groupId":%q,"userId":%q}`, group, userID)
 	case "GiveGroupRole", "TakeGroupRole":
 		return fmt.Appendf(nil, `{"groupId":%q,"role":"Cadet"}`, group)
+	case "GiveRoleOnMission", "TakeRoleOnMission":
+		return fmt.Appendf(nil, `{"recordId":%q,"userId":%q,"role":"MissionObserver"}`, missionConvoyID, userID)
+	case "GiveGroupRoleOnMission", "TakeGroupRoleOnMission":
+		return fmt.Appendf(nil, `{"recordId":%q,"groupId":%q,"role":"MissionObserver"}`, missionConvoyID, group)
 	case "InviteUser":
 		return []byte(`{"email":"invited-under-a-mask@example.com","roles":["Cadet"]}`)
 	case "WithdrawInvitation", "ResendInvitation":
@@ -105,7 +109,8 @@ func accessBody(t *testing.T, action accesstypes.Resource, userID accesstypes.Us
 // person in a session of his own. The actions are the generated collection's own list
 // of the class, so one added to it is asked here without this suite naming it; the ones
 // the library marks are looked for by name, an invitation that carries roles, a role
-// taken for a set time, a role given to a group, a tenant's starting role for its
+// taken for a set time, a role given to a group, a role given on one mission to a person
+// or a group and taken from them, a tenant's starting role for its
 // directory, the two settings that say who may sign in (a sector's directory-only
 // switch, turned on and off, and the reset link at the sign-in page) and the creation
 // of a sector of one's own among them, and so is the application's own, which rates a
@@ -132,6 +137,7 @@ func TestImpersonationMask_accessMethods(t *testing.T) {
 		"OpenCrewSignUp", "MakeCrewInviteOnly", "TakeSectorDirectory", "OpenSectorToDirectory", "MakeSectorInviteOnly",
 		"MakeSectorDirectoryOnly", "EndSectorDirectoryOnly", "VouchForSectorDirectorySecondFactor", "StopVouchingForSectorDirectorySecondFactor",
 		"SetCrewSelfServiceReset", "CreateSector", "SetSectorPilotClearance",
+		"GiveCrewRoleOnMission", "TakeCrewRoleOnMission", "GiveCrewGroupRoleOnMission", "TakeCrewGroupRoleOnMission",
 	} {
 		if !slices.Contains(access, want) {
 			t.Errorf("the generated collection does not class %s access: it gives or takes away what someone may do", want)

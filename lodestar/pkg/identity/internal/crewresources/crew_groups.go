@@ -39,7 +39,7 @@ type (
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	// @rowWord(group)
-	// @deleteCascade(CrewGroupMember, CrewGroupRole)
+	// @deleteCascade(CrewGroupMember, CrewGroupRole, CrewRecordGroupRole)
 	CrewGroup struct {
 		// @attribute(group)
 		ID       impulse.UUID `spanner:"Id"`

@@ -53,6 +53,20 @@ func (CrewGroup) DeleteTree() *resource.DeleteTree {
 				Rows:     resources.HangarPassTakenRows(),
 			},
 			{
+				Resource: "CrewRecordGroupRoles",
+				Words:    resource.DeleteWords{One: "crew record group role", Many: "crew record group roles"},
+				Key:      []string{"Axis", "DomainId", "Resource", "RecordId", "Role", "GroupId"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "DomainId"},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+				Trusted: true,
+				Rows:    resource.NewTakenRows(func(*resource.PatchSet[CrewRecordGroupRole], *resource.Caller) {}),
+			},
+			{
 				Resource: "CrewGroupRoles",
 				Words:    resource.DeleteWords{One: "role", Many: "roles"},
 				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
@@ -96,6 +110,18 @@ func (CrewGroup) DeleteTree() *resource.DeleteTree {
 				Words:    resource.DeleteWords{One: "role", Many: "roles"},
 				Key:      []string{"GroupId", "Kind", "Axis", "DomainId", "Role"},
 				Cost:     resource.DeleteCost{IndexEntries: 1, Files: 0},
+				Paths: []resource.DeletePath{
+					{
+						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},
+					},
+				},
+			},
+			{
+				Resource: "CrewRecordGroupRoles",
+				Words:    resource.DeleteWords{One: "crew record group role", Many: "crew record group roles"},
+				Key:      []string{"Axis", "DomainId", "Resource", "RecordId", "Role", "GroupId"},
+				Cost:     resource.DeleteCost{IndexEntries: 2, Files: 0},
+				Tenant:   &resource.DomainBindingData{Column: "DomainId"},
 				Paths: []resource.DeletePath{
 					{
 						{Columns: []string{"GroupId"}, Table: "CrewGroups", References: []string{"Id"}},

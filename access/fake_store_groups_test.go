@@ -130,6 +130,7 @@ func (f *fakeStore) DeleteGroup(_ context.Context, group accesstypes.Group) (boo
 				delete(f.groups.held, r)
 			}
 		}
+		f.deleteGroupRecords(group)
 		_, deleted = f.groups.rows[group]
 		delete(f.groups.rows, group)
 

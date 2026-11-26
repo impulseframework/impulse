@@ -160,7 +160,7 @@ func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransa
 // whole application's method: a tenant's group holds any account, and a tenant's
 // administrator puts in the ones the tenant has.
 func (t *Tenant) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID, period accesstypes.Period) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 	if err := t.requireTenantPerson(ctx, txn, userID); err != nil {
@@ -173,7 +173,7 @@ func (t *Tenant) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteTr
 // GiveGroupRoleFor is Tenant.GiveGroupRole with the period the group holds the role for
 // (see Manager.GiveGroupRoleFor).
 func (t *Tenant) GiveGroupRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
 
@@ -329,13 +329,15 @@ func (m *Manager) settleGroupRolePeriod(
 
 // heldRows is everything a person's account holds as the tables hold it, whatever the
 // periods: the memberships of their own, the groups they are in, and the periods of
-// both. A rule that judges the person several ways in one request reads it once
-// (readHeld) and asks it what stands (standingAt).
+// both, with the roles they hold on records that have not ended (records). A rule that
+// judges the person several ways in one request reads it once (readHeld) and asks it
+// what stands (standingAt).
 type heldRows struct {
 	userID  impulse.UUID
 	own     []access.MembershipKey
 	places  []GroupPlace
 	periods *UserPeriods
+	records []access.RecordMembershipKey
 }
 
 // readHeld reads everything the person's account holds, as committed (heldRows).
@@ -352,8 +354,12 @@ func (m *Manager) readHeld(ctx context.Context, txn resource.ReadWriteTransactio
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.UserPeriods()")
 	}
+	records, err := m.store.RecordMemberships(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.RecordMemberships()")
+	}
 
-	return &heldRows{userID: userID, own: own, places: places, periods: periods}, nil
+	return &heldRows{userID: userID, own: own, places: places, periods: periods, records: records}, nil
 }
 
 // standingAt answers what of the rows has not ended at now: the memberships of the
@@ -369,12 +375,17 @@ func (h *heldRows) standingAt(now time.Time) ([]access.MembershipKey, []GroupPla
 }
 
 // placingAt answers what of the rows places the person at now, as holds spells it: the
-// memberships of their own that stand, and a key for each group they are in that
-// stands, spelled as a membership held where the group is kept with no role named.
+// memberships of their own that stand, a key for each group they are in that stands,
+// spelled as a membership held where the group is kept with no role named, and one for
+// each role they hold on a record, spelled as a membership held in the record's tenant
+// with no role named (recordPlacing).
 func (h *heldRows) placingAt(now time.Time) []access.MembershipKey {
 	held, places := h.standingAt(now)
 	for _, place := range places {
 		held = append(held, access.MembershipKey{Kind: place.Kind, Axis: place.Axis, Domain: place.Domain, Role: "", User: User(h.userID)})
+	}
+	for i := range h.records {
+		held = append(held, recordPlacing(&h.records[i]))
 	}
 
 	return held

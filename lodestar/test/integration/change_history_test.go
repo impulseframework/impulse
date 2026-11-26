@@ -758,7 +758,8 @@ func TestChangeHistory_keepsHolderNames(t *testing.T) {
 	}
 
 	passes := accesstypes.Resource("HangarPasses")
-	writer := newTestApp(db, grants{accesstypes.Create: withFields(passes, "hangarId", "userId", "groupId", "levelId"), accesstypes.Delete: {passes}})
+	// A pass names its hangar, so its writer lists the hangars.
+	writer := newTestApp(db, grants{accesstypes.Create: withFields(passes, "hangarId", "userId", "groupId", "levelId"), accesstypes.Delete: {passes}, accesstypes.List: {"Hangars"}})
 	write := func(op, path, value string) []byte {
 		t.Helper()
 
@@ -941,6 +942,8 @@ func TestChangeHistory_keepsAccountNames(t *testing.T) {
 	writer := newTestApp(db, grants{
 		accesstypes.Create: withFields(pilots, "userId", "displayName", "clearance", "feeLimit"),
 		accesstypes.Update: withFields(pilots, "userId"),
+		// A pilot names an account, so its writer lists the accounts.
+		accesstypes.List: {"CrewSessionUsers"},
 	})
 	write := func(op, path, value string) []byte {
 		t.Helper()

@@ -362,6 +362,10 @@ type auditRecordRow struct {
 	RoleName          spanner.NullString  ` + "`spanner:\"RoleName\"`" + `
 	OtherRoleNames    []spanner.NullString ` + "`spanner:\"OtherRoleNames\"`" + `
 	RoleScope         spanner.NullString  ` + "`spanner:\"RoleScope\"`" + `
+	RecordKind        spanner.NullString  ` + "`spanner:\"RecordKind\"`" + `
+	RecordID          spanner.NullString  ` + "`spanner:\"RecordId\"`" + `
+	RecordWord        spanner.NullString  ` + "`spanner:\"RecordWord\"`" + `
+	RecordName        spanner.NullString  ` + "`spanner:\"RecordName\"`" + `
 	GroupID           spanner.NullString  ` + "`spanner:\"GroupId\"`" + `
 	GroupName         spanner.NullString  ` + "`spanner:\"GroupName\"`" + `
 	OldValue          spanner.NullString  ` + "`spanner:\"OldValue\"`" + `
@@ -395,6 +399,7 @@ func (r *auditRecordRow) stored() *auditlog.Stored {
 		},
 		Directory: r.Directory.StringVal, SubjectKind: auditlog.SubjectKind(r.SubjectKind), SubjectID: r.SubjectID, SubjectName: r.SubjectName.StringVal,
 		TenantID: r.TenantID.StringVal, TenantName: r.TenantName.StringVal, RoleNames: roles, RoleScope: auditlog.RoleScope(r.RoleScope.StringVal),
+		RecordKind: r.RecordKind.StringVal, RecordID: r.RecordID.StringVal, RecordWord: r.RecordWord.StringVal, RecordName: r.RecordName.StringVal,
 		GroupID: r.GroupID.StringVal, GroupName: r.GroupName.StringVal, OldValue: r.OldValue.StringVal, NewValue: r.NewValue.StringVal,
 		PeriodStart: r.PeriodStart.Time, PeriodEnd: r.PeriodEnd.Time,
 		SeatingTenantID: r.SeatingTenantID.StringVal, SeatingTenantName: r.SeatingTenantName.StringVal, Reason: r.Reason.StringVal,

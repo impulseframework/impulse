@@ -28,6 +28,10 @@ const (
 	columnRoleName          = "RoleName"
 	columnOtherRoleNames    = "OtherRoleNames"
 	columnRoleScope         = "RoleScope"
+	columnRecordKind        = "RecordKind"
+	columnRecordID          = "RecordId"
+	columnRecordWord        = "RecordWord"
+	columnRecordName        = "RecordName"
 	columnGroupID           = "GroupId"
 	columnGroupName         = "GroupName"
 	columnOldValue          = "OldValue"
@@ -44,8 +48,9 @@ const (
 // needs, may set, or does not give (shapes).
 func partColumns() []string {
 	return []string{
-		columnRoleName, columnOtherRoleNames, columnRoleScope, columnGroupID, columnGroupName, columnOldValue, columnNewValue,
-		columnPeriodStart, columnPeriodEnd, columnSeatingTenantID, columnSeatingTenantName,
+		columnRoleName, columnOtherRoleNames, columnRoleScope, columnRecordKind, columnRecordID, columnRecordWord, columnRecordName,
+		columnGroupID, columnGroupName, columnOldValue, columnNewValue, columnPeriodStart, columnPeriodEnd, columnSeatingTenantID,
+		columnSeatingTenantName,
 	}
 }
 
@@ -65,6 +70,10 @@ type Record struct {
 	TenantName        string                  // what the application calls that tenant
 	RoleNames         []string                // the roles the act names, by their stored names
 	RoleScope         RoleScope               // where that role is held
+	RecordKind        string                  // the record the role is held on, where it is held on one (RoleScopeRecord): its kind, by its resource name
+	RecordID          string                  // that record's key
+	RecordWord        string                  // what one record of its kind is called ("project")
+	RecordName        string                  // that record's name; "" where its kind declares none
 	GroupID           string                  // the group the act names besides its subject
 	GroupName         string                  // that group's name
 	OldValue          string                  // what the act replaced
@@ -80,7 +89,9 @@ type Record struct {
 // sign-in process with no directory named; a subject of another kind than the act's, or
 // one with no id; no subject name where the row keeps one (every subject but a setting
 // that is not a sign-up setting); a tenant's name with no tenant; a part the act's form
-// needs that is empty, and a part it does not give that is set.
+// needs that is empty, and a part it does not give that is set; a role held on a record
+// (RoleScopeRecord) with no tenant, or with no kind, key or word of the record; and a part
+// of the record where the role is held anywhere else.
 func (r *Record) Validate() error {
 	shape, ok := formOf(r.Act, r.Form)
 	switch {
@@ -99,7 +110,26 @@ func (r *Record) Validate() error {
 		return errors.Newf("a record of %s names the tenant %q and no tenant id", r.named(), r.TenantName)
 	}
 
-	return r.validateParts(shape)
+	if err := r.validateParts(shape); err != nil {
+		return err
+	}
+
+	return r.validateRecordPlace()
+}
+
+// validateRecordPlace refuses a role held on a record (RoleScopeRecord) whose record is
+// not named whole, its tenant, kind, key and word, and a part of a record where the role is
+// held anywhere else.
+func (r *Record) validateRecordPlace() error {
+	onRecord := r.RoleScope == RoleScopeRecord
+	switch {
+	case onRecord && (r.TenantID == "" || r.RecordKind == "" || r.RecordID == "" || r.RecordWord == ""):
+		return errors.Newf("a record of %s names a role held on a record and leaves its tenant, kind, key or word empty", r.named())
+	case !onRecord && (r.RecordKind != "" || r.RecordID != "" || r.RecordWord != "" || r.RecordName != ""):
+		return errors.Newf("a record of %s names a record, and its role is held %q, not on a record", r.named(), r.RoleScope)
+	default:
+		return nil
+	}
 }
 
 // validateSubject refuses a subject of another kind than the form's, one with no id, and
@@ -153,6 +183,10 @@ func (r *Record) partsSet() map[string]bool {
 		columnRoleName:          len(r.RoleNames) > 0,
 		columnOtherRoleNames:    len(r.RoleNames) > 1,
 		columnRoleScope:         r.RoleScope != "",
+		columnRecordKind:        r.RecordKind != "",
+		columnRecordID:          r.RecordID != "",
+		columnRecordWord:        r.RecordWord != "",
+		columnRecordName:        r.RecordName != "",
 		columnGroupID:           r.GroupID != "",
 		columnGroupName:         r.GroupName != "",
 		columnOldValue:          r.OldValue != "",
@@ -213,6 +247,10 @@ func (r *Record) Columns() (map[string]any, error) {
 		columns[columnOtherRoleNames] = slices.Clone(r.RoleNames[1:])
 	}
 	set(columnRoleScope, string(r.RoleScope))
+	set(columnRecordKind, r.RecordKind)
+	set(columnRecordID, r.RecordID)
+	set(columnRecordWord, r.RecordWord)
+	set(columnRecordName, r.RecordName)
 	set(columnGroupID, r.GroupID)
 	set(columnGroupName, r.GroupName)
 	set(columnOldValue, r.OldValue)

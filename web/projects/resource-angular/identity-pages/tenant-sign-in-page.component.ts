@@ -146,7 +146,8 @@ export class TenantSignInPageComponent {
    * Whether the tenant's own row of the tenant record is read, for what it says of the
    * switch: the reader is served no read of the sign-in settings, the route names the record
    * and its directory-only field, the digest grants Read on the record, and its Read names
-   * no field at all or names that field as granted or conditional on time.
+   * no field at all or names that field as granted, conditional on time or conditional
+   * with the record (seen on every row of it the reader is shown).
    */
   readonly readsRecord = computed(() => {
     const record = this.signIn.tenantRecord;
@@ -158,7 +159,7 @@ export class TenantSignInPageComponent {
       return true;
     }
     const state = states[record.directoryOnlyField];
-    return state === 'granted' || state === 'conditionalOnTime';
+    return state === 'granted' || state === 'conditionalOnTime' || state === 'conditionalWithResource';
   });
 
   /** The tenant's own row of the tenant record, read by the tenant's key where readsRecord holds. */
@@ -323,7 +324,8 @@ export class TenantSignInPageComponent {
    * is drawn only where the read counts somebody directory only keeps out, the application
    * mounts a page of the tenant's people, the digest grants List on them in the tenant, and
    * the list will filter by the mark the link opens it at (the List names no field, so
-   * nothing narrows the list, or names the mark as granted or conditional on time), and the
+   * nothing narrows the list, or names the mark as granted, conditional on time or
+   * conditional with the list), and the
    * page's own people are everyone the read counts as kept out: where another auth's people
    * are among them, each auth's share has a line and a link of its own (shareLines). A link
    * is drawn only where it will open what it says.
@@ -571,7 +573,8 @@ export class TenantSignInPageComponent {
   /**
    * Whether the reader's list of the tenant's people filters by the mark of the people
    * directory only keeps out: the digest's List on them names no field at all, or names the
-   * mark as granted or conditional on time, the states the server filters by.
+   * mark as granted, conditional on time or conditional with the list, the states the
+   * server filters by.
    */
   private filtersByMark(people: Resource): boolean {
     const states = this.auth.fieldPermissionStates({
@@ -583,7 +586,7 @@ export class TenantSignInPageComponent {
       return true;
     }
     const mark = states['outsideDirectory'];
-    return mark === 'granted' || mark === 'conditionalOnTime';
+    return mark === 'granted' || mark === 'conditionalOnTime' || mark === 'conditionalWithResource';
   }
 
   /** Whether the description names the tenant's method and the digest grants it. */

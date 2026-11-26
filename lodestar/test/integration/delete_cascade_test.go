@@ -850,7 +850,8 @@ func TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind(t *testing.T) {
 // sector: its foreign key to its call is its sector and the case number. A relay added in
 // Bastion with the number of Anvil's call is refused as one with a number no call has, in
 // the same status and the same sentence, and no relay is written; the same relay added in
-// Anvil is created.
+// Anvil is created. Its writer lists the calls, and Bastion's list shows no call with either
+// number, so both are answered 404 before the commit, where the key would refuse them too.
 func TestDistressRelay_namesACallOfItsOwnSector(t *testing.T) {
 	t.Parallel()
 
@@ -872,7 +873,7 @@ func TestDistressRelay_namesACallOfItsOwnSector(t *testing.T) {
 	})}); err != nil {
 		t.Fatalf("spanner.Apply(): %v", err)
 	}
-	h := newTestApp(db, grants{accesstypes.Create: withFields("DistressRelays", "caseNumber", "message")})
+	h := newTestApp(db, grants{accesstypes.Create: withFields("DistressRelays", "caseNumber", "message"), accesstypes.List: {"DistressCalls"}})
 	add := func(t *testing.T, sector, number string) (int, []byte) {
 		t.Helper()
 
@@ -902,8 +903,8 @@ func TestDistressRelay_namesACallOfItsOwnSector(t *testing.T) {
 			t.Parallel()
 
 			status, body := add(t, bastion, tt.number)
-			assertStatus(t, status, http.StatusConflict, body)
-			if got, want := refusalMessage(t, body), "This distress relay refers to a record that does not exist, or holds a value that is too long for its field."; got != want {
+			assertStatus(t, status, http.StatusNotFound, body)
+			if got, want := refusalMessage(t, body), "A record this one refers to does not exist."; got != want {
 				t.Errorf("message = %q, want %q", got, want)
 			}
 			if n := relays(t, bastion, tt.number); n != 0 {

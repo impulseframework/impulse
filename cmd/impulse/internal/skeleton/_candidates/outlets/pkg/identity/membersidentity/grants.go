@@ -67,6 +67,12 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 	return settled(gate, "AssignMembersRole")
 }
 
+// MayGiveOn reports whether the caller may give the person the role on the record: the
+// instance shares no record, so no role is given on one here.
+func (grants) MayGiveOn(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope, impulse.UUID, accesstypes.Role) (bool, error) {
+	return false, nil
+}
+
 // CouldGive reports whether the caller could give the role in the scope by hand, to
 // somebody, with the method named: the question of the list a role is picked from,
 // asked for the method whose dialog picks, before anybody is named, with no row to read

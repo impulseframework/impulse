@@ -60,12 +60,13 @@ type PersonTenant struct {
 }
 
 // leaving is the judgment of a person's leaving one tenant, which the list and the act
-// both read, so the two cannot disagree: the rows that go, memberships and places, which
-// are the person's rows in the tenant, and why the person may not leave (empty where they
-// may).
+// both read, so the two cannot disagree: the rows that go, memberships, places and roles
+// on the tenant's records, which are the person's rows in the tenant, and why the person
+// may not leave (empty where they may).
 type leaving struct {
 	memberships []access.MembershipKey
 	places      []access.GroupMemberKey
+	records     []access.RecordMembershipKey
 	refusal     string
 }
 
@@ -179,8 +180,8 @@ func (m *Manager) LeaveTenant(ctx context.Context, txn resource.ReadWriteTransac
 	if err := m.applyLeaving(ctx, txn, userID, domain, judged); err != nil {
 		return err
 	}
-	logger.FromCtx(ctx).Infof("identity: %s left the %s %s themselves: %d role(s) of their own and %d place(s) in its groups are removed",
-		User(userID), m.tenantWord, domain, len(judged.memberships), len(judged.places))
+	logger.FromCtx(ctx).Infof("identity: %s left the %s %s themselves: %d role(s) of their own, %d on its records and %d place(s) in its groups are removed",
+		User(userID), m.tenantWord, domain, len(judged.memberships), len(judged.records), len(judged.places))
 
 	return m.policyChangesAtCommit(txn)
 }
@@ -229,8 +230,9 @@ func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTen
 }
 
 // applyLeaving buffers what a judged leaving takes, a person's own leaving
-// (LeaveTenant) or their removal (RemoveFromTenant): each membership and each place in
-// the tenant, each with its row of the audit log in the tenant.
+// (LeaveTenant) or their removal (RemoveFromTenant): each membership, each role on one of
+// its records and each place in the tenant, each membership and place with its row of the
+// audit log in the tenant.
 func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, domain accesstypes.Domain, judged *leaving) error {
 	// What the rows name is read before anything is buffered: the person, and each group
 	// by its name, the id where the store answers none.
@@ -253,6 +255,11 @@ func (m *Manager) applyLeaving(ctx context.Context, txn resource.ReadWriteTransa
 		took.RoleScope, took.TenantID = auditlog.RoleScopeTenant, string(domain)
 		if err := m.record(ctx, txn, &took); err != nil {
 			return err
+		}
+	}
+	for i := range judged.records {
+		if err := m.store.DeleteRecordMembership(ctx, txn, &judged.records[i]); err != nil {
+			return errors.Wrap(err, "identity.Store.DeleteRecordMembership()")
 		}
 	}
 	for i := range judged.places {
@@ -285,9 +292,10 @@ func (m *Manager) readTenantHolds(ctx context.Context, txn resource.ReadWriteTra
 
 // tenantsHeld answers the tenants the person holds something in now, in the tenant
 // itself, each with the roles held there in words, sorted and each once, never nil: the
-// tenants PersonTenants lists and LeaveTenant lets a person leave. A row whose period
-// has ended gives nothing; a place in a group of the tenant lists the tenant though the
-// group holds no role there now. A group's roles are read once for each place.
+// tenants PersonTenants lists and LeaveTenant lets a person leave. A role held on one of
+// the tenant's records is held there. A row whose period has ended gives nothing; a place
+// in a group of the tenant lists the tenant though the group holds no role there now. A
+// group's roles are read once for each place.
 func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds) (map[accesstypes.Domain][]string, error) {
 	roles := map[accesstypes.Domain]map[string]struct{}{}
 	hold := func(domain accesstypes.Domain) map[string]struct{} {
@@ -300,6 +308,11 @@ func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransac
 	for _, key := range holds.own {
 		if domain, ok := tenantOf(key.Kind, key.Axis, key.Domain); ok {
 			hold(domain)[roleInWords(key.Role)] = struct{}{}
+		}
+	}
+	for _, key := range holds.rows.records {
+		if key.Axis == "" && key.Domain != "" {
+			hold(accesstypes.Domain(key.Domain))[roleInWords(key.Role)] = struct{}{}
 		}
 	}
 	for _, place := range holds.places {
@@ -334,8 +347,9 @@ func (m *Manager) tenantsHeld(ctx context.Context, txn resource.ReadWriteTransac
 
 // judgeLeaving judges the person's leaving of the tenant from what they hold: the rows
 // that go, every membership of their own held in the tenant and every place of theirs in
-// a group kept in it, whatever their periods; and why they may not leave
-// (leavingRefusal).
+// a group kept in it, whatever their periods, and every role of theirs on one of its
+// records that has not ended; and why they may not leave (leavingRefusal). A role on a
+// record whose period has ended stays in its table, giving nothing.
 func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransaction, holds *tenantHolds, domain accesstypes.Domain) (*leaving, error) {
 	person := User(holds.rows.userID)
 	var memberships []access.MembershipKey
@@ -350,12 +364,18 @@ func (m *Manager) judgeLeaving(ctx context.Context, txn resource.ReadWriteTransa
 			gone = append(gone, access.GroupMemberKey{Group: GroupID(place.ID), User: person})
 		}
 	}
+	var records []access.RecordMembershipKey
+	for i := range holds.rows.records {
+		if recordHeldIn(&holds.rows.records[i], domain) {
+			records = append(records, holds.rows.records[i])
+		}
+	}
 	refusal, err := m.leavingRefusal(ctx, txn, holds, domain)
 	if err != nil {
 		return nil, err
 	}
 
-	return &leaving{memberships: memberships, places: gone, refusal: refusal}, nil
+	return &leaving{memberships: memberships, places: gone, records: records, refusal: refusal}, nil
 }
 
 // leavingRefusal answers why the person may not leave the tenant, empty where they may.

@@ -160,6 +160,19 @@ describe('PermissionsCardComponent', () => {
       expect(texts('td.held .pill.conditional')).toEqual(['at certain times', 'terms apply']);
     });
 
+    it("says a field held under its resource's own condition as terms apply", async () => {
+      await draw([{ name: 'Bulletins.title', held: { List: 'conditionalWithResource', Read: 'conditional' } }]);
+
+      expect(rows()).toEqual([
+        {
+          name: 'Bulletins.title',
+          answers: ['terms apply', 'terms apply', '—', '—', '—'],
+          named: ['List', 'Read', 'Create', 'Update', 'Delete'],
+        },
+      ]);
+      expect(texts('td.held .pill.conditional')).toEqual(['terms apply', 'terms apply']);
+    });
+
     it('writes where an answer holds small beside the name, for a resource that says where', async () => {
       await draw(marshal);
 

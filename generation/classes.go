@@ -214,7 +214,7 @@ func classOnNoAction(where string, permission accesstypes.Permission, classes []
 // since a name is of one scope (oneScopePerName). The masked check reads an action's
 // classes by its name whichever scope registers it, so a class would otherwise ride the
 // record's permission with the action's, in the action's scope and in the other.
-func classesOnActionsAlone(data resource.CollectionData) error {
+func classesOnActionsAlone(data *resource.CollectionData) error {
 	classed := make(map[accesstypes.Resource][]accesstypes.ActionClass)
 	for i := range data.Resources {
 		res := &data.Resources[i]
@@ -281,7 +281,7 @@ func classConstantName(class accesstypes.ActionClass) string {
 // actionClassConstants lists the classes the collection's actions and its records'
 // writes carry, sorted, each with the constant the collection file declares for it. Two
 // classes whose constants would share a name are refused, naming both.
-func actionClassConstants(data resource.CollectionData) ([]actionClassConstant, error) {
+func actionClassConstants(data *resource.CollectionData) ([]actionClassConstant, error) {
 	var classes []accesstypes.ActionClass
 	for i := range data.Resources {
 		classes = append(classes, data.Resources[i].Classes...)

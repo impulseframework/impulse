@@ -362,10 +362,12 @@ export interface ResourceMeta {
    * Set on a computed resource (a `@computed` struct). No query selects its rows: the
    * server's handler orders and filters them by their real values, so the server refuses
    * a sort or a filter by a field unless the caller holds List on the field with no
-   * condition left once the request is checked. A list draws a column the digest lists as
-   * `conditional` with its heading as words and no filter control, so it offers nothing
-   * the server would refuse; a column listed as `conditionalOnTime` sorts and filters,
-   * since the server settles such a grant from the time of the request. Absent on a table
+   * condition left once the request is checked, or under the list's own condition. A list
+   * draws a column the digest lists as `conditional` with its heading as words and no
+   * filter control, so it offers nothing the server would refuse; a column listed as
+   * `conditionalOnTime` sorts and filters, since the server settles such a grant from the
+   * time of the request, and so does one listed as `conditionalWithResource`, which the
+   * server reads only on the rows the caller is shown. Absent on a table
    * and a view, whose sorts and filters run over what the caller may see. Emitted by the
    * impulse TypeScript generator.
    */

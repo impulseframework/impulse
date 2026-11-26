@@ -496,6 +496,7 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 		return err
 	}
 	r.resolveRecordedNames(r.resources)
+	r.resolveNamedRows(r.resources)
 
 	if err := r.holdIdentityTenantDirectory(); err != nil {
 		return err
@@ -645,6 +646,10 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 	if err := resolveSubjectSetAuths(r.resources, auths); err != nil {
 		return err
 	}
+	// A role file's heldOn is held to the records the run marks, which are known now.
+	if err := r.refuseUnmarkedHeldOn(); err != nil {
+		return err
+	}
 	r.attachSubjectReadThroughs()
 	r.attachSubjectKinds()
 
@@ -738,7 +743,7 @@ func (r *resourceGenerator) runCollectionGeneration() error {
 	// generated routes register is emitted next to them for deployment tooling to
 	// consume.
 	if r.genRoutes {
-		if err := r.generateCollectionFile(collectionData); err != nil {
+		if err := r.generateCollectionFile(&collectionData); err != nil {
 			return err
 		}
 	}
@@ -755,14 +760,14 @@ func (r *resourceGenerator) runCollectionGeneration() error {
 // generateCollectionFile emits the application's permission collection as a generated
 // file in the router package, exposing Collection() for deployment tooling (role
 // migration, bootstrap) to consume in place of runtime registration.
-func (r *resourceGenerator) generateCollectionFile(data resource.CollectionData) error {
+func (r *resourceGenerator) generateCollectionFile(data *resource.CollectionData) error {
 	begin := time.Now()
 	destinationFilePath := filepath.Join(r.router.Dir(), generatedGoFileName(collectionOutputName))
 
 	if err := r.writeFormattedGoFile(destinationFilePath, "collectionTemplate", collectionTemplate, &collectionFileData{
 		Source:  r.resource.Dir(),
 		Package: r.router.Package(),
-		Data:    data,
+		Data:    *data,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}

@@ -23,7 +23,7 @@ func stampedWidgets(t *testing.T) PermissionCollection {
 
 	every := []accesstypes.Permission{accesstypes.Create, accesstypes.Read, accesstypes.Update}
 
-	return generated(t, resource.CollectionData{
+	return generated(t, &resource.CollectionData{
 		Resources: []resource.CollectionResource{{
 			Name:        "Widgets",
 			Scope:       accesstypes.DomainPermissionScope,

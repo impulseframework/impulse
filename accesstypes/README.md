@@ -120,6 +120,11 @@ role synchronization take a `PolicyScope`. A membership held in every domain
 reaches every tenant scope, including a tenant the store holds no other row in, so
 a tenant created at run time needs nothing written for its every-domain members.
 
+A membership can also be held on one record of a tenant. `RecordScope` names it:
+the tenant, the record's kind and the record's key. It is a type of its own, so a
+place that is one record can never be read as a whole tenant: nothing that takes a
+`PolicyScope` takes one.
+
 The two types are kept apart on purpose. "Every domain" is not a place a request
 can be in, so a `PolicyScope` cannot be passed where a `Scope` is expected and
 nothing converts one into a `Scope`; an invalid call fails to compile rather than

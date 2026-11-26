@@ -21,7 +21,7 @@ import (
 func storedGrantsRelease(t *testing.T) PermissionCollection {
 	t.Helper()
 
-	return generated(t, resource.CollectionData{
+	return generated(t, &resource.CollectionData{
 		Resources: []resource.CollectionResource{
 			{
 				Name:        "Documents",
@@ -468,7 +468,7 @@ func TestClient_oneUnsettledScopeWideConditionLeavesTheOtherGrants(t *testing.T)
 	ctx := t.Context()
 
 	const exportLedger accesstypes.Permission = "ExportLedger"
-	release := generated(t, resource.CollectionData{
+	release := generated(t, &resource.CollectionData{
 		Permissions: []accesstypes.Permission{exportLedger},
 		Resources: []resource.CollectionResource{
 			{Name: "Documents", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read}},

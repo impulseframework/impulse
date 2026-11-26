@@ -268,6 +268,14 @@ func (a outletAuth) hasPassword() bool {
 	})
 }
 
+// syncsRoles reports whether a registration of the auth writes its users' roles from the
+// directory: the auth's roles are then the directory's, and it keeps no groups.
+func (a outletAuth) syncsRoles() bool {
+	return slices.ContainsFunc(a.methods, func(m AuthMethod) bool {
+		return m.syncsRoles
+	})
+}
+
 // suffix returns the outlet's contribution to generated identifiers
 // (Generated<suffix>Handlers, generated<suffix>Routes, Patch<suffix>Resources);
 // empty for the default outlet, whose identifiers carry no outlet name.

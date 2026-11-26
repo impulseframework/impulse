@@ -90,10 +90,11 @@ func (m *Manager) JudgeTenantRemoval(ctx context.Context, txn resource.ReadWrite
 //
 // Every row the person has in the tenant goes, ended or not: each membership of their own
 // held in it and each place in a group kept in it, as when they leave it themselves
-// (LeaveTenant). What reaches the tenant another way stays: a role held in every tenant, a
-// role for the whole application and a place in a group kept for the whole application.
-// Where the removal takes the last thing the person holds, the account stays, holding
-// nothing.
+// (LeaveTenant). Each role of theirs on one of the tenant's records that has not ended
+// goes too, under the removal's own grant: no grant is asked for each. What reaches the
+// tenant another way stays: a role held in every tenant, a role for the whole application
+// and a place in a group kept for the whole application. Where the removal takes the last
+// thing the person holds, the account stays, holding nothing.
 //
 // Nobody removes their own account (they leave the tenant from their own account page),
 // the account their session views as, or, in a session that acts as someone else, the
@@ -123,8 +124,8 @@ func (m *Manager) RemoveFromTenant(ctx context.Context, txn resource.ReadWriteTr
 	if err := m.applyLeaving(ctx, txn, userID, domain, judged); err != nil {
 		return err
 	}
-	logger.FromCtx(ctx).Infof("identity: %s was removed from the %s %s by an administrator: %d role(s) of their own and %d place(s) in its groups are removed",
-		User(userID), m.tenantWord, domain, len(judged.memberships), len(judged.places))
+	logger.FromCtx(ctx).Infof("identity: %s was removed from the %s %s by an administrator: %d role(s) of their own, %d on its records and %d place(s) in its groups are removed",
+		User(userID), m.tenantWord, domain, len(judged.memberships), len(judged.records), len(judged.places))
 
 	return m.policyChangesAtCommit(txn)
 }

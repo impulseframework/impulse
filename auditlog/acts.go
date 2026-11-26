@@ -183,6 +183,12 @@ func mayBeEmpty(columns ...string) []partNeed {
 	return needs
 }
 
+// onRecord is the parts of a role held on one record (RoleScopeRecord), which a row of the
+// act sets where its role is held there and leaves empty elsewhere (Record.Validate).
+func onRecord() []partNeed {
+	return mayBeEmpty(columnRecordKind, columnRecordID, columnRecordWord, columnRecordName)
+}
+
 // movedTail ends the sentence of what a move took from a person.
 const movedTail = ": they signed in through the directory of {SeatingTenantName} and belong to it now"
 
@@ -215,9 +221,9 @@ func shapes() []actShape {
 		shape(ActTokenRevoked, SubjectAccount, "Token revoked", "Revoked a token"),
 		formShape(ActTokenRevoked, FormEveryToken, SubjectAccount, "Revoked every token"),
 		shape(ActBrowsersForgotten, SubjectAccount, "Remembered browsers forgotten", "Forgot the remembered browsers"),
-		shape(ActRoleGiven, SubjectAccount, "Role given", "Gave the role {role}{place}{period}", need(columnRoleName, columnRoleScope), mayBeEmpty(columnPeriodStart, columnPeriodEnd)),
+		shape(ActRoleGiven, SubjectAccount, "Role given", "Gave the role {role}{place}{period}", need(columnRoleName, columnRoleScope), mayBeEmpty(columnPeriodStart, columnPeriodEnd), onRecord()),
 		formShape(ActRoleGiven, FormSeat, SubjectAccount, "Gave the role {role}, the role its directory's people start with", need(columnRoleName, columnRoleScope)),
-		shape(ActRoleTaken, SubjectAccount, "Role taken", "Took the role {role}{place}", need(columnRoleName, columnRoleScope)),
+		shape(ActRoleTaken, SubjectAccount, "Role taken", "Took the role {role}{place}", need(columnRoleName, columnRoleScope), onRecord()),
 		formShape(ActRoleTaken, FormMove, SubjectAccount, "Took the role {role}{place}"+movedTail, need(columnRoleName, columnRoleScope), need(columnSeatingTenantID, columnSeatingTenantName)),
 		shape(ActRoleEnded, SubjectAccount, "Role ended", "The role {role}{place} ended with its period", need(columnRoleName, columnRoleScope)),
 		shape(ActGroupMade, SubjectGroup, "Group made", "Made the group"),
@@ -227,8 +233,9 @@ func shapes() []actShape {
 		shape(ActGroupMemberRemoved, SubjectAccount, "Taken out of a group", "Took out of the group {GroupName}", need(columnGroupID, columnGroupName)),
 		formShape(ActGroupMemberRemoved, FormMove, SubjectAccount, "Took out of the group {GroupName}"+movedTail, need(columnGroupID, columnGroupName), need(columnSeatingTenantID, columnSeatingTenantName)),
 		shape(ActGroupPlaceEnded, SubjectAccount, "Place in a group ended", "The place in the group {GroupName} ended with its period", need(columnGroupID, columnGroupName)),
-		shape(ActGroupRoleGiven, SubjectGroup, "Group given a role", "Gave the group the role {role}{place}{period}", need(columnRoleName, columnRoleScope), mayBeEmpty(columnPeriodStart, columnPeriodEnd)),
-		shape(ActGroupRoleTaken, SubjectGroup, "Role taken from a group", "Took the role {role}{place} from the group", need(columnRoleName, columnRoleScope)),
+		shape(ActGroupRoleGiven, SubjectGroup, "Group given a role", "Gave the group the role {role}{place}{period}",
+			need(columnRoleName, columnRoleScope), mayBeEmpty(columnPeriodStart, columnPeriodEnd), onRecord()),
+		shape(ActGroupRoleTaken, SubjectGroup, "Role taken from a group", "Took the role {role}{place} from the group", need(columnRoleName, columnRoleScope), onRecord()),
 		shape(ActDirectoryTaken, SubjectTenant, "Directory taken", "Took the directory {NewValue} as its own", need(columnNewValue)),
 		shape(ActDirectoryRemoved, SubjectTenant, "Directory removed", "Removed its directory"),
 		shape(ActDirectoryOnlyOn, SubjectTenant, "Directory only on", "Turned directory only on"),
@@ -384,6 +391,9 @@ const (
 	RoleScopeGlobal RoleScope = "global"
 	// RoleScopeEveryTenant is every tenant, those there are and those made later.
 	RoleScopeEveryTenant RoleScope = "everyTenant"
+	// RoleScopeRecord is one record of one tenant: the row's tenant columns name the
+	// tenant, and its record columns the record, by its kind, key, word and name.
+	RoleScopeRecord RoleScope = "record"
 )
 
 // ScopeOf answers where a role held in the scope is, as a row stores it, and the tenant

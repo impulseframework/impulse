@@ -1350,6 +1350,9 @@ func validateBindingName(name, keyword string) error {
 	if slices.Contains(reservedBindingNames, name) {
 		return errors.Newf("@%s(%s): %q is reserved by the condition expression language", keyword, name, name)
 	}
+	if strings.HasPrefix(name, resource.ReservedBindingPrefix) {
+		return errors.Newf("@%s(%s): a name that starts with %s is the library's own, for the roles held on one record. Write another name.", keyword, name, resource.ReservedBindingPrefix)
+	}
 
 	return nil
 }
@@ -1506,6 +1509,9 @@ func collectionBindings(res *resourceInfo) *resource.Bindings {
 			List:   attr.List,
 		})
 	}
+	// The attributes a role held on a record reads come after the written ones: the
+	// generator's own, never the author's (resolveRecordRoles).
+	bindings.Attributes = append(bindings.Attributes, res.recordAttributes...)
 	if res.DomainBinding != nil {
 		bindings.Domain = &resource.DomainBindingData{
 			Column: fieldColumn(res.DomainBinding.Anchor),

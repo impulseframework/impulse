@@ -224,3 +224,182 @@ func TestRoleActsRecorded_takeRole(t *testing.T) {
 		t.Errorf("the row reads as done by %q, want dana", who)
 	}
 }
+
+// harborRecord is the row of a role given to or taken from dana on alpha's project p1,
+// called Harbor, but who acted.
+func harborRecord(act auditlog.Act, role string) auditlog.Record {
+	return auditlog.Record{
+		Act: act, SubjectKind: auditlog.SubjectAccount, SubjectID: userID.String(), SubjectName: "dana",
+		TenantID: "alpha", TenantName: "Alpha Sector", RoleNames: []string{role}, RoleScope: auditlog.RoleScopeRecord,
+		RecordKind: string(projects), RecordID: "p1", RecordWord: "project", RecordName: "Harbor",
+	}
+}
+
+// TestRecordRoleActsRecorded pins the rows of a role given and taken on one record of a
+// tenant, a person's and a group's: each names the role held on the record, in the record's
+// tenant, and the record by its kind, its key, the word its kind goes by and its name, and
+// reads "on the project Harbor", or "on the project p2" where the record has no name. A
+// role given again for the same period records nothing, one given another period records
+// the new one, and a role taken that is not held records nothing.
+func TestRecordRoleActsRecorded(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 12, 1, 9, 0, 0, 0, time.UTC)
+	week := accesstypes.Period{Start: start, End: start.Add(7 * 24 * time.Hour)}
+	month := accesstypes.Period{Start: start, End: start.Add(30 * 24 * time.Hour)}
+	alice := recordCaller(accesstypes.DomainScope("alpha"))
+	onP1 := accesstypes.NewRecordScope("alpha", projects, "p1")
+	danaEditor := access.NewRecordMembershipKey(onP1, dana, "ProjectEditor")
+	nightViewer := access.NewRecordGroupRoleKey(GroupID(nightID), onP1, "ProjectViewer")
+
+	given := harborRecord(auditlog.ActRoleGiven, "ProjectEditor")
+	given.Period = week
+	changed := harborRecord(auditlog.ActRoleGiven, "ProjectEditor")
+	changed.Period = month
+	unnamed := harborRecord(auditlog.ActRoleGiven, "ProjectEditor")
+	unnamed.RecordID, unnamed.RecordName = "p2", ""
+	group := func(act auditlog.Act) auditlog.Record {
+		r := harborRecord(act, "ProjectViewer")
+		r.SubjectKind, r.SubjectID, r.SubjectName = auditlog.SubjectGroup, nightID.String(), "Night shift"
+
+		return r
+	}
+	groupGiven := group(auditlog.ActGroupRoleGiven)
+	groupGiven.Period = week
+
+	tests := []struct {
+		name string
+		// person is dana's ProjectEditor on p1 before the act, and night the night shift's
+		// ProjectViewer there, each held where its holds is set.
+		holds, nightHolds bool
+		held              accesstypes.Period
+		act               func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error
+		want              []auditlog.Record
+		// wantWhat is what a person reads of the row, where there is one.
+		wantWhat string
+	}{
+		{
+			name: "a person given a role on a record for a period",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.GiveRoleOn(ctx, txn, projects, "p1", userID, "ProjectEditor", week)
+			},
+			want:     []auditlog.Record{given},
+			wantWhat: "Gave the role Project editor on the project Harbor from 2026-12-01 09:00 UTC until 2026-12-08 09:00 UTC",
+		},
+		{
+			name: "a person given a role on a record that has no name",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.GiveRoleOn(ctx, txn, projects, "p2", userID, "ProjectEditor", accesstypes.Period{})
+			},
+			want:     []auditlog.Record{unnamed},
+			wantWhat: "Gave the role Project editor on the project p2",
+		},
+		{
+			name:  "a person given a role again as it is held",
+			holds: true, held: week,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.GiveRoleOn(ctx, txn, projects, "p1", userID, "ProjectEditor", week)
+			},
+		},
+		{
+			name:  "a person given a role again for another period",
+			holds: true, held: week,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.GiveRoleOn(ctx, txn, projects, "p1", userID, "ProjectEditor", month)
+			},
+			want:     []auditlog.Record{changed},
+			wantWhat: "Gave the role Project editor on the project Harbor from 2026-12-01 09:00 UTC until 2026-12-31 09:00 UTC",
+		},
+		{
+			name:  "a person's role on a record taken",
+			holds: true,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.TakeRoleOn(ctx, txn, projects, "p1", userID, "ProjectEditor")
+			},
+			want:     []auditlog.Record{harborRecord(auditlog.ActRoleTaken, "ProjectEditor")},
+			wantWhat: "Took the role Project editor on the project Harbor",
+		},
+		{
+			name: "a person's role on a record taken that the person does not hold",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.TakeRoleOn(ctx, txn, projects, "p1", userID, "ProjectEditor")
+			},
+		},
+		{
+			name: "a group given a role on a record for a period",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.GiveGroupRoleOn(ctx, txn, projects, "p1", nightID, "ProjectViewer", week)
+			},
+			want:     []auditlog.Record{groupGiven},
+			wantWhat: "Gave the group the role Project viewer on the project Harbor from 2026-12-01 09:00 UTC until 2026-12-08 09:00 UTC",
+		},
+		{
+			name:       "a group given a role again as it is held",
+			nightHolds: true, held: week,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.GiveGroupRoleOn(ctx, txn, projects, "p1", nightID, "ProjectViewer", week)
+			},
+		},
+		{
+			name:       "a group's role on a record taken",
+			nightHolds: true,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.TakeGroupRoleOn(ctx, txn, projects, "p1", nightID, "ProjectViewer")
+			},
+			want:     []auditlog.Record{group(auditlog.ActGroupRoleTaken)},
+			wantWhat: "Took the role Project viewer on the project Harbor from the group",
+		},
+		{
+			name: "a group's role on a record taken that the group does not hold",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
+				return tenant.TakeGroupRoleOn(ctx, txn, projects, "p1", nightID, "ProjectViewer")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := recordStore([]impulse.UUID{userID})
+			store.recordGroupRoles = map[access.RecordGroupRoleKey]accesstypes.Period{}
+			store.recordNames = map[string]string{"p1": "Harbor"}
+			if tt.holds {
+				store.recordRoles[danaEditor] = tt.held
+			}
+			if tt.nightHolds {
+				store.recordGroupRoles[nightViewer] = tt.held
+			}
+			sessions := fakeSessions{tenantNames: map[accesstypes.Domain]string{"alpha": "Alpha Sector"}}
+			// A group's give is judged in a request (refuseGivingGroupOn), so the manager
+			// holds the role grants, as the generated client builds it.
+			m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, sessions, WithTenantWord("sector"), WithRoleGrants(&fakeGrants{}))
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			if err := inTransaction(t, func(_ context.Context, txn resource.ReadWriteTransaction) error {
+				tenant, err := m.Tenant(alice)
+				if err != nil {
+					return err
+				}
+
+				return tt.act(alice, txn, tenant)
+			}); err != nil {
+				t.Fatalf("%s error = %v", tt.name, err)
+			}
+
+			for i := range tt.want {
+				tt.want[i].Source = eventsource.UserEvent(alice)
+			}
+			if diff := cmp.Diff(tt.want, store.audit, cmp.AllowUnexported(eventsource.EventSource{})); diff != "" {
+				t.Fatalf("audit rows (-want +got):\n%s", diff)
+			}
+			if len(tt.want) == 0 {
+				return
+			}
+			stored := storedOf(t, &store.audit[0])
+			if got := stored.Sentences("sector").What; got != tt.wantWhat {
+				t.Errorf("the row reads %q, want %q", got, tt.wantWhat)
+			}
+		})
+	}
+}

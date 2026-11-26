@@ -508,6 +508,16 @@ func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTran
 		return err
 	}
 
+	// A row the write names is one its caller can list (checkNamedRows), judged on the
+	// values the caller sent, before the server's defaults are set.
+	named, err := p.namedValues()
+	if err != nil {
+		return err
+	}
+	if err := p.checkNamedRows(ctx, txn, named); err != nil {
+		return err
+	}
+
 	event, err := p.validateEventSource(eventSource)
 	if err != nil {
 		return err
@@ -567,6 +577,13 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 		return err
 	}
 
+	// The rows the write names, as the caller sent them, before the server's defaults are
+	// set: judged once the row's own checks hold (checkNamedRows).
+	named, err := p.namedValues()
+	if err != nil {
+		return err
+	}
+
 	event, err := p.validateEventSource(eventSource)
 	if err != nil {
 		return err
@@ -603,6 +620,12 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 		return err
 	}
 
+	// A row the write names is one its caller can list, asked once the row is found in the
+	// request's tenant and the write's conditions hold for it (checkNamedRows).
+	if err := p.checkNamedRows(ctx, txn, named); err != nil {
+		return err
+	}
+
 	// A group the row names is one its own tenant keeps (checkGroupColumns).
 	if err := p.checkGroupColumns(ctx, txn); err != nil {
 		return err
@@ -634,6 +657,13 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 		return err
 	}
 
+	// The rows the write names, as the caller sent them, before the server's defaults are
+	// set: judged once the row's own checks hold (checkNamedRows).
+	named, err := p.namedValues()
+	if err != nil {
+		return err
+	}
+
 	event, err := p.validateEventSource(eventSource)
 	if err != nil {
 		return err
@@ -645,6 +675,12 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 	}
 
 	if err := p.enforceWriteConditions(ctx, txn); err != nil {
+		return err
+	}
+
+	// A row the write names is one its caller can list, asked once the row is found in the
+	// request's tenant and the write's conditions hold for it (checkNamedRows).
+	if err := p.checkNamedRows(ctx, txn, named); err != nil {
 		return err
 	}
 

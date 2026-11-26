@@ -26,6 +26,10 @@ type Stored struct {
 	TenantName        string             // what the application called that tenant then
 	RoleNames         []string           // the roles the act names, by their stored names: the row's RoleName, then its OtherRoleNames
 	RoleScope         RoleScope          // where that role is held
+	RecordKind        string             // the record the role is held on, by its resource name, where it is held on one
+	RecordID          string             // that record's key
+	RecordWord        string             // what one record of its kind is called
+	RecordName        string             // that record's name then, "" where its kind declares none
 	GroupID           string             // the group the act names besides its subject
 	GroupName         string             // that group's name then
 	OldValue          string             // what the act replaced

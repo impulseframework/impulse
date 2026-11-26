@@ -78,6 +78,19 @@ func ({{ .Resource.Name }}) GroupColumns() []resource.GroupColumn {
 	}
 }
 {{- end }}
+{{- if .Resource.NamedRows }}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// ({{ range $i, $row := .Resource.NamedRows }}{{ if $i }}, {{ end }}{{ $row.Field.Name }}{{ end }}): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func ({{ .Resource.Name }}) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+	{{- range $row := .Resource.NamedRows }}
+		{{ $row.Literal }},
+	{{- end }}
+	}
+}
+{{- end }}
 {{- if .Resource.TenantBindingLiteral }}
 
 // TenantBinding is the row's way to its tenant: the library writes the tenant on every
@@ -1070,6 +1083,20 @@ const (
 					// the roles held in it, its groups, its custom roles and its invitations.
 					{{- range $source := .KindsFrom }}
 					patch.DeleteAlso({{ $.ReceiverName }}.{{ $source }}().TenantKinds(accesstypes.Domain(id.String()))...)
+					{{- end }}`
+
+	// recordKindsHanded is spliced into the delete of a record a role can be held on,
+	// after its delete patch is made (patch, under the record's id, id, in the request's
+	// tenant, domain, which the splice's place sets) and before it is buffered: the patch
+	// is handed the roles held on the record as a kind of the delete, through the
+	// generated identity client of every auth whose role file holds a role on it
+	// (identity.Manager.RecordKinds), so the delete counts them in its question and takes
+	// them in its rounds. A record the delete of a row above it takes is not handed them.
+	recordKindsHanded = `{{- with $kinds := .RecordKinds }}
+					// A record's delete takes the roles held on it, each auth's.
+					{{- range $source := $kinds.Sources }}
+					patch.DeleteAlso({{ $.ReceiverName }}.{{ $source }}().RecordKinds(accesstypes.NewRecordScope(domain, "{{ $kinds.Resource }}", {{ $kinds.KeyText }}))...)
+					{{- end }}
 					{{- end }}`
 
 	// directoryCreateRefused is spliced into the directories record's create in place of
@@ -3991,6 +4018,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					{{- if .KindsFrom }}
 					` + tenantKindsHanded + `
 					{{- end }}
+					` + recordKindsHanded + `
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
@@ -4334,6 +4362,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- if .KindsFrom }}
 							` + tenantKindsHanded + `
 							{{- end }}
+							` + recordKindsHanded + `
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
@@ -5198,6 +5227,25 @@ export const apiDescriptor = defineApiDescriptor({
           scope: '{{ $side.Scope }}',
           lists: { {{ range $i, $l := $side.Lists }}{{ if $i }}, {{ end }}{{ $l.Key }}: Resources.{{ $l.Name }}{{ end }} },
           methods: { {{ range $i, $m := $side.Methods }}{{ if $i }}, {{ end }}{{ $m.Key }}: Methods.{{ $m.Name }}{{ end }} },
+          {{- if $side.Sharing }}
+          sharing: [
+{{- range $r := $side.Sharing }}
+            {
+              record: Resources.{{ $r.Record }},
+              one: '{{ $r.One }}',
+              many: '{{ $r.Many }}',
+              holders: Resources.{{ $r.Holders }},
+              roles: Resources.{{ $r.Roles }},
+              give: Methods.{{ $r.Give }},
+              take: Methods.{{ $r.Take }},
+              {{- if $r.GiveGroup }}
+              giveGroup: Methods.{{ $r.GiveGroup }},
+              takeGroup: Methods.{{ $r.TakeGroup }},
+              {{- end }}
+            },
+{{- end }}
+          ],
+          {{- end }}
         },
 {{- end }}
       ],
@@ -5442,11 +5490,33 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .RequiredTags }}
 				RequiredTags: []accesstypes.Tag{ {{- range $i, $t := . }}{{ if $i }}, {{ end }}"{{ $t }}"{{ end -}} },
 				{{- end }}
+				{{- with .HoldsRoles }}
+				HoldsRoles: &resource.RecordData{Key: "{{ .Key }}", One: "{{ .One }}", Many: "{{ .Many }}"
+					{{- with .Names }}, Names: []resource.RecordNameData{
+					{{- range . }}
+					{Resource: "{{ .Resource }}", Column: "{{ .Column }}", Attribute: "{{ .Attribute }}", One: "{{ .One }}", Many: "{{ .Many }}"},
+					{{- end }}
+				}{{ end }}},
+				{{- end }}
+				{{- with .Under }}
+				Under: []resource.RecordWayData{
+					{{- range . }}
+					{Record: "{{ .Record }}", Attribute: "{{ .Attribute }}"{{ if .Self }}, Self: true{{ end }}},
+					{{- end }}
+				},
+				{{- end }}
 			},
 			{{- end }}
 		},
 		{{- with .Data.Permissions }}
 		Permissions: []accesstypes.Permission{ {{- range $i, $p := . }}{{ if $i }}, {{ end }}{{ PermissionConstant $p }}{{ end -}} },
+		{{- end }}
+		{{- with .Data.RecordRoleStores }}
+		RecordRoleStores: []resource.RecordRoleStoreData{
+			{{- range . }}
+			{Auth: "{{ .Auth }}", UserRoles: "{{ .UserRoles }}"{{ with .GroupRoles }}, GroupRoles: "{{ . }}"{{ end }}{{ with .GroupSet }}, GroupSet: "{{ . }}"{{ end }}{{ with .GroupMembers }}, GroupMembers: "{{ . }}"{{ end }}{{ with .Groups }}, Groups: "{{ . }}"{{ end }}},
+			{{- end }}
+		},
 		{{- end }}
 	})
 }
@@ -6709,10 +6779,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 					return err
 				}
 				{{ else }}
+				{{- $rootPackage := or $t.RootPackage $.ResourcesPackage }}
 				// Declared target: locate the row within the tenancy predicate
 				// before the body runs.
-				row, err := {{ $.ResourcesPackage }}.New{{ $t.RootStruct }}Query().
-					AddColumns({{ $.ResourcesPackage }}.New{{ $t.RootStruct }}Columns(){{ $t.LocateColumnCalls }}).
+				row, err := {{ $rootPackage }}.New{{ $t.RootStruct }}Query().
+					AddColumns({{ $rootPackage }}.New{{ $t.RootStruct }}Columns(){{ $t.LocateColumnCalls }}).
 					{{- range $t.Keys }}
 					Set{{ .RootPKField }}(p.{{ .TargetField }}).
 					{{- end }}
@@ -6724,7 +6795,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 						return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})
 					}
 
-					return errors.Wrap(err, "{{ $.ResourcesPackage }}.{{ $t.RootStruct }}Query.Read()")
+					return errors.Wrap(err, "{{ $rootPackage }}.{{ $t.RootStruct }}Query.Read()")
 				}
 				if row == nil {
 					return resource.TargetNotFound("{{ $t.RootStruct }}", {{ $t.KeyArgs "p" }})

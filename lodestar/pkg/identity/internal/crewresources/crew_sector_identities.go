@@ -88,6 +88,10 @@ SELECT
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
+    SELECT 1 FROM CrewRecordUserRoles o
+    WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId != t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
     SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups og ON og.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
@@ -104,6 +108,10 @@ SELECT
   (EXISTS (
     SELECT 1 FROM CrewUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewRecordUserRoles o
+    WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
     SELECT 1 FROM CrewGroupMembers gm
@@ -161,6 +169,11 @@ FROM (
   WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
     AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT rr.DomainId AS DomainId, rr.UserId AS UserId
+  FROM CrewRecordUserRoles rr
+  WHERE rr.Axis = ''
+    AND (rr.StartsAt IS NULL OR rr.StartsAt <= CURRENT_TIMESTAMP()) AND (rr.EndsAt IS NULL OR rr.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
   SELECT dr.SectorId AS DomainId, du AS UserId
   FROM SectorDirectories dr, UNNEST(ARRAY(

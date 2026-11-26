@@ -1,8 +1,9 @@
 import { Injector } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
-import { Api } from '@app/service/zz_gen_api';
+import { Api, apiDescriptor } from '@app/service/zz_gen_api';
 import { BriefingTemplates, ClientRosters, MissionBoards, Missions, Resources } from '@app/service/zz_gen_constants';
-import { DomainRoutePath } from '@app/service/zz_gen_resources';
+import { DomainRoutePath, resourceMeta } from '@app/service/zz_gen_resources';
+import { sharingConfig } from '@impulseframework/resource-angular/identity-pages';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import {
   ColumnConfig,
@@ -164,6 +165,14 @@ export function openMissionHistory(row: RecordData, injector: Injector): void {
 // whole span it names in the person's zone, which the browser sends with the request.
 //
 // Demonstrates: picker.config-driven, picker.paged, picker.whole, @enumerate.plain-column, @enumerate.key-view, picker.read-disabled, @rowsOf.same-row, list.server-paged, metadata.filterable, search.beside-filters, filter.written-dates.
+// A mission's Sharing, under its call sheet: who holds a role on the mission alone, a person
+// or a group of the sector, with the buttons that share it and Remove on each row, built
+// from the crew's generated management (sharingConfig). A caller whose grants list none of
+// it sees no list, and one who may not share sees the list without its buttons.
+//
+// Demonstrates: @holdsRoles.
+const missionSharing = sharingConfig(apiDescriptor, resourceMeta, { auth: 'Crew', record: Resources.Missions });
+
 export const missionsConfig = rootConfig({
   page: { label: 'Missions', icon: 'flag' },
   routeData: { route: `${DomainRoutePath}/missions` },
@@ -180,4 +189,5 @@ export const missionsConfig = rootConfig({
     ],
     rowButtons: [{ label: 'History', icon: 'history', run: openMissionHistory }],
   }),
+  relatedConfigs: missionSharing ? [missionSharing] : [],
 });

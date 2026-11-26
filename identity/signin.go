@@ -307,16 +307,17 @@ func (m *Manager) giveUnlessHeld(ctx context.Context, txn resource.ReadWriteTran
 	return m.AssignRole(ctx, txn, scope, userID, role)
 }
 
-// giveDirectoryRoles buffers the memberships a tenant's directory row gives a person
-// who signs in through the directory and holds nothing in the tenant, each a role in a
-// tenant, and answers the seats it gave and the tenants it took the person from:
-// userID is who holds them, and username what an error reads. What the person holds is
-// read as committed, in the caller's transaction, once for the call, as the rule of one
-// tenant per person reads it (holds): a role of their own, or a place in a group kept
-// in the tenant. A row whose period has ended is nothing the person holds, whether or
-// not it still stands: a person whose only rows in the tenant have ended is given the
-// seat, as one who holds none, and no reader waits for the row to be removed. A row
-// that has not begun is one the person will hold, and is not given a seat beside it.
+// giveDirectoryRoles buffers the memberships a tenant's directory row gives a person who
+// signs in through the directory and holds nothing in the tenant, each a role in a tenant,
+// and answers the seats it gave and the tenants it took the person from: userID is who
+// holds them, and username what an error reads. What the person holds is read as
+// committed, in the caller's transaction, once for the call, as the rule of one tenant per
+// person reads it (holds): a role of their own, a place in a group kept in the tenant, or
+// a role on one of the tenant's records. A row whose period has ended is nothing the
+// person holds, whether or not it still stands: a person whose only rows in the tenant
+// have ended is given the seat, as one who holds none, and no reader waits for the row to
+// be removed. A row that has not begun is one the person will hold, and is not given a
+// seat beside it.
 //
 // Where a person belongs to one tenant (WithOneTenantPerPerson), a person who belongs
 // to another tenant and holds nothing outside the tenants is moved to the seat's
@@ -378,15 +379,16 @@ func (m *Manager) giveDirectoryRoles(
 	return given, taken, nil
 }
 
-// takeOtherTenants buffers the deletion of every row of rows held in one tenant other
-// than tenant (tenantOf): each membership of the person's own and each place in a
-// group, whatever its period, and answers the tenants it took rows from, each once. No
-// rule is asked and nothing is mailed: a row held for the whole application, in every
-// tenant or on another axis is no tenant's, and stays. Each deletion is recorded by what
-// acts in ctx (actingAs), in the tenant the row was taken from, in the form
-// auditlog.FormMove, naming tenant, the one that seats the person, by the name the
-// application gives it (its key where it gives none): a membership as a role taken, a
-// place as a removal from the group, the group by its name.
+// takeOtherTenants buffers the deletion of every row of rows held in one tenant other than
+// tenant (tenantOf): each membership of the person's own and each place in a group,
+// whatever its period, and each role on one of that tenant's records that has not ended,
+// and answers the tenants it took rows from, each once. No rule is asked and nothing is
+// mailed: a row held for the whole application, in every tenant or on another axis is no
+// tenant's, and stays. Each deletion of a membership or a place is recorded by what acts
+// in ctx (actingAs), in the tenant the row was taken from, in the form auditlog.FormMove,
+// naming tenant, the one that seats the person, by the name the application gives it (its
+// key where it gives none): a membership as a role taken, a place as a removal from the
+// group, the group by its name.
 func (m *Manager) takeOtherTenants(ctx context.Context, txn resource.ReadWriteTransaction, rows *heldRows, tenant accesstypes.Domain) ([]accesstypes.Domain, error) {
 	person, err := m.accountSubject(ctx, txn, rows.userID)
 	if err != nil {
@@ -436,6 +438,16 @@ func (m *Manager) takeOtherTenants(ctx context.Context, txn resource.ReadWriteTr
 			return nil, err
 		}
 		takenFrom(held)
+	}
+	for i := range rows.records {
+		key := &rows.records[i]
+		if key.Axis != "" || key.Domain == "" || key.Domain == string(tenant) {
+			continue
+		}
+		if err := m.store.DeleteRecordMembership(ctx, txn, key); err != nil {
+			return nil, errors.Wrap(err, "identity.Store.DeleteRecordMembership()")
+		}
+		takenFrom(accesstypes.Domain(key.Domain))
 	}
 
 	return from, nil

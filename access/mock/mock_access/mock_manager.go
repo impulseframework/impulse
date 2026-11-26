@@ -521,6 +521,34 @@ func (mr *MockUserManagerMockRecorder) AssignGroupUser(ctx, group, user, period 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignGroupUser", reflect.TypeOf((*MockUserManager)(nil).AssignGroupUser), ctx, group, user, period)
 }
 
+// AssignRecordGroupRole mocks base method.
+func (m *MockUserManager) AssignRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignRecordGroupRole", ctx, group, at, role, period)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AssignRecordGroupRole indicates an expected call of AssignRecordGroupRole.
+func (mr *MockUserManagerMockRecorder) AssignRecordGroupRole(ctx, group, at, role, period any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignRecordGroupRole", reflect.TypeOf((*MockUserManager)(nil).AssignRecordGroupRole), ctx, group, at, role, period)
+}
+
+// AssignRecordUserRole mocks base method.
+func (m *MockUserManager) AssignRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignRecordUserRole", ctx, at, user, role, period)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AssignRecordUserRole indicates an expected call of AssignRecordUserRole.
+func (mr *MockUserManagerMockRecorder) AssignRecordUserRole(ctx, at, user, role, period any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignRecordUserRole", reflect.TypeOf((*MockUserManager)(nil).AssignRecordUserRole), ctx, at, user, role, period)
+}
+
 // AssignUserRole mocks base method.
 func (m *MockUserManager) AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period, reason string) error {
 	m.ctrl.T.Helper()
@@ -613,6 +641,58 @@ func (mr *MockUserManagerMockRecorder) DeleteGroupUsers(ctx, group any, users ..
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, group}, users...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGroupUsers", reflect.TypeOf((*MockUserManager)(nil).DeleteGroupUsers), varargs...)
+}
+
+// DeleteRecordGroupRoles mocks base method.
+func (m *MockUserManager) DeleteRecordGroupRoles(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, roles ...accesstypes.Role) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, group, at}
+	for _, a := range roles {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "DeleteRecordGroupRoles", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRecordGroupRoles indicates an expected call of DeleteRecordGroupRoles.
+func (mr *MockUserManagerMockRecorder) DeleteRecordGroupRoles(ctx, group, at any, roles ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, group, at}, roles...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRecordGroupRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteRecordGroupRoles), varargs...)
+}
+
+// DeleteRecordRoles mocks base method.
+func (m *MockUserManager) DeleteRecordRoles(ctx context.Context, at accesstypes.RecordScope) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRecordRoles", ctx, at)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRecordRoles indicates an expected call of DeleteRecordRoles.
+func (mr *MockUserManagerMockRecorder) DeleteRecordRoles(ctx, at any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRecordRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteRecordRoles), ctx, at)
+}
+
+// DeleteRecordUserRoles mocks base method.
+func (m *MockUserManager) DeleteRecordUserRoles(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, roles ...accesstypes.Role) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, at, user}
+	for _, a := range roles {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "DeleteRecordUserRoles", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRecordUserRoles indicates an expected call of DeleteRecordUserRoles.
+func (mr *MockUserManagerMockRecorder) DeleteRecordUserRoles(ctx, at, user any, roles ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, at, user}, roles...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRecordUserRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteRecordUserRoles), varargs...)
 }
 
 // DeleteRole mocks base method.
@@ -834,6 +914,51 @@ func (mr *MockUserManagerMockRecorder) Membership(ctx, scope, user, role, held a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Membership", reflect.TypeOf((*MockUserManager)(nil).Membership), ctx, scope, user, role, held)
 }
 
+// RecordGroupRole mocks base method.
+func (m *MockUserManager) RecordGroupRole(ctx context.Context, group accesstypes.Group, kept accesstypes.PolicyScope, at accesstypes.RecordScope, role accesstypes.Role) (access.RecordGroupRoleKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordGroupRole", ctx, group, kept, at, role)
+	ret0, _ := ret[0].(access.RecordGroupRoleKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordGroupRole indicates an expected call of RecordGroupRole.
+func (mr *MockUserManagerMockRecorder) RecordGroupRole(ctx, group, kept, at, role any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordGroupRole", reflect.TypeOf((*MockUserManager)(nil).RecordGroupRole), ctx, group, kept, at, role)
+}
+
+// RecordHolders mocks base method.
+func (m *MockUserManager) RecordHolders(ctx context.Context, at accesstypes.RecordScope) ([]access.RecordHolder, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordHolders", ctx, at)
+	ret0, _ := ret[0].([]access.RecordHolder)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordHolders indicates an expected call of RecordHolders.
+func (mr *MockUserManagerMockRecorder) RecordHolders(ctx, at any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordHolders", reflect.TypeOf((*MockUserManager)(nil).RecordHolders), ctx, at)
+}
+
+// RecordMembership mocks base method.
+func (m *MockUserManager) RecordMembership(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) (access.RecordMembershipKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordMembership", ctx, at, user, role)
+	ret0, _ := ret[0].(access.RecordMembershipKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RecordMembership indicates an expected call of RecordMembership.
+func (mr *MockUserManagerMockRecorder) RecordMembership(ctx, at, user, role any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordMembership", reflect.TypeOf((*MockUserManager)(nil).RecordMembership), ctx, at, user, role)
+}
+
 // ResolveRole mocks base method.
 func (m *MockUserManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyScope, name string) (accesstypes.Role, bool, error) {
 	m.ctrl.T.Helper()
@@ -923,6 +1048,20 @@ func (m *MockUserManager) Roles(ctx context.Context, scope accesstypes.PolicySco
 func (mr *MockUserManagerMockRecorder) Roles(ctx, scope any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Roles", reflect.TypeOf((*MockUserManager)(nil).Roles), ctx, scope)
+}
+
+// RolesHeldOn mocks base method.
+func (m *MockUserManager) RolesHeldOn(record accesstypes.Resource) []access.RoleInfo {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RolesHeldOn", record)
+	ret0, _ := ret[0].([]access.RoleInfo)
+	return ret0
+}
+
+// RolesHeldOn indicates an expected call of RolesHeldOn.
+func (mr *MockUserManagerMockRecorder) RolesHeldOn(record any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RolesHeldOn", reflect.TypeOf((*MockUserManager)(nil).RolesHeldOn), record)
 }
 
 // SkippedStoredGrants mocks base method.

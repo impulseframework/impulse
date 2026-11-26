@@ -72,16 +72,18 @@ func storedFrom(columns map[string]any) Stored {
 		},
 		Directory: text("Directory"), SubjectKind: SubjectKind(text("SubjectKind")), SubjectID: text("SubjectId"), SubjectName: text("SubjectName"),
 		TenantID: text("TenantId"), TenantName: text("TenantName"), RoleNames: roles, RoleScope: RoleScope(text("RoleScope")),
+		RecordKind: text("RecordKind"), RecordID: text("RecordId"), RecordWord: text("RecordWord"), RecordName: text("RecordName"),
 		GroupID: text("GroupId"), GroupName: text("GroupName"), OldValue: text("OldValue"), NewValue: text("NewValue"),
 		PeriodStart: moment("PeriodStart"), PeriodEnd: moment("PeriodEnd"),
 		SeatingTenantID: text("SeatingTenantId"), SeatingTenantName: text("SeatingTenantName"), Reason: text("Reason"),
 	}
 }
 
-// The subjects of the tests' records, one of each kind.
+// The subjects of the tests' records, one of each kind, and the record a role is held on.
 const (
 	invitationID = "c0000000-0000-4000-8000-000000000003"
 	groupID      = "90000000-0000-4000-8000-000000000004"
+	missionID    = "80000000-0000-4000-8000-000000000005"
 )
 
 // acceptedRecords is one record the log takes for each act and form, with the parts its
@@ -112,6 +114,13 @@ func acceptedRecords() []Record {
 	role := func(r *Record) {
 		r.RoleNames, r.RoleScope, r.TenantID, r.TenantName = []string{"Editor"}, RoleScopeTenant, "anvil", "Anvil"
 	}
+	// A role held on one record: the mission Apollo of Anvil, and one of a kind that declares
+	// no name.
+	onApollo := func(r *Record) {
+		r.RoleNames, r.RoleScope, r.TenantID, r.TenantName = []string{"MissionLead"}, RoleScopeRecord, "anvil", "Anvil"
+		r.RecordKind, r.RecordID, r.RecordWord, r.RecordName = "Missions", missionID, "mission", "Apollo"
+	}
+	onUnnamed := func(r *Record) { onApollo(r); r.RecordName = "" }
 	inGroup := func(r *Record) { r.GroupID, r.GroupName = groupID, "Night crew" }
 	seated := func(r *Record) { r.SeatingTenantID, r.SeatingTenantName = "globex", "Globex" }
 
@@ -145,7 +154,10 @@ func acceptedRecords() []Record {
 		with(account(ActRoleGiven, ""), role),
 		with(account(ActRoleGiven, ""), func(r *Record) { role(r); r.Period = accesstypes.Period{Start: time.Time{}, End: end} }),
 		with(account(ActRoleGiven, FormSeat), role),
+		with(account(ActRoleGiven, ""), func(r *Record) { onApollo(r); r.Period = accesstypes.Period{Start: time.Time{}, End: end} }),
+		with(account(ActRoleGiven, ""), onUnnamed),
 		with(account(ActRoleTaken, ""), role),
+		with(account(ActRoleTaken, ""), onApollo),
 		with(account(ActRoleTaken, FormMove), func(r *Record) { role(r); seated(r) }),
 		with(account(ActRoleEnded, ""), role),
 		group(ActGroupMade),
@@ -156,7 +168,9 @@ func acceptedRecords() []Record {
 		with(account(ActGroupMemberRemoved, FormMove), func(r *Record) { inGroup(r); seated(r) }),
 		with(account(ActGroupPlaceEnded, ""), inGroup),
 		with(group(ActGroupRoleGiven), role),
+		with(group(ActGroupRoleGiven), onApollo),
 		with(group(ActGroupRoleTaken), role),
+		with(group(ActGroupRoleTaken), onApollo),
 		with(tenant(ActDirectoryTaken), func(r *Record) { r.NewValue = "Anvil Workspace" }),
 		tenant(ActDirectoryRemoved),
 		tenant(ActDirectoryOnlyOn),
@@ -217,6 +231,10 @@ func TestValidate(t *testing.T) {
 
 		return r
 	}
+	onMission := func(r *Record) {
+		r.RoleScope, r.TenantID, r.TenantName = RoleScopeRecord, "anvil", "Anvil"
+		r.RecordKind, r.RecordID, r.RecordWord, r.RecordName = "Missions", missionID, "mission", "Apollo"
+	}
 	tests := []struct {
 		name    string
 		record  Record
@@ -240,6 +258,33 @@ func TestValidate(t *testing.T) {
 		{name: "a second role where the act names one", record: with(given, func(r *Record) { r.RoleNames = []string{"Editor", "Viewer"} }), wantErr: "a record of roleGiven sets OtherRoleNames, which the act does not give"},
 		{name: "a part of another form, set", record: with(given, func(r *Record) { r.SeatingTenantID = "globex" }), wantErr: "a record of roleGiven sets SeatingTenantId, which the act does not give"},
 		{name: "a setting that keeps no name", record: Record{Act: ActSecondFactorRequired, Source: alice(), SubjectKind: SubjectSetting, SubjectID: SettingSecondFactor}},
+		{name: "a role held on a record, whole", record: with(given, onMission)},
+		{name: "a role held on a record of a kind that declares no name", record: with(given, func(r *Record) { onMission(r); r.RecordName = "" })},
+		{
+			name:    "a role held on a record of no tenant",
+			record:  with(given, func(r *Record) { onMission(r); r.TenantID, r.TenantName = "", "" }),
+			wantErr: "a record of roleGiven names a role held on a record and leaves its tenant, kind, key or word empty",
+		},
+		{
+			name:    "a role held on a record with no key",
+			record:  with(given, func(r *Record) { onMission(r); r.RecordID = "" }),
+			wantErr: "a record of roleGiven names a role held on a record and leaves its tenant, kind, key or word empty",
+		},
+		{
+			name:    "a role held on a record with no word",
+			record:  with(given, func(r *Record) { onMission(r); r.RecordWord = "" }),
+			wantErr: "a record of roleGiven names a role held on a record and leaves its tenant, kind, key or word empty",
+		},
+		{
+			name:    "a record named where the role is held for the whole application",
+			record:  with(given, func(r *Record) { r.RecordName = "Apollo" }),
+			wantErr: `a record of roleGiven names a record, and its role is held "global", not on a record`,
+		},
+		{
+			name:    "a record named by an act that gives no record",
+			record:  with(disabled, func(r *Record) { r.RecordKind = "Missions" }),
+			wantErr: "a record of accountDisabled sets RecordKind, which the act does not give",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -487,6 +532,16 @@ func TestSentencesOfARowReadBack(t *testing.T) {
 				What:   "Took the role Night shift lead: they signed in through the directory of Globex and belong to it now",
 				DoneTo: "bob",
 			},
+		},
+		{
+			name: "a role given on a record, for a period",
+			record: Record{
+				Act: ActRoleGiven, Source: alice(), SubjectKind: SubjectAccount, SubjectID: bobID.String(), SubjectName: "bob",
+				TenantID: "anvil", TenantName: "Anvil", RoleNames: []string{"MissionLead"}, RoleScope: RoleScopeRecord,
+				RecordKind: "Missions", RecordID: missionID, RecordWord: "mission", RecordName: "Apollo",
+				Period: accesstypes.Period{End: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+			},
+			want: Sentences{Who: "alice", What: "Gave the role Mission lead on the mission Apollo until 2026-12-31 00:00 UTC", DoneTo: "bob"},
 		},
 		{
 			name: "a setting the application set",

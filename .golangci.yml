@@ -339,6 +339,13 @@ linters:
       - gocritic
       path: (eventsource/(eventsource|stored_test)|resource/(patchset|feature|delete_rounds_spanner_test|change_history_read_test)|identity/audit|session/(audit|auth_invitation|auth_reset))\.go
       text: 'hugeParam: (e|eventSource|source) is heavy'
+    # CollectionData is the literal a generated collection file writes and hands
+    # MustNewGeneratedCollection; where each auth keeps the roles held on records made it
+    # larger than the limit. A pointer would change every generated collection file.
+    - linters:
+      - gocritic
+      path: resource/generated_collection\.go
+      text: 'hugeParam: data is heavy'
     - linters:
       - bodyclose
       - funlen
@@ -412,7 +419,7 @@ linters:
       text: Test_prepareIdentity
     - linters:
       - paralleltest
-      path: generation/identity_(givable|groups|periods|holdings|mailfailed|place|callerenters|ownaccount)_test\.go
+      path: generation/identity_(givable|groups|periods|holdings|mailfailed|place|callerenters|ownaccount|record_roles)_test\.go
       text: Test_prepareIdentity
     - linters:
       - paralleltest

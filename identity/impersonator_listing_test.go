@@ -76,6 +76,8 @@ var guardedMethods = map[string]subjectRule{
 	"Tenant.RemoveGroupMember":      {subject: true},
 	"Tenant.RemovalWarning":         {subject: true},
 	"Tenant.RemovePerson":           {subject: true},
+	"Tenant.GiveRoleOn":             {subject: true},
+	"Tenant.TakeRoleOn":             {subject: true},
 
 	// A person named by the id of their account, in the warning before they are taken
 	// out of a group.
@@ -129,6 +131,8 @@ var guardedMethods = map[string]subjectRule{
 	"Tenant.GiveGroupRole":             {none: ofAGroup},
 	"Tenant.GiveGroupRoleFor":          {none: ofAGroup},
 	"Tenant.TakeGroupRole":             {none: ofAGroup},
+	"Tenant.GiveGroupRoleOn":           {none: ofAGroup},
+	"Tenant.TakeGroupRoleOn":           {none: ofAGroup},
 	"Manager.WithdrawInvitation":       {none: withdrawn},
 	"Manager.WithdrawTenantInvitation": {none: withdrawn},
 	"Manager.OpenSignUp":               {none: ofAMethod},
@@ -138,6 +142,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.DirectoryRole":            {none: "it sets the role a tenant's directory gives everyone who arrives through it, and names a tenant and no person"},
 	"Manager.RecordTenantSignIn":       {none: "it records an act on a tenant's own sign-in settings, done to the tenant, and names no person"},
 	"Manager.TenantKinds":              {none: "it names a tenant and changes nothing itself: the kinds it answers ask the guard of every account the tenant's delete would take before any is taken, and the rest goes with the tenant's record, whose removal is the act"},
+	"Manager.RecordKinds":              {none: "it names a record and changes nothing itself: the roles held on the record, whoever holds them, go with the record, whose removal is the act"},
 	"Manager.SignedIn":                 {none: atSignIn},
 	"Manager.SignedUp":                 {none: atSignIn},
 	"Manager.InvitationAccepted":       {none: atSignIn},
@@ -165,6 +170,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.RolesToGive":                     {none: reads},
 	"Manager.GivableRoles":                    {none: reads},
 	"Manager.GivableGroupRoles":               {none: reads},
+	"Manager.GivableRecordRoles":              {none: reads},
 	"Manager.RolesToTake":                     {none: reads},
 	"Manager.DirectoryName":                   {none: reads},
 	"Manager.CheckInvitedTenant":              {none: reads},

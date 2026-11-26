@@ -54,7 +54,9 @@ func TestDispatcherWriteGrouping(t *testing.T) {
 	assertStatus(t, status, http.StatusOK, body)
 
 	// Assignment to a squadron Dunn does not fly with fails grant A, and the refusal
-	// says the group's column in a person's words; the notes in the same PATCH do not
+	// says the group's column in a person's words: an update's own conditions are asked
+	// before the squadron it names, so Ashfall, a squadron of another sector, is refused
+	// by grant A and not as a row that is not there. The notes in the same PATCH do not
 	// commit.
 	before := readColumn[spanner.NullString](ctx, t, db, "Missions", spanner.Key{missionQuarantineID}, "Notes")
 	status, body = patch(missionQuarantineID, fmt.Sprintf(`{"assignedSquadronId":%q,"notes":"partial?"}`, squadronAshfallID))

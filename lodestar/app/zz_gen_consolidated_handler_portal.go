@@ -260,6 +260,8 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
 							patch := resources.NewMissionDeletePatchFromPatchSet(id, patchSet)
+							// A record's delete takes the roles held on it, each auth's.
+							patch.DeleteAlso(a.CrewIdentity().RecordKinds(accesstypes.NewRecordScope(domain, "Missions", id.String()))...)
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.MissionDeletePatch.Buffer()")
 							}

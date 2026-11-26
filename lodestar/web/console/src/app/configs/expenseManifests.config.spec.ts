@@ -25,8 +25,9 @@ import { expenseManifestsConfig } from './expenseManifests.config';
 // outright: one row per mission, with its sorties and what they cost. The page draws the
 // three columns, offers a sort on each, and draws the search box, which searches the
 // mission's title. It answers the Flight Lead too, who holds the fields on the rows of the
-// missions their squadrons fly: the page draws the same columns, offers no sort and no
-// search box, and says why where the box would be.
+// missions their squadrons fly, under the list's own condition: the page offers him the
+// same. A role that holds the fields under another condition is offered no sort and no
+// search box, and the page says why where the box would be.
 
 const anvil = 'a1111111-1111-4111-8111-111111111111';
 
@@ -64,10 +65,16 @@ const digestOf = (state: PermissionDigestState): PermissionDigest =>
 const purser: PermissionDigest = digestOf('granted');
 
 /**
- * The Flight Lead's digest in the sector: the manifests and every field under a condition
- * on the mission's squadron, which the server judges row by row.
+ * The Flight Lead's digest in the sector: the manifests under a condition on the mission's
+ * squadron, which the server judges row by row, and every field under that one condition.
  */
-const flightLead: PermissionDigest = digestOf('conditional');
+const flightLead: PermissionDigest = {
+  ...digestOf('conditionalWithResource'),
+  ExpenseManifests: { List: 'conditional' },
+};
+
+/** A digest that holds the manifests' fields under a condition other than the list's. */
+const otherCondition: PermissionDigest = digestOf('conditional');
 
 describe('the expense manifests page', () => {
   let fixture: ComponentFixture<ResourceListComponent>;
@@ -149,9 +156,20 @@ describe('the expense manifests page', () => {
     });
   });
 
-  describe('for the Flight Lead, who sees the fields on some rows only', () => {
-    it('draws the three columns, offers no sort, and offers no search box but says why', async () => {
+  describe("for the Flight Lead, who holds the fields under the list's own condition", () => {
+    it('draws the three columns, offers a sort on each, and offers the search box', async () => {
       await create(flightLead, manifests);
+
+      expect(headings()).toEqual(['Mission', 'Sorties', 'Expenses']);
+      expect(pressable()).toEqual(['Mission', 'Sorties', 'Expenses']);
+      expect(element().querySelector<HTMLInputElement>('impulse-search-box input')?.placeholder).toBe('Search Mission');
+      expect(element().querySelector('.impulse-resource-list-search-refused')).toBeNull();
+    });
+  });
+
+  describe('for a role that holds the fields under another condition', () => {
+    it('draws the three columns, offers no sort, and offers no search box but says why', async () => {
+      await create(otherCondition, manifests);
 
       expect(headings()).toEqual(['Mission', 'Sorties', 'Expenses']);
       expect(pressable()).toEqual([]);

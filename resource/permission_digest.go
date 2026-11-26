@@ -80,8 +80,8 @@ func WithFeatureGates(gates FeatureGates, features *FeatureSet) DigestOption {
 
 // PermissionDigestHandler serves the per-scope permission digest: the
 // session user's structural grant enumeration, resource → permission →
-// granted|conditional|conditionalOnTime, with denied targets absent so
-// consumers fail closed.
+// granted|conditional|conditionalOnTime|conditionalWithResource, with denied
+// targets absent so consumers fail closed.
 // The generated router registers it on the default outlet; applications wire
 // nothing.
 //

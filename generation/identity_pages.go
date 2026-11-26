@@ -100,11 +100,29 @@ type tsAPIIdentity struct {
 }
 
 // tsAPIIdentitySide is one side of an auth's management: the whole application's (the
-// global scope) or a tenant's (the domain scope), with its lists and its methods.
+// global scope) or a tenant's (the domain scope), with its lists and its methods, and on a
+// tenant's side the sharing of each record a role of the auth can be held on.
 type tsAPIIdentitySide struct {
 	Scope   accesstypes.PermissionScope
 	Lists   []identityPart
 	Methods []identityPart
+	Sharing []tsAPIRecordSharing
+}
+
+// tsAPIRecordSharing is one record's sharing as the descriptor carries it (sharingOn): the
+// record's resource, what a sentence calls one of the records and several, the list of who
+// holds what on one, the list a role is picked from, and the methods that give and take a
+// person's role on one and, where the auth keeps groups, a group's.
+type tsAPIRecordSharing struct {
+	Record    string
+	One       string
+	Many      string
+	Holders   string
+	Roles     string
+	Give      string
+	Take      string
+	GiveGroup string
+	TakeGroup string
 }
 
 // pageLists names the structs of the lists of a side by what each holds. The whole
@@ -332,6 +350,9 @@ func (t *typescriptGenerator) identityOn(data *tsAPIData) []*tsAPIIdentity {
 					side.Methods = append(side.Methods, method)
 				}
 			}
+			if tenant {
+				side.Sharing = t.sharingOn(inst, resources, methods)
+			}
 			identity.Sides = append(identity.Sides, side)
 		}
 		if len(identity.Sides) > 0 {
@@ -340,6 +361,44 @@ func (t *typescriptGenerator) identityOn(data *tsAPIData) []*tsAPIIdentity {
 	}
 
 	return out
+}
+
+// sharingOn is the sharing of each record of the instance the outlet serves, for a
+// tenant's side: a record whose two lists and two methods of a person's the outlet serves,
+// with the group's pair where it serves both, in the order of the instance's records.
+func (t *typescriptGenerator) sharingOn(inst *identityInstance, resources, methods map[string]bool) []tsAPIRecordSharing {
+	quote := strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+	var out []tsAPIRecordSharing
+	for _, record := range inst.sharedRecords() {
+		names := inst.sharing(&record)
+		holders, roles := t.pluralize(names.Holders), t.pluralize(names.Roles)
+		if !resources[string(record.resource)] || !resources[holders] || !resources[roles] || !methods[names.Give] || !methods[names.Take] {
+			continue
+		}
+		one, many := t.recordWords(&record)
+		entry := tsAPIRecordSharing{
+			Record: string(record.resource), One: quote.Replace(one), Many: quote.Replace(many),
+			Holders: holders, Roles: roles, Give: names.Give, Take: names.Take,
+		}
+		if names.GiveGroup != "" && methods[names.GiveGroup] && methods[names.TakeGroup] {
+			entry.GiveGroup, entry.TakeGroup = names.GiveGroup, names.TakeGroup
+		}
+		out = append(out, entry)
+	}
+
+	return out
+}
+
+// recordWords are what a sentence calls one of the record's rows and several, as the
+// collection says them of a record that holds roles (resource.RecordData).
+func (t *typescriptGenerator) recordWords(record *identityHeldRecord) (one, many string) {
+	for _, res := range t.resources {
+		if res.Name() == record.name && res.heldRecord != nil {
+			return res.heldRecord.One, res.heldRecord.Many
+		}
+	}
+
+	return "", ""
 }
 
 // authLabel is the words a page shows for an Auth: its PascalCase name split into

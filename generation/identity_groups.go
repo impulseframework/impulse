@@ -4,7 +4,9 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // Groups of people in an auth's generated management. Where the application gives the
@@ -57,28 +59,17 @@ const (
 	listThroughGroupsSuffix = "UserGroupRole"
 )
 
-// settleGroupTables holds the instance's group tables to the rule that a policy store
-// keeps them together, and takes them out of an instance that keeps no groups: an auth
-// whose directory writes its roles, and one whose schema holds no memberships to fold a
-// group's roles into.
-func (i *identityInstance) settleGroupTables() error {
-	held := 0
-	for _, kind := range identityGroupTables() {
-		if i.has(kind) {
-			held++
-		}
-	}
-	if held != 0 && held != len(identityGroupTables()) {
-		return errors.Newf("Auth(%q): the schema holds some of %s, %s and %s and not the others; they are the permission store's tables of the groups of people under the auth's prefix and are migrated together",
-			i.importPath, i.policy.Groups, i.policy.GroupMembers, i.policy.GroupRoles)
-	}
-	if i.rolesSynced || !i.has(identityMemberships) {
+// settleGroupTables takes the group tables out of an instance whose auth keeps no groups,
+// as the auth's store says (recordRoleStore): an auth whose directory writes its roles,
+// one whose schema holds no memberships to fold a group's roles into, and one whose schema
+// holds no group tables. The instance's set of a person's groups is the store's.
+func (i *identityInstance) settleGroupTables(store *resource.RecordRoleStoreData) {
+	if store.GroupSet == "" {
 		for _, kind := range identityGroupTables() {
 			delete(i.tables, kind)
 		}
 	}
-
-	return nil
+	i.groupSet = store.GroupSet
 }
 
 // keepsGroups reports whether the instance manages groups of people: the application
@@ -87,17 +78,43 @@ func (i *identityInstance) keepsGroups() bool {
 	return i.has(identityGroups)
 }
 
-// nameGroupSets names the subject set of a person's groups for each instance that keeps
-// groups. The subject set of a person's groups is named after its auth (crewGroups,
-// staffGroups): subject.<name> is one namespace for the whole application, and a name
-// that never depends on how many auths keep groups never collides when two sites meet
-// and never changes when a second auth arrives.
-func nameGroupSets(instances []*identityInstance) {
-	for _, inst := range instances {
-		if inst.keepsGroups() {
-			inst.groupSet = strings.ToLower(inst.auth[:1]) + inst.auth[1:] + "Groups"
+// recordRoleStore is where auth keeps the roles held on records, read from the schema by
+// the auth's prefix (TablePrefix): its table of people's roles held on records and, where
+// the auth keeps groups, its table of groups' roles held on records, its groups' and
+// their members' tables, and the subject set of a person's groups. An auth keeps groups
+// where the schema holds its three group tables beside its memberships and no directory
+// writes its roles; some of the three tables without the others is refused, since the
+// permission store migrates them together. The set of a person's groups is named after
+// its auth (crewGroups, staffGroups): subject.<name> is one namespace for the whole
+// application, and a name that never depends on how many auths keep groups never collides
+// when two sites meet and never changes when a second auth arrives. newIdentityInstance
+// and the registration of the roles held on records (collectRecordRoleRegistrations) both
+// call it, so a run that generates the auth's management and a run that does not say the
+// same of the auth.
+func (r *resourceGenerator) recordRoleStore(auth *outletAuth) (resource.RecordRoleStoreData, error) {
+	prefix := caser.ToPascal(auth.packageName())
+	policy, err := access.TablesWithPrefix(prefix, "")
+	if err != nil {
+		return resource.RecordRoleStoreData{}, errors.Wrapf(err, "Auth(%q): access.TablesWithPrefix()", auth.importPath)
+	}
+	store := resource.RecordRoleStoreData{Auth: auth.packageName(), UserRoles: policy.RecordUserRoles}
+	held := 0
+	for _, table := range []string{policy.Groups, policy.GroupMembers, policy.GroupRoles} {
+		if _, ok := r.tableMap[table]; ok {
+			held++
 		}
 	}
+	if held != 0 && held != 3 {
+		return resource.RecordRoleStoreData{}, errors.Newf("Auth(%q): the schema holds some of %s, %s and %s and not the others; they are the permission store's tables of the groups of people under the auth's prefix and are migrated together",
+			auth.importPath, policy.Groups, policy.GroupMembers, policy.GroupRoles)
+	}
+	if _, memberships := r.tableMap[policy.UserRoles]; held == 0 || !memberships || auth.syncsRoles() {
+		return store, nil
+	}
+	store.GroupRoles, store.GroupSet = policy.RecordGroupRoles, strings.ToLower(prefix[:1])+prefix[1:]+"Groups"
+	store.GroupMembers, store.Groups = policy.GroupMembers, policy.Groups
+
+	return store, nil
 }
 
 // groupListName names a list over groups: the whole application's after the auth's name

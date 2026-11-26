@@ -37,7 +37,8 @@ import { from, map, Observable, of, switchMap, tap } from 'rxjs';
  * that provides none fails at startup naming the way in). One cache serves the app's
  * own pages and the library's guard, directive, and forms. The store holds the per-scope
  * permission digest (the session user's structural grant enumeration — granted,
- * conditional, conditional on time, or absent for denied) and the user's domains (every
+ * conditional, conditional on time, a field's conditional with its resource, or absent
+ * for denied) and the user's domains (every
  * tenant where they hold at least one grant — the tenant picker's source). On
  * authentication the global digest and the domains load once; a tenant's digest loads on
  * demand (`loadDigest`) and stays cached. Answers are advisory UI material — what to
@@ -173,8 +174,8 @@ export class AuthService {
   }
 
   /**
-   * The digest state for one scope: granted, conditional, conditionalOnTime, or undefined
-   * when absent or not loaded.
+   * The digest state for one scope: granted, conditional, conditionalOnTime,
+   * conditionalWithResource (a field's), or undefined when absent or not loaded.
    */
   permissionState(scope: PermissionScope): PermissionDigestState | undefined {
     return permissionState(this.snapshot(), this.scoped(scope));
@@ -207,7 +208,8 @@ export class AuthService {
 
   /**
    * The digest's field-level entries for one resource and permission: JSON field names
-   * mapped to granted, conditional or conditionalOnTime — a denied field is absent, and an
+   * mapped to granted, conditional, conditionalOnTime or conditionalWithResource — a denied
+   * field is absent, and an
    * empty record means the digest carries no field information for the target (see
    * fieldPermissionStates in @impulseframework/resource). Signal-backed, so computeds that
    * call it re-evaluate when a digest loads.

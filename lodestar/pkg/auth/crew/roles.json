@@ -1944,6 +1944,9 @@
                 "outsideDirectory",
                 "cannotEnter",
                 "roles",
+                "recordsHeld",
+                "recordsHeldKind",
+                "recordHeldName",
                 "lockedUntil"
               ]
             },
@@ -2122,6 +2125,23 @@
                 "everyDomain",
                 "startsAt",
                 "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewMissionHolders",
+              "fields": [
+                "domainId",
+                "name",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewMissionRoles",
+              "fields": [
+                "description",
+                "method",
+                "recordId"
               ]
             }
           ],
@@ -2324,6 +2344,9 @@
                 "managedByAnotherDirectory",
                 "cannotEnter",
                 "roles",
+                "recordsHeld",
+                "recordsHeldKind",
+                "recordHeldName",
                 "lockedUntil"
               ]
             },
@@ -2862,6 +2885,18 @@
             },
             {
               "resource": "StopVouchingForSectorDirectorySecondFactor"
+            },
+            {
+              "resource": "GiveCrewRoleOnMission"
+            },
+            {
+              "resource": "TakeCrewRoleOnMission"
+            },
+            {
+              "resource": "GiveCrewGroupRoleOnMission"
+            },
+            {
+              "resource": "TakeCrewGroupRoleOnMission"
             }
           ]
         }
@@ -4853,6 +4888,388 @@
                 "zone"
               ],
               "condition": "hangar IN subject.hangarsRun"
+            }
+          ]
+        }
+      },
+      {
+        "name": "MissionObserver",
+        "description": "Reads one mission and what is under it.",
+        "heldOn": [
+          "Missions"
+        ],
+        "permissions": {
+          "List": [
+            {
+              "resource": "Missions",
+              "fields": [
+                "sectorId",
+                "clientId",
+                "kindId",
+                "title",
+                "brief",
+                "hazard",
+                "fee",
+                "deadline",
+                "requiredCertId",
+                "bookedByUserId",
+                "bookedByName",
+                "assignedSquadronId",
+                "statusId",
+                "notes",
+                "settlement",
+                "briefingTemplateId"
+              ]
+            },
+            {
+              "resource": "Sorties",
+              "fields": [
+                "missionId",
+                "shipId",
+                "pilotUserId",
+                "launchedAt",
+                "returnedAt",
+                "debrief"
+              ]
+            },
+            {
+              "resource": "SortieExpenses",
+              "fields": [
+                "sortieId",
+                "category",
+                "amount",
+                "memo"
+              ]
+            },
+            {
+              "resource": "MissionDocuments",
+              "fields": [
+                "missionId",
+                "title",
+                "fileName",
+                "contentType",
+                "size",
+                "uploadedByUserId",
+                "uploadedByName",
+                "uploadedAt",
+                "provenance",
+                "digest"
+              ]
+            },
+            {
+              "resource": "Squadrons",
+              "fields": [
+                "wingId",
+                "name",
+                "callsigns"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "Missions",
+              "fields": [
+                "sectorId",
+                "clientId",
+                "kindId",
+                "title",
+                "brief",
+                "hazard",
+                "fee",
+                "deadline",
+                "requiredCertId",
+                "bookedByUserId",
+                "bookedByName",
+                "assignedSquadronId",
+                "statusId",
+                "notes",
+                "settlement",
+                "briefingTemplateId"
+              ]
+            },
+            {
+              "resource": "Sorties",
+              "fields": [
+                "missionId",
+                "shipId",
+                "pilotUserId",
+                "launchedAt",
+                "returnedAt",
+                "debrief"
+              ]
+            },
+            {
+              "resource": "SortieExpenses",
+              "fields": [
+                "sortieId",
+                "category",
+                "amount",
+                "memo"
+              ]
+            },
+            {
+              "resource": "MissionDocuments",
+              "fields": [
+                "missionId",
+                "title",
+                "fileName",
+                "contentType",
+                "size",
+                "uploadedByUserId",
+                "uploadedByName",
+                "uploadedAt",
+                "provenance",
+                "digest",
+                "content"
+              ]
+            },
+            {
+              "resource": "Squadrons",
+              "fields": [
+                "wingId",
+                "name",
+                "callsigns"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "MissionLead",
+        "description": "Runs one mission: changes it and what is under it, and shares it with observers.",
+        "heldOn": [
+          "Missions"
+        ],
+        "permissions": {
+          "List": [
+            {
+              "resource": "Missions",
+              "fields": [
+                "sectorId",
+                "clientId",
+                "kindId",
+                "title",
+                "brief",
+                "hazard",
+                "fee",
+                "deadline",
+                "requiredCertId",
+                "bookedByUserId",
+                "bookedByName",
+                "assignedSquadronId",
+                "statusId",
+                "notes",
+                "settlement",
+                "briefingTemplateId"
+              ]
+            },
+            {
+              "resource": "Sorties",
+              "fields": [
+                "missionId",
+                "shipId",
+                "pilotUserId",
+                "launchedAt",
+                "returnedAt",
+                "debrief"
+              ]
+            },
+            {
+              "resource": "SortieExpenses",
+              "fields": [
+                "sortieId",
+                "category",
+                "amount",
+                "memo"
+              ]
+            },
+            {
+              "resource": "MissionDocuments",
+              "fields": [
+                "missionId",
+                "title",
+                "fileName",
+                "contentType",
+                "size",
+                "uploadedByUserId",
+                "uploadedByName",
+                "uploadedAt",
+                "provenance",
+                "digest"
+              ]
+            },
+            {
+              "resource": "Squadrons",
+              "fields": [
+                "wingId",
+                "name",
+                "callsigns"
+              ]
+            },
+            {
+              "resource": "CrewMissionHolders",
+              "fields": [
+                "domainId",
+                "name",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewMissionRoles",
+              "fields": [
+                "description",
+                "method",
+                "recordId"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "Missions",
+              "fields": [
+                "sectorId",
+                "clientId",
+                "kindId",
+                "title",
+                "brief",
+                "hazard",
+                "fee",
+                "deadline",
+                "requiredCertId",
+                "bookedByUserId",
+                "bookedByName",
+                "assignedSquadronId",
+                "statusId",
+                "notes",
+                "settlement",
+                "briefingTemplateId"
+              ]
+            },
+            {
+              "resource": "Sorties",
+              "fields": [
+                "missionId",
+                "shipId",
+                "pilotUserId",
+                "launchedAt",
+                "returnedAt",
+                "debrief"
+              ]
+            },
+            {
+              "resource": "SortieExpenses",
+              "fields": [
+                "sortieId",
+                "category",
+                "amount",
+                "memo"
+              ]
+            },
+            {
+              "resource": "MissionDocuments",
+              "fields": [
+                "missionId",
+                "title",
+                "fileName",
+                "contentType",
+                "size",
+                "uploadedByUserId",
+                "uploadedByName",
+                "uploadedAt",
+                "provenance",
+                "digest",
+                "content"
+              ]
+            },
+            {
+              "resource": "Squadrons",
+              "fields": [
+                "wingId",
+                "name",
+                "callsigns"
+              ]
+            }
+          ],
+          "Create": [
+            {
+              "resource": "Sorties",
+              "fields": [
+                "missionId",
+                "shipId",
+                "pilotUserId",
+                "launchedAt",
+                "debrief"
+              ]
+            },
+            {
+              "resource": "SortieExpenses",
+              "fields": [
+                "sortieId",
+                "category",
+                "amount",
+                "memo"
+              ]
+            }
+          ],
+          "Update": [
+            {
+              "resource": "Missions",
+              "fields": [
+                "clientId",
+                "kindId",
+                "title",
+                "brief",
+                "hazard",
+                "fee",
+                "deadline",
+                "requiredCertId",
+                "assignedSquadronId",
+                "notes",
+                "briefingTemplateId"
+              ]
+            },
+            {
+              "resource": "Sorties",
+              "fields": [
+                "shipId",
+                "pilotUserId",
+                "debrief"
+              ]
+            },
+            {
+              "resource": "SortieExpenses",
+              "fields": [
+                "category",
+                "amount",
+                "memo"
+              ]
+            }
+          ],
+          "Delete": [
+            {
+              "resource": "Sorties"
+            },
+            {
+              "resource": "SortieExpenses"
+            }
+          ],
+          "Execute": [
+            {
+              "resource": "GiveCrewRoleOnMission",
+              "condition": "new.role IN ('MissionObserver')"
+            },
+            {
+              "resource": "TakeCrewRoleOnMission",
+              "condition": "new.role IN ('MissionObserver')"
+            },
+            {
+              "resource": "GiveCrewGroupRoleOnMission",
+              "condition": "new.role IN ('MissionObserver')"
+            },
+            {
+              "resource": "TakeCrewGroupRoleOnMission",
+              "condition": "new.role IN ('MissionObserver')"
             }
           ]
         }

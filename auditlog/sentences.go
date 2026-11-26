@@ -174,8 +174,9 @@ func (s *Stored) roles() string {
 }
 
 // place is where the row's role is held, as a sentence ends with it: nothing for one
-// tenant, which the row's tenant columns name, " for the whole application", or " in
-// every" and the tenant word.
+// tenant, which the row's tenant columns name, " for the whole application", " in every"
+// and the tenant word, or " on the" and the record's word and name, its key where its
+// kind declares no name.
 func (s *Stored) place(tenantWord string) string {
 	switch s.RoleScope {
 	case RoleScopeGlobal:
@@ -184,6 +185,13 @@ func (s *Stored) place(tenantWord string) string {
 		return " in every " + tenantWord
 	case RoleScopeTenant:
 		return ""
+	case RoleScopeRecord:
+		named := s.RecordName
+		if named == "" {
+			named = s.RecordID
+		}
+
+		return " on the " + s.RecordWord + " " + named
 	default:
 		return ""
 	}

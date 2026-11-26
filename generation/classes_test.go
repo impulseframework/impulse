@@ -361,7 +361,7 @@ func Test_actionClassConstants(t *testing.T) {
 		return resource.CollectionResource{Name: "Act", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}, Classes: classes}
 	}
 
-	got, err := actionClassConstants(resource.CollectionData{Resources: []resource.CollectionResource{action("sensitive", accesstypes.ClassCredential), action("money_movement", "sensitive"), action()}})
+	got, err := actionClassConstants(&resource.CollectionData{Resources: []resource.CollectionResource{action("sensitive", accesstypes.ClassCredential), action("money_movement", "sensitive"), action()}})
 	if err != nil {
 		t.Fatalf("actionClassConstants() error = %v", err)
 	}
@@ -374,7 +374,7 @@ func Test_actionClassConstants(t *testing.T) {
 		t.Errorf("actionClassConstants() mismatch (-want +got):\n%s", diff)
 	}
 
-	_, err = actionClassConstants(resource.CollectionData{Resources: []resource.CollectionResource{action("tier_2", "tier2")}})
+	_, err = actionClassConstants(&resource.CollectionData{Resources: []resource.CollectionResource{action("tier_2", "tier2")}})
 	if wantErr := "the classes tier2 and tier_2 would both be declared as the constant ClassTier2; rename one of them"; err == nil || !strings.HasSuffix(err.Error(), wantErr) {
 		t.Errorf("actionClassConstants() with two classes of one constant error = %v, want %q", err, wantErr)
 	}

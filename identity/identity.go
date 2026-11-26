@@ -193,6 +193,38 @@ type Store interface {
 	// them. It answers how many roles go.
 	DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (roles int, err error)
 
+	// SetRecordMembership writes the person's role on the record with its period, replacing the
+	// period of a row that is there.
+	SetRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey, period accesstypes.Period) error
+	// DeleteRecordMembership buffers the removal of the person's role on the record; a role
+	// the person does not hold there is no error.
+	DeleteRecordMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordMembershipKey) error
+	// SetRecordGroupRole writes the group's role on the record with its period, replacing the
+	// period of a row that is there.
+	SetRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey, period accesstypes.Period) error
+	// DeleteRecordGroupRole buffers the removal of the group's role on the record; a role the
+	// group does not hold there is no error.
+	DeleteRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey) error
+	// RecordRoles reads every role held on the record, ended ones too, in key order.
+	RecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
+	// RecordPeriods reads the period of every role held on the record, ended ones too, a
+	// person's and a group's, each by its row's key. A role given with no period is among
+	// them with the zero period.
+	RecordPeriods(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (*RecordPeriods, error)
+	// TenantRecordRoles reads every role held on a record of the tenant, in key order.
+	TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
+	// RecordMemberships reads the roles the person holds on records, in any tenant, not ended.
+	RecordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.RecordMembershipKey, error)
+	// GroupRecordRoles reads the roles the group holds on records, each by its row's key, in
+	// key order, less the ones whose period has ended. A role that has not begun is among
+	// them, since the group will hold it.
+	GroupRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) ([]access.RecordGroupRoleKey, error)
+	// RecordNamed reads what one record is called, for a row of the audit log: the word one
+	// record of its kind goes by ("project"), and the record's name, read by its key from
+	// the field its kind names a record by, "" where the kind names none or the record has
+	// none. A kind no role is held on is an error.
+	RecordNamed(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (word, name string, err error)
+
 	// InsertInvitation buffers the mail links row of a prepared invitation, as the
 	// session library says one is written (session.InvitationRow).
 	InsertInvitation(ctx context.Context, txn resource.ReadWriteTransaction, row *session.InvitationRow) error

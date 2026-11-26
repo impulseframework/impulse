@@ -18,12 +18,13 @@ import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-c
 // it, as the server does, and the box never says a role leaves it out. A computed
 // resource is searched over its real values, so the server refuses the whole search
 // unless the caller holds every searched field with no condition left once the request
-// is checked. The box is then not offered, and the page says why: the fields the
-// caller's role does not see (the digest does not list them) and the fields it does not
-// always see (the digest lists them as conditional: the server judges them row by row,
-// or by a fact about the caller). A field the digest lists as conditionalOnTime does not
-// withhold the box: the server settles such a grant from the time of the request and
-// answers the search while it holds.
+// is checked, or under the list's own condition. The box is then not offered, and the
+// page says why: the fields the caller's role does not see (the digest does not list
+// them) and the fields it does not always see (the digest lists them as conditional: the
+// server judges them row by row, or by a fact about the caller). A field the digest lists
+// as conditionalOnTime does not withhold the box: the server settles such a grant from
+// the time of the request and answers the search while it holds. Nor does one it lists as
+// conditionalWithResource: the server reads it only on the rows the caller is shown.
 
 const title = new CamelCaseToTitlePipe();
 
@@ -161,8 +162,9 @@ export interface RefusedSearchFields {
  * search, from the digest's List state by field name: of the resource's own search
  * fields, other than a key field, those the digest does not list (notSeen) and those it
  * lists as conditional (notAlwaysSeen), each in the order of the metadata's searchFields. A
- * field listed as granted or conditionalOnTime is in neither: the server answers by it,
- * settling a grant held at certain times from the time of the request. Both lists are
+ * field listed as granted, conditionalOnTime or conditionalWithResource is in neither: the
+ * server answers by it, settling a grant held at certain times from the time of the request,
+ * and reading one held under the list's own condition only on the rows it shows. Both lists are
  * empty on a table or a view, and where the record has no key: nothing is known, or the
  * digest holds no List on the resource and the page lists nothing.
  */

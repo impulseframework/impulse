@@ -73,7 +73,7 @@ func (t *Tenant) GroupMemberRemovalWarning(ctx context.Context, txn resource.Rea
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+	if _, err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return nil, err
 	}
 

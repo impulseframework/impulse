@@ -336,7 +336,7 @@ export class FlightDeckComponent {
     )
       .filter(([field]) => {
         const state = this.sectors.fieldState(Permissions.Update, Resources.Missions, field);
-        return state === 'conditional' || state === 'conditionalOnTime';
+        return state === 'conditional' || state === 'conditionalOnTime' || state === 'conditionalWithResource';
       })
       .map(([, words]) => words);
     return fields.length ? listed.format(fields) : undefined;

@@ -16,12 +16,13 @@ import { MethodDialogComponent, MethodDialogData, MethodDialogResult } from './m
  * page fills from a row (the presentation's `fill`) is read off the row, or off
  * `parent`, the row a list sits under, for a method offered above the list. A method
  * that names a row and is offered above a list runs against `parent`, whose key fills
- * the request as a row's does. The page's question for the method, where it gives one,
- * is asked of the same row, and for a method above a list it is told `listed`, the rows
- * the list shows. It is also told the method's metadata, so it can ask less where the
- * method warns and the server's words follow. The answer is the dialog's: the method's
- * result once it has run,
- * nothing when the dialog was dismissed.
+ * the request as a row's does; so does one offered on a row that names the row the list
+ * sits under (`onParent`), the rest filled from the row it is offered on. The page's
+ * question for the method, where it gives one, is asked of the row the page fills from,
+ * and for a method above a list it is told `listed`, the rows the list shows. It is also
+ * told the method's metadata, so it can ask less where the method warns and the server's
+ * words follow. The answer is the dialog's: the method's result once it has run, nothing
+ * when the dialog was dismissed.
  */
 export function openMethodDialog(
   dialog: MatDialog,
@@ -32,7 +33,9 @@ export function openMethodDialog(
 ): Observable<MethodDialogResult | undefined> {
   const confirm = method.presentation?.confirm;
   const from = row ?? parent;
-  const target = row ?? (method.meta.target ? parent : undefined);
+  // A method offered on a row that names the row the list sits under runs against that row,
+  // the page filling the rest from the row it was offered on.
+  const target = method.onParent ? parent : (row ?? (method.meta.target ? parent : undefined));
   const data: MethodDialogData = {
     method: method.method,
     label: method.label,

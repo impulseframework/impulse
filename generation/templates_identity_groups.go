@@ -47,7 +47,7 @@ type (
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	// @rowWord(group)
-	// @deleteCascade({{ .GroupMember }}, {{ .GroupRole }})
+	// @deleteCascade({{ .GroupMember }}, {{ .GroupRole }}{{ if .KeepsRecordGroupRoles }}, {{ .RecordGroupRole }}{{ end }})
 	{{ .Group }} struct {
 		// @attribute(group)
 		ID       impulse.UUID ` + "`spanner:\"Id\"`" + `
@@ -264,8 +264,12 @@ func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTr
 	// The tenant's delete took the application's rows under the tenant before it reached
 	// the groups: the group's delete takes its members and its roles, and leaves the
 	// application's rows out.
+	{{- if .KeepsRecordGroupRoles }}
+	// Its roles on records keep a change history, which records their delete as the
+	// request's person's (deletedBy).
+	{{- end }}
 	patch := {{ .ResourcesPackage }}.New{{ .Group }}DeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
-	if err := patch.Buffer(ctx, txn); err != nil {
+	if err := patch.Buffer(ctx, txn{{ if .KeepsRecordGroupRoles }}, deletedBy(ctx)...{{ end }}); err != nil {
 		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Group }}DeletePatch.Buffer()")
 	}
 
@@ -483,27 +487,7 @@ func (store) GroupsHolding(ctx context.Context, txn resource.ReadWriteTransactio
 
 	return ids, nil
 }
-{{ if .TenantPeople }}
-// TenantPerson reads the tenant's own list of the auth's people, {{ .TenantUser }}, by
-// the two columns that name a row within its tenant: the account's id and the tenant.
-// It is the list a tenant's method names a person from, so a person found here is one
-// the generated frame of such a method finds.
-func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {
-	clause := {{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause()
-	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
-		Where(clause.ID().Equal(userID).And().DomainID().Equal(string(domain)))
-	for _, err := range query.List(ctx, txn) {
-		if err != nil {
-			return false, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
-		}
-
-		return true, nil
-	}
-
-	return false, nil
-}
-{{ else }}
+{{ if .TenantPeople }}` + identityTenantPersonRead + `{{ else }}
 // The application has no tenant record, so no tenant keeps a list of the {{ .Auth }}
 // auth's people, and nobody is found in one.
 func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
@@ -595,13 +579,39 @@ func (store) TenantGroupRoles(context.Context, resource.ReadWriteTransaction, ac
 func (store) GroupsHolding(context.Context, resource.ReadWriteTransaction, *access.RoleKey) ([]impulse.UUID, error) {
 	return nil, nil
 }
-
-// TenantPerson is asked by the rules of a tenant's group alone, and here there are no
-// groups.
+{{ if .TenantPeople }}` + identityTenantPersonRead + `{{ else }}
+// TenantPerson is asked by the rules of a role given on one of a tenant's records, and
+// no tenant keeps a list of the {{ .Auth }} auth's people: nobody is found in one.
 func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
 	return false, nil
 }
-{{ end }}`
+{{ end }}{{ end }}`
+
+	// identityTenantPersonRead is the store's read of whether a person is one of a
+	// tenant's people (identity.GroupStore.TenantPerson) where the instance has the
+	// tenant's list of them, whether it keeps groups or not: the rules of a tenant's group
+	// ask it, and so do the rules of a role given on one of the tenant's records.
+	identityTenantPersonRead = `
+// TenantPerson reads the tenant's own list of the auth's people, {{ .TenantUser }}, by
+// the two columns that name a row within its tenant: the account's id and the tenant.
+// It is the list a tenant's method names a person from, so a person found here is one
+// the generated frame of such a method finds.
+func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	clause := {{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause()
+	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
+		Where(clause.ID().Equal(userID).And().DomainID().Equal(string(domain)))
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return false, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
+		}
+
+		return true, nil
+	}
+
+	return false, nil
+}
+`
 
 	// identityTenantGroupPeople are the people a tenant's list holds because of a group,
 	// as branches of the union the people are selected from (identityTenantPeopleFrom):
@@ -1621,7 +1631,54 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 
 	return settled(gate, "Assign{{ .Auth }}Role")
 }
+{{ if .RecordGivers }}
+// MayGiveOn reports whether the caller may give the person the role on the record. A
+// request made under a tenant gives a role on a record of that tenant alone, asked of the
+// method that gives a person a role on one record of the kind, with the person and the
+// role:
+//
+//	{{ range $i, $g := .RecordGivers }}{{ if $i }}, {{ end }}{{ $g.Method }}{{ end }}
+//
+// Where what is left of the grant's condition reads the record, it is read against the
+// record named, the row the method's own frame reads it against. A request made for the
+// whole application, a record of another tenant, and a kind no method gives a role on are
+// a no.
+func (grants) MayGiveOn(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
+	caller := resource.CallerFrom(ctx)
+	if tenant, inTenant := caller.Scope.Domain(); !inTenant || at.Domain() != tenant {
+		return false, nil
+	}
+	var (
+		method  accesstypes.Resource
+		request any
+		target  resource.ExecuteTarget
+	)
+	switch at.Resource() {
+	{{- range .RecordGivers }}
+	case "{{ .Resource }}":
+		method, request = {{ .Method }}{}.Method(), &{{ .Method }}{UserID: userID, Role: string(role)}
+		target = resource.ExecuteTarget{Resource: "{{ .Resource }}", Label: "{{ .Label }}", PKColumns: []string{"{{ .KeyColumn }}"}}
+	{{- end }}
+	default:
+		return false, nil
+	}
+	gate, err := caller.ExecuteGate(ctx, method, request)
+	if err != nil {
+		return granted(err)
+	}
+	if may, settled := gate.Settled(); settled {
+		return may, nil
+	}
 
+	return granted(gate.Enforce(ctx, txn, target, at.Record()))
+}
+{{ else }}
+// MayGiveOn reports whether the caller may give the person the role on the record: the
+// instance shares no record, so no role is given on one here.
+func (grants) MayGiveOn(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope, impulse.UUID, accesstypes.Role) (bool, error) {
+	return false, nil
+}
+{{ end }}
 // CouldGive reports whether the caller could give the role in the scope by hand, to
 // somebody, with the method named: the question of the list a role is picked from,
 // asked for the method whose dialog picks, before anybody is named, with no row to read
@@ -1637,6 +1694,14 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // The answer is yes where the method does not refuse the caller the role: its grant
 // admits the role, or what is left of the grant's condition reads the row the method
 // names (a person, a group), so the role could be given to some of them.
+{{- if .RecordGivings }}
+//
+// The methods that give a role on one record of the tenant are asked the same way, with
+// the role alone, for the list a role on a record is picked from; what is left of the
+// grant's condition there reads the record:
+//
+//	{{ range $i, $g := .RecordGivings }}{{ if $i }}, {{ end }}{{ $g.Method }}{{ end }}
+{{- end }}
 {{- end }}
 //
 // For a request made for the whole application, the method is one of the whole
@@ -1667,9 +1732,13 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 		case {{ .Method }}{}.Method():
 			return couldGiveBy(ctx, caller, method, &{{ .Method }}{ {{- .Fields -}} })
 		{{- end }}
+		{{- range .RecordGivings }}
+		case {{ .Method }}{}.Method():
+			return couldGiveBy(ctx, caller, method, &{{ .Method }}{ {{- .Fields -}} })
+		{{- end }}
 		}
 
-		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: {{ .GivingMethods }}", method)
+		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: {{ .TenantHandGivingMethods }}", method)
 	}
 {{ end }}
 	{{- if .HasTenant }}

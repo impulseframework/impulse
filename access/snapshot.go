@@ -445,8 +445,10 @@ func (s *snapshot) roleHasGrants(scope accesstypes.Scope, role accesstypes.Role)
 // resource and field the user's grants reach, each mapping permission to
 // granted (an unconditional cover exists), conditional on time (only
 // conditional grants cover it, and every one of their conditions reads the
-// time of the request alone) or conditional (only conditional grants cover
-// it, and one of their conditions reads more). Denied targets are absent —
+// time of the request alone), conditional (only conditional grants cover
+// it, and one of their conditions reads more) or, for a field, conditional
+// with its resource (conditional, under the very grants that cover the
+// resource, which nothing covers outright). Denied targets are absent —
 // the digest is fail-closed by construction — and nothing folds: no facts are
 // consulted, the conditions' text is classified, so the answer is a pure
 // function of the snapshot.
@@ -513,12 +515,29 @@ func (s *snapshot) digest(grants grantMap) accesstypes.PermissionDigest {
 			}
 			terms = terms.union(fs.cond.fields[i])
 			if len(terms) > 0 {
-				set(name, perm, s.conditionalState(terms))
+				set(name, perm, s.fieldConditionalState(fs, terms))
 			}
 		}
 	}
 
 	return digest
+}
+
+// fieldConditionalState answers the digest state of a field only conditional
+// grants cover, from the condition terms that cover it: conditional with its
+// resource where those terms are, as a set, the very ones that cover the
+// resource and nothing covers the resource without a condition, so the field is
+// seen on every row of the resource the subject is shown; otherwise as
+// conditionalState answers. It is structure, as the other states are: two sets
+// of terms that fold to one text for some caller stay conditional, so a page
+// offers less than the server answers, never more.
+func (s *snapshot) fieldConditionalState(fs *fieldSet, terms condTerms) accesstypes.DigestState {
+	state := s.conditionalState(terms)
+	if state == accesstypes.DigestConditional && !fs.endpoint && slices.Equal(terms, fs.cond.endpoint) {
+		return accesstypes.DigestConditionalWithResource
+	}
+
+	return state
 }
 
 // conditionalState answers the digest state of a target only conditional
@@ -765,7 +784,10 @@ func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection P
 	}
 
 	customs, storeGrants, findings := definedRoles(records, defaults)
-	grants, skipped, err := s.intern(defaults.allGrants(), storeGrants, collection, defaults.authName())
+	// The roles held on records are the release's roles, compiled for what a record
+	// reaches (snapshot_records.go).
+	heldGrants, heldMemberships, heldFindings := compileRecordRoles(records, defaults, collection)
+	grants, skipped, err := s.intern(slices.Concat(defaults.allGrants(), heldGrants), storeGrants, collection, defaults.authName())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -778,6 +800,8 @@ func newSnapshotAt(records *policy.Records, defaults *defaultRoles, collection P
 	findings = append(findings, skippedRoles...)
 	memberships, orphaned := resolvedMemberships(folded, defaults, customs)
 	findings = append(findings, orphaned...)
+	memberships = append(memberships, heldMemberships...)
+	findings = append(findings, heldFindings...)
 	sortFindings(findings)
 	var timed bool
 	memberships, s.since, s.until, timed = countingAt(memberships, at)

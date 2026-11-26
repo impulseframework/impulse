@@ -118,6 +118,10 @@ type identityInstance struct {
 	// groupSet is the name of the subject set of a person's groups, "" where the
 	// instance keeps no groups (identity_groups.go).
 	groupSet string
+	// heldRecords are the records of the application a role of the auth's role file can
+	// be held on, in name order: with one the instance keeps the roles held on a record
+	// (identity_record_roles.go).
+	heldRecords []identityHeldRecord
 	// deleteCosts and userCascades are what a tenant's delete costs the auth's rows by,
 	// read off the schema (identity_tenantkinds.go).
 	deleteCosts  []identityDeleteCost
@@ -221,6 +225,10 @@ func (i *identityInstance) tableName(kind identityTable) string {
 		return i.policy.GroupMembers
 	case identityGroupRoles:
 		return i.policy.GroupRoles
+	case identityRecordUserRoles:
+		return i.policy.RecordUserRoles
+	case identityRecordGroupRoles:
+		return i.policy.RecordGroupRoles
 	default:
 		panic(fmt.Sprintf("unexpected identityTable: %q", kind))
 	}
@@ -355,9 +363,12 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 	if inst.has(identityMemberships) != inst.has(identityRoles) {
 		return nil, errors.Newf("Auth(%q): the schema holds one of %s and %s and not the other; they are the permission store's tables under the auth's prefix and are migrated together", auth.importPath, inst.policy.UserRoles, inst.policy.Roles)
 	}
-	if err := inst.settleGroupTables(); err != nil {
+	store, err := r.recordRoleStore(auth)
+	if err != nil {
 		return nil, err
 	}
+	inst.settleGroupTables(&store)
+	inst.findRecordTables(r.tableMap)
 	for _, kind := range []identityTable{identityUsers, identitySessions} {
 		if !inst.has(kind) {
 			return nil, errors.Newf("Auth(%q): the schema holds no table %s, so there is nothing of the auth to manage; its tables are named by its package's name in PascalCase (TablePrefix = %q), each the session library's own name under it", auth.importPath, inst.tableName(kind), name)
@@ -381,7 +392,6 @@ func (r *resourceGenerator) prepareIdentity() error {
 	if len(instances) == 0 {
 		return nil
 	}
-	nameGroupSets(instances)
 	begin := time.Now()
 
 	if err := r.settleIdentityTree(); err != nil {
@@ -393,36 +403,17 @@ func (r *resourceGenerator) prepareIdentity() error {
 	if err != nil {
 		return err
 	}
+	// So do the records a role can be held on, which decide whether an instance keeps the
+	// roles held on a record.
+	if err := r.readHeldRecords(instances); err != nil {
+		return err
+	}
 	for _, inst := range instances {
 		inst.tenant = tenant
 		inst.createsTenant = r.identityCreatesTenant(inst)
 		inst.opensToDirectory = r.identityOpensToDirectory(inst)
 		inst.recordsTenantSignIn = r.identityRecordsTenantSignIn(inst)
-		if err := inst.refuseListNamesTaken(); err != nil {
-			return err
-		}
-		if err := inst.refuseInvitationNamesTaken(); err != nil {
-			return err
-		}
-		if err := inst.refuseListedTenantNamesTaken(); err != nil {
-			return err
-		}
-		if err := r.requireEveryTenantColumn(inst); err != nil {
-			return err
-		}
-		if err := r.requireNewTenantColumn(inst); err != nil {
-			return err
-		}
-		if err := r.requireMailFailedColumn(inst); err != nil {
-			return err
-		}
-		if err := r.requireWithdrawnColumn(inst); err != nil {
-			return err
-		}
-		if err := r.requireSessionBrowserColumn(inst); err != nil {
-			return err
-		}
-		if err := r.refuseReservedRole(inst); err != nil {
+		if err := r.refuseIdentityInstance(inst); err != nil {
 			return err
 		}
 		for _, dir := range []packageDir{inst.resources, inst.methods, inst.handlers} {
@@ -446,6 +437,39 @@ func (r *resourceGenerator) prepareIdentity() error {
 	log.Printf("Wrote the identity sources of %d auth(s) in %s\n", len(instances), time.Since(begin))
 
 	return nil
+}
+
+// refuseIdentityInstance refuses an instance before anything of it is written: a name its
+// lists or its invitations would take that is taken already, a column of the schema its
+// management writes that is missing, and a role of its role file under a name the library
+// keeps.
+func (r *resourceGenerator) refuseIdentityInstance(inst *identityInstance) error {
+	if err := inst.refuseListNamesTaken(); err != nil {
+		return err
+	}
+	if err := inst.refuseInvitationNamesTaken(); err != nil {
+		return err
+	}
+	if err := inst.refuseListedTenantNamesTaken(); err != nil {
+		return err
+	}
+	if err := r.requireEveryTenantColumn(inst); err != nil {
+		return err
+	}
+	if err := r.requireNewTenantColumn(inst); err != nil {
+		return err
+	}
+	if err := r.requireMailFailedColumn(inst); err != nil {
+		return err
+	}
+	if err := r.requireWithdrawnColumn(inst); err != nil {
+		return err
+	}
+	if err := r.requireSessionBrowserColumn(inst); err != nil {
+		return err
+	}
+
+	return r.refuseReservedRole(inst)
 }
 
 // removeStaleIdentitySources removes what an earlier run wrote for an instance and this
@@ -615,6 +639,9 @@ type identitySourceData struct {
 	// ForTenant marks a file that holds a method one tenant runs (identity_tenant.go):
 	// the templates the two kinds of method share render the tenant's from it.
 	ForTenant bool
+	// HeldRecord is the record a file of a record's sharing shares, nil for every other
+	// file (identity_record_roles.go).
+	HeldRecord *identityHeldRecord
 }
 
 // Singular names of the instance's resources, the structs over its tables.
@@ -663,14 +690,16 @@ func (d *identitySourceData) GivesRoles() bool {
 func (d *identitySourceData) AuthImportPath() string { return d.importPath }
 
 // identitySourceFile is one source file of an instance: where it goes, the template it
-// renders from, the tables whose presence in the schema it depends on, and whether it
-// holds a method one tenant runs.
+// renders from, the tables whose presence in the schema it depends on, whether it holds a
+// method one tenant runs, and the record it shares where it is one of a record's sharing
+// (identity_record_roles.go).
 type identitySourceFile struct {
 	dir      packageDir
 	name     string
 	template string
 	needs    []identityTable
 	tenant   bool
+	record   *identityHeldRecord
 }
 
 // writeIdentitySources writes one instance's declarations, methods and handler base.
@@ -686,7 +715,7 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// The struct names are held to the engine's rule here, where the refusal can say
 	// what went wrong: a resource's table is its struct's name in the plural.
 	files := []identitySourceFile{{dir: inst.resources, name: "resources", template: identityResourcesTemplate}}
-	for _, decl := range identityDeclarations() {
+	for _, decl := range slices.Concat(identityDeclarations(), inst.recordRoleDeclarations()) {
 		struc, table := inst.auth+decl.suffix, inst.tableName(decl.kind)
 		if got := r.pluralize(struc); got != table {
 			return errors.Newf("the declaration over table %s would be struct %s, whose plural is %s: the generator's plural rules do not carry the auth's name %q back to its table (see WithPluralOverrides)", table, struc, got, inst.auth)
@@ -790,6 +819,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// sent it.
 	files = append(files, r.mailLinkListSources(inst)...)
 	files = append(files, r.signInAttemptListSources(inst)...)
+	// The sharing of each record a role can be held on: the methods that give and take a
+	// role on one, the roles they pick from and the list of who holds what there.
+	files = append(files, r.recordSharingSources(inst)...)
 	// The audit log as two lists, the whole log and a tenant's, each written from the
 	// row's parts as it is read.
 	files = append(files, r.auditLogSources(inst)...)
@@ -801,6 +833,7 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 		}
 		fileData := *data
 		fileData.ForTenant = file.tenant
+		fileData.HeldRecord = file.record
 		fileData.Source = fmt.Sprintf("Auth(%q)", inst.importPath)
 		fileData.Package = file.dir.Package()
 		fileData.LocalPackageImports = r.identityImports(inst)
@@ -904,6 +937,7 @@ func (c *client) identityResources(packageMap map[string]*packages.Package, fset
 		}
 		for _, res := range lists {
 			res.identity = inst
+			res.recordAttributes, res.recordWays = inst.recordWaysOf(res.Name())
 		}
 		resources = append(resources, extracted...)
 		resources = append(resources, lists...)
@@ -947,6 +981,9 @@ func (c *client) identityComputedResources(packageMap map[string]*packages.Packa
 		}
 		for _, res := range extracted {
 			res.identity = inst
+			attributes, ways := inst.recordWaysOf(res.Name())
+			res.Attributes = append(res.Attributes, attributes...)
+			res.recordWays = ways
 		}
 		resources = append(resources, extracted...)
 	}
@@ -969,11 +1006,33 @@ func (c *client) identityMethods(packageMap map[string]*packages.Package, fsetPk
 		}
 		for _, method := range extracted {
 			method.identity = inst
+			c.placeTargetRoot(method)
 		}
 		methods = append(methods, extracted...)
 	}
 
 	return methods, nil
+}
+
+// placeTargetRoot names, for a method of an instance whose target is a table of the
+// application's, the package the frame reads the row from (rpcTarget.RootPackage): the
+// application's record a record's sharing names (identity_record_roles.go). A target
+// among the instance's own declarations, and a view, are read as before.
+func (c *client) placeTargetRoot(method *rpcMethodInfo) {
+	target := method.Target
+	if target == nil || target.ViewPackage != "" || method.identity == nil {
+		return
+	}
+	for _, res := range c.resources {
+		if res.Name() != target.RootStruct {
+			continue
+		}
+		if dir := c.resourcesDirOf(res); dir != method.identity.resources {
+			target.RootPackage = dir.Package()
+		}
+
+		return
+	}
 }
 
 // handlerHome is where the handlers of a resource or a method are written, and what the

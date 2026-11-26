@@ -32,6 +32,15 @@ func (RefitTask) FileKeys() []resource.FileKey {
 	}
 }
 
+// NamedRows names the columns that name a row of another resource the application lists
+// (RefitID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (RefitTask) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "RefitID", Resource: "Refits", Table: "Refits", KeyColumn: "Id", TenantColumn: "ShipId", TenantPath: []resource.BindingHop{{Table: "Ships", JoinColumn: "Id", Column: "HangarId"}, {Table: "Hangars", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
 // TenantBinding is the row's way to its tenant: the library writes the tenant on every
 // change record of the row, whoever writes the row.
 func (RefitTask) TenantBinding() resource.TenantBinding {

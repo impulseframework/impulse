@@ -130,6 +130,59 @@ func Collection() *resource.GeneratedCollection {
 				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
 			{
+				Name:        "CrewMissionHolders",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
+				Tags: []resource.TagData{
+					{Name: "domainId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "endsAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "memberId"},
+					{Name: "memberKind"},
+					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "recordId"},
+					{Name: "role"},
+					{Name: "startsAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "held_way0_Missions", Column: "RecordId", Type: "string"},
+				},
+				Domain:    &resource.DomainBindingData{Column: "DomainId"},
+				Order:     []accesstypes.Tag{"name", "role"},
+				QueryKeys: []accesstypes.Tag{"domainId", "name"},
+				Under: []resource.RecordWayData{
+					{Record: "Missions", Attribute: "held_way0_Missions"},
+				},
+			},
+			{
+				Name:        "CrewMissionRoles",
+				Scope:       accesstypes.DomainPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+					{Name: "recordId", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "held_way0_Missions", Column: "RecordID", Type: "string"},
+					{Name: "name", Column: "Name", Type: "string"},
+				},
+				Under: []resource.RecordWayData{
+					{Record: "Missions", Attribute: "held_way0_Missions"},
+				},
+			},
+			{
+				Name:   "CrewRecordGroupRoles",
+				Scope:  accesstypes.DomainPermissionScope,
+				Domain: &resource.DomainBindingData{Column: "DomainId"},
+			},
+			{
+				Name:   "CrewRecordUserRoles",
+				Scope:  accesstypes.DomainPermissionScope,
+				Domain: &resource.DomainBindingData{Column: "DomainId"},
+			},
+			{
 				Name:        "CrewSectorAuditRecords",
 				Scope:       accesstypes.DomainPermissionScope,
 				Computed:    true,
@@ -422,6 +475,9 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "outsideDirectory", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "passwordChangeRequired", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "recordHeldName", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "recordsHeld", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "recordsHeldKind", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "roles", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "username", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
@@ -605,6 +661,26 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Transition:  &resource.TransitionData{Target: "Missions", From: []string{"underway"}, To: "failed"},
 				Target:      "Missions",
+			},
+			{
+				Name:        "GiveCrewGroupRoleOnMission",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+				Attributes: []resource.AttributeData{
+					{Name: "role", Column: "Role", Type: "string"},
+				},
+				Target: "Missions",
+			},
+			{
+				Name:        "GiveCrewRoleOnMission",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+				Attributes: []resource.AttributeData{
+					{Name: "role", Column: "Role", Type: "string"},
+				},
+				Target: "Missions",
 			},
 			{
 				Name:        "GiveCrewSectorGroupRole",
@@ -922,10 +998,14 @@ func Collection() *resource.GeneratedCollection {
 				},
 				Attributes: []resource.AttributeData{
 					{Name: "client", Column: "MissionId", Type: "string", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "ClientId"}}},
+					{Name: "held_way0_Missions", Column: "MissionId", Type: "string"},
 				},
 				Domain:    &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
 				Order:     []accesstypes.Tag{"uploadedAt"},
 				QueryKeys: []accesstypes.Tag{"missionId"},
+				Under: []resource.RecordWayData{
+					{Record: "Missions", Attribute: "held_way0_Missions"},
+				},
 			},
 			{
 				Name:               "Missions",
@@ -958,6 +1038,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "deadline", Column: "Deadline", Type: "timestamp"},
 					{Name: "fee", Column: "Fee", Type: "number"},
 					{Name: "hazard", Column: "Hazard", Type: "number"},
+					{Name: "held_way0_Missions", Column: "Id", Type: "string"},
 					{Name: "kind", Column: "KindId", Type: "string"},
 					{Name: "notes", Column: "Notes", Type: "string"},
 					{Name: "requiredCert", Column: "RequiredCertId", Type: "string"},
@@ -968,6 +1049,12 @@ func Collection() *resource.GeneratedCollection {
 				Order:        []accesstypes.Tag{"deadline"},
 				QueryKeys:    []accesstypes.Tag{"sectorId", "clientId", "kindId", "title", "fee", "deadline", "requiredCertId", "assignedSquadronId", "statusId"},
 				RequiredTags: []accesstypes.Tag{"clientId", "deadline", "fee", "hazard", "kindId", "title"},
+				HoldsRoles: &resource.RecordData{Key: "Id", One: "mission", Many: "missions", Names: []resource.RecordNameData{
+					{Resource: "Squadrons", Column: "AssignedSquadronId", Attribute: "held_named0_Missions", One: "squadron", Many: "squadrons"},
+				}},
+				Under: []resource.RecordWayData{
+					{Record: "Missions", Attribute: "held_way0_Missions", Self: true},
+				},
 			},
 			{
 				Name:        "OpenMissionsBySquadrons",
@@ -1290,6 +1377,7 @@ func Collection() *resource.GeneratedCollection {
 				},
 				Attributes: []resource.AttributeData{
 					{Name: "amount", Column: "Amount", Type: "number"},
+					{Name: "held_way0_Missions", Column: "SortieId", Type: "string", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}}},
 					{Name: "state", Column: "SortieId", Type: "string", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "StatusId"}}},
 				},
 				Domain:       &resource.DomainBindingData{Column: "SortieId", Path: []resource.BindingHop{{Table: "Sorties", JoinColumn: "Id", Column: "MissionId"}, {Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
@@ -1297,6 +1385,9 @@ func Collection() *resource.GeneratedCollection {
 				Order:        []accesstypes.Tag{"amount"},
 				QueryKeys:    []accesstypes.Tag{"sortieId"},
 				RequiredTags: []accesstypes.Tag{"amount", "category", "sortieId"},
+				Under: []resource.RecordWayData{
+					{Record: "Missions", Attribute: "held_way0_Missions"},
+				},
 			},
 			{
 				Name:        "Sorties",
@@ -1312,6 +1403,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "shipId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 				},
 				Attributes: []resource.AttributeData{
+					{Name: "held_way0_Missions", Column: "MissionId", Type: "string"},
 					{Name: "state", Column: "MissionId", Type: "string", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "StatusId"}}},
 				},
 				Domain:       &resource.DomainBindingData{Column: "MissionId", Path: []resource.BindingHop{{Table: "Missions", JoinColumn: "Id", Column: "SectorId"}}},
@@ -1319,6 +1411,9 @@ func Collection() *resource.GeneratedCollection {
 				Order:        []accesstypes.Tag{"launchedAt"},
 				QueryKeys:    []accesstypes.Tag{"missionId", "shipId"},
 				RequiredTags: []accesstypes.Tag{"launchedAt", "missionId", "pilotUserId", "shipId"},
+				Under: []resource.RecordWayData{
+					{Record: "Missions", Attribute: "held_way0_Missions"},
+				},
 			},
 			{
 				Name:        "SquadronMemberships",
@@ -1368,6 +1463,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "wingId", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 				},
 				Attributes: []resource.AttributeData{
+					{Name: "held_named0_Missions", Column: "Id", Type: "string"},
 					{Name: "wing", Column: "WingId", Type: "string"},
 				},
 				Domain:       &resource.DomainBindingData{Column: "WingId", Path: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
@@ -1394,6 +1490,26 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
+			},
+			{
+				Name:        "TakeCrewGroupRoleOnMission",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+				Attributes: []resource.AttributeData{
+					{Name: "role", Column: "Role", Type: "string"},
+				},
+				Target: "Missions",
+			},
+			{
+				Name:        "TakeCrewRoleOnMission",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Classes:     []accesstypes.ActionClass{ClassAccess},
+				Attributes: []resource.AttributeData{
+					{Name: "role", Column: "Role", Type: "string"},
+				},
+				Target: "Missions",
 			},
 			{
 				Name:        "TakeCrewSectorGroupRole",
@@ -3120,6 +3236,10 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Classes:     []accesstypes.ActionClass{ClassAccess},
 			},
+		},
+		RecordRoleStores: []resource.RecordRoleStoreData{
+			{Auth: "crew", UserRoles: "CrewRecordUserRoles", GroupRoles: "CrewRecordGroupRoles", GroupSet: "crewGroups", GroupMembers: "CrewGroupMembers", Groups: "CrewGroups"},
+			{Auth: "members", UserRoles: "MembersRecordUserRoles"},
 		},
 	})
 }

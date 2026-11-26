@@ -210,7 +210,7 @@ func TestValidateStateEnumTables(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := r.validateStateEnumTables(tt.data)
+			err := r.validateStateEnumTables(&tt.data)
 			if tt.wantContain == "" {
 				if err != nil {
 					t.Fatalf("validateStateEnumTables() error = %v, want nil", err)

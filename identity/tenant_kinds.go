@@ -27,6 +27,11 @@ type TenantDeleteCosts struct {
 	Group       int
 	GroupMember int
 	GroupRole   int
+	// RecordMembership and RecordGroupRole are a row of each of the tables of the roles
+	// held on one record, a person's and a group's, with the change record its removal
+	// writes.
+	RecordMembership int
+	RecordGroupRole  int
 	// Role is a row of the roles table, a custom role. Its grants go by the database's
 	// rule with it.
 	Role int
@@ -46,12 +51,14 @@ type TenantDeleteCosts struct {
 
 // TenantKinds answers what the auth holds for a tenant as kinds of the tenant's delete
 // (resource.TakenKind): the accounts that are the tenant's alone, the roles held in it,
-// its groups, its custom roles and its invitations that still stand. The generated delete
-// of the tenant record hands them to the delete, which counts them in its question, asks
-// them before anything goes, and takes them in its rounds after the application's own
-// rows. An account is the tenant's alone where everything it holds is in the tenant, or
-// the tenant's directory manages it and it holds nothing elsewhere; a person who holds
-// anything elsewhere, or whom another tenant's directory manages, stays.
+// the roles held on its records, its groups, its custom roles and its invitations that
+// still stand. The generated delete of the tenant record hands them to the delete, which
+// counts them in its question, asks them before anything goes, and takes them in its
+// rounds after the application's own rows. An account is the tenant's alone where
+// everything it holds is in the tenant, a role on one of its records among it, or the
+// tenant's directory manages it and it holds nothing elsewhere; a person who holds
+// anything elsewhere, a role on another tenant's record among it, or whom another
+// tenant's directory manages, stays.
 //
 // Each kind reads its rows as the transaction reads them, every time it is asked, so a
 // row an earlier round took is not counted again. Each takes its rows in key order while
@@ -64,6 +71,7 @@ func (m *Manager) TenantKinds(domain accesstypes.Domain) []resource.TakenKind {
 	return []resource.TakenKind{
 		&tenantAccounts{held},
 		&tenantRolesHeld{held},
+		&tenantRecordRoles{held},
 		&tenantGroups{held},
 		&tenantCustomRoles{held},
 		&tenantInvitations{held},
@@ -105,11 +113,12 @@ type tenantAccount struct {
 }
 
 // accounts reads the accounts that are the tenant's alone, in key order: each person who
-// holds a membership in the tenant or a place in one of its groups, or whom the tenant's
-// directory manages, whose every membership is in the tenant and every place in one of
-// its groups, and whom no other tenant's directory manages. A person who holds a role for
-// the whole application, in every tenant or in another tenant stays, and so does an id
-// that is no account's.
+// holds a membership in the tenant, a place in one of its groups or a role on one of its
+// records, or whom the tenant's directory manages, whose every membership is in the
+// tenant, every place in one of its groups and every role on a record that has not ended
+// on one of its records, and whom no other tenant's directory manages. A person who holds
+// a role for the whole application, in every tenant, in another tenant or on another
+// tenant's record stays, and so does an id that is no account's.
 func (h *tenantHeld) accounts(ctx context.Context, txn resource.ReadWriteTransaction) ([]tenantAccount, error) {
 	store := h.manager.store
 	held, err := store.TenantMemberships(ctx, txn, h.domain)
@@ -124,9 +133,16 @@ func (h *tenantHeld) accounts(ctx context.Context, txn resource.ReadWriteTransac
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.DirectoryUsers()")
 	}
+	onRecords, _, err := store.TenantRecordRoles(ctx, txn, h.domain)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.TenantRecordRoles()")
+	}
 
-	people := make([]accesstypes.User, 0, len(held)+len(managed))
+	people := make([]accesstypes.User, 0, len(held)+len(managed)+len(onRecords))
 	for _, key := range held {
+		people = append(people, key.User)
+	}
+	for _, key := range onRecords {
 		people = append(people, key.User)
 	}
 	for _, id := range groups {
@@ -179,6 +195,13 @@ func (h *tenantHeld) alone(ctx context.Context, txn resource.ReadWriteTransactio
 		return nil, false, errors.Wrap(err, "identity.Store.UserGroups()")
 	}
 	if slices.ContainsFunc(places, func(place GroupPlace) bool { return !slices.Contains(groups, place.ID) }) {
+		return nil, false, nil
+	}
+	records, err := store.RecordMemberships(ctx, txn, id)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "identity.Store.RecordMemberships()")
+	}
+	if slices.ContainsFunc(records, func(key access.RecordMembershipKey) bool { return !recordHeldIn(&key, h.domain) }) {
 		return nil, false, nil
 	}
 	if elsewhere, err := h.manager.managedElsewhere(ctx, txn, id, h.domain); err != nil {
@@ -446,8 +469,68 @@ func (k *tenantRolesHeld) Take(ctx context.Context, txn resource.ReadWriteTransa
 	return rows, mutations, false, k.policyChanged(txn, rows)
 }
 
+// tenantRecordRoles is the kind of the roles held on the tenant's records: every role a
+// person holds on one, whatever its period, and every role a group kept anywhere but in
+// the tenant holds on one. The roles the tenant's own groups hold on its records go with
+// the groups, as their roles in the tenant do. A role an account of the tenant's alone
+// held on one of its records is taken here, after the account.
+type tenantRecordRoles struct {
+	*tenantHeld
+}
+
+// Words are what the question calls the roles held on the tenant's records.
+func (*tenantRecordRoles) Words() resource.DeleteWords {
+	return resource.DeleteWords{One: "role held on a record", Many: "roles held on records"}
+}
+
+// rolesHeld reads the roles people hold on the tenant's records and the ones groups kept
+// elsewhere hold there, each in key order.
+func (k *tenantRecordRoles) rolesHeld(ctx context.Context, txn resource.ReadWriteTransaction) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	store := k.manager.store
+	people, roles, err := store.TenantRecordRoles(ctx, txn, k.domain)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "identity.Store.TenantRecordRoles()")
+	}
+	groups, err := store.TenantGroups(ctx, txn, k.domain)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "identity.Store.TenantGroups()")
+	}
+	roles = slices.DeleteFunc(roles, func(key access.RecordGroupRoleKey) bool {
+		return slices.ContainsFunc(groups, func(id impulse.UUID) bool { return GroupID(id) == key.Group })
+	})
+
+	return people, roles, nil
+}
+
+// Count is the number of roles held on the tenant's records that the kind takes.
+func (k *tenantRecordRoles) Count(ctx context.Context, txn resource.ReadWriteTransaction) (int64, error) {
+	people, roles, err := k.rolesHeld(ctx, txn)
+	if err != nil {
+		return 0, err
+	}
+
+	return int64(len(people) + len(roles)), nil
+}
+
+// Check asks nothing: the tenant's delete asks one permission, to delete a tenant.
+func (k *tenantRecordRoles) Check(context.Context, resource.ReadWriteTransaction) error {
+	return nil
+}
+
+// Take takes the people's roles, then the groups', while the next one's cost fits the
+// budget: one row of its table each.
+func (k *tenantRecordRoles) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
+	people, roles, err := k.rolesHeld(ctx, txn)
+	if err != nil {
+		return 0, 0, false, err
+	}
+
+	return k.manager.takeRecordRoles(ctx, txn, people, roles, budget)
+}
+
 // tenantGroups is the kind of the groups kept in the tenant. One costs the group, its
-// members and its roles, which its own delete takes with it.
+// members, its roles and its roles on the tenant's records, which its own delete takes
+// with it.
 type tenantGroups struct {
 	*tenantHeld
 }
@@ -475,10 +558,10 @@ func (k *tenantGroups) Check(context.Context, resource.ReadWriteTransaction) err
 // Take deletes the groups in key order while the next one's cost fits the budget, each by
 // the store's delete of a group with everything under it. A group its own delete could not
 // take in one save leaves rows of the kind. A group whose cost does not fit what the round
-// has left is taken in part, its members and then its roles one at a time while the next
-// fits, and goes in the round in which the rest of it fits. The store's delete leaves the
-// application's rows out (DeleteGroupWithTenant): the tenant's delete took those under the
-// tenant before this kind is reached.
+// has left is taken in part, its members, then its roles and then its roles on records,
+// one at a time while the next fits, and goes in the round in which the rest of it fits.
+// The store's delete leaves the application's rows out (DeleteGroupWithTenant): the
+// tenant's delete took those under the tenant before this kind is reached.
 func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	store := k.manager.store
 	groups, err := store.TenantGroups(ctx, txn, k.domain)
@@ -486,6 +569,10 @@ func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransacti
 		return 0, 0, false, errors.Wrap(err, "identity.Store.TenantGroups()")
 	}
 	slices.SortFunc(groups, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
+	_, onRecords, err := store.TenantRecordRoles(ctx, txn, k.domain)
+	if err != nil {
+		return 0, 0, false, errors.Wrap(err, "identity.Store.TenantRecordRoles()")
+	}
 	costs := store.DeleteCosts()
 	for _, id := range groups {
 		members, err := store.GroupMembers(ctx, txn, id)
@@ -496,9 +583,10 @@ func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransacti
 		if err != nil {
 			return rows, mutations, false, errors.Wrap(err, "identity.Store.GroupRoles()")
 		}
-		cost := costs.Group + len(members)*costs.GroupMember + len(roles)*costs.GroupRole
+		held := slices.DeleteFunc(slices.Clone(onRecords), func(key access.RecordGroupRoleKey) bool { return key.Group != GroupID(id) })
+		cost := costs.Group + len(members)*costs.GroupMember + len(roles)*costs.GroupRole + len(held)*costs.RecordGroupRole
 		if mutations+cost > budget {
-			taken, spent, err := k.takeInPart(ctx, txn, id, members, roles, budget-mutations)
+			taken, spent, err := k.takeInPart(ctx, txn, id, &groupRows{members: members, roles: roles, onRecords: held}, budget-mutations)
 			if err != nil {
 				return rows, mutations + spent, false, err
 			}
@@ -519,14 +607,22 @@ func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransacti
 	return rows, mutations, false, k.policyChanged(txn, rows)
 }
 
+// groupRows are the rows a group's delete takes with it: its members, its roles and its
+// roles on records.
+type groupRows struct {
+	members   []accesstypes.User
+	roles     []access.GroupRoleKey
+	onRecords []access.RecordGroupRoleKey
+}
+
 // takeInPart deletes what fits the budget of a group too large for it: its members in key
-// order, then its roles in key order, one row each, while the next one's cost fits. The
-// group's own row stays for a later round. It reports the rows it deleted and their cost.
-func (k *tenantGroups) takeInPart(
-	ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, members []accesstypes.User, roles []access.GroupRoleKey, budget int,
-) (taken int64, mutations int, err error) {
+// order, then its roles in key order, then its roles on records in key order, one row
+// each, while the next one's cost fits. The group's own row stays for a later round. It
+// reports the rows it deleted and their cost.
+func (k *tenantGroups) takeInPart(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, rows *groupRows, budget int) (taken int64, mutations int, err error) {
 	store := k.manager.store
 	costs := store.DeleteCosts()
+	members, roles := rows.members, rows.roles
 	slices.SortFunc(members, func(a, b accesstypes.User) int { return strings.Compare(string(a), string(b)) })
 	slices.SortFunc(roles, func(a, b access.GroupRoleKey) int { return compareGroupRoles(&a, &b) })
 	for _, member := range members {
@@ -548,6 +644,16 @@ func (k *tenantGroups) takeInPart(
 		}
 		taken++
 		mutations += costs.GroupRole
+	}
+	for i := range rows.onRecords {
+		if mutations+costs.RecordGroupRole > budget {
+			return taken, mutations, nil
+		}
+		if err := store.DeleteRecordGroupRole(ctx, txn, &rows.onRecords[i]); err != nil {
+			return taken, mutations, errors.Wrap(err, "identity.Store.DeleteRecordGroupRole()")
+		}
+		taken++
+		mutations += costs.RecordGroupRole
 	}
 
 	return taken, mutations, nil

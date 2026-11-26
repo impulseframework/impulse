@@ -920,6 +920,10 @@ type auditRecordRow struct {
 	RoleName          spanner.NullString   `spanner:"RoleName"`
 	OtherRoleNames    []spanner.NullString `spanner:"OtherRoleNames"`
 	RoleScope         spanner.NullString   `spanner:"RoleScope"`
+	RecordKind        spanner.NullString   `spanner:"RecordKind"`
+	RecordID          spanner.NullString   `spanner:"RecordId"`
+	RecordWord        spanner.NullString   `spanner:"RecordWord"`
+	RecordName        spanner.NullString   `spanner:"RecordName"`
 	GroupID           spanner.NullString   `spanner:"GroupId"`
 	GroupName         spanner.NullString   `spanner:"GroupName"`
 	OldValue          spanner.NullString   `spanner:"OldValue"`
@@ -953,6 +957,7 @@ func (r *auditRecordRow) stored() *auditlog.Stored {
 		},
 		Directory: r.Directory.StringVal, SubjectKind: auditlog.SubjectKind(r.SubjectKind), SubjectID: r.SubjectID, SubjectName: r.SubjectName.StringVal,
 		TenantID: r.TenantID.StringVal, TenantName: r.TenantName.StringVal, RoleNames: roles, RoleScope: auditlog.RoleScope(r.RoleScope.StringVal),
+		RecordKind: r.RecordKind.StringVal, RecordID: r.RecordID.StringVal, RecordWord: r.RecordWord.StringVal, RecordName: r.RecordName.StringVal,
 		GroupID: r.GroupID.StringVal, GroupName: r.GroupName.StringVal, OldValue: r.OldValue.StringVal, NewValue: r.NewValue.StringVal,
 		PeriodStart: r.PeriodStart.Time, PeriodEnd: r.PeriodEnd.Time,
 		SeatingTenantID: r.SeatingTenantID.StringVal, SeatingTenantName: r.SeatingTenantName.StringVal, Reason: r.Reason.StringVal,
@@ -1033,12 +1038,13 @@ func (store) DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransacti
 // table the schema does not hold costs nothing (identity.Store.DeleteCosts).
 func (store) DeleteCosts() identity.TenantDeleteCosts {
 	return identity.TenantDeleteCosts{
-		Membership: resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		Role:       resource.DeleteCost{IndexEntries: 0}.Mutations(false),
-		Identity:   resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		User:       resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		Invitation: 4,
-		SessionEnd: 3,
+		Membership:       resource.DeleteCost{IndexEntries: 1}.Mutations(false),
+		Role:             resource.DeleteCost{IndexEntries: 0}.Mutations(false),
+		Identity:         resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		User:             resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		RecordMembership: resource.DeleteCost{IndexEntries: 1}.Mutations(true),
+		Invitation:       4,
+		SessionEnd:       3,
 	}
 }
 
@@ -1204,9 +1210,23 @@ func (store) GroupsHolding(context.Context, resource.ReadWriteTransaction, *acce
 	return nil, nil
 }
 
-// TenantPerson is asked by the rules of a tenant's group alone, and here there are no
-// groups.
-func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
+// TenantPerson reads the tenant's own list of the auth's people, MembersSectorUser, by
+// the two columns that name a row within its tenant: the account's id and the tenant.
+// It is the list a tenant's method names a person from, so a person found here is one
+// the generated frame of such a method finds.
+func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	clause := membersresources.NewMembersSectorUserQueryClause()
+	query := membersresources.NewMembersSectorUserQuery().
+		AddColumns(membersresources.NewMembersSectorUserColumns().ID()).
+		Where(clause.ID().Equal(userID).And().DomainID().Equal(string(domain)))
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return false, errors.Wrap(err, "membersresources.MembersSectorUserQuery.List()")
+		}
+
+		return true, nil
+	}
+
 	return false, nil
 }
 
@@ -1325,4 +1345,51 @@ func (store) SetGroupRolePeriod(context.Context, resource.ReadWriteTransaction, 
 
 func (store) GroupPeriods(context.Context, resource.ReadOnlyTransaction, impulse.UUID) (*identity.GroupPeriods, error) {
 	return &identity.GroupPeriods{}, nil
+}
+
+// errNoRecordRoles answers a call that gives or takes a role on a record for an auth whose
+// role file holds no role on a record the application marks: the generator declared
+// neither table of the roles held on a record, and the tables hold no row.
+var errNoRecordRoles = errors.New("no record of this application holds roles: mark one with @holdsRoles and name it in a role's heldOn")
+
+func (store) SetRecordMembership(context.Context, resource.ReadWriteTransaction, *access.RecordMembershipKey, accesstypes.Period) error {
+	return errNoRecordRoles
+}
+
+func (store) DeleteRecordMembership(context.Context, resource.ReadWriteTransaction, *access.RecordMembershipKey) error {
+	return errNoRecordRoles
+}
+
+func (store) SetRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey, accesstypes.Period) error {
+	return errNoRecordRoles
+}
+
+func (store) DeleteRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey) error {
+	return errNoRecordRoles
+}
+
+// Nobody holds a role on a record no role can be held on.
+
+func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	return nil, nil, nil
+}
+
+func (store) RecordPeriods(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (*identity.RecordPeriods, error) {
+	return &identity.RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}, nil
+}
+
+func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
+	return nil, nil, nil
+}
+
+func (store) RecordMemberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordMembershipKey, error) {
+	return nil, nil
+}
+
+func (store) GroupRecordRoles(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordGroupRoleKey, error) {
+	return nil, nil
+}
+
+func (store) RecordNamed(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (string, string, error) {
+	return "", "", errNoRecordRoles
 }

@@ -95,6 +95,12 @@ var recordedMethods = map[string]recordRule{
 	"Tenant.GiveGroupRole":      {by: "Manager.GiveGroupRoleFor"},
 	"Tenant.TakeGroupRole":      {by: "Manager.TakeGroupRole"},
 
+	// A role on one record of a tenant.
+	"Tenant.GiveRoleOn":      {acts: []auditlog.Act{auditlog.ActRoleGiven}},
+	"Tenant.TakeRoleOn":      {acts: []auditlog.Act{auditlog.ActRoleTaken}},
+	"Tenant.GiveGroupRoleOn": {acts: []auditlog.Act{auditlog.ActGroupRoleGiven}},
+	"Tenant.TakeGroupRoleOn": {acts: []auditlog.Act{auditlog.ActGroupRoleTaken}},
+
 	// An invitation.
 	"Manager.Invite":                   {acts: []auditlog.Act{auditlog.ActInvited}},
 	"Manager.InviteTenant":             {acts: []auditlog.Act{auditlog.ActInvited}},
@@ -127,6 +133,10 @@ var recordedMethods = map[string]recordRule{
 	// A tenant's delete: the accounts that were its alone.
 	"Manager.TenantKinds": {acts: []auditlog.Act{auditlog.ActAccountDeleted}},
 
+	// A record's delete: the roles held on the record go with it and have no row of their
+	// own, as a deleted group's members and roles have none.
+	"Manager.RecordKinds": {none: noRowNoAct},
+
 	// What is wired once.
 	"Manager.AnnounceWith": {none: noRowNoAct},
 
@@ -141,6 +151,7 @@ var recordedMethods = map[string]recordRule{
 	"Manager.DirectoryRoles":                   {none: noRowReads},
 	"Manager.GivableGroupRoles":                {none: noRowReads},
 	"Manager.GivableRoles":                     {none: noRowReads},
+	"Manager.GivableRecordRoles":               {none: noRowReads},
 	"Manager.GroupMemberRemovalWarning":        {none: noRowReads},
 	"Manager.HoldsTenant":                      {none: noRowReads},
 	"Manager.InvitedTenants":                   {none: noRowReads},

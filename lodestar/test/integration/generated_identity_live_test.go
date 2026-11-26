@@ -125,8 +125,9 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	// the memberships. The list of sectors names each sector's administrators from the
 	// users table. The list of the mailed links and a sector's list of its
 	// invitations name an invitation's sender from the users table, the list of the
-	// failed sign-ins the account that holds a name or that a count is kept for, and the
-	// list of the sessions the person under their present username and name.
+	// failed sign-ins the account that holds a name or that a count is kept for, the list
+	// of the sessions the person under their present username and name, and the list of
+	// a mission's holders each person who holds a role on it.
 	named := []live.WholeChange{
 		{Resource: "CrewGroupUsers", AllDomains: true},
 		{Resource: "CrewHeldRoles", AllDomains: true},
@@ -136,6 +137,7 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 		{Resource: "CrewListedSessions", AllDomains: true},
 		{Resource: "CrewListedSignInAttempts", AllDomains: true},
 		{Resource: "CrewListedUsers", AllDomains: true},
+		{Resource: "CrewMissionHolders", AllDomains: true},
 		{Resource: "CrewSectorGroupUsers", AllDomains: true},
 		{Resource: "CrewSectorHeldRoles", AllDomains: true},
 		{Resource: crewSectorIdentities, AllDomains: true},

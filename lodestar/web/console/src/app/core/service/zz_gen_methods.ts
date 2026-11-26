@@ -515,6 +515,40 @@ export interface GiveCrewGroupRole {
 /** The statuses GiveCrewGroupRole declares; the method chooses one per response. */
 export type GiveCrewGroupRoleStatus = 204;
 
+export interface GiveCrewGroupRoleOnMissionConfig {
+  recordId: string | FieldPointer;
+  groupId: string | FieldPointer;
+  role: string | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
+}
+export interface GiveCrewGroupRoleOnMission {
+  recordId: string;
+  groupId: string;
+  role: string;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+/** The statuses GiveCrewGroupRoleOnMission declares; the method chooses one per response. */
+export type GiveCrewGroupRoleOnMissionStatus = 204;
+
+export interface GiveCrewRoleOnMissionConfig {
+  recordId: string | FieldPointer;
+  userId: string | FieldPointer;
+  role: string | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
+}
+export interface GiveCrewRoleOnMission {
+  recordId: string;
+  userId: string;
+  role: string;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+/** The statuses GiveCrewRoleOnMission declares; the method chooses one per response. */
+export type GiveCrewRoleOnMissionStatus = 204;
+
 export interface GiveCrewSectorGroupRoleConfig {
   groupId: string | FieldPointer;
   role: string | FieldPointer;
@@ -1129,6 +1163,19 @@ export interface TakeCrewGroupRole {
 /** The statuses TakeCrewGroupRole declares; the method chooses one per response. */
 export type TakeCrewGroupRoleStatus = 204;
 
+export interface TakeCrewGroupRoleOnMissionConfig {
+  recordId: string | FieldPointer;
+  groupId: string | FieldPointer;
+  role: string | FieldPointer;
+}
+export interface TakeCrewGroupRoleOnMission {
+  recordId: string;
+  groupId: string;
+  role: string;
+}
+/** The statuses TakeCrewGroupRoleOnMission declares; the method chooses one per response. */
+export type TakeCrewGroupRoleOnMissionStatus = 204;
+
 export interface TakeCrewRoleConfig {
   domain: string | FieldPointer;
   role: string | FieldPointer;
@@ -1143,6 +1190,19 @@ export interface TakeCrewRole {
 }
 /** The statuses TakeCrewRole declares; the method chooses one per response. */
 export type TakeCrewRoleStatus = 204;
+
+export interface TakeCrewRoleOnMissionConfig {
+  recordId: string | FieldPointer;
+  userId: string | FieldPointer;
+  role: string | FieldPointer;
+}
+export interface TakeCrewRoleOnMission {
+  recordId: string;
+  userId: string;
+  role: string;
+}
+/** The statuses TakeCrewRoleOnMission declares; the method chooses one per response. */
+export type TakeCrewRoleOnMissionStatus = 204;
 
 export interface TakeCrewSectorGroupRoleConfig {
   groupId: string | FieldPointer;
@@ -1772,6 +1832,32 @@ const methodMap: MethodMap = {
       { fieldName: 'endsAt', displayType: 'date', optional: true },
     ],
   },
+  [Methods.GiveCrewGroupRoleOnMission]: {
+    route: 'give-crew-group-role-on-mission',
+    target: { resource: Resources.Missions, key: { recordId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'recordId', displayType: 'uuid' },
+      { fieldName: 'groupId', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorGroups },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewMissionRoles, required: true, attribute: 'role' },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
+  [Methods.GiveCrewRoleOnMission]: {
+    route: 'give-crew-role-on-mission',
+    target: { resource: Resources.Missions, key: { recordId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'recordId', displayType: 'uuid' },
+      { fieldName: 'userId', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorUsers },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewMissionRoles, required: true, attribute: 'role' },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
   [Methods.GiveCrewSectorGroupRole]: {
     route: 'give-crew-sector-group-role',
     target: { resource: Resources.CrewSectorGroups, key: { groupId: 'id' } },
@@ -2312,6 +2398,17 @@ const methodMap: MethodMap = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
     ],
   },
+  [Methods.TakeCrewGroupRoleOnMission]: {
+    route: 'take-crew-group-role-on-mission',
+    target: { resource: Resources.Missions, key: { recordId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'recordId', displayType: 'uuid' },
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
+    ],
+  },
   [Methods.TakeCrewRole]: {
     route: 'take-crew-role',
     statuses: [204],
@@ -2321,6 +2418,17 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewTakeableRoles, required: true, attribute: 'role' },
       { fieldName: 'length', displayType: 'enumerated', enumeratedResource: Resources.CrewTakeLengths, required: true },
       { fieldName: 'reason', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.TakeCrewRoleOnMission]: {
+    route: 'take-crew-role-on-mission',
+    target: { resource: Resources.Missions, key: { recordId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'recordId', displayType: 'uuid' },
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
     ],
   },
   [Methods.TakeCrewSectorGroupRole]: {

@@ -67,6 +67,45 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 	return settled(gate, "AssignCrewRole")
 }
 
+// MayGiveOn reports whether the caller may give the person the role on the record. A
+// request made under a tenant gives a role on a record of that tenant alone, asked of the
+// method that gives a person a role on one record of the kind, with the person and the
+// role:
+//
+//	GiveCrewRoleOnMission
+//
+// Where what is left of the grant's condition reads the record, it is read against the
+// record named, the row the method's own frame reads it against. A request made for the
+// whole application, a record of another tenant, and a kind no method gives a role on are
+// a no.
+func (grants) MayGiveOn(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
+	caller := resource.CallerFrom(ctx)
+	if tenant, inTenant := caller.Scope.Domain(); !inTenant || at.Domain() != tenant {
+		return false, nil
+	}
+	var (
+		method  accesstypes.Resource
+		request any
+		target  resource.ExecuteTarget
+	)
+	switch at.Resource() {
+	case "Missions":
+		method, request = GiveCrewRoleOnMission{}.Method(), &GiveCrewRoleOnMission{UserID: userID, Role: string(role)}
+		target = resource.ExecuteTarget{Resource: "Missions", Label: "Mission", PKColumns: []string{"Id"}}
+	default:
+		return false, nil
+	}
+	gate, err := caller.ExecuteGate(ctx, method, request)
+	if err != nil {
+		return granted(err)
+	}
+	if may, settled := gate.Settled(); settled {
+		return may, nil
+	}
+
+	return granted(gate.Enforce(ctx, txn, target, at.Record()))
+}
+
 // CouldGive reports whether the caller could give the role in the scope by hand, to
 // somebody, with the method named: the question of the list a role is picked from,
 // asked for the method whose dialog picks, before anybody is named, with no row to read
@@ -81,6 +120,12 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 // The answer is yes where the method does not refuse the caller the role: its grant
 // admits the role, or what is left of the grant's condition reads the row the method
 // names (a person, a group), so the role could be given to some of them.
+//
+// The methods that give a role on one record of the tenant are asked the same way, with
+// the role alone, for the list a role on a record is picked from; what is left of the
+// grant's condition there reads the record:
+//
+//	GiveCrewRoleOnMission, GiveCrewGroupRoleOnMission
 //
 // For a request made for the whole application, the method is one of the whole
 // application's whose role field picks from the roles to give
@@ -109,9 +154,13 @@ func (g grants) CouldGive(ctx context.Context, method accesstypes.Resource, scop
 			return couldGiveBy(ctx, caller, method, &InviteCrewSectorUser{Roles: []string{string(role)}})
 		case GiveCrewSectorGroupRole{}.Method():
 			return couldGiveBy(ctx, caller, method, &GiveCrewSectorGroupRole{Role: string(role)})
+		case GiveCrewRoleOnMission{}.Method():
+			return couldGiveBy(ctx, caller, method, &GiveCrewRoleOnMission{Role: string(role)})
+		case GiveCrewGroupRoleOnMission{}.Method():
+			return couldGiveBy(ctx, caller, method, &GiveCrewGroupRoleOnMission{Role: string(role)})
 		}
 
-		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: AssignCrewSectorRole, InviteCrewSectorUser, GiveCrewSectorGroupRole", method)
+		return false, errors.Newf("%s is no method of a tenant that gives a role by hand: AssignCrewSectorRole, InviteCrewSectorUser, GiveCrewSectorGroupRole, GiveCrewRoleOnMission, GiveCrewGroupRoleOnMission", method)
 	}
 
 	domain, everyDomain := scopeFields(scope)

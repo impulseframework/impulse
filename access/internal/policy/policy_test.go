@@ -499,3 +499,73 @@ func Test_CaseTwinError(t *testing.T) {
 		t.Errorf("Error() = %q, want %q", got, want)
 	}
 }
+
+// Test_Records_Hash_recordMemberships pins that a role held on a record is policy: its
+// row, each of its columns and its period change the hash, and the order rows come in
+// does not.
+func Test_Records_Hash_recordMemberships(t *testing.T) {
+	t.Parallel()
+
+	noon := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	project := accesstypes.NewRecordScope("tenant1", "Projects", "p-1")
+	held := func(rows ...RecordMembership) *Records {
+		return &Records{RecordMemberships: rows}
+	}
+	erin := RecordMembership{Scope: project, Member: Subject{Kind: SubjectUser, Name: "erin"}, Role: "ProjectEditor"}
+	night := RecordMembership{Scope: project, Member: Subject{Kind: SubjectGroup, Name: "night"}, Role: "ProjectEditor"}
+
+	if held(erin, night).Hash() != held(night, erin).Hash() {
+		t.Error("the rows' order changes the hash")
+	}
+	seen := map[[32]byte]string{held().Hash(): "no row", held(erin).Hash(): "erin's row"}
+	changed := func(change func(*RecordMembership)) *Records {
+		m := erin
+		change(&m)
+
+		return held(m)
+	}
+	for name, r := range map[string]*Records{
+		"another tenant":  changed(func(m *RecordMembership) { m.Scope = accesstypes.NewRecordScope("tenant2", "Projects", "p-1") }),
+		"another kind":    changed(func(m *RecordMembership) { m.Scope = accesstypes.NewRecordScope("tenant1", "Clients", "p-1") }),
+		"another record":  changed(func(m *RecordMembership) { m.Scope = accesstypes.NewRecordScope("tenant1", "Projects", "p-2") }),
+		"a group":         changed(func(m *RecordMembership) { m.Member.Kind = SubjectGroup }),
+		"another person":  changed(func(m *RecordMembership) { m.Member.Name = "bob" }),
+		"another role":    changed(func(m *RecordMembership) { m.Role = "ProjectViewer" }),
+		"an end":          changed(func(m *RecordMembership) { m.Period = accesstypes.Period{End: noon} }),
+		"a start":         changed(func(m *RecordMembership) { m.Period = accesstypes.Period{Start: noon} }),
+		"two rows":        held(erin, night),
+		"a tenant's role": {Memberships: []Membership{{Scope: accesstypes.DomainPolicyScope("tenant1"), Member: erin.Member, Role: erin.Role}}},
+	} {
+		if other, ok := seen[r.Hash()]; ok {
+			t.Errorf("%s hashes as %s does", name, other)
+		}
+		seen[r.Hash()] = name
+	}
+}
+
+// Test_RecordColumns_roundTrip pins how the stores spell the record a role is held on,
+// and that a row under an axis this build cannot name is refused.
+func Test_RecordColumns_roundTrip(t *testing.T) {
+	t.Parallel()
+
+	for _, record := range []accesstypes.RecordScope{
+		accesstypes.NewRecordScope("tenant1", "Projects", "p-1"),
+		accesstypes.NewRecordScope("global", "Projects", "a key with spaces"),
+		{},
+	} {
+		axis, domain, resource, key := RecordColumns(record)
+		if axis != "" || domain != string(record.Domain()) || resource != string(record.Resource()) || key != record.Record() {
+			t.Errorf("RecordColumns(%v) = (%q, %q, %q, %q), want the default axis and the record's parts", record, axis, domain, resource, key)
+		}
+		got, err := RecordFromColumns(axis, domain, resource, key)
+		if err != nil {
+			t.Fatalf("RecordFromColumns() error = %v", err)
+		}
+		if got != record {
+			t.Errorf("RecordFromColumns() = %v, want %v", got, record)
+		}
+	}
+	if got, err := RecordFromColumns("region", "tenant1", "Projects", "p-1"); err == nil || !strings.Contains(err.Error(), "region") {
+		t.Errorf("RecordFromColumns() under a named axis = (%v, %v), want it refused naming the axis", got, err)
+	}
+}

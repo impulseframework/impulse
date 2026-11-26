@@ -1852,14 +1852,18 @@ describe('ResourceListComponent', () => {
     describe('over a computed resource, offers no box the server would refuse', () => {
       // The server searches a computed resource over its real values, so it refuses the
       // whole search unless the caller holds every searched field with no condition left
-      // once the request is checked: a field the digest does not list, or lists as
-      // conditional (not always seen), withholds the box. A field listed as
-      // conditionalOnTime keeps it: the server settles that grant from the time of the request.
+      // once the request is checked, or under the list's own condition: a field the digest
+      // does not list, or lists as conditional (not always seen), withholds the box. A field
+      // listed as conditionalOnTime keeps it: the server settles that grant from the time of
+      // the request. So does one listed as conditionalWithResource: the server reads it only
+      // on the rows it shows.
       const refused = (): string | undefined =>
         (fixture.nativeElement as HTMLElement)
           .querySelector('.impulse-resource-list-search-refused')
           ?.textContent?.trim();
-      const listing = (name: 'granted' | 'conditional' | 'conditionalOnTime' | 'absent'): PermissionDigest => ({
+      const listing = (
+        name: 'granted' | 'conditional' | 'conditionalOnTime' | 'conditionalWithResource' | 'absent',
+      ): PermissionDigest => ({
         [clients]: { List: 'granted' },
         [`${clients}.id`]: { List: 'granted' },
         ...(name === 'absent' ? {} : { [`${clients}.name`]: { List: name } }),
@@ -1924,6 +1928,12 @@ describe('ResourceListComponent', () => {
 
       it('a searched field listed as conditionalOnTime: the box, and no sentence', async () => {
         await createUnder(listing('conditionalOnTime'), true);
+        expect(box()).not.toBeNull();
+        expect(refused()).toBeUndefined();
+      });
+
+      it('a searched field listed as conditionalWithResource: the box, and no sentence', async () => {
+        await createUnder(listing('conditionalWithResource'), true);
         expect(box()).not.toBeNull();
         expect(refused()).toBeUndefined();
       });

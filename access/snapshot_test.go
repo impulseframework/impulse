@@ -2003,12 +2003,13 @@ func Test_snapshot_userDigest(t *testing.T) {
 		want  accesstypes.PermissionDigest
 	}{
 		{
-			name:  "endpoint and field entries with the conditional tri-state",
+			// The name's Update is held under the endpoint's one condition alone.
+			name:  "endpoint and field entries with their conditional states",
 			user:  "erin",
 			scope: tenant1,
 			want: accesstypes.PermissionDigest{
 				"employees":      {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditional},
-				"employees.name": {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditional},
+				"employees.name": {"Read": accesstypes.DigestGranted, "Update": accesstypes.DigestConditionalWithResource},
 			},
 		},
 		{
@@ -2173,6 +2174,91 @@ func Test_snapshot_userDigest_declaredFields(t *testing.T) {
 				case !listed && (decision.granted || len(decision.conditions) > 0):
 					t.Errorf("List on %s for %s: the digest leaves it out, the check answers granted %v under %v", fields[i], tt.user, decision.granted, decision.conditions)
 				}
+			}
+		})
+	}
+}
+
+// Test_snapshot_userDigest_conditionalWithResource pins the digest's fourth state: a
+// field only conditional grants cover, which are as a set the very grants that cover
+// its resource, where nothing covers the resource outright, is conditional with its
+// resource; the resource itself stays conditional. A field held under one more
+// condition, and a conditional field of a resource granted outright, stay conditional.
+func Test_snapshot_userDigest_conditionalWithResource(t *testing.T) {
+	t.Parallel()
+
+	tenant1 := accesstypes.DomainScope("tenant1")
+	snap := compileSnapshot(t, &policy.Records{
+		Grants: []policy.Grant{
+			// Keeper: List on projects and two of its fields, under one condition.
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Keeper"), Perm: "List", Resource: "projects", Condition: "status = 'open'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Keeper"), Perm: "List", Resource: "projects", Field: "name", Condition: "status = 'open'"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Keeper"), Perm: "List", Resource: "projects", Field: "owner", Condition: "status = 'open'"},
+			// Noter: one more grant of the owner alone, under another condition.
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Noter"), Perm: "List", Resource: "projects", Field: "owner", Condition: "status = 'closed'"},
+			// Opener: List on widgets outright, and its label under a condition.
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Opener"), Perm: "List", Resource: "widgets"},
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Opener"), Perm: "List", Resource: "widgets", Field: "label", Condition: "status = 'open'"},
+			// Wider: List on widgets under the label's condition, beside Opener's outright.
+			{Scope: tenant1.PolicyScope(), Subject: roleSubject("Wider"), Perm: "List", Resource: "widgets", Condition: "status = 'open'"},
+		},
+		Memberships: []policy.Membership{
+			{Scope: tenant1.PolicyScope(), Member: userSubject("kim"), Role: "Keeper"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("noel"), Role: "Keeper"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("noel"), Role: "Noter"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("olga"), Role: "Opener"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("otto"), Role: "Opener"},
+			{Scope: tenant1.PolicyScope(), Member: userSubject("otto"), Role: "Wider"},
+		},
+	})
+
+	tests := []struct {
+		name string
+		user accesstypes.User
+		want accesstypes.PermissionDigest
+	}{
+		{
+			name: "a field held under the resource's one condition is conditional with its resource",
+			user: "kim",
+			want: accesstypes.PermissionDigest{
+				"projects":       {"List": accesstypes.DigestConditional},
+				"projects.name":  {"List": accesstypes.DigestConditionalWithResource},
+				"projects.owner": {"List": accesstypes.DigestConditionalWithResource},
+			},
+		},
+		{
+			name: "a field held under one more condition is conditional",
+			user: "noel",
+			want: accesstypes.PermissionDigest{
+				"projects":       {"List": accesstypes.DigestConditional},
+				"projects.name":  {"List": accesstypes.DigestConditionalWithResource},
+				"projects.owner": {"List": accesstypes.DigestConditional},
+			},
+		},
+		{
+			name: "a conditional field of a resource granted outright is conditional",
+			user: "olga",
+			want: accesstypes.PermissionDigest{
+				"widgets":       {"List": accesstypes.DigestGranted},
+				"widgets.label": {"List": accesstypes.DigestConditional},
+			},
+		},
+		{
+			name: "a field held under the resource's condition, where the resource is also granted outright, is conditional",
+			user: "otto",
+			want: accesstypes.PermissionDigest{
+				"widgets":       {"List": accesstypes.DigestGranted},
+				"widgets.label": {"List": accesstypes.DigestConditional},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := snap.userDigest(tenant1, tt.user)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("userDigest(%s, %s) mismatch (-want +got):\n%s", tenant1, tt.user, diff)
 			}
 		})
 	}

@@ -32,6 +32,9 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 		CreatedAt                 time.Time    `json:"createdAt"`
 		LastSignInAt              *time.Time   `json:"lastSignInAt"`
 		Roles                     []string     `json:"roles"`
+		RecordsHeld               int64        `json:"recordsHeld"`
+		RecordsHeldKind           string       `json:"recordsHeldKind"`
+		RecordHeldName            string       `json:"recordHeldName"`
 		LockedUntil               *time.Time   `json:"lockedUntil"`
 		HeldElsewhere             bool         `json:"heldElsewhere"             index:"true"`
 		HeldGlobally              bool         `json:"heldGlobally"              index:"true"`
@@ -133,6 +136,18 @@ func (h *Handlers) CrewSectorUsers() http.HandlerFunc {
 					if !row.Masked("roles") {
 						rmap["roles"] = rec.Roles
 					}
+				case "RecordsHeld":
+					if !row.Masked("recordsHeld") {
+						rmap["recordsHeld"] = rec.RecordsHeld
+					}
+				case "RecordsHeldKind":
+					if !row.Masked("recordsHeldKind") {
+						rmap["recordsHeldKind"] = rec.RecordsHeldKind
+					}
+				case "RecordHeldName":
+					if !row.Masked("recordHeldName") {
+						rmap["recordHeldName"] = rec.RecordHeldName
+					}
 				case "LockedUntil":
 					if !row.Masked("lockedUntil") {
 						rmap["lockedUntil"] = rec.LockedUntil
@@ -208,6 +223,9 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 		CreatedAt                 time.Time    `json:"createdAt"`
 		LastSignInAt              *time.Time   `json:"lastSignInAt"`
 		Roles                     []string     `json:"roles"`
+		RecordsHeld               int64        `json:"recordsHeld"`
+		RecordsHeldKind           string       `json:"recordsHeldKind"`
+		RecordHeldName            string       `json:"recordHeldName"`
 		LockedUntil               *time.Time   `json:"lockedUntil"`
 		HeldElsewhere             bool         `json:"heldElsewhere"`
 		HeldGlobally              bool         `json:"heldGlobally"`
@@ -296,6 +314,18 @@ func (h *Handlers) CrewSectorUser() http.HandlerFunc {
 			case "Roles":
 				if !row.Masked("roles") {
 					rmap["roles"] = rec.Roles
+				}
+			case "RecordsHeld":
+				if !row.Masked("recordsHeld") {
+					rmap["recordsHeld"] = rec.RecordsHeld
+				}
+			case "RecordsHeldKind":
+				if !row.Masked("recordsHeldKind") {
+					rmap["recordsHeldKind"] = rec.RecordsHeldKind
+				}
+			case "RecordHeldName":
+				if !row.Masked("recordHeldName") {
+					rmap["recordHeldName"] = rec.RecordHeldName
 				}
 			case "LockedUntil":
 				if !row.Masked("lockedUntil") {

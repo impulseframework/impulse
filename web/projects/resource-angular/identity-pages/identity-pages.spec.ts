@@ -3029,6 +3029,23 @@ describe('identityPages, the people lists say what each person holds, and a lock
       expect([roles.lines, roles.filterable]).toEqual([true, false]);
       expect(hiddenColumns(list(config))).toContain('lockedUntil');
     });
+
+    it(`${side} draws each line of the Roles and the State whole, over as many lines as its words take`, () => {
+      // A role held on one record is said by the record's name ("Mission Apollo only"), and
+      // a state by a sentence ("Also holds a role in the whole application"): longer than a
+      // column of one line holds, so each line wraps and none is cut short.
+      for (const id of ['roles', 'disabled']) {
+        const column = columnOf(list(config), id);
+        expect([id, column.lines, column.wraps]).toEqual([id, true, true]);
+      }
+    });
+
+    it(`${side} draws each email address whole`, () => {
+      // A people list is read for who someone is, and an address cut short hides its
+      // domain. An address is one word: the column that wraps is as wide as the longest
+      // while the frame holds it, and breaks one only where the frame cannot.
+      expect(columnOf(list(config), 'email').wraps).toBe(true);
+    });
   }
 
   it('draws no Roles column and reads no lock where the server says neither', () => {
@@ -3111,6 +3128,87 @@ describe('identityPages, the people lists say what each person holds, and a lock
 // Where the application has tenants, the whole application's list says which tenant
 // manages each account, and a tenant's list says of a person that another tenant's
 // directory signs them in. Which methods a row offers is the server's answer for the row.
+describe("identityPages, a person who holds only a role on some of the tenant's records", () => {
+  // The tenant's people list as a server serves it where the Auth's role file holds a role
+  // on a record: what each person holds, and the records they hold a role on.
+  const holding = (resource: Resource): ResourceMeta =>
+    resource === 'CrewSectorUsers'
+      ? fields(
+          ...metas[resource].fields.map((field) => field.fieldName),
+          'roles',
+          'recordsHeld',
+          'recordsHeldKind',
+          'recordHeldName',
+        )
+      : metas[resource];
+  const sharing = [
+    {
+      record: 'Missions',
+      one: 'mission',
+      many: 'missions',
+      holders: 'CrewMissionHolders',
+      roles: 'CrewMissionRoles',
+      give: 'GiveCrewRoleOnMission',
+      take: 'TakeCrewRoleOnMission',
+    },
+  ];
+  const sharedCrew: IdentityDescriptor = {
+    ...crew,
+    sides: crew.sides.map((side) => (side.scope === 'domain' ? { ...side, sharing } : side)),
+  };
+  const [people] = identityPages({ ...descriptor, identity: [sharedCrew, members, staff] }, holding, {
+    auth: 'Crew',
+    scope: 'domain',
+  });
+  const cell = (row: RecordData): unknown => columnOf(list(people), 'roles').valueGetter?.(row, noReader);
+  const none = { roles: [] };
+
+  it('reads the records a person holds a role on without drawing them', () => {
+    expect(hiddenColumns(list(people))).toEqual(
+      expect.arrayContaining(['recordsHeld', 'recordsHeldKind', 'recordHeldName']),
+    );
+  });
+
+  it('says one record with a name by its word and name, and one without by the count', () => {
+    expect(cell({ ...none, recordsHeld: 1, recordsHeldKind: 'Missions', recordHeldName: 'Apollo' })).toEqual([
+      'Mission Apollo only',
+    ]);
+    expect(cell({ ...none, recordsHeld: 1, recordsHeldKind: 'Missions', recordHeldName: '' })).toEqual([
+      '1 mission only',
+    ]);
+  });
+
+  it('counts several of one kind by the kind, and several of more than one as records', () => {
+    expect(cell({ ...none, recordsHeld: 3, recordsHeldKind: 'Missions', recordHeldName: '' })).toEqual([
+      '3 missions only',
+    ]);
+    expect(cell({ ...none, recordsHeld: 3, recordsHeldKind: '', recordHeldName: '' })).toEqual(['3 records only']);
+  });
+
+  it('leaves the roles of a person who holds one in the tenant as they are, records or not', () => {
+    expect(cell({ roles: ['Navigator'], recordsHeld: 2, recordsHeldKind: 'Missions', recordHeldName: '' })).toEqual([
+      'Navigator',
+    ]);
+    expect(cell({ ...none, recordsHeld: 0, recordsHeldKind: '', recordHeldName: '' })).toEqual([]);
+  });
+
+  it('writes no getter where the list says no records', () => {
+    const [plain] = identityPages(
+      { ...descriptor },
+      (resource) =>
+        resource === 'CrewSectorUsers'
+          ? fields(...metas[resource].fields.map((field) => field.fieldName), 'roles')
+          : metas[resource],
+      {
+        auth: 'Crew',
+        scope: 'domain',
+      },
+    );
+    expect(columnOf(list(plain), 'roles').valueGetter).toBeUndefined();
+    expect(hiddenColumns(list(plain))).not.toContain('recordsHeld');
+  });
+});
+
 describe('identityPages, who manages an account', () => {
   // The people lists as a server serves them with what each person holds and who manages their account.
   const managing = (resource: Resource): ResourceMeta => {

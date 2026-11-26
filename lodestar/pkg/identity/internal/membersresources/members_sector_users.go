@@ -24,10 +24,10 @@ type (
 	//
 	// Six columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
-	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
-	// (heldGlobally) says the person holds a role for the whole application. HeldHere
-	// (heldHere) says the person holds something in this tenant itself, a role of their own
-	// or a place in one of its groups: a person listed only through a role held in every
+	// role outside this tenant's own: in another tenant, or in every tenant.
+	// HeldGlobally (heldGlobally) says the person holds a role for the whole application.
+	// HeldHere (heldHere) says the person holds something in this tenant itself, a role of
+	// their own or a place in one of its groups: a person listed only through a role held in every
 	// tenant, or through a group kept for the whole application, holds nothing here, and
 	// the removal from the tenant has nothing of theirs to take. HeldInEveryTenant
 	// (heldInEveryTenant) says the person holds a role in every tenant at once, which is

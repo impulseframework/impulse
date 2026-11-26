@@ -28,6 +28,7 @@ const METHOD_TERMS: Record<PermissionDigestState, string> = {
   granted: '',
   conditional: ' · terms apply',
   conditionalOnTime: ' · at certain times',
+  conditionalWithResource: ' · terms apply',
 };
 
 /**

@@ -15,7 +15,9 @@ const (
 	// for that reason: written as one, with the two kinds under an OR, the database read
 	// the memberships table by its key for every listed person (measured on Spanner).
 	// Where the auth keeps groups, a place in a group counts as a role held where the
-	// group is kept (identityGroupPersonElsewhere, identityGroupPersonGlobally).
+	// group is kept (identityGroupPersonElsewhere, identityGroupPersonGlobally). Where it
+	// keeps the roles held on a record, a role on a record of another tenant is held
+	// elsewhere (identityRecordPersonElsewhere).
 	//
 	// A membership that has ended is no role held anywhere. One that has not begun is one:
 	// the person is known there and will hold it, as the rules on where a person belongs
@@ -28,7 +30,7 @@ const (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId != t.DomainId
       AND {{ .Standing "o" }}
-  )` + identityGroupPersonElsewhere + `) AS HeldElsewhere,
+  )` + identityRecordPersonElsewhere + identityGroupPersonElsewhere + `) AS HeldElsewhere,
   {{ if .KeepsGroups }}({{ end }}EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} g
     WHERE g.UserId = u.Id AND g.Kind = {{ .KindGlobal }}
@@ -43,7 +45,9 @@ const (
 	// leading columns of the store's index by user. Where the auth keeps groups, a place
 	// in one of the tenant's own groups is something held in it, and a place in a group
 	// kept for the whole application that holds a role in every tenant is a role held in
-	// every tenant (identityGroupPersonHere, identityGroupPersonInEveryTenant). The list of
+	// every tenant (identityGroupPersonHere, identityGroupPersonInEveryTenant). Where the
+	// auth keeps the roles held on a record, a role on one of the tenant's records is
+	// something held in it (identityRecordPersonHere). The list of
 	// a tenant's identities carries neither as a column of its own: it reads HeldHere for
 	// who manages the account (identityTenantManagedFacts).
 	identityTenantPersonHeldHere = `,
@@ -51,7 +55,25 @@ const (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
       AND {{ .Standing "o" }}
-  )` + identityGroupPersonHere + `) AS HeldHere`
+  )` + identityRecordPersonHere + identityGroupPersonHere + `) AS HeldHere`
+
+	// identityRecordPersonElsewhere and identityRecordPersonHere are what a role of the
+	// person's own on a record adds to HeldElsewhere and HeldHere, where the auth keeps the
+	// roles held on a record: one on a record of another tenant is held elsewhere, and one
+	// on a record of the row's tenant is held there. Each is an equality on the leading
+	// columns of the people's table's index by user, as the checks beside it are on theirs.
+	// A role held through a group is counted by the person's place in the group.
+	identityRecordPersonElsewhere = `{{- if .HoldsRecordRoles }} OR EXISTS (
+    SELECT 1 FROM {{ .Policy.RecordUserRoles }} o
+    WHERE o.UserId = u.Id AND o.Axis = {{ .ScopeAxis }} AND o.DomainId != t.DomainId
+      AND {{ .Standing "o" }}
+  ){{- end }}`
+
+	identityRecordPersonHere = `{{- if .HoldsRecordRoles }} OR EXISTS (
+    SELECT 1 FROM {{ .Policy.RecordUserRoles }} o
+    WHERE o.UserId = u.Id AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
+      AND {{ .Standing "o" }}
+  ){{- end }}`
 
 	identityTenantPersonInEveryTenant = `,
   (EXISTS (
@@ -155,13 +177,14 @@ const (
 	//
 	// The tenants asked about are the ones in whose list the person is a row by something
 	// they hold there themselves now (a membership in the tenant, a place in one of its
-	// own groups, each inside its period: identitySourceData.Counting, as the list reads
-	// who its people are) and the ones whose directory the person signs in through. A row
-	// a tenant's list holds only through a role held in every tenant, or through a group
-	// kept for the whole application, says ManagedHere through the tenant's directory
-	// alone, so those tenants are found by the directory. Each is found through an index
-	// by user (the memberships', the group members', the identities'): no row reads the
-	// tenant record's table or the memberships table as a whole. A group's tenant and a
+	// own groups, a role of their own on one of its records, each inside its period:
+	// identitySourceData.Counting, as the list reads who its people are) and the ones whose
+	// directory the person signs in through. A row a tenant's list holds only through a
+	// role held in every tenant, or through a group kept for the whole application, says
+	// ManagedHere through the tenant's directory alone, so those tenants are found by the
+	// directory. Each is found through an index by user (the memberships', the group
+	// members', the roles on records', the identities'): no row reads the tenant record's
+	// table or the memberships table as a whole. A group's tenant and a
 	// directory's are read as an array unnested beside the place's or the identity's row,
 	// which Spanner counts as no join (identityTenantDirectoryPeople): the column adds to
 	// the joins of the statement only the two of identityGroupPersonElsewhere and
@@ -186,6 +209,13 @@ const (
         )) AS mg
         WHERE mp.UserId = u.Id AND {{ .Counting "mp" }}
 {{- end }}
+{{- if .HoldsRecordRoles }}
+        UNION DISTINCT
+        SELECT mr.DomainId AS DomainId
+        FROM {{ .Policy.RecordUserRoles }} mr
+        WHERE mr.UserId = u.Id AND mr.Axis = {{ .ScopeAxis }}
+          AND {{ .Counting "mr" }}
+{{- end }}
 {{- if and .TenantDirectory .HasIdentities }}
         UNION DISTINCT
         SELECT md AS DomainId
@@ -209,7 +239,8 @@ const (
 	// table's key (the hint), where they are one short range; left to choose, the database
 	// ranged over the index by user when a page continued from a cursor. Where the auth
 	// keeps groups, the people a tenant holds through one join them
-	// (identityTenantGroupPeople).
+	// (identityTenantGroupPeople), and where it keeps the roles held on a record, the people
+	// who hold one on a record of the tenant (identityTenantRecordPeople).
 	//
 	// A person is one of a tenant's people by what they hold at the moment: a membership
 	// outside its period, ended or not yet begun, puts nobody in the list, whether or not
@@ -227,9 +258,72 @@ const (
   FROM {{ .Policy.UserRoles }}@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN {{ .TenantTable }} s
   WHERE m.Kind = {{ .KindEvery }} AND m.Axis = {{ .ScopeAxis }}
-    AND {{ .Counting "m" }}` + identityTenantGroupPeople + identityTenantDirectoryPeople + `
+    AND {{ .Counting "m" }}` + identityTenantGroupPeople + identityTenantRecordPeople + identityTenantDirectoryPeople + `
 ) t
 JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
+
+	// identityTenantRecordPeople are the people a tenant's list holds because they hold a
+	// role on one of the tenant's records, as a branch of the union the people are selected
+	// from (identityTenantPeopleFrom), where the auth keeps the roles held on a record: the
+	// rows of the people's table, each under its record's tenant. A role on a record counts
+	// inside its period alone, as a membership does (identitySourceData.Counting). A person
+	// who holds one through a group of the tenant is a member of the group, whom the group's
+	// branch lists already. The branch reads one table and joins none.
+	identityTenantRecordPeople = `{{- if .HoldsRecordRoles }}
+  UNION DISTINCT
+  SELECT rr.DomainId AS DomainId, rr.UserId AS UserId
+  FROM {{ .Policy.RecordUserRoles }} rr
+  WHERE rr.Axis = {{ .ScopeAxis }}
+    AND {{ .Counting "rr" }}
+{{- end }}`
+
+	// identityTenantRecordsHeldOn is the records of the tenant a person of its list of
+	// people holds a role on, as a column of the list's select after the roles, where the
+	// auth keeps the roles held on a record: RecordsHeldOn, each record once by its
+	// resource and its key, in that order. A role that has not ended counts, one that has
+	// not begun among them, as the roles column reads a role (identityTenantPersonRoles):
+	// the person's own, read by the people's table's key, and, where the auth keeps groups,
+	// the ones a group the person has a place in holds there, read as an array unnested
+	// beside the place's row, which Spanner counts as no join. The list's own facts are
+	// read over the column (identityTenantRecordFacts), which is no column of the list.
+	identityTenantRecordsHeldOn = `{{ if .HoldsRecordRoles }}
+  ARRAY(
+    SELECT AS STRUCT hr.Resource AS Resource, hr.RecordId AS RecordId
+    FROM (
+      SELECT o.Resource AS Resource, o.RecordId AS RecordId
+      FROM {{ .Policy.RecordUserRoles }} o
+      WHERE o.UserId = u.Id AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
+        AND {{ .Standing "o" }}
+{{- if .KeepsRecordGroupRoles }}
+      UNION ALL
+      SELECT gr.Resource AS Resource, gr.RecordId AS RecordId
+      FROM {{ .Policy.GroupMembers }} gm, UNNEST(ARRAY(
+        SELECT AS STRUCT r.Resource AS Resource, r.RecordId AS RecordId
+        FROM {{ .Policy.RecordGroupRoles }} r
+        WHERE r.GroupId = gm.GroupId AND r.Axis = {{ .ScopeAxis }} AND r.DomainId = t.DomainId
+          AND {{ .Standing "r" }}
+      )) AS gr
+      WHERE gm.UserId = u.Id AND {{ .Standing "gm" }}
+{{- end }}
+    ) hr
+    GROUP BY hr.Resource, hr.RecordId
+    ORDER BY hr.Resource, hr.RecordId
+  ) AS RecordsHeldOn,{{ end }}`
+
+	// identityTenantRecordFacts are the three facts of the records a person of a tenant's
+	// list holds a role on, as the last columns of the list, read over RecordsHeldOn
+	// (identityTenantRecordsHeldOn): RecordsHeld, how many; RecordsHeldKind, their resource
+	// where they are all of one kind, and empty otherwise; RecordHeldName, the record's name
+	// where there is one record and its kind declares a name (@name), read by the record's
+	// table's key, and empty otherwise.
+	identityTenantRecordFacts = `{{ if .HoldsRecordRoles }},
+  ARRAY_LENGTH(RecordsHeldOn) AS RecordsHeld,
+  IF((SELECT COUNT(DISTINCT h.Resource) FROM UNNEST(RecordsHeldOn) h) = 1, RecordsHeldOn[SAFE_OFFSET(0)].Resource, '') AS RecordsHeldKind,
+  {{ with .RecordNames }}IF(ARRAY_LENGTH(RecordsHeldOn) = 1, CASE RecordsHeldOn[SAFE_OFFSET(0)].Resource
+{{- range . }}
+    WHEN {{ .Resource }} THEN COALESCE((SELECT n.{{ .Name }} FROM {{ .Table }} n WHERE n.{{ .Key }} = RecordsHeldOn[SAFE_OFFSET(0)].RecordId), '')
+{{- end }}
+    ELSE '' END, ''){{ else }}''{{ end }} AS RecordHeldName{{ end }}`
 
 	// identityTenantDirectoryPeople are the people a tenant's list holds because they
 	// sign in through the tenant's directory, as a branch of the union the people are
@@ -378,10 +472,10 @@ type (
 	//
 	// Six columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
-	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
-	// (heldGlobally) says the person holds a role for the whole application. HeldHere
-	// (heldHere) says the person holds something in this tenant itself, a role of their own
-	// or a place in one of its groups: a person listed only through a role held in every
+	// role outside this tenant's own: in another tenant,{{ if .HoldsRecordRoles }} on a record of another tenant,{{ end }} or in every tenant.
+	// HeldGlobally (heldGlobally) says the person holds a role for the whole application.
+	// HeldHere (heldHere) says the person holds something in this tenant itself, a role of
+	// their own{{ if .HoldsRecordRoles }}, a place in one of its groups or a role on one of its records{{ else }} or a place in one of its groups{{ end }}: a person listed only through a role held in every
 	// tenant, or through a group kept for the whole application, holds nothing here, and
 	// the removal from the tenant has nothing of theirs to take. HeldInEveryTenant
 	// (heldInEveryTenant) says the person holds a role in every tenant at once, which is
@@ -405,6 +499,20 @@ type (
 	// here, their own and the ones that come through a group. A role held in every tenant at
 	// once is not among them: HeldInEveryTenant says it, and a role file grants or keeps back
 	// each by itself. It is no filter key.
+	{{- if .HoldsRecordRoles }}
+	//
+	// A person who holds a role on one of the tenant's records is one of its people, whether
+	// or not they hold anything else there. RecordsHeld (recordsHeld) is how many of the
+	// tenant's records the person holds a role on that has not ended, their own or through a
+	// group; RecordsHeldKind (recordsHeldKind) is the records' resource where they are all of
+	// one kind, and empty otherwise; RecordHeldName (recordHeldName) is the record's name
+	// where the person holds a role on one record and its kind declares a name (@name), and
+	// empty otherwise. None of the three is a filter key. A role on one of the tenant's
+	// records is something held in the tenant: HeldHere says it, the removal from the tenant
+	// takes it, and the tenant manages the account of a person who holds nothing anywhere
+	// else (ManagedHere). A role on a record of another tenant is held elsewhere
+	// (HeldElsewhere).
+	{{- end }}
 	{{- if .CountsFailedSignIns }}
 	//
 	// LockedUntil (lockedUntil) is until when the person's sign-in is locked by failed
@@ -462,6 +570,11 @@ type (
 		LastSignInAt           *time.Time ` + "`spanner:\"LastSignInAt\"`" + `
 		// @roleOf({{ .Auth }})
 		Roles []string ` + "`spanner:\"Roles\"`" + `
+		{{- if .HoldsRecordRoles }}
+		RecordsHeld     int64  ` + "`spanner:\"RecordsHeld\"`" + `
+		RecordsHeldKind string ` + "`spanner:\"RecordsHeldKind\"`" + `
+		RecordHeldName  string ` + "`spanner:\"RecordHeldName\"`" + `
+		{{- end }}
 		{{- if .CountsFailedSignIns }}
 		LockedUntil *time.Time ` + "`spanner:\"LockedUntil\"`" + `
 		{{- end }}
@@ -489,14 +602,15 @@ type (
 
 // {{ GoCamel .TenantUser }}Query selects the people of every tenant: who holds a role in a
 // tenant ({{ .Policy.UserRoles }}, one tenant's memberships, and the memberships held in
-// every tenant once per row of {{ .TenantTable }}){{ if and .TenantDirectory .HasIdentities }}, and who signs in through a tenant's
+// every tenant once per row of {{ .TenantTable }}){{ if .HoldsRecordRoles }}, who holds a role on one of its records
+// ({{ .Policy.RecordUserRoles }}){{ end }}{{ if and .TenantDirectory .HasIdentities }}, and who signs in through a tenant's
 // directory ({{ .TenantDirectory.Table }} and {{ .Tables.Identities }}){{ end }}, joined to the account by the id a
 // membership names its person by. Who manages each account is read over the columns of
 // that select, so where the person holds roles is read once for a row.
 const {{ GoCamel .TenantUser }}Query = ` + "`" + `
 SELECT
-  *{{ if and .TenantDirectory .HasIdentities }} EXCEPT (ThroughHere, ThroughAnother){{ end }},
-  ` + identityTenantManagedFacts + `
+  *{{ .PeopleLeftOut }},
+  ` + identityTenantManagedFacts + identityTenantRecordFacts + `
 FROM (
 SELECT
   u.Id AS Id,
@@ -510,7 +624,7 @@ SELECT
   u.PasswordChangeRequired AS PasswordChangeRequired,
   u.CreatedAt AS CreatedAt,
   u.LastSignInAt AS LastSignInAt,
-` + identityTenantPersonRoles + `{{ if .CountsFailedSignIns }}
+` + identityTenantPersonRoles + identityTenantRecordsHeldOn + `{{ if .CountsFailedSignIns }}
 {{ .LockedUntil "u" }},{{ end }}
 ` + identityTenantPersonFacts + identityTenantPersonHeldHere + identityTenantPersonInEveryTenant + identityTenantThroughFacts + `{{ if .TenantDirectory }}` + identityTenantDirectoryFacts + `{{ end }}
 ` + identityTenantPeopleFrom + `{{ if .TenantDirectory }}` + identityTenantDirectoryJoins + `{{ end }}
