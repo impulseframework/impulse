@@ -307,6 +307,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 			`provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "DisableStaffTenantUser", "managedHere = true")`,
 			`provesGrant(t, staff.Roles(), "Administrator", "Execute", "DisableStaffUser", "managedByTenant = false")`,
 			`"example.com/acme/depot/pkg/auth/staff"`, `"/api/tenants/"+tenant+"/"+method`, "staffAccount(ctx, t, s, name,", `password := "first-day-pass"`, `"/api/assign-staff-role"`,
+			`"/api/staff-givable-roles?limit=all&filter=method:eq:AssignStaffRole,"`, "func rolesToGive(",
 			`const south = "` + devTenantSouth + `"`, "admin.signIn(ctx, adminUser)",
 		} {
 			if !strings.Contains(proof, want) {
@@ -528,6 +529,7 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		for _, want := range []string{
 			`provesGrant(t, crew.Roles(), "SectorAdministrator", "List", "CrewSectorSignInWays", "managedHere = true")`,
 			`"/api/sectors/"+tenant+"/"+method`, "crewAccount(ctx, t, s, name,", `"/api/assign-crew-role"`, `spanner.InsertMap("CrewSessionIdentities"`,
+			`"/api/crew-givable-roles?limit=all&filter=method:eq:AssignCrewRole,"`,
 		} {
 			if !strings.Contains(proof, want) {
 				t.Errorf("%s does not contain %q", tenantPeopleTest, want)
