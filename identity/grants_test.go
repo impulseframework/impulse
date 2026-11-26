@@ -299,6 +299,8 @@ func TestManager_AddGroupMember_rolesOnRecords(t *testing.T) {
 	ended, upcoming, _ := periodFixtures()
 	editorP1 := access.NewRecordGroupRoleKey(GroupID(nightID), onP1, "ProjectEditor")
 	viewerP2 := access.NewRecordGroupRoleKey(GroupID(nightID), onP2, "ProjectViewer")
+	// leftT1 is a role the group still holds on a record of a kind no role is held on any more.
+	leftT1 := access.NewRecordGroupRoleKey(GroupID(nightID), accesstypes.NewRecordScope("alpha", "Tasks", "t1"), "ProjectEditor")
 	reader := access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")
 	frank, erinID := frankID.String(), otherUser.String()
 	insertFrank := "insert group member " + nightID.String() + " " + frank
@@ -418,6 +420,14 @@ func TestManager_AddGroupMember_rolesOnRecords(t *testing.T) {
 			caller:     wholeApplication,
 			wantAsked:  []string{"give domain/alpha " + frank + " ProjectEditor"},
 			wantWrites: []string{insertFrank},
+		},
+		{
+			name:      "a role left on a record of a kind the store has no word for is refused in the sentence a tenant's role is",
+			records:   map[access.RecordGroupRoleKey]accesstypes.Period{leftT1: {}},
+			noGiveOn:  []string{"t1"},
+			wantSays:  "the role ProjectEditor on Tasks t1 in alpha",
+			wantTold:  "Putting a person in the group Night shift gives them the role Project editor, which you may not give them.",
+			wantAsked: []string{"give on Tasks t1 in alpha " + frank + " ProjectEditor"},
 		},
 	}
 	for _, tt := range tests {

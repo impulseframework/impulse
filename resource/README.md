@@ -7134,7 +7134,7 @@ the request's tenant and the write's conditions hold for it, so the answer tells
 nothing of a row they may not change.
 
 An update that leaves the column as it is is not asked, and neither is a row the same
-transaction created before in the request's tenant, nor a write made outside a request (a job, a bootstrap: a patch
-set that is not armed). The rule holds for a column the generator declares (`NamedRows()` on
-the resource): one whose source is a table of the application with a list. A column picked
-from an enumeration table is not held: everyone picks from those.
+transaction created before in the request's tenant, nor a write made outside a request (a
+job, a bootstrap: a patch set that is not armed). The rule holds for a column the generator
+declares (`NamedRows()` on the resource): one whose source is a table of the application with
+a list. A column picked from an enumeration table is not held: everyone picks from those.

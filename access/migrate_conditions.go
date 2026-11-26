@@ -412,6 +412,15 @@ func validateInTypes(v *conditionVocabulary, in *condition.In) error {
 	return nil
 }
 
+// refType is the comparison type of the attribute a condition reads. A grant's
+// condition reads what a write proposes (new.) of the row's own columns alone,
+// never through a join path. An update relies on that refusal: it asks its
+// conditions before it holds the rows it names to the rows its writer can list
+// (the resource package's checkNamedRows), so a condition that read through a
+// proposed key would answer by a row the writer may not list. The one condition
+// that reads through one is the library's own for a role held on one record
+// (resource.GeneratedCollection.RecordCondition), which holds only where the
+// row named is, or is under, a record the role is held on.
 func refType(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, ref condition.Ref) (accesstypes.AttributeType, error) {
 	attrType, ok := store.AttributeComparisonType(scope, res, ref.Name)
 	if !ok {

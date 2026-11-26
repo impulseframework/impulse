@@ -184,15 +184,16 @@ func (m *Manager) refuseGivingOnThrough(ctx context.Context, txn resource.ReadWr
 			return errors.Wrap(err, "identity.RoleGrants")
 		}
 		if !allowed {
+			cause := errors.Newf("%s the role %s on %s, which you may not give them: someone who may give the role on the record does it", act, string(held.Role), at.String())
+			// A role left on a record of a kind no role is held on any more has no word in
+			// the store (RecordNamed errs): the refusal stands, in the sentence
+			// refuseGivingThrough writes.
 			word, _, err := m.store.RecordNamed(ctx, txn, at)
 			if err != nil {
-				return errors.Wrap(err, "identity.Store.RecordNamed()")
+				return httpio.NewForbiddenMessageWithError(cause, sentenceStart(act)+" the role "+roleInWords(held.Role)+", which you may not give them.")
 			}
 
-			return httpio.NewForbiddenMessageWithError(
-				errors.Newf("%s the role %s on %s, which you may not give them: someone who may give the role on the record does it", act, string(held.Role), at.String()),
-				sentenceStart(act)+" the role "+roleInWords(held.Role)+" on one "+word+", which you may not give them there.",
-			)
+			return httpio.NewForbiddenMessageWithError(cause, sentenceStart(act)+" the role "+roleInWords(held.Role)+" on one "+word+", which you may not give them there.")
 		}
 	}
 
