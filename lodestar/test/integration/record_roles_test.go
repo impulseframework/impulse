@@ -299,20 +299,19 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 		assertStatus(t, status, http.StatusForbidden, body)
 	}
 
-	// The lead runs the first mission: a sortie under it and a change to it are hers, a
-	// sortie under the second mission is not, and neither is a new mission or a squadron.
+	// The lead runs the first mission: a change to it is hers. A sortie names its ship, and
+	// she lists no ship, so a sortie under either mission is answered as one that names a
+	// row that is not there (TestRecordRoles_aRowAWriteNames); neither is a new mission or a
+	// squadron hers.
 	patch := func(user accesstypes.User, op, path, value string) (int, []byte) {
 		return w.as(user, http.MethodPatch, "/console/api/resources", fmt.Sprintf(`[{"op":%q,"path":%q,"value":%s}]`, op, opPath(anvil, path), value))
 	}
-	sortie := func(mission string) string {
-		return fmt.Sprintf(`{"missionId":%q,"shipId":%q,"pilotUserId":"ida","launchedAt":"2027-03-01T08:00:00Z"}`, mission, shipKingfisherID)
-	}
-	status, body = patch("ida", "add", "sorties", sortie(first.id))
-	assertStatus(t, status, http.StatusOK, body)
+	status, body = patch("ida", "add", "sorties", sortieOn(first.id))
+	assertStatus(t, status, http.StatusNotFound, body)
 	status, body = patch("ida", "patch", "missions/"+first.id, `{"notes":"Charting the outer ring first"}`)
 	assertStatus(t, status, http.StatusOK, body)
-	status, body = patch("ida", "add", "sorties", sortie(second.id))
-	assertStatus(t, status, http.StatusForbidden, body)
+	status, body = patch("ida", "add", "sorties", sortieOn(second.id))
+	assertStatus(t, status, http.StatusNotFound, body)
 	status, body = patch("ida", "add", "missions", fmt.Sprintf(`{"clientId":%q,"kindId":"courier","title":"A mission of her own","hazard":1,"fee":"100","deadline":"2027-03-01T08:00:00Z"}`, clientHalvardID))
 	assertStatus(t, status, http.StatusForbidden, body)
 	status, body = patch("ida", "add", "squadrons", fmt.Sprintf(`{"wingId":%q,"name":"Her own"}`, wingForgeID))
@@ -434,7 +433,7 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 	}
 	status, body = remove("")
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
-	if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 1 mission document, 2 sorties, 1 sortie expense, 3 roles held on it. This can't be undone."; got != want {
+	if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 1 mission document, 1 sortie, 1 sortie expense, 3 roles held on it. This can't be undone."; got != want {
 		t.Errorf("the question = %q, want %q", got, want)
 	}
 	status, body = remove(`,"value":{"everythingUnder":true}`)
@@ -481,6 +480,74 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 	}
 	if _, listed := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)[w.ids["bea"]]; listed {
 		t.Error("bea is one of Anvil's people after her removal from the sector")
+	}
+}
+
+// sortieOn is the body of a sortie under the mission, flown by the Kingfisher.
+func sortieOn(mission string) string {
+	return fmt.Sprintf(`{"missionId":%q,"shipId":%q,"pilotUserId":"ida","launchedAt":"2027-03-01T08:00:00Z"}`, mission, shipKingfisherID)
+}
+
+// TestRecordRoles_aRowAWriteNames holds a write by a role held on a mission to the rows its
+// writer can list: a column that names another row is set only to a row the person's own
+// list of that kind would show, and any other is answered as a row that is not there. The
+// lead of the first mission lists no ship, so her sortie, which names one, is refused; a
+// lead who also holds the Engineer's role in the sector, which lists the ships and gives
+// nothing on missions, adds it under her mission and not under the other. The lead adds an
+// expense to her mission's sortie and not to the other's, and cannot point her mission at a
+// squadron it does not name, nor read that squadron, until the Marshal points it there.
+func TestRecordRoles_aRowAWriteNames(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newSharingWorld(t)
+	first, second := writeSharedMissions(t, w.tenantListsWorld)
+
+	w.enter("ida")
+	w.seat(ctx, t, "rex", "Engineer", anvil)
+	var none time.Time
+	for _, name := range []string{"ida", "rex"} {
+		w.done("marshal", "give-crew-role-on-mission", w.share(first.id, name, "", "MissionLead", none, none))
+	}
+	w.leaveOnly("ida")
+
+	patch := func(user accesstypes.User, op, path, value string) (int, []byte) {
+		return w.as(user, http.MethodPatch, "/console/api/resources", fmt.Sprintf(`[{"op":%q,"path":%q,"value":%s}]`, op, opPath(anvil, path), value))
+	}
+	notThere := func(status int, body []byte, what string) {
+		t.Helper()
+		assertStatus(t, status, http.StatusNotFound, body)
+		if got, want := refusalMessage(t, body), "A record this one refers to does not exist."; got != want {
+			t.Errorf("%s: the refusal = %q, want %q", what, got, want)
+		}
+	}
+
+	status, body := patch("ida", "add", "sorties", sortieOn(first.id))
+	notThere(status, body, "the lead's sortie, naming a ship she cannot list")
+	status, body = patch("rex", "add", "sorties", sortieOn(first.id))
+	assertStatus(t, status, http.StatusOK, body)
+	status, body = patch("rex", "add", "sorties", sortieOn(second.id))
+	notThere(status, body, "the second lead's sortie under the mission she does not hold")
+
+	expense := func(sortie string) string {
+		return fmt.Sprintf(`{"sortieId":%q,"category":"fuel","amount":40,"memo":"Outer ring"}`, sortie)
+	}
+	status, body = patch("ida", "add", "sortie-expenses", expense(first.sortie))
+	assertStatus(t, status, http.StatusOK, body)
+	status, body = patch("ida", "add", "sortie-expenses", expense(second.sortie))
+	notThere(status, body, "the lead's expense on the other mission's sortie")
+
+	pointAt := func(user accesstypes.User, squadron string) (int, []byte) {
+		return patch(user, "patch", "missions/"+first.id, fmt.Sprintf(`{"assignedSquadronId":%q}`, squadron))
+	}
+	status, body = pointAt("ida", second.squadron)
+	notThere(status, body, "the lead pointing her mission at a squadron it does not name")
+	if got := w.reads("ida", "squadrons/"+second.squadron); got != http.StatusNotFound {
+		t.Errorf("the lead reads the squadron her mission does not name: status %d, want 404", got)
+	}
+	status, body = pointAt("marshal", second.squadron)
+	assertStatus(t, status, http.StatusOK, body)
+	if got := w.reads("ida", "squadrons/"+second.squadron); got != http.StatusOK {
+		t.Errorf("the lead reads the squadron the Marshal pointed her mission at: status %d, want 200", got)
 	}
 }
 

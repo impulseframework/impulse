@@ -24,6 +24,15 @@ func (CrewSessionIdentity) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// NamedRows names the columns that name a row of another resource the application lists
+// (UserID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (CrewSessionIdentity) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "UserID", Resource: "CrewSessionUsers", Table: "CrewSessionUsers", KeyColumn: "Id"},
+	}
+}
+
 // NameFields names the resource's name fields: beside each id that points to a row with
 // a name, the name of that row, which a list shows, sorts by and filters by. A name is
 // looked up in the pointed-to table by the id; it is no column of this resource.

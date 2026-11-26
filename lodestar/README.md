@@ -767,7 +767,9 @@ the sector's Marshal gives a person or a group of the sector **MissionObserver**
 **MissionLead** on one mission from its Sharing list, and they reach that mission, its
 sorties, their expenses, its documents and the squadron it names, and nothing else of the
 sector; a lead shares the mission with observers (`@holdsRoles`, the resource package's
-section 25). Every list pages at the size its `@page` annotation declares, and the seed is
+section 25). A write names only a row its writer can list (section 26): a sortie names its
+ship, so a lead who lists no ship adds no sortie, and she points her mission at no squadron
+but the one it names. Every list pages at the size its `@page` annotation declares, and the seed is
 deep enough that every list of consequence has a second page.
 
 ## Two populations, two auths

@@ -25,6 +25,15 @@ func (Consignment) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// NamedRows names the columns that name a row of another resource the application lists
+// (ClientID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (Consignment) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "ClientID", Resource: "Clients", Table: "Clients", KeyColumn: "Id"},
+	}
+}
+
 // TenantBinding is the row's way to its tenant: the library writes the tenant on every
 // change record of the row, whoever writes the row.
 func (Consignment) TenantBinding() resource.TenantBinding {

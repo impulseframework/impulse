@@ -25,6 +25,15 @@ func (Pilot) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// NamedRows names the columns that name a row of another resource the application lists
+// (UserID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (Pilot) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "UserID", Resource: "CrewSessionUsers", Table: "CrewSessionUsers", KeyColumn: "Id"},
+	}
+}
+
 // DeleteTree describes what keeps a Pilot from being deleted: the kinds with a
 // row directly under a Pilot that the database does not remove with it, each
 // with the columns that name the Pilot. A delete of a Pilot with

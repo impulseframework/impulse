@@ -78,6 +78,19 @@ func ({{ .Resource.Name }}) GroupColumns() []resource.GroupColumn {
 	}
 }
 {{- end }}
+{{- if .Resource.NamedRows }}
+
+// NamedRows names the columns that name a row of another resource the application lists
+// ({{ range $i, $row := .Resource.NamedRows }}{{ if $i }}, {{ end }}{{ $row.Field.Name }}{{ end }}): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func ({{ .Resource.Name }}) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+	{{- range $row := .Resource.NamedRows }}
+		{{ $row.Literal }},
+	{{- end }}
+	}
+}
+{{- end }}
 {{- if .Resource.TenantBindingLiteral }}
 
 // TenantBinding is the row's way to its tenant: the library writes the tenant on every

@@ -485,6 +485,10 @@ type Metadata[Resource Resourcer] struct {
 	// generated GroupColumns): the patch machinery holds each group a write names to
 	// the row's own tenant.
 	groupColumns []GroupColumn
+	// namedRows are the columns that name a row of another resource the application lists
+	// (the generated NamedRows): the patch machinery holds each row a write names to the
+	// rows its caller can list.
+	namedRows []NamedRow
 	// tenantBinding is the resource's way to its tenant (the generated TenantBinding),
 	// nil for a resource that belongs to no tenant: the patch machinery writes the
 	// tenant on each change record of the row.
@@ -525,6 +529,7 @@ func NewMetadata[Resource Resourcer]() *Metadata[Resource] {
 		trackChanges:   c.cfg.TrackChanges,
 		fileKeys:       c.fileKeys,
 		groupColumns:   c.groupColumns,
+		namedRows:      c.namedRows,
 		tenantBinding:  c.tenantBinding,
 		searchBranches: c.searchBranches,
 		secrets:        c.secrets,
@@ -560,6 +565,7 @@ type resourceMetadataCacheEntry struct {
 	cfg            Config
 	fileKeys       []FileKey
 	groupColumns   []GroupColumn
+	namedRows      []NamedRow
 	tenantBinding  *TenantBinding
 	searchBranches []SearchBranch
 	secrets        map[accesstypes.Field]struct{}
@@ -616,6 +622,11 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		groupColumns = g.GroupColumns()
 	}
 
+	var namedRows []NamedRow
+	if n, ok := res.(namedRower); ok {
+		namedRows = n.NamedRows()
+	}
+
 	var tenantBinding *TenantBinding
 	if b, ok := res.(tenantBinder); ok {
 		binding := b.TenantBinding()
@@ -651,6 +662,7 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		cfg:            cfg,
 		fileKeys:       fileKeys,
 		groupColumns:   groupColumns,
+		namedRows:      namedRows,
 		tenantBinding:  tenantBinding,
 		searchBranches: searchBranches,
 		secrets:        secretFields(t),

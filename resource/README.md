@@ -6976,7 +6976,8 @@ role. Write @holdsRoles on the Project struct, or take Projects out of the role'
 - Nothing on a view of the application's or on a resource apart from the record.
 
 An update is asked of the row before and after: a row that an update would move out from
-under every record the role is held on is refused.
+under every record the role is held on is refused. A holder of a role on one record sets a
+column to the rows that record reaches and no others (section 26).
 
 The grants are the ones the role file writes, with their fields and their conditions: the
 record says which rows a grant reaches and never what it allows. The check of a role file
@@ -7101,3 +7102,22 @@ more of it is extended for PostgreSQL by this.
 
 Lodestar is the reference: a mission holds roles, `MissionObserver` and `MissionLead` are held
 on missions, and the console's missions page carries the Sharing list.
+
+## 26. A row a write names
+
+A column that names a row of another table (a foreign key, or a column picked from a table's
+list) is set only to a row its writer can list: a row the person's own list of that table
+would show. The picker of such a column lists its source under the person's own List grant,
+so it offers only those rows; the server holds a create and an update to the same rows, and
+answers any other 404, `A record this one refers to does not exist.`, as it answers a row
+that is not there. A role that sets such a column therefore needs the List grant on the table
+it picks from; a grant under a condition lets it name the rows the condition holds for, and a
+role held on one record the rows that record reaches (section 25). The refusal comes after
+the grant's own (a person who may not create at all is told so) and before the write's
+conditions are asked.
+
+An update that leaves the column as it is is not asked, and neither is a row the same
+transaction created before, nor a write made outside a request (a job, a bootstrap: a patch
+set that is not armed). The rule holds for a column the generator declares (`NamedRows()` on
+the resource): one whose source is a table of the application with a list. A column picked
+from an enumeration table is not held: everyone picks from those.

@@ -508,6 +508,11 @@ func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTran
 		return err
 	}
 
+	// A row the write names is one its caller can list (checkNamedRows).
+	if err := p.checkNamedRows(ctx, txn); err != nil {
+		return err
+	}
+
 	event, err := p.validateEventSource(eventSource)
 	if err != nil {
 		return err
@@ -564,6 +569,11 @@ func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTran
 
 func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	if err := p.checkPermissions(ctx, txn.DBType()); err != nil {
+		return err
+	}
+
+	// A row the write names is one its caller can list (checkNamedRows).
+	if err := p.checkNamedRows(ctx, txn); err != nil {
 		return err
 	}
 
@@ -631,6 +641,11 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 // bufferInsertOrUpdate buffers an insert-or-update mutation into an existing transaction buffer.
 func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	if err := p.checkPermissions(ctx, txn.DBType()); err != nil {
+		return err
+	}
+
+	// A row the write names is one its caller can list (checkNamedRows).
+	if err := p.checkNamedRows(ctx, txn); err != nil {
 		return err
 	}
 

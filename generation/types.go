@@ -1494,6 +1494,11 @@ type resourceInfo struct {
 	// (nameGroupColumns).
 	groupColumns []*groupColumn
 
+	// namedRows are the columns that name a row of another resource the application
+	// lists, found once the enumerations and every resource's routes are known
+	// (resolveNamedRows).
+	namedRows []*namedRow
+
 	// Files are the resource's @file routes, one per field-scope declaration: a
 	// stored file served under the read route, its key column off the wire.
 	Files []*fileRoute

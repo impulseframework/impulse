@@ -24,6 +24,15 @@ func (SquadronMembership) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// NamedRows names the columns that name a row of another resource the application lists
+// (SquadronID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (SquadronMembership) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "SquadronID", Resource: "Squadrons", Table: "Squadrons", KeyColumn: "Id", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
+	}
+}
+
 // TenantBinding is the row's way to its tenant: the library writes the tenant on every
 // change record of the row, whoever writes the row.
 func (SquadronMembership) TenantBinding() resource.TenantBinding {

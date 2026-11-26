@@ -23,6 +23,15 @@ func (CrewSessionAuthEvent) DefaultConfig() resource.Config {
 	return defaultConfig()
 }
 
+// NamedRows names the columns that name a row of another resource the application lists
+// (SessionID): a create or an update sets one only to a row its caller can list, so the
+// library answers any other as a row that is not there.
+func (CrewSessionAuthEvent) NamedRows() []resource.NamedRow {
+	return []resource.NamedRow{
+		{Field: "SessionID", Resource: "CrewSessions", Table: "CrewSessions", KeyColumn: "Id"},
+	}
+}
+
 // crewSessionAuthEventRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewSessionAuthEventReadSets holds one Set per read operation.
