@@ -586,6 +586,7 @@ func (r *resourceGenerator) generateConsolidatedPatchHandler(outlet *routerOutle
 			ResourcePackage:  r.resource.Package(),
 			ReceiverName:     r.receiverName,
 			KindsFrom:        r.tenantKindSources(res),
+			RecordKinds:      r.recordKindsHanding(res),
 			RequiresDisabled: r.tenantDisabledRequirement(res),
 		}
 		switch {
@@ -643,6 +644,7 @@ func (r *resourceGenerator) handlerContent(handler HandlerType, res *resourceInf
 		ApplicationName:         home.applicationName,
 		ReceiverName:            home.receiverName,
 		KindsFrom:               r.tenantKindSources(res),
+		RecordKinds:             r.recordKindsHanding(res),
 		RequiresDisabled:        r.tenantDisabledRequirement(res),
 		Home:                    home,
 	})

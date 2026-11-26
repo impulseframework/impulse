@@ -801,10 +801,12 @@ func (r *resourceInfo) DeclaresDeleteCascade() bool {
 // the tenant record, whose delete takes the kinds handed to it (DeleteAlso) whether or
 // not the application has a kind of row under a tenant, or an auth's account record,
 // whose store asks its delete to take the application's rows that go with it whether or
-// not a record of the application's names it. Its delete patch then carries
-// WithEverythingUnder, Left and DeleteAlso, and its handlers keep what a delete left.
+// not a record of the application's names it, or a record a role can be held on
+// (@holdsRoles), whose delete takes the roles held on it, handed to it the same way. Its
+// delete patch then carries WithEverythingUnder, Left and DeleteAlso, and its handlers
+// keep what a delete left.
 func (r *resourceInfo) TakesRowsUnder() bool {
-	return r.IsTenant || r.isAccountRecord() || r.deleteCascade != nil && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
+	return r.IsTenant || r.isAccountRecord() || r.holdsRoles || r.deleteCascade != nil && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
 }
 
 // DeleteTreeLiteral is the record's description as the Go value its file returns

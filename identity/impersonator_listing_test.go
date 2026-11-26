@@ -141,6 +141,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.SetSelfServiceReset":      {none: ofAMethod},
 	"Manager.DirectoryRole":            {none: "it sets the role a tenant's directory gives everyone who arrives through it, and names a tenant and no person"},
 	"Manager.TenantKinds":              {none: "it names a tenant and changes nothing itself: the kinds it answers ask the guard of every account the tenant's delete would take before any is taken, and the rest goes with the tenant's record, whose removal is the act"},
+	"Manager.RecordKinds":              {none: "it names a record and changes nothing itself: the roles held on the record, whoever holds them, go with the record, whose removal is the act"},
 	"Manager.SignedIn":                 {none: atSignIn},
 	"Manager.SignedUp":                 {none: atSignIn},
 	"Manager.InvitationAccepted":       {none: atSignIn},

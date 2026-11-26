@@ -166,7 +166,7 @@ func TestManager_TenantKinds_counts(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("inTransaction() error = %v", err)
 	}
-	want := map[string]int64{"accounts": 3, "roles held": 11, "groups": 1, "custom roles": 1, "invitations": 1}
+	want := map[string]int64{"accounts": 3, "roles held": 11, "roles held on records": 0, "groups": 1, "custom roles": 1, "invitations": 1}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("counts (-want +got):\n%s", diff)
 	}
@@ -181,6 +181,7 @@ func TestManager_TenantKinds_counts(t *testing.T) {
 	wantWords := []resource.DeleteWords{
 		{One: "account", Many: "accounts"},
 		{One: "role held", Many: "roles held"},
+		{One: "role held on a record", Many: "roles held on records"},
 		{One: "group", Many: "groups"},
 		{One: "custom role", Many: "custom roles"},
 		{One: "invitation", Many: "invitations"},
@@ -227,6 +228,8 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 		// (3); dora: a link, the user and what the database removes with it (4).
 		{Rows: 3, Mutations: 9},
 		{Rows: 5, Mutations: 5},
+		// No role is held on alpha's records.
+		{},
 		// The group, its two members and its role.
 		{Rows: 1, Mutations: 4},
 		{Rows: 1, Mutations: 1},
@@ -356,7 +359,7 @@ func TestManager_TenantKinds_otherKindsInRounds(t *testing.T) {
 			},
 		},
 		{
-			name: "groups: no room for the group with its members and its role, which it takes in part", kind: 2, budget: 3,
+			name: "groups: no room for the group with its members and its role, which it takes in part", kind: 3, budget: 3,
 			want: takenRows{Mutations: 3, More: true},
 			wantWrites: []string{
 				"delete group member " + nightID.String() + " " + benID.String(),
@@ -365,17 +368,17 @@ func TestManager_TenantKinds_otherKindsInRounds(t *testing.T) {
 			},
 		},
 		{
-			name: "groups: the group's own delete left rows under it", kind: 2, budget: 4,
+			name: "groups: the group's own delete left rows under it", kind: 3, budget: 4,
 			groupLeft:  &resource.DeleteLeft{Deleted: 2, Left: 1},
 			want:       takenRows{Mutations: 4, More: true},
 			wantWrites: []string{"delete group " + nightID.String() + " with its tenant"},
 		},
 		{
-			name: "custom roles: no room", kind: 3, budget: 0,
+			name: "custom roles: no room", kind: 4, budget: 0,
 			want: takenRows{More: true},
 		},
 		{
-			name: "invitations: no room for one", kind: 4, budget: 2,
+			name: "invitations: no room for one", kind: 5, budget: 2,
 			want: takenRows{More: true},
 		},
 	}
@@ -472,7 +475,7 @@ func TestManager_TenantKinds_aGroupInParts(t *testing.T) {
 		before := len(store.writes)
 		var more bool
 		if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			rows, mutations, left, err := m.TenantKinds("alpha")[2].Take(ctx, txn, 1)
+			rows, mutations, left, err := m.TenantKinds("alpha")[3].Take(ctx, txn, 1)
 			if err != nil {
 				return errors.Wrap(err, "resource.TakenKind.Take()")
 			}
@@ -590,7 +593,7 @@ func TestManager_TenantKinds_nothingHeld(t *testing.T) {
 	m, engine := newManager(t, store, engineRoles)
 	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		kinds := m.TenantKinds("gamma")
-		want := map[string]int64{"accounts": 0, "roles held": 0, "groups": 0, "custom roles": 0, "invitations": 0}
+		want := map[string]int64{"accounts": 0, "roles held": 0, "roles held on records": 0, "groups": 0, "custom roles": 0, "invitations": 0}
 		got, err := kindCounts(ctx, txn, kinds)
 		if err != nil {
 			return err

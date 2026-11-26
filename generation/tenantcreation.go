@@ -273,6 +273,42 @@ func (r *resourceGenerator) tenantKindSources(record *resourceInfo) []string {
 	return accessors
 }
 
+// recordKindsHanding is what the delete of a record a role can be held on is handed
+// (recordKindsHanded): the application's accessors of the generated identity client of
+// every auth whose role file holds a role on the record, in declaration order, each of
+// which keeps its own roles held on records; the record's resource name; and its key as
+// the text the roles name it by, spelled from the handler's id. It is nil for every
+// other resource, and for a record no auth of the program holds a role on.
+type recordKindsHanding struct {
+	Sources  []string
+	Resource string
+	KeyText  string
+}
+
+// recordKindsHanding answers what the record's delete is handed (recordKindsHanding).
+func (r *resourceGenerator) recordKindsHanding(record *resourceInfo) *recordKindsHanding {
+	if !record.holdsRoles {
+		return nil
+	}
+	handing := &recordKindsHanding{KeyText: recordKeyText(record.PrimaryKeyType(), "id")}
+	for _, inst := range r.identity {
+		if !inst.holdsRecordRoles() {
+			continue
+		}
+		for _, held := range inst.heldRecords {
+			if held.name == record.Name() {
+				handing.Sources = append(handing.Sources, inst.accessor())
+				handing.Resource = string(held.resource)
+			}
+		}
+	}
+	if len(handing.Sources) == 0 {
+		return nil
+	}
+
+	return handing
+}
+
 // tenantCreationIdentityAccessor is the application's accessor of the auth's generated
 // identity client, as the auth's generated handlers name it (identityInstance.accessor):
 // StaffIdentity.

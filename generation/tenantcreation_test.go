@@ -2,6 +2,7 @@ package generation
 
 import (
 	"go/format"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -78,6 +79,141 @@ func Test_tenantKindSources(t *testing.T) {
 			r.identity = tt.identity
 			if diff := cmp.Diff(tt.want, r.tenantKindSources(&resourceInfo{IsTenant: tt.tenant})); diff != "" {
 				t.Errorf("tenantKindSources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_recordKindsHanding pins what the delete of a record a role can be held on is
+// handed: the accessor of every auth's generated identity client whose role file holds a
+// role on the record, in declaration order, the record's resource as the role file names
+// it, and its key's text; nothing for a marked record no auth holds a role on, or for a
+// record that is not marked.
+func Test_recordKindsHanding(t *testing.T) {
+	t.Parallel()
+
+	_, byName, err := recordRolesResources(t, recordRolesTables())
+	if err != nil {
+		t.Fatalf("structsToResources() error = %v", err)
+	}
+	crew, members := sharingInstance("Crew", "Realm", "Project", true), sharingInstance("Members", "Realm", "Project", false)
+	none := sharingInstance("Guests", "Realm", "Project", false)
+	none.heldRecords = nil
+	elsewhere := sharingInstance("Visitors", "Realm", "Client", false)
+
+	tests := []struct {
+		name     string
+		identity []*identityInstance
+		record   string
+		want     *recordKindsHanding
+	}{
+		{
+			name: "a marked record, through the client of every auth that holds a role on it", identity: []*identityInstance{crew, none, members, elsewhere}, record: "Project",
+			want: &recordKindsHanding{Sources: []string{"CrewIdentity", "MembersIdentity"}, Resource: "Projects", KeyText: "id.String()"},
+		},
+		{name: "a marked record no auth holds a role on", identity: []*identityInstance{none, elsewhere}, record: "Project"},
+		{name: "a record that is not marked", identity: []*identityInstance{crew, elsewhere}, record: "Client"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{}}
+			r.identity = tt.identity
+			if diff := cmp.Diff(tt.want, r.recordKindsHanding(byName[tt.record])); diff != "" {
+				t.Errorf("recordKindsHanding() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_recordKeyText pins the text a role held on a record names the record's key by,
+// spelled from the Go value of the key field's type: the string itself, an id's text, and
+// any other value's fmt spelling.
+func Test_recordKeyText(t *testing.T) {
+	t.Parallel()
+
+	for keyType, want := range map[string]string{stringGoType: "id", impulseUUIDGoType: "id.String()", "int64": "fmt.Sprint(id)"} {
+		if got := recordKeyText(keyType, "id"); got != want {
+			t.Errorf("recordKeyText(%s) = %q, want %q", keyType, got, want)
+		}
+	}
+}
+
+// Test_patchHandler_recordKinds pins the delete of a record a role can be held on, in its
+// own handler and in the consolidated one: the delete takes rows, so its patch is kept,
+// handed the roles each auth holds on the record, under the request's tenant, before it is
+// buffered, and kept to say what it left. The delete of a record that is not marked is
+// handed none of it.
+func Test_patchHandler_recordKinds(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		record string
+		marked bool
+	}{
+		{name: "a marked record", record: "Project", marked: true},
+		{name: "a record that is not marked", record: "Task"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, byName, err := recordRolesResources(t, recordRolesTables())
+			if err != nil {
+				t.Fatalf("structsToResources() error = %v", err)
+			}
+			c.resources = slices.Collect(maps.Values(byName))
+			c.identity = []*identityInstance{sharingInstance("Crew", "Realm", "Project", true)}
+			r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a", domainRouteSegment: defaultDomainRouteSegment, domainRouteParam: defaultDomainRouteParam}
+			r.resource = "testdata/recordrolesfixture"
+			res := byName[tt.record]
+
+			standalone, err := r.handlerContent(PatchHandler, res)
+			if err != nil {
+				t.Fatalf("handlerContent() error = %v", err)
+			}
+			if _, err := format.Source(append([]byte("package app\n\n"), standalone...)); err != nil {
+				t.Fatalf("the rendered handler does not parse: %v\n%s", err, standalone)
+			}
+			segment := consolidatedCaseData{resourceInfo: res, ResourcePackage: "resources", ReceiverName: "a", RecordKinds: r.recordKindsHanding(res)}
+			data := consolidatedPatchData{
+				Resources:           []*resourceInfo{res},
+				HasTenant:           true,
+				DomainRouteSegment:  "realms",
+				TakesRowsUnder:      res.TakesRowsUnder(),
+				DomainPatternPrefix: "/realms/{realmID}",
+				LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
+				Package:             "app",
+				ResourcePackage:     "resources",
+				ApplicationName:     "App",
+				ReceiverName:        "a",
+				HandlerName:         "PatchResources",
+			}
+			segment.DomainPatternPrefix = data.DomainPatternPrefix
+			data.DomainCases = []consolidatedCaseData{segment}
+			consolidated, err := (&client{}).generateTemplateOutput("consolidatedPatchTemplate", consolidatedPatchTemplate, data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			if _, err := format.Source(consolidated); err != nil {
+				t.Fatalf("the rendered consolidated handler does not parse: %v\n%s", err, consolidated)
+			}
+
+			const handed = `patch.DeleteAlso(a.CrewIdentity().RecordKinds(accesstypes.NewRecordScope(domain, "Projects", id.String()))...)`
+			packageOf := map[string]string{"the record's own handler": "recordrolesfixture", "the consolidated handler": "resources"}
+			for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
+				if !tt.marked {
+					assertContains(t, name, out, nil, []string{"RecordKinds", "DeleteAlso"})
+
+					continue
+				}
+				assertInOrder(t, out,
+					"patch := "+packageOf[name]+".New"+tt.record+"DeletePatchFromPatchSet(id, patchSet)",
+					handed,
+					"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
+					"if taken := patch.Left(); taken != nil {",
+				)
 			}
 		})
 	}

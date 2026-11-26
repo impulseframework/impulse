@@ -186,16 +186,17 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 	return nil
 }
 
-// DeleteGroup deletes a group with its members and the roles it holds, in the caller's
-// transaction, and has the permission engine told once the transaction has committed.
-// Asked without everythingUnder of a group that has either, it deletes nothing and
-// answers the question a person is asked first, with their counts; asked with it, it
-// takes them. Each member and each role is asked what its own removal asks
-// (RemoveGroupMember, TakeGroupRole), so nobody deletes a group that gives them the last
-// administrator's role of a tenant. A member or a role whose period has ended gives
-// nobody anything and is asked nothing: the delete takes it with the rest, and counts it
-// in the question. It answers what one save left where the group had more under it than
-// one save holds (nil once the group is gone).
+// DeleteGroup deletes a group with its members and the roles it holds, those it holds on
+// records among them, in the caller's transaction, and has the permission engine told
+// once the transaction has committed. Asked without everythingUnder of a group that has
+// either, it deletes nothing and answers the question a person is asked first, with their
+// counts; asked with it, it takes them. Each member and each role held in a scope is asked
+// what its own removal asks (RemoveGroupMember, TakeGroupRole), so nobody deletes a group
+// that gives them the last administrator's role of a tenant; a role held on a record
+// administers no tenant and is asked nothing. A member or a role whose period has ended
+// gives nobody anything and is asked nothing: the delete takes it with the rest, and
+// counts it in the question. It answers what one save left where the group had more under
+// it than one save holds (nil once the group is gone).
 func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

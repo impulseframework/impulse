@@ -1090,6 +1090,20 @@ const (
 					patch.DeleteAlso({{ $.ReceiverName }}.{{ $source }}().TenantKinds(accesstypes.Domain(id.String()))...)
 					{{- end }}`
 
+	// recordKindsHanded is spliced into the delete of a record a role can be held on,
+	// after its delete patch is made (patch, under the record's id, id, in the request's
+	// tenant, domain, which the splice's place sets) and before it is buffered: the patch
+	// is handed the roles held on the record as a kind of the delete, through the
+	// generated identity client of every auth whose role file holds a role on it
+	// (identity.Manager.RecordKinds), so the delete counts them in its question and takes
+	// them in its rounds. A record the delete of a row above it takes is not handed them.
+	recordKindsHanded = `{{- with $kinds := .RecordKinds }}
+					// A record's delete takes the roles held on it, each auth's.
+					{{- range $source := $kinds.Sources }}
+					patch.DeleteAlso({{ $.ReceiverName }}.{{ $source }}().RecordKinds(accesstypes.NewRecordScope(domain, "{{ $kinds.Resource }}", {{ $kinds.KeyText }}))...)
+					{{- end }}
+					{{- end }}`
+
 	// directoryCreateRefused is spliced into the directories record's create in place of
 	// the row's create patch (patchSet, which the splice's place sets): a tenant takes its
 	// directory with the tenant's own method, Take<Record>Directory, which says what
@@ -3914,6 +3928,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					{{- if .KindsFrom }}
 					` + tenantKindsHanded + `
 					{{- end }}
+					` + recordKindsHanded + `
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
@@ -4248,6 +4263,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- if .KindsFrom }}
 							` + tenantKindsHanded + `
 							{{- end }}
+							` + recordKindsHanded + `
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}

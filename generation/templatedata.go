@@ -146,6 +146,9 @@ type consolidatedCaseData struct {
 	// tenant record's delete is handed, what each auth holds for the tenant
 	// (tenantKindSources); empty on every other case.
 	KindsFrom []string
+	// RecordKinds is what the delete of a record a role can be held on is handed, the
+	// roles each auth holds on it (recordKindsHanding); nil on every other case.
+	RecordKinds *recordKindsHanding
 	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
 	// removal is buffered (tenantDisabledRequirement); nil on every other case.
 	RequiresDisabled *tenantDisabledRequirement
@@ -170,6 +173,9 @@ type handlerContentData struct {
 	// tenant record's delete is handed, what each auth holds for the tenant
 	// (tenantKindSources); empty on every other resource.
 	KindsFrom []string
+	// RecordKinds is what the delete of a record a role can be held on is handed, the
+	// roles each auth holds on it (recordKindsHanding); nil on every other resource.
+	RecordKinds *recordKindsHanding
 	// RequiresDisabled is what the tenant record's delete asks of the tenant before its
 	// removal is buffered (tenantDisabledRequirement); nil on every other resource.
 	RequiresDisabled *tenantDisabledRequirement

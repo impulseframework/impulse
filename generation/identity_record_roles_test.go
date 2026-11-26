@@ -172,6 +172,9 @@ func Test_prepareIdentity_recordRoles(t *testing.T) {
 		// Read in the tables' key order.
 		"Sort(crewresources.NewCrewRecordUserRoleSort().Axis().DomainID().ResourceName().RecordID().Role().UserID())",
 		"Sort(crewresources.NewCrewRecordGroupRoleSort().Axis().DomainID().ResourceName().RecordID().Role().GroupID())",
+		// A group the tenant's delete takes takes its roles on records, whose change
+		// history records the delete as the request's person's.
+		"patch := crewresources.NewCrewGroupDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()\n\tif err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {",
 	}), []string{"errNoRecordRoles"})
 
 	// The members' role file holds no role on a record: nothing is declared, the store
@@ -222,9 +225,10 @@ func Test_prepareIdentity_recordRoles(t *testing.T) {
 		}
 		assertContains(t, "the groups", readIdentityFile(t, "internal/crewresources/crew_groups.go"),
 			squashEach([]string{"// @deleteCascade(CrewGroupMember, CrewGroupRole)"}), nil)
-		assertContains(t, "the crew's store", readIdentityFile(t, "crewidentity/store.go"),
-			squashEach([]string{"func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {\n\treturn nil, nil, nil\n}"}),
-			[]string{"NewCrewRecordUserRole"})
+		assertContains(t, "the crew's store", readIdentityFile(t, "crewidentity/store.go"), squashEach([]string{
+			"func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {\n\treturn nil, nil, nil\n}",
+			"patch := crewresources.NewCrewGroupDeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()\n\tif err := patch.Buffer(ctx, txn); err != nil {",
+		}), []string{"NewCrewRecordUserRole"})
 	})
 }
 

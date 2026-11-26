@@ -258,8 +258,12 @@ func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTr
 	// The tenant's delete took the application's rows under the tenant before it reached
 	// the groups: the group's delete takes its members and its roles, and leaves the
 	// application's rows out.
+	{{- if .KeepsRecordGroupRoles }}
+	// Its roles on records keep a change history, which records their delete as the
+	// request's person's (deletedBy).
+	{{- end }}
 	patch := {{ .ResourcesPackage }}.New{{ .Group }}DeletePatch(id).WithEverythingUnder().WithLibraryRowsAlone()
-	if err := patch.Buffer(ctx, txn); err != nil {
+	if err := patch.Buffer(ctx, txn{{ if .KeepsRecordGroupRoles }}, deletedBy(ctx)...{{ end }}); err != nil {
 		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Group }}DeletePatch.Buffer()")
 	}
 

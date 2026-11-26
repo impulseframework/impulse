@@ -487,13 +487,20 @@ func (d *identitySourceData) SharedKeyImports() []string {
 // SharedKeyText spells the key a request names a shared record by as text, the way the
 // identity package's methods take it, from the request's field (m.RecordID).
 func (d *identitySourceData) SharedKeyText() string {
-	switch d.HeldRecord.keyType {
+	return recordKeyText(d.HeldRecord.keyType, "m.RecordID")
+}
+
+// recordKeyText spells a record's key, the Go value named by value of the key field's
+// type, as the text a role held on the record names it by: the string itself, an id's
+// text, or any other value's fmt spelling.
+func recordKeyText(keyType, value string) string {
+	switch keyType {
 	case stringGoType:
-		return "m.RecordID"
-	case "impulse.UUID":
-		return "m.RecordID.String()"
+		return value
+	case impulseUUIDGoType:
+		return value + ".String()"
 	default:
-		return "fmt.Sprint(m.RecordID)"
+		return "fmt.Sprint(" + value + ")"
 	}
 }
 
