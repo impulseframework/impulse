@@ -2,17 +2,78 @@
 // (@holdsRoles): which resources are such records, what is under each by foreign keys and
 // what each names, and where each auth keeps the roles held on them. The generator writes
 // it as data; the permission engine reads the answers (RecordsHoldingRoles, RecordWords,
-// RecordReach) through the optional interface it asks a collection for.
+// RecordReach, RecordCondition) through the optional interface it asks a collection for.
+//
+// A role held on a record counts under a condition the collection writes: the row's way
+// to the record, or the record's name of the row, is in a subject set of the records the
+// person holds the role on. Those sets are declared nowhere: their names say what they
+// are (SubjectSet reads them), and they read the auth's tables of roles held on records.
 
 package resource
 
 import (
 	"cmp"
+	"fmt"
 	"maps"
+	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/impulseframework/impulse/accesstypes"
 )
+
+// ReservedBindingPrefix opens every binding name the collection makes for the records a
+// role can be held on: the attributes by which a row is under a record or named by one
+// (RecordWayAttribute, RecordNameAttribute) and the subject sets of the records a person
+// holds a role on. A name an application declares does not open with it.
+const ReservedBindingPrefix = "held_"
+
+// RecordWayAttribute names the attribute of a resource that resolves, by the resource's
+// way n to the record (numbered from 0), to the key of the record the row is under.
+func RecordWayAttribute(record accesstypes.Resource, n int) string {
+	return ReservedBindingPrefix + "way" + strconv.Itoa(n) + "_" + string(record)
+}
+
+// RecordNameAttribute names the attribute of a resource that the record's name n of it
+// (numbered from 0, RecordData.Names) refers to: the column the record's foreign key
+// references.
+func RecordNameAttribute(record accesstypes.Resource, n int) string {
+	return ReservedBindingPrefix + "named" + strconv.Itoa(n) + "_" + string(record)
+}
+
+// The columns of an auth's tables of roles held on records that the subject sets of
+// those records read (access's spannerstore and postgresstore).
+const (
+	recordDomainColumn = "DomainId"
+	recordKeyColumn    = "RecordId"
+	recordUserColumn   = "UserId"
+	recordGroupColumn  = "GroupId"
+)
+
+// recordPeriodWhere is the half of a record set's where: part that keeps a row inside
+// its period alone, word for word the part of the set of a person's groups.
+const recordPeriodWhere = "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)"
+
+// recordSetRole is what a record set's name holds between its auth and its record: a
+// role's name.
+var recordSetRole = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+
+// recordSetName names the subject set of the records of the kind record on which a
+// person holds role, for the people of auth: by the person (held_by_), or by a group of
+// theirs (held_bygroup_); and, with named n at 0 or more, the set of the rows those
+// records name by their name n (held_named<n>by_, held_named<n>bygroup_).
+func recordSetName(named int, group bool, auth string, role accesstypes.Role, record accesstypes.Resource) string {
+	kind := "by"
+	if named >= 0 {
+		kind = "named" + strconv.Itoa(named) + kind
+	}
+	if group {
+		kind += "group"
+	}
+
+	return ReservedBindingPrefix + kind + "_" + auth + "_" + string(role) + "_" + string(record)
+}
 
 // RecordData marks a resource as a record a role can be held on.
 type RecordData struct {
@@ -201,4 +262,176 @@ func (g *GeneratedCollection) RecordReach(record, res accesstypes.Resource) (sel
 	}
 
 	return self, under, named
+}
+
+// recordRoleStore is where auth keeps the roles held on records; ok is false for an auth
+// with no store.
+func (g *GeneratedCollection) recordRoleStore(auth string) (RecordRoleStoreData, bool) {
+	for _, store := range g.recordRoleStores {
+		if store.Auth == auth {
+			return store, true
+		}
+	}
+
+	return RecordRoleStoreData{}, false
+}
+
+// keepsGroups reports whether the store keeps the roles groups hold on records, and so
+// whether a group's sets are there.
+func (s *RecordRoleStoreData) keepsGroups() bool {
+	return s.GroupRoles != "" && s.GroupSet != ""
+}
+
+// waysUnder are the ways a row of res is under the records, whatever its scope.
+func (g *GeneratedCollection) waysUnder(res accesstypes.Resource) []RecordWayData {
+	for _, under := range g.under {
+		if ways, ok := under[res]; ok {
+			return ways
+		}
+	}
+
+	return nil
+}
+
+// RecordCondition is the condition under which a grant on res counts for a holder of
+// role on a record of the kind record, for the people of auth: the tests below joined by
+// OR, and ok false where there is none, the auth keeps no roles on records, or record is
+// no record a role can be held on.
+//
+// For each way of res to the record, in the order of Under, the way's attribute is in the
+// set of the records the person holds the role on, then in the set of those their groups
+// hold it on (where the store keeps groups). Unless create, the same follows for each name
+// of res by the record, its attribute in the sets of the rows those records name. A create
+// is under the record by the row it writes: a row the record names is reached and never
+// made, and neither is the record's own kind (its Self way), by a role held on one record.
+func (g *GeneratedCollection) RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, create bool) (condition string, ok bool) {
+	if g == nil {
+		return "", false
+	}
+	store, kept := g.recordRoleStore(auth)
+	data, marked := g.heldRecord(record)
+	if !kept || !marked {
+		return "", false
+	}
+
+	var tests []string
+	member := func(attribute string, named int) {
+		tests = append(tests, attribute+" IN subject."+recordSetName(named, false, auth, role, record))
+		if store.keepsGroups() {
+			tests = append(tests, attribute+" IN subject."+recordSetName(named, true, auth, role, record))
+		}
+	}
+	for _, way := range g.waysUnder(res) {
+		if way.Record == record && !(create && way.Self) {
+			member(way.Attribute, -1)
+		}
+	}
+	if !create {
+		for n, name := range data.Names {
+			if name.Resource == res {
+				member(name.Attribute, n)
+			}
+		}
+	}
+	if len(tests) == 0 {
+		return "", false
+	}
+
+	return strings.Join(tests, " OR "), true
+}
+
+// recordSet reads a subject set of the records a person holds a role on from its name
+// (recordSetName): the auth is one whose store the collection holds, the record one it
+// marks, and what stands between them a role's name. Nothing is kept per role: the set is
+// made from the name each time. The set reads the store's table of people's roles held on
+// records, or of groups' through the set of a person's groups, keeps the rows of the
+// record's kind and the role inside their periods, and yields the records' keys, or with
+// a name n the column of each record that names its row. ok is false for any other name.
+func (g *GeneratedCollection) recordSet(name string) (SubjectAnchor, bool) {
+	rest, ok := strings.CutPrefix(name, ReservedBindingPrefix)
+	if !ok {
+		return SubjectAnchor{}, false
+	}
+	named := -1
+	if after, ok := strings.CutPrefix(rest, "named"); ok {
+		digits := after[:len(after)-len(strings.TrimLeft(after, "0123456789"))]
+		n, err := strconv.Atoi(digits)
+		if err != nil || strconv.Itoa(n) != digits {
+			return SubjectAnchor{}, false
+		}
+		named, rest = n, after[len(digits):]
+	}
+	group := false
+	switch {
+	case strings.HasPrefix(rest, "bygroup_"):
+		group, rest = true, strings.TrimPrefix(rest, "bygroup_")
+	case strings.HasPrefix(rest, "by_"):
+		rest = strings.TrimPrefix(rest, "by_")
+	default:
+		return SubjectAnchor{}, false
+	}
+	store, role, record, ok := g.recordSetOwner(rest)
+	if !ok {
+		return SubjectAnchor{}, false
+	}
+	data, _ := g.heldRecord(record)
+	if named >= len(data.Names) || (group && !store.keepsGroups()) {
+		return SubjectAnchor{}, false
+	}
+
+	table := store.UserRoles
+	binding := SubjectBindingData{
+		Name: name, UserColumn: recordUserColumn, Column: recordKeyColumn, Type: AttributeTypeString,
+		Where:   recordSetWhere(record, role),
+		Offered: true, Auth: store.Auth,
+	}
+	if group {
+		table = store.GroupRoles
+		binding.UserColumn = ""
+		binding.Who = []SubjectWhoData{{Column: recordGroupColumn, Set: store.GroupSet}}
+	}
+	if named >= 0 {
+		binding.Path = []BindingHop{{Table: string(record), JoinColumn: data.Key, Column: data.Names[named].Column}}
+	}
+
+	return SubjectAnchor{
+		Resource: accesstypes.Resource(table),
+		Scope:    accesstypes.DomainPermissionScope,
+		Binding:  binding,
+		Domain:   &DomainBindingData{Column: recordDomainColumn},
+	}, true
+}
+
+// recordSetOwner reads what a record set's name holds after its kind,
+// <auth>_<Role>_<Record>: an auth with a store, a marked record, and a role's name
+// between them.
+func (g *GeneratedCollection) recordSetOwner(rest string) (RecordRoleStoreData, accesstypes.Role, accesstypes.Resource, bool) {
+	for _, store := range g.recordRoleStores {
+		between, ok := strings.CutPrefix(rest, store.Auth+"_")
+		if !ok {
+			continue
+		}
+		for _, record := range g.RecordsHoldingRoles() {
+			role, ok := strings.CutSuffix(between, "_"+string(record))
+			if ok && recordSetRole.MatchString(role) {
+				return store, accesstypes.Role(role), record, true
+			}
+		}
+	}
+
+	return RecordRoleStoreData{}, "", "", false
+}
+
+// recordSetWhere is a record set's where: part: the rows of the record's kind and the
+// role, inside their periods.
+func recordSetWhere(record accesstypes.Resource, role accesstypes.Role) *SubjectWhereData {
+	return &SubjectWhereData{
+		Condition: fmt.Sprintf("Resource = '%s' AND Role = '%s' AND %s", record, role, recordPeriodWhere),
+		Columns: []SubjectColumnData{
+			{Name: "Resource", Column: "Resource", Type: AttributeTypeString},
+			{Name: "Role", Column: "Role", Type: AttributeTypeString},
+			{Name: "StartsAt", Column: "StartsAt", Type: AttributeTypeTimestamp},
+			{Name: "EndsAt", Column: "EndsAt", Type: AttributeTypeTimestamp},
+		},
+	}
 }

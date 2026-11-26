@@ -633,9 +633,15 @@ type SubjectAnchor struct {
 
 // SubjectSet resolves a @subjectSet name across the collection —
 // subject.<name> is one application-wide namespace, validated unique at
-// construction.
+// construction. A name no set declares may be one of the sets of the records a
+// person holds a role on, which the collection reads from the name
+// (recordSet).
 func (g *GeneratedCollection) SubjectSet(name string) (SubjectAnchor, bool) {
-	return g.subjectAnchor(name, func(b Bindings) []SubjectBindingData { return b.SubjectSets })
+	if anchor, ok := g.subjectAnchor(name, func(b Bindings) []SubjectBindingData { return b.SubjectSets }); ok {
+		return anchor, true
+	}
+
+	return g.recordSet(name)
 }
 
 // SubjectValue resolves a @subjectValue name across the collection.
