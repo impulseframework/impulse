@@ -158,8 +158,10 @@ export function unorderedFields(meta: ResourceMeta | undefined): ReadonlySet<str
  * `conditional`, so such a field comes back marked `sortable: false` and without its
  * `filterable` and its `search`: the table draws its heading as words and no filter
  * control on it. A field listed as conditionalOnTime is left as it is: the server
- * settles it from the time of the request. A table, a view, and a computed resource
- * with no field listed as `conditional` come back as they are, the same object.
+ * settles it from the time of the request. So is a field listed as
+ * conditionalWithResource: the server reads it only on the rows the caller is shown. A
+ * table, a view, and a computed resource with no field listed as `conditional` come back
+ * as they are, the same object.
  */
 export function queryableMeta(
   meta: ResourceMeta | undefined,

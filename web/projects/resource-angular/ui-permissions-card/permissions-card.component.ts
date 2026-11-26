@@ -34,10 +34,11 @@ export type PermissionsCardLayout = 'table' | 'blocks';
 
 /**
  * The card for what a person may do: per resource, what they hold of each permission,
- * `granted`, `terms apply` (a conditional grant, which the server decides row by row),
- * `at certain times` (a grant that depends on the time alone), or a dash for nothing. A
- * page hands it the resources and what the person holds on each; the card reads no
- * session and asks the server for nothing.
+ * `granted`, `terms apply` (a conditional grant, which the server decides row by row, a
+ * field's held under its resource's own condition among them), `at certain times` (a
+ * grant that depends on the time alone), or a dash for nothing. A page hands it the
+ * resources and what the person holds on each; the card reads no session and asks the
+ * server for nothing.
  *
  * The card is laid out by its own width, not the window's: a table, a column per
  * permission, while the columns fit the card, and each resource as a block of its own

@@ -806,7 +806,9 @@ export class ResourceListComponent implements OnInit {
    * The listed resource's metadata as this caller may sort and filter by it
    * (queryableMeta): on a computed resource, a column the digest lists as `conditional`
    * offers no sort and no filter. A field listed as conditionalOnTime is left as it is:
-   * the server settles it from the time of the request. Across tenants nothing narrows.
+   * the server settles it from the time of the request; so is one listed as
+   * conditionalWithResource, which the server reads only on the rows it shows. Across
+   * tenants nothing narrows.
    */
   queryMeta = computed(() => queryableMeta(this.meta(), this.listStates()));
 

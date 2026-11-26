@@ -184,14 +184,16 @@ refuses.
 
 A computed resource's list is ordered and filtered by its handler, over the rows' real
 values, so the server refuses a sort or a filter by a field unless the caller holds List on
-the field with no condition left once the request is checked: outright, or under conditions
-that read the time of the request alone, while one holds (403, "You may not sort or filter
-hangar passes by the budget here."). The generated metadata marks such a resource:
-`ResourceMeta.computed` is `true`, and absent on a table and a view, whose sorts and
-filters run over what the caller may see. The permission digest says which fields the
-caller holds under a condition that reads more than the time (`conditional`), so a table
-over a computed resource draws the heading of such a column as words and no filter control
-on it.
+the field with no condition left once the request is checked (outright, or under conditions
+that read the time of the request alone, while one holds), or under the very condition the
+list's own rows are held under, since a row that fails it is dropped before the sort and the
+filter read it (403, "You may not sort or filter hangar passes by the budget here."). The
+generated metadata marks such a resource: `ResourceMeta.computed` is `true`, and absent on
+a table and a view, whose sorts and filters run over what the caller may see. The
+permission digest says which fields the caller holds under a condition that reads more
+than the time (`conditional`), so a table over a computed resource draws the heading of
+such a column as words and no filter control on it. A field held under the list's own
+condition alone is `conditionalWithResource`, and its column sorts and filters.
 
 A text field answers `startswith`, `endswith` and `contains` where the schema states a
 fact for it, and `FieldMeta.search` lists the matches it answers: a stored `LOWER(col)`
@@ -269,9 +271,10 @@ people it answers true for; the list itself answers anyone else an empty array.
 or one per domain), loaded on demand and cached for the session.
 
 - `handle.can(permission)` and `method.can()` answer synchronously from the cache and
-  never fetch. `granted`, `conditional` and `conditionalOnTime` all answer true: render
-  the surface, and let the server narrow it per row (`conditional`) or refuse it outside
-  its time (`conditionalOnTime`). A scope that has not been loaded answers false.
+  never fetch. `granted`, `conditional`, `conditionalOnTime` and
+  `conditionalWithResource` all answer true: render the surface, and let the server
+  narrow it per row (`conditional`, `conditionalWithResource`) or refuse it outside its
+  time (`conditionalOnTime`). A scope that has not been loaded answers false.
 - `handle.rowCan(row, 'Update' | 'Delete')` asks the row first, the digest second: a
   capability envelope on the row (from `capabilities: [...]` on the read) decides for
   that row; without one, the scope's digest decides. `rowCan(row, 'Execute', method)`
@@ -281,7 +284,8 @@ or one per domain), loaded on demand and cached for the session.
   child list, e.g. lines under a draft requisition).
 - `handle.grantedFields(permission)` is the digest's field-level enumeration — for
   `Create`, the inputs a create form is worth rendering: sorted field names whose
-  dotted target is granted, conditional or conditionalOnTime (a denied field is absent).
+  dotted target is granted, conditional, conditionalOnTime or conditionalWithResource (a
+  denied field is absent).
   Undefined means the digest carries no field-level entries for the permission — no
   field information (denied outright, or a keys-only resource) — so narrow only on a
   defined answer. Key fields never appear: they are structural, not grant-bearing.

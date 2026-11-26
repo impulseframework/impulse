@@ -1306,7 +1306,8 @@ describe('TenantSignInPageComponent', () => {
 
     // The link opens the People page filtered by the mark, so it is drawn only where the
     // list will filter by it: where the reader's List on the people names no field (nothing
-    // narrows the list), or names the mark as granted or conditional on time.
+    // narrows the list), or names the mark as granted, conditional on time or conditional
+    // with the list.
     const listing = (fields: Record<string, PermissionDigestState>): PermissionDigest => {
       const digest: PermissionDigest = { ...listsPeople };
       for (const [field, state] of Object.entries(fields)) {
@@ -1336,6 +1337,16 @@ describe('TenantSignInPageComponent', () => {
     it('where the List on the people names the mark as conditional on time, the sentence is the link', async () => {
       await pageFor({
         digest: listing({ username: 'granted', outsideDirectory: 'conditionalOnTime' }),
+        state: counted,
+        directories: [workspace],
+      });
+
+      expect(link() ? said(link() as HTMLAnchorElement) : '').toBe(sentence);
+    });
+
+    it('where the List on the people names the mark as conditional with the list, the sentence is the link', async () => {
+      await pageFor({
+        digest: listing({ username: 'granted', outsideDirectory: 'conditionalWithResource' }),
         state: counted,
         directories: [workspace],
       });
@@ -1645,6 +1656,20 @@ describe('TenantSignInPageComponent', () => {
 
       expect(readsOfTheRow()).toBe(0);
       expect(texts('h2')).toEqual([]);
+    });
+
+    it("where the Read names the switch under the record's own condition, the row is read", async () => {
+      await pageFor({
+        digest: lister,
+        globalDigest: { Teams: { Read: 'conditional' }, 'Teams.directoryOnly': { Read: 'conditionalWithResource' } },
+        directories: [workspace],
+        record: { id: team, directoryOnly: true },
+      });
+
+      expect(readsOfTheRow()).toBe(1);
+      expect(texts('.impulse-tenant-sign-in-directory-only')).toEqual([
+        "On: only people who sign in through this team's directory enter it.",
+      ]);
     });
 
     it('where the reader may not read the tenant record, the row is not read', async () => {

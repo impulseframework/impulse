@@ -578,9 +578,10 @@ neither of these nor the live routes, and when no outlet serves sessions the gen
 `UserDomains` and live handlers are not written at all.
 
 **The digest.** The payload is the user's structural grant enumeration for the requested
-scope: resource → permission → `granted` | `conditional` | `conditionalOnTime`, with
-field targets under their dotted names (`"WorkOrders.title"`) and **absence meaning
-denied** — consumers fail closed by construction. A grant on all of a resource's fields
+scope: resource → permission → `granted` | `conditional` | `conditionalOnTime` |
+`conditionalWithResource`, with field targets under their dotted names
+(`"WorkOrders.title"`) and **absence meaning denied** — consumers fail closed by
+construction. A grant on all of a resource's fields
 (`Documents.*`) is listed field by field, over the fields the release declares for the
 resource, so a field's own entry is the whole answer for it. It is advisory UI material (which
 menus, routes, and form inputs to render); enforcement stays with the endpoint gate, the
@@ -591,8 +592,14 @@ clock: every condition the target is held under reads the time of the request al
 (`now`, `timeOfDay`, `dayOfWeek` against literals), so the server answers the target
 whole while one of them holds and refuses it while none does. `conditional` says at
 least one reads more (the row, a fact about the caller, a request field), so the server
-may judge the target row by row. An unknown or grant-free domain digests to `{}`, so the
-endpoint never confirms tenant existence under `WithConcealedDomains`.
+may judge the target row by row. `conditionalWithResource` is a field's, where it would
+be `conditional`: the grants that cover the field are, as a set, the very ones that cover
+its resource, and nothing covers the resource without a condition, so the field is seen
+on every row of the resource the caller is shown, and a computed list is sorted, filtered
+and searched by it (section 4). Two sets of grants that fold to one condition for some
+caller stay `conditional`, so a page offers less than the server answers, never more.
+An unknown or grant-free domain digests to `{}`, so the endpoint never confirms tenant
+existence under `WithConcealedDomains`.
 `@impulseframework/resource-angular/types` carries the matching `PermissionDigest` /
 `PermissionDigestState` types (and `RowCapabilities` for the capability envelope).
 

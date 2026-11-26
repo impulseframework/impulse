@@ -208,6 +208,24 @@ describe('queryableMeta', () => {
     expect(queryableMeta(passes, { holder: 'conditionalOnTime', budget: 'granted', bay: 'granted' })).toBe(passes);
   });
 
+  it('a computed resource with a field listed as conditionalWithResource comes back as it is: the server reads it on the rows it shows', () => {
+    expect(queryableMeta(passes, { holder: 'conditionalWithResource', budget: 'granted', bay: 'granted' })).toBe(
+      passes,
+    );
+  });
+
+  it('a computed resource narrows a field listed as conditional and leaves one listed as conditionalWithResource the object it was', () => {
+    const narrowed = queryableMeta(passes, {
+      holder: 'conditional',
+      budget: 'granted',
+      bay: 'conditionalWithResource',
+    });
+
+    expect(narrowed).not.toBe(passes);
+    expect(narrowed?.fields[1]).toEqual(field('holder', { sortable: false }));
+    expect(narrowed?.fields[3]).toBe(passes.fields[3]);
+  });
+
   it('a computed resource narrows a field listed as conditional and leaves one listed as conditionalOnTime the object it was', () => {
     const narrowed = queryableMeta(passes, { holder: 'conditional', budget: 'granted', bay: 'conditionalOnTime' });
 
@@ -235,6 +253,15 @@ describe('answeredSorts', () => {
 
   it('a computed resource drops a sort by a field listed as conditional and keeps the rest in their order', () => {
     expect(answeredSorts(sorts, passes, states)).toEqual([sorts[1], sorts[2], sorts[3], sorts[4]]);
+  });
+
+  it('a computed resource keeps a sort by a field listed as conditionalWithResource', () => {
+    expect(answeredSorts(sorts, passes, { ...states, bay: 'conditionalWithResource' })).toEqual([
+      sorts[1],
+      sorts[2],
+      sorts[3],
+      sorts[4],
+    ]);
   });
 
   it('a table keeps every sort', () => {

@@ -194,6 +194,12 @@ describe('refusedSearchFields', () => {
       want: none,
     },
     {
+      name: "the ship name held under the board's own condition",
+      meta: board,
+      states: { shipName: 'conditionalWithResource', worstReading: 'granted' },
+      want: none,
+    },
+    {
       name: 'the ship name not always seen',
       meta: board,
       states: { shipName: 'conditional', worstReading: 'granted' },

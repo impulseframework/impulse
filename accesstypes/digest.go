@@ -8,17 +8,22 @@ package accesstypes
 // and denied while none does. Conditional: only conditional grants cover it,
 // and at least one of their conditions reads more than the time (the row, a
 // fact about the caller, a request field), so a check may leave the target
-// to be judged row by row. There is no denied state: a denied target is
-// absent from the digest entirely, so a consumer that misses a key fails
-// closed.
+// to be judged row by row. Conditional with its resource: a field that would
+// be conditional, where the grants that cover it are, as a set, the very ones
+// that cover its resource and nothing covers the resource without a
+// condition, so the field is seen on every row of the resource the caller is
+// shown, and a list made in code is sorted, filtered and searched by it.
+// There is no denied state: a denied target is absent from the digest
+// entirely, so a consumer that misses a key fails closed.
 type DigestState string
 
 // The digest states. There is deliberately no denied constant: denial is
 // expressed by absence.
 const (
-	DigestGranted           DigestState = "granted"
-	DigestConditional       DigestState = "conditional"
-	DigestConditionalOnTime DigestState = "conditionalOnTime"
+	DigestGranted                 DigestState = "granted"
+	DigestConditional             DigestState = "conditional"
+	DigestConditionalOnTime       DigestState = "conditionalOnTime"
+	DigestConditionalWithResource DigestState = "conditionalWithResource"
 )
 
 // PermissionDigest is one user's structural grant enumeration for one scope:

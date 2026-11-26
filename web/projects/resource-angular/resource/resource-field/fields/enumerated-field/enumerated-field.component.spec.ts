@@ -1590,7 +1590,8 @@ describe('EnumeratedFieldComponent narrowing a paged source', () => {
 // real values and refuses both by a field the digest lists as conditional (seen on some
 // rows only), so the picker asks neither by such a field, and the request carries the
 // configured filter alone. A field listed as conditionalOnTime narrows as one granted:
-// the server settles that grant from the time of the request. The picker sorts by the
+// the server settles that grant from the time of the request. So does one listed as
+// conditionalWithResource: the server reads it only on the rows it shows. The picker sorts by the
 // same rule: no configured sort by a conditional field, and over a source with no
 // declared order whose display column is conditional, the key.
 describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
@@ -1771,6 +1772,13 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
     expect(filters('manifests').at(-1)).toBe(`(${configured}),*:search:"lan"`);
   });
 
+  it('a search field listed as conditionalWithResource: the request carries the box beside the configured filter', async () => {
+    const component = await typeOver(manifests, 'title', { title: 'conditionalWithResource' });
+
+    expect(component.narrowing()).toBe('box');
+    expect(filters('manifests').at(-1)).toBe(`(${configured}),*:search:"lan"`);
+  });
+
   it('a display field that answers startswith listed as conditional: no startswith clause', async () => {
     const component = await typeOver(boards, 'shipName', { shipName: 'conditional' });
 
@@ -1786,6 +1794,13 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
     expect(filters('boards').at(-1)).toBe(`(${configured}),shipName:startswith:lan`);
   });
 
+  it('the same display field listed as conditionalWithResource: the prefix match', async () => {
+    const component = await typeOver(boards, 'shipName', { shipName: 'conditionalWithResource' });
+
+    expect(component.narrowing()).toBe('prefix');
+    expect(filters('boards').at(-1)).toBe(`(${configured}),shipName:startswith:lan`);
+  });
+
   it('a source with no declared order whose display column is listed as conditional: the picker pages by the key', async () => {
     await typeOver(ledgers, 'title', { title: 'conditional', sorties: 'granted' });
 
@@ -1795,6 +1810,13 @@ describe('EnumeratedFieldComponent narrowing a paged computed source', () => {
 
   it('the same display column listed as conditionalOnTime: the picker pages by the display column', async () => {
     await typeOver(ledgers, 'title', { title: 'conditionalOnTime', sorties: 'granted' });
+
+    expect(sortsOf('ledgers').length).toBeGreaterThan(0);
+    expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:asc']));
+  });
+
+  it('the same display column listed as conditionalWithResource: the picker pages by the display column', async () => {
+    await typeOver(ledgers, 'title', { title: 'conditionalWithResource', sorties: 'granted' });
 
     expect(sortsOf('ledgers').length).toBeGreaterThan(0);
     expect(new Set(sortsOf('ledgers'))).toEqual(new Set(['title:asc']));
