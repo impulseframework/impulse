@@ -1117,6 +1117,11 @@ type computedResource struct {
 	// field: the library judges the rows the resource's function yields against
 	// them, in Go.
 	Attributes []resource.AttributeData
+
+	// recordWays are the ways a row of the resource is under a record a role can be
+	// held on: a shared record's roles to give, by the record each row is listed for
+	// (identityInstance.recordWaysOf), whose attribute is among Attributes.
+	recordWays []resource.RecordWayData
 }
 
 // IsDomainScoped reports whether the resource's @permissionScope resolves to the

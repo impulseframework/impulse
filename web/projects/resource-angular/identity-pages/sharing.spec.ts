@@ -138,8 +138,10 @@ describe("sharingConfig, a record's Sharing", () => {
         endsAt: 'Until',
       });
       expect(give.throughDay).toEqual(['endsAt']);
-      // The role picks from the record's roles the caller could give with this method.
-      expect(give.narrows?.['role']?.({})).toBe(`method:eq:${method}`);
+      // The role picks from the roles the caller could give with this method on the
+      // page's record: the list is under its record, so a role held on that record alone
+      // lists them.
+      expect(give.narrows?.['role']?.({ recordId: 'v1' })).toBe(`method:eq:${method},recordId:eq:v1`);
     }
   });
 

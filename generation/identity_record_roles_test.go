@@ -368,11 +368,15 @@ func Test_prepareIdentity_recordSharing(t *testing.T) {
 	}), nil)
 	assertContains(t, "the roles to give on a voyage", readIdentityFile(t, "crewidentity/crew_voyage_roles.go"), squashEach([]string{
 		"// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\n// @rowWord(role)\ntype CrewVoyageRole struct {",
-		"Method string `spanner:\"Method\" allow_filter:\"true\"`",
+		"Method string `spanner:\"Method\" allow_filter:\"true\"`\n\t// RecordID is the key, as text, of the Voyage the role is listed for, the one\n\t// the request's filter names. The list is under its record by it.\n\tRecordID string `spanner:\"RecordId\" allow_filter:\"true\"`\n}",
+		"// under its record, by the record each row is listed for: a grant on it held on one\n// Voyage lists the roles to give on that Voyage alone",
 		"return \"CrewVoyageRoles\"",
+		"record, recordNamed, err := identity.GivingRecord(qSet.Resource(), qSet.Filter().Take(\"RecordID\"))",
 		"method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{\n\t\t\tGiveCrewRoleOnVoyage{}.Method(),\n\t\t\tGiveCrewGroupRoleOnVoyage{}.Method(),\n\t\t}, qSet.Filter().Take(\"Method\"))",
+		"if !named || !recordNamed {\n\t\t\treturn\n\t\t}",
 		"roles, err := client.manager.GivableRecordRoles(ctx, db, method, \"Voyages\")",
-	}), nil)
+		"Method: string(method), RecordID: record}, nil) {",
+	}), []string{"gives nothing on it"})
 	assertContains(t, "who holds what on a voyage", readIdentityFile(t, "internal/crewresources/crew_voyage_holders.go"), squashEach([]string{
 		"// @virtual\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\t// @order(Name asc, Role asc)\n\t// @page(default: 25, max: 200)\n\t// @rowWord(holder)\n\tCrewVoyageHolder struct {",
 		"// @primarykey\n\t\tRecordID string `spanner:\"RecordId\" index:\"true\"`\n\t\t// @primarykey\n\t\tMemberKind string `spanner:\"MemberKind\" index:\"true\"`\n" +
@@ -437,8 +441,9 @@ func Test_prepareIdentity_recordSharing(t *testing.T) {
 	})
 }
 
-// Test_identityInstance_recordWaysOf pins that a shared record's holders' view is under
-// its record, by its RecordID with no hop, and that the instance's other views are not.
+// Test_identityInstance_recordWaysOf pins that a shared record's holders' view and its
+// roles to give are under the record, each by its record with no hop (the view's RecordId
+// column, the computed list's RecordID field), and that the instance's other lists are not.
 func Test_identityInstance_recordWaysOf(t *testing.T) {
 	t.Parallel()
 
@@ -451,8 +456,17 @@ func Test_identityInstance_recordWaysOf(t *testing.T) {
 	if diff := cmp.Diff([]resource.RecordWayData{{Record: "Voyages", Attribute: attribute}}, ways); diff != "" {
 		t.Errorf("the holders' ways (-want +got):\n%s", diff)
 	}
-	if attributes, ways := crew.recordWaysOf("CrewShipUser"); len(attributes)+len(ways) != 0 {
-		t.Errorf("another view is under a record: %v, %v", attributes, ways)
+	attributes, ways = crew.recordWaysOf("CrewVoyageRole")
+	if diff := cmp.Diff([]resource.AttributeData{{Name: attribute, Column: "RecordID", Type: resource.AttributeTypeString}}, attributes); diff != "" {
+		t.Errorf("the roles to give's attributes (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]resource.RecordWayData{{Record: "Voyages", Attribute: attribute}}, ways); diff != "" {
+		t.Errorf("the roles to give's ways (-want +got):\n%s", diff)
+	}
+	for _, other := range []string{"CrewShipUser", "CrewShipRole"} {
+		if attributes, ways := crew.recordWaysOf(other); len(attributes)+len(ways) != 0 {
+			t.Errorf("%s is under a record: %v, %v", other, attributes, ways)
+		}
 	}
 }
 

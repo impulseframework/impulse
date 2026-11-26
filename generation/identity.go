@@ -953,6 +953,9 @@ func (c *client) identityComputedResources(packageMap map[string]*packages.Packa
 		}
 		for _, res := range extracted {
 			res.identity = inst
+			attributes, ways := inst.recordWaysOf(res.Name())
+			res.Attributes = append(res.Attributes, attributes...)
+			res.recordWays = ways
 		}
 		resources = append(resources, extracted...)
 	}

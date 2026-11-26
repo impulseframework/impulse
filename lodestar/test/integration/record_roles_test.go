@@ -317,17 +317,27 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 	status, body = w.as("ida", http.MethodGet, sectorPath(anvil, sectorPeoplePath), "")
 	assertStatus(t, status, http.StatusForbidden, body)
 
-	// The roles the share dialog offers the Marshal: both roles held on a mission.
-	rolesOffered := func(user accesstypes.User) (int, []string) {
-		status, body := w.as(user, http.MethodGet, sectorPath(anvil, "crew-mission-roles?filter=method:eq:GiveCrewRoleOnMission"), "")
+	// The roles the share dialog offers, asked for the method and the mission the dialog is
+	// opened on: the Marshal is offered both roles held on a mission, on any of the sector's,
+	// and nothing where the request names no mission.
+	rolesOffered := func(user accesstypes.User, filter string) (int, []string) {
+		status, body := w.as(user, http.MethodGet, sectorPath(anvil, "crew-mission-roles?filter="+filter), "")
 		if status != http.StatusOK {
+			t.Logf("the roles offered %s with %s: %s", user, filter, body)
+
 			return status, nil
 		}
 
 		return status, namesOf(t, decodeRows(t, body), "name")
 	}
-	if status, got := rolesOffered("marshal"); status != http.StatusOK || !slices.Equal(got, []string{"MissionLead", "MissionObserver"}) {
-		t.Errorf("the roles offered the Marshal to give on a mission: status %d, %v, want 200 and MissionLead, MissionObserver", status, got)
+	onMission := func(mission string) string { return "method:eq:GiveCrewRoleOnMission,recordId:eq:" + mission }
+	for _, mission := range []string{first.id, second.id} {
+		if status, got := rolesOffered("marshal", onMission(mission)); status != http.StatusOK || !slices.Equal(got, []string{"MissionLead", "MissionObserver"}) {
+			t.Errorf("the roles offered the Marshal to give on %s: status %d, %v, want 200 and MissionLead, MissionObserver", mission, status, got)
+		}
+	}
+	if status, got := rolesOffered("marshal", "method:eq:GiveCrewRoleOnMission"); status != http.StatusOK || len(got) != 0 {
+		t.Errorf("the roles offered the Marshal with no mission named: status %d, %v, want 200 and none", status, got)
 	}
 
 	// The sector's administrator's role is no role held on a mission.

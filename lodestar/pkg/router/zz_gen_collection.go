@@ -162,9 +162,14 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "name"},
+					{Name: "recordId", Permissions: []accesstypes.Permission{accesstypes.List}},
 				},
 				Attributes: []resource.AttributeData{
+					{Name: "held_way0_Missions", Column: "RecordID", Type: "string"},
 					{Name: "name", Column: "Name", Type: "string"},
+				},
+				Under: []resource.RecordWayData{
+					{Record: "Missions", Attribute: "held_way0_Missions"},
 				},
 			},
 			{

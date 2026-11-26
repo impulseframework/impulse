@@ -484,18 +484,27 @@ func (r *resourceGenerator) recordSharingSources(inst *identityInstance) []ident
 	return files
 }
 
-// recordWaysOf answers what puts a shared record's holders' view under its record, for
-// the view of the name: the attribute over the view's RecordID, the way from one of its
-// rows up to the record with no hop, so a grant held on one record reaches that record's
-// rows of the view alone. Any other view is under nothing.
-func (i *identityInstance) recordWaysOf(view string) ([]resource.AttributeData, []resource.RecordWayData) {
+// recordWaysOf answers what puts a shared record's two lists under their record, for the
+// list of the name: the attribute over the list's record, the way from one of its rows up
+// to the record with no hop, so a grant held on one record reaches that record's rows of
+// the list alone. The holders' view reads it from its RecordId column; the roles to give,
+// a computed resource whose attributes name the row's own fields, from its RecordID field.
+// Any other list is under nothing.
+func (i *identityInstance) recordWaysOf(list string) ([]resource.AttributeData, []resource.RecordWayData) {
 	for _, record := range i.sharedRecords() {
-		if view != i.sharing(&record).Holders {
+		names := i.sharing(&record)
+		var column string
+		switch list {
+		case names.Holders:
+			column = "RecordId"
+		case names.Roles:
+			column = "RecordID"
+		default:
 			continue
 		}
 		attribute := resource.RecordWayAttribute(record.resource, 0)
 
-		return []resource.AttributeData{{Name: attribute, Column: "RecordId", Type: resource.AttributeTypeString}},
+		return []resource.AttributeData{{Name: attribute, Column: column, Type: resource.AttributeTypeString}},
 			[]resource.RecordWayData{{Record: record.resource, Attribute: attribute}}
 	}
 

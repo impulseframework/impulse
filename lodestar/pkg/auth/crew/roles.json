@@ -2088,7 +2088,8 @@
               "resource": "CrewMissionRoles",
               "fields": [
                 "description",
-                "method"
+                "method",
+                "recordId"
               ]
             }
           ],
@@ -5060,6 +5061,14 @@
                 "name",
                 "startsAt",
                 "endsAt"
+              ]
+            },
+            {
+              "resource": "CrewMissionRoles",
+              "fields": [
+                "description",
+                "method",
+                "recordId"
               ]
             }
           ],

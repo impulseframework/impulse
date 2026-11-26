@@ -22,18 +22,20 @@ import (
 //
 // A role file says which roles a person hands out on the grant of each of those methods,
 // and a condition there reads the role (new.role IN ('Observer')). The list is asked for
-// one method at a time, by a filter that names it (method:eq:GiveCrewRoleOnMission), and
-// leaves out a role that method refuses the caller (identity.Manager.GivableRecordRoles):
-// a dialog offers what its own method takes. A request that names no method is listed no
-// role.
+// one record and one method at a time, by a filter that names both
+// (recordId:eq:<key>,method:eq:GiveCrewRoleOnMission), and leaves out a role that method
+// refuses the caller (identity.Manager.GivableRecordRoles): a dialog offers what its own
+// method takes on the record it is opened on. A request that names no record or no method
+// is listed no role.
 //
 // It is a computed resource of the tenant: the role file's roles are held by the
-// permission engine, so the engine is asked and no query selects the list. The role file
-// grants it like any of the tenant's resources: a role held on one Mission
-// gives nothing on it. A caller filters by the fields they may read, and a computed list
-// filters only by a field granted with no condition: the role is granted method among
-// the fields of a grant with no condition, or, beside a grant that carries one, as a
-// grant of the field alone (CrewMissionRoles.method).
+// permission engine, so the engine is asked and no query selects the list. The list is
+// under its record, by the record each row is listed for: a grant on it held on one
+// Mission lists the roles to give on that Mission alone, and a grant held
+// in the tenant lists them on any. A caller filters by the fields they may read, and a
+// computed list filters only by a field granted with no condition: the role file grants
+// method and recordId among the fields of a grant with no condition, or, beside a grant
+// that carries one, as grants of the fields alone (CrewMissionRoles.method).
 //
 // @computed
 // @permissionScope(domain)
@@ -50,6 +52,9 @@ type CrewMissionRole struct {
 	// Method is the method the role is listed for, the one the request's filter names:
 	// the caller could give the role with it.
 	Method string `spanner:"Method" allow_filter:"true"`
+	// RecordID is the key, as text, of the Mission the role is listed for, the one
+	// the request's filter names. The list is under its record by it.
+	RecordID string `spanner:"RecordId" allow_filter:"true"`
 }
 
 // Resource implements resource.Resourcer.
@@ -58,12 +63,19 @@ func (CrewMissionRole) Resource() accesstypes.Resource {
 }
 
 // ListCrewMissionRole yields the roles held on Missions that the caller
-// could give in the request's tenant with the method the request's filter names, and none
-// for a request that names no method; the generated handler applies the rest of the
-// filter, the sort and the page over them. The rule is handed the database and not a
-// transaction: it asks the grant of the method in a transaction of its own.
+// could give in the request's tenant with the method the request's filter names, each
+// listed for the record the filter names, and none for a request that names no record or
+// no method; the generated handler judges each row by the caller's grants and applies the
+// rest of the filter, the sort and the page over them. The rule is handed the database
+// and not a transaction: it asks the grant of the method in a transaction of its own.
 func ListCrewMissionRole(ctx context.Context, qSet *resource.QuerySet[CrewMissionRole], db resource.Client, client *Client) iter.Seq2[*CrewMissionRole, error] {
 	return func(yield func(*CrewMissionRole, error) bool) {
+		record, recordNamed, err := identity.GivingRecord(qSet.Resource(), qSet.Filter().Take("RecordID"))
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.GivingRecord()"))
+
+			return
+		}
 		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
 			GiveCrewRoleOnMission{}.Method(),
 			GiveCrewGroupRoleOnMission{}.Method(),
@@ -73,7 +85,7 @@ func ListCrewMissionRole(ctx context.Context, qSet *resource.QuerySet[CrewMissio
 
 			return
 		}
-		if !named {
+		if !named || !recordNamed {
 			return
 		}
 		roles, err := client.manager.GivableRecordRoles(ctx, db, method, "Missions")
@@ -83,7 +95,7 @@ func ListCrewMissionRole(ctx context.Context, qSet *resource.QuerySet[CrewMissio
 			return
 		}
 		for _, role := range roles {
-			if !yield(&CrewMissionRole{Name: string(role.Name), Description: role.Description, Method: string(method)}, nil) {
+			if !yield(&CrewMissionRole{Name: string(role.Name), Description: role.Description, Method: string(method), RecordID: record}, nil) {
 				return
 			}
 		}

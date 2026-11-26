@@ -235,6 +235,11 @@ func (r *resourceGenerator) collectRecordRoleRegistrations(b *resource.Collectio
 			b.SetResourceUnder(scope, name, res.recordWays)
 		}
 	}
+	for _, res := range r.computedResources {
+		if len(res.recordWays) > 0 {
+			b.SetResourceUnder(scopeOrGlobal(res.PermissionScope), accesstypes.Resource(r.pluralize(res.Name())), res.recordWays)
+		}
+	}
 	if first == nil {
 		return nil
 	}

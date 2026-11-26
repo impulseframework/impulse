@@ -21,6 +21,7 @@ func (h *Handlers) CrewMissionRoles() http.HandlerFunc {
 		Name        string `json:"name"        perm:"-"`
 		Description string `json:"description"`
 		Method      string `json:"method"      allow_filter:"true" search:"memory"`
+		RecordID    string `json:"recordId"    allow_filter:"true" search:"memory"`
 	}
 
 	type response []map[string]any
@@ -71,6 +72,8 @@ func (h *Handlers) CrewMissionRoles() http.HandlerFunc {
 					rmap["description"] = rec.Description
 				case "Method":
 					rmap["method"] = rec.Method
+				case "RecordID":
+					rmap["recordId"] = rec.RecordID
 				}
 			}
 			resp = append(resp, rmap)

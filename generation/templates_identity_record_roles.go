@@ -505,18 +505,20 @@ import (
 //
 // A role file says which roles a person hands out on the grant of each of those methods,
 // and a condition there reads the role (new.role IN ('Observer')). The list is asked for
-// one method at a time, by a filter that names it (method:eq:{{ .Sharing.Give }}), and
-// leaves out a role that method refuses the caller (identity.Manager.GivableRecordRoles):
-// a dialog offers what its own method takes. A request that names no method is listed no
-// role.
+// one record and one method at a time, by a filter that names both
+// (recordId:eq:<key>,method:eq:{{ .Sharing.Give }}), and leaves out a role that method
+// refuses the caller (identity.Manager.GivableRecordRoles): a dialog offers what its own
+// method takes on the record it is opened on. A request that names no record or no method
+// is listed no role.
 //
 // It is a computed resource of the tenant: the role file's roles are held by the
-// permission engine, so the engine is asked and no query selects the list. The role file
-// grants it like any of the tenant's resources: a role held on one {{ .SharedRecord }}
-// gives nothing on it. A caller filters by the fields they may read, and a computed list
-// filters only by a field granted with no condition: the role is granted method among
-// the fields of a grant with no condition, or, beside a grant that carries one, as a
-// grant of the field alone ({{ Pluralize .Sharing.Roles }}.method).
+// permission engine, so the engine is asked and no query selects the list. The list is
+// under its record, by the record each row is listed for: a grant on it held on one
+// {{ .SharedRecord }} lists the roles to give on that {{ .SharedRecord }} alone, and a grant held
+// in the tenant lists them on any. A caller filters by the fields they may read, and a
+// computed list filters only by a field granted with no condition: the role file grants
+// method and recordId among the fields of a grant with no condition, or, beside a grant
+// that carries one, as grants of the fields alone ({{ Pluralize .Sharing.Roles }}.method).
 //
 // @computed
 // @permissionScope(domain)
@@ -533,6 +535,9 @@ type {{ .Sharing.Roles }} struct {
 	// Method is the method the role is listed for, the one the request's filter names:
 	// the caller could give the role with it.
 	Method string ` + "`spanner:\"Method\" allow_filter:\"true\"`" + `
+	// RecordID is the key, as text, of the {{ .SharedRecord }} the role is listed for, the one
+	// the request's filter names. The list is under its record by it.
+	RecordID string ` + "`spanner:\"RecordId\" allow_filter:\"true\"`" + `
 }
 
 // Resource implements resource.Resourcer.
@@ -541,12 +546,19 @@ func ({{ .Sharing.Roles }}) Resource() accesstypes.Resource {
 }
 
 // List{{ .Sharing.Roles }} yields the roles held on {{ .SharedResource }} that the caller
-// could give in the request's tenant with the method the request's filter names, and none
-// for a request that names no method; the generated handler applies the rest of the
-// filter, the sort and the page over them. The rule is handed the database and not a
-// transaction: it asks the grant of the method in a transaction of its own.
+// could give in the request's tenant with the method the request's filter names, each
+// listed for the record the filter names, and none for a request that names no record or
+// no method; the generated handler judges each row by the caller's grants and applies the
+// rest of the filter, the sort and the page over them. The rule is handed the database
+// and not a transaction: it asks the grant of the method in a transaction of its own.
 func List{{ .Sharing.Roles }}(ctx context.Context, qSet *resource.QuerySet[{{ .Sharing.Roles }}], db resource.Client, client *Client) iter.Seq2[*{{ .Sharing.Roles }}, error] {
 	return func(yield func(*{{ .Sharing.Roles }}, error) bool) {
+		record, recordNamed, err := identity.GivingRecord(qSet.Resource(), qSet.Filter().Take("RecordID"))
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.GivingRecord()"))
+
+			return
+		}
 		method, named, err := identity.GivingMethod(qSet.Resource(), []accesstypes.Resource{
 			{{ .Sharing.Give }}{}.Method(),
 			{{- if .Sharing.GiveGroup }}
@@ -558,7 +570,7 @@ func List{{ .Sharing.Roles }}(ctx context.Context, qSet *resource.QuerySet[{{ .S
 
 			return
 		}
-		if !named {
+		if !named || !recordNamed {
 			return
 		}
 		roles, err := client.manager.GivableRecordRoles(ctx, db, method, "{{ .SharedResource }}")
@@ -568,7 +580,7 @@ func List{{ .Sharing.Roles }}(ctx context.Context, qSet *resource.QuerySet[{{ .S
 			return
 		}
 		for _, role := range roles {
-			if !yield(&{{ .Sharing.Roles }}{Name: string(role.Name), Description: role.Description, Method: string(method)}, nil) {
+			if !yield(&{{ .Sharing.Roles }}{Name: string(role.Name), Description: role.Description, Method: string(method), RecordID: record}, nil) {
 				return
 			}
 		}

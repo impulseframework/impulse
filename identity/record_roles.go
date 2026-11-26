@@ -7,6 +7,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/tracer"
 )
@@ -177,6 +178,30 @@ func (m *Manager) GivableRecordRoles(ctx context.Context, db resource.Executor, 
 	}
 
 	return offered, nil
+}
+
+// GivingRecord reads the one record a list of the roles to give on a record was asked
+// about, from the conditions the request's filter holds on the record
+// (resource.FilterShape.Take): one equality on the record's key, as text. The list is under
+// its record, each row listed for the record named, so a grant held on one record lists
+// the roles to give on that record alone; it holds no rows for a request that names no
+// record, for which ok is false. A request that names records any other way, by a set, a
+// range or two conditions, or by a value that is no text, is refused with what to send;
+// list names the list in the refusal. A filter that joins its conditions by OR holds none
+// Take can read, so it names no record and is listed no role.
+func GivingRecord(list accesstypes.Resource, named []resource.Condition) (record string, ok bool, err error) {
+	if len(named) == 0 {
+		return "", false, nil
+	}
+	if len(named) != 1 || named[0].Operator != filterEquals {
+		return "", false, httpio.NewBadRequestMessagef("%s lists the roles to give on one record at a time. Filter it by the record's key alone (recordId:eq:<key>).", list)
+	}
+	key, isText := named[0].Value.(string)
+	if !isText || key == "" {
+		return "", false, httpio.NewBadRequestMessagef("%s lists the roles to give on one record at a time, and %v is no record's key. Filter it by the record's key (recordId:eq:<key>).", list, named[0].Value)
+	}
+
+	return key, true, nil
 }
 
 // recordHeldIn reports whether a person's role on a record is held on a record of the

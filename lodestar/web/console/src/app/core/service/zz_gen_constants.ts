@@ -855,11 +855,13 @@ export namespace CrewMissionRoles {
     description: 'description' as FieldName,
     method: 'method' as FieldName,
     name: 'name' as FieldName,
+    recordId: 'recordId' as FieldName,
   };
   export const resourceName = {
     description: 'CrewMissionRoles.description' as Resource,
     method: 'CrewMissionRoles.method' as Resource,
     name: 'CrewMissionRoles.name' as Resource,
+    recordId: 'CrewMissionRoles.recordId' as Resource,
   };
 }
 

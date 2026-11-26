@@ -451,3 +451,52 @@ func TestManager_GivableRecordRoles(t *testing.T) {
 		})
 	}
 }
+
+// TestGivingRecord holds the record a list of the roles to give on a record is asked about to
+// one equality on its key: none names no record and the list holds no rows, and any other
+// way of naming records is refused with what to send.
+func TestGivingRecord(t *testing.T) {
+	t.Parallel()
+
+	eq := func(value any) resource.Condition {
+		return resource.Condition{Field: "RecordID", Operator: "eq", Value: value}
+	}
+	tests := []struct {
+		name    string
+		on      []resource.Condition
+		want    string
+		wantOK  bool
+		wantErr bool
+	}{
+		{name: "no condition names no record, and the list holds no rows"},
+		{name: "one record", on: []resource.Condition{eq("p-1")}, want: "p-1", wantOK: true},
+		{name: "no key", on: []resource.Condition{eq("")}, wantErr: true},
+		{name: "two conditions", on: []resource.Condition{eq("p-1"), eq("p-2")}, wantErr: true},
+		{name: "a set of records", on: []resource.Condition{{Field: "RecordID", Operator: "in", Values: []any{"p-1", "p-2"}}}, wantErr: true},
+		{name: "every record but one", on: []resource.Condition{{Field: "RecordID", Operator: "ne", Value: "p-1"}}, wantErr: true},
+		{name: "a value that is no text", on: []resource.Condition{eq(7)}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok, err := GivingRecord("StaffProjectRoles", tt.on)
+			if tt.wantErr {
+				if !httpio.HasBadRequest(err) {
+					t.Errorf("GivingRecord() error = %v, want a bad request", err)
+				}
+				if message := httpio.Message(err); !strings.Contains(message, "StaffProjectRoles lists the roles to give on one record at a time") || !strings.Contains(message, "recordId:eq:<key>") {
+					t.Errorf("GivingRecord() refusal = %q, want the list, what it answers for and what to send", message)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("GivingRecord() error = %v", err)
+			}
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("GivingRecord() = %q, %t, want %q, %t", got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}

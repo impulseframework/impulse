@@ -1159,6 +1159,7 @@ export interface CrewMissionRoles {
   name: string;
   description?: string;
   method?: string;
+  recordId?: string;
 }
 
 export interface CrewRememberLengths {
@@ -3012,8 +3013,9 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false, roles: ["Archivist", "Armorer", "Assessor", "BookingAgent", "Cadet", "Dispatcher", "Dockmaster", "DroidIngest", "Engineer", "FlightLead", "Harbormaster", "HazardAnalyst", "MissionLead", "MissionObserver", "NightWatch", "Overseer", "Paymaster", "Photographer", "Pilot", "Purser", "Quartermaster", "Registrar", "SectorCrew", "SectorMarshal", "Supercargo", "Veteran", "WingCommander"] },
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'method', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
+      { fieldName: 'recordId', displayType: 'string', required: false, isIndex: false, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
     ],
-    searchFields: ['method'],
+    searchFields: ['method', 'recordId'],
   },
   [Resources.CrewRememberLengths]: {
     route: 'crew-remember-lengths',

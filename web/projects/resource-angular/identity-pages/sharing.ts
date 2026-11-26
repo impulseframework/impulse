@@ -80,8 +80,10 @@ function sharing(
     fill: onRecord,
     labels: { userId: 'Person', groupId: 'Group', role: 'Role', ...periodWords },
     throughDay: periodEnds,
-    // The roles the list offers are the ones the caller could give with this method.
-    narrows: { role: () => `method:eq:${method}` },
+    // The roles the list offers are the ones the caller could give with this method on the
+    // page's record, which the dialog holds as the method's recordId: the list is under its
+    // record, so a role held on that record alone lists them.
+    narrows: { role: (values) => `method:eq:${method},recordId:eq:${String(values['recordId'] ?? '')}` },
   });
   const removing = (method: string, kind: string, filled: string, icon: string): MethodPresentation => ({
     method: method as Method,
