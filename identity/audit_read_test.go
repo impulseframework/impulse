@@ -155,9 +155,10 @@ func TestAuditStatement(t *testing.T) {
 			wantParams: map[string]any{"c1": id, "fetch": int64(26)},
 		},
 		{
-			name: "a tenant's rows, through the index by tenant", query: AuditQuery{Tenant: "anvil", Conditions: []resource.Condition{condition("Act", "eq", "roleGiven")}, Order: byAt},
-			page:       auditPage{paged: true, boundary: nil, fetch: 26},
-			wantSQL:    auditSelect + auditTable + "@{FORCE_INDEX=" + auditTable + "ByTenant} WHERE TenantId = @tenant AND Act = @f0 ORDER BY CreatedAt DESC, Id DESC LIMIT @fetch",
+			name: "a tenant's rows, through the index by tenant, which the emulator is told to take", query: AuditQuery{Tenant: "anvil", Conditions: []resource.Condition{condition("Act", "eq", "roleGiven")}, Order: byAt},
+			page: auditPage{paged: true, boundary: nil, fetch: 26},
+			wantSQL: "@{spanner_emulator.disable_query_null_filtered_index_check=true} " + auditSelect + auditTable + "@{FORCE_INDEX=" + auditTable + "ByTenant}" +
+				" WHERE TenantId = @tenant AND Act = @f0 ORDER BY CreatedAt DESC, Id DESC LIMIT @fetch",
 			wantParams: map[string]any{"tenant": "anvil", "f0": "roleGiven", "fetch": int64(26)},
 		},
 	}

@@ -149,9 +149,11 @@ func auditTakable(conditions []resource.Condition) []string {
 // the taken order; and the page's size and one more. Values are bound as parameters and
 // never written into the text, the table's name being the one name written in. The
 // table is read through the index by tenant where the query names a tenant, through
-// the index by time where the order begins with At, and otherwise with no hint. A
-// condition on a field or with an operator the statement does not render, and an order
-// by such a field, are errors for a developer: TakeAuditQuery takes none.
+// the index by time where the order begins with At, and otherwise with no hint; a
+// statement that reads one tenant's rows carries the hint the Spanner emulator asks for
+// (auditHint). A condition on a field or with an operator the statement does not
+// render, and an order by such a field, are errors for a developer: TakeAuditQuery
+// takes none.
 func AuditStatement(table string, query *AuditQuery) (sql string, params map[string]any, err error) {
 	var page auditPage
 	if query.Page != nil {
@@ -201,7 +203,7 @@ func auditStatement(table string, query *AuditQuery, page auditPage) (sql string
 		limit = " LIMIT @fetch"
 	}
 
-	sql = "SELECT " + strings.Join(auditlog.Columns(), ", ") + " FROM " + auditSource(table, query)
+	sql = auditHint(query) + "SELECT " + strings.Join(auditlog.Columns(), ", ") + " FROM " + auditSource(table, query)
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -210,6 +212,19 @@ func auditStatement(table string, query *AuditQuery, page auditPage) (sql string
 	}
 
 	return sql + limit, params, nil
+}
+
+// auditHint is the statement's hint, where it reads one tenant's rows through the index
+// by tenant, which is null filtered: the Spanner emulator cannot tell that TenantId =
+// @tenant asks for no row the index leaves out, and refuses the statement unless it is
+// told to skip that check. The hint is qualified for the emulator, and Cloud Spanner
+// takes the index without it. Every other statement has none.
+func auditHint(query *AuditQuery) string {
+	if query.Tenant == "" {
+		return ""
+	}
+
+	return "@{spanner_emulator.disable_query_null_filtered_index_check=true} "
 }
 
 // auditSource is the table as the statement reads it: through the index by tenant for
