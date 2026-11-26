@@ -50,7 +50,9 @@ func recordRoleGrants(defaults *defaultRoles, collection PermissionCollection) [
 	for _, role := range slices.Sorted(maps.Keys(defaults.kind(every))) {
 		set, _ := defaults.grantsOf(every, role)
 		for _, record := range defaults.heldOn(role) {
-			for _, g := range grantRecords(every, heldRoleName(role, record), set) {
+			given := grantRecords(every, heldRoleName(role, record), set)
+			for i := range given {
+				g := given[i]
 				if g.Resource == "" {
 					continue
 				}
@@ -139,6 +141,8 @@ func recordRoleMemberships(records *policy.Records, defaults *defaultRoles) ([]p
 					})
 				}
 			}
+		default:
+			// A role on a record is held by a person or by a group: no store reads another holder.
 		}
 	}
 

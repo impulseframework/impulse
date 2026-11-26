@@ -18,11 +18,11 @@ func Test_UnionCollection_carriesADeclaredPermission(t *testing.T) {
 	t.Parallel()
 
 	read := []accesstypes.Permission{accesstypes.Read}
-	console := generated(t, resource.CollectionData{
+	console := generated(t, &resource.CollectionData{
 		Resources:   []resource.CollectionResource{{Name: "Ledgers", Scope: accesstypes.DomainPermissionScope, Permissions: read}},
 		Permissions: []accesstypes.Permission{"ExportReports", "Launch"},
 	})
-	portal := generated(t, resource.CollectionData{
+	portal := generated(t, &resource.CollectionData{
 		Resources: []resource.CollectionResource{
 			{Name: "Orders", Scope: accesstypes.DomainPermissionScope, Permissions: read},
 			{Name: "Rockets", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{"Launch"}},

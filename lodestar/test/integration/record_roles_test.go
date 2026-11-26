@@ -93,7 +93,7 @@ func newSharingWorld(t *testing.T) *sharingWorld {
 
 // as sends a request as the person under Anvil's address, or under another sector's where
 // the path names one with sectorPath.
-func (w *sharingWorld) as(user accesstypes.User, method, path, body string) (int, []byte) {
+func (w *sharingWorld) as(user accesstypes.User, method, path, body string) (status int, answer []byte) {
 	w.t.Helper()
 
 	return doRequestAs(w.t, w.h, user, method, path, body)

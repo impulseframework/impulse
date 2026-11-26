@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"google.golang.org/api/iterator"
 )
 
@@ -47,7 +48,7 @@ func TestGeneratedCollection_RecordCondition_onSpanner(t *testing.T) {
 		defer iter.Stop()
 		for {
 			row, err := iter.Next()
-			if err == iterator.Done {
+			if errors.Is(err, iterator.Done) {
 				return
 			}
 			if err != nil {
@@ -67,7 +68,7 @@ func TestGeneratedCollection_RecordCondition_onSpanner(t *testing.T) {
 			query(t, sql, params, func(row *spanner.Row) error {
 				var key string
 				if err := row.Column(0, &key); err != nil {
-					return err
+					return errors.Wrap(err, "spanner.Row.Column()")
 				}
 				keys = append(keys, key)
 

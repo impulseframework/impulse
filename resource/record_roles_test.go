@@ -271,8 +271,8 @@ func onRecordRows() []onRecordRow {
 		return row(table, values)
 	}
 	ended := onRecordEnded
-	byPerson := func(domain, record, role, user string, ends *time.Time) onRecordRow {
-		return held("StaffRecordUserRoles", domain, record, role, "UserId", user, ends)
+	editor := func(domain, record, user string, ends *time.Time) onRecordRow {
+		return held("StaffRecordUserRoles", domain, record, "ProjectEditor", "UserId", user, ends)
 	}
 	byGroup := func(record, role, group string) onRecordRow {
 		return held("StaffRecordGroupRoles", onRecordNorth, record, role, "GroupId", group, nil)
@@ -302,10 +302,10 @@ func onRecordRows() []onRecordRow {
 		row("StaffGroups", map[string]any{"Id": "guests", "DomainId": onRecordNorth}),
 		row("StaffGroupMembers", map[string]any{"GroupId": "crew", "UserId": "erin"}),
 		row("StaffGroupMembers", map[string]any{"GroupId": "guests", "UserId": "erin", "EndsAt": onRecordEnded}),
-		byPerson(onRecordNorth, "p1", "ProjectEditor", "erin", nil),
-		byPerson(onRecordNorth, "p2", "ProjectEditor", "erin", &ended),
-		byPerson(onRecordNorth, "p2", "ProjectEditor", "omar", nil),
-		byPerson(onRecordSouth, "p9", "ProjectEditor", "erin", nil),
+		editor(onRecordNorth, "p1", "erin", nil),
+		editor(onRecordNorth, "p2", "erin", &ended),
+		editor(onRecordNorth, "p2", "omar", nil),
+		editor(onRecordSouth, "p9", "erin", nil),
 		byGroup("p2", "ProjectViewer", "crew"),
 		byGroup("p3", "ProjectViewer", "guests"),
 	}

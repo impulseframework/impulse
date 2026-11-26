@@ -72,7 +72,7 @@ func TestGeneratedCollection_RecordCondition_onPostgres(t *testing.T) {
 			places = append(places, fmt.Sprintf("$%d", i+1))
 			values = append(values, row.values[column])
 		}
-		insert := fmt.Sprintf(`INSERT INTO "%s" (%s) VALUES (%s)`, row.table, strings.Join(names, ", "), strings.Join(places, ", "))
+		insert := fmt.Sprintf(`INSERT INTO %q (%s) VALUES (%s)`, row.table, strings.Join(names, ", "), strings.Join(places, ", "))
 		if _, err := db.Exec(ctx, insert, values...); err != nil {
 			t.Fatalf("%s: %v", insert, err)
 		}

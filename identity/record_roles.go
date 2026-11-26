@@ -198,7 +198,9 @@ func GivingRecord(list accesstypes.Resource, named []resource.Condition) (record
 	}
 	key, isText := named[0].Value.(string)
 	if !isText || key == "" {
-		return "", false, httpio.NewBadRequestMessagef("%s lists the roles to give on one record at a time, and %v is no record's key. Filter it by the record's key (recordId:eq:<key>).", list, named[0].Value)
+		return "", false, httpio.NewBadRequestMessagef(
+			"%s lists the roles to give on one record at a time, and %v is no record's key. Filter it by the record's key (recordId:eq:<key>).",
+			list, named[0].Value)
 	}
 
 	return key, true, nil

@@ -66,9 +66,9 @@ func runRecordRoles(t *testing.T, store access.Store) {
 	t.Run("a group's go with the group", func(t *testing.T) { recordGroupDeleted(t, store) })
 }
 
-// heldBy is a fixture shorthand for a person's role on a record as the listing returns it.
-func heldBy(at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) policy.RecordAssignment {
-	return policy.RecordAssignment{RecordMembership: policy.RecordMembership{Scope: at, Member: policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, Role: role, Period: period}}
+// leeHolds is a fixture shorthand for lee's role on a record as the listing returns it.
+func leeHolds(at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) policy.RecordAssignment {
+	return policy.RecordAssignment{RecordMembership: policy.RecordMembership{Scope: at, Member: policy.Subject{Kind: policy.SubjectUser, Name: string(lee)}, Role: role, Period: period}}
 }
 
 // heldByGroup is a fixture shorthand for a group's role on a record as the listing returns
@@ -101,7 +101,7 @@ func recordUserRoles(t *testing.T, store access.Store, p *periods) {
 	if err := store.InsertRecordUserRole(ctx, projectOne, lee, projectEditor, p.current); err != nil {
 		t.Fatalf("InsertRecordUserRole() error = %v", err)
 	}
-	if diff := cmp.Diff([]policy.RecordAssignment{heldBy(projectOne, lee, projectEditor, p.current)}, listRecord(t, store, projectOne), equateRecords); diff != "" {
+	if diff := cmp.Diff([]policy.RecordAssignment{leeHolds(projectOne, projectEditor, p.current)}, listRecord(t, store, projectOne), equateRecords); diff != "" {
 		t.Errorf("ListRecordRoles(the first project) (-want +got):\n%s", diff)
 	}
 	// Listed on that record and no other: another record of the kind, another kind with
@@ -116,7 +116,7 @@ func recordUserRoles(t *testing.T, store access.Store, p *periods) {
 	if err := store.InsertRecordUserRole(ctx, projectOne, lee, projectEditor, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertRecordUserRole() given again error = %v", err)
 	}
-	if diff := cmp.Diff([]policy.RecordAssignment{heldBy(projectOne, lee, projectEditor, accesstypes.Period{})}, listRecord(t, store, projectOne), equateRecords); diff != "" {
+	if diff := cmp.Diff([]policy.RecordAssignment{leeHolds(projectOne, projectEditor, accesstypes.Period{})}, listRecord(t, store, projectOne), equateRecords); diff != "" {
 		t.Errorf("ListRecordRoles() after the role was given again with no period (-want +got):\n%s", diff)
 	}
 
@@ -128,8 +128,8 @@ func recordUserRoles(t *testing.T, store access.Store, p *periods) {
 		t.Fatalf("InsertRecordUserRole() error = %v", err)
 	}
 	want := []policy.RecordAssignment{
-		heldBy(projectOne, lee, projectEditor, accesstypes.Period{}),
-		heldBy(projectOne, lee, projectViewer, p.upcoming),
+		leeHolds(projectOne, projectEditor, accesstypes.Period{}),
+		leeHolds(projectOne, projectViewer, p.upcoming),
 	}
 	if diff := cmp.Diff(want, listRecord(t, store, projectOne), equateRecords); diff != "" {
 		t.Errorf("ListRecordRoles() with one not begun and one ended (-want +got):\n%s", diff)
@@ -170,8 +170,8 @@ func recordGroupRoles(t *testing.T, store access.Store, p *periods) {
 	}
 	// The people first, then the groups by name: Crew before Guests.
 	want := []policy.RecordAssignment{
-		heldBy(projectOne, lee, projectEditor, accesstypes.Period{}),
-		heldBy(projectOne, lee, projectViewer, p.upcoming),
+		leeHolds(projectOne, projectEditor, accesstypes.Period{}),
+		leeHolds(projectOne, projectViewer, p.upcoming),
 		heldByGroup(projectOne, projectCrew, "Crew", projectEditor, accesstypes.Period{}),
 		heldByGroup(projectOne, projectGuests, "Guests", projectViewer, accesstypes.Period{}),
 	}
@@ -200,16 +200,15 @@ func recordGroupRoles(t *testing.T, store access.Store, p *periods) {
 
 // recordRows reads the policy and answers the roles held on the records of the phase's
 // tenant, and the records' hash.
-func recordRows(t *testing.T, store access.Store) ([]policy.RecordMembership, [32]byte) {
+func recordRows(t *testing.T, store access.Store) (held []policy.RecordMembership, hash [32]byte) {
 	t.Helper()
 	records, err := store.ReadPolicy(t.Context())
 	if err != nil {
 		t.Fatalf("ReadPolicy() error = %v", err)
 	}
-	var held []policy.RecordMembership
-	for _, m := range records.RecordMemberships {
-		if m.Scope.Domain() == "records" {
-			held = append(held, m)
+	for i := range records.RecordMemberships {
+		if m := &records.RecordMemberships[i]; m.Scope.Domain() == "records" {
+			held = append(held, *m)
 		}
 	}
 
@@ -224,8 +223,8 @@ func recordPolicy(t *testing.T, store access.Store, p *periods) {
 
 	held, before := recordRows(t, store)
 	byMember := make(map[string]policy.RecordMembership, len(held))
-	for _, m := range held {
-		byMember[m.Member.Name+"/"+string(m.Role)] = m
+	for i := range held {
+		byMember[held[i].Member.Name+"/"+string(held[i].Role)] = held[i]
 	}
 	if len(held) != 5 {
 		t.Errorf("ReadPolicy() holds %d roles on the phase's records, want 5 (lee's two, ned's ended one, and the two groups'): %v", len(held), held)
@@ -274,13 +273,13 @@ func recordRolesDeleted(t *testing.T, store access.Store) {
 		t.Fatalf("DeleteRecordRoles() error = %v", err)
 	}
 	held, _ := recordRows(t, store)
-	for _, m := range held {
-		if m.Scope == projectOne {
-			t.Errorf("ReadPolicy() after DeleteRecordRoles(the first project) holds %v: every row of the record goes, the ended one among them", m)
+	for i := range held {
+		if held[i].Scope == projectOne {
+			t.Errorf("ReadPolicy() after DeleteRecordRoles(the first project) holds %v: every row of the record goes, the ended one among them", held[i])
 		}
 	}
 	want := []policy.RecordAssignment{
-		heldBy(projectTwo, lee, projectViewer, accesstypes.Period{}),
+		leeHolds(projectTwo, projectViewer, accesstypes.Period{}),
 		heldByGroup(projectTwo, projectCrew, "Crew", projectEditor, accesstypes.Period{}),
 	}
 	if diff := cmp.Diff(want, listRecord(t, store, projectTwo), equateRecords); diff != "" {

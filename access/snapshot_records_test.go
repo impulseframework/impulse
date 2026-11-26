@@ -219,8 +219,14 @@ func TestClient_recordRoles_periods(t *testing.T) {
 		at   float64
 		want string
 	}{
-		{"ann", 0.5, "denied"}, {"ann", 1, "conditional"}, {"ann", 1.5, "conditional"}, {"ann", 2, "denied"},
-		{"dan", -1, "denied"}, {"dan", 0, "conditional"}, {"dan", 2.5, "conditional"}, {"dan", 3, "denied"},
+		{"ann", 0.5, "denied"},
+		{"ann", 1, "conditional"},
+		{"ann", 1.5, "conditional"},
+		{"ann", 2, "denied"},
+		{"dan", -1, "denied"},
+		{"dan", 0, "conditional"},
+		{"dan", 2.5, "conditional"},
+		{"dan", 3, "denied"},
 	} {
 		got := decisionAt(t, client, accesstypes.EnvironmentAt(hoursOn(step.at)), step.user, tenant1Scope, "List", "Tasks")
 		if got.String() != step.want {

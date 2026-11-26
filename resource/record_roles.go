@@ -322,7 +322,7 @@ func (g *GeneratedCollection) RecordCondition(auth string, role accesstypes.Role
 		}
 	}
 	for _, way := range g.waysUnder(res) {
-		if way.Record == record && !(create && way.Self) {
+		if way.Record == record && (!create || !way.Self) {
 			member(way.Attribute, -1)
 		}
 	}

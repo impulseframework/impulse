@@ -15,10 +15,10 @@ import (
 // test that holds a rule to what a release declares hands the engine this, so the rule
 // is proven against the answers a generated application gives, a permission declared
 // with no resource among them (CollectionData.Permissions).
-func generated(t *testing.T, data resource.CollectionData) PermissionCollection {
+func generated(t *testing.T, data *resource.CollectionData) PermissionCollection {
 	t.Helper()
 
-	collection, err := resource.NewGeneratedCollection(data)
+	collection, err := resource.NewGeneratedCollection(*data)
 	if err != nil {
 		t.Fatalf("resource.NewGeneratedCollection() error = %v", err)
 	}

@@ -249,8 +249,8 @@ func heldOnWarnings(store PermissionCollection, roles []*Role, sets []grantSet) 
 		)
 	})
 	warnings := make([]Warning, 0, len(found))
-	for _, w := range found {
-		warnings = append(warnings, w)
+	for i := range found {
+		warnings = append(warnings, found[i])
 	}
 
 	return warnings

@@ -17,7 +17,7 @@ func TestValidateRoles_heldOnGeneratedCollection(t *testing.T) {
 
 	domain := accesstypes.DomainPermissionScope
 	read := []accesstypes.Permission{accesstypes.Read}
-	collection := generated(t, resource.CollectionData{
+	collection := generated(t, &resource.CollectionData{
 		Resources: []resource.CollectionResource{
 			{
 				Name: "Projects", Scope: domain, Permissions: read,

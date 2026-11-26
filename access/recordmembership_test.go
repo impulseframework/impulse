@@ -26,8 +26,9 @@ func recordManager(t *testing.T) (*Client, UserManager, *fakeStore) {
 		}
 	}
 	client := recordClient(t, store)
+	manager := client.UserManager()
 
-	return client, client.UserManager(), store
+	return client, manager, store
 }
 
 // TestUserManager_recordRoles_refusals pins the one rule a role on a record is given

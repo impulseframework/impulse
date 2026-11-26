@@ -686,16 +686,9 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 		return nil, err
 	}
 	g.setWheres = wheres
-	for _, auth := range data.Auths {
-		if auth == "" {
-			return nil, errors.New("the collection's data lists an auth with an empty name")
-		}
-		if slices.Contains(g.auths, auth) {
-			return nil, errors.Newf("auth %q is listed twice in the collection's data", auth)
-		}
-		g.auths = append(g.auths, auth)
+	if err := g.addAuths(data.Auths); err != nil {
+		return nil, err
 	}
-	slices.Sort(g.auths)
 
 	scopes := make(map[accesstypes.Resource]accesstypes.PermissionScope, len(data.Resources))
 
@@ -769,6 +762,23 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	}
 
 	return g, nil
+}
+
+// addAuths keeps the auths the collection's data lists, sorted, refusing an empty name and
+// a name listed twice.
+func (g *GeneratedCollection) addAuths(auths []string) error {
+	for _, auth := range auths {
+		if auth == "" {
+			return errors.New("the collection's data lists an auth with an empty name")
+		}
+		if slices.Contains(g.auths, auth) {
+			return errors.Newf("auth %q is listed twice in the collection's data", auth)
+		}
+		g.auths = append(g.auths, auth)
+	}
+	slices.Sort(g.auths)
+
+	return nil
 }
 
 // addPermissions adds the permissions the collection's data declares with no resource.
@@ -2176,15 +2186,7 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 		}
 
 		res.Tags = collectionTagData(g, key)
-
-		immutable := g.immutableFields[key.scope][key.name]
-		if len(immutable) > 0 {
-			res.ImmutableTags = make([]accesstypes.Tag, 0, len(immutable))
-			for tag := range immutable {
-				res.ImmutableTags = append(res.ImmutableTags, tag)
-			}
-			slices.Sort(res.ImmutableTags)
-		}
+		res.ImmutableTags = collectionImmutableTags(g, key)
 
 		if bindings, ok := g.bindings[key.scope][key.name]; ok {
 			applyBindingData(&res, &bindings)
@@ -2242,6 +2244,22 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 	data.RecordRoleStores = slices.Clone(g.recordRoleStores)
 
 	return data
+}
+
+// collectionImmutableTags returns a resource's immutable tags, sorted; a resource with
+// none has none (nil).
+func collectionImmutableTags(g *GeneratedCollection, key resourceKey) []accesstypes.Tag {
+	immutable := g.immutableFields[key.scope][key.name]
+	if len(immutable) == 0 {
+		return nil
+	}
+	tags := make([]accesstypes.Tag, 0, len(immutable))
+	for tag := range immutable {
+		tags = append(tags, tag)
+	}
+	slices.Sort(tags)
+
+	return tags
 }
 
 // collectionTagData returns a resource's tags in their serializable form: sorted by
