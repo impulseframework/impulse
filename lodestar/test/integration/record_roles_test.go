@@ -360,6 +360,18 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 	if status, got := rolesOffered("marshal", "method:eq:GiveCrewRoleOnMission"); status != http.StatusOK || len(got) != 0 {
 		t.Errorf("the roles offered the Marshal with no mission named: status %d, %v, want 200 and none", status, got)
 	}
+	// The lead holds the list and its fields under her role's one condition, the mission she
+	// holds it on, so she filters it by the method and the mission: on her mission the one
+	// role she may give, on the other mission none, and none where she names no mission.
+	if status, got := rolesOffered("ida", onMission(first.id)); status != http.StatusOK || !slices.Equal(got, []string{"MissionObserver"}) {
+		t.Errorf("the roles offered the lead to give on her mission: status %d, %v, want 200 and MissionObserver", status, got)
+	}
+	if status, got := rolesOffered("ida", onMission(second.id)); status != http.StatusOK || len(got) != 0 {
+		t.Errorf("the roles offered the lead to give on the other mission: status %d, %v, want 200 and none", status, got)
+	}
+	if status, got := rolesOffered("ida", "method:eq:GiveCrewRoleOnMission"); status != http.StatusOK || len(got) != 0 {
+		t.Errorf("the roles offered the lead with no mission named: status %d, %v, want 200 and none", status, got)
+	}
 
 	// The sector's administrator's role is no role held on a mission.
 	status, body = w.as("marshal", http.MethodPost, sectorPath(anvil, "give-crew-role-on-mission"), w.share(first.id, "kit", "", "SectorMarshal", none, none))

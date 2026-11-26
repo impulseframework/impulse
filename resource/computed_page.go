@@ -231,7 +231,8 @@ func (j *rowJudgments[Resource]) blank(row *Resource, field string) bool {
 // shown without. A field of the declared order the row sorts as one with no value
 // in carries a NULL cursor value, so the cursor reads the boundary where the sort
 // placed the row; every other sort key is read off the row's real value (a sort
-// the request asks for needs an unconditional grant, so no cell of it is hidden).
+// the request asks for needs a grant with no condition, or the condition the row
+// was kept under, so no cell of it is hidden).
 func (q *QuerySet[Resource]) envelope(row *Resource, judged *rowJudgments[Resource]) *Row[Resource] {
 	without := judged.hidden[row]
 	masked := make([]string, 0, len(without))

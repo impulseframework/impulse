@@ -17,6 +17,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/accesstypes/condition"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -514,12 +515,15 @@ func (q *QuerySet[Resource]) checkQueryFieldsReadable(ctx context.Context, rSet 
 	return nil
 }
 
-// checkQueryFieldsGranted is the computed resource's readability rule: a sort
-// or filter field, and a field the search box searches, needs the caller's
-// unconditional grant, because the handler orders, filters and searches the
-// body's rows by the field's real values and no statement renders a visible
-// projection over them.
-func (q *QuerySet[Resource]) checkQueryFieldsGranted(ctx context.Context, rSet *Set[Resource], userPermissions UserPermissions) error {
+// checkQueryFieldsGranted is the computed resource's readability rule: a sort or filter
+// field, and a field the search box searches, needs the caller's grant with no condition,
+// or under the very condition the list's own rows are held under (rows). The handler
+// orders, filters and searches the body's rows by the field's real values and no statement
+// renders a visible projection over them; a row that fails the list's condition is dropped
+// before any of them reads it (Collect), so under that same condition a field is read only
+// on rows the caller is shown. Two conditions are the same where the engine's folded
+// decisions spell the same text. A field held under any other condition is refused.
+func (q *QuerySet[Resource]) checkQueryFieldsGranted(ctx context.Context, rSet *Set[Resource], userPermissions UserPermissions, rows condition.Expr) error {
 	queried := q.queryFields()
 	fields := slices.Clone(queried)
 	for _, field := range q.searchFields {
@@ -532,20 +536,45 @@ func (q *QuerySet[Resource]) checkQueryFieldsGranted(ctx context.Context, rSet *
 		return err
 	}
 	for _, qf := range checked {
-		if !decisions[qf.res].IsGranted() {
+		held, err := heldLikeRows(qf.res, decisions[qf.res], rows)
+		if err != nil {
+			return err
+		}
+		if !held {
 			verb, how := "sort or filter on", bySortOrFilter
 			if !slices.Contains(queried, qf.field) {
 				verb, how = "search", bySearch
 			}
 
 			return httpio.NewForbiddenMessageWithError(
-				errors.Newf("scope (%s), user (%s) cannot %s %s: (%s) on %s must be granted unconditionally", q.scope, userPermissions.User(), verb, q.jsonName(qf.field), q.requiredPermission, qf.res),
+				errors.Newf(
+					"scope (%s), user (%s) cannot %s %s: (%s) on %s must be granted unconditionally, or under the condition the list's own rows are held under",
+					q.scope, userPermissions.User(), verb, q.jsonName(qf.field), q.requiredPermission, qf.res,
+				),
 				mayNotAskBy(how, qf.res, refusedHere),
 			)
 		}
 	}
 
 	return nil
+}
+
+// heldLikeRows reports whether the handler may read a field by its decision: granted with
+// no condition, or held under the very condition the list's own rows are held under (rows,
+// nil where the list is granted with none), the two spelled as the same text.
+func heldLikeRows(res accesstypes.Resource, decision accesstypes.Decision, rows condition.Expr) (bool, error) {
+	switch {
+	case decision.IsGranted():
+		return true, nil
+	case rows == nil || !decision.IsConditional():
+		return false, nil
+	}
+	held, err := conditionalExpr(res, decision)
+	if err != nil {
+		return false, err
+	}
+
+	return held.String() == rows.String(), nil
 }
 
 // settleDeclaredOrder is the computed resource's rule for its declared order,

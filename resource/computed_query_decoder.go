@@ -118,7 +118,8 @@ func (d *ComputedQueryDecoder[Resource, Request]) WithSubjectFacts(source Subjec
 // condition is a grant, as on a table: the resource and the fields it covers pass
 // here, and the Conditional decisions ride the QuerySet, which judges each row the
 // application's function yields (QuerySet.Collect, QuerySet.Admit). A sort or
-// filter field alone needs the caller's unconditional grant. A field of the
+// filter field alone needs the caller's grant with no condition, or under the
+// condition the list's own rows are held under. A field of the
 // declared order the caller may not read is left out of the order for that
 // caller, and one held under a condition orders a row only where the condition
 // holds for it.
@@ -166,10 +167,11 @@ func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, 
 		}
 	}
 
-	// A sort or filter field needs the caller's unconditional grant: the
-	// handler orders and filters the body's rows by the field's real values,
-	// and no statement renders a visible projection a masked cell could hide in.
-	if err := qSet.checkQueryFieldsGranted(ctx, rSet, userPermissions); err != nil {
+	// A sort or filter field needs the caller's grant with no condition, or under
+	// the list's own condition: the handler orders and filters the body's rows by
+	// the field's real values, and no statement renders a visible projection a
+	// masked cell could hide in.
+	if err := qSet.checkQueryFieldsGranted(ctx, rSet, userPermissions, plan.resource); err != nil {
 		return nil, err
 	}
 	// The declared order is settled before the cursor is bound: the cursor's

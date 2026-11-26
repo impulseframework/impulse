@@ -33,9 +33,9 @@ import (
 // under its record, by the record each row is listed for: a grant on it held on one
 // Mission lists the roles to give on that Mission alone, and a grant held
 // in the tenant lists them on any. A caller filters by the fields they may read, and a
-// computed list filters only by a field granted with no condition: the role file grants
-// method and recordId among the fields of a grant with no condition, or, beside a grant
-// that carries one, as grants of the fields alone (CrewMissionRoles.method).
+// computed list filters only by a field granted with no condition, or under the same
+// condition as the list's own rows: a role file grants method and recordId among the fields
+// of the list's grant, as a role held on one Mission holds them.
 //
 // @computed
 // @permissionScope(domain)
