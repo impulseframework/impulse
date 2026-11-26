@@ -211,7 +211,7 @@ func TestManager_TenantKinds_recordRoles(t *testing.T) {
 	}
 	want := []takenRows{
 		// The three accounts, each with the row of the audit log that records its delete.
-		{Rows: 3, Mutations: 7 + 3*auditRecordMutations()},
+		{Rows: 3, Mutations: 7 + 3*deletedRowMutations(t, m, "alpha")},
 		{Rows: 5, Mutations: 5},
 		// anna's role on p1 (1) and the staff group's on p2 (2).
 		{Rows: 2, Mutations: 3},

@@ -234,13 +234,19 @@ func (h *tenantHeld) refuseImpersonator(ctx context.Context, accounts []tenantAc
 	return nil
 }
 
-// auditRecordMutations is what the row of the audit log an account the tenant's delete
-// takes writes is counted to cost: an insert counts once for each column it writes, and a
-// row writes no more than the table's columns (auditlog.Columns), and once for each of
-// the table's two indexes it enters. A save is filled to the limit with no margin, so the
-// count is the most a row can cost.
-func auditRecordMutations() int {
-	return len(auditlog.Columns()) + auditRecordIndexes
+// auditRecordMutations is what the row of the audit log r is written as costs in a
+// commit: an insert counts once for each column it sets, which are the columns r answers
+// (auditlog.Record.Columns) and the time of the commit, and once for each of the table's
+// two indexes it enters. The index by tenant is entered only by a row that names a
+// tenant; it is counted for every row.
+func auditRecordMutations(r *auditlog.Record) (int, error) {
+	columns, err := r.Columns()
+	if err != nil {
+		return 0, errors.Wrap(err, "auditlog.Record.Columns()")
+	}
+
+	// CreatedAt, the time of the commit, is the writer's to set.
+	return len(columns) + 1 + auditRecordIndexes, nil
 }
 
 // auditRecordIndexes is the number of indexes the audit records table declares
@@ -341,9 +347,13 @@ func (k *tenantAccounts) cost(ctx context.Context, txn resource.ReadWriteTransac
 	if err != nil {
 		return 0, errors.Wrap(err, "identity.Store.RowsWithUser()")
 	}
+	audit, err := auditRecordMutations(k.deleted(ctx, account))
+	if err != nil {
+		return 0, err
+	}
 
 	return len(account.memberships)*costs.Membership + len(account.places)*costs.GroupMember +
-		len(links)*costs.Identity + costs.User + ended + withUser + auditRecordMutations(), nil
+		len(links)*costs.Identity + costs.User + ended + withUser + audit, nil
 }
 
 // take buffers the delete of the account and of what it holds in the tenant, and the row
@@ -364,14 +374,23 @@ func (k *tenantAccounts) take(ctx context.Context, txn resource.ReadWriteTransac
 	if err := k.manager.deleteAccount(ctx, txn, account.id); err != nil {
 		return err
 	}
-	deleted := accountRecord(auditlog.ActAccountDeleted, account.id, account.username)
-	deleted.Form, deleted.TenantID = auditlog.FormWithTenant, string(k.domain)
-	if err := k.manager.record(ctx, txn, deleted); err != nil {
+	if err := k.manager.record(ctx, txn, k.deleted(ctx, account)); err != nil {
 		return err
 	}
 	logger.FromCtx(ctx).Infof("identity: %q belonged to the tenant %s alone, which is deleted, so the account is deleted with its identity links; its sessions are ended", account.username, k.domain)
 
 	return nil
+}
+
+// deleted is the row of the audit log that records the account's delete, filled as record
+// fills it: the account deleted with its tenant, by its username, in the tenant, by the
+// round's caller. cost counts it and take records it.
+func (k *tenantAccounts) deleted(ctx context.Context, account *tenantAccount) *auditlog.Record {
+	r := accountRecord(auditlog.ActAccountDeleted, account.id, account.username)
+	r.Form, r.TenantID = auditlog.FormWithTenant, string(k.domain)
+	k.manager.fill(ctx, r)
+
+	return r
 }
 
 // tenantRolesHeld is the kind of the roles held in the tenant: every membership held in
