@@ -646,8 +646,10 @@ func Test_placeTargetRoot(t *testing.T) {
 // records of the tenant the person holds a role on that has not ended, their own and
 // through a group, as a column the list leaves out, and three facts over it, the count, the
 // kind where there is one, and the record's name where there is one record and its kind
-// declares a name. The list of an auth whose role file holds no role on a record reads
-// none of it, and a kind that declares no name gives none.
+// declares a name. The whole application's lists of accounts and of identities ask who
+// manages an account of the tenants the person holds a role of their own on a record of,
+// as a tenant's list reads them. The lists of an auth whose role file holds no role on a
+// record read none of it, and a kind that declares no name gives none.
 func Test_prepareIdentity_recordPeople(t *testing.T) {
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
@@ -700,8 +702,23 @@ func Test_prepareIdentity_recordPeople(t *testing.T) {
 		assertContains(t, file, readIdentityFile(t, file), squashEach([]string{recordHere, recordElsewhere}), nil)
 	}
 
+	// The whole application's lists ask who manages an account of the tenants the person
+	// holds a role of their own on a record of, inside its period, too: one more branch of
+	// the tenants asked about, after the groups' (and before the directory's, which the fixture
+	// has none of), an equality on the leading columns of the people's table's index by user
+	// that joins no table.
+	managing := squashSpace("WHERE mp.UserId = u.Id AND " + countingSQL("mp") +
+		" UNION DISTINCT SELECT mr.DomainId AS DomainId FROM CrewRecordUserRoles mr WHERE mr.UserId = u.Id AND mr.Axis = '' AND " +
+		countingSQL("mr") + " ) t )")
+	managingLists := []string{"internal/crewresources/crew_listed_users.go", "internal/crewresources/crew_listed_identities.go"}
+	for _, file := range managingLists {
+		assertContains(t, file, readIdentityFile(t, file), []string{managing}, nil)
+	}
+
 	assertContains(t, "the members' people", readIdentityFile(t, "internal/membersresources/members_ship_users.go"), nil,
 		[]string{"RecordsHeld", "RecordUserRoles", "RecordHeldName"})
+	assertContains(t, "the members' accounts", readIdentityFile(t, "internal/membersresources/members_listed_users.go"), nil,
+		[]string{"RecordUserRoles"})
 
 	t.Run("a kind that declares no name", func(t *testing.T) {
 		writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": voyageRecordSource})
@@ -710,6 +727,17 @@ func Test_prepareIdentity_recordPeople(t *testing.T) {
 		}
 		assertContains(t, "the crew's people", readIdentityFile(t, "internal/crewresources/crew_ship_users.go"),
 			[]string{"ARRAY_LENGTH(RecordsHeldOn) AS RecordsHeld,", "'' AS RecordHeldName"}, []string{"CASE RecordsHeldOn"})
+	})
+
+	// An instance whose role file holds no role on a record asks no tenant of a record.
+	t.Run("a role file that names no record", func(t *testing.T) {
+		writeRoleFile(t, crewAuthPath, deckhandOnNothing)
+		if err := sharingGenerator(t).prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+		for _, file := range managingLists {
+			assertContains(t, file, readIdentityFile(t, file), nil, []string{"RecordUserRoles"})
+		}
 	})
 }
 

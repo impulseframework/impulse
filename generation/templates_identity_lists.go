@@ -177,13 +177,14 @@ const (
 	//
 	// The tenants asked about are the ones in whose list the person is a row by something
 	// they hold there themselves now (a membership in the tenant, a place in one of its
-	// own groups, each inside its period: identitySourceData.Counting, as the list reads
-	// who its people are) and the ones whose directory the person signs in through. A row
-	// a tenant's list holds only through a role held in every tenant, or through a group
-	// kept for the whole application, says ManagedHere through the tenant's directory
-	// alone, so those tenants are found by the directory. Each is found through an index
-	// by user (the memberships', the group members', the identities'): no row reads the
-	// tenant record's table or the memberships table as a whole. A group's tenant and a
+	// own groups, a role of their own on one of its records, each inside its period:
+	// identitySourceData.Counting, as the list reads who its people are) and the ones whose
+	// directory the person signs in through. A row a tenant's list holds only through a
+	// role held in every tenant, or through a group kept for the whole application, says
+	// ManagedHere through the tenant's directory alone, so those tenants are found by the
+	// directory. Each is found through an index by user (the memberships', the group
+	// members', the roles on records', the identities'): no row reads the tenant record's
+	// table or the memberships table as a whole. A group's tenant and a
 	// directory's are read as an array unnested beside the place's or the identity's row,
 	// which Spanner counts as no join (identityTenantDirectoryPeople): the column adds to
 	// the joins of the statement only the two of identityGroupPersonElsewhere and
@@ -207,6 +208,13 @@ const (
           WHERE g.Id = mp.GroupId AND g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }}
         )) AS mg
         WHERE mp.UserId = u.Id AND {{ .Counting "mp" }}
+{{- end }}
+{{- if .HoldsRecordRoles }}
+        UNION DISTINCT
+        SELECT mr.DomainId AS DomainId
+        FROM {{ .Policy.RecordUserRoles }} mr
+        WHERE mr.UserId = u.Id AND mr.Axis = {{ .ScopeAxis }}
+          AND {{ .Counting "mr" }}
 {{- end }}
 {{- if and .TenantDirectory .HasIdentities }}
         UNION DISTINCT

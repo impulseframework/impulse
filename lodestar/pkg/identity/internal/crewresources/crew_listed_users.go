@@ -184,6 +184,11 @@ SELECT
         )) AS mg
         WHERE mp.UserId = u.Id AND (mp.StartsAt IS NULL OR mp.StartsAt <= CURRENT_TIMESTAMP()) AND (mp.EndsAt IS NULL OR mp.EndsAt > CURRENT_TIMESTAMP())
         UNION DISTINCT
+        SELECT mr.DomainId AS DomainId
+        FROM CrewRecordUserRoles mr
+        WHERE mr.UserId = u.Id AND mr.Axis = ''
+          AND (mr.StartsAt IS NULL OR mr.StartsAt <= CURRENT_TIMESTAMP()) AND (mr.EndsAt IS NULL OR mr.EndsAt > CURRENT_TIMESTAMP())
+        UNION DISTINCT
         SELECT md AS DomainId
         FROM CrewSessionIdentities mi, UNNEST(ARRAY(
           SELECT d.SectorId FROM SectorDirectories d

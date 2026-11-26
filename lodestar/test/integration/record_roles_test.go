@@ -220,8 +220,9 @@ func (w *sharingWorld) missionsOf(sql string, more ...string) []string {
 }
 
 // TestRecordRoles_aMissionShared holds a mission shared with a person, with a group and by
-// its lead: what each reaches and what each is refused, the lists that name them, and the
-// mission's delete, which takes the roles held on it.
+// its lead: what each reaches and what each is refused, the lists that name them, who
+// manages the account of a person who holds the mission alone, and the mission's delete,
+// which takes the roles held on it.
 func TestRecordRoles_aMissionShared(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -234,6 +235,8 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 	provesGrant(t, crew.Roles(), "MissionLead", "Execute", "TakeCrewRoleOnMission", "new.role IN ('MissionObserver')")
 	provesGrant(t, crew.Roles(), "MissionLead", "Execute", "GiveCrewGroupRoleOnMission", "new.role IN ('MissionObserver')")
 	provesGrant(t, crew.Roles(), "MissionLead", "Execute", "TakeCrewGroupRoleOnMission", "new.role IN ('MissionObserver')")
+	// The fleet's administrators disable an account no sector manages.
+	provesGrant(t, crew.Roles(), "Headquarters", "Execute", "DisableCrewUser", "managedByTenant = false")
 
 	// The people: ob observes the first mission and ida runs it, each holding nothing else
 	// in the sector; gil holds a place in the Marshal's group and nothing else, and the group
@@ -413,6 +416,20 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 		t.Errorf("ob's own sectors = %+v, want Anvil alone", own)
 	}
 
+	// The whole fleet's accounts say the same of ob: Anvil manages the account. So hq, who
+	// holds Headquarters and nothing else, and whose disable is granted where no sector
+	// manages the account, is refused it, and Anvil's Marshal disables and enables it.
+	w.ids["hq"] = string(makeCrewAccount(ctx, t, w.db, "hq"))
+	w.giveCrewRole(ctx, t, "hq", "Headquarters", accesstypes.GlobalPolicyScope())
+	if row := listedAccounts(t, w.h, "hq", "")["ob"]; row == nil || row["managedByTenant"] != true || text(row, "managingTenant") != anvil {
+		t.Errorf("ob's row of the accounts = %v, want managedByTenant true and managingTenant Anvil's key, as Anvil's row says managedHere", row)
+	}
+	status, body = w.as("hq", http.MethodPost, crewMethod("disable-crew-user"), fmt.Sprintf(`{"userId":%q}`, w.ids["ob"]))
+	assertStatus(t, status, http.StatusForbidden, body)
+	for _, method := range []string{"disable-crew-sector-user", "enable-crew-sector-user"} {
+		w.done("marshal", method, fmt.Sprintf(`{"userId":%q}`, w.ids["ob"]))
+	}
+
 	// The holders list of the first mission holds the rows given, and loses the one the lead
 	// takes; kit reads the first mission no more.
 	if got := w.holders("marshal", first.id); !slices.Equal(got, holdersOfFirst) {
@@ -553,9 +570,9 @@ func TestRecordRoles_aRowAWriteNames(t *testing.T) {
 
 // TestRecordRoles_heldElsewhere holds a role on a mission of another sector to be held
 // elsewhere: a Cadet of Anvil whom Anvil manages, once they hold a role on Bastion's beacon
-// mission too, is said heldElsewhere and not managedHere by Anvil's list of its people, and
-// Anvil's marshal, whose disable is granted where the sector manages the account, is
-// refused it.
+// mission too, is said heldElsewhere and not managedHere by Anvil's list of its people and
+// managed by no sector by the whole fleet's accounts, and Anvil's marshal, whose disable is
+// granted where the sector manages the account, is refused it.
 func TestRecordRoles_heldElsewhere(t *testing.T) {
 	t.Parallel()
 	w := newSharingWorld(t)
@@ -583,6 +600,11 @@ func TestRecordRoles_heldElsewhere(t *testing.T) {
 	}
 	if got := facts(); got != "true false" {
 		t.Errorf("cy, a Cadet of Anvil with a role on a mission of Bastion, is said heldElsewhere managedHere %s, want true false", got)
+	}
+	// The whole fleet's accounts agree: Bastion, asked for the mission, holds cy elsewhere
+	// too, so no sector manages the account.
+	if row := listedAccounts(t, w.h, "governor", "")["cy"]; row == nil || row["managedByTenant"] != false || row["managingTenant"] != nil {
+		t.Errorf("cy's row of the accounts = %v, want managedByTenant false and no managingTenant", row)
 	}
 	status, body := w.as("marshal", http.MethodPost, sectorPath(anvil, "disable-crew-sector-user"), fmt.Sprintf(`{"userId":%q}`, w.ids["cy"]))
 	assertStatus(t, status, http.StatusForbidden, body)
