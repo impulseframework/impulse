@@ -594,3 +594,65 @@ func Test_placeTargetRoot(t *testing.T) {
 		}
 	}
 }
+
+// Test_prepareIdentity_recordPeople pins what the tenant's list of its people reads of the
+// roles held on its records, where the role file holds one on a record the application
+// marks: the people gain a branch of their own, everyone who holds such a role inside its
+// period, which joins no table and which the list of names reads too; each row carries the
+// records of the tenant the person holds a role on that has not ended, their own and
+// through a group, as a column the list leaves out, and three facts over it, the count, the
+// kind where there is one, and the record's name where there is one record and its kind
+// declares a name. The list of an auth whose role file holds no role on a record reads
+// none of it, and a kind that declares no name gives none.
+func Test_prepareIdentity_recordPeople(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	named := strings.Replace(voyageRecordSource, "\t\t// @domain\n\t\tShipID string",
+		"\t\t// @name\n\t\tName string `spanner:\"Name\"`\n\t\t// @domain\n\t\tShipID string", 1)
+	if named == voyageRecordSource {
+		t.Fatal("the fixture's voyage no longer reads as the test expects: no name field added")
+	}
+	writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": named})
+	writeRoleFile(t, crewAuthPath, navigatorOnVoyages)
+	writeRoleFile(t, membersAuthPath, deckhandOnNothing)
+	if err := sharingGenerator(t).prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	people := readIdentityFile(t, "internal/crewresources/crew_ship_users.go")
+	branch := "UNION DISTINCT SELECT rr.DomainId AS DomainId, rr.UserId AS UserId FROM CrewRecordUserRoles rr WHERE rr.Axis = '' AND " + countingSQL("rr") + " ) t"
+	assertContains(t, "the crew's people", people, squashEach([]string{
+		"RecordsHeld int64 `spanner:\"RecordsHeld\"` RecordsHeldKind string `spanner:\"RecordsHeldKind\"` RecordHeldName string `spanner:\"RecordHeldName\"`",
+		"SELECT * EXCEPT (RecordsHeldOn),",
+		"ARRAY( SELECT AS STRUCT hr.Resource AS Resource, hr.RecordId AS RecordId FROM ( SELECT o.Resource AS Resource, o.RecordId AS RecordId FROM CrewRecordUserRoles o" +
+			" WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId AND " + standingSQL("o"),
+		"UNION ALL SELECT gr.Resource AS Resource, gr.RecordId AS RecordId FROM CrewGroupMembers gm, UNNEST(ARRAY( SELECT AS STRUCT r.Resource AS Resource, r.RecordId AS RecordId" +
+			" FROM CrewRecordGroupRoles r WHERE r.GroupId = gm.GroupId AND r.Axis = '' AND r.DomainId = t.DomainId AND " + standingSQL("r") + " )) AS gr" +
+			" WHERE gm.UserId = u.Id AND " + standingSQL("gm"),
+		"GROUP BY hr.Resource, hr.RecordId ORDER BY hr.Resource, hr.RecordId ) AS RecordsHeldOn,",
+		"ARRAY_LENGTH(RecordsHeldOn) AS RecordsHeld,",
+		"IF((SELECT COUNT(DISTINCT h.Resource) FROM UNNEST(RecordsHeldOn) h) = 1, RecordsHeldOn[SAFE_OFFSET(0)].Resource, '') AS RecordsHeldKind,",
+		"IF(ARRAY_LENGTH(RecordsHeldOn) = 1, CASE RecordsHeldOn[SAFE_OFFSET(0)].Resource WHEN 'Voyages' THEN" +
+			" COALESCE((SELECT n.Name FROM Voyages n WHERE n.Id = RecordsHeldOn[SAFE_OFFSET(0)].RecordId), '') ELSE '' END, '') AS RecordHeldName",
+	}), nil)
+	// The people's query and the names' read the same people.
+	if got := strings.Count(people, squashSpace(branch)); got != 2 {
+		t.Errorf("the people's branch of a role on a record is in %d queries of crew_ship_users.go, want the people's and the names':\n%s", got, people)
+	}
+	if facts := people[strings.Index(people, "ARRAY( SELECT AS STRUCT hr.Resource"):strings.Index(people, ") AS RecordsHeldOn,")]; strings.Contains(facts, " JOIN ") {
+		t.Errorf("crew_ship_users.go joins a table in RecordsHeldOn, want none:\n%s", facts)
+	}
+
+	assertContains(t, "the members' people", readIdentityFile(t, "internal/membersresources/members_ship_users.go"), nil,
+		[]string{"RecordsHeld", "RecordUserRoles", "RecordHeldName"})
+
+	t.Run("a kind that declares no name", func(t *testing.T) {
+		writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": voyageRecordSource})
+		if err := sharingGenerator(t).prepareIdentity(); err != nil {
+			t.Fatalf("prepareIdentity() error = %v", err)
+		}
+		assertContains(t, "the crew's people", readIdentityFile(t, "internal/crewresources/crew_ship_users.go"),
+			[]string{"ARRAY_LENGTH(RecordsHeldOn) AS RecordsHeld,", "'' AS RecordHeldName"}, []string{"CASE RecordsHeldOn"})
+	})
+}

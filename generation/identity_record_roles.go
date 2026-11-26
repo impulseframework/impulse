@@ -61,6 +61,11 @@ type identityHeldRecord struct {
 	resource   accesstypes.Resource
 	keyType    string
 	keyImports []string
+	// keyColumn is the record's table's one key column, and nameColumn the column of the
+	// field the record is known by (@name), "" where it declares none: the tenant's list of
+	// its people reads a record's name by them (identitySourceData.RecordNames).
+	keyColumn  string
+	nameColumn string
 }
 
 // findRecordTables marks the tables of the roles held on a record that the schema holds:
@@ -227,6 +232,7 @@ func (r *resourceGenerator) heldRecordsIn(dir string) ([]identityHeldRecord, err
 						return nil, errors.Wrapf(err, "struct %s", record.name)
 					}
 					record.keyImports = sortedImports(naming.imports)
+					record.keyColumn, record.nameColumn = r.heldRecordColumns(structType, string(record.resource))
 				}
 				records = append(records, record)
 			}
@@ -270,6 +276,88 @@ func (r *resourceGenerator) heldRecordKeyType(structType *ast.StructType, table 
 	}
 
 	return "", nil
+}
+
+// heldRecordColumns reads the key column of a record a role can be held on, its table's one
+// key column, and the column of the field the record is known by: the field whose comment
+// carries @name, a field annotation the struct's syntax shows as a line of its own. It
+// answers "" for each the schema or the struct does not give.
+func (r *resourceGenerator) heldRecordColumns(structType *ast.StructType, table string) (key, name string) {
+	if meta, ok := r.tableMap[table]; ok {
+		if keys := meta.keyColumns(); len(keys) == 1 {
+			key = keys[0]
+		}
+	}
+	for _, field := range structType.Fields.List {
+		if len(field.Names) != 1 || field.Tag == nil || !fieldCommentHas(field, nameKeyword) {
+			continue
+		}
+		unquoted, err := strconv.Unquote(field.Tag.Value)
+		if err != nil {
+			continue
+		}
+		name = reflect.StructTag(unquoted).Get(spannerTagKey)
+	}
+
+	return key, name
+}
+
+// fieldCommentHas reports whether a struct field's comment carries the annotation keyword
+// on a line of its own, with or without arguments.
+func fieldCommentHas(field *ast.Field, keyword string) bool {
+	for line := range strings.Lines(field.Doc.Text()) {
+		line = strings.TrimSpace(line)
+		if line == "@"+keyword || strings.HasPrefix(line, "@"+keyword+"(") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// identityRecordName is how the tenant's list of its people reads one record's name, for a
+// kind that declares one: the kind's resource as a SQL string literal, its table, its key
+// column and its name column.
+type identityRecordName struct {
+	Resource string
+	Table    string
+	Key      string
+	Name     string
+}
+
+// RecordNames are the records the instance keeps roles on whose kind declares a name
+// (@name) and has one key column, in the records' order.
+func (d *identitySourceData) RecordNames() []identityRecordName {
+	var names []identityRecordName
+	for _, record := range d.heldRecords {
+		if record.keyColumn == "" || record.nameColumn == "" {
+			continue
+		}
+		names = append(names, identityRecordName{
+			Resource: sqlStringLiteral(string(record.resource)), Table: string(record.resource), Key: record.keyColumn, Name: record.nameColumn,
+		})
+	}
+
+	return names
+}
+
+// PeopleLeftOut is what the select of the tenant's list of its people leaves out of the
+// columns it reads its facts over, as the text after its *: the facts of whose directory a
+// person signs in through (identityTenantThroughFacts) and the records the person holds a
+// role on (identityTenantRecordsHeldOn), each where it is read; "" where neither is.
+func (d *identitySourceData) PeopleLeftOut() string {
+	var columns []string
+	if d.TenantDirectory() != nil && d.HasIdentities() {
+		columns = append(columns, "ThroughHere", "ThroughAnother")
+	}
+	if d.holdsRecordRoles() {
+		columns = append(columns, "RecordsHeldOn")
+	}
+	if len(columns) == 0 {
+		return ""
+	}
+
+	return " EXCEPT (" + strings.Join(columns, ", ") + ")"
 }
 
 // RecordUserRole is the struct of the declaration over the table of the roles people hold
@@ -353,13 +441,13 @@ type recordSharing struct {
 }
 
 // sharing names one record's sharing.
-func (i *identityInstance) sharing(record identityHeldRecord) recordSharing {
+func (i *identityInstance) sharing(record *identityHeldRecord) recordSharing {
 	names := recordSharing{
 		Holders: i.auth + record.name + recordHolderSuffix,
 		Roles:   i.auth + record.name + recordRoleChoiceSuffix,
 		Give:    "Give" + i.auth + "RoleOn" + record.name,
 		Take:    "Take" + i.auth + "RoleOn" + record.name,
-		record:  record,
+		record:  *record,
 	}
 	if i.keepsRecordGroupRoles() {
 		names.GiveGroup = "Give" + i.auth + "GroupRoleOn" + record.name
@@ -375,7 +463,7 @@ func (i *identityInstance) sharing(record identityHeldRecord) recordSharing {
 func (r *resourceGenerator) recordSharingSources(inst *identityInstance) []identitySourceFile {
 	var files []identitySourceFile
 	for _, record := range inst.sharedRecords() {
-		names := inst.sharing(record)
+		names := inst.sharing(&record)
 		file := func(dir packageDir, name, template string, needs ...identityTable) identitySourceFile {
 			return identitySourceFile{dir: dir, name: name, template: template, needs: needs, tenant: true, record: &record}
 		}
@@ -402,7 +490,7 @@ func (r *resourceGenerator) recordSharingSources(inst *identityInstance) []ident
 // rows of the view alone. Any other view is under nothing.
 func (i *identityInstance) recordWaysOf(view string) ([]resource.AttributeData, []resource.RecordWayData) {
 	for _, record := range i.sharedRecords() {
-		if view != i.sharing(record).Holders {
+		if view != i.sharing(&record).Holders {
 			continue
 		}
 		attribute := resource.RecordWayAttribute(record.resource, 0)
@@ -420,7 +508,7 @@ func (i *identityInstance) recordWaysOf(view string) ([]resource.AttributeData, 
 func (i *identityInstance) recordGivings() []tenantGiving {
 	var givings []tenantGiving
 	for _, record := range i.sharedRecords() {
-		names := i.sharing(record)
+		names := i.sharing(&record)
 		givings = append(givings, tenantGiving{Method: names.Give, Fields: roleAloneFields})
 		if names.GiveGroup != "" {
 			givings = append(givings, tenantGiving{Method: names.GiveGroup, Fields: roleAloneFields})
@@ -451,7 +539,7 @@ func (d *identitySourceData) TenantHandGivingMethods() string {
 
 // Sharing names the sharing of the record the file shares.
 func (d *identitySourceData) Sharing() recordSharing {
-	return d.sharing(*d.HeldRecord)
+	return d.sharing(d.HeldRecord)
 }
 
 // SharedRecord is the struct of the record the file shares (Mission).

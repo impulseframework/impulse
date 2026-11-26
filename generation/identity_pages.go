@@ -365,12 +365,12 @@ func (t *typescriptGenerator) sharingOn(inst *identityInstance, resources, metho
 	quote := strings.NewReplacer(`\`, `\\`, `'`, `\'`)
 	var out []tsAPIRecordSharing
 	for _, record := range inst.sharedRecords() {
-		names := inst.sharing(record)
+		names := inst.sharing(&record)
 		holders, roles := t.pluralize(names.Holders), t.pluralize(names.Roles)
 		if !resources[string(record.resource)] || !resources[holders] || !resources[roles] || !methods[names.Give] || !methods[names.Take] {
 			continue
 		}
-		one, many := t.recordWords(record)
+		one, many := t.recordWords(&record)
 		entry := tsAPIRecordSharing{
 			Record: string(record.resource), One: quote.Replace(one), Many: quote.Replace(many),
 			Holders: holders, Roles: roles, Give: names.Give, Take: names.Take,
@@ -386,7 +386,7 @@ func (t *typescriptGenerator) sharingOn(inst *identityInstance, resources, metho
 
 // recordWords are what a sentence calls one of the record's rows and several, as the
 // collection says them of a record that holds roles (resource.RecordData).
-func (t *typescriptGenerator) recordWords(record identityHeldRecord) (one, many string) {
+func (t *typescriptGenerator) recordWords(record *identityHeldRecord) (one, many string) {
 	for _, res := range t.resources {
 		if res.Name() == record.name && res.heldRecord != nil {
 			return res.heldRecord.One, res.heldRecord.Many
