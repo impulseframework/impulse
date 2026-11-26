@@ -3826,8 +3826,20 @@ describe('identityPages, the period of an assignment', () => {
       [domain, 'AddCrewSectorGroupMember', 'GiveCrewSectorGroupRole'],
     ] as [RootConfig[], string, string][]) {
       const [people, roles] = children(side[1]);
-      expect(presentation(people.listMethods, add).labels, add).toEqual(words);
+      expect(presentation(people.listMethods, add).labels, add).toEqual(expect.objectContaining(words));
       expect(presentation(roles.listMethods, give).labels, give).toEqual(expect.objectContaining(words));
+    }
+  });
+
+  it("labels the picker of the person a group's Add a person dialog adds Person, on the group's row and above the people under it", () => {
+    for (const [side, add] of [
+      [global, 'AddCrewGroupMember'],
+      [domain, 'AddCrewSectorGroupMember'],
+    ] as [RootConfig[], string][]) {
+      const [people] = children(side[1]);
+      for (const offered of [list(side[1]).rowMethods, people.listMethods]) {
+        expect(presentation(offered, add).labels, add).toEqual({ userId: 'Person', startsAt: 'From', endsAt: 'Until' });
+      }
     }
   });
 });

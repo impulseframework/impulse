@@ -26,6 +26,7 @@ export interface StaffGroupMembers {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  groupName?: string;
 }
 
 export interface StaffGroupRoles {
@@ -37,6 +38,7 @@ export interface StaffGroupRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  groupName?: string;
 }
 
 export interface StaffGroupUsers {
@@ -225,6 +227,7 @@ export interface StaffSessionIdentities {
   emailAtLink?: string;
   createdAt?: Date;
   lastUsedAt?: Date;
+  userName?: string;
 }
 
 export interface StaffSessionMailLinks {
@@ -242,6 +245,7 @@ export interface StaffSessionMailLinks {
   consumedAt?: Date;
   mailFailedAt?: Date;
   withdrawnAt?: Date;
+  userName?: string;
   tenantName?: string;
 }
 
@@ -266,6 +270,7 @@ export interface StaffSessionTokens {
   lastUsedAt?: Date;
   revokedAt?: Date;
   revokedReason?: string;
+  userName?: string;
 }
 
 export interface StaffSessionTrustedDevices {
@@ -275,6 +280,7 @@ export interface StaffSessionTrustedDevices {
   expiresAt?: Date;
   lastUsedAt?: Date;
   revokedAt?: Date;
+  userName?: string;
 }
 
 export interface StaffSessionUsers {
@@ -637,6 +643,7 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     live: true,
     rowWords: { one: 'group', many: 'groups' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
@@ -662,6 +669,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'groupName', of: 'groupId', filterable: 'withIndexed' }],
   },
   [Resources.StaffGroupRoles]: {
     route: 'staff-group-roles',
@@ -681,6 +689,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'groupName', of: 'groupId', filterable: 'withIndexed' }],
   },
   [Resources.StaffGroupUsers]: {
     route: 'staff-group-users',
@@ -943,6 +952,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.StaffSessionMailLinks]: {
     route: 'staff-session-mail-links',
@@ -967,7 +977,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }, { fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
   },
   [Resources.StaffSessionSignInAttempts]: {
     route: 'staff-session-sign-in-attempts',
@@ -1006,6 +1016,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'revokedReason', displayType: 'string', required: false, isIndex: false, maxLength: 16 },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.StaffSessionTrustedDevices]: {
     route: 'staff-session-trusted-devices',
@@ -1022,6 +1033,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.StaffSessionUsers]: {
     route: 'staff-session-users',
@@ -1030,6 +1042,7 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     live: true,
     rowWords: { one: 'account', many: 'accounts' },
+    nameField: 'username',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },

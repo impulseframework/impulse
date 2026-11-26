@@ -567,7 +567,7 @@ func Test_prepareIdentity(t *testing.T) {
 		},
 		"crewidentity/set_crew_user_name.go":                {"type SetCrewUserName struct {", "// @target(CrewListedUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"membersidentity/set_members_user_name.go":          {"type SetMembersUserName struct {", "// @target(MembersListedUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
-		"internal/crewresources/crew_session_users.go":      {"Name                   *string      `spanner:\"Name\"`"},
+		"internal/crewresources/crew_session_users.go":      {"// @name\n\t\tUsername               string     `spanner:\"Username\"`", "Name                   *string    `spanner:\"Name\"`"},
 		"internal/crewresources/crew_session_mail_links.go": {"Name        *string       `spanner:\"Name\"`", "EveryTenant bool          `spanner:\"EveryTenant\"`", "MailFailedAt    *time.Time    `spanner:\"MailFailedAt\"`", "WithdrawnAt     *time.Time    `spanner:\"WithdrawnAt\"`", "(first-password), a password reset (password-reset)"},
 		// A role is given to and taken from a person by the id of their account, and given
 		// to nobody an id names no user of.
