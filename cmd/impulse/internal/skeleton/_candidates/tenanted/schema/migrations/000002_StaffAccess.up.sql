@@ -75,3 +75,32 @@ CREATE TABLE StaffGroupRoles (
 ) PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role);
 
 CREATE INDEX StaffGroupRolesByScope ON StaffGroupRoles (Kind, Axis, DomainId, Role);
+
+CREATE TABLE StaffRecordUserRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, UserId);
+
+CREATE INDEX StaffRecordUserRolesByUserId ON StaffRecordUserRoles (UserId, Axis, DomainId);
+
+CREATE TABLE StaffRecordGroupRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  GroupId STRING(36) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT StaffRecordGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES StaffGroups (Id),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, GroupId);
+
+CREATE INDEX StaffRecordGroupRolesByGroupId ON StaffRecordGroupRoles (GroupId);
