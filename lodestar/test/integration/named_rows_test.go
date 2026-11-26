@@ -72,15 +72,16 @@ func (w *namedRowsWorld) roleOfItsOwn(username accesstypes.User, role accesstype
 	}
 }
 
-// missionValue is the value of a mission of Anvil's for the client, with the briefing
-// sheet's field as given (a JSON value), or without it where it is empty.
-func missionValue(client, briefing string) string {
+// missionValue is the value of a mission of Anvil's for Halvard, a client on every sector's
+// roster, with the briefing sheet's field as given (a JSON value), or without it where it is
+// empty.
+func missionValue(briefing string) string {
 	sheet := ""
 	if briefing != "" {
 		sheet = `,"briefingTemplateId":` + briefing
 	}
 
-	return fmt.Sprintf(`{"clientId":%q,"kindId":"courier","title":"Picked rows","hazard":1,"fee":100,"deadline":%q%s}`, client, deadline(365), sheet)
+	return fmt.Sprintf(`{"clientId":%q,"kindId":"courier","title":"Picked rows","hazard":1,"fee":100,"deadline":%q%s}`, clientHalvardID, deadline(365), sheet)
 }
 
 // TestNamedRows_aColumnPickedFromAView holds a column picked from a view to the rows its
@@ -121,9 +122,9 @@ func TestNamedRows_aColumnPickedFromAView(t *testing.T) {
 		access.GrantRow{Permission: accesstypes.Create, Resource: "Missions.fee"},
 		access.GrantRow{Permission: accesstypes.Create, Resource: "Missions.deadline"},
 	)
-	status, body = w.write("mae", "add", "missions", missionValue(clientHalvardID, ""))
+	status, body = w.write("mae", "add", "missions", missionValue(""))
 	w.notThere(status, body, "a mission added by a role that lists no roster")
-	status, body = w.write("booking", "add", "missions", missionValue(clientHalvardID, ""))
+	status, body = w.write("booking", "add", "missions", missionValue(""))
 	assertStatus(t, status, http.StatusOK, body)
 
 	// A pass names its hangar, so its writer lists the hangars.
@@ -190,7 +191,7 @@ func TestNamedRows_aColumnPickedFromAComputedList(t *testing.T) {
 	sheet := func(briefing string) string {
 		return fmt.Sprintf(`{"briefingTemplateId":%s}`, briefing)
 	}
-	status, body := w.write("sol", "add", "missions", missionValue(clientHalvardID, `"dispatch"`))
+	status, body := w.write("sol", "add", "missions", missionValue(`"dispatch"`))
 	w.notThere(status, body, "a marshal who lists no catalog adding a mission on the dispatch brief")
 	status, body = w.write("sol", "patch", "missions/"+first.id, sheet(`"dispatch"`))
 	w.notThere(status, body, "a marshal who lists no catalog putting a mission on the dispatch brief")
@@ -202,17 +203,17 @@ func TestNamedRows_aColumnPickedFromAComputedList(t *testing.T) {
 	if d := decisionFor(ctx, t, w.engine.ForUser(sol), accesstypes.GlobalScope(), accesstypes.List, "BriefingTemplates", time.Now().Add(15*time.Second)); !d.IsGranted() {
 		t.Fatalf("List on BriefingTemplates for sol, given BriefingClerk = %s, want granted", d)
 	}
-	status, body = w.write("sol", "add", "missions", missionValue(clientHalvardID, `"dispatch"`))
+	status, body = w.write("sol", "add", "missions", missionValue(`"dispatch"`))
 	assertStatus(t, status, http.StatusOK, body)
 	status, body = w.write("sol", "patch", "missions/"+first.id, sheet(`"dispatch"`))
 	assertStatus(t, status, http.StatusOK, body)
 
-	status, body = w.write("sol", "add", "missions", missionValue(clientHalvardID, `"night-watch"`))
+	status, body = w.write("sol", "add", "missions", missionValue(`"night-watch"`))
 	w.notThere(status, body, "a mission added on a sheet the catalog does not hold")
 	status, body = w.write("sol", "patch", "missions/"+first.id, sheet(`"night-watch"`))
 	w.notThere(status, body, "a mission put on a sheet the catalog does not hold")
 
-	status, body = w.write("sol", "add", "missions", missionValue(clientHalvardID, "null"))
+	status, body = w.write("sol", "add", "missions", missionValue("null"))
 	assertStatus(t, status, http.StatusOK, body)
 	status, body = w.write("sol", "patch", "missions/"+first.id, sheet("null"))
 	assertStatus(t, status, http.StatusOK, body)

@@ -172,13 +172,17 @@ func (a *listedAsk) listsComputedRow(ctx context.Context, n namedValue, decision
 // noSource says a write, or a method's request, names a row of a view, or of a computed
 // list, it was handed no source of.
 func (a *listedAsk) noSource(row *NamedRow) error {
-	owner, carrier, source := "resource", "write", "the view"
-	if a.method {
-		owner, carrier = "method", "request"
-	}
+	source := "the view"
 	if row.Computed {
 		source = "the computed list"
 	}
+	if a.method {
+		return errors.Newf("method %s field %s names a row of %s %s, and the request was handed no source of that name: %s", a.owner, row.Field, source, row.Resource, noSourceRemedy)
+	}
 
-	return errors.Newf("%s %s field %s names a row of %s %s, and the %s was handed no source of that name: hand the application's named-row sources to the decoder (WithNamedRowSources), which the generated handlers do; regenerate them", owner, a.owner, row.Field, source, row.Resource, carrier)
+	return errors.Newf("resource %s field %s names a row of %s %s, and the write was handed no source of that name: %s", a.owner, row.Field, source, row.Resource, noSourceRemedy)
 }
+
+// noSourceRemedy is what an error for a write, or a method's request, handed no source of a
+// view or of a computed list it names a row of says to do.
+const noSourceRemedy = "hand the application's named-row sources to the decoder (WithNamedRowSources), which the generated handlers do; regenerate them"
