@@ -22,7 +22,9 @@ type Version struct {
 	Progress bool
 	// Applied is the number of the in-progress file's statements that committed.
 	Applied int
-	// Checkpoint is the hex SHA-256 over the applied statements' text.
+	// Checkpoint is the hex SHA-256 over the applied statements' text. While Operation is set
+	// it also covers the statements of that operation's batch: the DDL group that starts at
+	// Applied.
 	Checkpoint string
 	// Operation names the Spanner DDL operation that was in flight when the runner stopped,
 	// or is empty.
