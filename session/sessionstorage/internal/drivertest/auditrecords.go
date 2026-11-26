@@ -8,9 +8,12 @@ package drivertest
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +23,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
+	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 )
 
@@ -37,6 +41,28 @@ type auditRun struct {
 	fails bool
 	// held, where set, fails the test unless what the run was to change is as it was.
 	held func(t *testing.T)
+	// secrets are what the run wrote that no row of the audit table holds: a password's
+	// hash, a token's, a link's, a remembered browser's, and a device's code and its
+	// hash.
+	secrets []writtenSecret
+}
+
+// writtenSecret is a secret a run wrote, and what it is.
+type writtenSecret struct {
+	what  string
+	value []byte
+}
+
+// hashSecret is a password hash as its column keeps it.
+func hashSecret(t *testing.T, hash *securehash.Hash) writtenSecret {
+	t.Helper()
+
+	text, err := hash.MarshalText()
+	if err != nil {
+		t.Fatalf("securehash.Hash.MarshalText() error = %v", err)
+	}
+
+	return writtenSecret{what: "a password hash", value: text}
 }
 
 // auditedWrite is one write of the list: run readies a run of it on in that takes effect
@@ -111,16 +137,18 @@ func auditedPasswordWrites() []auditedWrite {
 			run: func(ctx context.Context, t *testing.T, in *AuthInstance, n byte) auditRun {
 				user := auditUser(ctx, t, in.Driver, "change", n, []byte("old"))
 				chosen := passwordHashes(t, "new")[0]
+				secrets := []writtenSecret{hashSecret(t, user.PasswordHash), hashSecret(t, chosen)}
 
-				return auditRun{record: accountRow(auditlog.ActPasswordChanged, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActPasswordChanged, user), secrets: secrets, write: func(record *auditlog.Record) error {
 					return in.Driver.ChangeUserPassword(ctx, user.ID, user.PasswordHash, chosen, record)
 				}}
 			},
 			none: func(ctx context.Context, t *testing.T, in *AuthInstance, n byte) auditRun {
 				user := auditUser(ctx, t, in.Driver, "change", n, []byte("old"))
 				hashes := passwordHashes(t, "not the one held", "new")
+				secrets := []writtenSecret{hashSecret(t, user.PasswordHash), hashSecret(t, hashes[1])}
 
-				return auditRun{record: accountRow(auditlog.ActPasswordChanged, user), fails: true, held: passwordHeld(ctx, in, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActPasswordChanged, user), secrets: secrets, fails: true, held: passwordHeld(ctx, in, user), write: func(record *auditlog.Record) error {
 					return in.Driver.ChangeUserPassword(ctx, user.ID, hashes[0], hashes[1], record)
 				}}
 			},
@@ -131,7 +159,7 @@ func auditedPasswordWrites() []auditedWrite {
 				user := auditUser(ctx, t, in.Driver, "first", n, nil)
 				chosen := passwordHashes(t, "chosen")[0]
 
-				return auditRun{record: accountRow(auditlog.ActPasswordChosen, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActPasswordChosen, user), secrets: []writtenSecret{hashSecret(t, chosen)}, write: func(record *auditlog.Record) error {
 					return in.Driver.SetFirstUserPassword(ctx, user.ID, chosen, record)
 				}}
 			},
@@ -139,7 +167,7 @@ func auditedPasswordWrites() []auditedWrite {
 				user := auditUser(ctx, t, in.Driver, "first", n, []byte("held"))
 				chosen := passwordHashes(t, "chosen")[0]
 
-				return auditRun{record: accountRow(auditlog.ActPasswordChosen, user), fails: true, held: passwordHeld(ctx, in, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActPasswordChosen, user), secrets: []writtenSecret{hashSecret(t, user.PasswordHash)}, fails: true, held: passwordHeld(ctx, in, user), write: func(record *auditlog.Record) error {
 					return in.Driver.SetFirstUserPassword(ctx, user.ID, chosen, record)
 				}}
 			},
@@ -150,7 +178,7 @@ func auditedPasswordWrites() []auditedWrite {
 				user := auditUser(ctx, t, in.Driver, "remove", n, []byte("held"))
 				link := mustLink(ctx, t, in.Driver, user.ID, lakeside(fmt.Sprintf("idp_remove_%d", n)))
 
-				return auditRun{record: accountRow(auditlog.ActPasswordRemoved, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActPasswordRemoved, user), secrets: []writtenSecret{hashSecret(t, user.PasswordHash)}, write: func(record *auditlog.Record) error {
 					return in.Driver.RemoveUserPassword(ctx, user.ID, []impulse.UUID{link.ID}, record)
 				}}
 			},
@@ -170,7 +198,7 @@ func auditedPasswordWrites() []auditedWrite {
 				user := auditUser(ctx, t, in.Driver, "proven", n, []byte("held"))
 				link := mustLink(ctx, t, in.Driver, user.ID, lakeside(fmt.Sprintf("idp_proven_%d", n)))
 
-				return auditRun{record: accountRow(auditlog.ActPasswordRemoved, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActPasswordRemoved, user), secrets: []writtenSecret{hashSecret(t, user.PasswordHash)}, write: func(record *auditlog.Record) error {
 					return in.Driver.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash, []impulse.UUID{link.ID}, record)
 				}}
 			},
@@ -179,7 +207,7 @@ func auditedPasswordWrites() []auditedWrite {
 				link := mustLink(ctx, t, in.Driver, user.ID, lakeside(fmt.Sprintf("idp_proven_%d", n)))
 				other := passwordHashes(t, "not the one held")[0]
 
-				return auditRun{record: accountRow(auditlog.ActPasswordRemoved, user), fails: true, held: passwordHeld(ctx, in, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActPasswordRemoved, user), secrets: []writtenSecret{hashSecret(t, user.PasswordHash)}, fails: true, held: passwordHeld(ctx, in, user), write: func(record *auditlog.Record) error {
 					return in.Driver.RemoveProvenUserPassword(ctx, user.ID, other, []impulse.UUID{link.ID}, record)
 				}}
 			},
@@ -313,7 +341,7 @@ func auditedAccountWrites() []auditedWrite {
 				record := accountRow(auditlog.ActIdentityUnlinked, user)
 				record.OldValue = "Lakeside"
 
-				return auditRun{record: record, write: func(record *auditlog.Record) error {
+				return auditRun{record: record, secrets: []writtenSecret{hashSecret(t, user.PasswordHash)}, write: func(record *auditlog.Record) error {
 					return in.Driver.UnlinkIdentity(ctx, link.ID, lakesideSignsIn, record)
 				}}
 			},
@@ -348,7 +376,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				link := newMailLink(dbtype.MailLinkInvitation, fmt.Sprintf("invited-%d@lakeside.edu", n), tokenHash(n))
 				link.TenantID, link.RoleNames = "lakeside", []string{"Teacher", "Counselor"}
 
-				return auditRun{record: invitationRow(link), write: func(record *auditlog.Record) error {
+				return auditRun{record: invitationRow(link), secrets: linkSecrets(link), write: func(record *auditlog.Record) error {
 					return in.Driver.InsertMailLink(ctx, link, record)
 				}}
 			},
@@ -358,7 +386,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				again := *link
 				again.TokenHash = tokenHash(n + 100)
 
-				return auditRun{record: invitationRow(link), fails: true, write: func(record *auditlog.Record) error {
+				return auditRun{record: invitationRow(link), secrets: linkSecrets(link), fails: true, write: func(record *auditlog.Record) error {
 					return in.Driver.InsertMailLink(ctx, &again, record)
 				}}
 			},
@@ -370,7 +398,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				record := invitationRow(link)
 				record.Act, record.RoleNames, record.RoleScope = auditlog.ActInvitationWithdrawn, nil, ""
 
-				return auditRun{record: record, write: func(record *auditlog.Record) error {
+				return auditRun{record: record, secrets: linkSecrets(link), write: func(record *auditlog.Record) error {
 					return in.Driver.RevokeMailLink(ctx, link.ID, time.Now(), record)
 				}}
 			},
@@ -383,7 +411,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				record := invitationRow(link)
 				record.Act, record.RoleNames, record.RoleScope = auditlog.ActInvitationWithdrawn, nil, ""
 
-				return auditRun{record: record, fails: true, write: func(record *auditlog.Record) error {
+				return auditRun{record: record, secrets: linkSecrets(link), fails: true, write: func(record *auditlog.Record) error {
 					return in.Driver.RevokeMailLink(ctx, link.ID, time.Now(), record)
 				}}
 			},
@@ -396,7 +424,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				record := accountRow(auditlog.ActTokenMade, user)
 				record.NewValue = "deploy"
 
-				return auditRun{record: record, write: func(record *auditlog.Record) error {
+				return auditRun{record: record, secrets: tokenSecrets(token), write: func(record *auditlog.Record) error {
 					return in.Driver.InsertToken(ctx, token, record)
 				}}
 			},
@@ -408,7 +436,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				again := *token
 				again.TokenHash = tokenHash(n + 100)
 
-				return auditRun{record: accountRow(auditlog.ActTokenMade, user), fails: true, write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActTokenMade, user), secrets: tokenSecrets(token), fails: true, write: func(record *auditlog.Record) error {
 					return in.Driver.InsertToken(ctx, &again, record)
 				}}
 			},
@@ -420,7 +448,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				token := newToken(dbtype.TokenAccess, user.ID, tokenHash(n))
 				insertTokens(ctx, t, in.Driver, token)
 
-				return auditRun{record: accountRow(auditlog.ActTokenRevoked, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActTokenRevoked, user), secrets: tokenSecrets(token), write: func(record *auditlog.Record) error {
 					return in.Driver.RevokeUserToken(ctx, user.ID, token.ID, time.Now(), dbtype.TokenRevokedByHand, record)
 				}}
 			},
@@ -431,7 +459,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				token := newToken(dbtype.TokenAccess, other.ID, tokenHash(n))
 				insertTokens(ctx, t, in.Driver, token)
 
-				return auditRun{record: accountRow(auditlog.ActTokenRevoked, user), fails: true, write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActTokenRevoked, user), secrets: tokenSecrets(token), fails: true, write: func(record *auditlog.Record) error {
 					return in.Driver.RevokeUserToken(ctx, user.ID, token.ID, time.Now(), dbtype.TokenRevokedByHand, record)
 				}}
 			},
@@ -451,8 +479,9 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				want.Source = eventsource.ProcessEvent(auditlog.ProcessDevice)
 				handed := *want
 				handed.SubjectID, handed.SubjectName = "", ""
+				secrets := slices.Concat(deviceSecrets(code), tokenSecrets(access), tokenSecrets(refresh))
 
-				return auditRun{record: &handed, want: want, write: func(record *auditlog.Record) error {
+				return auditRun{record: &handed, want: want, secrets: secrets, write: func(record *auditlog.Record) error {
 					return redeemed(in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh, record))
 				}}
 			},
@@ -463,7 +492,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				code := insertDeviceCode(ctx, t, in, n)
 				access, refresh := newFamily(user.ID, tokenHash(n+100), tokenHash(n+200))
 
-				return auditRun{record: accountRow(auditlog.ActTokenMade, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActTokenMade, user), secrets: deviceSecrets(code), write: func(record *auditlog.Record) error {
 					_, status, err := in.Driver.RedeemDeviceCode(ctx, code.DeviceCodeHash, time.Now(), devicePollInterval, access, refresh, record)
 					if err != nil {
 						return errors.Wrap(err, "AuthDriver.RedeemDeviceCode()")
@@ -483,8 +512,9 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				if err := in.Driver.InsertTrustedDevice(ctx, newTrustedDevice(user.ID, tokenHash(n))); err != nil {
 					t.Fatalf("InsertTrustedDevice() error = %v", err)
 				}
+				secrets := []writtenSecret{{what: "a remembered browser's token hash", value: tokenHash(n)}}
 
-				return auditRun{record: accountRow(auditlog.ActBrowsersForgotten, user), write: func(record *auditlog.Record) error {
+				return auditRun{record: accountRow(auditlog.ActBrowsersForgotten, user), secrets: secrets, write: func(record *auditlog.Record) error {
 					return in.Driver.RevokeTrustedDevices(ctx, user.ID, record)
 				}}
 			},
@@ -509,7 +539,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				want := *record
 				want.OldValue, want.NewValue = fmt.Sprintf("confirm-%d@lakeside.edu", n), link.Email
 
-				return auditRun{record: record, want: &want, write: func(record *auditlog.Record) error {
+				return auditRun{record: record, want: &want, secrets: linkSecrets(link), write: func(record *auditlog.Record) error {
 					_, err := in.ConfirmAddressByLink(ctx, confirmationOf(link, nil), record)
 
 					return err
@@ -524,7 +554,7 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 				}
 				record := accountRow(auditlog.ActAddressChanged, user)
 
-				return auditRun{record: record, fails: true, write: func(record *auditlog.Record) error {
+				return auditRun{record: record, secrets: linkSecrets(link), fails: true, write: func(record *auditlog.Record) error {
 					_, err := in.ConfirmAddressByLink(ctx, confirmationOf(link, nil), record)
 
 					return err
@@ -532,6 +562,21 @@ func auditedLinkAndTokenWrites() []auditedWrite {
 			},
 		},
 	}
+}
+
+// linkSecrets are the secrets of a mail link: its token's hash.
+func linkSecrets(link *dbtype.MailLink) []writtenSecret {
+	return []writtenSecret{{what: "a mail link's token hash", value: link.TokenHash}}
+}
+
+// tokenSecrets are the secrets of a token: its hash.
+func tokenSecrets(token *dbtype.Token) []writtenSecret {
+	return []writtenSecret{{what: "a token's hash", value: token.TokenHash}}
+}
+
+// deviceSecrets are the secrets of a device code: its hash and the code a person types.
+func deviceSecrets(code *dbtype.DeviceCode) []writtenSecret {
+	return []writtenSecret{{what: "a device code's hash", value: code.DeviceCodeHash}, {what: "a device's user code", value: []byte(code.UserCode)}}
 }
 
 // insertDeviceCode inserts a pending device code, the case's n-th.
@@ -652,6 +697,8 @@ func auditedSettingWrites() []auditedWrite {
 // handed nil, it takes effect and writes no row; handed a record where it is refused or
 // finds nothing to change, it writes none and what it was to change stands; handed a
 // record, it takes effect and writes exactly one row, whose columns are the record's.
+// No column of the audit table then holds a secret the three runs wrote, in any form
+// (wantNoSecret).
 func testAuditRecords(_ context.Context, t *testing.T, h *AuthHarness) {
 	for _, tt := range auditedWrites() {
 		t.Run(tt.name, func(t *testing.T) {
@@ -688,7 +735,33 @@ func testAuditRecords(_ context.Context, t *testing.T, h *AuthHarness) {
 				want = recorded.want
 			}
 			wantAuditRows(ctx, t, h, in, tt.name+" with a record", want)
+			wantNoSecret(ctx, t, h, in, tt.name, slices.Concat(plain.secrets, none.secrets, recorded.secrets))
 		})
+	}
+}
+
+// wantNoSecret fails the test where a column of a row of the audit records table holds
+// one of the secrets, as it is, in hex or in base64.
+func wantNoSecret(ctx context.Context, t *testing.T, h *AuthHarness, in *AuthInstance, what string, secrets []writtenSecret) {
+	t.Helper()
+
+	rows := h.AuditRows(ctx, t, in.Raw)
+	for i, row := range rows {
+		for column, value := range row {
+			text := fmt.Sprint(value)
+			for _, secret := range secrets {
+				if len(secret.value) == 0 {
+					t.Fatalf("%s: %s is empty, which every column holds", what, secret.what)
+				}
+				forms := []string{
+					string(secret.value), hex.EncodeToString(secret.value),
+					base64.StdEncoding.EncodeToString(secret.value), base64.RawURLEncoding.EncodeToString(secret.value),
+				}
+				if slices.ContainsFunc(forms, func(form string) bool { return strings.Contains(text, form) }) {
+					t.Errorf("%s: row %d's %s holds %s that the write wrote", what, i, column, secret.what)
+				}
+			}
+		}
 	}
 }
 

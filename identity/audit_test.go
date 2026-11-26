@@ -25,6 +25,11 @@ func (f *fakeStore) InsertAuditRecord(_ context.Context, _ resource.ReadWriteTra
 	if err := record.Validate(); err != nil {
 		return errors.Wrap(err, "auditlog.Record.Validate()")
 	}
+	// No row holds a secret the fakes hold or hand back (heldSecret): the fake refuses
+	// one, so every rule's test searches every row it writes.
+	if what, held := heldSecret(record); held {
+		return errors.Newf("the record of %s holds %s", record.Act, what)
+	}
 	f.audit = append(f.audit, *record)
 
 	return nil
