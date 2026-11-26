@@ -5,6 +5,7 @@ package access
 // only names or on the record's own kind, and an Execute on a method that names no row.
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -148,5 +149,28 @@ func TestValidateRoles_heldOnWarnings(t *testing.T) {
 				t.Errorf("the heldOn warnings (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestValidateRoles_heldOnWarningLiteral pins that a consumer's literal of the warning, all
+// ten fields spelled, equals the warning the role file's check makes, under the
+// comparison a role-file test pins its accepted warnings with (reflect.DeepEqual).
+func TestValidateRoles_heldOnWarningLiteral(t *testing.T) {
+	t.Parallel()
+
+	role := &Role{
+		Name: "ProjectEditor", Description: "Edits a project.", HeldOn: []accesstypes.Resource{"Projects"},
+		Permissions: map[accesstypes.Permission][]Grant{"Create": {{Resource: "Clients"}}},
+	}
+	got, err := ValidateRoles(newHeldOnRelease(), &RoleConfig{Roles: ScopedRoles{Domain: []*Role{role}}}, "")
+	if err != nil {
+		t.Fatalf("ValidateRoles() error = %v", err)
+	}
+	want := []Warning{HeldOnWarning{
+		Role: "ProjectEditor", Record: "Projects", Permission: "Create", Resource: "Clients", Row: "Clients", Case: "namedOnly",
+		RecordOne: "project", RecordMany: "projects", RowOne: "client", RowMany: "clients",
+	}}
+	if !reflect.DeepEqual(want, got) {
+		t.Errorf("ValidateRoles() warnings = %#v, want %#v", got, want)
 	}
 }

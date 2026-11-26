@@ -185,8 +185,13 @@ type HeldOnWarning struct {
 	// ownKind.
 	Case string
 
-	// The words a sentence calls one record and many, and one row of Row and many.
-	recordOne, recordMany, rowOne, rowMany string
+	// RecordOne and RecordMany are what the sentence calls one record of the kind and
+	// many, and RowOne and RowMany one row of Row and many: the collection's words, filled
+	// where the warning is made, since the sentence is written with no collection at hand.
+	RecordOne  string
+	RecordMany string
+	RowOne     string
+	RowMany    string
 }
 
 func (HeldOnWarning) warning() {}
@@ -194,20 +199,20 @@ func (HeldOnWarning) warning() {}
 // String renders the warning as one line: what the role can be held on, why the grant
 // gives nothing there, and that it still counts across the tenant.
 func (w HeldOnWarning) String() string {
-	held := words.WithArticle(w.recordOne)
+	held := words.WithArticle(w.RecordOne)
 	switch w.Case {
 	case heldOnNamedOnly:
 		return fmt.Sprintf("%[1]s can be held on %[2]s, and %[2]s names one %[3]s and makes none, so its Create on %[4]s gives nothing when the role is held on one %[5]s. It still adds %[6]s when the role is held across the tenant.",
-			w.Role, held, w.rowOne, w.Resource, w.recordOne, w.rowMany)
+			w.Role, held, w.RowOne, w.Resource, w.RecordOne, w.RowMany)
 	case heldOnOwnKind:
 		return fmt.Sprintf("%[1]s can be held on %[2]s, and a role held on one %[3]s makes no other, so its Create on %[4]s gives nothing when the role is held on one %[3]s. It still adds %[5]s when the role is held across the tenant.",
-			w.Role, held, w.recordOne, w.Resource, w.recordMany)
+			w.Role, held, w.RecordOne, w.Resource, w.RecordMany)
 	case heldOnNoRow:
 		return fmt.Sprintf("%[1]s can be held on %[2]s, and %[3]s names no row, so its Execute on %[3]s gives nothing when the role is held on one %[4]s. It still counts when the role is held across the tenant.",
-			w.Role, held, w.Resource, w.recordOne)
+			w.Role, held, w.Resource, w.RecordOne)
 	default:
 		return fmt.Sprintf("%[1]s can be held on %[2]s, and %[4]s is neither under %[2]s nor named by one, so its %[3]s on %[5]s gives nothing when the role is held on one %[6]s. It still counts when the role is held across the tenant.",
-			w.Role, held, w.Permission, w.Row, w.Resource, w.recordOne)
+			w.Role, held, w.Permission, w.Row, w.Resource, w.RecordOne)
 	}
 }
 
@@ -226,9 +231,9 @@ func heldOnWarnings(store PermissionCollection, roles []*Role, sets []grantSet) 
 					if res == "" || strings.ContainsRune(string(res), '.') {
 						continue
 					}
-					w := HeldOnWarning{Role: r.Name, Record: record, Permission: perm, Resource: res, Row: res, recordOne: recordOne, recordMany: recordMany}
+					w := HeldOnWarning{Role: r.Name, Record: record, Permission: perm, Resource: res, Row: res, RecordOne: recordOne, RecordMany: recordMany}
 					if w.Case = heldOnCase(store, &w); w.Case != "" {
-						w.rowOne, w.rowMany = recordWords(store, w.Row)
+						w.RowOne, w.RowMany = recordWords(store, w.Row)
 						found = append(found, w)
 					}
 				}
