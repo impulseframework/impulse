@@ -13,8 +13,8 @@ const changeHistoryDefaults: MatDialogConfig = { width: '960px', maxWidth: '95vw
  * whom, and each field it changed from what to what. Something a person only reads, so it
  * is a pop-up and the address does not change. A list opens it from a row's button
  * (`rowButtons`), which the record's page draws too; the caller names the title, reads the
- * record's history through its handle's `changes`, and names the page's fields with their
- * labels.
+ * record's history through its handle's `changes`, and hands the resource and the page's
+ * columns, by which each field is named and each value written as the page's list does.
  */
 export function openChangeHistory(
   dialog: MatDialog,

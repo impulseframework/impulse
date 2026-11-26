@@ -1,9 +1,8 @@
 import { FieldMeta, ListPermission, NameFieldMeta, Resource, ResourceMeta } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
 import { ColumnConfig, FieldName } from '@impulseframework/resource-angular/types';
 
-import { formatFieldValue } from '../format-fns';
+import { columnHeading, formatFieldValue } from '../format-fns';
 import { ListableFields, MetaOf } from '../search-box/search-fields';
 
 // A list's columns on fields that hold another row's id. Where the pointed-to resource
@@ -20,8 +19,6 @@ import { ListableFields, MetaOf } from '../search-box/search-fields';
 // (`tenantKey`, `fallback`) says those words on the id in place of the stored value, and
 // so offers neither sort nor filter. The list component and its store wire what these
 // answer; nothing else in them learns what a name is.
-
-const title = new CamelCaseToTitlePipe();
 
 /**
  * How a list draws a configured column:
@@ -129,7 +126,7 @@ function listedColumn(
     sortField: nameId,
     name,
     field,
-    header: column.header || title.transform(column.id.replace(/Id$/, '')),
+    header: columnHeading(column.id, column.header, true),
   };
 }
 

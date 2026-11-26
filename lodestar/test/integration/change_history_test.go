@@ -858,6 +858,64 @@ func TestChangeHistory_keepsHolderNames(t *testing.T) {
 	}
 }
 
+// TestChangeHistory_shipClass pins the history of a record outside every sector whose
+// fields hold a yes or no: the governor makes a ship class in service, then in one write
+// changes its tonnage and takes it out of service, and the class's history answers the
+// change with the tonnage's two values as JSON numbers and in service's as JSON booleans,
+// true then false, never their text. The console's history writes a boolean as the
+// list's check or dash, and a number as the list's number.
+func TestChangeHistory_shipClass(t *testing.T) {
+	t.Parallel()
+
+	_, db, h := demoWorld(t)
+	const designation = "Tern"
+	status, body := doRequestAs(t, h, "governor", http.MethodPatch, "/console/api/resources",
+		fmt.Sprintf(`[{"op":"add","path":"/ship-classes","value":{"designation":%q,"roleId":"tender","tonnage":1800,"hardened":false,"inService":true}}]`, designation))
+	assertStatus(t, status, http.StatusOK, body)
+	stmt := spanner.NewStatement("SELECT Id FROM ShipClasses WHERE Designation = @designation")
+	stmt.Params["designation"] = designation
+	var id string
+	if err := db.Single().Query(t.Context(), stmt).Do(func(row *spanner.Row) error {
+		return row.Column(0, &id)
+	}); err != nil || id == "" {
+		t.Fatalf("finding the ship class %q: %v", designation, err)
+	}
+	status, body = doRequestAs(t, h, "governor", http.MethodPatch, "/console/api/resources",
+		fmt.Sprintf(`[{"op":"patch","path":"/ship-classes/%s","value":{"tonnage":2400,"inService":false}}]`, id))
+	assertStatus(t, status, http.StatusOK, body)
+
+	page := readHistory(t, h, "governor", "/console/api/ship-classes/"+id+"/changes")
+	if len(page.Changes) != 2 {
+		t.Fatalf("the history holds %d records, want the create and the change: %+v", len(page.Changes), page)
+	}
+	newest := page.Changes[0]
+	if newest.Operation != "update" {
+		t.Fatalf("the newest record is a %q, want an update", newest.Operation)
+	}
+	tests := []struct {
+		field    string
+		old, new string
+	}{
+		{field: "tonnage", old: "1800", new: "2400"},
+		{field: "inService", old: "true", new: "false"},
+	}
+	for _, tt := range tests {
+		change, ok := newest.field(tt.field)
+		if !ok {
+			t.Errorf("the change lists %v, want %s among them", newest.names(), tt.field)
+
+			continue
+		}
+		// The raw JSON: a number in its digits and a yes or no as a JSON boolean, never quoted.
+		if got, want := string(change.Old)+" -> "+string(change.New), tt.old+" -> "+tt.new; got != want {
+			t.Errorf("the change's %s = %s, want %s", tt.field, got, want)
+		}
+	}
+	if names := newest.names(); len(names) != 2 {
+		t.Errorf("the change lists %v, want the tonnage and in service alone", names)
+	}
+}
+
 // TestChangeHistory_untracked pins a resource that does not track its changes: the
 // hangars answer 404 to a reader of the hangar, and 403 to a person who may not read it.
 func TestChangeHistory_untracked(t *testing.T) {
