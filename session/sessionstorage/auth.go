@@ -169,6 +169,8 @@ type AuthStore[Tx any] interface {
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error)
 	// IdentitiesByUser lists a user's identity links.
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*SessionIdentity, error)
+	// IdentityByID returns the identity link of the id, or a NotFound error.
+	IdentityByID(ctx context.Context, identityID impulse.UUID) (*SessionIdentity, error)
 	// UserDirectories reads the organizations' directories a user's identity links came
 	// through, each with the tenants that declare it (directories, the Auth's directory
 	// reader), in one transaction that writes nothing: what a sign-in hands its policy in
@@ -1381,6 +1383,19 @@ func (a *Auth[Tx]) Identity(ctx context.Context, method sessioninfo.AuthMethod, 
 	link, err := a.db.Identity(ctx, method, connection, subject)
 	if err != nil {
 		return nil, errors.Wrap(err, "db.Identity()")
+	}
+
+	return (*SessionIdentity)(link), nil
+}
+
+// IdentityByID implements AuthStore.
+func (a *Auth[Tx]) IdentityByID(ctx context.Context, identityID impulse.UUID) (*SessionIdentity, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	link, err := a.db.IdentityByID(ctx, identityID)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.IdentityByID()")
 	}
 
 	return (*SessionIdentity)(link), nil

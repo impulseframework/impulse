@@ -540,8 +540,22 @@ func (p *AuthAPI[S, U, Tx]) Identities(ctx context.Context, userID impulse.UUID)
 // two unlinks asked at once cannot take the user's last two between them. A user that
 // holds a password may lose every link; the password of a user with no link that
 // counts is refused the same way (RemoveSessionUserPassword).
+//
+// The unlink is recorded (auditlog.ActIdentityUnlinked), done to the link's account by
+// who acts in ctx, naming the directory the link came through as the Auth's
+// registrations name it (directorySaid). The link is read by its id before the unlink:
+// an id no link holds is NotFound, as is a link unlinked between the read and the unlink.
 func (p *AuthAPI[S, U, Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
-	if err := p.auth.storage.UnlinkIdentity(ctx, identityID, p.auth.signsIn, nil); err != nil {
+	link, err := p.auth.storage.IdentityByID(ctx, identityID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.IdentityByID()")
+	}
+	unlinked, err := p.auth.accountRecordOf(ctx, auditlog.ActIdentityUnlinked, p.auth.acting(ctx), link.UserID)
+	if err != nil {
+		return err
+	}
+	unlinked.OldValue = p.auth.directorySaid(link.Method, link.Connection)
+	if err := p.auth.storage.UnlinkIdentity(ctx, identityID, p.auth.signsIn, unlinked); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.UnlinkIdentity()")
 	}
 

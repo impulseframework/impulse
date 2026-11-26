@@ -422,6 +422,8 @@ type db interface {
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
 	// IdentitiesByUser lists a user's links, oldest first.
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
+	// IdentityByID returns the link of the id, or a NotFound error.
+	IdentityByID(ctx context.Context, identityID impulse.UUID) (*dbtype.SessionIdentity, error)
 	// LinkIdentity links an identity to a user outside the sign-in flow.
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
 	// UnlinkIdentity removes a link, refusing to remove the last means of sign-in of a

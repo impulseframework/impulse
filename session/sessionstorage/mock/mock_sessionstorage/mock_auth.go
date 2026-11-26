@@ -552,6 +552,21 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) Identity(ctx, method, connection
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Identity", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).Identity), ctx, method, connection, subject)
 }
 
+// IdentityByID mocks base method.
+func (m *MockAuthStoreMethods[Tx]) IdentityByID(ctx context.Context, identityID impulse.UUID) (*sessionstorage.SessionIdentity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IdentityByID", ctx, identityID)
+	ret0, _ := ret[0].(*sessionstorage.SessionIdentity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IdentityByID indicates an expected call of IdentityByID.
+func (mr *MockAuthStoreMethodsMockRecorder[Tx]) IdentityByID(ctx, identityID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IdentityByID", reflect.TypeOf((*MockAuthStoreMethods[Tx])(nil).IdentityByID), ctx, identityID)
+}
+
 // ImpersonationEnabled mocks base method.
 func (m *MockAuthStoreMethods[Tx]) ImpersonationEnabled() bool {
 	m.ctrl.T.Helper()

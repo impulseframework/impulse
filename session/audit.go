@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"strconv"
 
@@ -48,6 +49,17 @@ func (a *Auth[S, U, Tx]) accountRecordOf(ctx context.Context, act auditlog.Act, 
 	}
 
 	return accountRecord(act, source, user.ID, user.Username), nil
+}
+
+// directorySaid says the directory an identity of method and connection came through as
+// a row of the audit log keeps it: the name the Auth's registrations give it, the label
+// of the button a person signs in to it with where they give none, and the method's own
+// name where they give neither, as for a link left from a registration the login page no
+// longer offers (directoryName).
+func (a *Auth[S, U, Tx]) directorySaid(method sessioninfo.AuthMethod, connection string) string {
+	name, label := a.directoryName(method, connection)
+
+	return cmp.Or(name, label, string(method))
 }
 
 // heldAddress is the address an account holds, as the record of a change of it names

@@ -211,9 +211,11 @@ func TestAuthAPI_UnlinkIdentity_judgesTheOtherLinks(t *testing.T) {
 	}
 
 	a, store := signInMeansAuth(t)
-	identityID := impulse.Must(impulse.NewUUID())
+	identityID, userID := impulse.Must(impulse.NewUUID()), impulse.Must(impulse.NewUUID())
 	got := make(map[link]bool, len(want))
-	store.EXPECT().UnlinkIdentity(gomock.Any(), identityID, gomock.Not(gomock.Nil()), gomock.Nil()).
+	store.EXPECT().IdentityByID(gomock.Any(), identityID).Return(&sessionstorage.SessionIdentity{ID: identityID, UserID: userID, Method: sessioninfo.MethodGoogle, Connection: "fleet"}, nil)
+	store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+	store.EXPECT().UnlinkIdentity(gomock.Any(), identityID, gomock.Not(gomock.Nil()), aRecord()).
 		DoAndReturn(func(_ context.Context, _ impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool, _ *auditlog.Record) error {
 			for other := range want {
 				got[other] = signsIn(other.method, other.connection)

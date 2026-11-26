@@ -702,6 +702,21 @@ func (mr *MockdbMockRecorder) Identity(ctx, method, connection, subject any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Identity", reflect.TypeOf((*Mockdb)(nil).Identity), ctx, method, connection, subject)
 }
 
+// IdentityByID mocks base method.
+func (m *Mockdb) IdentityByID(ctx context.Context, identityID impulse.UUID) (*dbtype.SessionIdentity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IdentityByID", ctx, identityID)
+	ret0, _ := ret[0].(*dbtype.SessionIdentity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IdentityByID indicates an expected call of IdentityByID.
+func (mr *MockdbMockRecorder) IdentityByID(ctx, identityID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IdentityByID", reflect.TypeOf((*Mockdb)(nil).IdentityByID), ctx, identityID)
+}
+
 // ImpersonationEnabled mocks base method.
 func (m *Mockdb) ImpersonationEnabled() bool {
 	m.ctrl.T.Helper()

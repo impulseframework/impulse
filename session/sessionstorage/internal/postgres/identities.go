@@ -324,6 +324,23 @@ func (s *SessionStorageDriver) IdentitiesByUser(ctx context.Context, userID impu
 	return s.identitiesByUser(ctx, s.conn, userID)
 }
 
+// IdentityByID returns the link of the id, or a NotFound error.
+func (s *SessionStorageDriver) IdentityByID(ctx context.Context, identityID impulse.UUID) (*dbtype.SessionIdentity, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "Id" = $1`, identityColumns, s.identitiesTable())
+	var links []*dbtype.SessionIdentity
+	if err := pgxscan.Select(ctx, s.conn, &links, query, identityID); err != nil {
+		return nil, errors.Wrap(err, "pgxscan.Select()")
+	}
+	if len(links) == 0 {
+		return nil, dbtype.SignInIdentityNotFound(identityID)
+	}
+
+	return links[0], nil
+}
+
 // IdentitiesByUserIn lists a user's links inside tx, oldest first.
 func (s *SessionStorageDriver) IdentitiesByUserIn(ctx context.Context, tx pgx.Tx, userID impulse.UUID) ([]*dbtype.SessionIdentity, error) {
 	return s.identitiesByUser(ctx, tx, userID)

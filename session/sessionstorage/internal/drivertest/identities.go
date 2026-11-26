@@ -826,6 +826,13 @@ func testLinkManagement(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if err != nil || len(links) != 2 || links[0].ID != first.ID || links[1].ID != second.ID {
 		t.Fatalf("IdentitiesByUser() = %v, %v; want both links, oldest first", links, err)
 	}
+	// A link is read by its id, as the list holds it.
+	if got, err := in.Driver.IdentityByID(ctx, second.ID); err != nil || got.ID != second.ID || got.UserID != sso.ID || got.Method != sessioninfo.MethodAzure || got.Connection != "tenant-1" {
+		t.Errorf("IdentityByID() = %+v, %v; want the Entra link of the account", got, err)
+	}
+	if _, err := in.Driver.IdentityByID(ctx, impulse.Must(impulse.NewUUID())); !httpio.HasNotFound(err) {
+		t.Errorf("IdentityByID() of an id no link holds error = %v, want NotFound", err)
+	}
 	if err := in.Driver.UnlinkIdentity(ctx, first.ID, everyLinkSignsIn, nil); err != nil {
 		t.Errorf("UnlinkIdentity() with another identity left error = %v", err)
 	}
@@ -839,6 +846,9 @@ func testLinkManagement(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 	if err := in.Driver.UnlinkIdentity(ctx, patLink.ID, everyLinkSignsIn, nil); !httpio.HasNotFound(err) {
 		t.Errorf("UnlinkIdentity() of a removed link error = %v, want NotFound", err)
+	}
+	if _, err := in.Driver.IdentityByID(ctx, patLink.ID); !httpio.HasNotFound(err) {
+		t.Errorf("IdentityByID() of a removed link error = %v, want NotFound", err)
 	}
 }
 
