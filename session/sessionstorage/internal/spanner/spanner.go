@@ -285,7 +285,7 @@ func (s *SessionStorageDriver) SetAuditRecordsTableName(name string) error {
 // statement for the table, or for a period of forever that a table with no policy keeps
 // every row.
 func (s *SessionStorageDriver) SetAuditRecordsPeriod(period auditlog.Period) error {
-	const refused = "session.KeepAuditRecords keeps nothing on Spanner, where the audit records table's row deletion policy removes old rows. Leave the option out"
+	const refused = "session.KeepAuditRecords does nothing on Spanner, where the audit records table's row deletion policy removes old rows. Leave the option out"
 	if _, ok := period.Days(); !ok {
 		return errors.New(refused + ": a table with no row deletion policy keeps every row.")
 	}
