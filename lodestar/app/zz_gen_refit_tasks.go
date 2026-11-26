@@ -19,8 +19,8 @@ import (
 
 func (a *App) RefitTasks() http.HandlerFunc {
 	type refitTask struct {
-		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		TaskNumber   int64        `json:"taskNumber"   perm:"-"`
+		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		Instructions string       `json:"instructions"`
 		Done         bool         `json:"done"`
 		Notes        *string      `json:"notes"`
@@ -68,13 +68,13 @@ func (a *App) RefitTasks() http.HandlerFunc {
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
-				case "RefitID":
-					if !row.Masked("refitId") {
-						rmap["refitId"] = rec.RefitID
-					}
 				case "TaskNumber":
 					if !row.Masked("taskNumber") {
 						rmap["taskNumber"] = rec.TaskNumber
+					}
+				case "RefitID":
+					if !row.Masked("refitId") {
+						rmap["refitId"] = rec.RefitID
 					}
 				case "Instructions":
 					if !row.Masked("instructions") {
@@ -111,8 +111,8 @@ func (a *App) RefitTasks() http.HandlerFunc {
 
 func (a *App) RefitTask() http.HandlerFunc {
 	type response struct {
-		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		TaskNumber   int64        `json:"taskNumber"   index:"true" perm:"-"`
+		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		Instructions string       `json:"instructions"`
 		Done         bool         `json:"done"`
 		Notes        *string      `json:"notes"`
@@ -149,13 +149,13 @@ func (a *App) RefitTask() http.HandlerFunc {
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
-			case "RefitID":
-				if !row.Masked("refitId") {
-					rmap["refitId"] = rec.RefitID
-				}
 			case "TaskNumber":
 				if !row.Masked("taskNumber") {
 					rmap["taskNumber"] = rec.TaskNumber
+				}
+			case "RefitID":
+				if !row.Masked("refitId") {
+					rmap["refitId"] = rec.RefitID
 				}
 			case "Instructions":
 				if !row.Masked("instructions") {
@@ -183,8 +183,8 @@ func (a *App) RefitTask() http.HandlerFunc {
 // RefitTaskChangeHistory answers a page of one refit task's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
 func (a *App) RefitTaskChangeHistory() http.HandlerFunc {
 	type response struct {
-		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		TaskNumber   int64        `json:"taskNumber"   index:"true" perm:"-"`
+		RefitID      impulse.UUID `json:"refitId"      index:"true" perm:"-"`
 		Instructions string       `json:"instructions"`
 		Done         bool         `json:"done"`
 		Notes        *string      `json:"notes"`
