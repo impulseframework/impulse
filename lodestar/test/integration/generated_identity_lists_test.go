@@ -583,14 +583,15 @@ func TestGeneratedIdentityWhoManagesEachAccount(t *testing.T) {
 		}
 	})
 
-	// quill holds Headquarters for the whole fleet and nothing else: the accounts with who
-	// manages each, and no sector's name. The account is written before the parallel
-	// subtests run, so each of them reads the same accounts.
+	// quill holds Command Staff for the whole fleet and nothing else, which lists the
+	// accounts with who manages each, and no sector's name (Headquarters lists the sectors
+	// it gives roles in, and so reads their names). The account is written before the
+	// parallel subtests run, so each of them reads the same accounts.
 	quill := string(makeCrewAccount(ctx, t, w.db, "quill"))
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		return w.app.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), accesstypes.User(quill), "Headquarters")
+		return w.app.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), accesstypes.User(quill), "CommandStaff")
 	}); err != nil {
-		t.Fatalf("giving quill Headquarters: %v", err)
+		t.Fatalf("giving quill CommandStaff: %v", err)
 	}
 
 	t.Run("a reader who holds no role in a sector reads the name of the sector that manages an account", func(t *testing.T) {

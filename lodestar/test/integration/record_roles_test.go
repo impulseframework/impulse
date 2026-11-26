@@ -12,7 +12,9 @@ package integration
 // sector reach every mission. The sector's Marshal gives and takes either role on a mission,
 // to a person of the sector or to a group kept there, through the four methods of the
 // mission's sharing; the lead shares the mission with observers through the same methods,
-// held to the observer's role by the grant's condition. Each role given or taken on a
+// held to the observer's role by the grant's condition, and names only a person or a group
+// a second role of hers, held in the sector, lists: her role on the mission lists neither
+// the sector's people nor its groups. Each role given or taken on a
 // mission is a row of the sector's audit log, which names the mission by its word and its
 // title as they were.
 //
@@ -865,4 +867,51 @@ func (w *sharingWorld) listedJoined(user accesstypes.User) string {
 	w.t.Helper()
 
 	return fmt.Sprint(w.listed(user, "missions"))
+}
+
+// TestRecordRoles_aLeadSharesWithHerOwnGroup holds a lead's share with a group she is in.
+// She holds Sector Crew in Anvil and nothing else, which lists the groups she is in, and
+// the Marshal makes her the first mission's lead and puts her in one of two groups. She
+// gives her group the observer's role on her mission, and the Marshal's list of the
+// mission's holders names it; she is refused the group she is not in and a person of the
+// sector, whom no role of hers lists, each as a row that is not there.
+func TestRecordRoles_aLeadSharesWithHerOwnGroup(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newSharingWorld(t)
+	first, _ := writeSharedMissions(t, w.tenantListsWorld)
+
+	w.seat(ctx, t, "lyn", "SectorCrew", anvil)
+	w.enter("kit")
+	group := func(name string) string {
+		t.Helper()
+		status, body := w.as("marshal", http.MethodPost, sectorPath(anvil, "create-crew-sector-group"), fmt.Sprintf(`{"name":%q,"description":"A group of the test's."}`, name))
+		assertStatus(t, status, http.StatusOK, body)
+
+		return cell[string](t, decodeRow(t, body), "id")
+	}
+	hers, other := group("Outer ring"), group("Inner ring")
+	w.done("marshal", "add-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, hers, w.ids["lyn"]))
+	var none time.Time
+	w.done("marshal", "give-crew-role-on-mission", w.share(first.id, "lyn", "", "MissionLead", none, none))
+
+	w.done("lyn", "give-crew-group-role-on-mission", w.share(first.id, "", hers, "MissionObserver", none, none))
+	holders := []string{"group Outer ring MissionObserver", "person lyn MissionLead"}
+	if got := w.holders("marshal", first.id); !slices.Equal(got, holders) {
+		t.Errorf("the first mission's holders after the lead shared it with her group = %v, want %v", got, holders)
+	}
+	notThere := func(status int, body []byte, what string) {
+		t.Helper()
+		assertStatus(t, status, http.StatusNotFound, body)
+		if got, want := refusalMessage(t, body), "A record this one refers to does not exist."; got != want {
+			t.Errorf("%s: the refusal = %q, want %q", what, got, want)
+		}
+	}
+	status, body := w.as("lyn", http.MethodPost, sectorPath(anvil, "give-crew-group-role-on-mission"), w.share(first.id, "", other, "MissionObserver", none, none))
+	notThere(status, body, "the lead sharing her mission with a group she is not in")
+	status, body = w.as("lyn", http.MethodPost, sectorPath(anvil, "give-crew-role-on-mission"), w.share(first.id, "kit", "", "MissionObserver", none, none))
+	notThere(status, body, "the lead sharing her mission with one of the sector's people")
+	if got := w.holders("marshal", first.id); !slices.Equal(got, holders) {
+		t.Errorf("the first mission's holders after the lead's refused shares = %v, want %v", got, holders)
+	}
 }
