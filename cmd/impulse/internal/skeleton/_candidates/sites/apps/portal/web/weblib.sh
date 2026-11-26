@@ -64,8 +64,17 @@ case "${1:-}" in
     cd "$GUI_DIR"
     yalc remove --all
     rm -rf .yalc yalc.lock
-    git checkout -- package.json bun.lock
-    bun install --frozen-lockfile
+    git checkout -- package.json
+    if git ls-files --error-unmatch bun.lock > /dev/null 2>&1; then
+      git checkout -- bun.lock
+      bun install --frozen-lockfile
+    else
+      # No lockfile is committed here (an application made with --dev-root starts without one),
+      # so the bun.lock in this directory was written while attached and records the yalc copies:
+      # it goes, and the install writes one from the registry pins.
+      rm -f bun.lock
+      bun install
+    fi
     ;;
   *)
     echo "usage: weblib.sh <local|push|restore>" >&2

@@ -220,8 +220,8 @@ func (a *weblibApp) calls() []weblibCall {
 }
 
 // seen returns what bun install saw at the nth recorded call (counted from 1): the
-// package.json, and the bun.lock, or nil when there was none.
-func (a *weblibApp) seen(n int) (packageJSON, lockfile []byte) {
+// package.json, and the bun.lock with whether there was one.
+func (a *weblibApp) seen(n int) (packageJSON, lockfile []byte, locked bool) {
 	a.t.Helper()
 
 	dir := filepath.Join(a.record, "seen-"+strconv.Itoa(n))
@@ -230,11 +230,14 @@ func (a *weblibApp) seen(n int) (packageJSON, lockfile []byte) {
 		a.t.Fatalf("call %d is not an install that recorded what it saw: %v", n, err)
 	}
 	lockfile, err = os.ReadFile(filepath.Join(dir, "bun.lock"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) {
+		return packageJSON, nil, false
+	}
+	if err != nil {
 		a.t.Fatalf("os.ReadFile() error = %v", err)
 	}
 
-	return packageJSON, lockfile
+	return packageJSON, lockfile, true
 }
 
 // committed returns a file of the web root as the application's commit holds it.
@@ -311,7 +314,7 @@ func TestWeblibLocalAttachesEveryPin(t *testing.T) {
 			a.run("local")
 
 			calls := a.calls()
-			packageJSON, _ := a.seen(len(calls))
+			packageJSON, _, _ := a.seen(len(calls))
 			pins := readPins(t, packageJSON)
 			for _, name := range browserPackages {
 				if got, want := pins.Dependencies[name], "file:.yalc/"+name; got != want {
@@ -369,7 +372,7 @@ func TestWeblibLocalAttachesEveryPin(t *testing.T) {
 		}
 		a.run("local")
 
-		packageJSON, _ := a.seen(len(a.calls()))
+		packageJSON, _, _ := a.seen(len(a.calls()))
 		if got, want := readPins(t, packageJSON).Resolutions[browserPackages[0]], "file:.yalc/"+browserPackages[0]; got != want {
 			t.Errorf("resolutions[%s] when bun install ran = %q, want %q", browserPackages[0], got, want)
 		}
@@ -391,6 +394,9 @@ func TestWeblibRestoreGivesThePinsBack(t *testing.T) {
 		install string
 	}{
 		{name: "the lockfile is committed", lockfile: lockfile, install: "install --frozen-lockfile"},
+		// An application made with --dev-root starts with weblib.sh local and commits no
+		// lockfile until restore leaves one.
+		{name: "no lockfile is committed", install: "install"},
 	}
 	for _, tt := range tests {
 		for _, r := range weblibRoots {
@@ -425,16 +431,35 @@ func TestWeblibRestoreGivesThePinsBack(t *testing.T) {
 				if got, want := calls[last-1], (weblibCall{Tool: "bun", Dir: a.webDir(), Args: tt.install}); got != want {
 					t.Errorf("the last bun call = %+v, want %+v", got, want)
 				}
-				packageJSON, lock := a.seen(last)
+				packageJSON, lock, locked := a.seen(last)
 				if diff := cmp.Diff(string(committed), string(packageJSON)); diff != "" {
 					t.Errorf("package.json when the install ran differs from the committed one (-committed +ran):\n%s", diff)
 				}
-				if !bytes.Equal(lock, []byte(tt.lockfile)) {
-					t.Errorf("bun.lock when the install ran = %q, want %q", lock, tt.lockfile)
+				if locked != (tt.lockfile != "") || string(lock) != tt.lockfile {
+					t.Errorf("bun.lock when the install ran: there %t, holding %q; want there %t, holding %q", locked, lock, tt.lockfile != "", tt.lockfile)
 				}
 
-				if got := a.git("status", "--porcelain"); got != "" {
-					t.Errorf("git status --porcelain after weblib.sh restore = %q, want nothing changed", got)
+				after, err := os.ReadFile(filepath.Join(a.webDir(), "package.json"))
+				if err != nil {
+					t.Fatalf("os.ReadFile() error = %v", err)
+				}
+				if diff := cmp.Diff(string(committed), string(after)); diff != "" {
+					t.Errorf("package.json after weblib.sh restore differs from the committed one (-committed +after):\n%s", diff)
+				}
+				wantStatus := ""
+				if tt.lockfile == "" {
+					// The install wrote the lockfile of the registry pins, the application's to commit.
+					wantStatus = "?? " + path.Join(r.web, "bun.lock") + "\n"
+					written, err := os.ReadFile(filepath.Join(a.webDir(), "bun.lock"))
+					if err != nil {
+						t.Fatalf("os.ReadFile() error = %v", err)
+					}
+					if bytes.Contains(written, []byte("file:.yalc/")) {
+						t.Errorf("bun.lock after weblib.sh restore records a yalc copy:\n%s", written)
+					}
+				}
+				if diff := cmp.Diff(wantStatus, a.git("status", "--porcelain")); diff != "" {
+					t.Errorf("git status --porcelain after weblib.sh restore mismatch (-want +got):\n%s", diff)
 				}
 			})
 		}
