@@ -210,6 +210,13 @@ type Role struct {
 	Description string `json:"description"`
 
 	Permissions map[accesstypes.Permission][]Grant `json:"permissions"`
+
+	// HeldOn names the kinds of record the role can be held on, by their resource
+	// names (Projects): a person or a group given the role on one such record holds
+	// its grants on that record and what the record reaches, and nowhere else of the
+	// tenant. Only a domain role is held on a record, and each kind must be one the
+	// permission collection marks as a record that can hold a role.
+	HeldOn []accesstypes.Resource `json:"heldOn,omitempty"`
 }
 
 // Grant is one authored unit of a role's configuration: a permission (the map
@@ -325,11 +332,13 @@ type defaultRoles struct {
 	auth string
 }
 
-// defaultRole is one default role compiled: the description the file gave it
-// and its expanded grant set.
+// defaultRole is one default role compiled: the description the file gave it,
+// its expanded grant set and, for a domain role, the kinds of record it can be
+// held on, sorted.
 type defaultRole struct {
 	description string
 	grants      grantSet
+	heldOn      []accesstypes.Resource
 }
 
 // compileDefaultRoles validates and expands the configuration, and adds the
@@ -356,6 +365,9 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, met
 	if err := validateRoleDescriptions(roleConfig.Roles); err != nil {
 		return nil, err
 	}
+	if err := validateHeldOnShape(roleConfig.Roles); err != nil {
+		return nil, err
+	}
 
 	d := &defaultRoles{
 		global: make(map[accesstypes.Role]defaultRole, len(roleConfig.Roles.Global)+1),
@@ -376,6 +388,9 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, met
 	if err != nil {
 		return nil, err
 	}
+	if err := validateHeldOnMarked(store, roleConfig.Roles.Domain); err != nil {
+		return nil, err
+	}
 	if err := validateRoleSetAuths(store, auth, roleConfig.Roles); err != nil {
 		return nil, err
 	}
@@ -389,7 +404,7 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, met
 		d.grants = append(d.grants, grantRecords(accesstypes.GlobalPolicyScope(), r.Name, globalGrants[i])...)
 	}
 	for i, r := range roleConfig.Roles.Domain {
-		d.domain[r.Name] = defaultRole{description: r.Description, grants: domainGrants[i]}
+		d.domain[r.Name] = defaultRole{description: r.Description, grants: domainGrants[i], heldOn: sortedHeldOn(r.HeldOn)}
 		d.grants = append(d.grants, grantRecords(accesstypes.EveryDomainPolicyScope(), r.Name, domainGrants[i])...)
 	}
 
@@ -435,6 +450,33 @@ func (d *defaultRoles) list(scope accesstypes.PolicyScope) []RoleInfo {
 	listed := make([]RoleInfo, 0, len(roles))
 	for name, role := range roles {
 		listed = append(listed, RoleInfo{Name: name, Description: role.description})
+	}
+	slices.SortFunc(listed, compareRoleInfo)
+
+	return listed
+}
+
+// heldOn returns the kinds of record the domain role can be held on, sorted, or
+// none for a role that names none or is no domain role. Nil-safe.
+func (d *defaultRoles) heldOn(role accesstypes.Role) []accesstypes.Resource {
+	if d == nil {
+		return nil
+	}
+
+	return d.domain[role].heldOn
+}
+
+// rolesHeldOn lists the domain roles that can be held on a record of the kind
+// record, with their descriptions, sorted by name. Nil-safe.
+func (d *defaultRoles) rolesHeldOn(record accesstypes.Resource) []RoleInfo {
+	if d == nil {
+		return nil
+	}
+	var listed []RoleInfo
+	for name, role := range d.domain {
+		if slices.Contains(role.heldOn, record) {
+			listed = append(listed, RoleInfo{Name: name, Description: role.description})
+		}
 	}
 	slices.SortFunc(listed, compareRoleInfo)
 
@@ -546,6 +588,9 @@ func validateRoleShape(config *RoleConfig) error {
 	if err := validateRoleDescriptions(config.Roles); err != nil {
 		return err
 	}
+	if err := validateHeldOnShape(config.Roles); err != nil {
+		return err
+	}
 	for _, r := range slices.Concat(config.Roles.Global, config.Roles.Domain) {
 		if err := validateGrantGrammar(r); err != nil {
 			return err
@@ -604,6 +649,56 @@ func validateRoleNames(roles ScopedRoles) error {
 	}
 
 	return check(roles.Domain, "domain")
+}
+
+// validateHeldOnShape checks what a role's heldOn settles on its own: only a
+// domain role is held on a record, each entry names a resource (it is not empty
+// and holds no dot, which would name a field), and no entry is written twice.
+func validateHeldOnShape(roles ScopedRoles) error {
+	for _, r := range roles.Global {
+		if len(r.HeldOn) > 0 {
+			return errors.Newf("role %s: heldOn is a tenant's role's alone, and %s is declared among the global roles: "+
+				"a role held for the whole application is never held on one record. Take heldOn out, or declare the role among the domain roles", r.Name, r.Name)
+		}
+	}
+	for _, r := range roles.Domain {
+		seen := make(map[accesstypes.Resource]bool, len(r.HeldOn))
+		for _, kind := range r.HeldOn {
+			if kind == "" || strings.Contains(string(kind), ".") {
+				return errors.Newf("role %s: heldOn names %q, which is no resource's name. Name the record's resource, such as Projects", r.Name, kind)
+			}
+			if seen[kind] {
+				return errors.Newf("role %s: heldOn names %s twice", r.Name, kind)
+			}
+			seen[kind] = true
+		}
+	}
+
+	return nil
+}
+
+// validateHeldOnMarked refuses a domain role held on a kind the collection does
+// not mark as a record that can hold a role. A collection that marks no record,
+// as one written by hand does, refuses every heldOn.
+func validateHeldOnMarked(store PermissionCollection, roles []*Role) error {
+	for _, r := range roles {
+		for _, kind := range r.HeldOn {
+			if !holdsRoles(store, kind) {
+				return errors.Newf("%s is held on %s, and %s is not marked as a record that can hold a role. Mark it, or take %s out of the role's heldOn.", r.Name, kind, kind, kind)
+			}
+		}
+	}
+
+	return nil
+}
+
+// sortedHeldOn returns a copy of a role's heldOn, sorted, or nil for none.
+func sortedHeldOn(heldOn []accesstypes.Resource) []accesstypes.Resource {
+	if len(heldOn) == 0 {
+		return nil
+	}
+
+	return slices.Sorted(slices.Values(heldOn))
 }
 
 // validateRoleDescriptions refuses a role whose description is empty or

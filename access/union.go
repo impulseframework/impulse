@@ -522,3 +522,54 @@ func (u *unionCollection) NoRoleActions() []accesstypes.Resource {
 
 	return slices.Compact(actions)
 }
+
+// RecordsHoldingRoles lists the records any of the collections marks as ones a role can
+// be held on, sorted.
+func (u *unionCollection) RecordsHoldingRoles() []accesstypes.Resource {
+	var records []accesstypes.Resource
+	for _, c := range u.collections {
+		if marker, ok := c.(recordRoles); ok {
+			records = append(records, marker.RecordsHoldingRoles()...)
+		}
+	}
+	slices.Sort(records)
+
+	return slices.Compact(records)
+}
+
+// RecordWords answers from the first collection that has words for res.
+func (u *unionCollection) RecordWords(res accesstypes.Resource) (one, many string) {
+	for _, c := range u.collections {
+		if marker, ok := c.(recordRoles); ok {
+			if one, many := marker.RecordWords(res); one != "" {
+				return one, many
+			}
+		}
+	}
+
+	return "", ""
+}
+
+// RecordReach answers from the first collection that marks record.
+func (u *unionCollection) RecordReach(record, res accesstypes.Resource) (self, under, named bool) {
+	for _, c := range u.collections {
+		if marker, ok := c.(recordRoles); ok && slices.Contains(marker.RecordsHoldingRoles(), record) {
+			return marker.RecordReach(record, res)
+		}
+	}
+
+	return false, false, false
+}
+
+// RecordCondition answers from the first collection that gives a condition: an auth's
+// tables are known only to the site whose program generates that auth's management, so
+// one collection answers for an auth and the others do not.
+func (u *unionCollection) RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, create bool) (string, bool) {
+	for _, c := range u.collections {
+		if condition, ok := recordCondition(c, auth, role, record, res, create); ok {
+			return condition, true
+		}
+	}
+
+	return "", false
+}
