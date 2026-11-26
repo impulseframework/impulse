@@ -28,8 +28,9 @@ func (d *codeAddressDriver) VerifyUserEmailIfHeldIn(ctx context.Context, tx *mem
 
 // wantAddressRow holds the audit rows of a sign-in to the address its code proved: where
 // the address was written with the session (written), one row that sets the address on
-// the account, done by the person through the sign-in; otherwise none.
-func wantAddressRow(t *testing.T, store *memStore, written bool, userID impulse.UUID, username, address string) {
+// the account, with the address the account held before as its old value (held, nil for
+// none), done by the person through the sign-in; otherwise none.
+func wantAddressRow(t *testing.T, store *memStore, written bool, userID impulse.UUID, username string, held *string, address string) {
 	t.Helper()
 
 	if !written {
@@ -44,6 +45,9 @@ func wantAddressRow(t *testing.T, store *memStore, written bool, userID impulse.
 	}
 	got := store.audit[0]
 	want := auditlog.Record{Act: auditlog.ActAddressChanged, SubjectKind: auditlog.SubjectAccount, SubjectID: userID.String(), SubjectName: username, NewValue: address}
+	if held != nil {
+		want.OldValue = *held
+	}
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(auditlog.Record{}, "Source")); diff != "" {
 		t.Errorf("the sign-in's audit row (-want +got):\n%s", diff)
 	}
@@ -265,7 +269,7 @@ func TestSignIn_aCodesAddressIsWrittenWithTheSessionOrNotAtAll(t *testing.T) {
 			if wantWritten := tt.wantWrites == 1 && tt.wantErr == nil; tt.claim.Written != wantWritten {
 				t.Errorf("CodeAddress.Written = %t, want %t", tt.claim.Written, wantWritten)
 			}
-			wantAddressRow(t, store, tt.wantWrites == 1 && tt.wantErr == nil, userID, username, tt.claim.Email)
+			wantAddressRow(t, store, tt.wantWrites == 1 && tt.wantErr == nil, userID, username, tt.claim.Held, tt.claim.Email)
 			if tt.link {
 				linked, ok := store.links[linkKey(outside.Method, outside.Connection, outside.Subject)]
 				if ok != tt.wantLinked || (ok && linked != userID) {

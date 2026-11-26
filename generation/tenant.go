@@ -253,9 +253,12 @@ type tenantsData struct {
 	// RecordLower is the word for one of the record's rows in prose.
 	RecordLower string
 	// NameColumn is the record's @tenantName column the roster reads names from, and
-	// NameField its field; both empty where the record marks none.
-	NameColumn string
-	NameField  string
+	// NameField its field; both empty where the record marks none. NameNullable says the
+	// field is a pointer. The maker writes the name converted to a string: the field's
+	// type may be one named over a string.
+	NameColumn   string
+	NameField    string
+	NameNullable bool
 	// Declaration is the declaration's columns (resource.TenantDeclarationColumns), nil
 	// where the record declares none; Directories names the directories record and
 	// DefaultSeat its default seat field, empty where it carries none. Directory is the
@@ -394,6 +397,7 @@ func (r *resourceGenerator) generateTenants() error {
 	if field := tenant.TenantNameField; field != nil {
 		data.NameColumn, _ = field.LookupTag(spannerTagKey)
 		data.NameField = field.Name()
+		data.NameNullable = strings.HasPrefix(field.Type(), "*")
 	}
 	data.Disabled = spannerColumn(tenant.TenantDisabledField)
 	data.DisabledField = tenant.TenantDisabledField.Name()

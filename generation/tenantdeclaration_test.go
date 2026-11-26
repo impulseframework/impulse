@@ -667,6 +667,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			data: &tenantsData{
 				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory", DefaultSeat: "DefaultSeat",
+				NameField:           "Name",
 				Declaration:         &tenantDeclarationColumns{Disabled: "Disabled", DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
 				Directory:           harborDirectoryWrite(),
 				Word:                "harbor",
@@ -732,6 +733,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				// A harbor made through an organization's directory takes it as its own:
 				// the identity library records the take with the tenant's making.
 				"func (m *harborMaker) TakesDirectory() bool {\n\treturn true\n}",
+				// The name the harbor is made with, which the rows of its making name it by.
+				"\tif patch.NameIsSet() {\n\t\ttenant.Name = string(patch.Name())\n\t}",
 			},
 			// The creator's seat went with the direct create: nothing is asked of the
 			// application for it here.
@@ -739,6 +742,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			wantOrder: []string{
 				"patch.SetDirectoryOnly(true)",
 				"patch.Enforce(tenant.Caller)",
+				"tenant.Name = string(patch.Name())",
 				"patch.Buffer(ctx, txn, tenant.Source)",
 				// The grants answer (the buffer) before a taken value is read for.
 				"resources.NewHarborQuery().SetName(patch.Name())",
@@ -771,19 +775,26 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				`return resource.NewTenantDeclarationReader("Sectors", "Id", &sectorDeclaration)`,
 			},
 			// A field under no unique index is not read for.
-			wantNotContains: []string{"hasDirectory", "DirectoryRules", "sessioninfo", "signin.Directory", "SetDirectoryOnly", "NewSectorQuery()", "already exists"},
+			// A record that marks no name leaves the name to the key.
+			wantNotContains: []string{"hasDirectory", "DirectoryRules", "sessioninfo", "signin.Directory", "SetDirectoryOnly", "NewSectorQuery()", "already exists", "tenant.Name"},
 		},
 		{
 			name: "a maker reads a field of an imported type, whose package the file imports by the record's own fields",
 			data: &tenantsData{
 				Disabled: "Disabled", DisabledField: "Disabled",
 				Source: "resources", Package: "app", Name: "Citadel", Table: "Citadels", KeyColumn: "Id", RecordLower: "citadel",
+				NameField: "Title", NameNullable: true,
 				ResourcePackage:     "resources",
 				LocalPackageImports: `"example.com/app/pkg/resources"`,
-				Maker:               &tenantMakerData{Fields: []*tenantMakerField{{Name: "Name", Type: "string", Wire: "name"}, {Name: "Founded", Type: "civil.Date", Wire: "founded"}}, Key: "ID"},
-				record:              fixtureResource(t, structs, "Citadel", nil),
+				Maker: &tenantMakerData{
+					Fields: []*tenantMakerField{{Name: "Name", Type: "string", Wire: "name"}, {Name: "Founded", Type: "civil.Date", Wire: "founded"}, {Name: "Title", Type: "*string", Wire: "title"}},
+					Key:    "ID",
+				},
+				record: fixtureResource(t, structs, "Citadel", nil),
 			},
 			wantContains: []string{
+				// A name the record keeps in a nullable column is the one it points to.
+				"\tif patch.TitleIsSet() && patch.Title() != nil {\n\t\ttenant.Name = string(*patch.Title())\n\t}",
 				`if value, ok := carried["Founded"]; ok {`,
 				"var given civil.Date",
 				`return "", httpio.NewBadRequestMessageWithError(err, "the citadel's founded does not read")`,
@@ -1305,6 +1316,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				Refusal:             tenantCreationRefusal("Harbor"),
 				OwnCreation:         tenantCreationOwnCreation("Harbor"),
 				Directory:           directory,
+				NameField:           "Name",
 				record:              record,
 			}
 			out, err := r.generateTemplateOutput("tenantCreationTemplate", tenantCreationTemplate, data)
@@ -1362,9 +1374,10 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 			s := string(out)
 			if tt.wantRecorded != "" {
 				assertContains(t, "tenantCreationTemplate", s, []string{tt.wantRecorded, `"github.com/impulseframework/impulse/auditlog"`}, nil)
-				written, recorded, given := strings.Index(s, tt.wantWritten), strings.Index(s, tt.wantRecorded), strings.Index(s, "identityClient.AssignRole(byCreator, txn,")
-				if written < 0 || written >= recorded || recorded >= given {
-					t.Errorf("order: directory %d, its record %d, membership %d; want ascending:\n%s", written, recorded, given, out)
+				named, written, recorded, given := strings.Index(s, "identity.MakingTenant(byCreator, domain,"), strings.Index(s, tt.wantWritten),
+					strings.Index(s, tt.wantRecorded), strings.Index(s, "identityClient.AssignRole(byCreator, txn,")
+				if named < 0 || named >= written || written >= recorded || recorded >= given {
+					t.Errorf("order: the name carried %d, directory %d, its record %d, membership %d; want ascending:\n%s", named, written, recorded, given, out)
 				}
 			} else {
 				assertContains(t, "tenantCreationTemplate", s, nil, []string{"RecordTenantSignIn", "auditlog"})

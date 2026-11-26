@@ -119,7 +119,7 @@ func (m *{{ .InviteTenant }}) Execute(ctx context.Context, reader resource.Clien
 	invitation := &identity.TenantInvitation{
 		Email: m.Email,
 		Name:  m.Name,
-		{{- if .TenantNameField }}
+		{{- if and .TenantNameField (not .TenantNameNullable) }}
 		TenantName: fmt.Sprint(m.{{ .TenantName }}{{ .TenantNameField }}),
 		{{- else }}
 		TenantName: fmt.Sprint({{ printf "%q" .TenantWord }}),
@@ -132,6 +132,13 @@ func (m *{{ .InviteTenant }}) Execute(ctx context.Context, reader resource.Clien
 		DefaultRole: m.DefaultRole,
 		{{- end }}
 	}
+	{{- if and .TenantNameField .TenantNameNullable }}
+	// The invitation page names the {{ .TenantWord }} by the name the sender gave it, and by
+	// the word for one where they gave none.
+	if m.{{ .TenantName }}{{ .TenantNameField }} != nil {
+		invitation.TenantName = string(*m.{{ .TenantName }}{{ .TenantNameField }})
+	}
+	{{- end }}
 	if err := client.manager.CheckInvitedTenant(ctx, reader, invitation); err != nil {
 		return nil, errors.Wrap(err, "identity.Manager.CheckInvitedTenant()")
 	}

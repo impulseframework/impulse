@@ -349,7 +349,7 @@ type db interface {
 	// VerifyUserEmail writes the address the person proved they read, verified at the database's time.
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
 	// ClaimVerifiedEmail writes email on the user as verified when the user holds no verified address and no other user holds it, and reports whether it did;
-	// record is written in the same transaction where it did, and nil records nothing.
+	// record is written in the same transaction where it did, with the address the user held before as its old value, and nil records nothing.
 	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string, record *auditlog.Record) (bool, error)
 	// SetUserName writes the person's name on the user, or takes it off (nil).
 	SetUserName(ctx context.Context, id impulse.UUID, name *string) error

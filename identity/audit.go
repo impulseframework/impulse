@@ -57,6 +57,26 @@ func ActingInSession(ctx context.Context) context.Context {
 	return actingInOwnSession(ctx)
 }
 
+// makingKey is the context key under which the transaction that makes a tenant carries
+// what the tenant is called (MakingTenant).
+type makingKey struct{}
+
+// making is the tenant a transaction makes, and what it is called.
+type making struct {
+	tenant accesstypes.Domain
+	name   string
+}
+
+// MakingTenant answers ctx carrying that the transaction it serves is making tenant, which
+// is called name. An empty name answers ctx as it is.
+func MakingTenant(ctx context.Context, tenant accesstypes.Domain, name string) context.Context {
+	if name == "" {
+		return ctx
+	}
+
+	return context.WithValue(ctx, makingKey{}, making{tenant: tenant, name: name})
+}
+
 // signingInKey carries the account a sign-in's hook acts on (actingOn).
 type signingInKey struct{}
 
@@ -110,16 +130,27 @@ func (m *Manager) record(ctx context.Context, txn resource.ReadWriteTransaction,
 		r.TenantID = tenantOfScope(caller.Scope)
 	}
 	if r.TenantID != "" {
-		r.TenantName = m.sessions.TenantName(accesstypes.Domain(r.TenantID))
-		if r.TenantName == "" {
-			r.TenantName = r.TenantID
-		}
+		r.TenantName = m.tenantNamed(ctx, accesstypes.Domain(r.TenantID))
 	}
 	if err := m.store.InsertAuditRecord(ctx, txn, r); err != nil {
 		return errors.Wrap(err, "identity.Store.InsertAuditRecord()")
 	}
 
 	return nil
+}
+
+// tenantNamed is what a row calls tenant: the name the application's roster gives it;
+// where the roster names none, as of a tenant the transaction is still making, the name
+// MakingTenant carries for exactly this tenant; and where neither, its key.
+func (m *Manager) tenantNamed(ctx context.Context, tenant accesstypes.Domain) string {
+	if name := m.sessions.TenantName(tenant); name != "" {
+		return name
+	}
+	if made, ok := ctx.Value(makingKey{}).(making); ok && made.tenant == tenant {
+		return made.name
+	}
+
+	return string(tenant)
 }
 
 // accountSubject answers a row of an act done to an account, with its subject set and

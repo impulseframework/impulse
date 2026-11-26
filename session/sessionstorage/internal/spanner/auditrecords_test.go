@@ -125,8 +125,8 @@ func TestSetAuditRecordsPeriod_refused(t *testing.T) {
 		period auditlog.Period
 		want   []string
 	}{
-		{name: "a period of days", period: auditlog.KeepDays(90), want: []string{"session.KeepAuditRecords", statements[len(statements)-1]}},
-		{name: "forever", period: auditlog.KeepForever(), want: []string{"session.KeepAuditRecords", "keeps every row"}},
+		{name: "a period of days", period: auditlog.KeepDays(90), want: []string{"session.KeepAuditRecords does nothing on Spanner", statements[len(statements)-1]}},
+		{name: "forever", period: auditlog.KeepForever(), want: []string{"session.KeepAuditRecords does nothing on Spanner", "keeps every row"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

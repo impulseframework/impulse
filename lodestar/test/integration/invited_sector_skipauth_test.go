@@ -129,6 +129,30 @@ func mailLinksTo(ctx context.Context, t *testing.T, s *served, email string) int
 	return count
 }
 
+// checkMadeSectorRows holds the rows of a sector's making, in the whole application's
+// audit log as Headquarters reads it, to the sector's name: each row in the sector is in
+// it by its name and none is done to it by its id, though the roster learns of the
+// sector only after the commit that makes it. The acts are the ones its making records,
+// in any order (they share the making's transaction).
+func checkMadeSectorRows(ctx context.Context, t *testing.T, hq *browser, id, name string, wantActs []string) {
+	t.Helper()
+
+	var acts []string
+	for _, row := range auditRows(ctx, t, hq, "", "") {
+		if text(row, "tenantId") != id {
+			continue
+		}
+		acts = append(acts, text(row, "act"))
+		if text(row, "tenantName") != name || text(row, "subjectName") == id {
+			t.Errorf("a row of %s's making = %v, want it in the sector by its name and done to nothing by its id %s", name, row, id)
+		}
+	}
+	slices.Sort(acts)
+	if !slices.Equal(acts, wantActs) {
+		t.Errorf("the acts of %s's making = %v, want %v", name, acts, wantActs)
+	}
+}
+
 // TestInvitedSector holds the way a sector comes to exist, on the served stack:
 // Headquarters brings an organization in by inviting one person, and that person's first
 // sign-in makes the sector. Nobody charts a sector directly.
@@ -159,6 +183,10 @@ func mailLinksTo(ctx context.Context, t *testing.T, s *served, email string) int
 // was signing up with a password then is left no account (the session library makes
 // the account in the transaction that accepts the invitation), and signs up again from
 // the invitation Headquarters sends next.
+//
+// The rows of a sector's making in the audit log (the founder's role, the acceptance, and
+// where it came through a directory the directory's three) name the sector by its name,
+// never by its id.
 //
 // Demonstrates: tenancy.invited-tenant, auth.invitation.
 func TestInvitedSector(t *testing.T) {
@@ -335,6 +363,7 @@ func TestInvitedSector(t *testing.T) {
 	if got := founder.domains(ctx); !slices.Equal(got, []string{dawnID}) {
 		t.Errorf("the founder's chart = %v, want Dawn (%s) alone, at the first request after the sign-in", got, dawnID)
 	}
+	checkMadeSectorRows(ctx, t, governor, dawnID, "Dawn", []string{"invitationAccepted", "roleGiven"})
 	if !consumed(sent.ID) {
 		t.Error("the accepted invitation still stands")
 	}
@@ -432,6 +461,7 @@ func TestInvitedSector(t *testing.T) {
 	if got := emberFounder.domains(ctx); !slices.Equal(got, []string{emberID}) {
 		t.Errorf("the founder's chart = %v, want Ember (%s) alone", got, emberID)
 	}
+	checkMadeSectorRows(ctx, t, governor, emberID, "Ember", []string{"directoryOnlyOn", "directoryOpened", "directoryTaken", "invitationAccepted", "roleGiven"})
 	if !consumed(closed.ID) {
 		t.Error("the accepted invitation still stands")
 	}

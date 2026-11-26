@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -394,10 +395,18 @@ func testUsernameIsEmail(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "other@lakeside.edu", nil); err != nil || claimed {
 		t.Errorf("ClaimVerifiedEmail() of an address that is not the username = %v, %v; want not claimed", claimed, err)
 	}
-	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "SAM@lakeside.edu", nil); err != nil || !claimed {
+	// The claim writes only that the address is confirmed, so the account keeps its own
+	// spelling, and the claim's row says the address confirmed, not changed, whatever the
+	// case the method spelled it in.
+	vouched := accountRow(auditlog.ActAddressChanged, sam)
+	vouched.NewValue = "SAM@lakeside.edu"
+	if claimed, err := in.Driver.ClaimVerifiedEmail(ctx, sam.ID, "SAM@lakeside.edu", vouched); err != nil || !claimed {
 		t.Errorf("ClaimVerifiedEmail() of the username = %v, %v; want claimed", claimed, err)
 	}
 	assertEmail(t, "User() after the claim", mustUser(ctx, t, in.Driver, sam.ID), strPtr("sam@lakeside.edu"), true)
+	confirmed := *vouched
+	confirmed.OldValue, confirmed.NewValue = "sam@lakeside.edu", "sam@lakeside.edu"
+	wantAuditRows(ctx, t, h, in, "ClaimVerifiedEmail() of the username spelled otherwise", &confirmed)
 }
 
 func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {

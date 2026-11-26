@@ -48,6 +48,23 @@ func actedRows(t *testing.T, store *fakeStore) []actedRow {
 	return rows
 }
 
+// checkMadeTenantNamed holds every row of a tenant's making the store was handed to the
+// tenant's name: each is in the tenant by that name, and the rows done to the tenant (its
+// sign-in settings) are done to it by that name.
+func checkMadeTenantNamed(t *testing.T, store *fakeStore, name string) {
+	t.Helper()
+
+	for i := range store.audit {
+		row := &store.audit[i]
+		if row.TenantName != name {
+			t.Errorf("the row of %s is in the tenant named %q, want %q", row.Act, row.TenantName, name)
+		}
+		if row.SubjectKind == auditlog.SubjectTenant && row.SubjectName != name {
+			t.Errorf("the row of %s is done to the tenant named %q, want %q", row.Act, row.SubjectName, name)
+		}
+	}
+}
+
 // TestSignInActsRecorded pins the rows of what a sign-in gives and takes, by what acted:
 // an invitation accepted, one row of the acceptance and one for each role it gives, in
 // its tenant, by an invitation; an invitation that makes a tenant, the same, in the tenant
@@ -103,13 +120,15 @@ func TestSignInActsRecorded(t *testing.T) {
 
 	// The tenant an invitation makes through an organization's directory: the rows of what
 	// it was made with, the directory taken, directory only and the starting role, by the
-	// invitation that made it, in the tenant it made, before its administrator's.
+	// invitation that made it, in the tenant it made, before its administrator's. Each
+	// names the tenant by the name its maker made it with: the roster learns of it only
+	// after the commit.
 	t.Run("an invitation that makes a tenant, accepted through an organization's directory", func(t *testing.T) {
 		t.Parallel()
 
 		store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}}
 		sessions := fakeSessions{mail: &fakeMail{}, named: map[string]string{lakesideConnection: "Lakeside"}}
-		maker := &fakeMaker{seats: true, directoryOnly: true, takes: true}
+		maker := &fakeMaker{seats: true, directoryOnly: true, takes: true, name: "Dawn Station"}
 		m, err := New(managedAuth, store, &fakeEngine{roles: invitedTenantRoles}, sessions,
 			WithAdministratorRoles([]accesstypes.Role{"Keeper"}), WithRoleGrants(&fakeGrants{}), WithTenantMaker(maker))
 		if err != nil {
@@ -119,7 +138,7 @@ func TestSignInActsRecorded(t *testing.T) {
 		if _, err := m.InvitationAccepted("Staff")(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", inv); err != nil {
 			t.Fatalf("InvitationAccepted() error = %v", err)
 		}
-		made := "tenant " + string(madeTenant)
+		made := "tenant Dawn Station"
 		want := []actedRow{
 			{act: auditlog.ActDirectoryTaken, subject: made, tenant: string(madeTenant), who: "an invitation"},
 			{act: auditlog.ActDirectoryOnlyOn, subject: made, tenant: string(madeTenant), who: "an invitation"},
@@ -134,6 +153,22 @@ func TestSignInActsRecorded(t *testing.T) {
 		if what := taken.Sentences("tenant").What; what != "Took the directory Microsoft Entra tenant Lakeside as its own" {
 			t.Errorf("the directory's row reads %q", what)
 		}
+		checkMadeTenantNamed(t, store, "Dawn Station")
+	})
+
+	// A maker that names none leaves the tenant its key, as the roster names it afterwards.
+	t.Run("an invitation that makes a tenant its maker names none, accepted through an organization's directory", func(t *testing.T) {
+		t.Parallel()
+
+		store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}}
+		m := newTenantInviter(t, store, &fakeMaker{seats: true, directoryOnly: true, takes: true}, &fakeMail{}, &fakeGrants{})
+		if _, err := m.InvitationAccepted("Staff")(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", tenantInvitation(true, sessioninfo.MethodAzure, lakesideConnection)); err != nil {
+			t.Fatalf("InvitationAccepted() error = %v", err)
+		}
+		if len(store.audit) != 5 {
+			t.Fatalf("the acceptance recorded %d row(s), want five", len(store.audit))
+		}
+		checkMadeTenantNamed(t, store, string(madeTenant))
 	})
 
 	// A tenant made through an organization's directory, open to nobody by a starting

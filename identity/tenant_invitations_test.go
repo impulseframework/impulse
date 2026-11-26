@@ -35,8 +35,11 @@ type fakeMaker struct {
 	seats         bool
 	directoryOnly bool
 	takes         bool
-	err           error
-	made          []string
+	// name is what the tenant it makes is called, as the record's @tenantName column
+	// holds it: Make sets it on the NewTenant it is handed. "" for none.
+	name string
+	err  error
+	made []string
 	// sources are who each tenant made was handed as having made its rows.
 	sources []eventsource.EventSource
 	// committed counts the transactions that made a tenant and committed.
@@ -60,6 +63,7 @@ func (f *fakeMaker) Make(_ context.Context, txn resource.ReadWriteTransaction, t
 	if err := resource.AfterCommit(txn, func(context.Context) { f.committed++ }); err != nil {
 		return "", errors.Wrap(err, "resource.AfterCommit()")
 	}
+	tenant.Name = f.name
 
 	return madeTenant, nil
 }
@@ -666,7 +670,7 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 			var domain accesstypes.Domain
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				var err error
-				domain, err = m.acceptTenantInvitation(ctx, txn, userID, "dana", tt.inv)
+				domain, _, err = m.acceptTenantInvitation(ctx, txn, userID, "dana", tt.inv)
 
 				return err
 			})
