@@ -858,6 +858,153 @@ func TestChangeHistory_keepsHolderNames(t *testing.T) {
 	}
 }
 
+// TestChangeHistory_shipClass pins the history of a record outside every sector whose
+// fields hold a yes or no: the governor makes a ship class in service, then in one write
+// changes its tonnage and takes it out of service, and the class's history answers the
+// change with the tonnage's two values as JSON numbers and in service's as JSON booleans,
+// true then false, never their text. The console's history writes a boolean as the
+// list's check or dash, and a number as the list's number.
+func TestChangeHistory_shipClass(t *testing.T) {
+	t.Parallel()
+
+	_, db, h := demoWorld(t)
+	const designation = "Tern"
+	status, body := doRequestAs(t, h, "governor", http.MethodPatch, "/console/api/resources",
+		fmt.Sprintf(`[{"op":"add","path":"/ship-classes","value":{"designation":%q,"roleId":"tender","tonnage":1800,"hardened":false,"inService":true}}]`, designation))
+	assertStatus(t, status, http.StatusOK, body)
+	stmt := spanner.NewStatement("SELECT Id FROM ShipClasses WHERE Designation = @designation")
+	stmt.Params["designation"] = designation
+	var id string
+	if err := db.Single().Query(t.Context(), stmt).Do(func(row *spanner.Row) error {
+		return row.Column(0, &id)
+	}); err != nil || id == "" {
+		t.Fatalf("finding the ship class %q: %v", designation, err)
+	}
+	status, body = doRequestAs(t, h, "governor", http.MethodPatch, "/console/api/resources",
+		fmt.Sprintf(`[{"op":"patch","path":"/ship-classes/%s","value":{"tonnage":2400,"inService":false}}]`, id))
+	assertStatus(t, status, http.StatusOK, body)
+
+	page := readHistory(t, h, "governor", "/console/api/ship-classes/"+id+"/changes")
+	if len(page.Changes) != 2 {
+		t.Fatalf("the history holds %d records, want the create and the change: %+v", len(page.Changes), page)
+	}
+	newest := page.Changes[0]
+	if newest.Operation != "update" {
+		t.Fatalf("the newest record is a %q, want an update", newest.Operation)
+	}
+	tests := []struct {
+		field    string
+		old, new string
+	}{
+		{field: "tonnage", old: "1800", new: "2400"},
+		{field: "inService", old: "true", new: "false"},
+	}
+	for _, tt := range tests {
+		change, ok := newest.field(tt.field)
+		if !ok {
+			t.Errorf("the change lists %v, want %s among them", newest.names(), tt.field)
+
+			continue
+		}
+		// The raw JSON: a number in its digits and a yes or no as a JSON boolean, never quoted.
+		if got, want := string(change.Old)+" -> "+string(change.New), tt.old+" -> "+tt.new; got != want {
+			t.Errorf("the change's %s = %s, want %s", tt.field, got, want)
+		}
+	}
+	if names := newest.names(); len(names) != 2 {
+		t.Errorf("the change lists %v, want the tonnage and in service alone", names)
+	}
+}
+
+// TestChangeHistory_keepsAccountNames pins the names a pilot's history keeps for its
+// account, one of the whole application's accounts: the account's username, read from the
+// crew auth's accounts by the id alone, as it was when the change was made. A pilot made
+// for rook and moved onto finch's account keeps rook's username on its create and on its
+// move, and finch's on the move, and still answers both once rook's account is deleted: to
+// a reader who may list the accounts' usernames, and the ids alone, refused nothing, to a
+// reader who may not.
+func TestChangeHistory_keepsAccountNames(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := prepareDatabase(ctx, t, migrationsSource, demoSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rook := string(makeCrewAccount(ctx, t, db, "rook"))
+	finch := string(makeCrewAccount(ctx, t, db, "finch"))
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap("CrewSessionUsers", map[string]any{"Id": rook, "Name": "Rook Vance"})}); err != nil {
+		t.Fatalf("writing rook's name: %v", err)
+	}
+
+	pilots := accesstypes.Resource("Pilots")
+	writer := newTestApp(db, grants{
+		accesstypes.Create: withFields(pilots, "userId", "displayName", "clearance", "feeLimit"),
+		accesstypes.Update: withFields(pilots, "userId"),
+	})
+	write := func(op, path, value string) []byte {
+		t.Helper()
+
+		status, body := doRequest(t, writer, http.MethodPatch, "/console/api/resources", fmt.Sprintf(`[{"op":%q,"path":%q,"value":%s}]`, op, path, value))
+		assertStatus(t, status, http.StatusOK, body)
+
+		return body
+	}
+	ids, _ := decodeRow(t, write("add", "/pilots", fmt.Sprintf(`{"userId":%q,"displayName":"Rook Vance","clearance":1,"feeLimit":100}`, rook)))["pilots"].([]any)
+	if len(ids) != 1 {
+		t.Fatalf("created ids = %v, want one pilot id", ids)
+	}
+	pilot, _ := ids[0].(string)
+	write("patch", "/pilots/"+pilot, fmt.Sprintf(`{"userId":%q}`, finch))
+
+	changeSets := storedChangeSets(t, db, "Pilots", pilot)
+	if len(changeSets) != 2 {
+		t.Fatalf("the pilot has %d change records, want its create's and its move's", len(changeSets))
+	}
+	for i, want := range []storedChange{
+		{Old: nil, New: rook, OldName: "", NewName: "rook"},
+		{Old: rook, New: finch, OldName: "rook", NewName: "finch"},
+	} {
+		if got := changeSets[i]["UserID"]; got != want {
+			t.Errorf("record %d's UserID entry = %+v, want %+v: each account's username, not the person's name", i, got, want)
+		}
+	}
+
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.Delete("CrewSessionUsers", spanner.Key{rook})}); err != nil {
+		t.Fatalf("deleting rook's account: %v", err)
+	}
+	read := withFields(pilots, "userId", "displayName")
+	usernames := fieldResource("CrewSessionUsers", "username")
+	for _, tt := range []struct {
+		name       string
+		controller access.Controller
+		named      bool
+	}{
+		{name: "a reader of the accounts' usernames", controller: &staticAccess{g: grants{accesstypes.Read: read, accesstypes.List: {usernames}}}, named: true},
+		{name: "a reader who may not list the accounts' usernames", controller: &staticAccess{g: grants{accesstypes.Read: read}}},
+	} {
+		page := readHistory(t, newTestAppWithAccess(db, tt.controller), "integration-test-user", consoleAPI+"/pilots/"+pilot+"/changes")
+		if len(page.Changes) != 2 {
+			t.Fatalf("%s reads %d records, want the move's and the create's", tt.name, len(page.Changes))
+		}
+		move, moved := page.Changes[0].field("userId")
+		made, created := page.Changes[1].field("userId")
+		if !moved || !created {
+			t.Fatalf("%s reads the fields %v and %v, want userId in both", tt.name, page.Changes[0].names(), page.Changes[1].names())
+		}
+		wantMove, wantMade := [4]string{rook, "", finch, ""}, [2]string{rook, ""}
+		if tt.named {
+			wantMove, wantMade = [4]string{rook, "rook", finch, "finch"}, [2]string{rook, "rook"}
+		}
+		if got := [4]string{jsonText(t, move.Old), move.OldName, jsonText(t, move.New), move.NewName}; got != wantMove {
+			t.Errorf("%s reads the move as %q, want %q", tt.name, got, wantMove)
+		}
+		if got := [2]string{jsonText(t, made.New), made.NewName}; got != wantMade {
+			t.Errorf("%s reads the create as %q, want %q", tt.name, got, wantMade)
+		}
+	}
+}
+
 // TestChangeHistory_untracked pins a resource that does not track its changes: the
 // hangars answer 404 to a reader of the hangar, and 403 to a person who may not read it.
 func TestChangeHistory_untracked(t *testing.T) {

@@ -20,7 +20,7 @@ import (
 
 func (h *Handlers) StaffSessionMailLinks() http.HandlerFunc {
 	type staffSessionMailLink struct {
-		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		ID              impulse.UUID  `json:"id"              index:"true"    perm:"-"`
 		Kind            string        `json:"kind"            index:"true"`
 		Email           string        `json:"email"`
 		Name            *string       `json:"name"`
@@ -34,6 +34,7 @@ func (h *Handlers) StaffSessionMailLinks() http.HandlerFunc {
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		UserName        *string       `json:"userName"        nameof:"UserID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -72,7 +73,7 @@ func (h *Handlers) StaffSessionMailLinks() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*staffSessionMailLink)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -134,6 +135,11 @@ func (h *Handlers) StaffSessionMailLinks() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -155,7 +161,7 @@ func (h *Handlers) StaffSessionMailLinks() http.HandlerFunc {
 
 func (h *Handlers) StaffSessionMailLink() http.HandlerFunc {
 	type response struct {
-		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		ID              impulse.UUID  `json:"id"              index:"true"    perm:"-"`
 		Kind            string        `json:"kind"`
 		Email           string        `json:"email"`
 		Name            *string       `json:"name"`
@@ -169,6 +175,7 @@ func (h *Handlers) StaffSessionMailLink() http.HandlerFunc {
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		UserName        *string       `json:"userName"        nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[staffresources.StaffSessionMailLink, response](h, accesstypes.Read)
@@ -195,7 +202,7 @@ func (h *Handlers) StaffSessionMailLink() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -257,6 +264,11 @@ func (h *Handlers) StaffSessionMailLink() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
@@ -269,7 +281,7 @@ func (h *Handlers) StaffSessionMailLink() http.HandlerFunc {
 // StaffSessionMailLinkChangeHistory answers a page of one staff session mail link's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
 func (h *Handlers) StaffSessionMailLinkChangeHistory() http.HandlerFunc {
 	type response struct {
-		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		ID              impulse.UUID  `json:"id"              index:"true"    perm:"-"`
 		Kind            string        `json:"kind"`
 		Email           string        `json:"email"`
 		Name            *string       `json:"name"`
@@ -283,6 +295,7 @@ func (h *Handlers) StaffSessionMailLinkChangeHistory() http.HandlerFunc {
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		UserName        *string       `json:"userName"        nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[staffresources.StaffSessionMailLink, response](h, accesstypes.Read)

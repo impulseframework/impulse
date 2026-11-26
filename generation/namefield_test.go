@@ -63,7 +63,15 @@ func nameFixtureTables() map[string]*tableMetadata {
 			"Id": pk, "BaseId": to("Bases"), "KitId": to("Kits"), "PickedKitId": to("Kits"), "PatrolKitId": to("Kits"),
 			"WingId": to("Wings"), "PickedWingId": to("Wings"), "CrateId": to("Crates"), "PickedCrateId": to("Crates"),
 		}},
-		"CrewGroups": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "DomainId": plain, "Name": plain}},
+		"CrewGroups":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "DomainId": plain, "Name": plain}},
+		"CrewSessionUsers": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Username": plain}},
+		"Chores": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "BaseId": to("Bases"), "HolderId": to("CrewSessionUsers"), "GroupId": to("CrewGroups"),
+			"AssigneeId": to("CrewSessionUsers"), "TeamId": to("CrewGroups"), "PickedAssigneeId": plain, "PickedTeamId": plain,
+		}},
+		"Errands": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "HolderId": to("CrewSessionUsers"), "GroupId": to("CrewGroups"), "AssigneeId": to("CrewSessionUsers"), "TeamId": to("CrewGroups"),
+		}},
 		"Manifests": {PkCount: 1, Columns: map[string]columnMeta{
 			"Id": pk, "BaseId": to("Bases"), "HangarId": indexed, "BeaconId": indexed, "PatrolId": indexed,
 		}},
@@ -199,6 +207,20 @@ func Test_resolveNameFields(t *testing.T) {
 			resource: "Roster",
 			want:     []string{`{Field: "KitName", Key: "KitID", Resource: "Kits", Tag: "label", Table: "Kits", KeyColumn: "Id", NameColumn: "Label", TenantColumn: ""}`},
 		},
+		{
+			name:     "a tenant's record that points at the whole application's accounts and groups",
+			structs:  []string{"Base", "CrewBaseUser", "CrewBaseGroup", "CrewSessionUser", "CrewGroup", "Chore"},
+			resource: "Chore",
+			want: []string{
+				`{Field: "BaseName", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`,
+				`{Field: "HolderName", Key: "HolderID", Resource: "CrewBaseUsers", Tag: "displayName", Table: "CrewBaseUsers", KeyColumn: "Id", NameColumn: "DisplayName", View: true, TenantColumn: "DomainId"}`,
+				`{Field: "GroupName", Key: "GroupID", Resource: "CrewBaseGroups", Tag: "name", Table: "CrewBaseGroups", KeyColumn: "Id", NameColumn: "Name", View: true, TenantColumn: "DomainId"}`,
+				`{Field: "AssigneeName", Key: "AssigneeID", Resource: "CrewSessionUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""}`,
+				`{Field: "TeamName", Key: "TeamID", Resource: "CrewGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""}`,
+				`{Field: "PickedAssigneeName", Key: "PickedAssigneeID", Resource: "CrewSessionUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""}`,
+				`{Field: "PickedTeamName", Key: "PickedTeamID", Resource: "CrewGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""}`,
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -249,6 +271,14 @@ func Test_recordedNames(t *testing.T) {
 	}
 	holder := `{Field: "", Key: "HolderID", Resource: "CrewBaseUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: "", GrantInTenant: true}`
 	base := `{Field: "", Key: "BaseID", Resource: "Bases", Tag: "title", Table: "Bases", KeyColumn: "Id", NameColumn: "Title", TenantColumn: ""}`
+	// account and group are the names kept beside key of one of the whole application's
+	// accounts and groups, read from the users table and the groups table by the id alone.
+	account := func(key string) string {
+		return `{Field: "", Key: "` + key + `", Resource: "CrewSessionUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""}`
+	}
+	group := func(key string) string {
+		return `{Field: "", Key: "` + key + `", Resource: "CrewGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""}`
+	}
 
 	tests := []struct {
 		name     string
@@ -359,6 +389,42 @@ func Test_recordedNames(t *testing.T) {
 			name:     "a view keeps no change records",
 			structs:  []string{"Kit", "Roster"},
 			resource: "Roster",
+		},
+		{
+			name:     "a tenant's record that points at the whole application's accounts and groups, by a foreign key or by its picker, and at a tenant's lists over the same foreign keys",
+			structs:  []string{"Base", "CrewBaseUser", "CrewBaseGroup", "CrewSessionUser", "CrewGroup", "Chore"},
+			resource: "Chore",
+			lists:    crew,
+			want: []string{
+				base,
+				`{Field: "", Key: "HolderID", Resource: "CrewBaseUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: "", GrantInTenant: true}`,
+				`{Field: "", Key: "GroupID", Resource: "CrewBaseGroups", Tag: "name", Table: "CrewGroups", KeyColumn: "Id", NameColumn: "Name", TenantColumn: "DomainId"}`,
+				account("AssigneeID"),
+				group("TeamID"),
+				account("PickedAssigneeID"),
+				group("PickedTeamID"),
+			},
+		},
+		{
+			name:     "the same record where the two lists are an application's own views: each by its foreign key's table",
+			structs:  []string{"Base", "CrewBaseUser", "CrewBaseGroup", "CrewSessionUser", "CrewGroup", "Chore"},
+			resource: "Chore",
+			want: []string{
+				base,
+				account("HolderID"),
+				group("GroupID"),
+				account("AssigneeID"),
+				group("TeamID"),
+				account("PickedAssigneeID"),
+				group("PickedTeamID"),
+			},
+		},
+		{
+			name:     "a record of no tenant",
+			structs:  []string{"Base", "CrewBaseUser", "CrewBaseGroup", "CrewSessionUser", "CrewGroup", "Errand"},
+			resource: "Errand",
+			lists:    crew,
+			want:     []string{account("HolderID"), group("GroupID"), account("AssigneeID"), group("TeamID")},
 		},
 	}
 	for _, tt := range tests {

@@ -82,7 +82,7 @@ import {
   ActionAccessControlWrapperComponent,
   ActionButtonContext,
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
-import { applyFormatting, formatFieldValue } from '../format-fns';
+import { drawnAsMark, formatColumnValue, formatFieldValue } from '../format-fns';
 import { addRowLabel, rowMessage, rowWordsOf } from '../row-words';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import {
@@ -157,6 +157,14 @@ import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord
  * the list the page is built on opens its dialog and takes the parameter off.
  */
 const runParam = 'run';
+
+/**
+ * A column as the list draws it: the page's column, with the list's own writer of its
+ * cells where the list writes them as text (processedRowData). A page's column takes no
+ * writer of its own: the list writes a cell by the column's formatType or by its field
+ * (formatColumnValue).
+ */
+type DrawnColumn = ColumnConfig & { valueFormatter?: (value: DataType | null) => string };
 
 @Component({
   standalone: true,
@@ -1269,7 +1277,7 @@ export class ResourceListComponent implements OnInit {
   drawnSorts = computed(() => tableSorts(this.listed(), this.store.sorts()));
 
   columns = computed(() => {
-    const columns: ColumnConfig[] = [];
+    const columns: DrawnColumn[] = [];
     const usedIds = new Set<string>();
     // A column over a field the server does not order is drawn with no sort button, as one
     // that opts out is: the metadata says which, so no sort is offered that the server refuses.
@@ -1299,14 +1307,11 @@ export class ResourceListComponent implements OnInit {
       // date, the value's text for the rest.
       // A yes-or-no value is not written at all: the table draws it as a mark
       // (processedRowData).
+      // The rule lives in formatColumnValue, which the pop-up of a record's history
+      // calls too.
       const fieldMeta = this.meta()?.fields?.find((field) => field.fieldName === col.id);
-      const valueFormatter = (params: DataType | null): string => {
-        if (col.formatType) {
-          const retValue = applyFormatting(col.formatType, params as string);
-          return retValue || (col.emptyDataValue as string);
-        }
-        return formatFieldValue(fieldMeta, params) || (col.emptyDataValue as string);
-      };
+      const valueFormatter = (params: DataType | null): string =>
+        formatColumnValue(col, fieldMeta, params) || (col.emptyDataValue as string);
       // A column that says how its cell is read off the row (valueGetter) is read
       // that way, then formatted like any other. A name column, and a column which
       // shows no name (the list carries none beside its id, or the person may not list
@@ -1540,7 +1545,7 @@ export class ResourceListComponent implements OnInit {
         // A yes-or-no value stays what it is, so the table draws it as a check or a dash
         // and not as the word a formatter would make of it. A column that configures a
         // format is written by that format, as its author asked.
-        const mark = typeof updatedRow[col.id] === 'boolean' && !col.formatType;
+        const mark = drawnAsMark(col, updatedRow[col.id]);
         // A list drawn a line each stays a list, each item written as text, so the
         // table draws the items one under another: a role's name in words where the
         // column's field holds one.

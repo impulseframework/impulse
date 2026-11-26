@@ -16,6 +16,11 @@ type (
 	// holds one; it identifies nobody. The password hash is not a field, so it is never
 	// read or written here, and the normalized columns are the table's own.
 	//
+	// The username is what a list that points to an account shows it by. It is the
+	// table's name (@name), so a field of another resource that holds an account's id,
+	// by a foreign key to this table or by @enumerate of this list, gets a name field
+	// read from it, and a change record of that field keeps the username.
+	//
 	// An account's delete takes with it the application's rows that name the account in
 	// a column that says so (@deletedWith), after a question that counts them, and is
 	// refused while a row names it in a column that does not.
@@ -27,14 +32,15 @@ type (
 	// @page(default: 25, max: 200)
 	// @rowWord(account)
 	StaffSessionUser struct {
-		ID                     impulse.UUID `spanner:"Id"`
-		Username               string       `spanner:"Username"`
-		Name                   *string      `spanner:"Name"`
-		Email                  *string      `spanner:"Email"`
-		EmailVerifiedAt        *time.Time   `spanner:"EmailVerifiedAt"`
-		Disabled               bool         `spanner:"Disabled"`
-		PasswordChangeRequired bool         `spanner:"PasswordChangeRequired"`
-		CreatedAt              time.Time    `spanner:"CreatedAt"`
-		LastSignInAt           *time.Time   `spanner:"LastSignInAt"`
+		ID impulse.UUID `spanner:"Id"`
+		// @name
+		Username               string     `spanner:"Username"`
+		Name                   *string    `spanner:"Name"`
+		Email                  *string    `spanner:"Email"`
+		EmailVerifiedAt        *time.Time `spanner:"EmailVerifiedAt"`
+		Disabled               bool       `spanner:"Disabled"`
+		PasswordChangeRequired bool       `spanner:"PasswordChangeRequired"`
+		CreatedAt              time.Time  `spanner:"CreatedAt"`
+		LastSignInAt           *time.Time `spanner:"LastSignInAt"`
 	}
 )

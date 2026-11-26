@@ -34,6 +34,7 @@ func (h *Handlers) StaffSessionMailLinks() http.HandlerFunc {
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		UserName        *string       `json:"userName"        nameof:"UserID"   index:"true"`
 		TenantName      *string       `json:"tenantName"      nameof:"TenantID" index:"true"`
 	}
 
@@ -175,6 +176,7 @@ func (h *Handlers) StaffSessionMailLink() http.HandlerFunc {
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		UserName        *string       `json:"userName"        nameof:"UserID"`
 		TenantName      *string       `json:"tenantName"      nameof:"TenantID"`
 	}
 
@@ -295,6 +297,7 @@ func (h *Handlers) StaffSessionMailLinkChangeHistory() http.HandlerFunc {
 		ConsumedAt      *time.Time    `json:"consumedAt"`
 		MailFailedAt    *time.Time    `json:"mailFailedAt"`
 		WithdrawnAt     *time.Time    `json:"withdrawnAt"`
+		UserName        *string       `json:"userName"        nameof:"UserID"`
 		TenantName      *string       `json:"tenantName"      nameof:"TenantID"`
 	}
 

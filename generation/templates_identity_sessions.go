@@ -50,7 +50,7 @@ type (
 	{{ .ListedSession }} struct {
 		// @primarykey
 		ID impulse.UUID ` + "`spanner:\"Id\" index:\"true\"`" + `
-		{{- if .Has "users" }}
+		{{- if .SessionsPointAtAccounts }}
 		// UserID names a row of the list of the accounts: a page links the row to the
 		// account's page by it.
 		//

@@ -89,10 +89,10 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			generationHeader, "// @resource", "// @suppress(patchHandler)", "// @outlet(default)", "// @order(Name asc)", "CrewGroup struct {",
 			// The group's delete takes the rows that name it.
 			"// @deleteCascade(CrewGroupMember, CrewGroupRole)\n\tCrewGroup struct {",
-			"// @attribute(group)\n\t\tID          impulse.UUID `spanner:\"Id\"`",
+			"// @attribute(group)\n\t\tID       impulse.UUID `spanner:\"Id\"`",
 			// The store finds a group by where it is kept and its name, the key of the
 			// table's unique index, whose leading column alone has a seek of its own.
-			"Axis        string       `spanner:\"Axis\"        allow_filter:\"true\"`", "Name        string       `spanner:\"Name\"        allow_filter:\"true\"`",
+			"Axis     string       `spanner:\"Axis\"     allow_filter:\"true\"`", "// @name\n\t\tName        string    `spanner:\"Name\"        allow_filter:\"true\"`",
 		},
 		"internal/crewresources/crew_group_members.go": {
 			// A grant's condition reads the group of a row (group), and the set the same

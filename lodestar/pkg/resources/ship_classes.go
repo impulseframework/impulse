@@ -1,6 +1,9 @@
 package resources
 
-import "github.com/impulseframework/impulse"
+import (
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
+)
 
 type (
 	// ShipClass is the hull catalog: a global resource with an immutable designation, an
@@ -23,7 +26,10 @@ type (
 	// the resource and the two ways out (a sort, or limit=all), and the console's Ship
 	// Classes page names its sort; a requested sort pages it by cursor as any list.
 	//
-	// Demonstrates: immutable, @attribute.join-path-global, order.none, order.required.
+	// Change tracking is on: a class's history shows its yes-or-no fields and its tonnage
+	// changing, which the console's Ship classes page opens.
+	//
+	// Demonstrates: immutable, @attribute.join-path-global, order.none, order.required, change-tracking.
 	//
 	// @resource
 	// @page(default: 25)
@@ -37,3 +43,9 @@ type (
 		InService   bool   `spanner:"InService"`
 	}
 )
+
+// Config enables change tracking: ShipClass mutations write DataChangeEvents rows in the
+// same transaction, which the class's history reads back.
+func (ShipClass) Config() resource.Config {
+	return defaultConfig().SetTrackChanges(true)
+}

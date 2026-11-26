@@ -157,8 +157,8 @@ func (a *App) PatchResources() http.HandlerFunc {
 	refitDecoder := NewDecoder[resources.Refit, refitRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type refitTaskRequest struct {
-		RefitID      impulse.UUID `json:"-"`
 		TaskNumber   int64        `json:"-"`
+		RefitID      impulse.UUID `json:"-"`
 		Instructions string       `json:"instructions"`
 		Done         bool         `json:"done"`
 		Notes        *string      `json:"notes"`

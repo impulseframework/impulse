@@ -68,6 +68,7 @@ export interface CrewGroupMembers {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  groupName?: string;
 }
 
 export interface CrewGroupRoles {
@@ -79,6 +80,7 @@ export interface CrewGroupRoles {
   createdAt?: Date;
   startsAt?: Date;
   endsAt?: Date;
+  groupName?: string;
 }
 
 export interface CrewGroupUsers {
@@ -404,6 +406,7 @@ export interface CrewSessionIdentities {
   emailAtLink?: string;
   createdAt?: Date;
   lastUsedAt?: Date;
+  userName?: string;
 }
 
 export interface CrewSessionImpersonations {
@@ -439,6 +442,7 @@ export interface CrewSessionMailLinks {
   consumedAt?: Date;
   mailFailedAt?: Date;
   withdrawnAt?: Date;
+  userName?: string;
   tenantName?: string;
 }
 
@@ -463,6 +467,7 @@ export interface CrewSessionTokens {
   lastUsedAt?: Date;
   revokedAt?: Date;
   revokedReason?: string;
+  userName?: string;
 }
 
 export interface CrewSessionTrustedDevices {
@@ -472,6 +477,7 @@ export interface CrewSessionTrustedDevices {
   expiresAt?: Date;
   lastUsedAt?: Date;
   revokedAt?: Date;
+  userName?: string;
 }
 
 export interface CrewSessionUsers {
@@ -805,6 +811,7 @@ export interface MembersSessionIdentities {
   emailAtLink?: string;
   createdAt?: Date;
   lastUsedAt?: Date;
+  userName?: string;
 }
 
 export interface MembersSessionMailLinks {
@@ -822,6 +829,7 @@ export interface MembersSessionMailLinks {
   consumedAt?: Date;
   mailFailedAt?: Date;
   withdrawnAt?: Date;
+  userName?: string;
 }
 
 export interface MembersSessionSignInAttempts {
@@ -839,6 +847,7 @@ export interface MembersSessionTrustedDevices {
   expiresAt?: Date;
   lastUsedAt?: Date;
   revokedAt?: Date;
+  userName?: string;
 }
 
 export interface MembersSessionUsers {
@@ -942,6 +951,7 @@ export interface Pilots {
   displayName?: string;
   clearance?: number;
   feeLimit?: string;
+  userName?: string;
 }
 
 export interface PilotAssignments {
@@ -972,8 +982,8 @@ export interface Refits {
 }
 
 export interface RefitTasks {
-  refitId: string;
   taskNumber: number;
+  refitId: string;
   instructions?: string;
   done?: boolean;
   notes?: string;
@@ -1460,6 +1470,7 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     live: true,
     rowWords: { one: 'group', many: 'groups' },
+    nameField: 'name',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
@@ -1485,6 +1496,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'groupName', of: 'groupId', filterable: 'withIndexed' }],
   },
   [Resources.CrewGroupRoles]: {
     route: 'crew-group-roles',
@@ -1504,6 +1516,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'groupName', of: 'groupId', filterable: 'withIndexed' }],
   },
   [Resources.CrewGroupUsers]: {
     route: 'crew-group-users',
@@ -1942,6 +1955,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.CrewSessionImpersonations]: {
     route: 'crew-session-impersonations',
@@ -1991,7 +2005,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
     ],
-    nameFields: [{ fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }, { fieldName: 'tenantName', of: 'tenantId', filterable: 'always' }],
   },
   [Resources.CrewSessionSignInAttempts]: {
     route: 'crew-session-sign-in-attempts',
@@ -2030,6 +2044,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'revokedReason', displayType: 'string', required: false, isIndex: false, maxLength: 16 },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.CrewSessionTrustedDevices]: {
     route: 'crew-session-trusted-devices',
@@ -2046,6 +2061,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.CrewSessionUsers]: {
     route: 'crew-session-users',
@@ -2054,6 +2070,7 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     live: true,
     rowWords: { one: 'account', many: 'accounts' },
+    nameField: 'username',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -2501,6 +2518,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.MembersSessionMailLinks]: {
     route: 'members-session-mail-links',
@@ -2525,6 +2543,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.MembersSessionSignInAttempts]: {
     route: 'members-session-sign-in-attempts',
@@ -2557,6 +2576,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.MembersSessionUsers]: {
     route: 'members-session-users',
@@ -2565,6 +2585,7 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     live: true,
     rowWords: { one: 'account', many: 'accounts' },
+    nameField: 'username',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -2691,6 +2712,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'clearance', displayType: 'number', required: true, isIndex: false },
       { fieldName: 'feeLimit', displayType: 'number', decimal: true, required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.PilotAssignments]: {
     route: 'sectors/{sectorID}/pilot-assignments',
@@ -2739,8 +2761,8 @@ const resourceMap = defineResourceMap({
     live: true,
     rowWords: { one: 'refit task', many: 'refit tasks' },
     fields: [
-      { fieldName: 'refitId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Refits },
       { fieldName: 'taskNumber', primaryKey: { ordinalPosition: 1 }, displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'refitId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Refits },
       { fieldName: 'instructions', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'done', displayType: 'boolean', required: false, schemaDefault: false, isIndex: false },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },

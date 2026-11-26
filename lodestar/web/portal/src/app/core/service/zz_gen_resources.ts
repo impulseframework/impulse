@@ -253,6 +253,7 @@ export interface MembersSessionIdentities {
   emailAtLink?: string;
   createdAt?: Date;
   lastUsedAt?: Date;
+  userName?: string;
 }
 
 export interface MembersSessionMailLinks {
@@ -270,6 +271,7 @@ export interface MembersSessionMailLinks {
   consumedAt?: Date;
   mailFailedAt?: Date;
   withdrawnAt?: Date;
+  userName?: string;
 }
 
 export interface MembersSessionSignInAttempts {
@@ -287,6 +289,7 @@ export interface MembersSessionTrustedDevices {
   expiresAt?: Date;
   lastUsedAt?: Date;
   revokedAt?: Date;
+  userName?: string;
 }
 
 export interface MembersSessionUsers {
@@ -810,6 +813,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.MembersSessionMailLinks]: {
     route: 'members-session-mail-links',
@@ -834,6 +838,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'mailFailedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'withdrawnAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.MembersSessionSignInAttempts]: {
     route: 'members-session-sign-in-attempts',
@@ -866,6 +871,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastUsedAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
     ],
+    nameFields: [{ fieldName: 'userName', of: 'userId', filterable: 'always' }],
   },
   [Resources.MembersSessionUsers]: {
     route: 'members-session-users',
@@ -874,6 +880,7 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     live: true,
     rowWords: { one: 'account', many: 'accounts' },
+    nameField: 'username',
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },

@@ -1,6 +1,9 @@
 package resources
 
-import "github.com/impulseframework/impulse"
+import (
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
+)
 
 type (
 	// RefitTask is a checklist item: interleaved in Refits with a compound primary key,
@@ -12,6 +15,12 @@ type (
 	// (the tenancy is a join path, so no column on the row is bound by equality): it is
 	// not indexed, so the generated list struct carries no index tag on it, its metadata
 	// says nothing about filtering, and a filter naming it alone is refused.
+	//
+	// The struct lists TaskNumber above RefitID, the other way round from the table's key
+	// (Id, TaskNumber), on purpose: a struct may list its key fields in any order, and
+	// everything generated takes the key in the table's order. The task's route is still
+	// .../refit-tasks/{id}/{taskNumber}, and NewRefitTaskUpdatePatch still takes the refit
+	// before the number.
 	//
 	// A create that supplies a task number the refit already holds reaches the commit,
 	// where Spanner refuses the duplicate key; the library answers 409 naming RefitTasks.
@@ -41,6 +50,7 @@ type (
 	// @order(TaskNumber asc)
 	// @page(default: 25, max: 200)
 	RefitTask struct {
+		TaskNumber int64 `spanner:"TaskNumber"`
 		// The parent-key column is named Id because Spanner interleaving requires the
 		// child's leading key column to carry the parent's key column name; the Go field
 		// keeps the readable name.
@@ -48,7 +58,6 @@ type (
 		// @stateRoot(Refit)
 		// @domain(via: ShipID.HangarID.SectorID)
 		RefitID      impulse.UUID `spanner:"Id"`
-		TaskNumber   int64        `spanner:"TaskNumber"`
 		Instructions string       `spanner:"Instructions"`
 		Done         bool         `spanner:"Done"`
 		Notes        *string      `spanner:"Notes"`
@@ -56,3 +65,10 @@ type (
 		PhotoKey *string `spanner:"PhotoKey"`
 	}
 )
+
+// Config enables change tracking: RefitTask mutations write DataChangeEvents rows in the
+// same transaction, so a task has a history of its own, and a task deleted with its refit
+// has that delete in it.
+func (RefitTask) Config() resource.Config {
+	return defaultConfig().SetTrackChanges(true)
+}

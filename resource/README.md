@@ -128,6 +128,13 @@ Primary keys are exempt — their readability follows the resource-level grant. 
 no per-field permission tag to write: a `perm:` tag on a source struct is a generation
 error, and a stale one in a generated request struct fails Set construction at startup.
 
+A struct may list its key fields in any order. Everything generated takes a table's key in
+the table's own order, the order of its `PRIMARY KEY`: the row's route, the parameters of the
+generated patch constructors (`New<Name>CreatePatch`, `New<Name>UpdatePatch`,
+`New<Name>DeletePatch`), the TypeScript client's key, the key a write gives the database and
+the key a change record is filed under. A view's key is in the order its struct declares its
+`@primarykey` fields.
+
 | Tag | Where | Effect |
 | --- | --- | --- |
 | `spanner:"ColumnName"` | every field of `@resource`/`@virtual` structs | Maps the field to its Spanner column. Required — a missing tag or unknown column is a generation error, and field nullability must match the column's: a pointer or a Null wrapper on a nullable column, a plain value on a NOT NULL one. A slice-typed field follows the column's nullability, since a Go slice has one form: the Spanner client reads NULL into a nil slice and writes nil as NULL, so `[]byte` types a nullable `BYTES` column and a NOT NULL one alike, as `[]T` does an `ARRAY<T>` (section 12, nullable slices). A pointer to a slice is refused. |
@@ -2053,10 +2060,14 @@ table for assignments (`TaskAssignments`: its rows go with the account, and the 
 stay). Rely on the change history for who did what: each change record says who made the
 change (section 24) and stays when the account is gone. Where a record must name a person
 itself, keep a copy of the person's information on it (their name, their address), with
-no foreign key. A copy keeps personal data after the account is gone, so an application
-that must erase a person cleans up its own copies. Disable is the usual way to remove a
-person who has history; delete is for when the account itself must go, and a design that
-names people these three ways keeps it possible.
+no foreign key. A column that holds an account's id with no foreign key can still say
+whose it is: give the field the accounts as its picker (`@enumerate(<Auth>SessionUsers)`),
+and a list shows the username beside the id while the account stands, and the record's
+own change history keeps the username after the account is gone (section 24). The same
+holds for a group, by `@enumerate(<Auth>Groups)`. A copy keeps personal data after the
+account is gone, so an application that must erase a person cleans up its own copies.
+Disable is the usual way to remove a person who has history; delete is for when the
+account itself must go, and a design that names people these three ways keeps it possible.
 
 Example: [HangarPass](../lodestar/pkg/resources/hangar_passes.go), and
 [the served suite](../lodestar/test/integration/group_share_test.go).
@@ -5237,7 +5248,11 @@ while it has not begun and the one held in every tenant counts. The lists of wha
 Administrator role in a group, a tenant's group with a role outside its tenant). A
 tenant's list of its people (`CrewSectorUsers`) holds who a group puts there: the
 members of its own groups, and the members of a group of the whole application that
-holds a role there, the latter with `heldGlobally`.
+holds a role there, the latter with `heldGlobally`. `CrewGroups` says what its rows are
+known by (`@name` on `name`), so a field of another resource that holds a group's id, by
+a foreign key to the groups table or by `@enumerate(CrewGroups)`, gets a name field read
+from it (`groupId` gives `groupName`), shown to a reader who holds List on `name` there,
+asked for the whole application. `CrewListedGroups` declares no name.
 
 **What a page reads of them.** Four lists say what is held in the words a page shows,
 each a view like a tenant's lists: nothing is created in the database, and the role file
@@ -5273,7 +5288,15 @@ grants each like any resource.
   neither. The Accounts page lists it, it filters by `username`, `name`, `email` and the
   two facts, and the whole application's methods on a person name their person by its
   row. `CrewSessionUsers`, the users table's own list, stays: a picker of a person reads
-  it.
+  it. It says what its rows are known by (`@name` on `username`), so a field of another
+  resource that holds an account's id, by a foreign key to the users table or by
+  `@enumerate(CrewSessionUsers)`, gets a name field read from it (`userId` gives
+  `userName`), shown to a reader who holds List on `username` there, asked for the whole
+  application. A tenant's roles hold nothing for the whole application, so a tenant's
+  record that should show a person to the tenant's own people picks from the tenant's
+  list (`@enumerate(CrewSectorUsers)`), whose name is granted in the tenant.
+  `CrewListedUsers` declares no name: a field that should show the username points at
+  `CrewSessionUsers`.
 - `CrewListedIdentities` is the sign-in identities with who manages each account,
   declared where the application has a tenant record: a row for each identity link, with
   the columns of `CrewSessionIdentities`, the person's `username`, and the person's
@@ -5290,7 +5313,10 @@ grants each like any resource.
   the list of live sessions under an account list it, it filters by `id`, `userId`,
   `username`, `expired`, `live`, `state`, `signedInWith` and `updatedAt`, and the method
   that ends a session names its session by its row. `CrewSessions`, the sessions table's
-  own list, stays.
+  own list, stays. A session's `userId` points at the list of the accounts
+  (`CrewListedUsers`), which is what opens the account from a session's row. Where the
+  schema holds no memberships table the accounts' list is `CrewSessionUsers` itself, the
+  session's `userId` points at nothing, and its row opens nothing.
 - `CrewListedMailLinks` is the mailed links as a page lists them: the link's columns, its state
   (open, accepted, withdrawn, expired, not mailed), the sender's name, and whether the invitation
   makes a tenant.
@@ -6716,7 +6742,11 @@ being written. For any other view, and for a computed list, the row is the row o
 table the field's column has a foreign key to, and the name is that table's, as for a
 field with the foreign key and no picker. A field that picks from a view of the
 application's own and has no foreign key keeps the id alone: declare the foreign key, and
-the history keeps the name.
+the history keeps the name. One of the whole application's accounts or groups needs none
+of this: `<Auth>SessionUsers` and `<Auth>Groups` are tables that say what their rows are
+known by, so a field that points at one, by its foreign key or by its picker, keeps the
+username, or the group's name, as for any table. It is read by the id alone, since
+neither table belongs to a tenant.
 
 **The table.** `resource.DataChangeEventsDDL(dbType, period)` renders the table's
 statements. For Spanner the first creates the table:

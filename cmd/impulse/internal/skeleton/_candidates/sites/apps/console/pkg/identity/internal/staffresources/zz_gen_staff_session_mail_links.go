@@ -29,6 +29,7 @@ func (StaffSessionMailLink) DefaultConfig() resource.Config {
 // looked up in the pointed-to table by the id; it is no column of this resource.
 func (StaffSessionMailLink) NameFields() []resource.NameField {
 	return []resource.NameField{
+		{Field: "UserName", Key: "UserID", Resource: "StaffSessionUsers", Tag: "username", Table: "StaffSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
 		{Field: "TenantName", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
 	}
 }
@@ -39,6 +40,7 @@ func (StaffSessionMailLink) NameFields() []resource.NameField {
 // and the change record keeps it beside the id.
 func (StaffSessionMailLink) RecordedNames() []resource.NameField {
 	return []resource.NameField{
+		{Field: "", Key: "UserID", Resource: "StaffSessionUsers", Tag: "username", Table: "StaffSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
 		{Field: "", Key: "TenantID", Resource: "Tenants", Tag: "name", Table: "Tenants", KeyColumn: "Id", NameColumn: "Name", TenantColumn: ""},
 	}
 }

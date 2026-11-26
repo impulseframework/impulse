@@ -230,6 +230,43 @@ describe('AppGridComponent', () => {
     expect(asked).toEqual([[{ field: 'name', direction: 'asc' }]]);
   });
 
+  it("writes a page's heading as the page wrote it, on a header that sorts and on one that does not", async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ apiKey: 'k-7', clientId: 'c-12' }]);
+    fixture.componentRef.setInput('columnDefs', [
+      { id: 'apiKey', header: 'API key' },
+      { id: 'clientId', header: 'Client ID', sortable: false },
+    ]);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const words = (selector: string): string[] =>
+      Array.from(element.querySelectorAll(selector)).map((h) => h.textContent?.trim() ?? '');
+
+    expect(words('th button.header-label .col-header')).toEqual(['API key']);
+    expect(words('th span.header-words .col-header')).toEqual(['Client ID']);
+  });
+
+  it('titles the id of a column that sets no heading, on a header that sorts and on one that does not', async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [{ shipName: 'Anvil', lastRefit: '2026-11-17' }]);
+    fixture.componentRef.setInput('columnDefs', [{ id: 'shipName' }, { id: 'lastRefit', sortable: false }]);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const words = (selector: string): string[] =>
+      Array.from(element.querySelectorAll(selector)).map((h) => h.textContent?.trim() ?? '');
+
+    expect(words('th button.header-label .col-header')).toEqual(['Ship Name']);
+    expect(words('th span.header-words .col-header')).toEqual(['Last Refit']);
+  });
+
   it('draws a yes-or-no value as a check or a dash, each named for a screen reader, and every other value as its text', async () => {
     const rows: RecordData[] = [
       { username: 'ada', disabled: true, count: 0, note: 'false' },

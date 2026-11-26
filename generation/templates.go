@@ -551,14 +551,12 @@ func New{{ .Resource.Name }}CreatePatch() (*{{ .Resource.Name }}CreatePatch, err
 }
 {{ else }}
 func New{{ .Resource.Name }}CreatePatchFromPatchSet(
-{{- range $field := .Resource.Fields -}}
-{{ if $field.IsPrimaryKey }}{{ GoCamel $field.Name }} {{ $field.ResolvedType }},{{ end }}
+{{- range $_, $field := .Resource.PrimaryKeys -}}
+{{ GoCamel $field.Name }} {{ $field.ResolvedType }},
 {{- end }} patchSet *resource.PatchSet[{{ .Resource.Name }}]) *{{ .Resource.Name }}CreatePatch {
 	patchSet.
-	{{ range $field := .Resource.Fields }}
-	{{ if $field.IsPrimaryKey }}
+	{{ range $_, $field := .Resource.PrimaryKeys }}
 	 	SetKey("{{ $field.Name }}", {{ GoCamel $field.Name }}).
-	{{ end }}
 	{{ end }}
 		SetPatchType(resource.CreatePatchType)
 	patch := &{{ .Resource.Name }}CreatePatch{patchSet: patchSet}
@@ -573,10 +571,8 @@ func New{{ .Resource.Name }}CreatePatch(
 	{{ GoCamel $field.Name }} {{ $field.ResolvedType -}}
 {{- end -}}) *{{ .Resource.Name }}CreatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[{{ .Resource.Name }}]()).
-	{{ range $field := .Resource.Fields }}
-	{{ if $field.IsPrimaryKey }}
+	{{ range $_, $field := .Resource.PrimaryKeys }}
 	 	SetKey("{{ $field.Name }}", {{ GoCamel $field.Name }}).
-	{{ end }}
 	{{ end }}
 		SetPatchType(resource.CreatePatchType)
 	patch := &{{ .Resource.Name }}CreatePatch{patchSet: patchSet}
@@ -671,17 +667,13 @@ type {{ .Resource.Name }}UpdatePatch struct {
 }
 
 func New{{ .Resource.Name }}UpdatePatchFromPatchSet(
-{{- range $field := .Resource.Fields -}}
-	{{- if $field.IsPrimaryKey -}}
-		{{- GoCamel $field.Name }} {{ $field.ResolvedType }},
-	{{- end -}}
+{{- range $_, $field := .Resource.PrimaryKeys -}}
+	{{- GoCamel $field.Name }} {{ $field.ResolvedType }},
 {{- end -}}
 patchSet *resource.PatchSet[{{ .Resource.Name }}]) *{{ .Resource.Name }}UpdatePatch {
 	patchSet.
-	{{ range $field := .Resource.Fields }}
-		{{ if $field.IsPrimaryKey }}
+	{{ range $_, $field := .Resource.PrimaryKeys }}
 		SetKey("{{ $field.Name }}", {{ GoCamel $field.Name }}).
-		{{ end }}
 	{{ end }}
 		SetPatchType(resource.UpdatePatchType)
 
@@ -697,10 +689,8 @@ func New{{ .Resource.Name }}UpdatePatch(
 	{{- GoCamel $field.Name }} {{ $field.ResolvedType -}}
 {{- end -}}) *{{ .Resource.Name }}UpdatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[{{ .Resource.Name }}]()).
-{{- range $field := .Resource.Fields }}
-	{{- if $field.IsPrimaryKey }}
+{{- range $_, $field := .Resource.PrimaryKeys }}
 		SetKey("{{ $field.Name }}", {{ GoCamel $field.Name }}).
-	{{- end }}
 {{- end }}
 		SetPatchType(resource.UpdatePatchType)
 
@@ -804,10 +794,8 @@ func New{{ .Resource.Name }}Touch(
 	{{- GoCamel $field.Name }} {{ $field.ResolvedType -}}
 {{- end -}}) *{{ .Resource.Name }}Touch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[{{ .Resource.Name }}]()).
-{{- range $field := .Resource.Fields }}
-	{{- if $field.IsPrimaryKey }}
+{{- range $_, $field := .Resource.PrimaryKeys }}
 		SetKey("{{ $field.Name }}", {{ GoCamel $field.Name }}).
-	{{- end }}
 {{- end }}
 		SetPatchType(resource.UpdatePatchType).
 		AsTouch()
@@ -831,17 +819,13 @@ type {{ .Resource.Name }}DeletePatch struct {
 }
 
 func New{{ .Resource.Name }}DeletePatchFromPatchSet(
-{{- range $field := .Resource.Fields -}}
-	{{- if $field.IsPrimaryKey -}}
-		{{- GoCamel $field.Name }} {{ $field.ResolvedType }},
-	{{- end -}}
+{{- range $_, $field := .Resource.PrimaryKeys -}}
+	{{- GoCamel $field.Name }} {{ $field.ResolvedType }},
 {{- end -}}
 patchSet *resource.PatchSet[{{ .Resource.Name }}]) *{{ .Resource.Name }}DeletePatch {
 	patchSet.
-	{{ range $field := .Resource.Fields }}
-		{{ if $field.IsPrimaryKey }}
+	{{ range $_, $field := .Resource.PrimaryKeys }}
 		SetKey("{{ $field.Name }}", {{ GoCamel $field.Name }}).
-		{{ end }}
 	{{ end }}
 		SetPatchType(resource.DeletePatchType)
 
@@ -861,10 +845,8 @@ func New{{ .Resource.Name }}DeletePatch(
 	{{- GoCamel $field.Name }} {{ $field.ResolvedType -}}
 {{- end -}}) *{{ .Resource.Name }}DeletePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[{{ .Resource.Name }}]()).
-{{- range $field := .Resource.Fields }}
-		{{- if $field.IsPrimaryKey }}
+{{- range $_, $field := .Resource.PrimaryKeys }}
 		SetKey("{{ $field.Name }}", {{ GoCamel $field.Name }}).
-		{{- end }}
 {{- end }}
 		SetPatchType(resource.DeletePatchType)
 

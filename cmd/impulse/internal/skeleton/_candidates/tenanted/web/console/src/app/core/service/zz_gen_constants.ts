@@ -204,6 +204,7 @@ export namespace StaffGroupMembers {
     groupId: 'groupId' as FieldName,
     startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
+    groupName: 'groupName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'StaffGroupMembers.createdAt' as Resource,
@@ -224,6 +225,7 @@ export namespace StaffGroupRoles {
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
     startsAt: 'startsAt' as FieldName,
+    groupName: 'groupName' as FieldName,
   };
   export const resourceName = {
     axis: 'StaffGroupRoles.axis' as Resource,
@@ -717,6 +719,7 @@ export namespace StaffSessionIdentities {
     subject: 'subject' as FieldName,
     tenant: 'tenant' as FieldName,
     userId: 'userId' as FieldName,
+    userName: 'userName' as FieldName,
   };
   export const resourceName = {
     connection: 'StaffSessionIdentities.connection' as Resource,
@@ -747,6 +750,7 @@ export namespace StaffSessionMailLinks {
     tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
     withdrawnAt: 'withdrawnAt' as FieldName,
+    userName: 'userName' as FieldName,
     tenantName: 'tenantName' as FieldName,
   };
   export const resourceName = {
@@ -798,6 +802,7 @@ export namespace StaffSessionTokens {
     revokedAt: 'revokedAt' as FieldName,
     revokedReason: 'revokedReason' as FieldName,
     userId: 'userId' as FieldName,
+    userName: 'userName' as FieldName,
   };
   export const resourceName = {
     clientId: 'StaffSessionTokens.clientId' as Resource,
@@ -823,6 +828,7 @@ export namespace StaffSessionTrustedDevices {
     lastUsedAt: 'lastUsedAt' as FieldName,
     revokedAt: 'revokedAt' as FieldName,
     userId: 'userId' as FieldName,
+    userName: 'userName' as FieldName,
   };
   export const resourceName = {
     createdAt: 'StaffSessionTrustedDevices.createdAt' as Resource,
