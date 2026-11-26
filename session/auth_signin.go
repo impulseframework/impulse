@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
@@ -1022,7 +1023,8 @@ func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.U
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
 	}
-	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash, a.linksThatSignIn(links), nil); err != nil {
+	removed := accountRecord(auditlog.ActPasswordRemoved, a.acting(ctx), user.ID, user.Username)
+	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash, a.linksThatSignIn(links), removed); err != nil {
 		switch {
 		case errors.Is(err, sessionstorage.ErrLastSignInMethod):
 			return httpio.NewConflictMessageWithError(err, "Your password is your only way to sign in: sign in through your directory first, which links it to your account, then remove the password")

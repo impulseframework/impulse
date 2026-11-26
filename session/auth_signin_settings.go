@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/tracer"
@@ -56,7 +57,11 @@ func (p *AuthAPI[S, U, Tx]) SetSecondFactorRequired(ctx context.Context, require
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.auth.storage.SetRequireSecondFactor(ctx, required, nil); err != nil {
+	act := auditlog.ActSecondFactorNotRequired
+	if required {
+		act = auditlog.ActSecondFactorRequired
+	}
+	if err := p.auth.storage.SetRequireSecondFactor(ctx, required, settingRecord(act, p.auth.acting(ctx), auditlog.SettingSecondFactor)); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetRequireSecondFactor()")
 	}
 
@@ -77,7 +82,7 @@ func (p *AuthAPI[S, U, Tx]) SetRememberedBrowserDays(ctx context.Context, days i
 	if days < 0 || days > MaxRememberedBrowserDays {
 		return httpio.NewBadRequestMessage("A browser is remembered for 0 to 90 days. 0 means browsers are not remembered.")
 	}
-	if err := p.auth.storage.SetRememberBrowserDays(ctx, days, nil); err != nil {
+	if err := p.auth.storage.SetRememberBrowserDays(ctx, days, rememberedBrowsersRecord(p.auth.acting(ctx), days)); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetRememberBrowserDays()")
 	}
 

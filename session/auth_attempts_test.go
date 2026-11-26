@@ -197,7 +197,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 			run: func(t *testing.T, f *authFixture) {
 				f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, pat())).Times(3)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(6)
-				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any(), gomock.Nil()).Return(nil)
+				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any(), aRecord()).Return(nil)
 				for range 2 {
 					post(f.password.RemoveUserPassword(), `{"password":"wrong"}`)
 				}
@@ -217,7 +217,7 @@ func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
 			run: func(t *testing.T, f *authFixture) {
 				f.store.EXPECT().Session(gomock.Any(), sessionID).DoAndReturn(sessionAtEachRead(sessionID, pat())).Times(2)
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(4)
-				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any(), gomock.Nil()).
+				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any(), aRecord()).
 					Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in"))
 				post(f.password.RemoveUserPassword(), `{"password":"wrong"}`)
 				if rr := post(f.password.RemoveUserPassword(), `{"password":"pw"}`); rr.Code != http.StatusConflict {
@@ -401,7 +401,7 @@ func TestAuth_AttemptLimit_Resets(t *testing.T) {
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil)
-				f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any(), gomock.Nil()).Return(nil)
+				f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any(), aRecord()).Return(nil)
 				if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "pw", NewPassword: "a new password, chosen with care"}); err != nil {
 					t.Fatalf("ChangeSessionUserPassword() error = %v", err)
 				}

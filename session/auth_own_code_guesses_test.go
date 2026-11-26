@@ -389,7 +389,7 @@ func ownCodeGuessesResetByLink(t *testing.T) {
 	}
 
 	token := mailedReset(t, f, recorder, userID)
-	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, user.PasswordHash, gomock.Not(gomock.Nil()), gomock.Nil()).Return(nil)
+	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, user.PasswordHash, gomock.Not(gomock.Nil()), aRecord()).Return(nil)
 	rr := f.serve(f.auth.PasswordReset().Complete(), http.MethodPost, "/reset/complete", map[string]string{"token": token, "password": chosenPassword}, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Complete() = %d %s, want 200", rr.Code, rr.Body.String())

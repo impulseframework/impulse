@@ -266,7 +266,7 @@ func TestAuthAPI_CreateApplicationToken(t *testing.T) {
 		f := newTokenFixture(t, gomock.NewController(t), WithTokenLifetimes(time.Hour, 24*time.Hour, 48*time.Hour))
 		f.store.EXPECT().User(gomock.Any(), f.user.ID).Return(f.user, nil)
 		var stored *sessionstorage.Token
-		f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
+		f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), aRecord()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
 			stored = tok
 
 			return nil
@@ -295,7 +295,7 @@ func TestAuthAPI_CreateApplicationToken(t *testing.T) {
 		f := newTokenFixture(t, gomock.NewController(t), WithTokenLifetimes(time.Hour, 24*time.Hour, 48*time.Hour))
 		f.store.EXPECT().User(gomock.Any(), f.user.ID).Return(f.user, nil)
 		var stored *sessionstorage.Token
-		f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
+		f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), aRecord()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
 			stored = tok
 
 			return nil
@@ -363,7 +363,8 @@ func TestAuthAPI_TokensAndRevocation(t *testing.T) {
 		t.Parallel()
 		f := newTokenFixture(t, gomock.NewController(t))
 		id := impulse.Must(impulse.NewUUID())
-		f.store.EXPECT().RevokeUserToken(gomock.Any(), f.user.ID, id, sessionstorage.TokenRevokedByHand, gomock.Nil()).Return(nil)
+		f.store.EXPECT().User(gomock.Any(), f.user.ID).Return(f.user, nil)
+		f.store.EXPECT().RevokeUserToken(gomock.Any(), f.user.ID, id, sessionstorage.TokenRevokedByHand, aRecord()).Return(nil)
 		f.store.EXPECT().RevokeUserTokens(gomock.Any(), f.user.ID, sessionstorage.TokenRevokedWithUser).Return(nil)
 		if err := f.auth.API().RevokeToken(context.Background(), f.user.ID, id); err != nil {
 			t.Errorf("RevokeToken() error = %v", err)
@@ -377,7 +378,8 @@ func TestAuthAPI_TokensAndRevocation(t *testing.T) {
 		t.Parallel()
 		f := newTokenFixture(t, gomock.NewController(t))
 		id := impulse.Must(impulse.NewUUID())
-		f.store.EXPECT().RevokeUserToken(gomock.Any(), f.user.ID, id, sessionstorage.TokenRevokedByHand, gomock.Nil()).Return(httpio.NewNotFoundMessage("no live token"))
+		f.store.EXPECT().User(gomock.Any(), f.user.ID).Return(f.user, nil)
+		f.store.EXPECT().RevokeUserToken(gomock.Any(), f.user.ID, id, sessionstorage.TokenRevokedByHand, aRecord()).Return(httpio.NewNotFoundMessage("no live token"))
 		if err := f.auth.API().RevokeToken(context.Background(), f.user.ID, id); !httpio.HasNotFound(err) {
 			t.Errorf("RevokeToken() error = %v, want NotFound", err)
 		}

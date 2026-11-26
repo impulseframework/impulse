@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/browsername"
 	"github.com/impulseframework/impulse/session/internal/sessioncore"
@@ -177,7 +178,8 @@ func (a *Auth[S, U, Tx]) ForgetBrowsers() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		user := sessioninfo.UserFromCtx(ctx)
-		if err := a.storage.RevokeTrustedDevices(ctx, user.ID, nil); err != nil {
+		forgotten := accountRecord(auditlog.ActBrowsersForgotten, a.acting(ctx), user.ID, user.Username)
+		if err := a.storage.RevokeTrustedDevices(ctx, user.ID, forgotten); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "sessionstorage.AuthStore.RevokeTrustedDevices()"))
 		}
 		a.dropTrustedEntry(ctx, w, impulse.NullUUID{UUID: user.ID, Valid: true})

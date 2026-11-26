@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -53,6 +54,10 @@ type mailLinks struct {
 	// whatever it answered.
 	beforeConsume func(ctx context.Context)
 	consumes      int
+
+	// records are the records of their acts the links were stored and withdrawn with, by
+	// the link's id, in the order the store was handed them (nil for none).
+	records map[impulse.UUID][]*auditlog.Record
 
 	// unmailed holds the ids of the links the store was told could not be mailed.
 	unmailed map[impulse.UUID]bool
@@ -109,13 +114,16 @@ func (m *mailLinks) expectAccounts(f *authFixture) {
 // expectMailLinks gives the fixture's store a mail links table and returns it.
 func expectMailLinks(f *authFixture) *mailLinks {
 	links := &mailLinks{}
-	f.store.EXPECT().InsertMailLink(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, l *sessionstorage.MailLink, _ *auditlog.Record) error {
+	f.store.EXPECT().InsertMailLink(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, l *sessionstorage.MailLink, record *auditlog.Record) error {
 		links.mu.Lock()
 		defer links.mu.Unlock()
-		l.ID = impulse.Must(impulse.NewUUID())
+		if l.ID.IsNil() {
+			l.ID = impulse.Must(impulse.NewUUID())
+		}
 		l.CreatedAt = time.Now()
 		row := *l
 		links.rows = append(links.rows, &row)
+		links.keep(f.t, "InsertMailLink", l, record)
 
 		return nil
 	}).AnyTimes()
@@ -146,7 +154,7 @@ func expectMailLinks(f *authFixture) *mailLinks {
 
 		return httpio.NewNotFoundMessage("no live mail link")
 	}).AnyTimes()
-	f.store.EXPECT().RevokeMailLink(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(ctx context.Context, id impulse.UUID, _ *auditlog.Record) error {
+	f.store.EXPECT().RevokeMailLink(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, id impulse.UUID, record *auditlog.Record) error {
 		if links.beforeRevoke != nil {
 			links.beforeRevoke(ctx)
 		}
@@ -157,6 +165,7 @@ func expectMailLinks(f *authFixture) *mailLinks {
 			if l.ID != id || l.ConsumedAt != nil {
 				continue
 			}
+			links.keep(f.t, "RevokeMailLink", l, record)
 			now := time.Now()
 			l.ConsumedAt = &now
 			if links.withdrawn == nil {
@@ -203,6 +212,46 @@ func expectMailLinks(f *authFixture) *mailLinks {
 	}).AnyTimes()
 
 	return links
+}
+
+// keep holds the record a write of the link l was handed to the acts the session library
+// records, and keeps it by the link's id: a sign-up's link and a first password's code
+// are recorded by nobody, a withdrawal is recorded for an invitation alone, and any other
+// link stored is handed the record of its act, which must validate. The caller holds the
+// table's lock.
+func (m *mailLinks) keep(t *testing.T, call string, l *sessionstorage.MailLink, record *auditlog.Record) {
+	t.Helper()
+
+	recorded := l.Kind != sessionstorage.MailLinkSignUp && l.Kind != sessionstorage.MailLinkFirstPassword
+	if call == "RevokeMailLink" {
+		recorded = l.Kind == sessionstorage.MailLinkInvitation
+	}
+	// An invitation that names no role and makes no tenant is recorded by nobody.
+	if call == "InsertMailLink" && l.Kind == sessionstorage.MailLinkInvitation && len(l.RoleNames) == 0 && l.NewTenant == nil {
+		recorded = false
+	}
+	switch {
+	case !recorded && record != nil:
+		t.Errorf("%s of a %s link was handed the record %+v, want none", call, l.Kind, record)
+	case recorded && record == nil:
+		t.Errorf("%s of a %s link was handed no record, want the record of its act", call, l.Kind)
+	case record != nil:
+		if err := record.Validate(); err != nil {
+			t.Errorf("%s of a %s link was handed a record that does not validate: %v", call, l.Kind, err)
+		}
+	}
+	if m.records == nil {
+		m.records = make(map[impulse.UUID][]*auditlog.Record)
+	}
+	m.records[l.ID] = append(m.records[l.ID], record)
+}
+
+// recordsOf are the records the writes of the link id were handed, in order.
+func (m *mailLinks) recordsOf(id impulse.UUID) []*auditlog.Record {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return slices.Clone(m.records[id])
 }
 
 // live is the live row holding hash, or nil.
@@ -254,7 +303,7 @@ func (m *mailLinks) insert(l *sessionstorage.MailLink) {
 func (m *mailLinks) expectConfirmation(f *authFixture, userID impulse.UUID, email string, row *sessionstorage.SessionUser) *gomock.Call {
 	return f.store.EXPECT().ConfirmAddressByLink(gomock.Any(), gomock.Cond(func(c *sessionstorage.AddressConfirmation) bool {
 		return c.UserID == userID && c.Email == email
-	}), gomock.Nil()).DoAndReturn(func(_ context.Context, c *sessionstorage.AddressConfirmation, _ *auditlog.Record) (*sessionstorage.ConfirmedAddress, error) {
+	}), aConfirmationRecord()).DoAndReturn(func(_ context.Context, c *sessionstorage.AddressConfirmation, _ *auditlog.Record) (*sessionstorage.ConfirmedAddress, error) {
 		return m.confirm(f, c, row)
 	})
 }

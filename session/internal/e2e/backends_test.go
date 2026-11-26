@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 	"github.com/jackc/pgx/v5"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
 
@@ -53,6 +54,15 @@ type appDB interface {
 	declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory)
 	// seatDirectory gives one of tenant's declared directories a default seat.
 	seatDirectory(ctx context.Context, t *testing.T, tenant string, directory signin.Directory, seat accesstypes.Role)
+	// auditRows reads the Auth's audit log, oldest first.
+	auditRows(ctx context.Context, t *testing.T) []auditRow
+}
+
+// auditRow is a row of the Auth's audit log as a scenario reads it: the act, what it was
+// done to, who acted (a person's account or a process, "" where the row names none), and
+// the value the act set.
+type auditRow struct {
+	Act, SubjectID, SubjectName, ActorUserID, Process, NewValue string
 }
 
 // appRows reads and writes the application's own tables in a sign-in's transaction, the
@@ -246,6 +256,30 @@ func (d postgresDB) username(ctx context.Context, t *testing.T, userID impulse.U
 	return username
 }
 
+func (d postgresDB) auditRows(ctx context.Context, t *testing.T) []auditRow {
+	t.Helper()
+
+	rows, err := d.Query(ctx, `SELECT "Act", "SubjectId", COALESCE("SubjectName", ''), COALESCE("ActorUserId", ''), COALESCE("Process", ''),
+		COALESCE("NewValue", '') FROM "SessionAuditRecords" ORDER BY "CreatedAt"`)
+	if err != nil {
+		t.Fatalf("read the audit log: %v", err)
+	}
+	defer rows.Close()
+	var got []auditRow
+	for rows.Next() {
+		var r auditRow
+		if err := rows.Scan(&r.Act, &r.SubjectID, &r.SubjectName, &r.ActorUserID, &r.Process, &r.NewValue); err != nil {
+			t.Fatalf("read the audit log: %v", err)
+		}
+		got = append(got, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read the audit log: %v", err)
+	}
+
+	return got
+}
+
 func (d postgresDB) attemptOutcome(ctx context.Context, t *testing.T, subject string) string {
 	t.Helper()
 
@@ -426,6 +460,29 @@ func (d spannerDB) username(ctx context.Context, t *testing.T, userID impulse.UU
 	}
 
 	return username
+}
+
+func (d spannerDB) auditRows(ctx context.Context, t *testing.T) []auditRow {
+	t.Helper()
+
+	iter := d.Single().Query(ctx, spanner.Statement{SQL: `SELECT Act, SubjectId, IFNULL(SubjectName, ''), IFNULL(ActorUserId, ''), IFNULL(Process, ''),
+		IFNULL(NewValue, '') FROM SessionAuditRecords ORDER BY CreatedAt`})
+	defer iter.Stop()
+	var got []auditRow
+	for {
+		row, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			return got
+		}
+		if err != nil {
+			t.Fatalf("read the audit log: %v", err)
+		}
+		var r auditRow
+		if err := row.Columns(&r.Act, &r.SubjectID, &r.SubjectName, &r.ActorUserID, &r.Process, &r.NewValue); err != nil {
+			t.Fatalf("read the audit log: %v", err)
+		}
+		got = append(got, r)
+	}
 }
 
 func (d spannerDB) attemptOutcome(ctx context.Context, t *testing.T, subject string) string {

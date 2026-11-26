@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/internal/attempts"
@@ -362,7 +363,8 @@ func (a *Auth[S, U, Tx]) setFirstPassword(ctx context.Context, userID impulse.UU
 	if err != nil {
 		return err
 	}
-	if err := a.storage.SetFirstUserPassword(ctx, user.ID, hash, nil); err != nil {
+	chosen := accountRecord(auditlog.ActPasswordChosen, a.acting(ctx), user.ID, user.Username)
+	if err := a.storage.SetFirstUserPassword(ctx, user.ID, hash, chosen); err != nil {
 		if errors.Is(err, sessionstorage.ErrPasswordHeld) {
 			return errPasswordHeld()
 		}

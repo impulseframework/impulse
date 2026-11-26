@@ -74,7 +74,7 @@ func TestAuth_ChangeUserPassword_keepsTheBrowser(t *testing.T) {
 		SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(userID),
 	}, nil)
 	f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil).Times(2)
-	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil()), gomock.Nil()).Return(nil)
+	f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil()), aRecord()).Return(nil)
 	got := "no session"
 	createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) { got = req.Browser })
 
@@ -383,7 +383,7 @@ func TestAuth_ForgetBrowsers(t *testing.T) {
 		c.userID.String():    {Token: mine, At: time.Now().Unix()},
 		someoneElse.String(): {Token: theirs, At: time.Now().Unix()},
 	})
-	c.f.store.EXPECT().RevokeTrustedDevices(gomock.Any(), c.userID, gomock.Nil()).Return(nil)
+	c.f.store.EXPECT().RevokeTrustedDevices(gomock.Any(), c.userID, aRecord()).Return(nil)
 
 	r := httptest.NewRequestWithContext(c.ctx(), http.MethodPost, "/api/user/browser/forget-all", http.NoBody)
 	for _, ck := range carried {

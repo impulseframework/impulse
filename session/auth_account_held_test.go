@@ -309,7 +309,7 @@ func TestAuthAPI_CreateApplicationToken_heldToTheLibrarysAccount(t *testing.T) {
 				f.store.EXPECT().User(gomock.Any(), patID).Return(tt.own, tt.ownErr)
 			}
 			var stored []*sessionstorage.Token
-			f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
+			f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), aRecord()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
 				stored = append(stored, tok)
 
 				return nil

@@ -435,7 +435,8 @@ type AuthStore[Tx any] interface {
 	// dark, and a palette id longer than the store keeps, is a BadRequest.
 	SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error
 	// InsertMailLink stores a mailed link's row: l.TokenHash is the hash of the opaque
-	// token the mail carries. The row's ID is set on l.
+	// token the mail carries. A link that holds an ID keeps it, as an invitation whose
+	// record names it does; one with none is given a new one, set on l.
 	InsertMailLink(ctx context.Context, l *MailLink, record *auditlog.Record) error
 	// MailLink returns the live mail link holding tokenHash: not consumed and not
 	// expired. Any other is NotFound.
@@ -1041,11 +1042,13 @@ func (a *Auth[Tx]) InsertMailLink(ctx context.Context, l *MailLink, record *audi
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	id, err := impulse.NewUUID()
-	if err != nil {
-		return errors.Wrap(err, "impulse.NewUUID()")
+	if l.ID.IsNil() {
+		id, err := impulse.NewUUID()
+		if err != nil {
+			return errors.Wrap(err, "impulse.NewUUID()")
+		}
+		l.ID = id
 	}
-	l.ID = id
 	if err := a.db.InsertMailLink(ctx, l, record); err != nil {
 		return errors.Wrap(err, "db.InsertMailLink()")
 	}

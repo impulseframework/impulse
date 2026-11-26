@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/internal/attempts"
@@ -200,7 +202,7 @@ func (a *Auth[S, U, Tx]) mailOwnReset(ctx context.Context, email string) error {
 		return nil
 	}
 
-	return a.mailReset(ctx, user, AskedByPerson())
+	return a.mailReset(ctx, user, AskedByPerson(), eventsource.ProcessEvent(auditlog.ProcessSignInPage))
 }
 
 // resettable reports whether a reset link mailed to email counts for user: the account
@@ -213,8 +215,9 @@ func resettable(user *sessionstorage.SessionUser, email string) bool {
 
 // mailReset stores a reset link for user and mails it to the address the account holds
 // confirmed, saying who asked. A message that could not be sent withdraws the link, so
-// none stands that nobody holds.
-func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.SessionUser, by AskedBy) error {
+// none stands that nobody holds. The link is recorded as sent by source, in the tenant whose
+// administrator asked (by).
+func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.SessionUser, by AskedBy, source eventsource.EventSource) error {
 	m := a.settings.mail
 	token, hash, err := linkToken()
 	if err != nil {
@@ -224,7 +227,9 @@ func (a *Auth[S, U, Tx]) mailReset(ctx context.Context, user *sessionstorage.Ses
 	link := &sessionstorage.MailLink{
 		TokenHash: hash, Kind: sessionstorage.MailLinkPasswordReset, Email: email, UserID: impulse.NullUUIDFromUUID(user.ID), ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := a.storage.InsertMailLink(ctx, link, nil); err != nil {
+	sent := accountRecord(auditlog.ActPasswordResetLinkSent, source, user.ID, user.Username)
+	a.inTenant(sent, by)
+	if err := a.storage.InsertMailLink(ctx, link, sent); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
 	if err := a.send(ctx, m.passwordResetMessage(email, token, lifetime, by, a.administratorOf(m, by))); err != nil {
@@ -276,7 +281,7 @@ func (p *AuthAPI[S, U, Tx]) SendPasswordReset(ctx context.Context, userID impuls
 		return err
 	}
 
-	return a.mailReset(ctx, user, by)
+	return a.mailReset(ctx, user, by, a.acting(ctx))
 }
 
 // resetLink reads the live reset link token names and the account it is for, and
@@ -402,7 +407,8 @@ func (a *Auth[S, U, Tx]) completeReset(ctx context.Context, token, password stri
 
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.ConsumeMailLink()")
 	}
-	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash, nil); err != nil {
+	chosen := accountRecord(auditlog.ActPasswordChosen, eventsource.ProcessEvent(auditlog.ProcessResetLink), user.ID, user.Username)
+	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash, chosen); err != nil {
 		if errors.Is(err, sessionstorage.ErrPasswordChanged) {
 			return nil, httpio.NewConflictMessageWithError(err, "Your password was changed while you were choosing a new one, so this link did not change it. Sign in with your password, or ask for a new link")
 		}
@@ -497,7 +503,11 @@ func (p *AuthAPI[S, U, Tx]) SetSelfServiceReset(ctx context.Context, on bool) er
 	if !a.registered().passwordRegistered() {
 		return httpio.NewConflictMessage("Nobody signs in to this application with a password, so there is none to reset.")
 	}
-	if err := a.storage.SetSelfServiceReset(ctx, string(sessioninfo.MethodPassword), on, nil); err != nil {
+	act := auditlog.ActSelfServiceResetOff
+	if on {
+		act = auditlog.ActSelfServiceResetOn
+	}
+	if err := a.storage.SetSelfServiceReset(ctx, string(sessioninfo.MethodPassword), on, settingRecord(act, a.acting(ctx), auditlog.SettingSelfServiceReset)); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SetSelfServiceReset()")
 	}
 

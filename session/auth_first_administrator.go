@@ -9,6 +9,8 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
+	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -243,7 +245,7 @@ func (p *AuthAPI[S, U, Tx]) inviteFirstAdministrator(ctx context.Context, holder
 			return &FirstAdministrator{Outcome: FirstAdministratorRoleHeld, Withdrawn: result.Withdrawn}, nil
 		}
 	}
-	invitation, err := p.Invite(ctx, &InvitationRequest{Email: bare, RoleNames: roles})
+	invitation, err := p.invite(ctx, &InvitationRequest{Email: bare, RoleNames: roles}, eventsource.ProcessEvent(auditlog.ProcessMigrate))
 	if err != nil {
 		return nil, withdrawnBefore(err, result.Withdrawn)
 	}
@@ -386,7 +388,8 @@ func (p *AuthAPI[S, U, Tx]) withdrawFirstAdministrator(ctx context.Context, hold
 // an invitation that no longer stood, accepted or run out since it was read, which is
 // no error and withdraws nothing.
 func (p *AuthAPI[S, U, Tx]) revokeFirstAdministrator(ctx context.Context, inv *sessioninfo.Invitation, result *FirstAdministrator) (gone bool, err error) {
-	err = p.auth.storage.RevokeMailLink(ctx, inv.ID, nil)
+	withdrawn := invitationRecord(auditlog.ActInvitationWithdrawn, eventsource.ProcessEvent(auditlog.ProcessMigrate), inv.ID, inv.Email)
+	err = p.auth.storage.RevokeMailLink(ctx, inv.ID, withdrawn)
 	switch {
 	case err == nil:
 		result.Withdrawn = append(result.Withdrawn, inv.Email)

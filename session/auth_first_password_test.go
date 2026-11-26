@@ -67,7 +67,7 @@ func sendFirstPasswordCode(t *testing.T, f *authFixture, recorder *mail.Recorder
 // how many were written.
 func expectFirstPassword(f *authFixture, user *sessionstorage.SessionUser) *int {
 	written := new(int)
-	f.store.EXPECT().SetFirstUserPassword(gomock.Any(), user.ID, gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, _ impulse.UUID, hash *securehash.Hash, _ *auditlog.Record) error {
+	f.store.EXPECT().SetFirstUserPassword(gomock.Any(), user.ID, gomock.Any(), aRecord()).DoAndReturn(func(_ context.Context, _ impulse.UUID, hash *securehash.Hash, _ *auditlog.Record) error {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		if user.PasswordHash != nil {

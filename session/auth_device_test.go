@@ -229,7 +229,7 @@ func TestApplicationTokenHandlers(t *testing.T) {
 	f.user = pat(userID)
 	f.expectSession(sessionID, f.user)
 	var stored *sessionstorage.Token
-	f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), gomock.Nil()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
+	f.store.EXPECT().InsertToken(gomock.Any(), gomock.Any(), aRecord()).DoAndReturn(func(_ context.Context, tok *sessionstorage.Token, _ *auditlog.Record) error {
 		stored = tok
 
 		return nil
@@ -237,7 +237,7 @@ func TestApplicationTokenHandlers(t *testing.T) {
 	f.store.EXPECT().Tokens(gomock.Any(), userID).DoAndReturn(func(context.Context, impulse.UUID) ([]*sessionstorage.Token, error) {
 		return []*sessionstorage.Token{stored}, nil
 	})
-	f.store.EXPECT().RevokeUserToken(gomock.Any(), userID, gomock.Any(), sessionstorage.TokenRevokedByHand, gomock.Nil()).DoAndReturn(func(_ context.Context, _, id impulse.UUID, _ sessionstorage.TokenRevocation, _ *auditlog.Record) error {
+	f.store.EXPECT().RevokeUserToken(gomock.Any(), userID, gomock.Any(), sessionstorage.TokenRevokedByHand, aRecord()).DoAndReturn(func(_ context.Context, _, id impulse.UUID, _ sessionstorage.TokenRevocation, _ *auditlog.Record) error {
 		if id != stored.ID {
 			return httpio.NewNotFoundMessage("no live token")
 		}

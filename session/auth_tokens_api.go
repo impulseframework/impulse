@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -104,7 +105,9 @@ func (p *AuthAPI[S, U, Tx]) CreateApplicationToken(ctx context.Context, req *App
 		ID: id, TokenHash: hash, Kind: sessionstorage.TokenApplication, UserID: user.ID, Outlet: req.Outlet, Name: name,
 		ExpiresAt: time.Now().Add(lifetime),
 	}
-	if err := a.storage.InsertToken(ctx, tok, nil); err != nil {
+	made := accountRecord(auditlog.ActTokenMade, a.acting(ctx), user.ID, user.Username)
+	made.NewValue = name
+	if err := a.storage.InsertToken(ctx, tok, made); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertToken()")
 	}
 
@@ -158,7 +161,11 @@ func (p *AuthAPI[S, U, Tx]) RevokeToken(ctx context.Context, userID, id impulse.
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := p.auth.storage.RevokeUserToken(ctx, userID, id, sessionstorage.TokenRevokedByHand, nil); err != nil {
+	revoked, err := p.auth.accountRecordOf(ctx, auditlog.ActTokenRevoked, p.auth.acting(ctx), userID)
+	if err != nil {
+		return err
+	}
+	if err := p.auth.storage.RevokeUserToken(ctx, userID, id, sessionstorage.TokenRevokedByHand, revoked); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeUserToken()")
 	}
 
