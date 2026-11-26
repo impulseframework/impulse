@@ -46,10 +46,11 @@ With a candidate and a directory, render copies one of the embedded skeleton tem
 a new or empty directory under the module path --module names, rewriting every import and
 go.mod to it, and pins the framework as impulse new does: go.mod requires the framework
 module at the running impulse's version and the web roots pin the browser packages at it
-(an impulse installed from a commit pins them at the latest release's, since a commit
-publishes none), resolved with go get -tool and settled with go mod tidy. It is the
-primitive impulse new builds on, and the way the templates are validated: render one, then
-build, test, and check the result. The placeholder auth (staff) is kept; new renames it.
+(an impulse installed from a commit pins them at the release named by the last step of the
+upgrade ledger, since a commit publishes none), resolved with go get -tool and settled with
+go mod tidy. It is the primitive impulse new builds on, and the way the templates are
+validated: render one, then build, test, and check the result. The placeholder auth (staff)
+is kept; new renames it.
 The application is named after the module path's last segment unless --name says
 otherwise.
 
