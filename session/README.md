@@ -682,7 +682,9 @@ them.
 An assignment that ends by its period is recorded when its row is cleared, at the
 person's next sign-in, not at the moment it ended; the row that gave it says when
 it would end. On PostgreSQL the roles an accepted invitation or a sign-up gives
-are written by no generated management, so they have no row there.
+are written by no generated management, so they have no row there. A link's row is
+written when the link is stored, before it is mailed. Where the mail then fails, the
+person who asked is told so and the row stays.
 
 ### Open to sign-up, or invite only
 
