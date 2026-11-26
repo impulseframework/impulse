@@ -920,8 +920,8 @@ console writes no page for any of it. The generated API description names each l
 method of an auth's management by what it is, and the browser library builds the pages
 from it (`identityRoutes` in
 [`web/console/src/app/app.routes.ts`](web/console/src/app/app.routes.ts)): the crew's
-accounts, mailed links, sessions and failed sign-ins, and the members', each in its own
-group of the navigation ("Crew accounts", "Members accounts"), with a person's row page
+accounts, mailed links, sessions, failed sign-ins and audit log, and the members', each in
+its own group of the navigation ("Crew accounts", "Members accounts"), with a person's row page
 holding the roles held, the sign-in identities and the sessions. A crew member's page
 also lists the ways they sign in, the password where they hold one and each identity
 that can sign them in, as the server judges it, and above that list offers Remove
@@ -976,7 +976,7 @@ beside the lists (`invite-crew-sector-user`, `assign-crew-sector-role`,
 `remove-crew-sector-role` and the account methods), each run against a row of the
 sector's lists, so a grant's condition decides row by row: the Sector Marshal disables a
 person whose account the sector manages and nobody else, and gives every role but its
-own. The sector's People and Invitations pages ("Sector crew", under the
+own. The sector's People, Invitations and Audit log pages ("Sector crew", under the
 sector's URL) are built by the library from the same description.
 
 Who may enter a sector is the sector record's declaration, data of the application
