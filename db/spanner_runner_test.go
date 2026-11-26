@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/anypb" //nolint:depguard // heldAsSpannerHolds rewrites a DDL operation's metadata, which the reply holds as an anypb.Any; without this import only reflection by method name could reach it.
 )
 
 // The fixtures the runner tests apply: a table with a value column, so that a unique index
@@ -196,11 +196,12 @@ func readVersionRow(ctx context.Context, t *testing.T, client *spanner.Client, t
 	return rows[0], true
 }
 
-// writeVersionRow writes a version table's row by hand, as a stopped run or the old library
-// would have left it.
-func writeVersionRow(ctx context.Context, t *testing.T, client *spanner.Client, table string, r *versionRow) {
+// writeVersionRow writes the schema migrations table's row by hand, as a stopped run or the
+// old library would have left it.
+func writeVersionRow(ctx context.Context, t *testing.T, client *spanner.Client, r *versionRow) {
 	t.Helper()
 
+	const table = "SchemaMigrations"
 	if _, err := client.Apply(ctx, []*spanner.Mutation{
 		spanner.Delete(table, spanner.AllKeys()),
 		spanner.Insert(table, []string{"Version", "Dirty", "Applied", "Checkpoint", "Operation"}, []any{r.version, r.dirty, r.applied, r.checkpoint, r.operation}),
@@ -883,7 +884,7 @@ func testNotCarried(dirty bool) func(ctx context.Context, t *testing.T, containe
 		if err := migrator.MigrateUpSchema(ctx, source); err != nil {
 			t.Fatalf("MigrateUpSchema() error = %v", err)
 		}
-		writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &versionRow{
+		writeVersionRow(ctx, t, db.Client, &versionRow{
 			version:    41,
 			dirty:      dirty,
 			applied:    spanner.NullInt64{Int64: 1, Valid: dirty},
@@ -1069,7 +1070,7 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 				checkpoint: spanner.NullString{StringVal: checkpoint, Valid: true},
 				operation:  spanner.NullString{StringVal: name, Valid: true},
 			}
-			writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &written)
+			writeVersionRow(ctx, t, db.Client, &written)
 
 			err := migrator.MigrateUpSchema(ctx, source)
 			if tt.wantErr != "" {
@@ -1203,7 +1204,7 @@ func testRecordedWaitCut(ctx context.Context, t *testing.T, container *SpannerCo
 		checkpoint: spanner.NullString{StringVal: runner.Checkpoint(batch), Valid: true},
 		operation:  spanner.NullString{StringVal: op.Name(), Valid: true},
 	}
-	writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &want)
+	writeVersionRow(ctx, t, db.Client, &want)
 
 	first.armed.Store(true)
 	err = migrator.MigrateUpSchema(runCtx, source)
@@ -1221,7 +1222,7 @@ func testRecordedWaitCut(ctx context.Context, t *testing.T, container *SpannerCo
 		t.Fatalf("MigrateUpSchema() with a live context error = %v", err)
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 2)
-	assertTablesAB(ctx, t, db, true)
+	assertTablesAB(ctx, t, db)
 }
 
 // testSentWaitRefused: a stopped run named its operation on the row and never sent the batch;
@@ -1244,7 +1245,7 @@ func testSentWaitRefused(ctx context.Context, t *testing.T, container *SpannerCo
 	// A name of the runner's own form: migrate_ and 32 lower-case hex digits.
 	name := db.dbStr + "/operations/migrate_0123456789abcdef0123456789abcdef"
 	batch := []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateB, ";")}
-	writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &versionRow{
+	writeVersionRow(ctx, t, db.Client, &versionRow{
 		version:    2,
 		dirty:      true,
 		applied:    spanner.NullInt64{Int64: 0, Valid: true},
@@ -1268,7 +1269,7 @@ func testSentWaitRefused(ctx context.Context, t *testing.T, container *SpannerCo
 		t.Fatalf("MigrateUpSchema() again error = %v", err)
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 2)
-	assertTablesAB(ctx, t, db, true)
+	assertTablesAB(ctx, t, db)
 }
 
 // TestSpannerMigrator_CommitHoldsTheRow writes the version row through Commit, as a run does:
@@ -1441,13 +1442,13 @@ func migrateAB(ctx context.Context, t *testing.T, container *SpannerContainer, s
 	return db, migrator, source
 }
 
-// assertTablesAB checks tables A and B exist, or that neither does.
-func assertTablesAB(ctx context.Context, t *testing.T, db *SpannerDB, want bool) {
+// assertTablesAB checks tables A and B exist.
+func assertTablesAB(ctx context.Context, t *testing.T, db *SpannerDB) {
 	t.Helper()
 
 	for _, table := range []string{"A", "B"} {
-		if got := exists(ctx, t, db.Client, "table", table); got != want {
-			t.Errorf("table %s exists = %t, want %t", table, got, want)
+		if !exists(ctx, t, db.Client, "table", table) {
+			t.Errorf("table %s does not exist", table)
 		}
 	}
 }
@@ -1471,7 +1472,7 @@ func testSendAnswerLost(ctx context.Context, t *testing.T, container *SpannerCon
 		t.Fatalf("MigrateUpSchema() error = %v", err)
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
-	assertTablesAB(ctx, t, db, true)
+	assertTablesAB(ctx, t, db)
 	if ids := sends.sent(); len(ids) != 2 || ids[0] != ids[1] {
 		t.Errorf("named sends = %v, want two under one operation ID", ids)
 	}
@@ -1507,7 +1508,7 @@ func testSendAnswerUnknown(ctx context.Context, t *testing.T, container *Spanner
 		t.Fatalf("MigrateUpSchema() again error = %v", err)
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
-	assertTablesAB(ctx, t, db, true)
+	assertTablesAB(ctx, t, db)
 }
 
 // testTakenUpBeforeTheSend: a second run takes the file up after the first run named its
@@ -1536,7 +1537,7 @@ func testTakenUpBeforeTheSend(ctx context.Context, t *testing.T, container *Span
 		t.Errorf("MigrateUpSchema() error = %v, want ErrAnotherRun", err)
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
-	assertTablesAB(ctx, t, db, true)
+	assertTablesAB(ctx, t, db)
 	if ids := sends.sent(); len(ids) != 1 {
 		t.Errorf("named sends = %v, want one", ids)
 	}
@@ -1566,7 +1567,7 @@ func testTakenUpWithAnotherFile(ctx context.Context, t *testing.T, container *Sp
 		t.Fatalf("MigrateUpSchema() error = %v", err)
 	}
 	assertClean(ctx, t, db.Client, "SchemaMigrations", 1)
-	assertTablesAB(ctx, t, db, true)
+	assertTablesAB(ctx, t, db)
 	if exists(ctx, t, db.Client, "table", "C") {
 		t.Error("table C exists: the run with another file sent its batch")
 	}
@@ -1868,7 +1869,7 @@ func TestSpannerMigrator_DownRefusals(t *testing.T) {
 				t.Fatalf("MigrateUp() error = %v", err)
 			}
 			if tt.dirty {
-				writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &versionRow{version: 1, dirty: true})
+				writeVersionRow(ctx, t, db.Client, &versionRow{version: 1, dirty: true})
 			}
 
 			err := db.MigrateDown(source)
