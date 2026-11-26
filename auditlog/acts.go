@@ -202,12 +202,10 @@ func shapes() []actShape {
 		shape(ActPasswordRemoved, SubjectAccount, "Password removed", "Removed the password"),
 		shape(ActPasswordChangeRequired, SubjectAccount, "New password required", "Required a new password"),
 		shape(ActIdentityUnlinked, SubjectAccount, "Sign-in identity unlinked", "Unlinked the sign-in through {OldValue}", need(columnOldValue)),
-		orWhenSame(shapeOrWhenEmpty(ActAddressChangeAsked, SubjectAccount, "Address change asked", "Asked to change the email address from {OldValue} to {NewValue}",
-			"{OldValue}", "Asked to set the email address to {NewValue}", mayBeEmpty(columnOldValue), need(columnNewValue)),
-			"Asked to confirm the email address {NewValue}"),
-		orWhenSame(shapeOrWhenEmpty(ActAddressChanged, SubjectAccount, "Address changed", "Changed the email address from {OldValue} to {NewValue}",
-			"{OldValue}", "Set the email address to {NewValue}", mayBeEmpty(columnOldValue), need(columnNewValue)),
-			"Confirmed the email address {NewValue}"),
+		addressShape(ActAddressChangeAsked, "Address change asked", "Asked to change the email address from {OldValue} to {NewValue}",
+			"Asked to set the email address to {NewValue}", "Asked to confirm the email address {NewValue}"),
+		addressShape(ActAddressChanged, "Address changed", "Changed the email address from {OldValue} to {NewValue}",
+			"Set the email address to {NewValue}", "Confirmed the email address {NewValue}"),
 		shape(ActUsernameChanged, SubjectAccount, "Username changed", "Changed the username from {OldValue} to {NewValue}", need(columnOldValue, columnNewValue)),
 		shape(ActAccountDisabled, SubjectAccount, "Account disabled", "Disabled the account"),
 		shape(ActAccountEnabled, SubjectAccount, "Account enabled", "Enabled the account"),
@@ -269,10 +267,13 @@ func shapeOrWhenEmpty(act Act, kind SubjectKind, words, sentence, part, otherwis
 	}
 }
 
-// orWhenSame is the shape s whose sentence is another for a row whose old value is its new
-// one: an address confirmed where it was the one the account held already.
-func orWhenSame(s actShape, sentence string) actShape {
-	s.same = sentence
+// addressShape is the shape of an act on an account's email address, done to the
+// account: its sentence names the old address and the new one, otherwise is its sentence
+// where the account held none, and same where the new address is the one the account held
+// already (an address confirmed).
+func addressShape(act Act, words, sentence, otherwise, same string) actShape {
+	s := shapeOrWhenEmpty(act, SubjectAccount, words, sentence, "{OldValue}", otherwise, mayBeEmpty(columnOldValue), need(columnNewValue))
+	s.same = same
 
 	return s
 }
