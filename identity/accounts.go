@@ -124,8 +124,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // until a save takes the last of them. Once the row goes, every session the person holds
 // is ended, and their identity links, every membership they hold, every role they hold
 // on a record that has not ended and their place in every group go with it, and the
-// permission engine is told once the transaction has committed. The save that deletes the row writes the row of the account's delete, done
-// to the account by the username the transaction read; what goes with the account has no
+// permission engine is told once the transaction has committed. The save that deletes the
+// row writes the row of the account's delete, done to the account by the username the
+// transaction read; what goes with the account has no
 // row of its own. Nobody deletes themselves: the person acting, the real person behind the
 // session, is refused their own account, and a session that views as someone else the
 // account it views as (refuseOwnAccount). In a session that acts as someone else the

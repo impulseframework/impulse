@@ -6977,7 +6977,9 @@ role. Write @holdsRoles on the Project struct, or take Projects out of the role'
 
 An update is asked of the row before and after: a row that an update would move out from
 under every record the role is held on is refused. A holder of a role on one record sets a
-column to the rows that record reaches and no others (section 26).
+column to the rows that record reaches and no others (section 26). A check reads the rows as
+they are stored, so a row created, or moved, under a row that the same request creates is
+refused to a role held on one record: it is sent in a second request.
 
 The grants are the ones the role file writes, with their fields and their conditions: the
 record says which rows a grant reaches and never what it allows. The check of a role file
@@ -7070,7 +7072,9 @@ a record counts for a member while their place in the group and the group's role
 whatever their periods: its question counts them (`3 roles held on it`) beside the rows
 under it, and the delete takes them in its rounds. A tenant's delete takes the roles held on
 its records (`roles held on records`), and a group's delete takes the roles the group holds
-on records. An account's delete takes the roles the account holds on records. An application
+on records. An account's delete takes the roles the account holds on records that have not
+ended; one that has ended stays in its table until the record or the tenant is deleted. An
+application
 that deletes such a record in code of its own hands its delete
 `<Auth>Identity().RecordKinds(accesstypes.NewRecordScope(domain, "Projects", key))`
 (`DeleteAlso`), as the generated delete does. A record that goes with the delete of a row

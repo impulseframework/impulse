@@ -72,7 +72,7 @@ type Record struct {
 	RoleScope         RoleScope               // where that role is held
 	RecordKind        string                  // the record the role is held on, where it is held on one (RoleScopeRecord): its kind, by its resource name
 	RecordID          string                  // that record's key
-	RecordWord        string                  // what one record of its kind is called ("mission")
+	RecordWord        string                  // what one record of its kind is called ("project")
 	RecordName        string                  // that record's name; "" where its kind declares none
 	GroupID           string                  // the group the act names besides its subject
 	GroupName         string                  // that group's name
