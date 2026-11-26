@@ -30,10 +30,28 @@ build_and_publish() {
   (cd "$WEB/dist/resource-firestore" && yalc publish --push)
 }
 
+PACKAGES=(@impulseframework/resource @impulseframework/resource-angular @impulseframework/resource-firestore)
+
+# yalc add rewrites the dependencies alone. Every other spec package.json holds for the three
+# packages takes the same file:.yalc spec, the overrides entry first of all: bun installs what
+# an override names in place of what the dependencies name, so an override left at the
+# published version brings in the registry's client in place of the attached one, and the build
+# fails on every export that release lacks.
+attach_pins() {
+  local name
+  for name in "${PACKAGES[@]}"; do
+    sed "s|\"$name\"\([[:space:]]*:[[:space:]]*\)\"[^\"]*\"|\"$name\"\1\"file:.yalc/$name\"|g" package.json > package.json.attaching
+    mv package.json.attaching package.json
+  done
+}
+
 case "${1:-}" in
   local)
     build_and_publish
-    (cd "$GUI_DIR" && yalc add @impulseframework/resource @impulseframework/resource-angular @impulseframework/resource-firestore && bun install)
+    cd "$GUI_DIR"
+    yalc add "${PACKAGES[@]}"
+    attach_pins
+    bun install
     ;;
   push)
     build_and_publish
