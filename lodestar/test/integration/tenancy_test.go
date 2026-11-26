@@ -298,10 +298,17 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 		t.Fatalf("spanner.Apply(): %v", err)
 	}
 
+	// A pass's person is picked from the sector's people, so the pilot is one of Bastion's,
+	// as the bootstrap seats them: their account, and the Pilot's role there.
+	if err := seedCastAccounts(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	seatInSector(ctx, t, db, person, "Pilot", bastion)
+
 	h := newTestApp(db, grants{
 		accesstypes.Create: append(withFields("HangarPasses", "hangarId", "userId", "levelId"), withFields("DistressRelays", "caseNumber", "message", "answersRelayId")...),
 		accesstypes.Update: withFields("HangarPasses", "hangarId"),
-		accesstypes.List:   {"Hangars", "DistressCalls", "DistressRelays"},
+		accesstypes.List:   {"Hangars", "DistressCalls", "DistressRelays", "CrewSectorUsers"},
 	})
 	addPass := func(t *testing.T, hangar string) (int, []byte) {
 		t.Helper()

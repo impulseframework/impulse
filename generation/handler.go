@@ -68,6 +68,9 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 	if err := r.generateNameViews(); err != nil {
 		return errors.Wrap(err, "generateNameViews()")
 	}
+	if err := r.generateNamedRowSources(); err != nil {
+		return errors.Wrap(err, "generateNamedRowSources()")
+	}
 
 	if err := r.generateFeatures(); err != nil {
 		return errors.Wrap(err, "generateFeatures()")
@@ -277,6 +280,7 @@ func (r *resourceGenerator) generateHomeDecoders(home *handlerHome) error {
 		RPCPackage:              f.rpcPackage,
 		RouterPackage:           r.router.Package(),
 		NameViews:               r.nameViewsOf(home),
+		NamedRowSources:         namedRowSourcesCall(home),
 		HasQueryDecoder:         f.hasQuery,
 		HasComputedQueryDecoder: f.hasComputed,
 		HasPatchDecoder:         f.hasPatch,

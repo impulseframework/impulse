@@ -85,6 +85,10 @@ func nameFixtureTables() map[string]*tableMetadata {
 			Indexes: []indexMeta{{Name: "SealsSearch", Search: true, Key: []indexColumn{{Column: "Motto_Search"}}}},
 		},
 		"Wards": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Alias": indexed}},
+		"Rotas": {PkCount: 1, Columns: map[string]columnMeta{
+			"Id": pk, "BaseId": to("Bases"), "HangarId": plain, "MemberId": plain, "WingId": to("Wings"), "DrillId": plain, "ShiftId": plain, "RationId": plain,
+		}},
+		"Depots": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HangarId": plain, "ShiftId": plain, "DrillId": plain}},
 		"Dockets": {PkCount: 1, Columns: map[string]columnMeta{
 			"Id": pk, "BadgeId": indexedTo("Badges"), "Grade": indexedTo("Grades"), "SealId": indexedTo("Seals"),
 			"SpareSealId": to("Seals"), "LooseBadgeId": to("Badges"), "KitId": indexedTo("Kits"), "WardId": indexedTo("Wards"),
@@ -92,9 +96,9 @@ func nameFixtureTables() map[string]*tableMetadata {
 	}
 }
 
-// nameFixtureResources extracts the named namefixture structs, tables and views, and
-// resolves across them the way Generate does up to the name fields: the enumerations,
-// the tenant record, then the name fields.
+// nameFixtureResources extracts the named namefixture structs, tables, views and computed
+// lists, and resolves across them the way Generate does up to the name fields: the
+// enumerations, the tenant record, then the name fields.
 func nameFixtureResources(t *testing.T, names ...string) (*client, error) {
 	t.Helper()
 
@@ -110,8 +114,12 @@ func nameFixtureResources(t *testing.T, names ...string) (*client, error) {
 		return nil, err
 	}
 	c.resources = slices.Concat(resources, views)
+	c.computedResources, err = c.structsToCompResources(picked)
+	if err != nil {
+		return nil, err
+	}
 	r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a", domainRouteSegment: defaultDomainRouteSegment, domainRouteParam: defaultDomainRouteParam}
-	if err := r.resolveFieldEnumerations(c.resources, nil); err != nil {
+	if err := r.resolveFieldEnumerations(c.resources, c.computedResources); err != nil {
 		return nil, err
 	}
 	if err := r.resolveTenantRecord(); err != nil {

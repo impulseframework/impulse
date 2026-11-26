@@ -516,6 +516,10 @@ type decodersFileData struct {
 	// into a view is read from: the application's merged nameViews, an auth's own
 	// package's NameViews, or nil where the auth's package declares none.
 	NameViews string
+	// NamedRowSources is the call that answers the named-row sources the decoders a write
+	// can come through are handed: the application's namedRowSources, which merges each
+	// auth's, or an auth's own NamedRowSources.
+	NamedRowSources string
 	// The Has* fields emit each constructor only when a generated handler calls it,
 	// so an application carries no constructor its code does not use.
 	HasQueryDecoder         bool

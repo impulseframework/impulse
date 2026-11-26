@@ -34,6 +34,7 @@ func fileTemplates() map[string]string {
 		"domainGuardTemplate":             domainGuardTemplate,
 		"liveTemplate":                    liveTemplate,
 		"decodersTemplate":                decodersTemplate,
+		"namedRowSourcesTemplate":         namedRowSourcesTemplate,
 		"appContractTemplate":             appContractTemplate,
 		"handlerTestsMainTemplate":        handlerTestsMainTemplate,
 		"authzTestTemplate":               authzTestTemplate,

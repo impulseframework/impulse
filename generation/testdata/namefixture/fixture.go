@@ -551,4 +551,74 @@ type (
 		BaseID impulse.UUID `spanner:"BaseId"`
 		WingID impulse.UUID `spanner:"WingId"`
 	}
+
+	// Flight is a tenant's view over the wings, keyed like them, holding its rows to their
+	// tenant on a column of its own.
+	//
+	// @virtual
+	// @permissionScope(domain)
+	Flight struct {
+		ID impulse.UUID `spanner:"Id" index:"true"` // @primarykey
+		// @domain
+		BaseID   impulse.UUID `spanner:"BaseId"`
+		CallSign string       `spanner:"CallSign"`
+	}
+
+	// Drill is a computed list of the whole application, keyed by one field.
+	//
+	// @computed
+	Drill struct {
+		// @primarykey
+		ID    string
+		Label string
+	}
+
+	// Shift is a computed list of a tenant, keyed by one field.
+	//
+	// @computed
+	// @permissionScope(domain)
+	Shift struct {
+		// @primarykey
+		ID    string
+		Label string
+	}
+
+	// Ration is a computed list whose list handler is suppressed.
+	//
+	// @computed
+	// @suppress(listHandler)
+	Ration struct {
+		// @primarykey
+		ID    string
+		Label string
+	}
+
+	// Rota is a tenant's resource picking from views and computed lists: a tenant's view, a
+	// view of the whole application, a view over the table its foreign key references, a
+	// computed list of the whole application, one of a tenant, and one with no list.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Rota struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID   impulse.UUID `spanner:"BaseId"`
+		HangarID impulse.UUID `spanner:"HangarId"` // @enumerate(Hangars)
+		MemberID impulse.UUID `spanner:"MemberId"` // @enumerate(Members)
+		WingID   impulse.UUID `spanner:"WingId"`   // @enumerate(Flights)
+		DrillID  string       `spanner:"DrillId"`  // @enumerate(Drills)
+		ShiftID  string       `spanner:"ShiftId"`  // @enumerate(Shifts)
+		RationID string       `spanner:"RationId"` // @enumerate(Rations)
+	}
+
+	// Depot is a resource of no tenant picking from a tenant's view and a tenant's
+	// computed list, and from a computed list of the whole application.
+	//
+	// @resource
+	Depot struct {
+		ID       impulse.UUID `spanner:"Id"`
+		HangarID impulse.UUID `spanner:"HangarId"` // @enumerate(Hangars)
+		ShiftID  string       `spanner:"ShiftId"`  // @enumerate(Shifts)
+		DrillID  string       `spanner:"DrillId"`  // @enumerate(Drills)
+	}
 )

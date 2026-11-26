@@ -653,7 +653,9 @@ func TestChangeHistory_keepsClientNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer := newTestApp(db, grants{accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline")})
+	// A mission names its client, picked from the sector's roster, so its writer lists the
+	// roster.
+	writer := newTestApp(db, grants{accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"), accesstypes.List: {"ClientRosters"}})
 	status, body := doRequest(t, writer, http.MethodPatch, "/console/api/resources",
 		fmt.Sprintf(`[{"op":"add","path":%q,"value":{"clientId":%q,"kindId":"rescue","title":"Booked for a client","hazard":1,"fee":100,"deadline":%q}}]`, opPath(anvil, "missions"), clientHalvardID, deadline(365)))
 	assertStatus(t, status, http.StatusOK, body)
@@ -757,9 +759,13 @@ func TestChangeHistory_keepsHolderNames(t *testing.T) {
 		t.Fatalf("writing the person's name and the group: %v", err)
 	}
 
+	// A pass's person is picked from Anvil's people, so the person is made one of them.
+	seatInSector(ctx, t, db, person, "Cadet", anvil)
+
 	passes := accesstypes.Resource("HangarPasses")
-	// A pass names its hangar, so its writer lists the hangars.
-	writer := newTestApp(db, grants{accesstypes.Create: withFields(passes, "hangarId", "userId", "groupId", "levelId"), accesstypes.Delete: {passes}, accesstypes.List: {"Hangars"}})
+	// A pass names its hangar, and its person or its group, picked from the sector's people
+	// and its groups, so its writer lists those.
+	writer := newTestApp(db, grants{accesstypes.Create: withFields(passes, "hangarId", "userId", "groupId", "levelId"), accesstypes.Delete: {passes}, accesstypes.List: {"Hangars", "CrewSectorUsers", "CrewSectorGroups"}})
 	write := func(op, path, value string) []byte {
 		t.Helper()
 

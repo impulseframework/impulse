@@ -53,6 +53,9 @@ func TestChangeTracking(t *testing.T) {
 	hangars := accesstypes.Resource("Hangars")
 	h := newTestApp(db, grants{
 		accesstypes.Create: append(withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"), withFields(hangars, "name", "zone")...),
+		// A mission names its client, picked from the sector's roster, so its writer lists
+		// the roster.
+		accesstypes.List: {"ClientRosters"},
 	})
 
 	tests := []struct {

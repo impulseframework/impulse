@@ -26,10 +26,12 @@ func (Mission) DefaultConfig() resource.Config {
 }
 
 // NamedRows names the columns that name a row of another resource the application lists
-// (AssignedSquadronID): a create or an update sets one only to a row its caller can list, so the
+// (ClientID, BriefingTemplateID, AssignedSquadronID): a create or an update sets one only to a row its caller can list, so the
 // library answers any other as a row that is not there.
 func (Mission) NamedRows() []resource.NamedRow {
 	return []resource.NamedRow{
+		{Field: "ClientID", Resource: "ClientRosters", Table: "ClientRosters", KeyColumn: "Id", TenantColumn: "SectorId", View: true, Stored: &resource.NamedRow{Table: "Clients", KeyColumn: "Id"}},
+		{Field: "BriefingTemplateID", Resource: "BriefingTemplates", Table: "", KeyColumn: "", Computed: true},
 		{Field: "AssignedSquadronID", Resource: "Squadrons", Table: "Squadrons", KeyColumn: "Id", TenantColumn: "WingId", TenantPath: []resource.BindingHop{{Table: "Wings", JoinColumn: "Id", Column: "SectorId"}}},
 	}
 }
