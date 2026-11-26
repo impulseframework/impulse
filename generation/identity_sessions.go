@@ -29,6 +29,15 @@ func (d *identitySourceData) ListedSession() string {
 	return d.auth + listedSessionSuffix
 }
 
+// SessionsPointAtAccounts reports whether the list of the sessions points each session's
+// person at the list of the accounts: where that list is the one with what each holds,
+// which declares no name. Where the schema holds no memberships the accounts' list is
+// the users table's own, which says what its rows are known by, and the pointer would
+// add a generated UserName beside the list's own Username, which generation refuses.
+func (d *identitySourceData) SessionsPointAtAccounts() bool {
+	return d.listsHeldRoles()
+}
+
 // SessionTimeoutParam is sessionTimeoutParam for the list's template.
 func (d *identitySourceData) SessionTimeoutParam() string {
 	return sessionTimeoutParam

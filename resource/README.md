@@ -5306,7 +5306,10 @@ grants each like any resource.
   the list of live sessions under an account list it, it filters by `id`, `userId`,
   `username`, `expired`, `live`, `state`, `signedInWith` and `updatedAt`, and the method
   that ends a session names its session by its row. `CrewSessions`, the sessions table's
-  own list, stays.
+  own list, stays. A session's `userId` points at the list of the accounts
+  (`CrewListedUsers`), which is what opens the account from a session's row. Where the
+  schema holds no memberships table the accounts' list is `CrewSessionUsers` itself, the
+  session's `userId` points at nothing, and its row opens nothing.
 - `CrewListedMailLinks` is the mailed links as a page lists them: the link's columns, its state
   (open, accepted, withdrawn, expired, not mailed), the sender's name, and whether the invitation
   makes a tenant.
