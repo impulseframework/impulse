@@ -456,13 +456,14 @@ func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 			if err != nil {
 				t.Fatalf("generateTemplateOutput(identityStoreTemplate) error = %v", err)
 			}
-			assertContains(t, "the store", squashSpace(string(out)), squashEach(tt.wantContains), squashEach(tt.wantNotContains))
+			store := string(out)
+			assertContains(t, "the store", squashSpace(store), squashEach(tt.wantContains), squashEach(tt.wantNotContains))
 			if len(tt.notInRead) > 0 {
-				at := strings.Index(string(out), signature)
+				at := strings.Index(store, signature)
 				if at < 0 {
 					t.Fatal("the store holds no TenantHoldings that reads")
 				}
-				read, _, _ := strings.Cut(string(out)[at:], "\n}\n")
+				read, _, _ := strings.Cut(store[at:], "\n}\n")
 				assertContains(t, "the store's TenantHoldings", read, nil, tt.notInRead)
 			}
 		})

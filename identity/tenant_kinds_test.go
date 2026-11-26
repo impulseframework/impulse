@@ -330,7 +330,7 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 		// anna: a membership and the user (2); ben: a membership, a place and the user
 		// (3); dora: a link, the user and what the database removes with it (4); and each
 		// the row of the audit log that records its delete.
-		{Rows: 3, Mutations: 9 + 3*deletedRowMutations(t, m, "alpha")},
+		{Rows: 3, Mutations: 9 + 3*deletedRowMutations(t, m)},
 		{Rows: 5, Mutations: 5},
 		// No role is held on alpha's records.
 		{},
@@ -416,12 +416,12 @@ func TestAuditRecordMutations(t *testing.T) {
 }
 
 // deletedRowMutations is what the row of the audit log that records an account's delete
-// with the tenant costs, built as the accounts kind builds it where no session is
+// with alpha costs, built as the accounts kind builds it where no session is
 // (tenantAccounts.deleted): each account's row costs the same.
-func deletedRowMutations(t *testing.T, m *Manager, domain accesstypes.Domain) int {
+func deletedRowMutations(t *testing.T, m *Manager) int {
 	t.Helper()
 
-	kind := &tenantAccounts{&tenantHeld{manager: m, domain: domain}}
+	kind := &tenantAccounts{&tenantHeld{manager: m, domain: "alpha"}}
 	mutations, err := auditRecordMutations(kind.deleted(t.Context(), &tenantAccount{id: annaID, username: "anna"}))
 	if err != nil {
 		t.Fatalf("auditRecordMutations() error = %v", err)
@@ -443,7 +443,7 @@ func TestManager_TenantKinds_takeInRounds(t *testing.T) {
 	m, _ := newManager(t, first, engineRoles)
 	// anna costs her membership, her user, the two rows the database removes with it and
 	// the row of the audit log that records her delete.
-	budget := 4 + deletedRowMutations(t, m, "alpha")
+	budget := 4 + deletedRowMutations(t, m)
 	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		accounts := m.TenantKinds("alpha")[0]
 		rows, mutations, more, err := accounts.Take(ctx, txn, budget)
@@ -485,7 +485,7 @@ func TestManager_TenantKinds_takeInRounds(t *testing.T) {
 		if err != nil {
 			return errors.Wrap(err, "resource.TakenKind.Take()")
 		}
-		if got, want := (takenRows{Rows: rows, Mutations: mutations, More: more}), (takenRows{Rows: 1, Mutations: 3 + deletedRowMutations(t, m, "alpha"), More: true}); got != want {
+		if got, want := (takenRows{Rows: rows, Mutations: mutations, More: more}), (takenRows{Rows: 1, Mutations: 3 + deletedRowMutations(t, m), More: true}); got != want {
 			t.Errorf("the next save's Take() = %+v, want %+v", got, want)
 		}
 
@@ -592,7 +592,7 @@ func TestManager_TenantKinds_sessionsCost(t *testing.T) {
 	// The membership and the row (2), two session endings (10), a record's (7) and the
 	// row of the audit log that records the delete.
 	counting, _ := newManager(t, alphaStore(), engineRoles)
-	cost := 2 + 2*5 + 7 + deletedRowMutations(t, counting, "alpha")
+	cost := 2 + 2*5 + 7 + deletedRowMutations(t, counting)
 	for _, tt := range []struct {
 		name   string
 		budget int
