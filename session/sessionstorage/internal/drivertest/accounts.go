@@ -13,6 +13,10 @@ import (
 	"github.com/impulseframework/impulse/session/signin"
 )
 
+// entraTenantOne is the directory entra's identities come through, as a seat it offers
+// names it.
+var entraTenantOne = signin.Directory{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}
+
 // entra is an external identity of the Entra tenant tenant-1 that signs in under
 // signInName, as the Entra method reports a member: the sign-in name is the user
 // principal name.

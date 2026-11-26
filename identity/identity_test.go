@@ -18,6 +18,7 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
 
@@ -868,6 +869,10 @@ type fakeSessions struct {
 	// signInFailureLimit is how many failed sign-ins lock a name.
 	signInFailureLimit int
 }
+
+// acmeDirectory is the directory the tests' seats are offered through, as the session
+// library names it on each seat.
+var acmeDirectory = signin.Directory{Method: sessioninfo.MethodAzure, Connection: "acme-tenant"}
 
 func (s fakeSessions) DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string) {
 	return s.named[connection], s.labels[method]

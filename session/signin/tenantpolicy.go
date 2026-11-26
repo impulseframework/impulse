@@ -62,10 +62,13 @@ type DirectoryReader[Tx any] func(ctx context.Context, tx Tx, directory Director
 
 // DirectorySeat is a seat a sign-in through a directory offers: a role in a tenant,
 // the default seat of a directory the tenant declared, written by the application's
-// hook where the person holds nothing in the tenant.
+// hook where the person holds nothing in the tenant. Directory is the directory the
+// person signed in through, whose declaration offers the seat: what the hook names as
+// having given the role.
 type DirectorySeat struct {
-	Tenant accesstypes.Domain
-	Role   accesstypes.Role
+	Tenant    accesstypes.Domain
+	Role      accesstypes.Role
+	Directory Directory
 }
 
 // TenantDeclaration is what a tenant declares about who may enter it: the directory

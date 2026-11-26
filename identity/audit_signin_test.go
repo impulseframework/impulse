@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -13,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // actedRow is a row of the audit log as these tests read it: the act, what it was done
@@ -210,4 +212,101 @@ func TestSignInActsRecorded(t *testing.T) {
 			t.Errorf("audit rows = %+v, want the place's row naming the group by its id %s, in no tenant", rows, place.Group)
 		}
 	})
+}
+
+// seatRow is a row of a directory's sign-in as TestDirectorySeatRecorded reads it.
+type seatRow struct {
+	Act, Form, Subject, Role, Group, Tenant, Seating, SeatingName, Directory, Who, What string
+}
+
+// TestDirectorySeatRecorded pins the rows of a directory's default seat, by the directory
+// as the auth's registrations name it, with no person as actor: a seat is one row, a role
+// given in the form seat, in the seat's tenant; a person who holds something in the
+// tenant is given nothing and has no row; and a move out of another tenant records each
+// role and each place it takes there, in that tenant, in the form move, naming the tenant
+// that seats the person, before the seat's own row.
+func TestDirectorySeatRecorded(t *testing.T) {
+	t.Parallel()
+
+	inAlpha := access.NewMembershipKey(alphaScope, dana, "Reader")
+	readerInBeta := access.NewMembershipKey(betaScope, dana, "Reader")
+	writerInBeta := access.NewMembershipKey(betaScope, dana, "Writer")
+	seats := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}}
+	moved := ": they signed in through the directory of Alpha Sector and belong to it now"
+	taken := func(role string) seatRow {
+		return seatRow{
+			Act: string(auditlog.ActRoleTaken), Form: string(auditlog.FormMove), Subject: "dana", Role: role, Tenant: "beta", Seating: "alpha", SeatingName: "Alpha Sector",
+			Directory: "Acme", Who: "the directory Acme", What: "Took the role " + role + moved,
+		}
+	}
+	seat := seatRow{
+		Act: string(auditlog.ActRoleGiven), Form: string(auditlog.FormSeat), Subject: "dana", Role: "Reader", Tenant: "alpha", Directory: "Acme",
+		Who: "the directory Acme", What: "Gave the role Reader, the role its directory's people start with",
+	}
+
+	tests := []struct {
+		name   string
+		opts   []Option
+		held   []access.MembershipKey
+		places []impulse.UUID
+		want   []seatRow
+	}{
+		{name: "a seat", want: []seatRow{seat}},
+		{name: "a person who holds something in the tenant", held: []access.MembershipKey{inAlpha}},
+		{
+			name: "a move out of another tenant", opts: []Option{WithOneTenantPerPerson()},
+			held: []access.MembershipKey{readerInBeta, writerInBeta}, places: []impulse.UUID{dayID},
+			want: []seatRow{
+				taken("Reader"), taken("Writer"),
+				{
+					Act: string(auditlog.ActGroupMemberRemoved), Form: string(auditlog.FormMove), Subject: "dana", Group: "Day shift", Tenant: "beta", Seating: "alpha",
+					SeatingName: "Alpha Sector", Directory: "Acme", Who: "the directory Acme", What: "Took out of the group Day shift" + moved,
+				},
+				seat,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			for _, key := range tt.held {
+				store.memberships[key] = true
+			}
+			for _, group := range tt.places {
+				store.groupMembers[access.GroupMemberKey{Group: GroupID(group), User: dana}] = true
+			}
+			roles := map[accesstypes.PolicyScope][]accesstypes.Role{alphaScope: {"Reader"}, betaScope: {"Reader", "Writer"}}
+			sessions := fakeSessions{named: map[string]string{acmeDirectory.Connection: "Acme"}, tenantNames: map[accesstypes.Domain]string{"alpha": "Alpha Sector"}}
+			m, err := New(managedAuth, store, &fakeEngine{roles: roles}, sessions, tt.opts...)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			if _, err := m.DirectorySeated("Staff").Seat(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", seats); err != nil {
+				t.Fatalf("Seat() error = %v", err)
+			}
+
+			got := make([]seatRow, 0, len(store.audit))
+			for i := range store.audit {
+				r := &store.audit[i]
+				if r.Source != eventsource.ProcessEvent(auditlog.ProcessDirectorySignIn) {
+					t.Errorf("the row of %s is by %s, want the directory sign-in alone, no person", r.Act, r.Source)
+				}
+				stored := storedOf(t, r)
+				reads := stored.Sentences("tenant")
+				row := seatRow{
+					Act: string(r.Act), Form: string(r.Form), Subject: r.SubjectName, Group: r.GroupName, Tenant: r.TenantID, Seating: r.SeatingTenantID,
+					SeatingName: r.SeatingTenantName, Directory: r.Directory, Who: reads.Who, What: reads.What,
+				}
+				if len(r.RoleNames) > 0 {
+					row.Role = r.RoleNames[0]
+				}
+				got = append(got, row)
+			}
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("audit rows (-want +got):\n%s", diff)
+			}
+		})
+	}
 }

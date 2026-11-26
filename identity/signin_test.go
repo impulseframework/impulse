@@ -357,7 +357,7 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 	every := access.NewMembershipKey(everyScope, dana, "Reader")
 	nightPlace := access.GroupMemberKey{Group: GroupID(nightID), User: dana}
 	dayPlace := access.GroupMemberKey{Group: GroupID(dayID), User: dana}
-	alphaGiven := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}}
+	alphaGiven := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}}
 	insertAlpha := "insert membership domain/alpha " + id + " Reader"
 	oneTenant := []Option{WithOneTenantPerPerson()}
 
@@ -383,47 +383,47 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 	}{
 		{
 			name:        "a person who holds a role in another tenant is given the default role in the directory's tenant",
-			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:        []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("beta"), User(userID), "Reader")},
 			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:  "a person who holds a role in the tenant keeps what they hold and is given nothing",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("alpha"), User(userID), "Editor")},
 		},
 		{
 			name:  "a person who holds the default role itself in the tenant is given nothing",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("alpha"), User(userID), "Reader")},
 		},
 		{
 			name:  "a person whose only role in the tenant has ended holds none there: the default role is given, though the ended row still stands",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, User(userID), "Editor")},
 			periods: map[access.MembershipKey]accesstypes.Period{
 				access.NewMembershipKey(alphaScope, User(userID), "Editor"): {End: time.Now().Add(-time.Hour)},
 			},
 			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:  "a person whose default role itself has ended is given it again, with no period",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, User(userID), "Reader")},
 			periods: map[access.MembershipKey]accesstypes.Period{
 				access.NewMembershipKey(alphaScope, User(userID), "Reader"): {End: time.Now().Add(-time.Hour)},
 			},
 			wantWrites:  []string{"period of membership domain/alpha " + id + " Reader: none"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:  "a person whose role in the tenant has not begun will hold it, and is given nothing beside it",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, User(userID), "Editor")},
 			periods: map[access.MembershipKey]accesstypes.Period{
 				access.NewMembershipKey(alphaScope, User(userID), "Editor"): {Start: time.Now().Add(time.Hour)},
@@ -431,24 +431,24 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 		},
 		{
 			name:        "a role held for the whole application is no role in the tenant: the default role is given",
-			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			held:        []access.MembershipKey{access.NewMembershipKey(accesstypes.GlobalPolicyScope(), User(userID), "Operator")},
 			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:  "each default role is given in its tenant, and the engine is told once",
-			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}, {Tenant: "beta", Role: "Auditor", Directory: acmeDirectory}},
 			// beta's role is a custom one, read from the roles table.
 			custom:      []access.RoleKey{{Kind: "domain", Domain: "beta", Role: "Auditor"}},
 			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader", "insert membership domain/beta " + id + " Auditor"},
-			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}, {Tenant: "beta", Role: "Auditor", Directory: acmeDirectory}},
 			wantChanged: 1,
 		},
 		{
 			name:       "a default role that does not exist in its tenant fails the transaction",
-			seats:      []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
+			seats:      []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}, {Tenant: "beta", Role: "Auditor", Directory: acmeDirectory}},
 			wantErr:    httpio.HasNotFound,
 			wantWrites: []string{"insert membership domain/alpha " + id + " Reader"},
 		},
@@ -732,7 +732,7 @@ func TestManager_signInHooks(t *testing.T) {
 	t.Parallel()
 
 	inv := &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Reader"}}
-	seats := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}}
+	seats := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}}
 
 	hooks := map[string]func(m *Manager) func(ctx context.Context) (func(ctx context.Context), error){
 		"an accepted invitation": func(m *Manager) func(ctx context.Context) (func(ctx context.Context), error) {

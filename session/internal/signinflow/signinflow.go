@@ -1578,7 +1578,7 @@ func LinkConfirmed[Tx any](
 		if err != nil {
 			return err
 		}
-		seated, err := seatDeclared(ctx, tx, userID, username, defaultSeats(declared), seat)
+		seated, err := seatDeclared(ctx, tx, userID, username, defaultSeats(identity, declared), seat)
 		if err != nil {
 			return err
 		}
@@ -1715,7 +1715,7 @@ func resolveIn[Tx any](
 		// An invitation carries its own roles: they are what the person gets.
 		signUpRole = ""
 	}
-	seated, err := seatDeclared(ctx, tx, req.UserID, req.Username, seats, rules.Seat)
+	seated, err := seatDeclared(ctx, tx, req.UserID, req.Username, throughDirectory(req.Identity, seats), rules.Seat)
 	if err != nil {
 		return "", "", nil, nil, err
 	}
@@ -1792,7 +1792,7 @@ func resolveLinked[Tx any](
 		return "", nil, false, nil, err
 	}
 
-	return tenant, defaultSeats(declared), live, nil, nil
+	return tenant, defaultSeats(req.Identity, declared), live, nil, nil
 }
 
 // unlinkedUser is how an identity linked to no user resolved: the user's source and
@@ -1982,7 +1982,7 @@ func standardRule[Tx any](
 	switch {
 	case user != nil:
 		// Nothing but the name, or the address, ties the account to the identity.
-		res := signin.Link(user.ID, false, signin.Tenant(tenant), signin.Seats(defaultSeats(declared)...))
+		res := signin.Link(user.ID, false, signin.Tenant(tenant), signin.Seats(defaultSeats(req.Identity, declared)...))
 
 		return accountDecision{res: res, onName: true}, nil, nil
 	case len(declared) > 0:
@@ -2078,7 +2078,7 @@ func seatSignedUp[Tx any](
 func declaredRule(
 	req *sessioninfo.NewSessionRequest, declared []signin.DeclaredDirectory, tenant string,
 ) (res *signin.Resolution, byInvitation bool, stop error) {
-	seats := defaultSeats(declared)
+	seats := defaultSeats(req.Identity, declared)
 	newUser := &signin.NewUser{Username: req.Identity.SignInName}
 	switch {
 	case len(seats) > 0:
@@ -2207,13 +2207,27 @@ func UserDirectories[Tx any](ctx context.Context, d Driver[Tx], userID impulse.U
 	return directories, nil
 }
 
-// defaultSeats are the seats the declarations of a directory offer a person at every
-// sign-in through it: the default seat of each tenant that names one.
-func defaultSeats(declared []signin.DeclaredDirectory) []signin.DirectorySeat {
+// throughDirectory answers seats with the directory identity came through named on each
+// seat that names none, as a custom rule's own seats (signin.Seats).
+func throughDirectory(identity *sessioninfo.Identity, seats []signin.DirectorySeat) []signin.DirectorySeat {
+	for i := range seats {
+		if seats[i].Directory == (signin.Directory{}) {
+			seats[i].Directory = signin.Directory{Method: identity.Method, Connection: identity.Connection}
+		}
+	}
+
+	return seats
+}
+
+// defaultSeats are the seats the declarations of the directory identity came through
+// offer a person at every sign-in through it: the default seat of each tenant that names
+// one, each naming the directory.
+func defaultSeats(identity *sessioninfo.Identity, declared []signin.DeclaredDirectory) []signin.DirectorySeat {
+	directory := signin.Directory{Method: identity.Method, Connection: identity.Connection}
 	seats := make([]signin.DirectorySeat, 0, len(declared))
 	for _, d := range declared {
 		if d.DefaultSeat != "" {
-			seats = append(seats, signin.DirectorySeat{Tenant: d.Tenant, Role: d.DefaultSeat})
+			seats = append(seats, signin.DirectorySeat{Tenant: d.Tenant, Role: d.DefaultSeat, Directory: directory})
 		}
 	}
 

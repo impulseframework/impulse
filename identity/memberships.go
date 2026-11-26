@@ -177,7 +177,7 @@ func (m *Manager) assignRole(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return err
 	}
-	gave.Act, gave.RoleNames, gave.Period, gave.Reason = auditlog.ActRoleGiven, []string{string(role)}, given.period, given.reason
+	gave.Act, gave.Form, gave.RoleNames, gave.Period, gave.Reason = auditlog.ActRoleGiven, roleFormOf(ctx), []string{string(role)}, given.period, given.reason
 	gave.RoleScope, gave.TenantID = auditlog.ScopeOf(scope)
 	if err := m.record(ctx, txn, gave); err != nil {
 		return err

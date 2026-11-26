@@ -122,7 +122,7 @@ func TestManager_committedHooks_announce(t *testing.T) {
 	t.Parallel()
 
 	inv := &sessioninfo.Invitation{ID: invitationID, Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Reader"}}
-	seats := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}}
+	seats := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader", Directory: acmeDirectory}}
 	accepted := announcement{
 		Rows:   rowsOf(map[accesstypes.Resource][]resource.RowChange{"Users": {key(userID)}, "MailLinks": {key(invitationID)}}),
 		Tables: []accesstypes.Resource{"Identities"},

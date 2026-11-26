@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // actingKey is the context key under which a sign-in hook carries what acted to the
@@ -21,13 +22,16 @@ type actingKey struct{}
 type acting struct {
 	source    eventsource.EventSource
 	directory string
+	// roleForm is the form of the row of a role given under it: auditlog.FormSeat for a
+	// directory's default seat (seatingAs), "" for every other.
+	roleForm auditlog.Form
 }
 
 // actingAs carries what acted into the rules a sign-in hook calls, so that the rows they
 // write name it: the source, and the directory by the name the sign-in page gives it
 // ("" where no directory acted).
 func actingAs(ctx context.Context, source eventsource.EventSource, directory string) context.Context {
-	return context.WithValue(ctx, actingKey{}, acting{source: source, directory: directory})
+	return context.WithValue(ctx, actingKey{}, acting{source: source, directory: directory, roleForm: ""})
 }
 
 // signingInKey carries the account a sign-in's hook acts on (actingOn).
@@ -46,6 +50,20 @@ type signingIn struct {
 // creates in it (accountSubject).
 func actingOn(ctx context.Context, userID impulse.UUID, username string) context.Context {
 	return context.WithValue(ctx, signingInKey{}, signingIn{userID: userID, username: username})
+}
+
+// seatingAs carries into the rules a directory's default seat is given under that the
+// directory acts, at a sign-in through it, by the name the sign-in page gives it, and
+// that the role it gives is the seat (auditlog.FormSeat).
+func seatingAs(ctx context.Context, directory string) context.Context {
+	return context.WithValue(ctx, actingKey{}, acting{source: eventsource.ProcessEvent(auditlog.ProcessDirectorySignIn), directory: directory, roleForm: auditlog.FormSeat})
+}
+
+// roleFormOf is the form of the row of a role given in ctx (acting's roleForm).
+func roleFormOf(ctx context.Context) auditlog.Form {
+	carried, _ := ctx.Value(actingKey{}).(acting)
+
+	return carried.roleForm
 }
 
 // record buffers one row of the audit log in the act's transaction. It fills who acted
@@ -225,14 +243,20 @@ func (m *Manager) recordAct(ctx context.Context, txn resource.ReadWriteTransacti
 // signs in to it with where they give none, and the method's own name where they give
 // neither, as for a link left from a registration the login page no longer offers.
 func (m *Manager) directoryCalled(link *Link) string {
-	name, label := m.sessions.DirectoryName(link.Method, link.Connection)
+	return m.directoryNamed(signin.Directory{Method: link.Method, Connection: link.Connection})
+}
+
+// directoryNamed says a directory as a row of the audit log keeps it, as directoryCalled
+// says a link's.
+func (m *Manager) directoryNamed(directory signin.Directory) string {
+	name, label := m.sessions.DirectoryName(directory.Method, directory.Connection)
 	switch {
 	case name != "":
 		return name
 	case label != "":
 		return label
 	default:
-		return string(link.Method)
+		return string(directory.Method)
 	}
 }
 
