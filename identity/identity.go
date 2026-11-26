@@ -30,6 +30,7 @@ package identity
 
 import (
 	"context"
+	"iter"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -38,6 +39,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -242,6 +244,10 @@ type Store interface {
 	// second factor on the row, and nothing else of it: where there is no row, one is
 	// created with the second factor required. The write keeps who made it and when.
 	SetRememberBrowserDays(ctx context.Context, txn resource.ReadWriteTransaction, days int64) error
+
+	// AuditRecords reads the rows of the auth's audit log the query asks for, in its
+	// order. An auth whose schema holds no audit records table answers none.
+	AuditRecords(ctx context.Context, reader resource.ReadOnlyTransaction, query *AuditQuery) iter.Seq2[*auditlog.Stored, error]
 
 	// TrustedDevices lists the browsers the user asked to be remembered after the
 	// second factor that are not revoked. An auth that keeps none answers none.

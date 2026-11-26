@@ -137,6 +137,9 @@ const (
 	identityMemberships    identityTable = "memberships"
 	identityRoles          identityTable = "roles"
 	identityRoleGrants     identityTable = "roleGrants"
+	// identityAuditRecords is the auth's audit log, which no declaration covers: its
+	// lists are computed (identity_auditlog.go).
+	identityAuditRecords identityTable = "auditRecords"
 )
 
 // identityDeclaration is one table of an auth as the generated management declares it:
@@ -199,6 +202,8 @@ func (i *identityInstance) tableName(kind identityTable) string {
 		return i.session.Impersonations
 	case identityTrustedDevices:
 		return i.session.TrustedDevices
+	case identityAuditRecords:
+		return i.session.AuditRecords
 	case identityMemberships:
 		return i.policy.UserRoles
 	case identityRoles:
@@ -335,6 +340,10 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 		if _, ok := r.tableMap[inst.tableName(decl.kind)]; ok {
 			inst.tables[decl.kind] = true
 		}
+	}
+	// The audit log has no declaration: its lists read the table through the store.
+	if _, ok := r.tableMap[inst.tableName(identityAuditRecords)]; ok {
+		inst.tables[identityAuditRecords] = true
 	}
 	// The permission store's tables come together: a membership's role is read from
 	// the roles table in the transaction that writes the membership.
@@ -775,6 +784,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// sent it.
 	files = append(files, r.mailLinkListSources(inst)...)
 	files = append(files, r.signInAttemptListSources(inst)...)
+	// The audit log as two lists, the whole log and a tenant's, each written from the
+	// row's parts as it is read.
+	files = append(files, r.auditLogSources(inst)...)
 	// What the rules ask of the role file: who may give a role and take one away.
 	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {

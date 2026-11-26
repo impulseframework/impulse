@@ -172,6 +172,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.SessionMethodOpen":               {none: reads},
 	"Manager.OneTenantPerPerson":              {none: reads},
 	"Manager.SignInSettings":                  {none: reads},
+	"Manager.AuditRecords":                    {none: reads},
 	"Manager.SignUpRoles":                     {none: reads},
 	"Manager.StartingRoles":                   {none: reads},
 	"Manager.SkippedStoredGrants":             {none: reads},

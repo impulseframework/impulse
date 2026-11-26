@@ -1012,6 +1012,7 @@ package {{ .Package }}
 
 import (
 	"context"
+	"iter"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -1019,6 +1020,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
@@ -1026,6 +1028,7 @@ import (
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"google.golang.org/api/iterator"
 	{{ .LocalPackageImports }}
 )
 
@@ -1891,7 +1894,7 @@ func (store) TenantInvitations(context.Context, resource.ReadWriteTransaction, a
 func (store) InvitedTenants(context.Context, resource.ReadOnlyTransaction) ([]identity.InvitedTenantRow, error) {
 	return nil, nil
 }
-{{ end }}` + identitySignInMethodStoreTemplate + identitySignInSettingsStoreTemplate + `{{ if .Has "trustedDevices" }}
+{{ end }}` + identitySignInMethodStoreTemplate + identitySignInSettingsStoreTemplate + identityAuditRecordsStoreTemplate + `{{ if .Has "trustedDevices" }}
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
 	// The index leads with the user; whether a device is revoked is read off each row.
 	query := {{ .ResourcesPackage }}.New{{ .TrustedDevice }}Query().
