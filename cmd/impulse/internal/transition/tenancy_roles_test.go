@@ -1027,7 +1027,7 @@ func TestGrantRolePlaces_givesEachListGrantThePlacesItLacks(t *testing.T) {
 	if tn.grantRolePlaces(placed, served, "staff", roles, again) {
 		t.Error("grantRolePlaces() = true a second time, and every grant reads where each role is held already")
 	}
-	if got, err := placed.encode(); err != nil || string(got) != string(was) {
+	if got, err := placed.encode(); err != nil || !bytes.Equal(got, was) {
 		t.Errorf("grantRolePlaces() changed the role file a second time (-first +second):\n%s", cmp.Diff(string(was), string(got)))
 	}
 	if len(again.Did)+len(again.Skipped) != 0 {
@@ -1045,7 +1045,7 @@ func TestGrantRolePlaces_givesEachListGrantThePlacesItLacks(t *testing.T) {
 	if tn.grantRolePlaces(bare, unplaced, "staff", roles, none) {
 		t.Error("grantRolePlaces() = true over a list with neither field")
 	}
-	if got, err := bare.encode(); err != nil || string(got) != string(was) {
+	if got, err := bare.encode(); err != nil || !bytes.Equal(got, was) {
 		t.Errorf("grantRolePlaces() changed the role file over a list with neither field (-before +after):\n%s", cmp.Diff(string(was), string(got)))
 	}
 	if len(none.Did)+len(none.Skipped) != 0 {
