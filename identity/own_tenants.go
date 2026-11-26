@@ -212,7 +212,9 @@ func (m *Manager) OwnTenants(auth string, client resource.Client) session.OwnTen
 			return tenants, nil
 		},
 		Leave: func(ctx context.Context, userID impulse.UUID, domain accesstypes.Domain) error {
-			ctx, announcement := m.announcing(ctx)
+			// The session library's route stamps no caller: the person of the request's
+			// session is carried as who acts, so the rows of the leaving name them.
+			ctx, announcement := m.announcing(actingInOwnSession(ctx))
 			err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return m.LeaveTenant(ctx, txn, userID, domain)
 			})

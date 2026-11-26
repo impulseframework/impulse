@@ -34,6 +34,19 @@ func actingAs(ctx context.Context, source eventsource.EventSource, directory str
 	return context.WithValue(ctx, actingKey{}, acting{source: source, directory: directory, roleForm: ""})
 }
 
+// actingInOwnSession carries the person of the request's session as who acts into a rule
+// that a handler of the session library runs for them. No generated frame stamps a caller
+// there (record), and what a person does at their own account page is their act, not the
+// application's. A context that holds no session carries nothing.
+func actingInOwnSession(ctx context.Context) context.Context {
+	sess, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !ok || sess == nil || sess.SessionInfo == nil {
+		return ctx
+	}
+
+	return actingAs(ctx, eventsource.UserEvent(ctx), "")
+}
+
 // signingInKey carries the account a sign-in's hook acts on (actingOn).
 type signingInKey struct{}
 

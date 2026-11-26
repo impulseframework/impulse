@@ -210,14 +210,14 @@ or invite only (see "Storage and schema" and "Open to sign-up, or invite only").
 
 ### Storage and schema
 
-Each auth group owns twelve tables: sessions and users (the base migrations,
+Each auth group owns fifteen tables: sessions and users (the base migrations,
 `schema/*/migrations`), identities, auth events, pending sign-ins, sign-in attempts,
-mail links, factor codes, trusted devices, sign-in methods and audit records (the auth
-migrations, `schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt`,
-`ProviderSessionId`, `ProviderSessionIssuer` and `Browser` to the sessions table and the email
-address columns and the person's name to the users table), and impersonations
-(`schema/*/impersonation/migrations`) if you use it. A new group applies the base set,
-then the auth set.
+mail links, tokens, device codes, factor codes, trusted devices, sign-in methods,
+sign-in settings and audit records (the auth migrations, `schema/*/auth/migrations`,
+which also add `UserId`, `AuthenticatedAt`, `ProviderSessionId`, `ProviderSessionIssuer`
+and `Browser` to the sessions table and the email address columns and the person's name
+to the users table), and impersonations (`schema/*/impersonation/migrations`) if you use
+it. A new group applies the base set, then the auth set.
 
 The mail links table holds the tenant an invitation makes in one nullable column,
 `NewTenant`: a JSON document, `{"name", "directoryOnly", "details"}`, null on a

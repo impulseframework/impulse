@@ -1117,13 +1117,13 @@ func (p *AuthAPI[S, U, Tx]) Invitations(ctx context.Context) ([]*sessioninfo.Inv
 }
 
 // RevokeInvitation withdraws an invitation that stands; its link is then dead. One
-// that no longer stands is NotFound.
+// that no longer stands is NotFound. The withdrawal is recorded in the tenant the
+// invitation names, as its sending was.
 func (p *AuthAPI[S, U, Tx]) RevokeInvitation(ctx context.Context, id impulse.UUID) error {
-	address, err := p.invitedAddress(ctx, id)
+	withdrawn, err := p.withdrawnRecord(ctx, id)
 	if err != nil {
 		return err
 	}
-	withdrawn := invitationRecord(auditlog.ActInvitationWithdrawn, p.auth.acting(ctx), id, address)
 	if err := p.auth.storage.RevokeMailLink(ctx, id, withdrawn); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RevokeMailLink()")
 	}
@@ -1131,19 +1131,23 @@ func (p *AuthAPI[S, U, Tx]) RevokeInvitation(ctx context.Context, id impulse.UUI
 	return nil
 }
 
-// invitedAddress answers the address the standing invitation id was mailed to, which
-// names it in the record of its withdrawal, and its id where none stands: the
-// withdrawal then answers its own NotFound.
-func (p *AuthAPI[S, U, Tx]) invitedAddress(ctx context.Context, id impulse.UUID) (string, error) {
+// withdrawnRecord answers the record of the request withdrawing the standing invitation
+// id: named by the address it was mailed to, in the tenant it names. Where none stands the
+// record names the id and no tenant: the withdrawal then answers its own NotFound and
+// writes nothing.
+func (p *AuthAPI[S, U, Tx]) withdrawnRecord(ctx context.Context, id impulse.UUID) (*auditlog.Record, error) {
 	links, err := p.auth.storage.LiveMailLinks(ctx, sessionstorage.MailLinkInvitation)
 	if err != nil {
-		return "", errors.Wrap(err, "sessionstorage.AuthStore.LiveMailLinks()")
+		return nil, errors.Wrap(err, "sessionstorage.AuthStore.LiveMailLinks()")
 	}
 	for _, link := range links {
 		if link.ID == id {
-			return link.Email, nil
+			withdrawn := invitationRecord(auditlog.ActInvitationWithdrawn, p.auth.acting(ctx), id, link.Email)
+			p.auth.inTenant(withdrawn, AskedByTenant(link.TenantID))
+
+			return withdrawn, nil
 		}
 	}
 
-	return id.String(), nil
+	return invitationRecord(auditlog.ActInvitationWithdrawn, p.auth.acting(ctx), id, id.String()), nil
 }

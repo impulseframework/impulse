@@ -642,6 +642,9 @@ func TestAuth_mailedLinksAreRecorded(t *testing.T) {
 			}
 			records := links.recordsOf(inv.ID)
 			withdrawn := &auditlog.Record{Act: auditlog.ActInvitationWithdrawn, SubjectKind: auditlog.SubjectInvitation, SubjectID: inv.ID.String(), SubjectName: "pat@lakeside.edu"}
+			if tt.req.TenantID != "" {
+				withdrawn.TenantID, withdrawn.TenantName = tt.req.TenantID, tt.req.TenantID
+			}
 			checkRecord(t, "RevokeMailLink", records[len(records)-1], withdrawn, byAdmin)
 		})
 	}
