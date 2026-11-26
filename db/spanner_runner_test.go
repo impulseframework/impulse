@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 // The fixtures the runner tests apply: a table with a value column, so that a unique index
@@ -100,6 +101,44 @@ const (
 // a run and Spanner, as a test stages it.
 func intercepting(f grpc.UnaryClientInterceptor) option.ClientOption {
 	return option.WithGRPCDialOption(grpc.WithChainUnaryInterceptor(f))
+}
+
+// asSpannerHolds is a statement as these tests have Spanner hold it for a DDL operation: in
+// upper case, every run of white space one line break. The real service holds its own
+// rewritten text of each statement, never the text it was sent, while the emulator holds the
+// text as sent; this stands in for the difference, not for Spanner's wording.
+func asSpannerHolds(stmt string) string {
+	return strings.ToUpper(strings.Join(strings.Fields(stmt), "\n"))
+}
+
+// heldAsSpannerHolds is an interceptor that rewrites the statements in the metadata of every
+// DDL operation a client receives, from the send and from each poll, with asSpannerHolds. A
+// runner that reads those statements fails its tests, as it fails on the real service.
+func heldAsSpannerHolds(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	if err := invoker(ctx, method, req, reply, cc, opts...); err != nil {
+		return err
+	}
+
+	op, ok := reply.(interface{ GetMetadata() *anypb.Any })
+	if !ok {
+		return nil
+	}
+	held := op.GetMetadata()
+	md := &databasepb.UpdateDatabaseDdlMetadata{}
+	if !held.MessageIs(md) {
+		return nil
+	}
+	if err := held.UnmarshalTo(md); err != nil {
+		return errors.Wrap(err, "anypb.Any.UnmarshalTo()")
+	}
+	for i, stmt := range md.GetStatements() {
+		md.Statements[i] = asSpannerHolds(stmt)
+	}
+	if err := held.MarshalFrom(md); err != nil {
+		return errors.Wrap(err, "anypb.Any.MarshalFrom()")
+	}
+
+	return nil
 }
 
 // writeSource writes migration files into a temporary directory and returns its file:// URL.
@@ -307,6 +346,74 @@ func countT(ctx context.Context, t *testing.T, client *spanner.Client) int64 {
 	}
 
 	return n
+}
+
+// TestOperationStatementsAsSpannerHolds checks the tests' stand-in for the real service: a
+// client with heldAsSpannerHolds receives a DDL operation's statements rewritten, from the
+// send and from a poll, and a client without it receives them as sent.
+func TestOperationStatementsAsSpannerHolds(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	container, err := NewSpannerContainer(ctx, "latest")
+	if err != nil {
+		t.Fatalf("NewSpannerContainer() error = %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	db, migrator := testMigrator(ctx, t, container, intercepting(heldAsSpannerHolds))
+
+	// An operation ID of the runner's own form: migrate_ and 32 lower-case hex digits.
+	const id = "migrate_0123456789abcdef0123456789abcdef"
+	sent := []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateB, ";")}
+	held := []string{asSpannerHolds(sent[0]), asSpannerHolds(sent[1])}
+
+	op, err := migrator.admin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{Database: db.dbStr, Statements: sent, OperationId: id})
+	if err != nil {
+		t.Fatalf("DatabaseAdminClient.UpdateDatabaseDdl() error = %v", err)
+	}
+	if err := op.Wait(ctx); err != nil {
+		t.Fatalf("UpdateDatabaseDdlOperation.Wait() error = %v", err)
+	}
+	md, err := op.Metadata()
+	if err != nil {
+		t.Fatalf("UpdateDatabaseDdlOperation.Metadata() error = %v", err)
+	}
+	if got := md.GetStatements(); !slices.Equal(got, held) {
+		t.Errorf("the sent operation's statements = %q, want %q", got, held)
+	}
+	for i, stmt := range md.GetStatements() {
+		if i < len(sent) && stmt == sent[i] {
+			t.Errorf("the sent operation's statement %d = %q, the text sent", i, stmt)
+		}
+	}
+
+	polled := migrator.admin.UpdateDatabaseDdlOperation(db.dbStr + "/operations/" + id)
+	if err := polled.Wait(ctx); err != nil {
+		t.Fatalf("UpdateDatabaseDdlOperation.Wait() of the fetched operation error = %v", err)
+	}
+	md, err = polled.Metadata()
+	if err != nil {
+		t.Fatalf("UpdateDatabaseDdlOperation.Metadata() of the fetched operation error = %v", err)
+	}
+	if got := md.GetStatements(); !slices.Equal(got, held) {
+		t.Errorf("the fetched operation's statements = %q, want %q", got, held)
+	}
+	if got := len(md.GetCommitTimestamps()); got != len(sent) {
+		t.Errorf("the fetched operation's commit timestamps = %d, want %d", got, len(sent))
+	}
+
+	direct := db.admin.UpdateDatabaseDdlOperation(db.dbStr + "/operations/" + id)
+	if err := direct.Wait(ctx); err != nil {
+		t.Fatalf("UpdateDatabaseDdlOperation.Wait() with no interceptor error = %v", err)
+	}
+	md, err = direct.Metadata()
+	if err != nil {
+		t.Fatalf("UpdateDatabaseDdlOperation.Metadata() with no interceptor error = %v", err)
+	}
+	if got := md.GetStatements(); !slices.Equal(got, sent) {
+		t.Errorf("the operation's statements with no interceptor = %q, want %q", got, sent)
+	}
 }
 
 // TestSpannerMigrator_Lifecycle walks a fresh database through the plain path: every file
