@@ -332,7 +332,39 @@ func (store) RecordMemberships(ctx context.Context, txn resource.ReadWriteTransa
 
 	return keys, nil
 }
+{{ if .KeepsRecordGroupRoles }}
+func (store) GroupRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) ([]access.RecordGroupRoleKey, error) {
+	// The table's index by group leads with the group. A role whose period has ended is
+	// left out.
+	query := {{ .ResourcesPackage }}.New{{ .RecordGroupRole }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .RecordGroupRole }}Columns().Axis().DomainID().ResourceName().RecordID().Role().GroupID().EndsAt()).
+		Where({{ .ResourcesPackage }}.New{{ .RecordGroupRole }}QueryClause().GroupID().Equal(groupID)).
+		Sort({{ .ResourcesPackage }}.New{{ .RecordGroupRole }}Sort().Axis().DomainID().ResourceName().RecordID().Role().GroupID())
+	now := time.Now()
+	var keys []access.RecordGroupRoleKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .RecordGroupRole }}Query.List()")
+		}
+		held := row.Data
+		if held.EndsAt != nil && !held.EndsAt.After(now) {
+			continue
+		}
+		keys = append(keys, access.RecordGroupRoleKey{
+			Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+			Role: accesstypes.Role(held.Role), Group: accesstypes.Group(held.GroupID.String()),
+		})
+	}
 
+	return keys, nil
+}
+{{ else }}
+// A group of an instance that keeps no groups holds no role on a record.
+
+func (store) GroupRecordRoles(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordGroupRoleKey, error) {
+	return nil, nil
+}
+{{ end }}
 // RecordNamed reads what one record is called, for a row of the audit log: the word one
 // record of its kind is called, and the record's name, read by its key in the caller's
 // transaction from the column its kind names a record by, "" where the kind names none or
@@ -457,6 +489,10 @@ func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, a
 }
 
 func (store) RecordMemberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordMembershipKey, error) {
+	return nil, nil
+}
+
+func (store) GroupRecordRoles(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordGroupRoleKey, error) {
 	return nil, nil
 }
 

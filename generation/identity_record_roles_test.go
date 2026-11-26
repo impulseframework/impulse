@@ -169,6 +169,11 @@ func Test_prepareIdentity_recordRoles(t *testing.T) {
 		"SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record)",
 		"func (store) TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {",
 		"func (store) RecordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.RecordMembershipKey, error) {",
+		// A group's roles on records, read by the group, less the ended ones: putting a
+		// person in the group asks for each.
+		"func (store) GroupRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) ([]access.RecordGroupRoleKey, error) {",
+		"Where(crewresources.NewCrewRecordGroupRoleQueryClause().GroupID().Equal(groupID)).",
+		"if held.EndsAt != nil && !held.EndsAt.After(now) {\n\t\t\tcontinue\n\t\t}",
 		// The periods of the roles held on one record, a person's and a group's, ended
 		// ones too, which a give asks so nobody lengthens their own.
 		"func (store) RecordPeriods(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (*identity.RecordPeriods, error) {",
@@ -195,6 +200,7 @@ func Test_prepareIdentity_recordRoles(t *testing.T) {
 		"func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {\n\treturn nil, nil, nil\n}",
 		"func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {\n\treturn nil, nil, nil\n}",
 		"func (store) RecordMemberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordMembershipKey, error) {\n\treturn nil, nil\n}",
+		"func (store) GroupRecordRoles(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordGroupRoleKey, error) {\n\treturn nil, nil\n}",
 		"func (store) RecordPeriods(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (*identity.RecordPeriods, error) {\n" +
 			"\treturn &identity.RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}, nil\n}",
 	}), []string{"NewMembersRecordUserRole", "NewMembersRecordGroupRole"})
@@ -221,6 +227,8 @@ func Test_prepareIdentity_recordRoles(t *testing.T) {
 			"func (store) DeleteRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey) error {\n\treturn errNoGroups\n}",
 			// The people's periods alone: Groups stays empty.
 			"periods.People[recordMembershipKey(&row.Data)] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)\n\t}\n\n\treturn periods, nil\n}",
+			// No group, so no group holds a role on a record.
+			"func (store) GroupRecordRoles(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordGroupRoleKey, error) {\n\treturn nil, nil\n}",
 		}), []string{"errNoRecordRoles", "NewMembersRecordGroupRole"})
 	})
 
@@ -405,6 +413,14 @@ func Test_prepareIdentity_recordSharing(t *testing.T) {
 		"case GiveCrewRoleOnVoyage{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewRoleOnVoyage{Role: string(role)})",
 		"case GiveCrewGroupRoleOnVoyage{}.Method():\n\t\t\treturn couldGiveBy(ctx, caller, method, &GiveCrewGroupRoleOnVoyage{Role: string(role)})",
 		"is no method of a tenant that gives a role by hand: AssignCrewShipRole, InviteCrewShipUser, GiveCrewShipGroupRole, GiveCrewRoleOnVoyage, GiveCrewGroupRoleOnVoyage\"",
+		// Putting a person in a group that holds a role on a voyage asks what the method
+		// that gives a person a role on a voyage asks, against the voyage named, as the
+		// method's own frame reads it.
+		"func (grants) MayGiveOn(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {",
+		"if tenant, inTenant := caller.Scope.Domain(); !inTenant || at.Domain() != tenant {\n\t\treturn false, nil\n\t}",
+		"case \"Voyages\":\n\t\tmethod, request = GiveCrewRoleOnVoyage{}.Method(), &GiveCrewRoleOnVoyage{UserID: userID, Role: string(role)}\n" +
+			"\t\ttarget = resource.ExecuteTarget{Resource: \"Voyages\", Label: \"Voyage\", PKColumns: []string{\"Id\"}}\n\tdefault:\n\t\treturn false, nil\n\t}",
+		"if may, settled := gate.Settled(); settled {\n\t\treturn may, nil\n\t}\n\n\treturn granted(gate.Enforce(ctx, txn, target, at.Record()))",
 	}), nil)
 	// The tenant's list of its roles is asked for the tenant's own methods alone.
 	assertContains(t, "the roles of a ship", readIdentityFile(t, "crewidentity/crew_ship_roles.go"), nil, []string{"Voyage"})
@@ -448,7 +464,9 @@ func Test_prepareIdentity_recordSharing(t *testing.T) {
 		if got := sharingFiles(t); len(got) != 0 {
 			t.Errorf("the files of a voyage's sharing = %q, want none", got)
 		}
-		assertContains(t, "the crew's grants", readIdentityFile(t, "crewidentity/grants.go"), nil, []string{"Voyage"})
+		assertContains(t, "the crew's grants", readIdentityFile(t, "crewidentity/grants.go"), squashEach([]string{
+			"func (grants) MayGiveOn(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope, impulse.UUID, accesstypes.Role) (bool, error) {\n\treturn false, nil\n}",
+		}), []string{"Voyage"})
 	})
 }
 

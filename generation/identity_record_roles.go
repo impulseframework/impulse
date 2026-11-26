@@ -581,6 +581,28 @@ func (i *identityInstance) recordGivings() []tenantGiving {
 	return givings
 }
 
+// recordGiver is what the generated MayGiveOn asks for one kind of record the instance
+// shares: the method that gives a person a role on one record of the kind, and the record's
+// row as that method's frame hands it to its gate (resource.ExecuteTarget: the kind, the
+// struct, the table's one key column).
+type recordGiver struct {
+	Resource, Method, Label, KeyColumn string
+}
+
+// RecordGivers are, for each record the instance shares, what the generated MayGiveOn asks
+// (recordGiver), in the order of the shared records.
+func (d *identitySourceData) RecordGivers() []recordGiver {
+	records := d.sharedRecords()
+	givers := make([]recordGiver, 0, len(records))
+	for i := range records {
+		givers = append(givers, recordGiver{
+			Resource: string(records[i].resource), Method: d.sharing(&records[i]).Give, Label: records[i].name, KeyColumn: records[i].keyColumn,
+		})
+	}
+
+	return givers
+}
+
 // RecordGivings are the methods of one tenant that give a role on one of its records by
 // hand (recordGivings).
 func (d *identitySourceData) RecordGivings() []tenantGiving {

@@ -1386,6 +1386,10 @@ func (store) RecordMemberships(context.Context, resource.ReadWriteTransaction, i
 	return nil, nil
 }
 
+func (store) GroupRecordRoles(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordGroupRoleKey, error) {
+	return nil, nil
+}
+
 func (store) RecordNamed(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (string, string, error) {
 	return "", "", errNoRecordRoles
 }

@@ -1631,7 +1631,54 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 
 	return settled(gate, "Assign{{ .Auth }}Role")
 }
+{{ if .RecordGivers }}
+// MayGiveOn reports whether the caller may give the person the role on the record. A
+// request made under a tenant gives a role on a record of that tenant alone, asked of the
+// method that gives a person a role on one record of the kind, with the person and the
+// role:
+//
+//	{{ range $i, $g := .RecordGivers }}{{ if $i }}, {{ end }}{{ $g.Method }}{{ end }}
+//
+// Where what is left of the grant's condition reads the record, it is read against the
+// record named, the row the method's own frame reads it against. A request made for the
+// whole application, a record of another tenant, and a kind no method gives a role on are
+// a no.
+func (grants) MayGiveOn(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
+	caller := resource.CallerFrom(ctx)
+	if tenant, inTenant := caller.Scope.Domain(); !inTenant || at.Domain() != tenant {
+		return false, nil
+	}
+	var (
+		method  accesstypes.Resource
+		request any
+		target  resource.ExecuteTarget
+	)
+	switch at.Resource() {
+	{{- range .RecordGivers }}
+	case "{{ .Resource }}":
+		method, request = {{ .Method }}{}.Method(), &{{ .Method }}{UserID: userID, Role: string(role)}
+		target = resource.ExecuteTarget{Resource: "{{ .Resource }}", Label: "{{ .Label }}", PKColumns: []string{"{{ .KeyColumn }}"}}
+	{{- end }}
+	default:
+		return false, nil
+	}
+	gate, err := caller.ExecuteGate(ctx, method, request)
+	if err != nil {
+		return granted(err)
+	}
+	if may, settled := gate.Settled(); settled {
+		return may, nil
+	}
 
+	return granted(gate.Enforce(ctx, txn, target, at.Record()))
+}
+{{ else }}
+// MayGiveOn reports whether the caller may give the person the role on the record: the
+// instance shares no record, so no role is given on one here.
+func (grants) MayGiveOn(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope, impulse.UUID, accesstypes.Role) (bool, error) {
+	return false, nil
+}
+{{ end }}
 // CouldGive reports whether the caller could give the role in the scope by hand, to
 // somebody, with the method named: the question of the list a role is picked from,
 // asked for the method whose dialog picks, before anybody is named, with no row to read

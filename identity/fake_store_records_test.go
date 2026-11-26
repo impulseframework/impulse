@@ -188,6 +188,24 @@ func (f *fakeStore) RecordMemberships(_ context.Context, _ resource.ReadWriteTra
 	return keys, nil
 }
 
+func (f *fakeStore) GroupRecordRoles(_ context.Context, _ resource.ReadWriteTransaction, groupID impulse.UUID) ([]access.RecordGroupRoleKey, error) {
+	if err := f.fail("GroupRecordRoles"); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	var keys []access.RecordGroupRoleKey
+	for key, period := range f.recordGroupRoles {
+		if key.Group == GroupID(groupID) && !period.Ended(now) {
+			keys = append(keys, key)
+		}
+	}
+	slices.SortFunc(keys, func(a, b access.RecordGroupRoleKey) int {
+		return cmp.Compare(recordGroupRoleText(&a), recordGroupRoleText(&b))
+	})
+
+	return keys, nil
+}
+
 // recordRows lists the rows of both tables whose record the function admits, in key order.
 func (f *fakeStore) recordRows(admits func(axis, domain, resource, id string) bool) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
 	var people []access.RecordMembershipKey

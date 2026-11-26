@@ -2007,6 +2007,32 @@ func (store) RecordMemberships(ctx context.Context, txn resource.ReadWriteTransa
 	return keys, nil
 }
 
+func (store) GroupRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) ([]access.RecordGroupRoleKey, error) {
+	// The table's index by group leads with the group. A role whose period has ended is
+	// left out.
+	query := crewresources.NewCrewRecordGroupRoleQuery().
+		AddColumns(crewresources.NewCrewRecordGroupRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().GroupID().EndsAt()).
+		Where(crewresources.NewCrewRecordGroupRoleQueryClause().GroupID().Equal(groupID)).
+		Sort(crewresources.NewCrewRecordGroupRoleSort().Axis().DomainID().ResourceName().RecordID().Role().GroupID())
+	now := time.Now()
+	var keys []access.RecordGroupRoleKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordGroupRoleQuery.List()")
+		}
+		held := row.Data
+		if held.EndsAt != nil && !held.EndsAt.After(now) {
+			continue
+		}
+		keys = append(keys, access.RecordGroupRoleKey{
+			Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+			Role: accesstypes.Role(held.Role), Group: accesstypes.Group(held.GroupID.String()),
+		})
+	}
+
+	return keys, nil
+}
+
 // RecordNamed reads what one record is called, for a row of the audit log: the word one
 // record of its kind is called, and the record's name, read by its key in the caller's
 // transaction from the column its kind names a record by, "" where the kind names none or

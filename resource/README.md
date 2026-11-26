@@ -5164,9 +5164,11 @@ holding some of them is refused at generation.
   group is a change to what people hold, so it is judged as the role changes it makes,
   beside the grant of the group's own method, which says who manages groups at all.
   Putting a person in a group needs what giving that person each role the group holds,
-  where it holds it, needs. Taking a person out needs what taking each of those roles
-  from them needs. Giving a group a role needs what giving it to each person in the
-  group needs, and taking a role from a group what taking it from each of them needs.
+  where it holds it, needs, and for each role it holds on a record, what giving them the
+  role on that record needs (section 25). Taking a person out needs what taking each of
+  those roles from them needs. Giving a group a role needs what giving it to each person
+  in the group needs, and taking a role from a group what taking it from each of them
+  needs.
   What a role change needs of the caller is the role file's to say, in the grants of
   the methods that give a role and take one away (`AssignCrewRole`, `RemoveCrewRole`;
   for a request made under a tenant the tenant's own, `AssignCrewSectorRole` and
@@ -7035,6 +7037,12 @@ The dialogs pick the person from the tenant's list of its people and the group f
 groups. Those are the tenant's lists, and a role held on one project lists neither: a person
 who is to share from the page also holds, in the tenant, a role that lists them. The methods
 run without it, for a request that names the person or the group by id.
+
+A person put in a group that holds a role on a record is given that role there, so the
+request needs what giving it to them on that record needs: the grant of
+`GiveStaffRoleOnProject`, read with the person, the role and the project. A request made
+for the whole application asks what giving the role across the project's tenant needs, since
+no method of the whole application gives a role on one record.
 
 **A person who holds only records.** A person whose only role in a tenant is held on one of
 its records is let into the tenant, for those records alone. They are one of the tenant's

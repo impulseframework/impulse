@@ -36,6 +36,7 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
@@ -518,6 +519,107 @@ func TestRecordRoles_heldElsewhere(t *testing.T) {
 	}
 	status, body := w.as("marshal", http.MethodPost, sectorPath(anvil, "disable-crew-sector-user"), fmt.Sprintf(`{"userId":%q}`, w.ids["cy"]))
 	assertStatus(t, status, http.StatusForbidden, body)
+}
+
+// TestRecordRoles_aGroupsPlaces holds putting a person in a group that holds a role on a
+// mission to what giving them that role on the mission needs. A person of the sector whose
+// role puts people in groups and shares no mission is refused, in the sentence of the role
+// they may not give, and the person is not put in; the same person puts someone in a group
+// that holds no role on a mission; the Marshal, who shares every mission, puts them in. The
+// first mission's lead, who may also put people in groups, puts someone in a group that
+// observes her mission, and is refused one that observes another: her grant is read against
+// the mission named.
+func TestRecordRoles_aGroupsPlaces(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newSharingWorld(t)
+	first, second := writeSharedMissions(t, w.tenantListsWorld)
+
+	// ada and ida seat people in Anvil's groups (a role made in the sector with that one
+	// grant, beside their Cadet's); ida also leads the first mission. kit and lex are put in
+	// the groups.
+	for _, name := range []string{"ada", "ida", "kit", "lex"} {
+		w.enter(name)
+	}
+	const seater accesstypes.Role = "Seater"
+	held := accesstypes.DomainPolicyScope(anvil)
+	manager := w.engine.UserManager()
+	if err := manager.AddRole(ctx, held, seater, "Seats Anvil's own crew in its groups."); err != nil {
+		t.Fatalf("access.UserManager.AddRole() error = %v", err)
+	}
+	if err := manager.AddRoleGrants(ctx, held, seater, access.GrantRow{Permission: accesstypes.Execute, Resource: "AddCrewSectorGroupMember"}); err != nil {
+		t.Fatalf("access.UserManager.AddRoleGrants() error = %v", err)
+	}
+	for _, name := range []string{"ada", "ida"} {
+		if err := manager.AddUserRoles(ctx, held, accesstypes.User(w.ids[name]), seater); err != nil {
+			t.Fatalf("access.UserManager.AddUserRoles(%s) error = %v", name, err)
+		}
+	}
+	// The store writes signal a reload and the swap is asynchronous: once ida's grant shows,
+	// every answer below reads a policy that holds the role for both.
+	if d := decisionFor(ctx, t, w.engine.ForUser(accesstypes.User(w.ids["ida"])), accesstypes.DomainScope(anvil), accesstypes.Execute, "AddCrewSectorGroupMember", time.Now().Add(15*time.Second)); !d.IsGranted() {
+		t.Fatalf("Execute on AddCrewSectorGroupMember for ida, who holds %s = %s, want granted before the cases run", seater, d)
+	}
+	var none time.Time
+	w.done("marshal", "give-crew-role-on-mission", w.share(first.id, "ida", "", "MissionLead", none, none))
+
+	group := func(name, description string) string {
+		t.Helper()
+		status, body := w.as("marshal", http.MethodPost, sectorPath(anvil, "create-crew-sector-group"), fmt.Sprintf(`{"name":%q,"description":%q}`, name, description))
+		assertStatus(t, status, http.StatusOK, body)
+
+		return cell[string](t, decodeRow(t, body), "id")
+	}
+	debris := group("Debris watch", "Watches the debris field's charting.")
+	w.done("marshal", "give-crew-group-role-on-mission", w.share(first.id, "", debris, "MissionObserver", none, none))
+	relay := group("Relay watch", "Watches the relay spares' ferrying.")
+	w.done("marshal", "give-crew-group-role-on-mission", w.share(second.id, "", relay, "MissionObserver", none, none))
+	hangar := group("Hangar hands", "The crew who work Anvil's hangar deck.")
+
+	put := func(user accesstypes.User, group, person string) (int, []byte) {
+		t.Helper()
+
+		return w.as(user, http.MethodPost, sectorPath(anvil, "add-crew-sector-group-member"), fmt.Sprintf(`{"groupId":%q,"userId":%q}`, group, w.ids[person]))
+	}
+	inGroup := func(group, person string) bool {
+		t.Helper()
+		for _, row := range decodeRows(t, mustList(t, w.tenantListsWorld, "marshal", sectorGroupPeoplePath)) {
+			if cell[string](t, row, "groupId") == group && cell[string](t, row, "username") == person {
+				return true
+			}
+		}
+
+		return false
+	}
+	refused := func(status int, body []byte, group string) {
+		t.Helper()
+		assertStatus(t, status, http.StatusForbidden, body)
+		want := "Putting a person in the group " + group + " gives them the role Mission observer, which you may not give them."
+		if got := refusalMessage(t, body); got != want {
+			t.Errorf("the refusal = %q, want %q", got, want)
+		}
+	}
+
+	status, body := put("ada", debris, "kit")
+	refused(status, body, "Debris watch")
+	if inGroup(debris, "kit") {
+		t.Error("kit is in the debris watch after ada was refused")
+	}
+	status, body = put("ada", hangar, "kit")
+	assertStatus(t, status, http.StatusNoContent, body)
+	status, body = put("marshal", debris, "kit")
+	assertStatus(t, status, http.StatusNoContent, body)
+	if !inGroup(debris, "kit") {
+		t.Error("kit is not in the debris watch after the Marshal put him in")
+	}
+
+	status, body = put("ida", debris, "lex")
+	assertStatus(t, status, http.StatusNoContent, body)
+	status, body = put("ida", relay, "lex")
+	refused(status, body, "Relay watch")
+	if inGroup(relay, "lex") {
+		t.Error("lex is in the relay watch after ida was refused")
+	}
 }
 
 // TestRecordRoles_periods holds a role on a mission given for a period: one whose end is

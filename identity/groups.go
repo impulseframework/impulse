@@ -283,7 +283,9 @@ func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransac
 // place in a group, in another one (refuseSecondTenant).
 //
 // A request that puts a person in a group gives them each role the group holds, and
-// needs what giving them each role directly needs (refuseGivingThrough). And nobody
+// needs what giving them each role directly needs (refuseGivingThrough), and for each role
+// the group holds on a record, what giving them the role on that record needs
+// (refuseGivingOnThrough). And nobody
 // lengthens their own holding: the caller does not give their own place a period that
 // lasts longer than the one it has (refuseLongerForOneself). A period that cuts the
 // caller's own place short is held to what leaving the group is held to: the last
@@ -322,6 +324,13 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 		}
 		act := fmt.Sprintf("putting a person in the group %s gives them", group.Name)
 		if err := m.refuseGivingThrough(ctx, txn, kept, holding.roles, []accesstypes.User{User(userID)}, act); err != nil {
+			return err
+		}
+		records, err := m.store.GroupRecordRoles(ctx, txn, groupID)
+		if err != nil {
+			return errors.Wrap(err, "identity.Store.GroupRecordRoles()")
+		}
+		if err := m.refuseGivingOnThrough(ctx, txn, records, userID, act); err != nil {
 			return err
 		}
 	}

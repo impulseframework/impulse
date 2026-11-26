@@ -215,6 +215,10 @@ type Store interface {
 	TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
 	// RecordMemberships reads the roles the person holds on records, in any tenant, not ended.
 	RecordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.RecordMembershipKey, error)
+	// GroupRecordRoles reads the roles the group holds on records, each by its row's key, in
+	// key order, less the ones whose period has ended. A role that has not begun is among
+	// them, since the group will hold it.
+	GroupRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID) ([]access.RecordGroupRoleKey, error)
 	// RecordNamed reads what one record is called, for a row of the audit log: the word one
 	// record of its kind goes by ("project"), and the record's name, read by its key from
 	// the field its kind names a record by, "" where the kind names none or the record has

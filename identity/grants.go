@@ -25,7 +25,8 @@ import (
 // of the group's own method, which says who manages groups at all:
 //
 //   - putting a person in a group needs, for each role the group holds, what giving that
-//     person the role there needs;
+//     person the role there needs, and for each role it holds on a record, what giving them
+//     the role on that record needs;
 //   - taking a person out needs, for each, what taking the role from them needs;
 //   - giving a group a role needs what giving it to each person in the group needs;
 //   - taking a role from a group needs what taking it from each of them needs.
@@ -52,6 +53,10 @@ type RoleGrants interface {
 	// MayGive reports whether the caller may give the person the role in the scope: the
 	// grant of the method that gives a role admits it for that role and that person.
 	MayGive(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error)
+	// MayGiveOn reports whether the caller may give the person the role on the record: what
+	// the method that gives a person a role on a record of that kind asks, with the person,
+	// the role and the record.
+	MayGiveOn(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope, userID impulse.UUID, role accesstypes.Role) (bool, error)
 	// MayTake reports whether the caller may take the role the person holds in the scope
 	// away: the grant of the method that takes a role away admits it for that role.
 	MayTake(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error)
@@ -147,6 +152,39 @@ func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWrit
 			sentenceStart(act)+" the role "+roleInWords(role)+", which you may not give them.",
 		)
 	})
+}
+
+// refuseGivingOnThrough holds putting a person in a group to what giving them each of the
+// group's roles on records directly needs: the person is asked for every role named, in
+// order, and the first the caller may not give refuses the change, in the sentence
+// refuseGivingThrough writes. A request made under a tenant asks what the method that gives
+// a person a role on a record of that kind asks (RoleGrants.MayGiveOn); one made for the
+// whole application asks what giving the role across the record's tenant asks
+// (RoleGrants.MayGive), since no method of the whole application gives a role on one
+// record. The cause, kept for the server's log, names the record.
+func (m *Manager) refuseGivingOnThrough(ctx context.Context, txn resource.ReadWriteTransaction, roles []access.RecordGroupRoleKey, userID impulse.UUID, act string) error {
+	_, inTenant := resource.CallerFrom(ctx).Scope.Domain()
+	for i := range roles {
+		at := accesstypes.NewRecordScope(accesstypes.Domain(roles[i].Domain), accesstypes.Resource(roles[i].Resource), roles[i].Record)
+		var allowed bool
+		var err error
+		if inTenant {
+			allowed, err = m.grants.MayGiveOn(ctx, txn, at, userID, roles[i].Role)
+		} else {
+			allowed, err = m.grants.MayGive(ctx, txn, accesstypes.DomainPolicyScope(at.Domain()), userID, roles[i].Role)
+		}
+		if err != nil {
+			return errors.Wrap(err, "identity.RoleGrants")
+		}
+		if !allowed {
+			return httpio.NewForbiddenMessageWithError(
+				errors.Newf("%s the role %s on %s, which you may not give them: someone who may give the role on the record does it", act, string(roles[i].Role), at.String()),
+				sentenceStart(act)+" the role "+roleInWords(roles[i].Role)+", which you may not give them.",
+			)
+		}
+	}
+
+	return nil
 }
 
 // refuseTakingThrough holds a change that takes a group's roles from people to what
