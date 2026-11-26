@@ -516,7 +516,10 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"patch.SetName(req.Name)",
 		"patch.SetMotto(req.Motto)",
 		"patch.SetOpened(req.Opened)",
-		"if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
+		// The first administrator's role is the creator's act: its row names the
+		// person of the session, though no grant judges it.
+		"byCreator := identity.ActingInSession(ctx)",
+		"if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
 		"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 		"if err := a.TenantRoster().Reload(ctx); err != nil {",
 		"a.LiveService().Signal(ctx, resource.KindTenants)",
@@ -580,7 +583,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 	row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
 	commit := strings.Index(s, "}); err != nil {")
 	roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
-	given := strings.Index(s, "identityClient.AssignRole(ctx, txn,")
+	given := strings.Index(s, "identityClient.AssignRole(byCreator, txn,")
 	seat := strings.Index(s, "resource.AwaitFirstAdministrator(")
 	signal := strings.Index(s, "Signal(ctx, resource.KindTenants)")
 	answer := strings.Index(s, "return httpio.NewEncoder(w).Ok(")

@@ -1219,7 +1219,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 	t.Parallel()
 
 	records := []*identityInstance{{auth: "Staff"}, {auth: "Members", opensToDirectory: true, recordsTenantSignIn: true}}
-	recorded := "if err := a.MembersIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, " +
+	recorded := "if err := a.MembersIdentity().RecordTenantSignIn(byCreator, txn, domain, auditlog.ActDirectoryTaken, " +
 		"resource.DirectoryNameOrKind(directory, a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName)); err != nil {"
 	tests := []struct {
 		name          string
@@ -1332,7 +1332,8 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				"if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {",
 				tt.wantWritten,
 				`return errors.Wrap(err, "SetHarborDirectory()")`,
-				"if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
+				"byCreator := identity.ActingInSession(ctx)",
+				"if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 				"return httpio.NewEncoder(w).Ok(response{ID: id})",
@@ -1361,7 +1362,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 			s := string(out)
 			if tt.wantRecorded != "" {
 				assertContains(t, "tenantCreationTemplate", s, []string{tt.wantRecorded, `"github.com/impulseframework/impulse/auditlog"`}, nil)
-				written, recorded, given := strings.Index(s, tt.wantWritten), strings.Index(s, tt.wantRecorded), strings.Index(s, "identityClient.AssignRole(ctx, txn,")
+				written, recorded, given := strings.Index(s, tt.wantWritten), strings.Index(s, tt.wantRecorded), strings.Index(s, "identityClient.AssignRole(byCreator, txn,")
 				if written < 0 || written >= recorded || recorded >= given {
 					t.Errorf("order: directory %d, its record %d, membership %d; want ascending:\n%s", written, recorded, given, out)
 				}
@@ -1376,7 +1377,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 			generated := strings.Index(s, "id = patch.ID()")
 			row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
 			written := strings.Index(s, "SetHarborDirectory(ctx, txn,")
-			given := strings.Index(s, "identityClient.AssignRole(ctx, txn,")
+			given := strings.Index(s, "identityClient.AssignRole(byCreator, txn,")
 			commit := strings.Index(s, "}); err != nil {")
 			roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
 			wait := strings.Index(s, "resource.AwaitFirstAdministrator(")

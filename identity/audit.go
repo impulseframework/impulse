@@ -47,6 +47,16 @@ func actingInOwnSession(ctx context.Context) context.Context {
 	return actingAs(ctx, eventsource.UserEvent(ctx), "")
 }
 
+// ActingInSession answers ctx carrying the person of the request's session as who acts in
+// the rules of this package called under it, for a route that serves the person and
+// stamps no caller: the route by which a person makes their own tenant gives its first
+// administrator's roles and records the directory it was made with unjudged, since no
+// grant admits the route, and they are the person's acts all the same. Whether a grant
+// judges a call is unchanged by it. A context that holds no session carries nothing.
+func ActingInSession(ctx context.Context) context.Context {
+	return actingInOwnSession(ctx)
+}
+
 // signingInKey carries the account a sign-in's hook acts on (actingOn).
 type signingInKey struct{}
 

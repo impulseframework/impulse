@@ -58,7 +58,8 @@ var _ interface {
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // Staff auth's generated identity client, so the tenant and its administrator are
-// committed together or not at all; this instance's roster rereads its table, so it
+// committed together or not at all, and its row in the auth's audit log names the creator
+// (identity.ActingInSession); this instance's roster rereads its table, so it
 // lists the new tenant; the answer waits until the permission engine answers the
 // new membership as a foothold the session reaches, so the person's next request stands
 // in the tenant; the tenants kind is signaled last, so every instance serves it at
@@ -175,6 +176,10 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
 			}
+			// What the route gives the creator is the creator's act: the rows of the
+			// tenant's first administrator and of the directory it is made with name the
+			// person of the session, though no grant judges the gift.
+			byCreator := identity.ActingInSession(ctx)
 			// The creator's directory, written with the row only where the application
 			// holds a person to one tenant: the organization's directory the creator is
 			// signed in through, held to the rules of a tenant's directory, so a
@@ -190,7 +195,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 						}
 						// The directory the tenant was made with is recorded in it, by its
 						// creator, as a take is: the first row of its sign-in settings.
-						if err := a.StaffIdentity().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory, a.StaffIdentity().DirectoryName)); err != nil {
+						if err := a.StaffIdentity().RecordTenantSignIn(byCreator, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory, a.StaffIdentity().DirectoryName)); err != nil {
 							return errors.Wrap(err, "StaffIdentity().RecordTenantSignIn()")
 						}
 					}
@@ -199,7 +204,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			// The first administrator: the person's membership of each role, in the row's
 			// transaction.
 			for _, role := range roles {
-				if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
+				if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
 					return errors.Wrap(err, "StaffIdentity().AssignRole()")
 				}
 			}

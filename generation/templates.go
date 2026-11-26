@@ -2282,7 +2282,8 @@ var _ interface {
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
-// committed together or not at all; this instance's roster rereads its table, so it
+// committed together or not at all, and its row in the auth's audit log names the creator
+// (identity.ActingInSession); this instance's roster rereads its table, so it
 // lists the new {{ .RecordLower }}; the answer waits until the permission engine answers the
 // new membership as a foothold the session reaches, so the person's next request stands
 // in the {{ .RecordLower }}; the tenants kind is signaled last, so every instance serves it at
@@ -2407,6 +2408,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Record }}CreatePatch.Buffer()")
 			}
+			// What the route gives the creator is the creator's act: the rows of the
+			// {{ .RecordLower }}'s first administrator{{ if .Directory }} and of the directory it is made with{{ end }} name the
+			// person of the session, though no grant judges the gift.
+			byCreator := identity.ActingInSession(ctx)
 			{{- if .Directory }}
 			// The creator's directory, written with the row only where the application
 			// holds a person to one tenant: the organization's directory the creator is
@@ -2424,7 +2429,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 						{{- if .Directory.Recorder }}
 						// The directory the {{ .RecordLower }} was made with is recorded in it, by its
 						// creator, as a take is: the first row of its sign-in settings.
-						if err := {{ .ReceiverName }}.{{ .Directory.Recorder }}().RecordTenantSignIn(ctx, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory{{ if .Directory.Namers }}, {{ .Directory.Namers }}{{ end }})); err != nil {
+						if err := {{ .ReceiverName }}.{{ .Directory.Recorder }}().RecordTenantSignIn(byCreator, txn, domain, auditlog.ActDirectoryTaken, resource.DirectoryNameOrKind(directory{{ if .Directory.Namers }}, {{ .Directory.Namers }}{{ end }})); err != nil {
 							return errors.Wrap(err, "{{ .Directory.Recorder }}().RecordTenantSignIn()")
 						}
 						{{- end }}
@@ -2435,7 +2440,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			// The first administrator: the person's membership of each role, in the row's
 			// transaction.
 			for _, role := range roles {
-				if err := identityClient.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
+				if err := identityClient.AssignRole(byCreator, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
 					return errors.Wrap(err, "{{ .IdentityAccessor }}().AssignRole()")
 				}
 			}
