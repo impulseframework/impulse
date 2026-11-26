@@ -51,6 +51,25 @@ func (Pilot) DeleteTree() *resource.DeleteTree {
 	}
 }
 
+// NameFields names the resource's name fields: beside each id that points to a row with
+// a name, the name of that row, which a list shows, sorts by and filters by. A name is
+// looked up in the pointed-to table by the id; it is no column of this resource.
+func (Pilot) NameFields() []resource.NameField {
+	return []resource.NameField{
+		{Field: "UserName", Key: "UserID", Resource: "CrewSessionUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
+	}
+}
+
+// RecordedNames names the rows a change record of the resource keeps the name of:
+// for each field that points at a row with a name, where the name is read. A
+// tracked write that changes such a field reads the name in its own transaction,
+// and the change record keeps it beside the id.
+func (Pilot) RecordedNames() []resource.NameField {
+	return []resource.NameField{
+		{Field: "", Key: "UserID", Resource: "CrewSessionUsers", Tag: "username", Table: "CrewSessionUsers", KeyColumn: "Id", NameColumn: "Username", TenantColumn: ""},
+	}
+}
+
 // pilotRead mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; pilotReadSets holds one Set per read operation.

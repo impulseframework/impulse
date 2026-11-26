@@ -20,11 +20,12 @@ import (
 
 func (a *App) Pilots() http.HandlerFunc {
 	type pilot struct {
-		ID          impulse.UUID    `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID    `json:"id"          index:"true"    perm:"-"`
 		UserID      string          `json:"userId"      index:"true"`
 		DisplayName string          `json:"displayName" index:"true"`
 		Clearance   int64           `json:"clearance"`
 		FeeLimit    decimal.Decimal `json:"feeLimit"`
+		UserName    *string         `json:"userName"    nameof:"UserID" index:"true"`
 	}
 
 	type response []map[string]any
@@ -63,7 +64,7 @@ func (a *App) Pilots() http.HandlerFunc {
 			if !page.Add(row) {
 				break
 			}
-			rec := (*pilot)(&row.Data)
+			rec := &row.Data
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
@@ -89,6 +90,11 @@ func (a *App) Pilots() http.HandlerFunc {
 					}
 				}
 			}
+			for _, name := range querySet.Names() {
+				if looked := row.Name(name.Field); looked != nil {
+					rmap[name.JSONName] = *looked
+				}
+			}
 			if capabilities := row.Capabilities(); capabilities != nil {
 				rmap[resource.CapabilitiesProperty] = capabilities
 			}
@@ -110,11 +116,12 @@ func (a *App) Pilots() http.HandlerFunc {
 
 func (a *App) Pilot() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID    `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID    `json:"id"          index:"true"    perm:"-"`
 		UserID      string          `json:"userId"      index:"true"`
 		DisplayName string          `json:"displayName"`
 		Clearance   int64           `json:"clearance"`
 		FeeLimit    decimal.Decimal `json:"feeLimit"`
+		UserName    *string         `json:"userName"    nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Pilot, response](a, accesstypes.Read)
@@ -141,7 +148,7 @@ func (a *App) Pilot() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		rec := (*response)(&row.Data)
+		rec := &row.Data
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
@@ -167,6 +174,11 @@ func (a *App) Pilot() http.HandlerFunc {
 				}
 			}
 		}
+		for _, name := range querySet.Names() {
+			if looked := row.Name(name.Field); looked != nil {
+				rmap[name.JSONName] = *looked
+			}
+		}
 		if capabilities := row.Capabilities(); capabilities != nil {
 			rmap[resource.CapabilitiesProperty] = capabilities
 		}
@@ -179,11 +191,12 @@ func (a *App) Pilot() http.HandlerFunc {
 // PilotChangeHistory answers a page of one pilot's change records, newest first, to whoever may read the record, with the fields they may see on it. It answers 404 while the resource does not track its changes.
 func (a *App) PilotChangeHistory() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID    `json:"id"          index:"true" perm:"-"`
+		ID          impulse.UUID    `json:"id"          index:"true"    perm:"-"`
 		UserID      string          `json:"userId"      index:"true"`
 		DisplayName string          `json:"displayName"`
 		Clearance   int64           `json:"clearance"`
 		FeeLimit    decimal.Decimal `json:"feeLimit"`
+		UserName    *string         `json:"userName"    nameof:"UserID"`
 	}
 
 	decoder := NewQueryDecoder[resources.Pilot, response](a, accesstypes.Read)
