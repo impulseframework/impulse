@@ -103,7 +103,7 @@ func (c *client) resolveState(field *resourceField, arg genlang.Arg) error {
 // carry: values change only by migration, so no mutation permission may be
 // defined against the table — generated, consolidated, or manual. Read stays
 // grantable (the values are ordinary reference data).
-func (r *resourceGenerator) validateStateEnumTables(data resource.CollectionData) error {
+func (r *resourceGenerator) validateStateEnumTables(data *resource.CollectionData) error {
 	stateTables := make(map[string]string) // enum table -> the resource whose state field references it
 	for _, res := range r.resources {
 		for _, field := range res.Fields {

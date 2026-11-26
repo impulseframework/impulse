@@ -144,7 +144,7 @@ func (f *fakeStore) RecordMemberships(_ context.Context, _ resource.ReadWriteTra
 			keys = append(keys, key)
 		}
 	}
-	slices.SortFunc(keys, compareRecordMemberships)
+	slices.SortFunc(keys, func(a, b access.RecordMembershipKey) int { return compareRecordMemberships(&a, &b) })
 
 	return keys, nil
 }
@@ -157,7 +157,7 @@ func (f *fakeStore) recordRows(admits func(axis, domain, resource, id string) bo
 			people = append(people, key)
 		}
 	}
-	slices.SortFunc(people, compareRecordMemberships)
+	slices.SortFunc(people, func(a, b access.RecordMembershipKey) int { return compareRecordMemberships(&a, &b) })
 	var groups []access.RecordGroupRoleKey
 	for key := range f.recordGroupRoles {
 		if admits(key.Axis, key.Domain, key.Resource, key.Record) {
@@ -172,8 +172,8 @@ func (f *fakeStore) recordRows(admits func(axis, domain, resource, id string) bo
 }
 
 // compareRecordMemberships orders a person's roles on records by their text.
-func compareRecordMemberships(a, b access.RecordMembershipKey) int {
-	return cmp.Compare(recordMembershipText(&a), recordMembershipText(&b))
+func compareRecordMemberships(a, b *access.RecordMembershipKey) int {
+	return cmp.Compare(recordMembershipText(a), recordMembershipText(b))
 }
 
 // recordMembershipText spells a person's role on a record for the fake's log of writes.

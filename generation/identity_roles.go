@@ -254,7 +254,7 @@ func (r *resourceGenerator) unmarkedHeldOnIn(importPath, file string) error {
 		}
 	}
 	if len(errs) > 0 {
-		return errors.Join(errs...)
+		return errors.Wrap(errors.Join(errs...), "a role's heldOn")
 	}
 
 	return nil

@@ -216,7 +216,7 @@ type collectionFileData struct {
 // collection file declares for it. The names were checked when the data was computed
 // (computeCollectionData), so a clash, which would fail there, leaves none here.
 func (d *collectionFileData) Classes() []actionClassConstant {
-	constants, err := actionClassConstants(d.Data)
+	constants, err := actionClassConstants(&d.Data)
 	if err != nil {
 		return nil
 	}

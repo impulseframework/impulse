@@ -127,7 +127,8 @@ func Test_writesThatDecideAccess(t *testing.T) {
 			if diff := cmp.Diff(wantInUse, collection.ClassesInUse(), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("ClassesInUse() mismatch (-want +got):\n%s", diff)
 			}
-			constants, err := actionClassConstants(b.Data())
+			data := b.Data()
+			constants, err := actionClassConstants(&data)
 			if err != nil {
 				t.Fatalf("actionClassConstants() error = %v", err)
 			}

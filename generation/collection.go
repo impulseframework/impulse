@@ -419,7 +419,7 @@ func scopeOrGlobal(scope accesstypes.PermissionScope) accesstypes.PermissionScop
 // and how a check finds what binds the resource to a tenant, so a name of two scopes
 // would be answered with either, one run to the next. A collection made from data built
 // by hand is refused the same (resource.NewGeneratedCollection).
-func oneScopePerName(data resource.CollectionData) error {
+func oneScopePerName(data *resource.CollectionData) error {
 	global := make(map[accesstypes.Resource]*resource.CollectionResource)
 	for i := range data.Resources {
 		if res := &data.Resources[i]; res.Scope == accesstypes.GlobalPermissionScope {
@@ -517,17 +517,17 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 	r.collectAcrossTenantsRegistrations(b)
 
 	data := b.Data()
-	if err := oneScopePerName(data); err != nil {
+	if err := oneScopePerName(&data); err != nil {
 		return resource.CollectionData{}, err
 	}
-	if err := r.validateStateEnumTables(data); err != nil {
+	if err := r.validateStateEnumTables(&data); err != nil {
 		return resource.CollectionData{}, err
 	}
-	if err := classesOnActionsAlone(data); err != nil {
+	if err := classesOnActionsAlone(&data); err != nil {
 		return resource.CollectionData{}, err
 	}
 	// Each class in use is declared as a constant of the collection file.
-	if _, err := actionClassConstants(data); err != nil {
+	if _, err := actionClassConstants(&data); err != nil {
 		return resource.CollectionData{}, err
 	}
 	// The collection names the auths the run knew, the application's: the names its sets
