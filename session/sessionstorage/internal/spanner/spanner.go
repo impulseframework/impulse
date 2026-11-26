@@ -278,10 +278,21 @@ func (s *SessionStorageDriver) SetAuditRecordsTableName(name string) error {
 	return nil
 }
 
-// SetAuditRecordsPeriod changes nothing on Spanner: the audit records table's row
+// SetAuditRecordsPeriod refuses every period on Spanner: the audit records table's row
 // deletion policy, written into the application's migration (auditlog.SpannerDDL),
-// removes the rows older than the period the Auth keeps them for.
-func (s *SessionStorageDriver) SetAuditRecordsPeriod(auditlog.Period) {}
+// removes the rows older than the period the Auth keeps them for, so a period handed
+// here would keep nothing. The refusal names what to write in its place: the policy's
+// statement for the table, or for a period of forever that a table with no policy keeps
+// every row.
+func (s *SessionStorageDriver) SetAuditRecordsPeriod(period auditlog.Period) error {
+	const refused = "session.KeepAuditRecords keeps nothing on Spanner, where the audit records table's row deletion policy removes old rows. Leave the option out"
+	if _, ok := period.Days(); !ok {
+		return errors.New(refused + ": a table with no row deletion policy keeps every row.")
+	}
+	statements := auditlog.SpannerDDL(s.auditRecordsTableName, period)
+
+	return errors.Newf("%s and add this statement to a migration: %s", refused, statements[len(statements)-1])
+}
 
 // Session returns the session information from the database for given sessionID
 func (s *SessionStorageDriver) Session(ctx context.Context, sessionID impulse.UUID) (*dbtype.SessionData, error) {

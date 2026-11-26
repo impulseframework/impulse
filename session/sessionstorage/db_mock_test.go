@@ -1095,9 +1095,11 @@ func (mr *MockdbMockRecorder) Session(ctx, sessionID any) *gomock.Call {
 }
 
 // SetAuditRecordsPeriod mocks base method.
-func (m *Mockdb) SetAuditRecordsPeriod(period auditlog.Period) {
+func (m *Mockdb) SetAuditRecordsPeriod(period auditlog.Period) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetAuditRecordsPeriod", period)
+	ret := m.ctrl.Call(m, "SetAuditRecordsPeriod", period)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetAuditRecordsPeriod indicates an expected call of SetAuditRecordsPeriod.

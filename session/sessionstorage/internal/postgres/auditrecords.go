@@ -33,14 +33,17 @@ func (s *SessionStorageDriver) auditRecordsTable() string {
 // SetAuditRecordsPeriod sets how long the audit records are kept: a write that inserts
 // one removes the rows older than period's days, counted in hours as the other removals
 // are (removal). With KeepForever, or a period that declares nothing, no row is removed.
-func (s *SessionStorageDriver) SetAuditRecordsPeriod(period auditlog.Period) {
+// It refuses no period.
+func (s *SessionStorageDriver) SetAuditRecordsPeriod(period auditlog.Period) error {
 	days, ok := period.Days()
 	if !ok {
 		s.auditRecordsHours = 0
 
-		return
+		return nil
 	}
 	s.auditRecordsHours = days * 24
+
+	return nil
 }
 
 // recordedWrite runs write, the work of a method that is handed the record of its act. A

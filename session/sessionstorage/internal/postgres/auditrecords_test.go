@@ -87,7 +87,9 @@ func TestAuditRecords_RemovedPastThePeriod(t *testing.T) {
 				t.Fatalf("the instance's driver is %T", in.Driver)
 			}
 			if tt.period != nil {
-				d.SetAuditRecordsPeriod(*tt.period)
+				if err := d.SetAuditRecordsPeriod(*tt.period); err != nil {
+					t.Fatalf("SetAuditRecordsPeriod() error = %v, want the period kept", err)
+				}
 			}
 			user := createTestUser(ctx, t, in.Driver, "pat@lakeside.edu")
 			disabled := func() *auditlog.Record {

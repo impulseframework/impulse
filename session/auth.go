@@ -171,7 +171,7 @@ func WithAuditRecordsTableName(name string) AuthOption {
 // KeepAuditRecords says how long the Auth keeps its audit records on PostgreSQL, where
 // the store removes older rows as it writes one. On Spanner the table's row deletion
 // policy removes them, written into the application's migration (auditlog.SpannerDDL),
-// and this option changes nothing.
+// and NewAuth refuses this option with the statement to write.
 //
 // The period is counted in hours, a day being 24 of them (auditlog.KeepDays); with
 // auditlog.KeepForever, or without the option, no row is removed.
@@ -447,7 +447,9 @@ func NewAuth[SessionData, UserData, Tx any](
 		return nil, err
 	}
 	if settings.auditRecordsKept != nil {
-		storage.SetAuditRecordsPeriod(*settings.auditRecordsKept)
+		if err := storage.SetAuditRecordsPeriod(*settings.auditRecordsKept); err != nil {
+			return nil, errors.Wrap(err, "KeepAuditRecords()")
+		}
 	}
 
 	baseSession, cookieClient, err := sessioncore.NewBaseSession(storage, cookieKey, options)

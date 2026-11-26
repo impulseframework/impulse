@@ -915,9 +915,11 @@ func (mr *MockAuthStoreMethodsMockRecorder[Tx]) Session(ctx, sessionID any) *gom
 }
 
 // SetAuditRecordsPeriod mocks base method.
-func (m *MockAuthStoreMethods[Tx]) SetAuditRecordsPeriod(period auditlog.Period) {
+func (m *MockAuthStoreMethods[Tx]) SetAuditRecordsPeriod(period auditlog.Period) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetAuditRecordsPeriod", period)
+	ret := m.ctrl.Call(m, "SetAuditRecordsPeriod", period)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetAuditRecordsPeriod indicates an expected call of SetAuditRecordsPeriod.

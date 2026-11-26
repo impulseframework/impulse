@@ -676,7 +676,8 @@ A new application keeps its audit records forever. To keep them for a period on
 Spanner, add the row deletion policy `auditlog.SpannerDDL` gives for
 `auditlog.KeepDays(n)` to a migration; on PostgreSQL pass
 `session.KeepAuditRecords(auditlog.KeepDays(n))` to the Auth, and the store removes
-older rows as it writes one. A deleted tenant's rows stay until the period takes
+older rows as it writes one. On Spanner `NewAuth` refuses the option, and its error
+names the statement to write. A deleted tenant's rows stay until the period takes
 them.
 
 An assignment that ends by its period is recorded when its row is cleared, at the

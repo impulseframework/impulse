@@ -106,3 +106,40 @@ func TestAuditRecords_RowDeletionPolicy(t *testing.T) {
 		t.Errorf("the audit records table's row deletion policy = %q, want %q", expression.StringVal, want)
 	}
 }
+
+// TestSetAuditRecordsPeriod_refused holds a period handed to the Spanner store to a
+// refusal that says what to write in its place: the table's own row deletion policy
+// removes old rows there, so a period of days names the statement auditlog.SpannerDDL
+// gives for the table, and a period of forever says that a table with no policy keeps
+// every row. The store keeps no period either way.
+func TestSetAuditRecordsPeriod_refused(t *testing.T) {
+	t.Parallel()
+
+	var d SessionStorageDriver
+	if err := d.SetAuditRecordsTableName("CrewSessionAuditRecords"); err != nil {
+		t.Fatalf("SetAuditRecordsTableName() error = %v", err)
+	}
+	statements := auditlog.SpannerDDL("CrewSessionAuditRecords", auditlog.KeepDays(90))
+	for _, tt := range []struct {
+		name   string
+		period auditlog.Period
+		want   []string
+	}{
+		{name: "a period of days", period: auditlog.KeepDays(90), want: []string{"session.KeepAuditRecords", statements[len(statements)-1]}},
+		{name: "forever", period: auditlog.KeepForever(), want: []string{"session.KeepAuditRecords", "keeps every row"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := d.SetAuditRecordsPeriod(tt.period)
+			if err == nil {
+				t.Fatalf("SetAuditRecordsPeriod() error = nil, want the refusal")
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("SetAuditRecordsPeriod() error = %q, want it to say %q", err, want)
+				}
+			}
+		})
+	}
+}

@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/auditlog"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/azure"
@@ -617,6 +618,27 @@ func TestNewAuth(t *testing.T) {
 			},
 			options:    []AuthOption{WithSessionTableName("StaffSessions"), WithUserTableName("Staff Users")},
 			wantErrHas: "WithUserTableName",
+		},
+		{
+			name: "a period the audit records are kept for is set on the store",
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
+				s := newAuthStoreMock(ctrl)
+				s.EXPECT().SetAuditRecordsPeriod(auditlog.KeepDays(90)).Return(nil)
+
+				return s
+			},
+			options: []AuthOption{KeepAuditRecords(auditlog.KeepDays(90))},
+		},
+		{
+			name: "a period the store refuses, as Spanner's does, is NewAuth's refusal under its option's name",
+			storage: func(ctrl *gomock.Controller) sessionstorage.AuthStore[mockTx] {
+				s := newAuthStoreMock(ctrl)
+				s.EXPECT().SetAuditRecordsPeriod(auditlog.KeepDays(90)).Return(errors.New("write the row deletion policy into a migration"))
+
+				return s
+			},
+			options:    []AuthOption{KeepAuditRecords(auditlog.KeepDays(90))},
+			wantErrHas: "KeepAuditRecords()",
 		},
 	}
 	for _, tt := range tests {

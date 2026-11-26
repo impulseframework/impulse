@@ -357,10 +357,10 @@ type AuthStore[Tx any] interface {
 	// keeps its audit log. (default: SessionAuditRecords)
 	SetAuditRecordsTableName(name string) error
 	// SetAuditRecordsPeriod sets how long the Auth keeps its audit records: on
-	// PostgreSQL a write that inserts one removes the rows older than period; on
-	// Spanner the table's row deletion policy removes them, and the call changes
-	// nothing. (default: kept forever)
-	SetAuditRecordsPeriod(period auditlog.Period)
+	// PostgreSQL a write that inserts one removes the rows older than period. On
+	// Spanner the table's row deletion policy removes them, and the call is refused
+	// with the statement to write into a migration. (default: kept forever)
+	SetAuditRecordsPeriod(period auditlog.Period) error
 	// SignInSettings reads the Auth's row of the sign-in settings table: what an
 	// administrator chose for the whole Auth. It answers nil when there is none, which
 	// requires the second factor and remembers a browser for the default period. A read
@@ -881,8 +881,12 @@ func (a *Auth[Tx]) SetAuditRecordsTableName(name string) error {
 }
 
 // SetAuditRecordsPeriod implements AuthStore.
-func (a *Auth[Tx]) SetAuditRecordsPeriod(period auditlog.Period) {
-	a.db.SetAuditRecordsPeriod(period)
+func (a *Auth[Tx]) SetAuditRecordsPeriod(period auditlog.Period) error {
+	if err := a.db.SetAuditRecordsPeriod(period); err != nil {
+		return errors.Wrap(err, "db.SetAuditRecordsPeriod()")
+	}
+
+	return nil
 }
 
 // SignInSettings implements AuthStore.

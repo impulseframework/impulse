@@ -245,8 +245,9 @@ type db interface {
 	// SetAuditRecordsTableName sets the name of the audit records table.
 	SetAuditRecordsTableName(name string) error
 	// SetAuditRecordsPeriod sets how long the audit records are kept, where the driver
-	// removes them as it writes one.
-	SetAuditRecordsPeriod(period auditlog.Period)
+	// removes them as it writes one, and refuses the period where the table's own policy
+	// removes them.
+	SetAuditRecordsPeriod(period auditlog.Period) error
 	// SignInSettings reads the Auth's row of the sign-in settings table, or nil when there is none.
 	SignInSettings(ctx context.Context) (*dbtype.SignInSettings, error)
 	// SetRequireSecondFactor writes whether everyone is asked for a second factor, and leaves
