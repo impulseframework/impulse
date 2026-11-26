@@ -190,6 +190,9 @@ func (tn Tenancy) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Ch
 	if err := tn.pruneRoles(a, g, served, ch); err != nil {
 		return nil, err
 	}
+	if err := tn.writeRolePlaces(a, ch); err != nil {
+		return nil, err
+	}
 	if err := tn.giveRoles(ctx, a, exec, ch); err != nil {
 		return nil, err
 	}

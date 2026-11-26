@@ -239,6 +239,26 @@ func sorted(lines []string) []string {
 	return ordered
 }
 
+// grantSet is a role's grants as a set, one line a grant: its permission, its resource,
+// its condition and its fields in order of name, the lines sorted. Two roles that hold
+// the same grants in another order have the same set.
+func grantSet(role *roleEntry) []string {
+	var set []string
+	for _, permission := range role.Permissions {
+		for _, grant := range permission.Grants {
+			fields := make([]string, len(grant.Fields))
+			for i, field := range grant.Fields {
+				fields[i] = string(field)
+			}
+			slices.Sort(fields)
+			set = append(set, permission.Permission+" on "+string(grant.Resource)+" under "+strconv.Quote(grant.Condition)+" ("+strings.Join(fields, ", ")+")")
+		}
+	}
+	slices.Sort(set)
+
+	return set
+}
+
 // TestTenancy_Apply_writesTheAdministratorRole pins that an application is given the
 // role a tenant's administrator holds as it gains tenants: an application with tenants
 // builds no router until one is named, so one left to the author is an application that
@@ -314,6 +334,23 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		}
 		if diff := cmp.Diff(recordGrants(roleNamed(reference.Roles.Global, "Administrator")), recordGrants(administrator)); diff != "" {
 			t.Errorf("the application's administrator does not hold the reference's grants on tenants (-reference +written):\n%s", diff)
+		}
+		// Each global role is the reference's whole, and not only on tenants: what the
+		// command leaves a role without is a dialog of the whole application that offers its
+		// holder nothing.
+		if got, want := len(file.Roles.Global), len(reference.Roles.Global); got != want {
+			t.Errorf("%s has %d global role(s), want the reference's %d", roles, got, want)
+		}
+		for _, want := range reference.Roles.Global {
+			written := roleNamed(file.Roles.Global, want.Name)
+			if written == nil {
+				t.Errorf("%s has no global role %s, which the reference's role file holds", roles, want.Name)
+
+				continue
+			}
+			if diff := cmp.Diff(grantSet(want), grantSet(written)); diff != "" {
+				t.Errorf("the global role %s does not hold the reference's grants (-reference +written):\n%s", want.Name, diff)
+			}
 		}
 		// The application's own administrator deletes a tenant, so it is the one who
 		// disables it first: its Update on the record names the field, as the reference's
@@ -514,6 +551,14 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if got := linesWith(ch.Did, "pkg/auth/crew/foothold.go: ", []string{"name SectorAdministrator as held in every sector", "SectorAdministratorRoles()"}); len(got) != 1 {
 			t.Errorf("the change does not say once where the role is named: %q", ch.Did)
 		}
+		// The whole application's dialogs ask this auth's list of the roles to give by where
+		// each is held, in its own names.
+		if got := grantOn(administrator, "List", "CrewGivableRoles").Fields; !slices.Contains(got, "domain") || !slices.Contains(got, "everyDomain") {
+			t.Errorf("List on CrewGivableRoles names the fields %q, want domain and everyDomain among them", got)
+		}
+		if got := linesWith(ch.Did, roles+": each global role that lists the roles to give", []string{"once the application has sectors (", "List on CrewGivableRoles (domain, everyDomain)"}); len(got) != 1 {
+			t.Errorf("the change does not say once, in this application's names, where each role to give is held: %q", ch.Did)
+		}
 	})
 
 	t.Run("where a person belongs to one tenant the application's administrator manages every account", func(t *testing.T) {
@@ -571,21 +616,43 @@ func TestTenancy_Apply_writesTheAdministratorRole(t *testing.T) {
 		if err := os.WriteFile(a.Abs(foothold), []byte(named), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		before := read(t, a, roles)
+		// The role file is as it was but for where each role to give is held, which the whole
+		// application's dialogs ask whatever role a tenant's administrator holds.
+		want := roleFileOf(t, a, roles)
+		listed := roleNamed(want.Roles.Global, "Administrator")
+		if listed == nil {
+			t.Fatalf("%s has no global role Administrator", roles)
+		}
+		gained := 0
+		for i := range listed.Permissions {
+			for j := range listed.Permissions[i].Grants {
+				if grant := &listed.Permissions[i].Grants[j]; listed.Permissions[i].Permission == "List" && grant.Resource == "StaffGivableRoles" {
+					grant.Fields = append(grant.Fields, "domain", "everyDomain")
+					gained++
+				}
+			}
+		}
+		if gained != 1 {
+			t.Fatalf("the base's Administrator holds %d List grant(s) on StaffGivableRoles, want one, so this proves nothing", gained)
+		}
 		run := &tenantedRegeneration{collection: referenceCollection(t)}
 		run.a = a
 		ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, run)
 		if err != nil {
 			t.Fatalf("Tenancy.Apply() error = %v", err)
 		}
-		if read(t, a, roles) != before {
-			t.Error("the role file changed, and the application named its own role for a tenant's administrator")
+		if diff := cmp.Diff(want, roleFileOf(t, a, roles)); diff != "" {
+			t.Errorf("the role file changed beyond where each role to give is held, and the application named its own role for a tenant's administrator (-want +got):\n%s", diff)
 		}
 		if read(t, a, foothold) != named {
 			t.Error("the foothold changed, and it named a role held in every tenant already")
 		}
 		if got := linesWith(ch.Did, foothold+": left as it is", []string{"Owner", "TenantAdministratorRoles()"}); len(got) != 1 {
 			t.Errorf("the change does not say once that the application's own role stands: %q", ch.Did)
+		}
+		places := roles + ": each global role that lists the roles to give also reads where each role is held there, which the whole application's dialogs ask the list by once the application has tenants (Administrator: List on StaffGivableRoles (domain, everyDomain))"
+		if got := linesWith(ch.Did, roles+": each global role that lists the roles to give", nil); !slices.Equal(got, []string{places}) {
+			t.Errorf("the change says %q of where each role to give is held, want once %q", got, places)
 		}
 	})
 
@@ -743,8 +810,73 @@ func TestTenancy_Apply_readsWhoManagesEachAccount(t *testing.T) {
 	want := roles + ": each global role that lists or reads the application's accounts or their sign-in identities now reads who manages each account there (" +
 		"Administrator: List on StaffListedUsers (managedByTenant, managingTenant); Administrator: List on StaffListedIdentities; " +
 		"Administrator: Read on StaffListedUsers (managedByTenant, managingTenant); Administrator: Read on StaffListedIdentities)"
-	if got := linesWith(ch.Did, roles+": each global role", nil); !slices.Equal(got, []string{want}) {
+	if got := linesWith(ch.Did, roles+": each global role that lists or reads", nil); !slices.Equal(got, []string{want}) {
 		t.Errorf("the change says %q of who manages each account, want once %q", got, want)
+	}
+}
+
+// TestTenancy_Apply_readsWhereEachRoleToGiveIsHeld pins that an application given tenancy
+// has its own administrators list the roles to give by where each is held: the whole
+// application's dialogs that give a role ask the list by the two fields once the
+// application has tenants, and the library refuses the list to a person whose grant does
+// not name them, so the dialog offers no role. The grant keeps its own fields, gains the
+// two after them, and the change says so in one line.
+func TestTenancy_Apply_readsWhereEachRoleToGiveIsHeld(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	a := newBase(t, "staff")
+	before := roleFileOf(t, a, roles)
+	ch := tenantedOn(t, a, Tenancy{Table: "Tenants"}, "staff", referenceCollection(t))
+	file := roleFileOf(t, a, roles)
+
+	administrator, was := roleNamed(file.Roles.Global, "Administrator"), roleNamed(before.Roles.Global, "Administrator")
+	if administrator == nil || was == nil {
+		t.Fatalf("%s has no global role Administrator before and after tenancy", roles)
+	}
+	places := []accesstypes.Tag{"domain", "everyDomain"}
+	listed := grantOn(was, "List", "StaffGivableRoles")
+	if len(listed.Fields) == 0 || slices.ContainsFunc(listed.Fields, func(field accesstypes.Tag) bool {
+		return slices.Contains(places, field)
+	}) {
+		t.Fatalf("the base's Administrator holds List on StaffGivableRoles with the fields %q, want some and neither of %q, so this proves nothing", listed.Fields, places)
+	}
+	if diff := cmp.Diff(slices.Concat(listed.Fields, places), grantOn(administrator, "List", "StaffGivableRoles").Fields); diff != "" {
+		t.Errorf("List on StaffGivableRoles does not read where each role is held beside its own fields (-want +got):\n%s", diff)
+	}
+	if got := unserved(t, a, file); len(got) != 0 {
+		t.Errorf("the role file grants what the application does not serve: %q", got)
+	}
+	want := roles + ": each global role that lists the roles to give also reads where each role is held there, which the whole application's dialogs ask the list by once the application has tenants (Administrator: List on StaffGivableRoles (domain, everyDomain))"
+	if got := linesWith(ch.Did, roles+": each global role that lists the roles to give", nil); !slices.Equal(got, []string{want}) {
+		t.Errorf("the change says %q of where each role to give is held, want once %q", got, want)
+	}
+}
+
+// TestTenancy_Apply_namesWhereEachRoleToGiveIsHeldInARoleFileThatDoesNotParse pins that
+// a role file the permission engine would refuse is left as it is, and the change names
+// the hand step: the fields to add, on which list, and what waits for them.
+func TestTenancy_Apply_namesWhereEachRoleToGiveIsHeldInARoleFileThatDoesNotParse(t *testing.T) {
+	t.Parallel()
+
+	const roles = "pkg/auth/staff/roles.json"
+	a := newBase(t, "staff")
+	broken := `{"auth": "staff", "roles": "none"}` + "\n"
+	if err := os.WriteFile(a.Abs(roles), []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := &tenantedRegeneration{collection: referenceCollection(t)}
+	run.a = a
+	ch, err := Tenancy{Table: "Tenants"}.Apply(t.Context(), a, run)
+	if err != nil {
+		t.Fatalf("Tenancy.Apply() error = %v", err)
+	}
+	start := roles + ": the role file does not read as the permission engine reads it ("
+	if got := skippedLine(ch, start, "), so no role in it was given where each role to give is held: add domain and everyDomain to the fields of each global role's List grant on StaffGivableRoles; until then the whole application's dialogs that give a role offer its holder no role"); len(got) != 1 {
+		t.Errorf("the change does not say once that no role was given where each role to give is held: %q", ch.Skipped)
+	}
+	if got := read(t, a, roles); got != broken {
+		t.Errorf("the role file changed, and it does not parse: %q", got)
 	}
 }
 
@@ -794,6 +926,128 @@ func TestGrantManagingFacts_givesNothingTwice(t *testing.T) {
 	}
 	if len(ch.Did) != 0 {
 		t.Errorf("grantManagingFacts() said %q, and nothing was gained", ch.Did)
+	}
+}
+
+// TestGrantRolePlaces_givesEachListGrantThePlacesItLacks pins which grants gain where
+// each role to give is held: a global role's List grant on the list that names fields
+// gains each of the two it does not name, after its own fields and under its own
+// condition; a grant of every field, a bare grant, a grant of another permission or on
+// another resource, and a role held in a tenant are left as they are. A second pass
+// gains nothing and says nothing, and an application whose list has neither field gains
+// nothing either.
+func TestGrantRolePlaces_givesEachListGrantThePlacesItLacks(t *testing.T) {
+	t.Parallel()
+
+	const (
+		roles = "pkg/auth/staff/roles.json"
+		list  = "StaffGivableRoles"
+		held  = "method = InviteStaffUser"
+	)
+	tn := Tenancy{Table: "Tenants"}
+	withTenants, _ := tenanted(t, tn, "staff", referenceCollection(t))
+	served, err := withTenants.Served()
+	if err != nil || served == nil {
+		t.Fatalf("App.Served() = %v, %v, want the application's collection", served, err)
+	}
+	unplaced, err := newBase(t, "staff").Served()
+	if err != nil || unplaced == nil {
+		t.Fatalf("App.Served() = %v, %v, want the base's collection", unplaced, err)
+	}
+	grant := func(resource, condition string, fields ...accesstypes.Tag) access.Grant {
+		return access.Grant{Resource: accesstypes.Resource(resource), Condition: condition, Fields: fields}
+	}
+	role := func(name, permission string, g access.Grant) *roleEntry {
+		return &roleEntry{Name: name, Permissions: rolePermissions{{Permission: permission, Grants: []access.Grant{g}}}}
+	}
+	file := func() *roleFile {
+		return &roleFile{Auth: "staff", Roles: roleScopes{
+			Global: []*roleEntry{
+				role("Neither", "List", grant(list, "", "description", "method")),
+				role("One", "List", grant(list, "", "description", "everyDomain")),
+				role("Both", "List", grant(list, "", "description", "domain", "everyDomain")),
+				role("Every", "List", grant(list, "", "*")),
+				role("Bare", "List", grant(list, "")),
+				role("Held", "List", grant(list, held, "description")),
+				role("Elsewhere", "List", grant("StaffListedUsers", "", "username")),
+				role("Reader", "Read", grant(list, "", "description")),
+			},
+			Domain: []*roleEntry{
+				role("TenantAdministrator", "List", grant(list, "", "description")),
+			},
+		}}
+	}
+
+	placed := file()
+	ch := &Change{}
+	if !tn.grantRolePlaces(placed, served, "staff", roles, ch) {
+		t.Error("grantRolePlaces() = false, want true: grants that name fields lack where each role is held")
+	}
+	for _, tt := range []struct {
+		role       string
+		domain     bool
+		permission string
+		want       access.Grant
+	}{
+		{role: "Neither", permission: "List", want: grant(list, "", "description", "method", "domain", "everyDomain")},
+		{role: "One", permission: "List", want: grant(list, "", "description", "everyDomain", "domain")},
+		{role: "Both", permission: "List", want: grant(list, "", "description", "domain", "everyDomain")},
+		{role: "Every", permission: "List", want: grant(list, "", "*")},
+		{role: "Bare", permission: "List", want: grant(list, "")},
+		{role: "Held", permission: "List", want: grant(list, held, "description", "domain", "everyDomain")},
+		{role: "Elsewhere", permission: "List", want: grant("StaffListedUsers", "", "username")},
+		{role: "Reader", permission: "Read", want: grant(list, "", "description")},
+		{role: "TenantAdministrator", domain: true, permission: "List", want: grant(list, "", "description")},
+	} {
+		scope := placed.Roles.Global
+		if tt.domain {
+			scope = placed.Roles.Domain
+		}
+		r := roleNamed(scope, tt.role)
+		if r == nil {
+			t.Fatalf("the role file has no role %s", tt.role)
+		}
+		if diff := cmp.Diff([]access.Grant{tt.want}, r.Permissions.grants(tt.permission)); diff != "" {
+			t.Errorf("%s: %s grants after grantRolePlaces() (-want +got):\n%s", tt.role, tt.permission, diff)
+		}
+	}
+	want := roles + ": each global role that lists the roles to give also reads where each role is held there, which the whole application's dialogs ask the list by once the application has tenants (" +
+		"Neither: List on StaffGivableRoles (domain, everyDomain); One: List on StaffGivableRoles (domain); Held: List on StaffGivableRoles (domain, everyDomain))"
+	if !slices.Equal(ch.Did, []string{want}) {
+		t.Errorf("grantRolePlaces() said %q, want once %q", ch.Did, want)
+	}
+
+	was, err := placed.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := &Change{}
+	if tn.grantRolePlaces(placed, served, "staff", roles, again) {
+		t.Error("grantRolePlaces() = true a second time, and every grant reads where each role is held already")
+	}
+	if got, err := placed.encode(); err != nil || string(got) != string(was) {
+		t.Errorf("grantRolePlaces() changed the role file a second time (-first +second):\n%s", cmp.Diff(string(was), string(got)))
+	}
+	if len(again.Did)+len(again.Skipped) != 0 {
+		t.Errorf("grantRolePlaces() said %q and skipped %q a second time, and nothing was gained", again.Did, again.Skipped)
+	}
+
+	// An application without tenants lists the roles to give with neither field, so none
+	// is given.
+	bare := file()
+	was, err = bare.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	none := &Change{}
+	if tn.grantRolePlaces(bare, unplaced, "staff", roles, none) {
+		t.Error("grantRolePlaces() = true over a list with neither field")
+	}
+	if got, err := bare.encode(); err != nil || string(got) != string(was) {
+		t.Errorf("grantRolePlaces() changed the role file over a list with neither field (-before +after):\n%s", cmp.Diff(string(was), string(got)))
+	}
+	if len(none.Did)+len(none.Skipped) != 0 {
+		t.Errorf("grantRolePlaces() said %q and skipped %q over a list with neither field", none.Did, none.Skipped)
 	}
 }
 
@@ -998,5 +1252,28 @@ func TestTenancy_Apply_stopsOnAFileItCannotRead(t *testing.T) {
 				t.Errorf("%s has the role TenantAdministrator = %t, want %t", roles, got, tt.wantWritten)
 			}
 		})
+	}
+}
+
+// TestWriteRolePlaces_stopsOnARoleFileItCannotRead pins that a role file that is there
+// and cannot be read stops the command with the error: read as a file that is not there,
+// the change would say nothing, and the whole application's dialogs would offer its
+// roles' holders no role.
+func TestWriteRolePlaces_stopsOnARoleFileItCannotRead(t *testing.T) {
+	t.Parallel()
+	skipWhereNoFileIsUnreadable(t)
+
+	const roles = "pkg/auth/staff/roles.json"
+	tn := Tenancy{Table: "Tenants"}
+	a, _ := tenanted(t, tn, "staff", referenceCollection(t))
+	if err := os.Chmod(a.Abs(roles), 0); err != nil {
+		t.Fatal(err)
+	}
+	ch := &Change{}
+	if err := tn.writeRolePlaces(a, ch); !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("writeRolePlaces() error = %v, want the refusal to read %s", err, roles)
+	}
+	if len(ch.Did)+len(ch.Skipped) != 0 {
+		t.Errorf("writeRolePlaces() said %q and skipped %q, and it read no role file", ch.Did, ch.Skipped)
 	}
 }

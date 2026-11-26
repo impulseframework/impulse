@@ -1368,7 +1368,11 @@ not are each named in the brief with what becomes of them (`sign_up_test.go` and
 Each auth's role file loses the grants on what the regeneration stopped serving: an
 application with tenants lists no roles for a person who signs up, so the base's grant on
 `<Auth>SignUpRoles` goes, since the permission engine refuses a role file that grants a
-resource the application does not serve. The command then writes the role a tenant's
+resource the application does not serve. Each global role that lists the roles to give
+(`<Auth>GivableRoles`) gains the two fields that say where a role is held, `domain` and
+`everyDomain`, on that grant: once the application has tenants the whole application's
+dialogs that give a role ask the list by them, and offer no role to a person whose role
+lacks them. The command then writes the role a tenant's
 administrator holds, since an application with tenants builds no router until one is
 named: `<Record>Administrator` (`TenantAdministrator` over `Tenants`), a domain role in the
 role file of the auth whose people make tenants, with the grants the tenanted skeleton's
@@ -1407,7 +1411,12 @@ each with its proof, a tenant's administrator does none of them. The auth's
 deployment package's test of the first administrator's roles holds it to the role file,
 and the application's own administrator role gains the grants a tenant is made with: the
 record, the invitation that makes one, its withdrawal and the list of the invitations
-that stand. Where a person may be in several tenants that role is also held to the
+that stand. Each global role of that file that lists or reads the application's accounts
+(`<Auth>ListedUsers`) gains the two fields that say who manages each account there,
+`managedByTenant` and `managingTenant`, and one that lists or reads their sign-in
+identities (`<Auth>SessionIdentities`) is given the same grant on the whole application's
+list of them (`<Auth>ListedIdentities`), with the two fields. Where a person may be in
+several tenants that role is also held to the
 accounts no tenant manages, as the tenanted skeleton's `Administrator` is: each of its
 grants on a method of the whole application that acts on an account, the reset link among
 them, takes `managedByTenant = false`, and the same test proves each, as the
