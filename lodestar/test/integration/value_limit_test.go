@@ -34,6 +34,8 @@ func TestValueLimit(t *testing.T) {
 			withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"),
 			withFields("Ships", "hangarId", "classId", "registry", "name")...),
 		accesstypes.Update: withFields(missionsResource, "fee"),
+		// A ship names its hangar and its class, so its writer lists both.
+		accesstypes.List: {"Hangars", "ShipClasses"},
 	})
 
 	ship := func(registry string) string {

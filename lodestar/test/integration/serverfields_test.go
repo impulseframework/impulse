@@ -246,7 +246,9 @@ func TestRefitCreateValidator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := newTestApp(db, grants{accesstypes.Create: withFields("Refits", "shipId")})
+	// A refit names its ship, so its writer lists the ships (a write names only a row its
+	// writer can list).
+	h := newTestApp(db, grants{accesstypes.Create: withFields("Refits", "shipId"), accesstypes.List: {"Ships"}})
 
 	const inBay = "This ship is already in a bay: its refit is still open. Finish that refit before you dock the ship again."
 	tests := []struct {

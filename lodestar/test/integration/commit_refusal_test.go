@@ -79,6 +79,9 @@ func TestCommitRefusal(t *testing.T) {
 		accesstypes.Update: append(
 			withFields(missionsResource, "hazard"),
 			withFields("Clients", "name")...),
+		// A ship names its hangar and its class, and a refit task its refit, so their writer
+		// lists those.
+		accesstypes.List: {"Hangars", "ShipClasses", "Refits"},
 	})
 
 	const (

@@ -37,7 +37,8 @@ func TestSortieExpenseMemo_formerlyNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	fields := withFields("SortieExpenses", "sortieId", "category", "amount", "memo")
-	h := newTestApp(db, grants{accesstypes.List: fields, accesstypes.Read: fields, accesstypes.Create: fields, accesstypes.Update: fields})
+	// An expense names its sortie, so its writer lists the sorties.
+	h := newTestApp(db, grants{accesstypes.List: append(fields, "Sorties"), accesstypes.Read: fields, accesstypes.Create: fields, accesstypes.Update: fields})
 
 	const towGear = "Grapple replacement" // the pod sortie's seeded tow gear line
 

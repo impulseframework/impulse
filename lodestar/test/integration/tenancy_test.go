@@ -145,7 +145,8 @@ func TestWriteTenancy_moveUnderAnotherSector(t *testing.T) {
 		t.Fatalf("spanner.Apply(Sorties): %v", err)
 	}
 
-	h := newTestApp(db, grants{accesstypes.Update: withFields("SortieExpenses", "sortieId")})
+	// An expense names its sortie, so its writer lists the sorties.
+	h := newTestApp(db, grants{accesstypes.Update: withFields("SortieExpenses", "sortieId"), accesstypes.List: {"Sorties"}})
 	move := func(t *testing.T, expense, sortie string) (int, []byte) {
 		t.Helper()
 
@@ -252,9 +253,11 @@ func TestWriteTenancy_notThereBeforeTheCondition(t *testing.T) {
 // TestWriteTenancy_keyNamesARowOfItsOwnSector pins the two keys between tables that keep
 // the sector in a column: a pass's key to its hangar and an answer's key to the relay it
 // answers hold the sector beside the row's id. A pass or an answer that names another
-// sector's row is refused at the commit as one that names a row that is not there, in the
-// same status and the same sentence, and nothing is written; a pass moved to another
-// sector's hangar keeps its hangar. The same writes within the sector are made.
+// sector's row is refused as one that names a row that is not there, in the same status
+// and the same sentence, and nothing is written; a pass moved to another sector's hangar
+// keeps its hangar. The same writes within the sector are made. The writer lists hangars,
+// calls and relays, and the sector's list shows none of another sector's, so each refusal
+// is the 404 a write gets before the commit, where the key would refuse it too.
 func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 	t.Parallel()
 
@@ -298,6 +301,7 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 	h := newTestApp(db, grants{
 		accesstypes.Create: append(withFields("HangarPasses", "hangarId", "userId", "levelId"), withFields("DistressRelays", "caseNumber", "message", "answersRelayId")...),
 		accesstypes.Update: withFields("HangarPasses", "hangarId"),
+		accesstypes.List:   {"Hangars", "DistressCalls", "DistressRelays"},
 	})
 	addPass := func(t *testing.T, hangar string) (int, []byte) {
 		t.Helper()
@@ -321,11 +325,11 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 
 		return n
 	}
-	refused := func(t *testing.T, status int, body []byte, record string) {
+	refused := func(t *testing.T, status int, body []byte) {
 		t.Helper()
 
-		assertStatus(t, status, http.StatusConflict, body)
-		if got, want := refusalMessage(t, body), "This "+record+" refers to a record that does not exist, or holds a value that is too long for its field."; got != want {
+		assertStatus(t, status, http.StatusNotFound, body)
+		if got, want := refusalMessage(t, body), "A record this one refers to does not exist."; got != want {
 			t.Errorf("message = %q, want %q", got, want)
 		}
 	}
@@ -335,7 +339,7 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 
 		for _, hangar := range []string{hangarAnvilDockID, noHangarID} {
 			status, body := addPass(t, hangar)
-			refused(t, status, body, "hangar pass")
+			refused(t, status, body)
 		}
 		if n := count(t, "SELECT COUNT(*) FROM HangarPasses WHERE SectorId = @sector AND HangarId IN UNNEST(@hangars)",
 			map[string]any{"sector": bastion, "hangars": []string{hangarAnvilDockID, noHangarID}}); n != 0 {
@@ -359,7 +363,7 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 
 		status, body := doRequest(t, h, http.MethodPatch, batch, fmt.Sprintf(`[{"op":"patch","path":%q,"value":{"hangarId":%q}}]`,
 			opPath(bastion, "hangar-passes/"+bastionPassID), hangarAnvilDockID))
-		refused(t, status, body, "hangar pass")
+		refused(t, status, body)
 		if got := readColumn[string](ctx, t, db, "HangarPasses", spanner.Key{bastionPassID}, "HangarId"); got != hangarBastionSlipID {
 			t.Errorf("HangarId = %s, want unchanged %s", got, hangarBastionSlipID)
 		}
@@ -370,7 +374,7 @@ func TestWriteTenancy_keyNamesARowOfItsOwnSector(t *testing.T) {
 
 		for _, answers := range []string{anvilRelay, noRelayID} {
 			status, body := addAnswer(t, bastion, bastionNumber, answers)
-			refused(t, status, body, "distress relay")
+			refused(t, status, body)
 		}
 		if n := count(t, "SELECT COUNT(*) FROM DistressRelays WHERE SectorId = @sector AND CaseNumber = @number",
 			map[string]any{"sector": bastion, "number": bastionNumber}); n != 0 {

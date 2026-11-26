@@ -53,14 +53,15 @@ func TestDispatcherWriteGrouping(t *testing.T) {
 	status, body = patch(missionConvoyID, `{"deadline":"`+deadline(26)+`"}`)
 	assertStatus(t, status, http.StatusOK, body)
 
-	// Assignment to a squadron Dunn does not fly with fails grant A, and the refusal
-	// says the group's column in a person's words; the notes in the same PATCH do not
+	// Assignment to Ashfall, a squadron of another sector (Anvil holds none Dunn does not
+	// fly with), names a row Anvil's list of squadrons does not show: it is answered as a
+	// row that is not there before grant A is asked. The notes in the same PATCH do not
 	// commit.
 	before := readColumn[spanner.NullString](ctx, t, db, "Missions", spanner.Key{missionQuarantineID}, "Notes")
 	status, body = patch(missionQuarantineID, fmt.Sprintf(`{"assignedSquadronId":%q,"notes":"partial?"}`, squadronAshfallID))
-	assertStatus(t, status, http.StatusForbidden, body)
-	if got, want := refusalMessage(t, body), "You may change the assigned squadron id of some missions here, but not of this one."; got != want {
-		t.Errorf("refusal = %q, want %q: the failing group's column in a person's words", got, want)
+	assertStatus(t, status, http.StatusNotFound, body)
+	if got, want := refusalMessage(t, body), "A record this one refers to does not exist."; got != want {
+		t.Errorf("refusal = %q, want %q: another sector's squadron is a row that is not there", got, want)
 	}
 	after := readColumn[spanner.NullString](ctx, t, db, "Missions", spanner.Key{missionQuarantineID}, "Notes")
 	if before != after {
