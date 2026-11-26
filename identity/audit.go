@@ -30,6 +30,24 @@ func actingAs(ctx context.Context, source eventsource.EventSource, directory str
 	return context.WithValue(ctx, actingKey{}, acting{source: source, directory: directory})
 }
 
+// signingInKey carries the account a sign-in's hook acts on (actingOn).
+type signingInKey struct{}
+
+// signingIn is the account a sign-in's hook acts on, by the username the session library
+// handed the hook.
+type signingIn struct {
+	userID   impulse.UUID
+	username string
+}
+
+// actingOn answers ctx naming the account a sign-in's hook acts on, by the username the
+// session library handed the hook, so that the rows of what the hook gives name the
+// account: a read in the sign-in's transaction does not see an account the sign-in
+// creates in it (accountSubject).
+func actingOn(ctx context.Context, userID impulse.UUID, username string) context.Context {
+	return context.WithValue(ctx, signingInKey{}, signingIn{userID: userID, username: username})
+}
+
 // record buffers one row of the audit log in the act's transaction. It fills who acted
 // (acting), the tenant the act was done in where the row names none (tenantOfScope), and
 // the tenant's name.
@@ -64,8 +82,9 @@ func (m *Manager) record(ctx context.Context, txn resource.ReadWriteTransaction,
 }
 
 // accountSubject answers a row of an act done to an account, with its subject set and
-// nothing else: SubjectAccount, the account's id, and its username, the id where no
-// user holds it.
+// nothing else: SubjectAccount, the account's id, and its username; where the store
+// answers no user, the username a sign-in's hook was handed for the account (actingOn),
+// as for an account the sign-in creates in the hook's transaction, and the id otherwise.
 func (m *Manager) accountSubject(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) (*auditlog.Record, error) {
 	username, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
@@ -73,6 +92,9 @@ func (m *Manager) accountSubject(ctx context.Context, txn resource.ReadWriteTran
 	}
 	if !found {
 		username = userID.String()
+		if hook, ok := ctx.Value(signingInKey{}).(signingIn); ok && hook.userID == userID && hook.username != "" {
+			username = hook.username
+		}
 	}
 
 	return accountRecord("", userID, username), nil

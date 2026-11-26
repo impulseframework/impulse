@@ -563,7 +563,7 @@ func (m *Manager) SignedUp(auth string) session.SignUpSeatedHook[*spanner.ReadWr
 		}
 		txn := resource.NewSpannerReadWriteTransaction(tx)
 		// The starting role is the sign-up's act.
-		ctx = actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessSignUp), "")
+		ctx = actingOn(actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessSignUp), ""), userID, username)
 		if err := m.AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), userID, accesstypes.Role(role)); err != nil {
 			return nil, errors.Wrapf(err, "the sign-in method %q gives %q its default role %s", method, username, role)
 		}

@@ -72,7 +72,7 @@ import (
 func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
 		// What the acceptance writes is the invitation's act, whoever accepts it.
-		ctx = actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessInvitation), "")
+		ctx = actingOn(actingAs(ctx, eventsource.ProcessEvent(auditlog.ProcessInvitation), ""), userID, username)
 		if inv.NewTenant != nil {
 			return m.tenantInvitationAccepted(ctx, auth, tx, userID, username, inv)
 		}

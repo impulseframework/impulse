@@ -126,6 +126,42 @@ func TestSignInActsRecorded(t *testing.T) {
 		}
 	})
 
+	t.Run("a sign-up that makes the account: the row names it by the username the hook is handed", func(t *testing.T) {
+		t.Parallel()
+
+		// The account is buffered in the sign-in's transaction, and a read in it answers
+		// no user.
+		store := groupStore()
+		delete(store.usernames, userID)
+		m, _ := newManager(t, store, engineRoles)
+		if _, err := m.SignedUp("Staff")(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", "google", "Steward"); err != nil {
+			t.Fatalf("SignedUp() error = %v", err)
+		}
+		want := []actedRow{{act: auditlog.ActRoleGiven, subject: danaAccount, role: "Steward", who: "a sign-up"}}
+		if diff := cmp.Diff(want, actedRows(t, store), cmp.AllowUnexported(actedRow{})); diff != "" {
+			t.Errorf("audit rows (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("an invitation accepted by the account it makes: the rows name it by the username the hook is handed", func(t *testing.T) {
+		t.Parallel()
+
+		store := groupStore()
+		delete(store.usernames, userID)
+		m, _ := newManager(t, store, engineRoles)
+		inv := &sessioninfo.Invitation{ID: invitationID, Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Reader"}}
+		if _, err := m.InvitationAccepted("Staff")(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", inv); err != nil {
+			t.Fatalf("InvitationAccepted() error = %v", err)
+		}
+		want := []actedRow{
+			{act: auditlog.ActRoleGiven, subject: danaAccount, role: "Reader", tenant: "alpha", who: "an invitation"},
+			{act: auditlog.ActInvitationAccepted, subject: danaAccount, tenant: "alpha", who: "an invitation"},
+		}
+		if diff := cmp.Diff(want, actedRows(t, store), cmp.AllowUnexported(actedRow{})); diff != "" {
+			t.Errorf("audit rows (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("two ended assignments cleared, in a request of the person's own", func(t *testing.T) {
 		t.Parallel()
 
