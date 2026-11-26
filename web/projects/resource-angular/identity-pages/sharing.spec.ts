@@ -191,9 +191,10 @@ describe("sharingConfig, a record's Sharing", () => {
     expect(take.fill?.(person)).toEqual({ recordId: 'v1', userId: 'u1', role: 'Navigator' });
     expect(takeGroup.fill?.(group)).toEqual({ recordId: 'v1', groupId: 'g1', role: 'Lookout' });
     const ask = take.confirm as (row: RecordData) => string;
-    expect(ask(person)).toBe("Remove Dana's Navigator role on this voyage?");
+    expect(ask(person)).toBe('Remove the role Navigator on this voyage from Dana?');
+    expect(ask({ ...person, name: 'Jess' })).toBe('Remove the role Navigator on this voyage from Jess?');
     expect((takeGroup.confirm as (row: RecordData) => string)({ ...group, role: 'NightLookout' })).toBe(
-      "Remove Night shift's Night lookout role on this voyage?",
+      'Remove the role Night lookout on this voyage from Night shift?',
     );
   });
 
@@ -392,13 +393,13 @@ describe("the Sharing list drawn on a record's page", () => {
         method: take,
         label: 'Remove',
         preset: { recordId: 'v1', userId: 'u1', role: 'Navigator' },
-        confirm: "Remove Dana's Navigator role on this voyage?",
+        confirm: 'Remove the role Navigator on this voyage from Dana?',
       },
       {
         method: takeGroup,
         label: 'Remove',
         preset: { recordId: 'v1', groupId: 'g1', role: 'Lookout' },
-        confirm: "Remove Night shift's Lookout role on this voyage?",
+        confirm: 'Remove the role Lookout on this voyage from Night shift?',
       },
     ]);
   });

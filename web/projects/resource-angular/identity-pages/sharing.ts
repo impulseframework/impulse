@@ -72,7 +72,7 @@ function sharing(
   const onRecord = (row: RecordData): Record<string, unknown> => ({ recordId: row[key] });
   const holder = (row: RecordData): string => String(row['name'] ?? '');
   const ask = (row: RecordData): string =>
-    `Remove ${holder(row)}'s ${roleInWords(String(row['role'] ?? ''))} role on this ${entry.one}?`;
+    `Remove the role ${roleInWords(String(row['role'] ?? ''))} on this ${entry.one} from ${holder(row)}?`;
   const giving = (method: string, label: string, icon: string): MethodPresentation => ({
     method: method as Method,
     label,
