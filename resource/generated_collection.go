@@ -163,6 +163,11 @@ type CollectionData struct {
 	// custom role with AddRolePermission. No resource registers such a permission, so
 	// the declaration is what makes it one the release has (List).
 	Permissions []accesstypes.Permission
+
+	// RecordRoleStores are where each auth keeps the roles held on records
+	// (CollectionResource.HoldsRoles), sorted by auth: an auth with no store has no role
+	// held on a record. Empty for an application that marks no record.
+	RecordRoleStores []RecordRoleStoreData
 }
 
 // WriteClassData is the classes one write of a record carries
@@ -320,6 +325,18 @@ type CollectionResource struct {
 	// (WithListsAcrossTenants), or held as one live subscription over a set of
 	// tenants.
 	ListsAcrossTenants bool
+
+	// HoldsRoles marks a tenant's record a role can be held on (@holdsRoles): a person or a
+	// group given a role on one of its rows holds the role's grants on that row and what
+	// it reaches, and nowhere else of the tenant. It says the record's key, its words and
+	// the rows it names. Nil for every other resource.
+	HoldsRoles *RecordData
+
+	// Under are the ways a row of the resource is under a marked record by foreign keys,
+	// sorted by record, each record's in the order its attributes are numbered: the
+	// record's own rows carry the way that marks them Self. Empty for a resource under no
+	// marked record.
+	Under []RecordWayData
 }
 
 // TransitionData records a declared state transition on an RPC method
@@ -514,6 +531,25 @@ func (b *CollectionBuilder) SetResourceParent(scope accesstypes.PermissionScope,
 	b.g.setResourceParent(scope, member, parent)
 }
 
+// SetResourceHoldsRoles marks res, a tenant's record, within scope as one a role can be
+// held on (@holdsRoles; see CollectionResource.HoldsRoles). A second call for the resource
+// replaces the first.
+func (b *CollectionBuilder) SetResourceHoldsRoles(scope accesstypes.PermissionScope, res accesstypes.Resource, record *RecordData) {
+	b.g.setResourceHoldsRoles(scope, res, record)
+}
+
+// SetResourceUnder records the ways a row of res within scope is under the marked records
+// (see CollectionResource.Under). A second call for the resource replaces the first.
+func (b *CollectionBuilder) SetResourceUnder(scope accesstypes.PermissionScope, res accesstypes.Resource, ways []RecordWayData) {
+	b.g.setResourceUnder(scope, res, ways)
+}
+
+// AddRecordRoleStore records where an auth keeps the roles held on records
+// (CollectionData.RecordRoleStores). A second store of the same auth replaces the first.
+func (b *CollectionBuilder) AddRecordRoleStore(store RecordRoleStoreData) {
+	b.g.addRecordRoleStore(store)
+}
+
 // Data returns the canonical, deterministically sorted form of everything registered so
 // far.
 func (b *CollectionBuilder) Data() CollectionData {
@@ -595,6 +631,13 @@ type GeneratedCollection struct {
 	permissions []accesstypes.Permission
 	// noRole are the actions no role is given, within scope.
 	noRole map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}
+	// holdsRoles are the records a role can be held on, within scope, and under the ways
+	// each resource's rows are under them (CollectionResource.HoldsRoles, .Under).
+	holdsRoles map[accesstypes.PermissionScope]map[accesstypes.Resource]*RecordData
+	under      map[accesstypes.PermissionScope]map[accesstypes.Resource][]RecordWayData
+	// recordRoleStores are where each auth keeps the roles held on records, sorted by
+	// auth (CollectionData.RecordRoleStores).
+	recordRoleStores []RecordRoleStoreData
 }
 
 // newGeneratedCollection creates an empty, populatable GeneratedCollection.
@@ -620,6 +663,8 @@ func newGeneratedCollection() *GeneratedCollection {
 		classes:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.ActionClass, 2),
 		writeClasses:    make(map[accesstypes.PermissionScope]map[accesstypes.Resource]map[accesstypes.Permission][]accesstypes.ActionClass, 2),
 		noRole:          make(map[accesstypes.PermissionScope]map[accesstypes.Resource]struct{}, 2),
+		holdsRoles:      make(map[accesstypes.PermissionScope]map[accesstypes.Resource]*RecordData, 1),
+		under:           make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]RecordWayData, 1),
 	}
 }
 
@@ -719,6 +764,9 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	if err := g.addPermissions(data.Permissions); err != nil {
 		return nil, err
 	}
+	for _, store := range data.RecordRoleStores {
+		g.addRecordRoleStore(store)
+	}
 
 	return g, nil
 }
@@ -736,11 +784,16 @@ func (g *GeneratedCollection) addPermissions(permissions []accesstypes.Permissio
 
 // addResourceDeclarations stores what one CollectionResource declares beyond
 // its registrations: the computed marker, a method's transition and target, a
-// member's parent, and how a list of it is ordered and narrowed.
+// member's parent, how a list of it is ordered and narrowed, and its mark as a
+// record a role can be held on and the ways it is under one.
 func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) error {
 	if res.Computed {
 		g.setResourceComputed(res.Scope, res.Name)
 	}
+	if res.HoldsRoles != nil {
+		g.setResourceHoldsRoles(res.Scope, res.Name, res.HoldsRoles)
+	}
+	g.setResourceUnder(res.Scope, res.Name, res.Under)
 
 	if res.ListsAcrossTenants {
 		if res.Scope != accesstypes.DomainPermissionScope {
@@ -2176,12 +2229,17 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 			res.QueryKeys = slices.Clone(qk.keys)
 		}
 		res.RequiredTags = g.RequiredOnCreate(key.scope, key.name)
+		if record, ok := g.holdsRoles[key.scope][key.name]; ok {
+			res.HoldsRoles = record.clone()
+		}
+		res.Under = slices.Clone(g.under[key.scope][key.name])
 
 		data.Resources = append(data.Resources, res)
 	}
 	// The declared permissions are copied, and a collection that declares none hands
 	// back none: nil, as CollectionData holds it.
 	data.Permissions = slices.Clone(g.permissions)
+	data.RecordRoleStores = slices.Clone(g.recordRoleStores)
 
 	return data
 }
