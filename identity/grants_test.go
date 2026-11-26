@@ -30,10 +30,12 @@ type fakeGrants struct {
 	// onlyBy are the roles one method alone takes from the caller, each with the
 	// method: every other method that gives a role by hand refuses it (CouldGive).
 	onlyBy map[accesstypes.Role]accesstypes.Resource
-	// noGiveOn are the records, by key, on which the caller may give no role (MayGiveOn).
-	noGiveOn []string
-	err      error
-	asked    []string
+	// noGiveOn are the records, by key, on which the caller may give no role (MayGiveOn),
+	// and noGiveOnTo the people to whom the caller may give no role on any record.
+	noGiveOn   []string
+	noGiveOnTo []impulse.UUID
+	err        error
+	asked      []string
 	// askedOutside are the questions about giving a role asked outside a transaction.
 	askedOutside []string
 }
@@ -51,7 +53,7 @@ func (g *fakeGrants) MayGive(ctx context.Context, txn resource.ReadWriteTransact
 func (g *fakeGrants) MayGiveOn(_ context.Context, _ resource.ReadWriteTransaction, at accesstypes.RecordScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
 	g.asked = append(g.asked, "give on "+at.String()+" "+userID.String()+" "+string(role))
 
-	return !slices.Contains(g.noGiveOn, at.Record()), g.err
+	return !slices.Contains(g.noGiveOn, at.Record()) && !slices.Contains(g.noGiveOnTo, userID), g.err
 }
 
 func (g *fakeGrants) MayTake(_ context.Context, _ resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {

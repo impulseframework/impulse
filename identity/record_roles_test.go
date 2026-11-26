@@ -258,7 +258,7 @@ func TestTenant_GiveGroupRoleOn_ownPeriod(t *testing.T) {
 				store.groupMembers[memberKey(nightID, userID)] = true
 				store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): tt.place}
 			}
-			m, _ := newManager(t, store, tenantRoles)
+			m, _ := newManager(t, store, tenantRoles, WithRoleGrants(&fakeGrants{}))
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				ctx = inAlpha(ctx, dana)
 				tenant, err := m.Tenant(ctx)
@@ -355,7 +355,7 @@ func TestTenant_GiveGroupRoleOn(t *testing.T) {
 			t.Parallel()
 
 			store := recordStore(nil)
-			m, engine := newManager(t, store, tenantRoles)
+			m, engine := newManager(t, store, tenantRoles, WithRoleGrants(&fakeGrants{}))
 			err := inAlphaTenant(t, m, func(ctx context.Context, txn resource.ReadWriteTransaction, tenant *Tenant) error {
 				return tenant.GiveGroupRoleOn(ctx, txn, projects, "p1", tt.group, tt.role, accesstypes.Period{})
 			})
@@ -373,6 +373,125 @@ func TestTenant_GiveGroupRoleOn(t *testing.T) {
 				t.Fatalf("GiveGroupRoleOn() error = %v", err)
 			}
 			if diff := cmp.Diff([]string{tt.wantWrite}, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+			if engine.changed != 1 {
+				t.Errorf("the engine was told the policy changed %d time(s), want once", engine.changed)
+			}
+		})
+	}
+}
+
+// TestTenant_GiveGroupRoleOn_eachPerson pins that giving a group a role on a record needs
+// what giving it to each person in the group needs: each person whose place has not ended
+// is asked for, in order, one whose place has not begun among them, and the first the
+// caller may not give the role on the record refuses the give, in the sentence a group's
+// role in the tenant is refused with, with nothing written and the engine not told. A
+// group with nobody in it asks nothing, a call outside any request is not judged, and a
+// caller in the group is asked for like anyone.
+func TestTenant_GiveGroupRoleOn_eachPerson(t *testing.T) {
+	t.Parallel()
+
+	ended, upcoming, _ := periodFixtures()
+	asked := func(ids ...impulse.UUID) []string {
+		var want []string
+		for _, id := range ids {
+			want = append(want, "give on Projects p1 in alpha "+id.String()+" ProjectViewer")
+		}
+
+		return want
+	}
+	const refused = "Giving the group Night shift a role gives everyone in it the role Project viewer, which you may not give them."
+	tests := []struct {
+		name string
+		// places are the night shift's people, each with the period of their place.
+		places     map[impulse.UUID]accesstypes.Period
+		noGiveOnTo []impulse.UUID
+		// outside says the give is made outside any request.
+		outside   bool
+		wantSays  string
+		wantAsked []string
+	}{
+		{
+			name:      "a group of two the caller may each give the role on the record",
+			places:    map[impulse.UUID]accesstypes.Period{userID: {}, frankID: {}},
+			wantAsked: asked(userID, frankID),
+		},
+		{
+			name:       "a group of two, one of whom the caller may not give the role on the record",
+			places:     map[impulse.UUID]accesstypes.Period{userID: {}, frankID: {}},
+			noGiveOnTo: []impulse.UUID{frankID},
+			wantSays:   refused,
+			wantAsked:  asked(userID, frankID),
+		},
+		{
+			name: "a group with nobody in it asks nothing",
+		},
+		{
+			name:       "a person whose place has ended is not asked for",
+			places:     map[impulse.UUID]accesstypes.Period{userID: {}, frankID: ended},
+			noGiveOnTo: []impulse.UUID{frankID},
+			wantAsked:  asked(userID),
+		},
+		{
+			name:       "a person whose place has not begun is asked for",
+			places:     map[impulse.UUID]accesstypes.Period{frankID: upcoming},
+			noGiveOnTo: []impulse.UUID{frankID},
+			wantSays:   refused,
+			wantAsked:  asked(frankID),
+		},
+		{
+			name:       "a call outside any request is not judged",
+			places:     map[impulse.UUID]accesstypes.Period{frankID: {}},
+			noGiveOnTo: []impulse.UUID{frankID},
+			outside:    true,
+		},
+		{
+			name:       "the caller in the group is asked for like anyone",
+			places:     map[impulse.UUID]accesstypes.Period{otherUser: {}},
+			noGiveOnTo: []impulse.UUID{otherUser},
+			wantSays:   refused,
+			wantAsked:  asked(otherUser),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := recordStore(nil)
+			store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{}
+			for id, place := range tt.places {
+				store.groupMembers[memberKey(nightID, id)] = true
+				store.placePeriods[memberKey(nightID, id)] = place
+			}
+			grants := &fakeGrants{noGiveOnTo: tt.noGiveOnTo}
+			m, engine := newManager(t, store, tenantRoles, WithRoleGrants(grants))
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				tenant, err := m.Tenant(inAlpha(ctx, erin))
+				if err != nil {
+					return err
+				}
+				if !tt.outside {
+					ctx = inAlpha(ctx, erin)
+				}
+
+				return tenant.GiveGroupRoleOn(ctx, txn, projects, "p1", nightID, "ProjectViewer", accesstypes.Period{})
+			})
+			if diff := cmp.Diff(tt.wantAsked, grants.asked); diff != "" {
+				t.Errorf("what the grants were asked (-want +got):\n%s", diff)
+			}
+			if tt.wantSays != "" {
+				toldPlainly(t, err, tt.wantSays, "on Projects p1 in alpha")
+				if len(store.writes) != 0 || engine.changed != 0 {
+					t.Errorf("a refused give buffered %v and told the engine %d time(s), want nothing", store.writes, engine.changed)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("GiveGroupRoleOn() error = %v", err)
+			}
+			if diff := cmp.Diff([]string{"set record group role alpha Projects/p1 " + nightID.String() + " ProjectViewer none"}, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
 			}
 			if engine.changed != 1 {

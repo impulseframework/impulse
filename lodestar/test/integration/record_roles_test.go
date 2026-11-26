@@ -617,7 +617,10 @@ func TestRecordRoles_heldElsewhere(t *testing.T) {
 // that holds no role on a mission; the Marshal, who shares every mission, puts them in. The
 // first mission's lead, who may also put people in groups, puts someone in a group that
 // observes her mission, and is refused one that observes another: her grant is read against
-// the mission named.
+// the mission named. And giving a group a role on a mission needs what giving it to each
+// person in the group needs: a person who may give a group a role on a mission and give no
+// person one puts someone in a group that holds nothing, and is then refused giving that
+// group the role; they give it to a group with nobody in it, and the Marshal to the first.
 func TestRecordRoles_aGroupsPlaces(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -625,9 +628,10 @@ func TestRecordRoles_aGroupsPlaces(t *testing.T) {
 	first, second := writeSharedMissions(t, w.tenantListsWorld)
 
 	// ada and ida seat people in Anvil's groups (a role made in the sector with that one
-	// grant, beside their Cadet's); ida also leads the first mission. kit and lex are put in
-	// the groups.
-	for _, name := range []string{"ada", "ida", "kit", "lex"} {
+	// grant, beside their Cadet's); ida also leads the first mission. noa seats people in
+	// the groups and gives a group a role on a mission, and gives no person one (a second
+	// role made so). kit and lex are put in the groups.
+	for _, name := range []string{"ada", "ida", "kit", "lex", "noa"} {
 		w.enter(name)
 	}
 	const seater accesstypes.Role = "Seater"
@@ -639,13 +643,26 @@ func TestRecordRoles_aGroupsPlaces(t *testing.T) {
 	if err := manager.AddRoleGrants(ctx, held, seater, access.GrantRow{Permission: accesstypes.Execute, Resource: "AddCrewSectorGroupMember"}); err != nil {
 		t.Fatalf("access.UserManager.AddRoleGrants() error = %v", err)
 	}
+	const groupSharer accesstypes.Role = "GroupSharer"
+	if err := manager.AddRole(ctx, held, groupSharer, "Seats Anvil's crew in its groups and shares a mission with a group."); err != nil {
+		t.Fatalf("access.UserManager.AddRole() error = %v", err)
+	}
+	if err := manager.AddRoleGrants(ctx, held, groupSharer,
+		access.GrantRow{Permission: accesstypes.Execute, Resource: "AddCrewSectorGroupMember"},
+		access.GrantRow{Permission: accesstypes.Execute, Resource: "GiveCrewGroupRoleOnMission"},
+	); err != nil {
+		t.Fatalf("access.UserManager.AddRoleGrants() error = %v", err)
+	}
+	if err := manager.AddUserRoles(ctx, held, accesstypes.User(w.ids["noa"]), groupSharer); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(noa) error = %v", err)
+	}
 	for _, name := range []string{"ada", "ida"} {
 		if err := manager.AddUserRoles(ctx, held, accesstypes.User(w.ids[name]), seater); err != nil {
 			t.Fatalf("access.UserManager.AddUserRoles(%s) error = %v", name, err)
 		}
 	}
 	// The store writes signal a reload and the swap is asynchronous: once ida's grant shows,
-	// every answer below reads a policy that holds the role for both.
+	// every answer below reads a policy that holds the roles for all three.
 	if d := decisionFor(ctx, t, w.engine.ForUser(accesstypes.User(w.ids["ida"])), accesstypes.DomainScope(anvil), accesstypes.Execute, "AddCrewSectorGroupMember", time.Now().Add(15*time.Second)); !d.IsGranted() {
 		t.Fatalf("Execute on AddCrewSectorGroupMember for ida, who holds %s = %s, want granted before the cases run", seater, d)
 	}
@@ -709,6 +726,23 @@ func TestRecordRoles_aGroupsPlaces(t *testing.T) {
 	if inGroup(relay, "lex") {
 		t.Error("lex is in the relay watch after ida was refused")
 	}
+
+	// noa puts kit in a group that holds nothing, and may then not give that group the
+	// observer's role on the first mission: it would give kit the role, which noa may not
+	// give him. A group with nobody in it is given the role; the Marshal gives it to kit's.
+	spares, standby := group("Spares crew", "Keeps the spares."), group("Standby", "Nobody yet.")
+	status, body = put("noa", spares, "kit")
+	assertStatus(t, status, http.StatusNoContent, body)
+	status, body = w.as("noa", http.MethodPost, sectorPath(anvil, "give-crew-group-role-on-mission"), w.share(first.id, "", spares, "MissionObserver", none, none))
+	assertStatus(t, status, http.StatusForbidden, body)
+	if got, want := refusalMessage(t, body), "Giving the group Spares crew a role gives everyone in it the role Mission observer, which you may not give them."; got != want {
+		t.Errorf("the refusal = %q, want %q", got, want)
+	}
+	if got := w.holders("marshal", first.id); slices.Contains(got, "group Spares crew MissionObserver") {
+		t.Errorf("the first mission's holders = %v, and noa was refused the spares crew's role", got)
+	}
+	w.done("noa", "give-crew-group-role-on-mission", w.share(first.id, "", standby, "MissionObserver", none, none))
+	w.done("marshal", "give-crew-group-role-on-mission", w.share(first.id, "", spares, "MissionObserver", none, none))
 }
 
 // TestRecordRoles_periods holds a role on a mission given for a period: one whose end is

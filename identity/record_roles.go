@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"time"
 
@@ -161,6 +162,9 @@ func (t *Tenant) recordRoleOn(ctx context.Context, txn resource.ReadWriteTransac
 // group is one kept in the tenant (requireTenantGroup), so a group kept anywhere else is
 // not found here, and the role is then held to the access library's rule for a group.
 //
+// A request that gives a group a role on a record gives it to everyone in the group, and
+// needs what giving each of them the role on that record needs (refuseGivingOnThrough).
+//
 // Nobody lengthens their own holding: a caller does not give their own role on the
 // record, or a role of a group they are in, a period that lasts longer than the one it
 // has (refuseLongerForOneself).
@@ -185,6 +189,9 @@ func (t *Tenant) GiveGroupRoleOn(
 	if err := refuseRecordPeriod(role, period); err != nil {
 		return err
 	}
+	if err := t.refuseGivingGroupOn(ctx, txn, groupID, group.Name, &key); err != nil {
+		return err
+	}
 	periods, err := t.manager.store.RecordPeriods(ctx, txn, at)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.RecordPeriods()")
@@ -207,6 +214,34 @@ func (t *Tenant) GiveGroupRoleOn(
 	}
 
 	return t.manager.policyChangesAtCommit(txn)
+}
+
+// refuseGivingGroupOn holds giving a group a role on a record to what giving the role on
+// the record to each person in the group needs: each person whose place has not ended,
+// one whose place has not begun among them, is asked for in order (refuseGivingOnThrough),
+// and the first the caller may not give it refuses the give. A group with nobody in it asks
+// nothing, and a call outside any request is not judged.
+func (t *Tenant) refuseGivingGroupOn(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, name string, key *access.RecordGroupRoleKey) error {
+	judged, err := t.manager.judged(ctx)
+	if err != nil || !judged {
+		return err
+	}
+	holding, err := t.manager.groupHolding(ctx, txn, groupID, time.Now())
+	if err != nil {
+		return err
+	}
+	act := fmt.Sprintf("giving the group %s a role gives everyone in it", name)
+	for _, member := range holding.members {
+		userID, ok := UserID(member)
+		if !ok {
+			continue
+		}
+		if err := t.manager.refuseGivingOnThrough(ctx, txn, []access.RecordGroupRoleKey{*key}, userID, act); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // refuseLongerGroupRole refuses a caller who is one of the group's people, whose place in

@@ -28,7 +28,8 @@ import (
 //     person the role there needs, and for each role it holds on a record, what giving them
 //     the role on that record needs;
 //   - taking a person out needs, for each, what taking the role from them needs;
-//   - giving a group a role needs what giving it to each person in the group needs;
+//   - giving a group a role needs what giving it to each person in the group needs, and
+//     giving it a role on a record what giving each of them the role on that record needs;
 //   - taking a role from a group needs what taking it from each of them needs.
 //
 // What a role change needs of the caller is the role file's to say, so the rules ask the
@@ -154,8 +155,9 @@ func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWrit
 	})
 }
 
-// refuseGivingOnThrough holds putting a person in a group to what giving them each of the
-// group's roles on records directly needs: the person is asked for every role named, in
+// refuseGivingOnThrough holds a change that gives a person a group's roles on records,
+// putting them in the group or giving the group a role on a record, to what giving them
+// each role on its record directly needs: the person is asked for every role named, in
 // order, and the first the caller may not give refuses the change, in the sentence
 // refuseGivingThrough writes. A request made under a tenant asks what the method that gives
 // a person a role on a record of that kind asks (RoleGrants.MayGiveOn); one made for the
@@ -165,21 +167,22 @@ func (m *Manager) refuseGivingThrough(ctx context.Context, txn resource.ReadWrit
 func (m *Manager) refuseGivingOnThrough(ctx context.Context, txn resource.ReadWriteTransaction, roles []access.RecordGroupRoleKey, userID impulse.UUID, act string) error {
 	_, inTenant := resource.CallerFrom(ctx).Scope.Domain()
 	for i := range roles {
-		at := accesstypes.NewRecordScope(accesstypes.Domain(roles[i].Domain), accesstypes.Resource(roles[i].Resource), roles[i].Record)
+		held := &roles[i]
+		at := accesstypes.NewRecordScope(accesstypes.Domain(held.Domain), accesstypes.Resource(held.Resource), held.Record)
 		var allowed bool
 		var err error
 		if inTenant {
-			allowed, err = m.grants.MayGiveOn(ctx, txn, at, userID, roles[i].Role)
+			allowed, err = m.grants.MayGiveOn(ctx, txn, at, userID, held.Role)
 		} else {
-			allowed, err = m.grants.MayGive(ctx, txn, accesstypes.DomainPolicyScope(at.Domain()), userID, roles[i].Role)
+			allowed, err = m.grants.MayGive(ctx, txn, accesstypes.DomainPolicyScope(at.Domain()), userID, held.Role)
 		}
 		if err != nil {
 			return errors.Wrap(err, "identity.RoleGrants")
 		}
 		if !allowed {
 			return httpio.NewForbiddenMessageWithError(
-				errors.Newf("%s the role %s on %s, which you may not give them: someone who may give the role on the record does it", act, string(roles[i].Role), at.String()),
-				sentenceStart(act)+" the role "+roleInWords(roles[i].Role)+", which you may not give them.",
+				errors.Newf("%s the role %s on %s, which you may not give them: someone who may give the role on the record does it", act, string(held.Role), at.String()),
+				sentenceStart(act)+" the role "+roleInWords(held.Role)+", which you may not give them.",
 			)
 		}
 	}

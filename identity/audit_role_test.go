@@ -370,7 +370,9 @@ func TestRecordRoleActsRecorded(t *testing.T) {
 				store.recordGroupRoles[nightViewer] = tt.held
 			}
 			sessions := fakeSessions{tenantNames: map[accesstypes.Domain]string{"alpha": "Alpha Sector"}}
-			m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, sessions, WithTenantWord("sector"))
+			// A group's give is judged in a request (refuseGivingGroupOn), so the manager
+			// holds the role grants, as the generated client builds it.
+			m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, sessions, WithTenantWord("sector"), WithRoleGrants(&fakeGrants{}))
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
