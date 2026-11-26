@@ -219,6 +219,8 @@ func TestSettingActsRecorded(t *testing.T) {
 	}
 	opened := setting(auditlog.ActSignUpOpened, auditlog.SignUpSetting("google"))
 	opened.SubjectName, opened.RoleNames = "Google", []string{"Steward"}
+	makingTenants := setting(auditlog.ActSignUpOpened, auditlog.SignUpSetting("google"))
+	makingTenants.SubjectName = "Google"
 	closed := setting(auditlog.ActSignUpClosed, auditlog.SignUpSetting("google"))
 	closed.SubjectName = "Google"
 	remembered := setting(auditlog.ActRememberedBrowsersSet, auditlog.SettingRememberedBrowsers)
@@ -240,6 +242,14 @@ func TestSettingActsRecorded(t *testing.T) {
 			},
 			want:     []auditlog.Record{opened},
 			wantWhat: "Opened Google to sign-up with the role Steward", wantDoneTo: "Sign-up through Google",
+		},
+		{
+			name: "a method opened to sign-up where each person makes a tenant",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.OpenSignUp(ctx, txn, &SignUp{Method: "google", CreatesTenant: true})
+			},
+			want:     []auditlog.Record{makingTenants},
+			wantWhat: "Opened Google to sign-up, each person making a tenant of their own", wantDoneTo: "Sign-up through Google",
 		},
 		{
 			name: "a method made invite only",

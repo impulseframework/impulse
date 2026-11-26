@@ -321,11 +321,12 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 	if err := m.store.SetSignInMethod(ctx, txn, row); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
 	}
-	if row.DefaultRole == nil {
-		return nil
-	}
+	// A method opened where each person who signs up makes a tenant of their own gives no
+	// role, and its row names none.
 	opened := settingRecord(auditlog.ActSignUpOpened, auditlog.SignUpSetting(open.Method), buttonWords(registered))
-	opened.RoleNames = []string{*row.DefaultRole}
+	if row.DefaultRole != nil {
+		opened.RoleNames = []string{*row.DefaultRole}
+	}
 
 	return m.record(ctx, txn, opened)
 }

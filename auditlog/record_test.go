@@ -163,6 +163,7 @@ func acceptedRecords() []Record {
 		tenant(ActDirectorySecondFactorVouched),
 		tenant(ActDirectorySecondFactorUnvouched),
 		with(setting(ActSignUpOpened, SignUpSetting("google"), "Google"), func(r *Record) { r.RoleNames = []string{"Viewer"} }),
+		setting(ActSignUpOpened, SignUpSetting("google"), "Google"),
 		setting(ActSignUpClosed, SignUpSetting("google"), "Google"),
 		setting(ActSecondFactorRequired, SettingSecondFactor, ""),
 		setting(ActSecondFactorNotRequired, SettingSecondFactor, ""),

@@ -96,7 +96,7 @@ const (
 	// second factor, taken back.
 	ActDirectorySecondFactorUnvouched Act = "directorySecondFactorUnvouched"
 	// ActSignUpOpened is a sign-in method opened to sign-up, with the role a sign-up
-	// starts with.
+	// starts with, or with none where each person who signs up makes a tenant of their own.
 	ActSignUpOpened Act = "signUpOpened"
 	// ActSignUpClosed is a sign-in method made invite only.
 	ActSignUpClosed Act = "signUpClosed"
@@ -234,7 +234,8 @@ func shapes() []actShape {
 		shape(ActDirectoryInviteOnly, SubjectTenant, "Made invite only for its directory", "Made it invite only for its directory's people"),
 		shape(ActDirectorySecondFactorVouched, SubjectTenant, "Directory's second factor vouched for", "Said its directory asks for a second factor"),
 		shape(ActDirectorySecondFactorUnvouched, SubjectTenant, "Directory's second factor no longer vouched for", "Stopped saying its directory asks for a second factor"),
-		shape(ActSignUpOpened, SubjectSetting, "Sign-up opened", "Opened {SubjectName} to sign-up with the role {role}", need(columnRoleName)),
+		shapeOrWhenEmpty(ActSignUpOpened, SubjectSetting, "Sign-up opened", "Opened {SubjectName} to sign-up with the role {role}",
+			"{role}", "Opened {SubjectName} to sign-up, each person making {a tenant word} of their own", mayBeEmpty(columnRoleName)),
 		shape(ActSignUpClosed, SubjectSetting, "Made invite only", "Made {SubjectName} invite only"),
 		shape(ActSecondFactorRequired, SubjectSetting, "Second factor required", "Required a second factor of everyone"),
 		shape(ActSecondFactorNotRequired, SubjectSetting, "Second factor no longer required", "Stopped requiring a second factor"),

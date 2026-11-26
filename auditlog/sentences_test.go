@@ -78,6 +78,11 @@ func TestWhat(t *testing.T) {
 		{name: "directory's second factor vouched for", row: Stored{Act: ActDirectorySecondFactorVouched}, want: "Said its directory asks for a second factor"},
 		{name: "directory's second factor no longer vouched for", row: Stored{Act: ActDirectorySecondFactorUnvouched}, want: "Stopped saying its directory asks for a second factor"},
 		{name: "sign-up opened", row: Stored{Act: ActSignUpOpened, SubjectName: "Google", RoleNames: []string{"Member"}}, want: "Opened Google to sign-up with the role Member"},
+		{
+			name: "sign-up opened, each person making a tenant", row: Stored{Act: ActSignUpOpened, SubjectName: "Google"}, tenantWord: "company",
+			want: "Opened Google to sign-up, each person making a company of their own",
+		},
+		{name: "sign-up opened, each person making a tenant, no tenant word", row: Stored{Act: ActSignUpOpened, SubjectName: "Google"}, want: "Opened Google to sign-up, each person making a tenant of their own"},
 		{name: "sign-up closed", row: Stored{Act: ActSignUpClosed, SubjectName: "Google"}, want: "Made Google invite only"},
 		{name: "second factor required", row: Stored{Act: ActSecondFactorRequired}, want: "Required a second factor of everyone"},
 		{name: "second factor not required", row: Stored{Act: ActSecondFactorNotRequired}, want: "Stopped requiring a second factor"},
