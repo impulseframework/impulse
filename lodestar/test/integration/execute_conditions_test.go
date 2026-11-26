@@ -121,16 +121,17 @@ func TestExecuteConditionsOnRows(t *testing.T) {
 		{
 			// The Marshal's grants are unconditional: every legal edge lights, the
 			// contrast row to the Pilot's. AttachMissionDocument is a plain @target
-			// method with no transition, so it lights on every row.
+			// method with no transition, so it lights on every row, and so do the four
+			// that give and take a role on the mission, a person's or a group's.
 			name:   "marshal: every legal edge lights",
 			user:   "marshal",
 			target: sectorPath(anvil, "missions?capabilities=Execute"),
 			want: map[string][]any{
-				missionHaulerID:  {"AttachMissionDocument", "ClaimMission", "StandDownMission"},
-				missionCorvidID:  {"AttachMissionDocument", "LaunchMission", "StandDownMission"},
-				missionConvoyID:  {"AttachMissionDocument", "CompleteMission", "FailMission", "HoldMission"},
-				missionCourierID: {"AttachMissionDocument", "ResumeMission", "StandDownMission"},
-				missionPodID:     {"AttachMissionDocument"},
+				missionHaulerID:  {"AttachMissionDocument", "ClaimMission", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "StandDownMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
+				missionCorvidID:  {"AttachMissionDocument", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "LaunchMission", "StandDownMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
+				missionConvoyID:  {"AttachMissionDocument", "CompleteMission", "FailMission", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "HoldMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
+				missionCourierID: {"AttachMissionDocument", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "ResumeMission", "StandDownMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
+				missionPodID:     {"AttachMissionDocument", "GiveCrewGroupRoleOnMission", "GiveCrewRoleOnMission", "TakeCrewGroupRoleOnMission", "TakeCrewRoleOnMission"},
 			},
 		},
 		{

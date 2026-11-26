@@ -45,9 +45,9 @@ var credentialActions = []accesstypes.Resource{
 // accessActions are the actions of the console and the portal that give or take away
 // what someone may do, by name: the generated identity methods that give and remove a
 // role, take one for a set time, make and delete a group, put a person in one and take them out, give a group a
-// role and take it, send and withdraw an invitation, the one that makes a sector among
-// them, and open a sign-in method to sign-up or make it invite only, for the whole
-// application and for a sector; the
+// role and take it, give and take a role on one mission, a person's or a group's, send
+// and withdraw an invitation, the one that makes a sector among them, and open a sign-in
+// method to sign-up or make it invite only, for the whole application and for a sector; the
 // setting that lets people ask for a reset link at the sign-in page; the three that
 // require a second factor at sign-in, stop requiring it and set how long a browser is
 // remembered, for the crew and for the members; the six methods
@@ -73,6 +73,8 @@ var accessActions = []accesstypes.Resource{
 	"DeleteCrewSectorGroup",
 	"EndSectorDirectoryOnly",
 	"GiveCrewGroupRole",
+	"GiveCrewGroupRoleOnMission",
+	"GiveCrewRoleOnMission",
 	"GiveCrewSectorGroupRole",
 	"InviteCrewSector",
 	"InviteCrewSectorUser",
@@ -99,7 +101,9 @@ var accessActions = []accesstypes.Resource{
 	"StopRequiringMembersSecondFactor",
 	"StopVouchingForSectorDirectorySecondFactor",
 	"TakeCrewGroupRole",
+	"TakeCrewGroupRoleOnMission",
 	"TakeCrewRole",
+	"TakeCrewRoleOnMission",
 	"TakeCrewSectorGroupRole",
 	"TakeSectorDirectory",
 	"VouchForSectorDirectorySecondFactor",
