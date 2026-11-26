@@ -7035,7 +7035,10 @@ resource where they are of one kind; `recordHeldName`, the record's name where t
 and the kind has `@name`), and the library's people page says `Project Apollo only` in the
 Roles column. The tenant is among the person's own tenants, leaving it takes the roles held
 on its records, and so does removing the person from the tenant. A role held on a record
-holds the person in the tenant for the one-tenant rule too.
+holds the person in the tenant for the one-tenant rule too. The tenant manages the account
+of a person who holds only its records and nothing anywhere else (`managedHere`), and removes
+them from the tenant as it removes anyone. A role on a record of another tenant is held
+elsewhere (`heldElsewhere`), so neither tenant manages that account.
 
 **Periods.** A role held on a record carries a period as a tenant's role does (section 21):
 it counts inside it alone, a give with an end already past is refused, and a group's role on
@@ -7048,7 +7051,12 @@ its records (`roles held on records`), and a group's delete takes the roles the 
 on records. An account's delete takes the roles the account holds on records. An application
 that deletes such a record in code of its own hands its delete
 `<Auth>Identity().RecordKinds(accesstypes.NewRecordScope(domain, "Projects", key))`
-(`DeleteAlso`), as the generated delete does.
+(`DeleteAlso`), as the generated delete does. A record that goes with the delete of a row
+above it (a client's projects) is not handed them: the roles held on it stay in their tables,
+and a person who held nothing else in the tenant stays among its people, reading
+`1 project only`, until an administrator removes them from the tenant. Where a record's key is
+text an application chooses and uses again, a record made later under the same key is held by
+whoever still holds a role on the old one.
 
 **The page.** `sharingConfig` from `@impulseframework/resource-angular/identity-pages` answers
 the Sharing list of the record's page, a related list with Share with a person, Share with a

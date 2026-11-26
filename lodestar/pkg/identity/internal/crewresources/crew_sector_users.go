@@ -26,10 +26,10 @@ type (
 	//
 	// Six columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
-	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
-	// (heldGlobally) says the person holds a role for the whole application. HeldHere
-	// (heldHere) says the person holds something in this tenant itself, a role of their own
-	// or a place in one of its groups: a person listed only through a role held in every
+	// role outside this tenant's own: in another tenant, on a record of another tenant, or in every tenant.
+	// HeldGlobally (heldGlobally) says the person holds a role for the whole application.
+	// HeldHere (heldHere) says the person holds something in this tenant itself, a role of
+	// their own, a place in one of its groups or a role on one of its records: a person listed only through a role held in every
 	// tenant, or through a group kept for the whole application, holds nothing here, and
 	// the removal from the tenant has nothing of theirs to take. HeldInEveryTenant
 	// (heldInEveryTenant) says the person holds a role in every tenant at once, which is
@@ -60,8 +60,11 @@ type (
 	// group; RecordsHeldKind (recordsHeldKind) is the records' resource where they are all of
 	// one kind, and empty otherwise; RecordHeldName (recordHeldName) is the record's name
 	// where the person holds a role on one record and its kind declares a name (@name), and
-	// empty otherwise. HeldHere and the facts beside it speak of what the person holds in the
-	// tenant itself, and a role on a record is none of it. None of the three is a filter key.
+	// empty otherwise. None of the three is a filter key. A role on one of the tenant's
+	// records is something held in the tenant: HeldHere says it, the removal from the tenant
+	// takes it, and the tenant manages the account of a person who holds nothing anywhere
+	// else (ManagedHere). A role on a record of another tenant is held elsewhere
+	// (HeldElsewhere).
 	//
 	// LockedUntil (lockedUntil) is until when the person's sign-in is locked by failed
 	// tries, and nothing for a person who is not locked: the latest lock still ahead among
@@ -227,6 +230,10 @@ SELECT
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
+    SELECT 1 FROM CrewRecordUserRoles o
+    WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId != t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
     SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups og ON og.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
@@ -243,6 +250,10 @@ SELECT
   (EXISTS (
     SELECT 1 FROM CrewUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM CrewRecordUserRoles o
+    WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
     SELECT 1 FROM CrewGroupMembers gm

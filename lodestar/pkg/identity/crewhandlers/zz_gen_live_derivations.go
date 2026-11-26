@@ -57,6 +57,7 @@ var LiveDerivations = &live.Derivations{
 		{Resource: crewresources.CrewListedIdentity{}.Resource(), Global: true, Tables: []live.SourceTable{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewRecordUserRole{}.Resource()},
 			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},
 			{Name: crewresources.CrewUserRole{}.Resource(), Global: true},
@@ -95,6 +96,7 @@ var LiveDerivations = &live.Derivations{
 			{Name: crewresources.CrewGroupMember{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroupRole{}.Resource(), Global: true},
 			{Name: crewresources.CrewGroup{}.Resource(), Global: true},
+			{Name: crewresources.CrewRecordUserRole{}.Resource()},
 			{Name: crewresources.CrewSessionIdentity{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionSignInAttempt{}.Resource(), Global: true},
 			{Name: crewresources.CrewSessionSignInSetting{}.Resource(), Global: true},

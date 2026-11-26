@@ -670,6 +670,18 @@ func Test_prepareIdentity_recordPeople(t *testing.T) {
 		t.Errorf("crew_ship_users.go joins a table in RecordsHeldOn, want none:\n%s", facts)
 	}
 
+	// A role of the person's own on a record of the row's tenant is something held there,
+	// and one on a record of another tenant is held elsewhere: each an equality on the
+	// leading columns of the people's table's index by user, beside the group's check. The
+	// accounts' list reads who manages an account by the same two facts.
+	recordHere := "OR EXISTS ( SELECT 1 FROM CrewRecordUserRoles o WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId AND " +
+		standingSQL("o") + " ) OR EXISTS ( SELECT 1 FROM CrewGroupMembers gm WHERE gm.UserId = u.Id"
+	recordElsewhere := "OR EXISTS ( SELECT 1 FROM CrewRecordUserRoles o WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId != t.DomainId AND " +
+		standingSQL("o") + " ) OR EXISTS ( SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups og"
+	for _, file := range []string{"internal/crewresources/crew_ship_users.go", "internal/crewresources/crew_listed_users.go"} {
+		assertContains(t, file, readIdentityFile(t, file), squashEach([]string{recordHere, recordElsewhere}), nil)
+	}
+
 	assertContains(t, "the members' people", readIdentityFile(t, "internal/membersresources/members_ship_users.go"), nil,
 		[]string{"RecordsHeld", "RecordUserRoles", "RecordHeldName"})
 

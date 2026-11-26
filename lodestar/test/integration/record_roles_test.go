@@ -359,16 +359,17 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 		t.Errorf("the Marshal lists %d missions, want every one of the sector's %d", len(got), len(want))
 	}
 
-	// The people list: ob is one of the sector's people by the mission alone, and the sector
-	// is one of ob's own.
+	// The people list: ob is one of the sector's people by the mission alone, which is
+	// something held in the sector, so the sector manages ob's account; and the sector is
+	// one of ob's own.
 	people := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)
 	for _, name := range []string{"ob", "ida"} {
 		row, listed := people[w.ids[name]]
 		if !listed {
 			t.Fatalf("%s is not one of Anvil's people, holding a role on one of its missions", name)
 		}
-		if got := fmt.Sprintf("%v %v %v %v", row["recordsHeld"], row["recordsHeldKind"], row["recordHeldName"], row["heldHere"]); got != "1 Missions "+first.title+" false" {
-			t.Errorf("%s's row of Anvil's people says %s, want 1 Missions %s false: one mission held, and nothing in the sector itself", name, got, first.title)
+		if got := fmt.Sprintf("%v %v %v %v %v", row["recordsHeld"], row["recordsHeldKind"], row["recordHeldName"], row["heldHere"], row["managedHere"]); got != "1 Missions "+first.title+" true true" {
+			t.Errorf("%s's row of Anvil's people says %s, want 1 Missions %s true true: one mission held, held in the sector, which manages the account", name, got, first.title)
 		}
 	}
 	own, err := w.app.CrewIdentity().OwnTenants(w.app.ResourceClient()).List(ctx, impulse.Must(impulse.UUIDFromString(w.ids["ob"])))
@@ -418,6 +419,57 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 	if got := w.holders("marshal", second.id); !slices.Equal(got, []string{"person bea MissionObserver"}) {
 		t.Errorf("the second mission's holders after the first's delete = %v, want bea's alone", got)
 	}
+
+	// The Marshal removes bea, who holds the second mission alone, from the sector by the
+	// removal's own request: her role on the mission goes with her.
+	status, body = w.removeFromSector(t, "marshal", "bea")
+	assertStatus(t, status, http.StatusNoContent, body)
+	if got := rowsStanding(t, w.tenantListsWorld, "SELECT COUNT(*) FROM CrewRecordUserRoles WHERE UserId = @user", map[string]any{"user": w.ids["bea"]}); got != 0 {
+		t.Errorf("%d roles of bea's are held on missions after her removal from the sector, want none", got)
+	}
+	if got := w.holders("marshal", second.id); len(got) != 0 {
+		t.Errorf("the second mission's holders after bea's removal = %v, want none", got)
+	}
+	if _, listed := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)[w.ids["bea"]]; listed {
+		t.Error("bea is one of Anvil's people after her removal from the sector")
+	}
+}
+
+// TestRecordRoles_heldElsewhere holds a role on a mission of another sector to be held
+// elsewhere: a Cadet of Anvil whom Anvil manages, once they hold a role on Bastion's beacon
+// mission too, is said heldElsewhere and not managedHere by Anvil's list of its people, and
+// Anvil's marshal, whose disable is granted where the sector manages the account, is
+// refused it.
+func TestRecordRoles_heldElsewhere(t *testing.T) {
+	t.Parallel()
+	w := newSharingWorld(t)
+
+	w.enter("cy")
+	facts := func() string {
+		row, listed := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)[w.ids["cy"]]
+		if !listed {
+			t.Fatal("cy is not one of Anvil's people, holding a Cadet's role there")
+		}
+
+		return fmt.Sprintf("%v %v", row["heldElsewhere"], row["managedHere"])
+	}
+	if got := facts(); got != "false true" {
+		t.Errorf("cy, a Cadet of Anvil alone, is said heldElsewhere managedHere %s, want false true", got)
+	}
+
+	// The role on Bastion's mission, written as its give writes it: Bastion has no marshal
+	// among the cast.
+	if _, err := w.db.Apply(t.Context(), []*spanner.Mutation{spanner.InsertMap("CrewRecordUserRoles", map[string]any{
+		"Axis": "", "DomainId": bastion, "Resource": "Missions", "RecordId": missionBeaconID, "Role": "MissionObserver",
+		"UserId": w.ids["cy"], "CreatedAt": spanner.CommitTimestamp,
+	})}); err != nil {
+		t.Fatalf("writing cy's role on Bastion's beacon mission: %v", err)
+	}
+	if got := facts(); got != "true false" {
+		t.Errorf("cy, a Cadet of Anvil with a role on a mission of Bastion, is said heldElsewhere managedHere %s, want true false", got)
+	}
+	status, body := w.as("marshal", http.MethodPost, sectorPath(anvil, "disable-crew-sector-user"), fmt.Sprintf(`{"userId":%q}`, w.ids["cy"]))
+	assertStatus(t, status, http.StatusForbidden, body)
 }
 
 // TestRecordRoles_periods holds a role on a mission given for a period: one whose end is

@@ -15,7 +15,9 @@ const (
 	// for that reason: written as one, with the two kinds under an OR, the database read
 	// the memberships table by its key for every listed person (measured on Spanner).
 	// Where the auth keeps groups, a place in a group counts as a role held where the
-	// group is kept (identityGroupPersonElsewhere, identityGroupPersonGlobally).
+	// group is kept (identityGroupPersonElsewhere, identityGroupPersonGlobally). Where it
+	// keeps the roles held on a record, a role on a record of another tenant is held
+	// elsewhere (identityRecordPersonElsewhere).
 	//
 	// A membership that has ended is no role held anywhere. One that has not begun is one:
 	// the person is known there and will hold it, as the rules on where a person belongs
@@ -28,7 +30,7 @@ const (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId != t.DomainId
       AND {{ .Standing "o" }}
-  )` + identityGroupPersonElsewhere + `) AS HeldElsewhere,
+  )` + identityRecordPersonElsewhere + identityGroupPersonElsewhere + `) AS HeldElsewhere,
   {{ if .KeepsGroups }}({{ end }}EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} g
     WHERE g.UserId = u.Id AND g.Kind = {{ .KindGlobal }}
@@ -43,7 +45,9 @@ const (
 	// leading columns of the store's index by user. Where the auth keeps groups, a place
 	// in one of the tenant's own groups is something held in it, and a place in a group
 	// kept for the whole application that holds a role in every tenant is a role held in
-	// every tenant (identityGroupPersonHere, identityGroupPersonInEveryTenant). The list of
+	// every tenant (identityGroupPersonHere, identityGroupPersonInEveryTenant). Where the
+	// auth keeps the roles held on a record, a role on one of the tenant's records is
+	// something held in it (identityRecordPersonHere). The list of
 	// a tenant's identities carries neither as a column of its own: it reads HeldHere for
 	// who manages the account (identityTenantManagedFacts).
 	identityTenantPersonHeldHere = `,
@@ -51,7 +55,25 @@ const (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
       AND {{ .Standing "o" }}
-  )` + identityGroupPersonHere + `) AS HeldHere`
+  )` + identityRecordPersonHere + identityGroupPersonHere + `) AS HeldHere`
+
+	// identityRecordPersonElsewhere and identityRecordPersonHere are what a role of the
+	// person's own on a record adds to HeldElsewhere and HeldHere, where the auth keeps the
+	// roles held on a record: one on a record of another tenant is held elsewhere, and one
+	// on a record of the row's tenant is held there. Each is an equality on the leading
+	// columns of the people's table's index by user, as the checks beside it are on theirs.
+	// A role held through a group is counted by the person's place in the group.
+	identityRecordPersonElsewhere = `{{- if .HoldsRecordRoles }} OR EXISTS (
+    SELECT 1 FROM {{ .Policy.RecordUserRoles }} o
+    WHERE o.UserId = u.Id AND o.Axis = {{ .ScopeAxis }} AND o.DomainId != t.DomainId
+      AND {{ .Standing "o" }}
+  ){{- end }}`
+
+	identityRecordPersonHere = `{{- if .HoldsRecordRoles }} OR EXISTS (
+    SELECT 1 FROM {{ .Policy.RecordUserRoles }} o
+    WHERE o.UserId = u.Id AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
+      AND {{ .Standing "o" }}
+  ){{- end }}`
 
 	identityTenantPersonInEveryTenant = `,
   (EXISTS (
@@ -442,10 +464,10 @@ type (
 	//
 	// Six columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
-	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
-	// (heldGlobally) says the person holds a role for the whole application. HeldHere
-	// (heldHere) says the person holds something in this tenant itself, a role of their own
-	// or a place in one of its groups: a person listed only through a role held in every
+	// role outside this tenant's own: in another tenant,{{ if .HoldsRecordRoles }} on a record of another tenant,{{ end }} or in every tenant.
+	// HeldGlobally (heldGlobally) says the person holds a role for the whole application.
+	// HeldHere (heldHere) says the person holds something in this tenant itself, a role of
+	// their own{{ if .HoldsRecordRoles }}, a place in one of its groups or a role on one of its records{{ else }} or a place in one of its groups{{ end }}: a person listed only through a role held in every
 	// tenant, or through a group kept for the whole application, holds nothing here, and
 	// the removal from the tenant has nothing of theirs to take. HeldInEveryTenant
 	// (heldInEveryTenant) says the person holds a role in every tenant at once, which is
@@ -477,8 +499,11 @@ type (
 	// group; RecordsHeldKind (recordsHeldKind) is the records' resource where they are all of
 	// one kind, and empty otherwise; RecordHeldName (recordHeldName) is the record's name
 	// where the person holds a role on one record and its kind declares a name (@name), and
-	// empty otherwise. HeldHere and the facts beside it speak of what the person holds in the
-	// tenant itself, and a role on a record is none of it. None of the three is a filter key.
+	// empty otherwise. None of the three is a filter key. A role on one of the tenant's
+	// records is something held in the tenant: HeldHere says it, the removal from the tenant
+	// takes it, and the tenant manages the account of a person who holds nothing anywhere
+	// else (ManagedHere). A role on a record of another tenant is held elsewhere
+	// (HeldElsewhere).
 	{{- end }}
 	{{- if .CountsFailedSignIns }}
 	//

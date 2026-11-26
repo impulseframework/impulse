@@ -307,16 +307,17 @@ func (m *Manager) giveUnlessHeld(ctx context.Context, txn resource.ReadWriteTran
 	return m.AssignRole(ctx, txn, scope, userID, role)
 }
 
-// giveDirectoryRoles buffers the memberships a tenant's directory row gives a person
-// who signs in through the directory and holds nothing in the tenant, each a role in a
-// tenant, and answers the seats it gave and the tenants it took the person from:
-// userID is who holds them, and username what an error reads. What the person holds is
-// read as committed, in the caller's transaction, once for the call, as the rule of one
-// tenant per person reads it (holds): a role of their own, or a place in a group kept
-// in the tenant. A row whose period has ended is nothing the person holds, whether or
-// not it still stands: a person whose only rows in the tenant have ended is given the
-// seat, as one who holds none, and no reader waits for the row to be removed. A row
-// that has not begun is one the person will hold, and is not given a seat beside it.
+// giveDirectoryRoles buffers the memberships a tenant's directory row gives a person who
+// signs in through the directory and holds nothing in the tenant, each a role in a tenant,
+// and answers the seats it gave and the tenants it took the person from: userID is who
+// holds them, and username what an error reads. What the person holds is read as
+// committed, in the caller's transaction, once for the call, as the rule of one tenant per
+// person reads it (holds): a role of their own, a place in a group kept in the tenant, or
+// a role on one of the tenant's records. A row whose period has ended is nothing the
+// person holds, whether or not it still stands: a person whose only rows in the tenant
+// have ended is given the seat, as one who holds none, and no reader waits for the row to
+// be removed. A row that has not begun is one the person will hold, and is not given a
+// seat beside it.
 //
 // Where a person belongs to one tenant (WithOneTenantPerPerson), a person who belongs
 // to another tenant and holds nothing outside the tenants is moved to the seat's
