@@ -329,7 +329,6 @@ interface ColumnConfigBase {
    * theirs.
    */
   valueGetter?: (data: any, reader: SessionInfo) => string | string[];
-  valueFormatter?: (data: any) => string;
   tooltipPosition?: TooltipPosition;
   viewRoute?: Resource;
   actionType?: ActionType;

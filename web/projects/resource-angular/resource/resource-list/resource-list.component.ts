@@ -158,6 +158,14 @@ import { acrossTenantsLinkKey, refuseAcrossTenantsConfig, tenantLink, tenantWord
  */
 const runParam = 'run';
 
+/**
+ * A column as the list draws it: the page's column, with the list's own writer of its
+ * cells where the list writes them as text (processedRowData). A page's column takes no
+ * writer of its own: the list writes a cell by the column's formatType or by its field
+ * (formatColumnValue).
+ */
+type DrawnColumn = ColumnConfig & { valueFormatter?: (value: DataType | null) => string };
+
 @Component({
   standalone: true,
   imports: [
@@ -1269,7 +1277,7 @@ export class ResourceListComponent implements OnInit {
   drawnSorts = computed(() => tableSorts(this.listed(), this.store.sorts()));
 
   columns = computed(() => {
-    const columns: ColumnConfig[] = [];
+    const columns: DrawnColumn[] = [];
     const usedIds = new Set<string>();
     // A column over a field the server does not order is drawn with no sort button, as one
     // that opts out is: the metadata says which, so no sort is offered that the server refuses.
