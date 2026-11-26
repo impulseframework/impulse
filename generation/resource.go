@@ -645,6 +645,10 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 	if err := resolveSubjectSetAuths(r.resources, auths); err != nil {
 		return err
 	}
+	// A role file's heldOn is held to the records the run marks, which are known now.
+	if err := r.refuseUnmarkedHeldOn(); err != nil {
+		return err
+	}
 	r.attachSubjectReadThroughs()
 	r.attachSubjectKinds()
 

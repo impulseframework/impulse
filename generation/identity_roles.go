@@ -182,3 +182,80 @@ func retiredGrantsIn(importPath, file string, retired []retiredIdentityMethod, d
 
 	return nil
 }
+
+// markedRecords are the resources of the run marked as records a role can be held on, by
+// their resource names, each with its struct's name.
+func (r *resourceGenerator) markedRecords() map[accesstypes.Resource]string {
+	marked := make(map[accesstypes.Resource]string)
+	for _, res := range r.resources {
+		if res.heldRecord != nil {
+			marked[accesstypes.Resource(r.pluralize(res.Name()))] = res.Name()
+		}
+	}
+
+	return marked
+}
+
+// heldOnStruct is the struct a heldOn entry would be written on: the resource's of that
+// name, or the name itself where the run has no such resource.
+func (r *resourceGenerator) heldOnStruct(record accesstypes.Resource) string {
+	for _, res := range r.resources {
+		if r.pluralize(res.Name()) == string(record) {
+			return res.Name()
+		}
+	}
+
+	return string(record)
+}
+
+// refuseUnmarkedHeldOn refuses an auth whose role file says a role is held on a resource
+// the run does not mark as a record that can hold one (@holdsRoles), in the words the
+// engine would refuse it in at the release's start, with what to write. The file is read
+// where the auth package lives in the main module, as refuseReservedRole reads it.
+func (r *resourceGenerator) refuseUnmarkedHeldOn() error {
+	for _, inst := range r.identity {
+		dir, ok := r.moduleDir(inst.importPath)
+		if !ok {
+			continue
+		}
+		if err := r.unmarkedHeldOnIn(inst.importPath, filepath.Join(dir, identityRolesFile)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// unmarkedHeldOnIn reads the role file of the auth package importPath and refuses every
+// heldOn entry that names no record the run marks, all of them in one error. A file that
+// is not there holds none, and one that does not parse is left to the engine and to
+// impulse check, which say why.
+func (r *resourceGenerator) unmarkedHeldOnIn(importPath, file string) error {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+
+		return errors.Wrapf(err, "Auth(%q): os.ReadFile(%q)", importPath, file)
+	}
+	marked := r.markedRecords()
+	var errs []error
+	for _, role := range definedRoles(data) {
+		if role == nil {
+			continue
+		}
+		for _, record := range role.HeldOn {
+			if _, ok := marked[record]; ok {
+				continue
+			}
+			errs = append(errs, errors.Newf("%s: %s is held on %s, and %s is not marked as a record that can hold a role. Write @%s on the %s struct, or take %s out of the role's heldOn.",
+				filepath.ToSlash(file), role.Name, record, record, holdsRolesKeyword, r.heldOnStruct(record), record))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
+}

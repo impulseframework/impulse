@@ -508,6 +508,9 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 	}
 
 	r.collectBindingRegistrations(b)
+	if err := r.collectRecordRoleRegistrations(b); err != nil {
+		return resource.CollectionData{}, err
+	}
 	r.collectWriteClassRegistrations(b)
 	r.collectWorkflowMemberRegistrations(b)
 	r.collectRequiredRegistrations(b)

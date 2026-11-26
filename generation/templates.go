@@ -5348,11 +5348,33 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .RequiredTags }}
 				RequiredTags: []accesstypes.Tag{ {{- range $i, $t := . }}{{ if $i }}, {{ end }}"{{ $t }}"{{ end -}} },
 				{{- end }}
+				{{- with .HoldsRoles }}
+				HoldsRoles: &resource.RecordData{Key: "{{ .Key }}", One: "{{ .One }}", Many: "{{ .Many }}"
+					{{- with .Names }}, Names: []resource.RecordNameData{
+					{{- range . }}
+					{Resource: "{{ .Resource }}", Column: "{{ .Column }}", Attribute: "{{ .Attribute }}", One: "{{ .One }}", Many: "{{ .Many }}"},
+					{{- end }}
+				}{{ end }}},
+				{{- end }}
+				{{- with .Under }}
+				Under: []resource.RecordWayData{
+					{{- range . }}
+					{Record: "{{ .Record }}", Attribute: "{{ .Attribute }}"{{ if .Self }}, Self: true{{ end }}},
+					{{- end }}
+				},
+				{{- end }}
 			},
 			{{- end }}
 		},
 		{{- with .Data.Permissions }}
 		Permissions: []accesstypes.Permission{ {{- range $i, $p := . }}{{ if $i }}, {{ end }}{{ PermissionConstant $p }}{{ end -}} },
+		{{- end }}
+		{{- with .Data.RecordRoleStores }}
+		RecordRoleStores: []resource.RecordRoleStoreData{
+			{{- range . }}
+			{Auth: "{{ .Auth }}", UserRoles: "{{ .UserRoles }}"{{ with .GroupRoles }}, GroupRoles: "{{ . }}"{{ end }}{{ with .GroupSet }}, GroupSet: "{{ . }}"{{ end }}},
+			{{- end }}
+		},
 		{{- end }}
 	})
 }

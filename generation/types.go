@@ -1450,6 +1450,16 @@ type resourceInfo struct {
 	// and so has any record with a kind of row under it that refuses its plain delete.
 	deleteCascade *deleteCascadeDecl
 	DeleteTree    *deleteTree
+	// holdsRoles marks the resource as a record a role can be held on (@holdsRoles), and
+	// heldRecord is what the collection says of it once every resource is extracted
+	// (resolveRecordRoles). recordWays are the ways a row of the resource is under such
+	// records, and recordAttributes the attributes those ways and the records' names of
+	// it read: the generator's own, registered in the collection beside the written ones
+	// and listed nowhere an author's bindings are.
+	holdsRoles       bool
+	heldRecord       *resource.RecordData
+	recordWays       []resource.RecordWayData
+	recordAttributes []resource.AttributeData
 	// takenFromAnotherPackage marks a record of the application's that a record of an
 	// auth's takes with it (resolveLibraryDeleteTrees): its file declares the function
 	// that delete deletes a row through (<Name>TakenRows).
@@ -2678,6 +2688,7 @@ const (
 	rowWordKeyword               string = "rowWord"               // States the word a person calls one row of a resource by, where the resource's name split into words is not it: @rowWord(pass[, plural: passes])
 	classKeyword                 string = "class"                 // Marks an action, an RPC method or a manual registration of Execute, with the classes a permission mask refers to: @class(credential)
 	roleOfKeyword                string = "roleOf"                // Marks a string field, or a list of strings, that holds the name of a role of the auth named: a list writes it in words and filters it by picking a role: @roleOf(Staff)
+	holdsRolesKeyword            string = "holdsRoles"            // Marks a tenant's record as one a role can be held on: a role whose heldOn names it is given on one row, and counts on that row and what it reaches
 )
 
 func resourceKeywords() map[string]genlang.KeywordOpts {
@@ -2694,6 +2705,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		validateUpdateTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		validateDeleteTypeKeyword:    {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		deleteCascadeKeyword:         {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		holdsRolesKeyword:            {genlang.ScanStruct: genlang.NoArgs | genlang.Exclusive},
 		primarykeyKeyword:            {genlang.ScanField: genlang.NoArgs},
 		manualAddResourceKeyword:     {genlang.ScanConstant: genlang.ArgsRequired},
 		manualAddPermissionKeyword:   {genlang.ScanConstant: genlang.NoArgs | genlang.Exclusive},

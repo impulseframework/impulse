@@ -162,7 +162,9 @@ func (c *client) resolveAcrossResources(resources []*resourceInfo) error {
 		return err
 	}
 
-	return nil
+	// What is under a record that holds roles crosses resources too: its ways and its
+	// names are read from the schema once every resource is extracted.
+	return c.resolveRecordRoles(resources)
 }
 
 // resolveResource applies everything a table-backed resource declares beyond its
@@ -339,6 +341,7 @@ func resolveResourceAnnotations(res *resourceInfo, annotations genlang.StructAnn
 		}
 		res.deleteCascade = decl
 	}
+	res.holdsRoles = annotations.Struct.Has(holdsRolesKeyword)
 
 	// The list across tenants reads the scope and the suppressions resolved above.
 	return resolveListAcrossTenants(res, annotations)
@@ -529,7 +532,7 @@ func (c *client) structsToVirtualResources(structs []*parser.Struct, validators 
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "virtual resource"), rejectClassAnnotation(pStruct, annotations, "virtual resource"), rejectTypescriptAnnotation(pStruct, annotations, "virtual resource"), rejectDeletedWith(pStruct, annotations, "a view (@"+virtualKeyword+")"), rejectTenantAnnotation(pStruct, annotations, "@"+virtualKeyword+" struct"), c.rejectReservedResourceName(pStruct, "virtual resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(pStruct, annotations, "virtual resource"), rejectClassAnnotation(pStruct, annotations, "virtual resource"), rejectTypescriptAnnotation(pStruct, annotations, "virtual resource"), rejectDeletedWith(pStruct, annotations, "a view (@"+virtualKeyword+")"), rejectTenantAnnotation(pStruct, annotations, "@"+virtualKeyword+" struct"), rejectHoldsRoles(pStruct, annotations), c.rejectReservedResourceName(pStruct, "virtual resource")); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -874,7 +877,7 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		// The annotations other kinds own: a resource's bindings, a view's table, and a
 		// field type's TypeScript type; and the masking tag, which a method's request
 		// never carries.
-		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectRowWord(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectDeletedWith(s, annotations, "a method (@"+rpcKeyword+")"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectRoleOf(s, annotations), rejectReservedMethodName(s)); err != nil {
+		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectRowWord(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectDeletedWith(s, annotations, "a method (@"+rpcKeyword+")"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectRoleOf(s, annotations), rejectHoldsRoles(s, annotations), rejectReservedMethodName(s)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -1113,7 +1116,7 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectClassAnnotation(s, annotations, "computed resource"), rejectRowName(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectDeletedWith(s, annotations, "a computed resource (@"+computedKeyword+")"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectClassAnnotation(s, annotations, "computed resource"), rejectRowName(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectDeletedWith(s, annotations, "a computed resource (@"+computedKeyword+")"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), rejectHoldsRoles(s, annotations), c.rejectReservedResourceName(s, "computed resource")); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
