@@ -1398,11 +1398,12 @@ class SideBuilder {
    * The columns a list of people leads with: the person's name, which is the link to the
    * person's page, then the username and the email address. A person with no name is
    * named by the username, so every row has words to press. Where the list has no name,
-   * the username leads and is the link.
+   * the username leads and is the link. The address is drawn whole (`wraps`): a list of
+   * people is read for who someone is, and an address cut short hides its domain.
    */
   private leadingColumns(users: Resource): ColumnConfig[] {
     const username = this.columns(users, [['username', 'Username']]);
-    const email = this.columns(users, [['email', 'Email']]);
+    const email = this.columns(users, [['email', 'Email']]).map((column) => ({ ...column, wraps: true }));
     if (!this.has(users, 'name')) {
       return [...username.map((column) => ({ ...column, opensRow: true })), ...email];
     }

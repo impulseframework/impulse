@@ -3039,6 +3039,13 @@ describe('identityPages, the people lists say what each person holds, and a lock
         expect([id, column.lines, column.wraps]).toEqual([id, true, true]);
       }
     });
+
+    it(`${side} draws each email address whole`, () => {
+      // A people list is read for who someone is, and an address cut short hides its
+      // domain. An address is one word: the column that wraps is as wide as the longest
+      // while the frame holds it, and breaks one only where the frame cannot.
+      expect(columnOf(list(config), 'email').wraps).toBe(true);
+    });
   }
 
   it('draws no Roles column and reads no lock where the server says neither', () => {
