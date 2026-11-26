@@ -89,10 +89,11 @@ func openMigrator(ctx context.Context, t *testing.T, container *SpannerContainer
 	return migrator
 }
 
-// The calls the intercepted tests watch: the DDL batch the admin client sends, and the
-// commit of a read-write transaction of the data client.
+// The calls the intercepted tests watch: the DDL batch the admin client sends, a poll of an
+// operation, and the commit of a read-write transaction of the data client.
 const (
 	methodUpdateDatabaseDdl = "/google.spanner.admin.database.v1.DatabaseAdmin/UpdateDatabaseDdl"
+	methodGetOperation      = "/google.longrunning.Operations/GetOperation"
 	methodCommit            = "/google.spanner.v1.Spanner/Commit"
 )
 
@@ -1065,6 +1066,104 @@ func TestSpannerMigrator_InterruptedRun(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSpannerMigrator_RecordedOperationWait cuts short the wait for a DDL operation a stopped
+// run left named on the version row: the run says the next run resolves it, and the next run
+// does.
+func TestSpannerMigrator_RecordedOperationWait(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	container, err := NewSpannerContainer(ctx, "latest")
+	if err != nil {
+		t.Fatalf("NewSpannerContainer() error = %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	tests := []struct {
+		name string
+		run  func(ctx context.Context, t *testing.T, container *SpannerContainer)
+	}{
+		{name: "a wait the run's own context ends says the next run resolves it", run: testRecordedWaitCut},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.run(ctx, t, container)
+		})
+	}
+}
+
+// cancelAtFirstPoll is an interceptor that, once armed, ends a run's context at the first
+// poll of an operation it sees, then lets the poll go.
+type cancelAtFirstPoll struct {
+	cancel   context.CancelFunc
+	armed    atomic.Bool
+	canceled atomic.Bool
+}
+
+// intercept is the interceptor.
+func (c *cancelAtFirstPoll) intercept(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	if method == methodGetOperation && c.armed.Load() && c.canceled.CompareAndSwap(false, true) {
+		c.cancel()
+	}
+
+	return invoker(ctx, method, req, reply, cc, opts...)
+}
+
+// testRecordedWaitCut: a stopped run left a sent batch named on the row under the name
+// Spanner gave it; the next run's context ends at its first poll of the operation. The run
+// says the next run resolves it and leaves the row as it was; a run with a live context then
+// settles the operation and finishes the file.
+func testRecordedWaitCut(ctx context.Context, t *testing.T, container *SpannerContainer) {
+	t.Helper()
+
+	runCtx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+	poll := &cancelAtFirstPoll{cancel: cancel}
+	db, migrator := testMigrator(ctx, t, container, intercepting(poll.intercept))
+	source := writeSource(t, map[string]string{"000001_t.up.sql": sqlCreateT})
+	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
+		t.Fatalf("MigrateUpSchema(file 1) error = %v", err)
+	}
+	writeMigration(t, source, "000002_ab.up.sql", sqlCreateA+"\n"+sqlCreateB)
+
+	batch := []string{strings.TrimSuffix(sqlCreateA, ";"), strings.TrimSuffix(sqlCreateB, ";")}
+	op, err := db.admin.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{Database: db.dbStr, Statements: batch})
+	if err != nil {
+		t.Fatalf("DatabaseAdminClient.UpdateDatabaseDdl() error = %v", err)
+	}
+	if err := op.Wait(ctx); err != nil {
+		t.Fatalf("UpdateDatabaseDdlOperation.Wait() error = %v", err)
+	}
+	want := versionRow{
+		version:    2,
+		dirty:      true,
+		applied:    spanner.NullInt64{Int64: 0, Valid: true},
+		checkpoint: spanner.NullString{StringVal: runner.Checkpoint(nil), Valid: true},
+		operation:  spanner.NullString{StringVal: op.Name(), Valid: true},
+	}
+	writeVersionRow(ctx, t, db.Client, "SchemaMigrations", &want)
+
+	poll.armed.Store(true)
+	err = migrator.MigrateUpSchema(runCtx, source)
+	if !poll.canceled.Load() {
+		t.Fatal("the interceptor saw no poll of the recorded operation")
+	}
+	if err == nil || !strings.Contains(err.Error(), "the next run resolves it") || strings.Contains(err.Error(), "force the version") {
+		t.Errorf("MigrateUpSchema() error = %v, want one that says the next run resolves it, not to force the version", err)
+	}
+	if row, ok := readVersionRow(ctx, t, db.Client, "SchemaMigrations"); !ok || row != want {
+		t.Errorf("SchemaMigrations = %+v, want the row as written, %+v", row, want)
+	}
+
+	if err := migrator.MigrateUpSchema(ctx, source); err != nil {
+		t.Fatalf("MigrateUpSchema() with a live context error = %v", err)
+	}
+	assertClean(ctx, t, db.Client, "SchemaMigrations", 2)
+	assertTablesAB(ctx, t, db, true)
 }
 
 // TestSpannerMigrator_CommitHoldsTheRow writes the version row through Commit, as a run does:

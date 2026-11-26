@@ -147,7 +147,9 @@ func (s *Spanner) resume(ctx context.Context, held *Version, src *Source) error 
 // and answers that the operation exists if it did, so the batch is sent once either way. It
 // then waits for the operation and counts its committed statements into Applied: all of
 // them when it succeeded, its commit timestamps when it failed. The operation's statements
-// must be the file's from Applied on; otherwise the file changed in its applied part.
+// must be the file's from Applied on; otherwise the file changed in its applied part. A wait
+// that the run's own context ends leaves the operation named on the row, and the next run
+// resolves it.
 func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Migration, stmts []string) error {
 	if err := checkApplied(*held, file, stmts); err != nil {
 		return err
@@ -159,7 +161,10 @@ func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Mig
 	v := *held
 	op := s.admin.UpdateDatabaseDdlOperation(v.Operation)
 	waitErr := op.Wait(ctx)
-	if !op.Done() {
+	switch {
+	case !op.Done() && ctx.Err() != nil:
+		return errors.Wrapf(waitErr, "waiting for DDL operation %s of %s; the next run resolves it", v.Operation, file.File)
+	case !op.Done():
 		return errors.Wrapf(waitErr, "DDL operation %s, recorded for version %d, cannot be fetched; force the version that matches the database's real state", v.Operation, v.Number)
 	}
 
