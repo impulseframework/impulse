@@ -1,12 +1,79 @@
 package access
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 )
+
+// TestUnionCollection_secondSite pins the union of two generated sites of one application:
+// the first declares the set of a person's groups and Tasks under the project, the second
+// declares no set and serves Milestones under the project, which the first does not
+// declare. The union gives a condition on Milestones, the second's, and says Milestones
+// are under the project; the second site defines the set of a person's groups from its
+// store as the first declares it, so the union takes the two; and the two sites agree on
+// Tasks.
+func TestUnionCollection_secondSite(t *testing.T) {
+	t.Parallel()
+
+	domain := accesstypes.DomainPermissionScope
+	read := []accesstypes.Permission{accesstypes.Read}
+	tenancy := &resource.DomainBindingData{Column: "DomainId"}
+	way := resource.RecordWayAttribute("Projects", 0)
+	store := resource.RecordRoleStoreData{Auth: "staff", UserRoles: "StaffRecordUserRoles", GroupRoles: "StaffRecordGroupRoles", GroupSet: "staffGroups", GroupMembers: "StaffGroupMembers", Groups: "StaffGroups"}
+	under := func(name accesstypes.Resource, column string) resource.CollectionResource {
+		return resource.CollectionResource{
+			Name: name, Scope: domain, Permissions: read, Domain: tenancy,
+			Attributes: []resource.AttributeData{{Name: way, Column: column, Type: resource.AttributeTypeString}},
+			Under:      []resource.RecordWayData{{Record: "Projects", Attribute: way, Self: name == "Projects"}},
+		}
+	}
+	projects := under("Projects", "Id")
+	projects.HoldsRoles = &resource.RecordData{Key: "Id", One: "project", Many: "projects"}
+	members := resource.CollectionResource{
+		Name: "StaffGroupMembers", Scope: accesstypes.GlobalPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List},
+		SubjectSets: []resource.SubjectBindingData{{
+			Name: "staffGroups", UserColumn: "UserId", Column: "GroupId", Type: resource.AttributeTypeString,
+			Where: &resource.SubjectWhereData{Condition: "(StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now)", Columns: []resource.SubjectColumnData{
+				{Name: "EndsAt", Column: "EndsAt", Type: resource.AttributeTypeTimestamp},
+				{Name: "StartsAt", Column: "StartsAt", Type: resource.AttributeTypeTimestamp},
+			}},
+			Domain:  &resource.DomainBindingData{Column: "GroupId", Path: []resource.BindingHop{{Table: "StaffGroups", JoinColumn: "Id", Column: "DomainId"}}},
+			Offered: true, Auth: "staff",
+		}},
+	}
+	first := generated(t, &resource.CollectionData{
+		Resources:        []resource.CollectionResource{projects, under("Tasks", "ProjectId"), members},
+		RecordRoleStores: []resource.RecordRoleStoreData{store},
+	})
+	second := generated(t, &resource.CollectionData{
+		Resources:        []resource.CollectionResource{projects, under("Tasks", "ProjectId"), under("Milestones", "ProjectId")},
+		RecordRoleStores: []resource.RecordRoleStoreData{store},
+	})
+	union, err := UnionCollection(first, second)
+	if err != nil {
+		t.Fatalf("UnionCollection() error = %v", err)
+	}
+
+	condition, ok := recordCondition(union, "staff", "ProjectEditor", "Projects", "Milestones", accesstypes.Read)
+	want, _ := recordCondition(second, "staff", "ProjectEditor", "Projects", "Milestones", accesstypes.Read)
+	if !ok || condition != want {
+		t.Errorf("the union's condition on Milestones = %q, %v, want the second site's %q", condition, ok, want)
+	}
+	if _, under, _ := recordReach(union, "Projects", "Milestones"); !under {
+		t.Error("the union does not say Milestones are under the project, which the second site declares")
+	}
+	firstSet, secondSet := first.SubjectSetDefinition("staffGroups"), second.SubjectSetDefinition("staffGroups")
+	if secondSet == nil || !slices.Equal(firstSet, secondSet) {
+		t.Errorf("the second site's set staffGroups = %q, want the first's declaration %q", secondSet, firstSet)
+	}
+	if got := union.SubjectSetAuth("staffGroups"); got != "staff" {
+		t.Errorf("the union's SubjectSetAuth(staffGroups) = %q, want staff", got)
+	}
+}
 
 // TestValidateRoles_heldOnGeneratedCollection pins that the generated collection is one
 // that marks records (recordRoles): a role file whose role is held on the record the

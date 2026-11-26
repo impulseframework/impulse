@@ -3238,7 +3238,7 @@ func Collection() *resource.GeneratedCollection {
 			},
 		},
 		RecordRoleStores: []resource.RecordRoleStoreData{
-			{Auth: "crew", UserRoles: "CrewRecordUserRoles", GroupRoles: "CrewRecordGroupRoles", GroupSet: "crewGroups"},
+			{Auth: "crew", UserRoles: "CrewRecordUserRoles", GroupRoles: "CrewRecordGroupRoles", GroupSet: "crewGroups", GroupMembers: "CrewGroupMembers", Groups: "CrewGroups"},
 			{Auth: "members", UserRoles: "MembersRecordUserRoles"},
 		},
 	})

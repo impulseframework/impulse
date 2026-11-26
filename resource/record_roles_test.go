@@ -88,8 +88,8 @@ func TestGeneratedCollection_recordRoles(t *testing.T) {
 		b.SetResourceHoldsRoles(domain, "Invoices", nil)
 		b.SetResourceHoldsRoles(domain, "Projects", &RecordData{Key: "Id"})
 		b.SetResourceHoldsRoles(domain, "Projects", data.Resources[3].HoldsRoles)
-		b.AddRecordRoleStore(RecordRoleStoreData{Auth: "staff", UserRoles: "Former"})
-		b.AddRecordRoleStore(data.RecordRoleStores[0])
+		b.AddRecordRoleStore(&RecordRoleStoreData{Auth: "staff", UserRoles: "Former"})
+		b.AddRecordRoleStore(&data.RecordRoleStores[0])
 		if diff := cmp.Diff(data, b.Data()); diff != "" {
 			t.Errorf("CollectionBuilder.Data() mismatch (-want +got):\n%s", diff)
 		}
@@ -229,9 +229,41 @@ func onRecordConditionData() CollectionData {
 			},
 		},
 		RecordRoleStores: []RecordRoleStoreData{
-			{Auth: onRecordAuth, UserRoles: "StaffRecordUserRoles", GroupRoles: "StaffRecordGroupRoles", GroupSet: "staffGroups"},
+			{Auth: onRecordAuth, UserRoles: "StaffRecordUserRoles", GroupRoles: "StaffRecordGroupRoles", GroupSet: "staffGroups", GroupMembers: "StaffGroupMembers", Groups: "StaffGroups"},
 		},
 	}
+}
+
+// onRecordSecondSiteData is the data of a second site of the fixture's application: its
+// program does not generate the auth's management, so no struct declares the set of a
+// person's groups (StaffGroupMembers is left out), and it serves Milestones, under a
+// project by the project a milestone is in, which the first site does not declare. It
+// carries the auth's store as the first does.
+func onRecordSecondSiteData() CollectionData {
+	data := onRecordConditionData()
+	data.Resources = slices.DeleteFunc(data.Resources, func(res CollectionResource) bool {
+		return res.Name == "StaffGroupMembers"
+	})
+	data.Resources = append(data.Resources, CollectionResource{
+		Name: "Milestones", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Read},
+		Domain:     &DomainBindingData{Column: "DomainId"},
+		Attributes: []AttributeData{{Name: RecordWayAttribute("Projects", 0), Column: "ProjectId", Type: AttributeTypeString}},
+		Under:      []RecordWayData{{Record: "Projects", Attribute: RecordWayAttribute("Projects", 0)}},
+	})
+
+	return data
+}
+
+// onRecordSecondSiteCollection is the collection of onRecordSecondSiteData.
+func onRecordSecondSiteCollection(t *testing.T) *GeneratedCollection {
+	t.Helper()
+
+	g, err := NewGeneratedCollection(onRecordSecondSiteData())
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+
+	return g
 }
 
 // onRecordConditionCollection is the collection of onRecordConditionData.
@@ -257,7 +289,8 @@ type onRecordRow struct {
 // erin holds ProjectEditor on p1, and on p2 until a time already past; omar holds it on
 // p2; the group crew holds ProjectViewer on p2 and erin has a place in it; the group
 // guests holds it on p3 and erin's place there has ended. Task t2 is in p2 and came from
-// p1; task t7 is in p1 and came from it. In south erin holds ProjectEditor on p9.
+// p1; task t7 is in p1 and came from it. Milestones m1, m2 and m3 are in p1, p2 and p3.
+// In south erin holds ProjectEditor on p9, which milestone m9 is in.
 func onRecordRows() []onRecordRow {
 	row := func(table string, values map[string]any) onRecordRow {
 		return onRecordRow{table: table, values: values}
@@ -298,6 +331,10 @@ func onRecordRows() []onRecordRow {
 		row("Comments", map[string]any{"Id": "k3", "DomainId": onRecordNorth, "TaskId": "t3"}),
 		row("Comments", map[string]any{"Id": "k4", "DomainId": onRecordNorth, "TaskId": "t4"}),
 		row("Comments", map[string]any{"Id": "k9", "DomainId": onRecordSouth, "TaskId": "t9"}),
+		row("Milestones", map[string]any{"Id": "m1", "DomainId": onRecordNorth, "ProjectId": "p1"}),
+		row("Milestones", map[string]any{"Id": "m2", "DomainId": onRecordNorth, "ProjectId": "p2"}),
+		row("Milestones", map[string]any{"Id": "m3", "DomainId": onRecordNorth, "ProjectId": "p3"}),
+		row("Milestones", map[string]any{"Id": "m9", "DomainId": onRecordSouth, "ProjectId": "p9"}),
 		row("Invoices", map[string]any{"Id": "i1", "DomainId": onRecordNorth}),
 		row("StaffGroups", map[string]any{"Id": "crew", "DomainId": onRecordNorth}),
 		row("StaffGroups", map[string]any{"Id": "guests", "DomainId": onRecordNorth}),
@@ -475,6 +512,38 @@ func askOnRecord(t *testing.T, db onRecordDatabase) {
 	}
 }
 
+// askOnRecordSecondSite holds the database to a second site's reads of Milestones, which
+// only the second site declares: the condition is the one the sites' union gives, the
+// first member's that gives one, which is the second's, since the first declares none on
+// Milestones; lowered with the second site's collection, which declares no set of a
+// person's groups and reads it from the store, it reaches the milestones under the
+// projects a person holds the role on, and those a group they are in holds it on, and no
+// others.
+func askOnRecordSecondSite(t *testing.T, db onRecordDatabase) {
+	t.Helper()
+
+	first, second := onRecordConditionCollection(t), onRecordSecondSiteCollection(t)
+	quote := newSQLGenerator(db.dialect).quoteIdentifier
+	for _, read := range []onRecordRead{
+		{name: "a second site: erin's project's milestones", user: "erin", role: "ProjectEditor", resource: "Milestones", want: []string{"m1"}},
+		{name: "a second site: through a group, the group's project's milestones", user: "erin", role: "ProjectViewer", resource: "Milestones", want: []string{"m2"}},
+		{name: "a second site: omar's project's milestones", user: "omar", role: "ProjectEditor", resource: "Milestones", want: []string{"m2"}},
+	} {
+		t.Run(read.name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, ok := first.RecordCondition(onRecordAuth, read.role, "Projects", read.resource, accesstypes.Read); ok {
+				t.Fatalf("the first site gives a condition on %s, which it does not declare", read.resource)
+			}
+			sql, registry := onRecordStatement(t, second, db.dialect, read.role, read.resource, accesstypes.Read, nil)
+			statement := fmt.Sprintf("SELECT %[1]s.%[2]s FROM %[3]s %[1]s WHERE %[4]s ORDER BY %[1]s.%[2]s", quote("r"), quote("Id"), quote(string(read.resource)), sql)
+			if got := db.keys(t, statement, onRecordParams(registry, read.user)); !slices.Equal(got, read.want) {
+				t.Errorf("%s holding %s reaches %s %v in the second site, want %v\n%s", read.user, read.role, read.resource, got, read.want, statement)
+			}
+		})
+	}
+}
+
 // askOnRecordUpdates holds the database to the fixture's updates: each update's condition
 // is run against the row it changes, read as "r", with the columns it touches as their
 // proposed values.
@@ -584,6 +653,64 @@ func TestGeneratedCollection_RecordCondition(t *testing.T) {
 			t.Error("SubjectSet(held_bygroup_staff_ProjectEditor_Projects) is a set in a store that keeps no groups")
 		}
 	})
+}
+
+// TestGeneratedCollection_storeGroupSet pins the set of a person's groups a collection
+// reads from its store where no struct declares it: a second site's answers the anchor
+// the generated group member declares in the first, compared whole, and its readers
+// answer for it as for a declared set; a declared set wins over the store's; a store that
+// names no group tables gives none, and neither does a name no store gives its sets.
+func TestGeneratedCollection_storeGroupSet(t *testing.T) {
+	t.Parallel()
+
+	first, second := onRecordConditionCollection(t), onRecordSecondSiteCollection(t)
+	declared, ok := first.SubjectSet("staffGroups")
+	if !ok {
+		t.Fatal("the first site does not answer its declared set staffGroups")
+	}
+	derived, ok := second.SubjectSet("staffGroups")
+	if !ok {
+		t.Fatal("the second site, which declares no set staffGroups, does not answer it from the store")
+	}
+	if diff := cmp.Diff(declared, derived); diff != "" {
+		t.Errorf("the store's set against the declared one (-declared +store):\n%s", diff)
+	}
+	if diff := cmp.Diff(first.SubjectSetDefinition("staffGroups"), second.SubjectSetDefinition("staffGroups")); diff != "" {
+		t.Errorf("SubjectSetDefinition(staffGroups) of the two sites (-first +second):\n%s", diff)
+	}
+	if got := second.SubjectSetAuth("staffGroups"); got != onRecordAuth {
+		t.Errorf("SubjectSetAuth(staffGroups) = %q, want %q", got, onRecordAuth)
+	}
+	if got, ok := second.SubjectSetComparisonType("staffGroups"); !ok || got != AttributeTypeString {
+		t.Errorf("SubjectSetComparisonType(staffGroups) = %q, %v, want string, true", got, ok)
+	}
+
+	data := onRecordConditionData()
+	for i := range data.Resources {
+		if data.Resources[i].Name == "StaffGroupMembers" {
+			data.Resources[i].SubjectSets[0].Column = "UserId"
+		}
+	}
+	marked, err := NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+	if anchor, _ := marked.SubjectSet("staffGroups"); anchor.Binding.Column != "UserId" {
+		t.Errorf("a declared set staffGroups yields %q, want its own column UserId: a declared set wins over the store's", anchor.Binding.Column)
+	}
+
+	bare := onRecordSecondSiteData()
+	bare.RecordRoleStores[0].GroupMembers, bare.RecordRoleStores[0].Groups = "", ""
+	none, err := NewGeneratedCollection(bare)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+	if _, ok := none.SubjectSet("staffGroups"); ok {
+		t.Error("a store that names no group tables gives the set staffGroups")
+	}
+	if _, ok := second.SubjectSet("crewGroups"); ok {
+		t.Error("the set crewGroups, which no store gives, is answered")
+	}
 }
 
 // TestGeneratedCollection_recordSets pins the subject sets of the records a person holds a

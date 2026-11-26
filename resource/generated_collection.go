@@ -546,7 +546,7 @@ func (b *CollectionBuilder) SetResourceUnder(scope accesstypes.PermissionScope, 
 
 // AddRecordRoleStore records where an auth keeps the roles held on records
 // (CollectionData.RecordRoleStores). A second store of the same auth replaces the first.
-func (b *CollectionBuilder) AddRecordRoleStore(store RecordRoleStoreData) {
+func (b *CollectionBuilder) AddRecordRoleStore(store *RecordRoleStoreData) {
 	b.g.addRecordRoleStore(store)
 }
 
@@ -757,8 +757,8 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	if err := g.addPermissions(data.Permissions); err != nil {
 		return nil, err
 	}
-	for _, store := range data.RecordRoleStores {
-		g.addRecordRoleStore(store)
+	for i := range data.RecordRoleStores {
+		g.addRecordRoleStore(&data.RecordRoleStores[i])
 	}
 
 	return g, nil

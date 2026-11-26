@@ -49,6 +49,8 @@ const (
 	recordKeyColumn    = "RecordId"
 	recordUserColumn   = "UserId"
 	recordGroupColumn  = "GroupId"
+	recordStartsColumn = "StartsAt"
+	recordEndsColumn   = "EndsAt"
 )
 
 // recordPeriodWhere is the half of a record set's where: part that keeps a row inside
@@ -136,6 +138,13 @@ type RecordRoleStoreData struct {
 
 	// GroupSet is the subject set of a person's groups, "" with GroupRoles.
 	GroupSet string
+
+	// GroupMembers and Groups are the auth's tables of the groups' members and of the
+	// groups, "" with GroupRoles: where no struct declares GroupSet, as in a site whose
+	// program does not generate the auth's management, the collection reads the set from
+	// them (storeGroupSet).
+	GroupMembers string
+	Groups       string
 }
 
 // setResourceHoldsRoles marks res within scope as a record a role can be held on, replacing
@@ -179,11 +188,11 @@ func sortedWays(ways []RecordWayData) []RecordWayData {
 
 // addRecordRoleStore records where an auth keeps the roles held on records, replacing an
 // earlier store of the same auth, the stores kept sorted by auth.
-func (g *GeneratedCollection) addRecordRoleStore(store RecordRoleStoreData) {
+func (g *GeneratedCollection) addRecordRoleStore(store *RecordRoleStoreData) {
 	g.recordRoleStores = slices.DeleteFunc(g.recordRoleStores, func(kept RecordRoleStoreData) bool {
 		return kept.Auth == store.Auth
 	})
-	g.recordRoleStores = append(g.recordRoleStores, store)
+	g.recordRoleStores = append(g.recordRoleStores, *store)
 	slices.SortFunc(g.recordRoleStores, func(a, b RecordRoleStoreData) int {
 		return cmp.Compare(a.Auth, b.Auth)
 	})
@@ -415,6 +424,39 @@ func (g *GeneratedCollection) recordSet(name string) (SubjectAnchor, bool) {
 	}, true
 }
 
+// storeGroupSet reads the subject set of a person's groups from the store of the auth it
+// is named for, where no struct declares it: the anchor the generated group member
+// declares, field for field. The set reads the auth's table of the groups' members by
+// the person, keeps each place inside its period, and yields the group; its rows reach
+// a tenant through the group, which the request's own tenant must hold, and it describes
+// the auth's people. ok is false for a name no store names, and for a store that keeps no
+// groups.
+func (g *GeneratedCollection) storeGroupSet(name string) (SubjectAnchor, bool) {
+	for _, store := range g.recordRoleStores {
+		if store.GroupSet != name || store.GroupMembers == "" || store.Groups == "" {
+			continue
+		}
+		domain := &DomainBindingData{Column: recordGroupColumn, Path: []BindingHop{{Table: store.Groups, JoinColumn: "Id", Column: recordDomainColumn}}}
+
+		return SubjectAnchor{
+			Resource: accesstypes.Resource(store.GroupMembers),
+			Scope:    accesstypes.GlobalPermissionScope,
+			Binding: SubjectBindingData{
+				Name: name, UserColumn: recordUserColumn, Column: recordGroupColumn, Type: AttributeTypeString,
+				Where: &SubjectWhereData{Condition: recordPeriodWhere, Columns: []SubjectColumnData{
+					{Name: recordEndsColumn, Column: recordEndsColumn, Type: AttributeTypeTimestamp},
+					{Name: recordStartsColumn, Column: recordStartsColumn, Type: AttributeTypeTimestamp},
+				}},
+				Domain:  domain,
+				Offered: true, Auth: store.Auth,
+			},
+			Domain: domain,
+		}, true
+	}
+
+	return SubjectAnchor{}, false
+}
+
 // recordSetOwner reads what a record set's name holds after its kind,
 // <auth>_<Role>_<Record>: an auth with a store, a marked record, and a role's name
 // between them.
@@ -443,8 +485,8 @@ func recordSetWhere(record accesstypes.Resource, role accesstypes.Role) *Subject
 		Columns: []SubjectColumnData{
 			{Name: "Resource", Column: "Resource", Type: AttributeTypeString},
 			{Name: "Role", Column: "Role", Type: AttributeTypeString},
-			{Name: "StartsAt", Column: "StartsAt", Type: AttributeTypeTimestamp},
-			{Name: "EndsAt", Column: "EndsAt", Type: AttributeTypeTimestamp},
+			{Name: recordStartsColumn, Column: recordStartsColumn, Type: AttributeTypeTimestamp},
+			{Name: recordEndsColumn, Column: recordEndsColumn, Type: AttributeTypeTimestamp},
 		},
 	}
 }

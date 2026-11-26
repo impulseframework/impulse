@@ -363,9 +363,11 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 	if inst.has(identityMemberships) != inst.has(identityRoles) {
 		return nil, errors.Newf("Auth(%q): the schema holds one of %s and %s and not the other; they are the permission store's tables under the auth's prefix and are migrated together", auth.importPath, inst.policy.UserRoles, inst.policy.Roles)
 	}
-	if err := inst.settleGroupTables(); err != nil {
+	store, err := r.recordRoleStore(auth)
+	if err != nil {
 		return nil, err
 	}
+	inst.settleGroupTables(&store)
 	inst.findRecordTables(r.tableMap)
 	for _, kind := range []identityTable{identityUsers, identitySessions} {
 		if !inst.has(kind) {
@@ -390,7 +392,6 @@ func (r *resourceGenerator) prepareIdentity() error {
 	if len(instances) == 0 {
 		return nil
 	}
-	nameGroupSets(instances)
 	begin := time.Now()
 
 	if err := r.settleIdentityTree(); err != nil {

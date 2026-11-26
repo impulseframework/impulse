@@ -18,6 +18,7 @@ var onRecordPostgresSchema = []string{
 	`CREATE TABLE "Projects" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL, "ClientId" text REFERENCES "Clients" ("Id"))`,
 	`CREATE TABLE "Tasks" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL, "ProjectId" text REFERENCES "Projects" ("Id"), "FormerProjectId" text REFERENCES "Projects" ("Id"))`,
 	`CREATE TABLE "Comments" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL, "TaskId" text REFERENCES "Tasks" ("Id"), "Body" text)`,
+	`CREATE TABLE "Milestones" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL, "ProjectId" text REFERENCES "Projects" ("Id"))`,
 	`CREATE TABLE "Invoices" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL)`,
 	`CREATE TABLE "StaffGroups" ("Id" text PRIMARY KEY, "DomainId" text NOT NULL)`,
 	`CREATE TABLE "StaffGroupMembers" ("GroupId" text NOT NULL REFERENCES "StaffGroups" ("Id"), "UserId" text NOT NULL, "StartsAt" timestamptz, "EndsAt" timestamptz, PRIMARY KEY ("GroupId", "UserId"))`,
@@ -26,8 +27,9 @@ var onRecordPostgresSchema = []string{
 }
 
 // TestGeneratedCollection_RecordCondition_onPostgres holds the conditions a role held on a
-// record counts under to the fixture's rows on a real PostgreSQL (askOnRecord), the same
-// rows and the same expectations as on Spanner.
+// record counts under to the fixture's rows on a real PostgreSQL (askOnRecord, and a
+// second site's, askOnRecordSecondSite), the same rows and the same expectations as on
+// Spanner.
 func TestGeneratedCollection_RecordCondition_onPostgres(t *testing.T) {
 	t.Parallel()
 
@@ -78,7 +80,7 @@ func TestGeneratedCollection_RecordCondition_onPostgres(t *testing.T) {
 		}
 	}
 
-	askOnRecord(t, onRecordDatabase{
+	postgresDB := onRecordDatabase{
 		dialect: PostgreSQL,
 		keys: func(t *testing.T, sql string, params map[string]any) []string {
 			t.Helper()
@@ -108,5 +110,7 @@ func TestGeneratedCollection_RecordCondition_onPostgres(t *testing.T) {
 
 			return holds != nil && *holds
 		},
-	})
+	}
+	askOnRecord(t, postgresDB)
+	askOnRecordSecondSite(t, postgresDB)
 }

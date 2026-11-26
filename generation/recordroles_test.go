@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -65,6 +64,10 @@ func recordRolesTables() map[string]*tableMetadata {
 		},
 		"StaffRecordUserRoles":  {PkCount: 6, Columns: map[string]columnMeta{}},
 		"StaffRecordGroupRoles": {PkCount: 6, Columns: map[string]columnMeta{}},
+		"StaffUserRoles":        {Columns: map[string]columnMeta{}},
+		"StaffGroups":           {Columns: map[string]columnMeta{}},
+		"StaffGroupMembers":     {Columns: map[string]columnMeta{}},
+		"StaffGroupRoles":       {Columns: map[string]columnMeta{}},
 	}
 }
 
@@ -266,8 +269,9 @@ func Test_resolveRecordRoles_refusals(t *testing.T) {
 	})
 }
 
-// recordRolesGenerator is a run over the fixture's resources and an auth staff that keeps
-// groups, its policy tables named by the library's rule.
+// recordRolesGenerator is a run over the fixture's resources whose program declares the
+// auth staff on its outlet, an auth that keeps groups, its policy tables named by the
+// library's rule; the run generates no management.
 func recordRolesGenerator(t *testing.T, tables map[string]*tableMetadata) *resourceGenerator {
 	t.Helper()
 
@@ -280,13 +284,71 @@ func recordRolesGenerator(t *testing.T, tables map[string]*tableMetadata) *resou
 		r.resources = append(r.resources, res)
 	}
 	sortResources(r.resources)
-	policy, err := access.TablesWithPrefix("Staff", "")
-	if err != nil {
-		t.Fatalf("access.TablesWithPrefix() error = %v", err)
-	}
-	r.identity = []*identityInstance{{importPath: "example.com/app/pkg/auth/staff", auth: "Staff", policy: policy, groupSet: "staffGroups"}}
+	r.defaultOutlet = routerOutlet{name: defaultOutletName, auth: &outletAuth{importPath: "example.com/app/pkg/auth/staff"}}
 
 	return r
+}
+
+// recordRoleStores are the stores r's run registers, over a builder that holds its
+// resources.
+func recordRoleStores(t *testing.T, r *resourceGenerator) []resource.RecordRoleStoreData {
+	t.Helper()
+
+	b := resource.NewCollectionBuilder()
+	for _, res := range r.resources {
+		if err := b.AddResource(scopeOrGlobal(res.PermissionScope), accesstypes.Read, accesstypes.Resource(r.pluralize(res.Name()))); err != nil {
+			t.Fatalf("AddResource(%s) error = %v", res.Name(), err)
+		}
+	}
+	if err := r.collectRecordRoleRegistrations(b); err != nil {
+		t.Fatalf("collectRecordRoleRegistrations() error = %v", err)
+	}
+
+	return b.Data().RecordRoleStores
+}
+
+// Test_collectRecordRoleRegistrations_everySite pins that a run that marks a record
+// registers where each auth its program declares on an outlet keeps the roles held on
+// records, whether or not it generates the auth's management: a run that generates it and
+// one over the same schema that does not register the same store, groups and all, and the
+// generated management's set of a person's groups is the store's; a run whose program
+// declares no outlet of the auth registers none.
+func Test_collectRecordRoleRegistrations_everySite(t *testing.T) {
+	t.Parallel()
+
+	tables := recordRolesTables()
+	for _, table := range []string{"StaffSessionUsers", "StaffSessions", "StaffRoles"} {
+		tables[table] = &tableMetadata{Columns: map[string]columnMeta{}}
+	}
+	want := []resource.RecordRoleStoreData{{
+		Auth: "staff", UserRoles: "StaffRecordUserRoles", GroupRoles: "StaffRecordGroupRoles", GroupSet: "staffGroups",
+		GroupMembers: "StaffGroupMembers", Groups: "StaffGroups",
+	}}
+
+	managing := recordRolesGenerator(t, tables)
+	managing.identityTree = "pkg/identity"
+	inst, err := managing.newIdentityInstance(managing.defaultOutlet.auth)
+	if err != nil {
+		t.Fatalf("newIdentityInstance() error = %v", err)
+	}
+	managing.identity = []*identityInstance{inst}
+	if diff := cmp.Diff(want, recordRoleStores(t, managing)); diff != "" {
+		t.Errorf("the stores of a run that generates the management mismatch (-want +got):\n%s", diff)
+	}
+	if inst.groupSet != want[0].GroupSet || inst.policy.GroupMembers != want[0].GroupMembers || inst.policy.Groups != want[0].Groups {
+		t.Errorf("the management's set and group tables = %q, %q, %q, want the store's", inst.groupSet, inst.policy.GroupMembers, inst.policy.Groups)
+	}
+
+	bare := recordRolesGenerator(t, tables)
+	if diff := cmp.Diff(want, recordRoleStores(t, bare)); diff != "" {
+		t.Errorf("the stores of a run that generates no management mismatch (-want +got):\n%s", diff)
+	}
+
+	none := recordRolesGenerator(t, tables)
+	none.defaultOutlet.auth = nil
+	if got := recordRoleStores(t, none); len(got) != 0 {
+		t.Errorf("a run whose program declares no outlet of the auth registers %v, want none", got)
+	}
 }
 
 // Test_collectRecordRoleRegistrations pins what the collection says of the fixture: the
@@ -345,7 +407,7 @@ func Test_collectRecordRoleRegistrations(t *testing.T) {
 	if diff := cmp.Diff(wantAttributes, attributes); diff != "" {
 		t.Errorf("the generated attributes mismatch (-want +got):\n%s", diff)
 	}
-	wantStores := []resource.RecordRoleStoreData{{Auth: "staff", UserRoles: "StaffRecordUserRoles", GroupRoles: "StaffRecordGroupRoles", GroupSet: "staffGroups"}}
+	wantStores := []resource.RecordRoleStoreData{{Auth: "staff", UserRoles: "StaffRecordUserRoles", GroupRoles: "StaffRecordGroupRoles", GroupSet: "staffGroups", GroupMembers: "StaffGroupMembers", Groups: "StaffGroups"}}
 	if diff := cmp.Diff(wantStores, data.RecordRoleStores); diff != "" {
 		t.Errorf("the stores mismatch (-want +got):\n%s", diff)
 	}
@@ -367,7 +429,7 @@ func Test_collectRecordRoleRegistrations(t *testing.T) {
 			`Under: []resource.RecordWayData{ {Record: "Projects", Attribute: "held_way0_Projects", Self: true}, },`,
 			`Under: []resource.RecordWayData{ {Record: "Projects", Attribute: "held_way0_Projects"}, {Record: "Projects", Attribute: "held_way1_Projects"}, },`,
 			`{Name: "held_way0_Projects", Column: "TaskId", Type: "string", Path: []resource.BindingHop{{Table: "Tasks", JoinColumn: "Id", Column: "FormerProjectId"}}},`,
-			`RecordRoleStores: []resource.RecordRoleStoreData{ {Auth: "staff", UserRoles: "StaffRecordUserRoles", GroupRoles: "StaffRecordGroupRoles", GroupSet: "staffGroups"}, },`,
+			`RecordRoleStores: []resource.RecordRoleStoreData{ {Auth: "staff", UserRoles: "StaffRecordUserRoles", GroupRoles: "StaffRecordGroupRoles", GroupSet: "staffGroups", GroupMembers: "StaffGroupMembers", Groups: "StaffGroups"}, },`,
 		} {
 			if !strings.Contains(normalized, want) {
 				t.Errorf("the rendered collection file is missing %q:\n%s", want, formatted)

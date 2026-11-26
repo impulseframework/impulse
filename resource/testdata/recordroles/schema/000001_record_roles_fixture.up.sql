@@ -33,6 +33,13 @@ CREATE TABLE Comments (
   CONSTRAINT CommentsTask FOREIGN KEY (TaskId) REFERENCES Tasks (Id),
 ) PRIMARY KEY (Id);
 
+CREATE TABLE Milestones (
+  Id STRING(36) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  ProjectId STRING(36),
+  CONSTRAINT MilestonesProject FOREIGN KEY (ProjectId) REFERENCES Projects (Id),
+) PRIMARY KEY (Id);
+
 CREATE TABLE Invoices (
   Id STRING(36) NOT NULL,
   DomainId STRING(128) NOT NULL,

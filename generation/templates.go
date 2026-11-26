@@ -5488,7 +5488,7 @@ func Collection() *resource.GeneratedCollection {
 		{{- with .Data.RecordRoleStores }}
 		RecordRoleStores: []resource.RecordRoleStoreData{
 			{{- range . }}
-			{Auth: "{{ .Auth }}", UserRoles: "{{ .UserRoles }}"{{ with .GroupRoles }}, GroupRoles: "{{ . }}"{{ end }}{{ with .GroupSet }}, GroupSet: "{{ . }}"{{ end }}},
+			{Auth: "{{ .Auth }}", UserRoles: "{{ .UserRoles }}"{{ with .GroupRoles }}, GroupRoles: "{{ . }}"{{ end }}{{ with .GroupSet }}, GroupSet: "{{ . }}"{{ end }}{{ with .GroupMembers }}, GroupMembers: "{{ . }}"{{ end }}{{ with .Groups }}, Groups: "{{ . }}"{{ end }}},
 			{{- end }}
 		},
 		{{- end }}

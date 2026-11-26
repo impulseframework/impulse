@@ -181,6 +181,11 @@ type markingCollection struct {
 	*stubCollection
 	records []accesstypes.Resource
 	words   map[accesstypes.Resource][2]string
+	// under holds the resources the collection says are under every record it is asked
+	// of, marked or not, and conditions the condition it gives on a resource under a
+	// record it marks.
+	under      map[accesstypes.Resource]bool
+	conditions map[accesstypes.Resource]string
 }
 
 func (m markingCollection) RecordsHoldingRoles() []accesstypes.Resource {
@@ -194,10 +199,13 @@ func (m markingCollection) RecordWords(res accesstypes.Resource) (one, many stri
 }
 
 func (m markingCollection) RecordReach(record, res accesstypes.Resource) (self, under, named bool) {
-	return record == res && slices.Contains(m.records, record), false, false
+	return record == res && slices.Contains(m.records, record), m.under[res], false
 }
 
 func (m markingCollection) RecordCondition(_ string, _ accesstypes.Role, record, res accesstypes.Resource, perm accesstypes.Permission) (string, bool) {
+	if condition, ok := m.conditions[res]; ok && slices.Contains(m.records, record) {
+		return condition, true
+	}
 	if record != res || !slices.Contains(m.records, record) {
 		return "", false
 	}
@@ -476,5 +484,96 @@ func TestUnionCollection_recordRoles(t *testing.T) {
 	}
 	if _, ok := recordCondition(union, "", "AccountLead", "Invoices", "Invoices", accesstypes.Read); ok {
 		t.Error("the union gives a condition on Invoices, which no member marks")
+	}
+}
+
+// TestUnionCollection_recordReach pins the union's RecordReach over two members: a
+// resource under the record by the second member alone is under it in the union, and a
+// record the first member alone marks is answered by the first alone, whatever the second
+// would say of it.
+func TestUnionCollection_recordReach(t *testing.T) {
+	t.Parallel()
+
+	first := markingCollection{
+		stubCollection: &stubCollection{list: registry("Read", "Projects", "Read", "Clients")},
+		records:        []accesstypes.Resource{"Clients", "Projects"},
+	}
+	second := markingCollection{
+		stubCollection: &stubCollection{list: registry("Read", "Projects", "Read", "Milestones")},
+		records:        []accesstypes.Resource{"Projects"},
+		under:          map[accesstypes.Resource]bool{"Milestones": true},
+	}
+	union := unionOf(t, first, second)
+
+	if _, under, _ := recordReach(union, "Projects", "Milestones"); !under {
+		t.Error("recordReach(Projects, Milestones) is not under through the union, which the second member answers")
+	}
+	if self, _, _ := recordReach(union, "Projects", "Projects"); !self {
+		t.Error("recordReach(Projects, Projects) is not self through the union")
+	}
+	if _, under, _ := recordReach(union, "Clients", "Milestones"); under {
+		t.Error("recordReach(Clients, Milestones) is under through the union, though the member that says so does not mark Clients")
+	}
+}
+
+// TestUnionCollection_placedTwoWays pins the union's refusal of two members that both
+// register a resource and place it differently under a record: one says the rows are
+// under it and the other not, or both give a condition and the two differ. Members that
+// agree, and a resource only one member registers, are taken.
+func TestUnionCollection_placedTwoWays(t *testing.T) {
+	t.Parallel()
+
+	member := func(under bool, condition string) markingCollection {
+		m := markingCollection{
+			stubCollection: &stubCollection{list: registry("Read", "Projects", "Read", "Tasks")},
+			records:        []accesstypes.Resource{"Projects"},
+			under:          map[accesstypes.Resource]bool{"Tasks": under},
+		}
+		if condition != "" {
+			m.conditions = map[accesstypes.Resource]string{"Tasks": condition}
+		}
+
+		return m
+	}
+	tests := []struct {
+		name          string
+		first, second markingCollection
+		wantErr       string
+	}{
+		{name: "both place Tasks the same", first: member(true, "way0 IN subject.held"), second: member(true, "way0 IN subject.held")},
+		{
+			name: "one puts Tasks under the record and the other not", first: member(true, ""), second: member(false, ""),
+			wantErr: `UnionCollection: collections 1 and 2 (in argument order) both register resource "Tasks" and disagree on its place under Projects: self false, under true, named false vs self false, under false, named false`,
+		},
+		{
+			name: "both give a condition and the two differ", first: member(true, "way0 IN subject.held"), second: member(true, "way1 IN subject.held"),
+			wantErr: `UnionCollection: collections 1 and 2 (in argument order) both register resource "Tasks" and disagree on its place under Projects: for Read, "way0 IN subject.held" vs "way1 IN subject.held"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := UnionCollection(tt.first, tt.second)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("UnionCollection() error = %v", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("UnionCollection() error = %v, want one containing %q", err, tt.wantErr)
+			}
+		})
+	}
+
+	alone := markingCollection{
+		stubCollection: &stubCollection{list: registry("Read", "Projects", "Read", "Milestones")},
+		records:        []accesstypes.Resource{"Projects"},
+		under:          map[accesstypes.Resource]bool{"Milestones": true},
+	}
+	if _, err := UnionCollection(member(true, ""), alone); err != nil {
+		t.Errorf("UnionCollection() of a resource one member alone puts under the record: error = %v", err)
 	}
 }

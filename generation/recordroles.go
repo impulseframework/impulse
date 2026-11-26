@@ -217,9 +217,10 @@ func recordWayColumn(key string, path []deleteLink) (column string, hops []resou
 
 // collectRecordRoleRegistrations marks in the collection the records a role can be held
 // on and the ways each resource's rows are under them, and, when the run marks one, where
-// each auth whose management the run generates keeps the roles held on records: its
-// people's table, and its groups' with the set of a person's groups where it keeps
-// groups. A table the schema does not hold refuses the run.
+// each auth the program declares on an outlet keeps the roles held on records
+// (recordRoleStore), whether or not the run generates the auth's management: each site
+// that marks a record lowers a condition on it with its own collection, so each carries
+// the stores. A table the schema does not hold refuses the run.
 func (r *resourceGenerator) collectRecordRoleRegistrations(b *resource.CollectionBuilder) error {
 	var first *resourceInfo
 	for _, res := range r.resources {
@@ -244,10 +245,15 @@ func (r *resourceGenerator) collectRecordRoleRegistrations(b *resource.Collectio
 		return nil
 	}
 
-	for _, inst := range r.identity {
-		store := resource.RecordRoleStoreData{Auth: inst.authName(), UserRoles: inst.policy.RecordUserRoles}
-		if inst.groupSet != "" {
-			store.GroupRoles, store.GroupSet = inst.policy.RecordGroupRoles, inst.groupSet
+	seen := make(map[string]bool)
+	for _, outlet := range r.allOutlets() {
+		if outlet.auth == nil || seen[outlet.auth.importPath] {
+			continue
+		}
+		seen[outlet.auth.importPath] = true
+		store, err := r.recordRoleStore(outlet.auth)
+		if err != nil {
+			return err
 		}
 		for _, table := range []string{store.UserRoles, store.GroupRoles} {
 			if table == "" {
@@ -255,10 +261,10 @@ func (r *resourceGenerator) collectRecordRoleRegistrations(b *resource.Collectio
 			}
 			if _, ok := r.tableMap[table]; !ok {
 				return errors.Newf("struct %s: the roles held on one %s are kept for Auth(%q) in the table %s, and the schema holds none. Add the policy store's tables for the auth to the schema.",
-					first.Name(), first.heldRecord.One, inst.importPath, table)
+					first.Name(), first.heldRecord.One, outlet.auth.importPath, table)
 			}
 		}
-		b.AddRecordRoleStore(store)
+		b.AddRecordRoleStore(&store)
 	}
 
 	return nil

@@ -13,6 +13,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // The group tables of the fixture's two auths, as the permission store names them under
@@ -660,33 +661,67 @@ func Test_identityInstance_groupTables(t *testing.T) {
 	}
 }
 
-// Test_nameGroupSets pins the name of the subject set of a person's groups: it is named
-// after its auth, in an application where one auth keeps groups as where several do, and
-// an auth that keeps none declares nothing.
-func Test_nameGroupSets(t *testing.T) {
+// Test_recordRoleStore pins where an auth keeps the roles held on records, read from the
+// schema by the auth's prefix: an auth that keeps groups has its groups' tables and the set
+// of a person's groups, named after the auth in an application where one auth keeps groups
+// as where several do; an auth with no group tables, one whose directory writes its roles,
+// and one with no memberships keep none; some of the group tables without the others is
+// refused.
+func Test_recordRoleStore(t *testing.T) {
 	t.Parallel()
 
-	keeping := func(auth string) *identityInstance {
-		return &identityInstance{auth: auth, tables: map[identityTable]bool{identityGroups: true, identityGroupMembers: true, identityGroupRoles: true}}
+	crew := resource.RecordRoleStoreData{Auth: "crew", UserRoles: "CrewRecordUserRoles"}
+	crewGroups := resource.RecordRoleStoreData{
+		Auth: "crew", UserRoles: "CrewRecordUserRoles", GroupRoles: "CrewRecordGroupRoles", GroupSet: "crewGroups",
+		GroupMembers: "CrewGroupMembers", Groups: "CrewGroups",
 	}
-	none := &identityInstance{auth: "Members", tables: map[identityTable]bool{}}
-
-	one := []*identityInstance{keeping("Crew"), none}
-	nameGroupSets(one)
-	if one[0].groupSet != "crewGroups" || one[1].groupSet != "" {
-		t.Errorf("one auth keeping groups: the sets = %q and %q, want crewGroups and none", one[0].groupSet, one[1].groupSet)
+	tests := []struct {
+		name    string
+		path    string
+		tables  []string
+		synced  bool
+		want    resource.RecordRoleStoreData
+		wantErr string
+	}{
+		{name: "the three group tables beside the memberships", path: crewAuthPath, tables: slices.Concat(crewIdentityTables, crewGroupTables, membersIdentityTables, membersGroupTables), want: crewGroups},
+		{
+			name: "a second auth keeping groups", path: membersAuthPath, tables: slices.Concat(crewIdentityTables, crewGroupTables, membersIdentityTables, membersGroupTables),
+			want: resource.RecordRoleStoreData{
+				Auth: "members", UserRoles: "MembersRecordUserRoles", GroupRoles: "MembersRecordGroupRoles", GroupSet: "membersGroups",
+				GroupMembers: "MembersGroupMembers", Groups: "MembersGroups",
+			},
+		},
+		{name: "no group tables", path: crewAuthPath, tables: crewIdentityTables, want: crew},
+		{name: "a directory writes the roles", path: crewAuthPath, tables: slices.Concat(crewIdentityTables, crewGroupTables), synced: true, want: crew},
+		{name: "no memberships", path: crewAuthPath, tables: slices.Concat([]string{"CrewSessionUsers", "CrewSessions"}, crewGroupTables), want: crew},
+		{
+			name: "some of the group tables and not the others", path: crewAuthPath, tables: slices.Concat(crewIdentityTables, []string{"CrewGroups", "CrewGroupMembers"}),
+			wantErr: "the schema holds some of CrewGroups, CrewGroupMembers and CrewGroupRoles and not the others",
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	staff := []*identityInstance{keeping("staff")}
-	nameGroupSets(staff)
-	if staff[0].groupSet != "staffGroups" {
-		t.Errorf("the one auth staff keeping groups: the set = %q, want staffGroups", staff[0].groupSet)
-	}
+			auth := &outletAuth{importPath: tt.path}
+			if tt.synced {
+				auth.methods = []AuthMethod{AzureMethod("directory").SyncsRoles()}
+			}
+			got, err := identityFixtureGenerator(t, tt.tables...).recordRoleStore(auth)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("recordRoleStore() error = %v, want one holding %q", err, tt.wantErr)
+				}
 
-	several := []*identityInstance{keeping("Crew"), keeping("FleetStaff")}
-	nameGroupSets(several)
-	if several[0].groupSet != "crewGroups" || several[1].groupSet != "fleetStaffGroups" {
-		t.Errorf("two auths keeping groups: the sets = %q and %q, want crewGroups and fleetStaffGroups", several[0].groupSet, several[1].groupSet)
+				return
+			}
+			if err != nil {
+				t.Fatalf("recordRoleStore() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("recordRoleStore() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

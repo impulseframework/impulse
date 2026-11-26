@@ -25,7 +25,8 @@ import (
 // that disagree on a shared resource in anything it can read through the interface: the
 // permissions registered on it (the field set rides along, since List registers a field
 // resource per field), its scope, its immutability, its computed marking, its method
-// target, its concealing keys, and the fields a create of it must carry. The attribute vocabulary a shared resource declares is not enumerable through
+// target, its concealing keys, the fields a create of it must carry, and its place under a
+// record a role can be held on (refusePlacedTwoWays). The attribute vocabulary a shared resource declares is not enumerable through
 // the interface, so keeping it identical stays the declaring sites' business.
 //
 // An action one collection marks as no role's (the action of a site's generated
@@ -102,6 +103,9 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 			}
 		}
 	}
+	if err := refusePlacedTwoWays(collections, first, u.Auths()); err != nil {
+		return nil, err
+	}
 	if err := refuseSetOfTwoAuths(collections); err != nil {
 		return nil, err
 	}
@@ -116,6 +120,73 @@ func UnionCollection(collections ...PermissionCollection) (PermissionCollection,
 	}
 
 	return u, nil
+}
+
+// placedRole is the role's name the union asks two members' conditions under a record
+// for (refusePlacedTwoWays): a condition names the role only in the sets it reads, the
+// same in every site, so any name compares the two.
+const placedRole accesstypes.Role = "PlacedRole"
+
+// refusePlacedTwoWays refuses two collections that both register a resource and place it
+// differently under a record either marks: how its rows stand to the record where both
+// mark it (RecordReach), or the condition each gives a holder of a role on the record, for
+// Read and for Create and for each auth the collections know, where both give one,
+// compared as text. Each site lowers the conditions of its own requests, so two that
+// disagree would grant one role two ways. first holds the first collection, in argument
+// order, that registers each resource.
+func refusePlacedTwoWays(collections []PermissionCollection, first map[accesstypes.Resource]registration, auths []string) error {
+	if len(auths) == 0 {
+		auths = []string{""}
+	}
+	for i, c := range collections {
+		marker, ok := c.(recordRoles)
+		if !ok {
+			continue
+		}
+		registered := registrationsOf(i, c)
+		for _, res := range slices.Sorted(maps.Keys(registered)) {
+			owner := first[res].collection
+			if owner == i {
+				continue
+			}
+			prior, ok := collections[owner].(recordRoles)
+			if !ok {
+				continue
+			}
+			records := slices.Concat(prior.RecordsHoldingRoles(), marker.RecordsHoldingRoles())
+			slices.Sort(records)
+			for _, record := range slices.Compact(records) {
+				if answers, ok := placedApart(prior, marker, record, res, auths); ok {
+					return errors.Newf("UnionCollection: collections %d and %d (in argument order) both register resource %q and disagree on its place under %s: %s", owner+1, i+1, res, record, answers)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// placedApart says how a and b place res under record differently, ok false where they do
+// not (refusePlacedTwoWays).
+func placedApart(a, b recordRoles, record, res accesstypes.Resource, auths []string) (answers string, ok bool) {
+	if slices.Contains(a.RecordsHoldingRoles(), record) && slices.Contains(b.RecordsHoldingRoles(), record) {
+		aSelf, aUnder, aNamed := a.RecordReach(record, res)
+		bSelf, bUnder, bNamed := b.RecordReach(record, res)
+		if aSelf != bSelf || aUnder != bUnder || aNamed != bNamed {
+			return fmt.Sprintf("self %t, under %t, named %t vs self %t, under %t, named %t", aSelf, aUnder, aNamed, bSelf, bUnder, bNamed), true
+		}
+	}
+	for _, auth := range auths {
+		for _, perm := range []accesstypes.Permission{accesstypes.Read, accesstypes.Create} {
+			aCondition, aGives := a.RecordCondition(auth, placedRole, record, res, perm)
+			bCondition, bGives := b.RecordCondition(auth, placedRole, record, res, perm)
+			if aGives && bGives && aCondition != bCondition {
+				return fmt.Sprintf("for %s, %q vs %q", perm, aCondition, bCondition), true
+			}
+		}
+	}
+
+	return "", false
 }
 
 // refuseUnsaidSet refuses, where the collections together know several auths, a
@@ -550,20 +621,25 @@ func (u *unionCollection) RecordWords(res accesstypes.Resource) (one, many strin
 	return "", ""
 }
 
-// RecordReach answers from the first collection that marks record.
+// RecordReach answers, in each of its three parts, what any member that marks record
+// answers (true where one says so): a resource only a second site declares is under the
+// record there and nowhere else.
 func (u *unionCollection) RecordReach(record, res accesstypes.Resource) (self, under, named bool) {
 	for _, c := range u.collections {
 		if marker, ok := c.(recordRoles); ok && slices.Contains(marker.RecordsHoldingRoles(), record) {
-			return marker.RecordReach(record, res)
+			s, un, n := marker.RecordReach(record, res)
+			self, under, named = self || s, under || un, named || n
 		}
 	}
 
-	return false, false, false
+	return self, under, named
 }
 
-// RecordCondition answers from the first collection that gives a condition: an auth's
-// tables are known only to the site whose program generates that auth's management, so
-// one collection answers for an auth and the others do not.
+// RecordCondition answers from the first collection that gives a condition. Every site
+// that marks the record and serves the auth gives one, since each site's collection
+// carries where the auth keeps its roles on records, and they give the same: the union
+// refuses two members that register one resource and place it differently under a
+// record (refusePlacedTwoWays).
 func (u *unionCollection) RecordCondition(auth string, role accesstypes.Role, record, res accesstypes.Resource, perm accesstypes.Permission) (string, bool) {
 	for _, c := range u.collections {
 		if condition, ok := recordCondition(c, auth, role, record, res, perm); ok {
