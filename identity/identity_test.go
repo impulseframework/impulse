@@ -143,6 +143,8 @@ type fakeStore struct {
 	// fakeGroupTables are the groups of people, their members and the roles they hold
 	// (groups_test.go).
 	fakeGroupTables
+	// fakeRecordTables are the roles held on records (fake_store_records_test.go).
+	fakeRecordTables
 	// failOn names a call that fails.
 	failOn string
 

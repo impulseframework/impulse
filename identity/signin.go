@@ -358,9 +358,10 @@ func (m *Manager) giveDirectoryRoles(
 
 // takeOtherTenants buffers the deletion of every row of rows held in one tenant other
 // than tenant (tenantOf): each membership of the person's own and each place in a
-// group, whatever its period, and answers the tenants it took rows from, each once. No
-// rule is asked and nothing is mailed: a row held for the whole application, in every
-// tenant or on another axis is no tenant's, and stays.
+// group, whatever its period, and each role on one of that tenant's records that has not
+// ended, and answers the tenants it took rows from, each once. No rule is asked and
+// nothing is mailed: a row held for the whole application, in every tenant or on another
+// axis is no tenant's, and stays.
 func (m *Manager) takeOtherTenants(ctx context.Context, txn resource.ReadWriteTransaction, rows *heldRows, tenant accesstypes.Domain) ([]accesstypes.Domain, error) {
 	var from []accesstypes.Domain
 	takenFrom := func(held accesstypes.Domain) {
@@ -388,6 +389,16 @@ func (m *Manager) takeOtherTenants(ctx context.Context, txn resource.ReadWriteTr
 			return nil, errors.Wrap(err, "identity.Store.DeleteGroupMember()")
 		}
 		takenFrom(held)
+	}
+	for i := range rows.records {
+		key := &rows.records[i]
+		if key.Axis != "" || key.Domain == "" || key.Domain == string(tenant) {
+			continue
+		}
+		if err := m.store.DeleteRecordMembership(ctx, txn, key); err != nil {
+			return nil, errors.Wrap(err, "identity.Store.DeleteRecordMembership()")
+		}
+		takenFrom(accesstypes.Domain(key.Domain))
 	}
 
 	return from, nil

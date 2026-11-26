@@ -76,6 +76,8 @@ var guardedMethods = map[string]subjectRule{
 	"Tenant.RemoveGroupMember":      {subject: true},
 	"Tenant.RemovalWarning":         {subject: true},
 	"Tenant.RemovePerson":           {subject: true},
+	"Tenant.GiveRoleOn":             {subject: true},
+	"Tenant.TakeRoleOn":             {subject: true},
 
 	// A person named by the id of their account, in the warning before they are taken
 	// out of a group.
@@ -129,6 +131,8 @@ var guardedMethods = map[string]subjectRule{
 	"Tenant.GiveGroupRole":             {none: ofAGroup},
 	"Tenant.GiveGroupRoleFor":          {none: ofAGroup},
 	"Tenant.TakeGroupRole":             {none: ofAGroup},
+	"Tenant.GiveGroupRoleOn":           {none: ofAGroup},
+	"Tenant.TakeGroupRoleOn":           {none: ofAGroup},
 	"Manager.WithdrawInvitation":       {none: withdrawn},
 	"Manager.WithdrawTenantInvitation": {none: withdrawn},
 	"Manager.OpenSignUp":               {none: ofAMethod},
@@ -164,6 +168,7 @@ var guardedMethods = map[string]subjectRule{
 	"Manager.RolesToGive":                     {none: reads},
 	"Manager.GivableRoles":                    {none: reads},
 	"Manager.GivableGroupRoles":               {none: reads},
+	"Manager.GivableRecordRoles":              {none: reads},
 	"Manager.RolesToTake":                     {none: reads},
 	"Manager.DirectoryName":                   {none: reads},
 	"Manager.CheckInvitedTenant":              {none: reads},

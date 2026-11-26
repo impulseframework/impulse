@@ -729,19 +729,29 @@ func (t *Tenant) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransact
 }
 
 // requireTenantPerson holds a person a tenant's method names to the tenant's people: the
-// rows of the tenant's own list, which hold who has a role there. An account that is not
-// one of them is not found in the tenant, whoever asks and whatever it holds elsewhere,
-// so a tenant's method never says whether an id belongs to somebody of another tenant.
+// rows of the tenant's own list, which hold who has a role there, and the people who
+// hold a role on one of its records that has not ended. An account that is neither is
+// not found in the tenant, whoever asks and whatever it holds elsewhere, so a tenant's
+// method never says whether an id belongs to somebody of another tenant.
 func (t *Tenant) requireTenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	theirs, err := t.manager.store.TenantPerson(ctx, txn, t.domain, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.TenantPerson()")
 	}
-	if !theirs {
-		return accountNotFound(userID)
+	if theirs {
+		return nil
+	}
+	records, err := t.manager.store.RecordMemberships(ctx, txn, userID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.RecordMemberships()")
+	}
+	for i := range records {
+		if recordHeldIn(&records[i], t.domain) {
+			return nil
+		}
 	}
 
-	return nil
+	return accountNotFound(userID)
 }
 
 // AddGroupMember buffers a person's place in a group of the tenant, with no period (see
