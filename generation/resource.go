@@ -703,6 +703,7 @@ func (r *resourceGenerator) extractAndGenerateRPC(packageMap map[string]*package
 	if err := r.validateRPCPickerSources(r.rpcMethods); err != nil {
 		return err
 	}
+	r.resolvePickedRows(r.rpcMethods)
 	// A tenant-scoped method is served under the tenant record's segment, so the
 	// record must exist; the methods are extracted after the record resolved.
 	if err := r.requireTenantRecordForMethods(); err != nil {

@@ -3,14 +3,30 @@
 
 package staffhandlers
 
-import "github.com/impulseframework/impulse/resource"
+import (
+	"context"
+	"iter"
 
-// NamedRowSources are the sources the rows a write names are asked of: the views and the
-// computed lists of the auth's generated management that a column is picked from, handed
-// to these handlers' decoders (WithNamedRowSources) and merged into the application's. A
-// column picked from a view or a computed list is set only to a row the writer's list of
-// it shows: the library reads the row from the view's query, or asks the list's own
-// function for it.
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/identity/internal/staffresources"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/identity/staffidentity"
+	"github.com/impulseframework/impulse/resource"
+)
+
+// NamedRowSources are the sources the rows a write or a method's request names are asked
+// of: the views and the computed lists of the auth's generated management that a column or
+// a method's picked field is picked from, handed to these handlers' decoders
+// (WithNamedRowSources) and merged into the application's. A column picked from a view or
+// a computed list is set only to a row the writer's list of it shows, and a method's picked
+// field names only a row its caller's list shows: the library reads the row from the view's
+// query, or asks the list's own function for it.
 func (h *Handlers) NamedRowSources() resource.NamedRowSources {
-	return resource.NamedRowSources{}
+	return resource.NamedRowSources{
+		"StaffRememberLengths": resource.ComputedRows("Name", func(ctx context.Context, q *resource.QuerySet[staffidentity.StaffRememberLength]) iter.Seq2[*staffidentity.StaffRememberLength, error] {
+			return staffidentity.ListStaffRememberLength(ctx, q, h.ResourceClient(), h.ComputedClient())
+		}),
+		"StaffTakeLengths": resource.ComputedRows("Name", func(ctx context.Context, q *resource.QuerySet[staffidentity.StaffTakeLength]) iter.Seq2[*staffidentity.StaffTakeLength, error] {
+			return staffidentity.ListStaffTakeLength(ctx, q, h.ResourceClient(), h.ComputedClient())
+		}),
+		"StaffTenantUsers": resource.ViewRows(staffresources.StaffTenantUser{}),
+	}
 }

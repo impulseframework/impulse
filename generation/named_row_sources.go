@@ -50,8 +50,9 @@ type namedRowSourcesData struct {
 }
 
 // namedRowSourcesOf is a home's named-row sources: an entry for each view and each
-// computed list of the home that a column the run declares (NamedRows) is picked from,
-// in resource order; and, for the application, the auths whose sources it merges.
+// computed list of the home that a column the run declares (NamedRows), or a method's
+// picked field (PickedRows), is picked from, in resource order; and, for the application,
+// the auths whose sources it merges.
 func (r *resourceGenerator) namedRowSourcesOf(home *handlerHome) *namedRowSourcesData {
 	data := &namedRowSourcesData{
 		Source: home.resources.Dir(), Package: home.dir.Package(),
@@ -61,31 +62,29 @@ func (r *resourceGenerator) namedRowSourcesOf(home *handlerHome) *namedRowSource
 		data.Source = fmt.Sprintf("Auth(%q)", home.instance.importPath)
 	}
 	seen := make(map[string]bool)
-	for _, res := range r.resources {
-		for _, row := range res.namedRows {
-			if seen[row.Resource] {
-				continue
-			}
-			switch {
-			case row.view != nil && row.view.identity == home.instance:
-				data.Entries = append(data.Entries, namedRowSourceData{
-					Resource: row.Resource,
-					View:     packageQualifier(home.dir, r.resourcesDirOf(row.view)) + row.view.Name(),
-				})
-			case row.list != nil && row.list.identity == home.instance:
-				qualifier := packageQualifier(home.dir, home.computed)
-				data.Entries = append(data.Entries, namedRowSourceData{
-					Resource: row.Resource,
-					Type:     qualifier + row.list.Name(),
-					List:     qualifier + "List" + row.list.Name(),
-					Key:      row.list.PrimaryKey().Name(),
-				})
-				data.Computed = true
-			default:
-				continue
-			}
-			seen[row.Resource] = true
+	for _, row := range r.declaredNamedRows() {
+		if seen[row.Resource] {
+			continue
 		}
+		switch {
+		case row.view != nil && row.view.identity == home.instance:
+			data.Entries = append(data.Entries, namedRowSourceData{
+				Resource: row.Resource,
+				View:     packageQualifier(home.dir, r.resourcesDirOf(row.view)) + row.view.Name(),
+			})
+		case row.list != nil && row.list.identity == home.instance:
+			qualifier := packageQualifier(home.dir, home.computed)
+			data.Entries = append(data.Entries, namedRowSourceData{
+				Resource: row.Resource,
+				Type:     qualifier + row.list.Name(),
+				List:     qualifier + "List" + row.list.Name(),
+				Key:      row.list.PrimaryKey().Name(),
+			})
+			data.Computed = true
+		default:
+			continue
+		}
+		seen[row.Resource] = true
 	}
 	slices.SortFunc(data.Entries, func(a, b namedRowSourceData) int {
 		return strings.Compare(a.Resource, b.Resource)
@@ -101,6 +100,20 @@ func (r *resourceGenerator) namedRowSourcesOf(home *handlerHome) *namedRowSource
 	}
 
 	return data
+}
+
+// declaredNamedRows are every row the run declares a write or a request names: each
+// resource's columns (NamedRows), then each method's picked fields (PickedRows).
+func (r *resourceGenerator) declaredNamedRows() []*namedRow {
+	var rows []*namedRow
+	for _, res := range r.resources {
+		rows = append(rows, res.namedRows...)
+	}
+	for _, method := range r.rpcMethods {
+		rows = append(rows, method.pickedRows...)
+	}
+
+	return rows
 }
 
 // namedRowSourcesCall names the named-row sources a home's decoders are handed: the

@@ -266,7 +266,8 @@ func TestGeneratedIdentityGroupChangesAreJudgedAsRoleChanges(t *testing.T) {
 // A custom role of Anvil's gives roles to people who are not the fleet's own (the fact
 // heldGlobally on the person's row of the sector's people), and the role file knows
 // nothing of it. Its holder puts in a group that holds a role the people she may give
-// the role to directly, and nobody else.
+// the role to directly, and nobody else. The role also lists the sector's people, whom the
+// request to put a person in a group names.
 func TestGeneratedIdentityGroupChangesReadThePersonsRow(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -281,6 +282,7 @@ func TestGeneratedIdentityGroupChangesReadThePersonsRow(t *testing.T) {
 	if err := manager.AddRoleGrants(ctx, held, seater,
 		access.GrantRow{Permission: accesstypes.Execute, Resource: "AssignCrewSectorRole", Condition: "new.role != 'SectorMarshal' AND heldGlobally = false"},
 		access.GrantRow{Permission: accesstypes.Execute, Resource: "AddCrewSectorGroupMember", Condition: ""},
+		access.GrantRow{Permission: accesstypes.List, Resource: "CrewSectorUsers"},
 	); err != nil {
 		t.Fatalf("access.UserManager.AddRoleGrants() error = %v", err)
 	}

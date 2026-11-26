@@ -253,8 +253,9 @@ func TestPickerReadModes(t *testing.T) {
 }
 
 // TestCompileBriefing_template compiles on a named template: the request field names
-// the computed catalog, the body validates the id against it, and the hazard-first
-// sheet carries the board whether or not it was asked for.
+// the computed catalog, an id outside it is answered as a row that is not there before
+// the body runs, and the hazard-first sheet carries the board whether or not it was
+// asked for.
 func TestCompileBriefing_template(t *testing.T) {
 	t.Parallel()
 
@@ -270,7 +271,7 @@ func TestCompileBriefing_template(t *testing.T) {
 		{name: "an empty template compiles the standard sheet", body: `{}`, wantStatus: http.StatusOK, wantTemplate: "Standard sheet"},
 		{name: "a named template compiles on it", body: `{"templateId":"client-facing"}`, wantStatus: http.StatusOK, wantTemplate: "Client summary"},
 		{name: "the hazard-first sheet folds the board in unasked", body: `{"templateId":"hazard-first","includeHazards":false}`, wantStatus: http.StatusOK, wantTemplate: "Hazard-first sheet", wantHazards: true},
-		{name: "an id outside the catalog is refused", body: `{"templateId":"legacy-9"}`, wantStatus: http.StatusBadRequest},
+		{name: "an id outside the catalog is refused", body: `{"templateId":"legacy-9"}`, wantStatus: http.StatusNotFound},
 	}
 
 	for _, tt := range tests {

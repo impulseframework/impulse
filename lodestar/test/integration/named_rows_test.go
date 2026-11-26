@@ -1,13 +1,16 @@
 package integration
 
 // named_rows_test: a column picked from a view or from a computed list, held to the rows its
-// writer can list, as a column naming a table's row is (TestRecordRoles_aRowAWriteNames).
+// writer can list, as a column naming a table's row is (TestRecordRoles_aRowAWriteNames), and
+// a method's picked field, held to the rows its caller can list.
 // A mission's client is picked from the client roster, a view of every client in every
 // sector; a hangar pass's person and group are picked from the sector's people and its
 // groups, the views of the crew's generated management; a mission's briefing sheet is
 // picked from the briefing catalog, a list Go serves. A create or an update that sets one
 // of them to a row the writer's own list would not show is answered as a row that is not
-// there, and a value the row already holds is not asked again.
+// there, and a value the row already holds is not asked again. A method's request that
+// names, in a picked field, a row its caller's list would not show is answered the same way,
+// before the method runs.
 
 import (
 	"fmt"
@@ -47,8 +50,16 @@ func (w *namedRowsWorld) notThere(status int, body []byte, what string) {
 }
 
 // roleOfItsOwn makes a person up and gives them, in Anvil, a role made for the test that
-// holds the grants and nothing else, and waits until the engine answers each grant.
+// holds the grants and nothing else (giveRoleOfItsOwn).
 func (w *namedRowsWorld) roleOfItsOwn(username accesstypes.User, role accesstypes.Role, rows ...access.GrantRow) {
+	w.t.Helper()
+
+	w.giveRoleOfItsOwn(makeCrewAccount(w.t.Context(), w.t, w.db, username), role, rows...)
+}
+
+// giveRoleOfItsOwn gives the person, in Anvil, a role made for the test that holds the
+// grants and nothing else, and waits until the engine answers each grant.
+func (w *sharingWorld) giveRoleOfItsOwn(person accesstypes.User, role accesstypes.Role, rows ...access.GrantRow) {
 	w.t.Helper()
 	ctx := w.t.Context()
 
@@ -60,14 +71,13 @@ func (w *namedRowsWorld) roleOfItsOwn(username accesstypes.User, role accesstype
 	if err := manager.AddRoleGrants(ctx, held, role, rows...); err != nil {
 		w.t.Fatalf("access.UserManager.AddRoleGrants(%s) error = %v", role, err)
 	}
-	person := makeCrewAccount(ctx, w.t, w.db, username)
 	if err := manager.AddUserRoles(ctx, held, person, role); err != nil {
-		w.t.Fatalf("access.UserManager.AddUserRoles(%s, %s) error = %v", username, role, err)
+		w.t.Fatalf("access.UserManager.AddUserRoles(%s, %s) error = %v", person, role, err)
 	}
 	checker := w.engine.ForUser(person)
 	for _, row := range rows {
 		if d := decisionFor(ctx, w.t, checker, accesstypes.DomainScope(anvil), row.Permission, row.Resource, time.Now().Add(15*time.Second)); !d.IsGranted() {
-			w.t.Fatalf("%s on %s for %s, who holds %s = %s, want granted before the cases run", row.Permission, row.Resource, username, role, d)
+			w.t.Fatalf("%s on %s for %s, who holds %s = %s, want granted before the cases run", row.Permission, row.Resource, person, role, d)
 		}
 	}
 }
@@ -217,4 +227,67 @@ func TestNamedRows_aColumnPickedFromAComputedList(t *testing.T) {
 	assertStatus(t, status, http.StatusOK, body)
 	status, body = w.write("sol", "patch", "missions/"+first.id, sheet("null"))
 	assertStatus(t, status, http.StatusOK, body)
+}
+
+// TestNamedRows_aMethodsPickedField holds a method's picked field to the rows its caller can
+// list, before the method runs: the ships a launch names, the squadrons a claim names, and
+// the briefing catalog a briefing is compiled on. A person whose role of the test's own may
+// launch and lists no ship is answered as if the ship were not there, and the mission stays
+// claimed; the flight lead, who lists Anvil's ships, cannot name another sector's ship and
+// launches on one of Anvil's. A person whose role may claim and lists no squadron is
+// answered the same, and so is the dry run of that claim; a cadet, who lists the
+// squadrons, claims. A marshal who does not hold BriefingClerk, which alone lists the
+// catalog, compiles on no template of it, and compiles the standard sheet; given the role,
+// they compile on one, and on none the catalog does not hold. No method of Lodestar's that
+// declares a warning picks a row, so no warning is asked here.
+func TestNamedRows_aMethodsPickedField(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := &namedRowsWorld{sharingWorld: newSharingWorld(t)}
+
+	launch := func(user accesstypes.User, ship string) (int, []byte) {
+		return w.as(user, http.MethodPost, sectorPath(anvil, "launch-mission"), fmt.Sprintf(`{"missionId":%q,"shipId":%q,"pilotUserId":"lead"}`, missionCorvidID, ship))
+	}
+	w.roleOfItsOwn("lark", "MissionLauncher", access.GrantRow{Permission: accesstypes.Execute, Resource: "LaunchMission"})
+	status, body := launch("lark", shipKingfisherID)
+	w.notThere(status, body, "a launch by a role that lists no ship")
+	if got := readColumn[string](ctx, t, w.db, "Missions", spanner.Key{missionCorvidID}, "StatusId"); got != "claimed" {
+		t.Errorf("the mission's status after the refused launch = %q, want claimed", got)
+	}
+	status, body = launch("lead", shipBastionWatchID)
+	w.notThere(status, body, "the flight lead launching on another sector's ship")
+	status, body = launch("lead", shipKingfisherID)
+	assertStatus(t, status, http.StatusOK, body)
+
+	claim := fmt.Sprintf(`{"missionId":%q,"squadronId":%q}`, missionHaulerID, squadronHammerID)
+	w.roleOfItsOwn("clay", "MissionClaimer", access.GrantRow{Permission: accesstypes.Execute, Resource: "ClaimMission"})
+	status, body = w.as("clay", http.MethodPost, sectorPath(anvil, "claim-mission"), claim)
+	w.notThere(status, body, "a claim by a role that lists no squadron")
+	status, body = doDryRunAs(t, w.h, "clay", sectorPath(anvil, "claim-mission"), claim)
+	w.notThere(status, body, "the dry run of a claim by a role that lists no squadron")
+	if got := readColumn[string](ctx, t, w.db, "Missions", spanner.Key{missionHaulerID}, "StatusId"); got != "open" {
+		t.Errorf("the mission's status after the refused claims = %q, want open", got)
+	}
+	status, body = w.as("cadet", http.MethodPost, sectorPath(anvil, "claim-mission"), fmt.Sprintf(`{"missionId":%q,"squadronId":%q}`, missionQuarantineID, squadronTongsID))
+	assertStatus(t, status, http.StatusOK, body)
+
+	compile := func(body string) (int, []byte) {
+		return w.as("sol", http.MethodPost, sectorPath(anvil, "compile-briefing"), body)
+	}
+	w.seat(ctx, t, "sol", "SectorMarshal", anvil)
+	status, body = compile(`{"templateId":"dispatch"}`)
+	w.notThere(status, body, "a briefing on a template, compiled by a marshal who lists no catalog")
+	status, body = compile(`{}`)
+	assertStatus(t, status, http.StatusOK, body)
+	sol := accesstypes.User(w.ids["sol"])
+	if err := w.engine.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), sol, "BriefingClerk"); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(sol, BriefingClerk) error = %v", err)
+	}
+	if d := decisionFor(ctx, t, w.engine.ForUser(sol), accesstypes.GlobalScope(), accesstypes.List, "BriefingTemplates", time.Now().Add(15*time.Second)); !d.IsGranted() {
+		t.Fatalf("List on BriefingTemplates for sol, given BriefingClerk = %s, want granted", d)
+	}
+	status, body = compile(`{"templateId":"dispatch"}`)
+	assertStatus(t, status, http.StatusOK, body)
+	status, body = compile(`{"templateId":"night-watch"}`)
+	w.notThere(status, body, "a briefing on a template the catalog does not hold")
 }
