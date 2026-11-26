@@ -24,6 +24,8 @@ func TestWhat(t *testing.T) {
 		{name: "invited, in every tenant", row: Stored{Act: ActInvited, RoleNames: []string{"NightShiftLead"}, RoleScope: RoleScopeEveryTenant}, tenantWord: "company", want: "Invited with the role Night shift lead in every company"},
 		{name: "invited, in every tenant, no tenant word", row: Stored{Act: ActInvited, RoleNames: []string{"Editor"}, RoleScope: RoleScopeEveryTenant}, want: "Invited with the role Editor in every tenant"},
 		{name: "invited to make a tenant", row: Stored{Act: ActInvited, Form: FormNewTenant}, tenantWord: "company", want: "Invited to make a company"},
+		{name: "invited with no role, into a tenant", row: Stored{Act: ActInvited, TenantID: "lakeside", TenantName: "Lakeside"}, want: "Invited to Lakeside"},
+		{name: "invited with no role", row: Stored{Act: ActInvited}, want: "Invited"},
 		{name: "invited to make a tenant, no tenant word", row: Stored{Act: ActInvited, Form: FormNewTenant}, want: "Invited to make a tenant"},
 		{name: "invited to make a tenant, a word said with a vowel", row: Stored{Act: ActInvited, Form: FormNewTenant}, tenantWord: "office", want: "Invited to make an office"},
 		{name: "invitation withdrawn", row: Stored{Act: ActInvitationWithdrawn}, want: "Withdrew the invitation"},

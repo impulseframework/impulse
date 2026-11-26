@@ -217,7 +217,8 @@ func expectMailLinks(f *authFixture) *mailLinks {
 // keep holds the record a write of the link l was handed to the acts the session library
 // records, and keeps it by the link's id: a sign-up's link and a first password's code
 // are recorded by nobody, a withdrawal is recorded for an invitation alone, and any other
-// link stored is handed the record of its act, which must validate. The caller holds the
+// link stored, an invitation that names no role among them, is handed the record of its
+// act, which must validate. The caller holds the
 // table's lock.
 func (m *mailLinks) keep(t *testing.T, call string, l *sessionstorage.MailLink, record *auditlog.Record) {
 	t.Helper()
@@ -225,10 +226,6 @@ func (m *mailLinks) keep(t *testing.T, call string, l *sessionstorage.MailLink, 
 	recorded := l.Kind != sessionstorage.MailLinkSignUp && l.Kind != sessionstorage.MailLinkFirstPassword
 	if call == "RevokeMailLink" {
 		recorded = l.Kind == sessionstorage.MailLinkInvitation
-	}
-	// An invitation that names no role and makes no tenant is recorded by nobody.
-	if call == "InsertMailLink" && l.Kind == sessionstorage.MailLinkInvitation && len(l.RoleNames) == 0 && l.NewTenant == nil {
-		recorded = false
 	}
 	switch {
 	case !recorded && record != nil:

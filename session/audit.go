@@ -126,8 +126,8 @@ func invitationRecord(act auditlog.Act, source eventsource.EventSource, id impul
 // invitedRecord answers the record of source sending the invitation link stores: one that
 // makes a tenant names no role and no tenant (auditlog.FormNewTenant), and any other
 // names its roles, in order, and the place it gives them, in the tenant it names, by the
-// name the Auth gives it. An invitation that names no role and makes no tenant has no
-// record (nil): a row of the act names one role or more.
+// name the Auth gives it. An invitation that names no role names none and no place, and
+// is in the tenant it names, where it names one.
 func (a *Auth[S, U, Tx]) invitedRecord(source eventsource.EventSource, link *sessionstorage.MailLink) *auditlog.Record {
 	r := invitationRecord(auditlog.ActInvited, source, link.ID, link.Email)
 	switch {
@@ -136,7 +136,9 @@ func (a *Auth[S, U, Tx]) invitedRecord(source eventsource.EventSource, link *ses
 
 		return r
 	case len(link.RoleNames) == 0:
-		return nil
+		a.inTenant(r, AskedByTenant(link.TenantID))
+
+		return r
 	}
 	r.RoleNames = append([]string(nil), link.RoleNames...)
 	switch {

@@ -13,7 +13,7 @@ type Act string
 // The acts, in the order Acts gives them. Each is stored under its own words, and each
 // row of one names whom or what it was done to (SubjectKind).
 const (
-	// ActInvited is an invitation sent, with its roles or to make a tenant.
+	// ActInvited is an invitation sent, with its roles, with none, or to make a tenant.
 	ActInvited Act = "invited"
 	// ActInvitationWithdrawn is an invitation withdrawn before it was accepted.
 	ActInvitationWithdrawn Act = "invitationWithdrawn"
@@ -189,7 +189,8 @@ const movedTail = ": they signed in through the directory of {SeatingTenantName}
 // Acts gives the acts.
 func shapes() []actShape {
 	return []actShape{
-		shape(ActInvited, SubjectInvitation, "Invited", "Invited with the {roles}{place}", need(columnRoleName, columnRoleScope), mayBeEmpty(columnOtherRoleNames)),
+		shapeOrWhenEmpty(ActInvited, SubjectInvitation, "Invited", "Invited with the {roles}{place}", "{roles}", "Invited{to tenant}",
+			mayBeEmpty(columnRoleName, columnRoleScope, columnOtherRoleNames)),
 		formShape(ActInvited, FormNewTenant, SubjectInvitation, "Invited to make {a tenant word}"),
 		shape(ActInvitationWithdrawn, SubjectInvitation, "Invitation withdrawn", "Withdrew the invitation"),
 		shape(ActInvitationSentAgain, SubjectInvitation, "Invitation sent again", "Sent the invitation again"),

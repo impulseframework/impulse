@@ -118,7 +118,18 @@ func (s *Stored) parts(tenantWord string) map[string]string {
 		"{SeatingTenantName}": s.SeatingTenantName,
 		"{SubjectName}":       s.SubjectName,
 		"{length}":            rememberedLength(s.NewValue),
+		"{to tenant}":         s.toTenant(),
 	}
+}
+
+// toTenant is the tenant the row names, as a sentence ends with it: " to" and the
+// tenant's name, nothing where the row names no tenant.
+func (s *Stored) toTenant() string {
+	if s.TenantName == "" {
+		return ""
+	}
+
+	return " to " + s.TenantName
 }
 
 // role is the first role the row names, in words.

@@ -608,6 +608,16 @@ func TestAuth_mailedLinksAreRecorded(t *testing.T) {
 			want: func(r *auditlog.Record) { r.RoleNames, r.RoleScope = []string{"Operator"}, auditlog.RoleScopeGlobal },
 		},
 		{
+			name: "an invitation into a tenant that names no role",
+			req:  &InvitationRequest{Email: "pat@lakeside.edu", TenantID: "lakeside"},
+			want: func(r *auditlog.Record) { r.TenantID, r.TenantName = "lakeside", "lakeside" },
+		},
+		{
+			name: "an invitation into the application that names no role",
+			req:  &InvitationRequest{Email: "pat@lakeside.edu"},
+			want: func(*auditlog.Record) {},
+		},
+		{
 			name: "an invitation that makes a tenant, naming no role and no tenant",
 			req:  &InvitationRequest{Email: "pat@lakeside.edu", NewTenant: &sessioninfo.NewTenant{Name: "Lakeside"}},
 			want: func(r *auditlog.Record) { r.Form = auditlog.FormNewTenant },

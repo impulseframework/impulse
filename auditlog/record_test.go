@@ -118,6 +118,7 @@ func acceptedRecords() []Record {
 		with(invitation(ActInvited, ""), func(r *Record) { r.RoleNames, r.RoleScope = []string{"Editor", "NightShiftLead"}, RoleScopeGlobal }),
 		with(invitation(ActInvited, ""), role),
 		invitation(ActInvited, FormNewTenant),
+		invitation(ActInvited, ""),
 		invitation(ActInvitationWithdrawn, ""),
 		invitation(ActInvitationSentAgain, ""),
 		account(ActInvitationAccepted, ""),
