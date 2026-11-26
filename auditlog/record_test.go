@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/eventsource"
+	"github.com/impulseframework/impulse/internal/request"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -408,6 +409,8 @@ func TestSentencesWho(t *testing.T) {
 	asSupport := accountCtx("alice", aliceID, &sessioninfo.Impersonation{
 		Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("Support"),
 	})
+	throughRPC := eventsource.UserEvent(request.WithRPC(accountCtx("alice", aliceID, nil), "AssignStaffRole"))
+	asBobThroughRPC := eventsource.UserEvent(request.WithRPC(asBob, "DisableStaffUser"))
 	tests := []struct {
 		name      string
 		source    eventsource.EventSource
@@ -417,6 +420,8 @@ func TestSentencesWho(t *testing.T) {
 		{name: "a person", source: alice(), want: "alice"},
 		{name: "a person acting as another", source: eventsource.UserEvent(asBob), want: "alice, acting as bob"},
 		{name: "a person acting as a role", source: eventsource.UserEvent(asSupport), want: "alice, acting as the role Support"},
+		{name: "a person through an RPC, which the log's Who leaves to its column", source: throughRPC, want: "alice"},
+		{name: "a person acting as another through an RPC", source: asBobThroughRPC, want: "alice, acting as bob"},
 		{name: "the application", source: eventsource.ProcessEvent(ProcessApplication), want: "the application"},
 		{name: "the migrate command", source: eventsource.ProcessEvent(ProcessMigrate), want: "the migrate command"},
 		{name: "a password reset link", source: eventsource.ProcessEvent(ProcessResetLink), want: "a password reset link"},

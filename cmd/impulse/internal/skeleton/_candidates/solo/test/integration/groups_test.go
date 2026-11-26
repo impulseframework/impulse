@@ -138,9 +138,9 @@ func TestAuditLog_eachActOnAnAccountIsARow(t *testing.T) {
 	}
 	// Newest first.
 	want := []line{
-		{act: "passwordChangeRequired", who: "admin, through the RPC RequireStaffPasswordChange", what: "Required a new password", doneTo: "keeper"},
+		{act: "passwordChangeRequired", who: "admin", what: "Required a new password", doneTo: "keeper"},
 		{
-			act: "roleGiven", who: "admin, through the RPC AssignStaffRole", doneTo: "keeper", reason: reason,
+			act: "roleGiven", who: "admin", doneTo: "keeper", reason: reason,
 			what: "Gave the role Feature administrator for the whole application until " + end.Format("2006-01-02 15:04") + " UTC",
 		},
 	}

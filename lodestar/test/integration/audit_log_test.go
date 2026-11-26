@@ -4,9 +4,9 @@ package integration
 // served stack over the Spanner emulator. Each act on an account, on who holds what or
 // on how people sign in is one row of the auth's audit records table, written in the
 // transaction of the act, so an act that did not happen has none. The lists read the
-// rows back newest first with who acted (and the RPC of the generated method that made
-// the act), the act and whom it was done to in words, which the library writes as each
-// row is read, beside the names the row keeps as they were when the act happened. The whole application's list is Headquarters', and a
+// rows back newest first with who acted (the person and whom they acted as; the RPC of
+// the generated method that made the act stays in its column), the act and whom it was
+// done to in words, which the library writes as each row is read, beside the names the row keeps as they were when the act happened. The whole application's list is Headquarters', and a
 // sector's list holds the acts done in the sector and is its marshal's. Both are read
 // only: nothing a request sends changes a row.
 //
@@ -215,9 +215,9 @@ func giveAuditedRole(ctx context.Context, t *testing.T, b *browser, userID, role
 }
 
 // TestAuditLog_actingAsSomeoneNamesBoth holds who acted in a session that acts as
-// another person: the row's who names both, the real person first, and the method's
-// RPC, as a change record's sentence does, and the table's actor columns hold the real
-// person, as every change record of the library does. A
+// another person: the row's who names both, the real person first, and leaves the
+// method's RPC to its column, and the table's actor columns hold the real person, as
+// every change record of the library does. A
 // session that only views writes nothing, so the act is made in the kind that does what
 // the person may do. The cadet's own roles hold no act of the log, so the governor first
 // makes the cadet Anvil's marshal; he then acts as the cadet and disables an account
@@ -244,7 +244,7 @@ func TestAuditLog_actingAsSomeoneNamesBoth(t *testing.T) {
 	}
 
 	row := oneAuditRow(ctx, t, hq, "accountDisabled", "stowage")
-	want := auditLine{Act: "accountDisabled", Who: "governor, acting as cadet, through the RPC DisableCrewSectorUser", What: "Disabled the account", DoneTo: "stowage", SubjectName: "stowage", TenantName: "Anvil"}
+	want := auditLine{Act: "accountDisabled", Who: "governor, acting as cadet", What: "Disabled the account", DoneTo: "stowage", SubjectName: "stowage", TenantName: "Anvil"}
 	if got := lineOf(row); got != want {
 		t.Errorf("the row of the account disabled while acting as the cadet = %+v, want %+v", got, want)
 	}
@@ -252,7 +252,7 @@ func TestAuditLog_actingAsSomeoneNamesBoth(t *testing.T) {
 		t.Errorf("the row's actorUsername = %q, want governor, the real person", got)
 	}
 	stored := storedAuditRow(ctx, t, s, cell[string](t, row, "id"))
-	for column, want := range map[string]string{"ActorUserId": string(account(t, "governor")), "ActorUsername": "governor", "PrincipalUsername": "cadet"} {
+	for column, want := range map[string]string{"ActorUserId": string(account(t, "governor")), "ActorUsername": "governor", "PrincipalUsername": "cadet", "Rpc": "DisableCrewSectorUser"} {
 		if got := storedText(t, stored, column); got != want {
 			t.Errorf("the table's %s of the row = %q, want %q", column, got, want)
 		}
@@ -392,7 +392,7 @@ func TestAuditLog_aRowKeepsItsPartsAndTheNamesOfItsDay(t *testing.T) {
 	assertStatus(t, status, http.StatusNoContent, body)
 	given := oneAuditRow(ctx, t, hq, "roleGiven", "veteran")
 	what := "Gave the role Pilot until " + end.Format("2006-01-02 15:04") + " UTC"
-	want := auditLine{Act: "roleGiven", Who: "governor, through the RPC AssignCrewRole", What: what, DoneTo: "veteran", SubjectName: "veteran", TenantName: "Anvil", Reason: reason}
+	want := auditLine{Act: "roleGiven", Who: "governor", What: what, DoneTo: "veteran", SubjectName: "veteran", TenantName: "Anvil", Reason: reason}
 	if got := lineOf(given); got != want {
 		t.Errorf("the row of the role given = %+v, want %+v", got, want)
 	}
@@ -431,7 +431,7 @@ func TestAuditLog_aRowKeepsItsPartsAndTheNamesOfItsDay(t *testing.T) {
 	if got := lineOf(oneAuditRow(ctx, t, hq, "roleGiven", "veteran")); got != want {
 		t.Errorf("the row of the role given after the username changed = %+v, want it as it was, %+v", got, want)
 	}
-	renamed := auditLine{Act: "usernameChanged", Who: "governor, through the RPC RenameCrewUser", What: "Changed the username from veteran to veteran-renamed", DoneTo: "veteran-renamed", SubjectName: "veteran-renamed"}
+	renamed := auditLine{Act: "usernameChanged", Who: "governor", What: "Changed the username from veteran to veteran-renamed", DoneTo: "veteran-renamed", SubjectName: "veteran-renamed"}
 	if got := lineOf(oneAuditRow(ctx, t, hq, "usernameChanged", "veteran-renamed")); got != renamed {
 		t.Errorf("the row of the username changed = %+v, want %+v", got, renamed)
 	}
@@ -517,12 +517,12 @@ func TestAuditLog_filtersAndPages(t *testing.T) {
 		}
 	}
 	matched := auditRows(ctx, t, hq, "", "subjectName:contains:spatch")
-	dispatched := auditLine{Act: "roleGiven", Who: "governor, through the RPC AssignCrewRole", What: "Gave the role Pilot", DoneTo: "dispatcher", SubjectName: "dispatcher", TenantName: "Bastion"}
+	dispatched := auditLine{Act: "roleGiven", Who: "governor", What: "Gave the role Pilot", DoneTo: "dispatcher", SubjectName: "dispatcher", TenantName: "Bastion"}
 	if len(matched) != 1 || lineOf(matched[0]) != dispatched {
 		t.Errorf("the log filtered by a part of the dispatcher's username = %v, want the one row %+v", matched, dispatched)
 	}
 	byMarshal := auditRows(ctx, t, hq, "", "actorUsername:eq:marshal")
-	byHer := auditLine{Act: "roleGiven", Who: "marshal, through the RPC AssignCrewSectorRole", What: "Gave the role Engineer", DoneTo: "cadet", SubjectName: "cadet", TenantName: "Anvil"}
+	byHer := auditLine{Act: "roleGiven", Who: "marshal", What: "Gave the role Engineer", DoneTo: "cadet", SubjectName: "cadet", TenantName: "Anvil"}
 	if len(byMarshal) != 1 || lineOf(byMarshal[0]) != byHer {
 		t.Errorf("the log filtered by the marshal's username = %v, want the one row %+v", byMarshal, byHer)
 	}

@@ -33,7 +33,9 @@ func (s *Stored) Sentences(tenantWord string) Sentences {
 
 // who is who or what acted, as a person reads it: the directory, where one acted; the
 // library's own process, where it acted with no person; and otherwise the sentence of
-// who made a change that every record of the library writes (eventsource.Stored.String).
+// who made a change that every record of the library writes (eventsource.Stored.String),
+// without the RPC: the person and whom they acted as say who, the act says what, and the
+// RPC's name stays in its column and in the change history.
 func (s *Stored) who() string {
 	if s.Directory != "" {
 		return "the directory " + s.Directory
@@ -43,8 +45,10 @@ func (s *Stored) who() string {
 			return sentence
 		}
 	}
+	source := s.Source
+	source.RPC = ""
 
-	return s.Source.String()
+	return source.String()
 }
 
 // processWords is a process of the library's own that acts with no person behind it, in

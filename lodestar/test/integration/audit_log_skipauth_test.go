@@ -85,9 +85,9 @@ func TestAuditLog_eachActIsOneRowInWords(t *testing.T) {
 	}
 
 	for _, want := range []auditLine{
-		{Act: "roleGiven", Who: "governor, through the RPC AssignCrewRole", What: "Gave the role Pilot until " + end.Format("2006-01-02 15:04") + " UTC", DoneTo: "cadet", SubjectName: "cadet", TenantName: "Anvil", Reason: reason},
-		{Act: "passwordRemoved", Who: "governor, through the RPC RemoveCrewSectorPassword", What: "Removed the password", DoneTo: "pilot", SubjectName: "pilot", TenantName: "Cinder"},
-		{Act: "directoryOnlyOn", Who: "governor, through the RPC MakeSectorDirectoryOnly", What: "Turned directory only on", DoneTo: "Cinder", SubjectName: "Cinder", TenantName: "Cinder"},
+		{Act: "roleGiven", Who: "governor", What: "Gave the role Pilot until " + end.Format("2006-01-02 15:04") + " UTC", DoneTo: "cadet", SubjectName: "cadet", TenantName: "Anvil", Reason: reason},
+		{Act: "passwordRemoved", Who: "governor", What: "Removed the password", DoneTo: "pilot", SubjectName: "pilot", TenantName: "Cinder"},
+		{Act: "directoryOnlyOn", Who: "governor", What: "Turned directory only on", DoneTo: "Cinder", SubjectName: "Cinder", TenantName: "Cinder"},
 	} {
 		if got := lineOf(oneAuditRow(ctx, t, hq, want.Act, want.SubjectName)); got != want {
 			t.Errorf("the row of %s done to %s = %+v, want %+v", want.Act, want.SubjectName, got, want)
