@@ -139,15 +139,24 @@ func TestRowsOfWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A membership's member is picked from Anvil's people (CrewSectorUsers), so the cadet is
+	// made one of them, as the bootstrap makes them: their account, and the Cadet's role in
+	// Anvil.
+	if err := seedCastAccounts(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	seatInSector(ctx, t, db, account(t, "cadet"), "Cadet", anvil)
 
 	// The pilot's and the squadron's names are read from Pilots and Squadrons by the ids
-	// the views carry, under the List grant on each name.
+	// the views carry, under the List grant on each name. The writer lists the squadrons
+	// and Anvil's people, the rows a membership names.
 	h := newTestApp(db, grants{
 		accesstypes.List: slices.Concat(
 			withFields("SquadronRosters", "squadronName", "pilotId"),
 			withFields("PilotAssignments", "wingName"),
 			withFields("Pilots", "displayName"),
 			withFields("Squadrons", "name"),
+			[]accesstypes.Resource{"CrewSectorUsers"},
 		),
 		accesstypes.Create: {"SquadronMemberships"},
 		accesstypes.Delete: {"SquadronMemberships"},

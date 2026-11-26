@@ -27,6 +27,9 @@ type ComputedQueryDecoder[Resource Resourcer, Request any] struct {
 	// facts is the client the facts about the caller are read through, where a
 	// grant's condition names one (subject.<name>); nil until wired.
 	facts SubjectFactSource
+	// namedRowSources are the views a row a write names is read from
+	// (WithNamedRowSources), stamped on the QuerySet the decode answers.
+	namedRowSources NamedRowSources
 }
 
 // NewComputedQueryDecoder creates a new ComputedQueryDecoder for a given Resource and
@@ -98,6 +101,15 @@ func (d *ComputedQueryDecoder[Resource, Request]) WithCollection(collection *Gen
 	return d
 }
 
+// WithNamedRowSources installs the views a row a write names is read from: they ride
+// the QuerySet the decode answers, and its caller (QuerySet.Caller) carries them to a
+// write the application's function arms (NamedRowSources).
+func (d *ComputedQueryDecoder[Resource, Request]) WithNamedRowSources(sources NamedRowSources) *ComputedQueryDecoder[Resource, Request] {
+	d.namedRowSources = sources
+
+	return d
+}
+
 // WithSubjectFacts installs the client the facts about the caller are read
 // through: a grant's condition that compares a row against a subject value or a
 // subject set (subject.<name>) has the fact read once for the request, when it is
@@ -151,6 +163,9 @@ func (d *ComputedQueryDecoder[Resource, Request]) Decode(request *http.Request, 
 	// And the application database's type (QuerySet.Collect), so the handler's
 	// in-memory sort and page boundary place NULL where a body's plain ORDER BY does.
 	qSet.dbType = d.dbType
+	// And the views a row a write names is read from, which the query's caller carries
+	// to a write the function arms (QuerySet.Caller).
+	qSet.namedRowSources = d.namedRowSources
 
 	decisions, err := userPermissions.Check(ctx, qSet.env, scope, requiredPermission, base)
 	if err != nil {

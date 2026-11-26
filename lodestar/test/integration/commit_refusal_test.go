@@ -10,8 +10,9 @@ package integration
 // refusedBy the kinds that refuse them before the commit; a delete that would take a row the
 // caller may not delete is refused before anything is deleted
 // (TestDeleteAlone_refusesWhatTheCallerMayNotTake). The referential refusal (409) is reproduced
-// by a create naming a client that does not exist, and beside a delete the same request makes,
-// by the sentence covering both causes. A squadron and what is under it (the one mission
+// by a create naming a kind of mission that does not exist, and beside a delete the same
+// request makes, by the sentence covering both causes; a client that does not exist is refused
+// before the commit, as a row the writer's roster does not show. A squadron and what is under it (the one mission
 // assigned to it, and its memberships and pass), deleted in one transaction, are refused in
 // either order, in the sentence that counts them: the squadron declares nothing, and its count
 // reads what the database held before the transaction, so rows that are not declared to go
@@ -79,21 +80,21 @@ func TestCommitRefusal(t *testing.T) {
 		accesstypes.Update: append(
 			withFields(missionsResource, "hazard"),
 			withFields("Clients", "name")...),
-		// A ship names its hangar and its class, and a refit task its refit, so their writer
-		// lists those.
-		accesstypes.List: {"Hangars", "ShipClasses", "Refits"},
+		// A ship names its hangar and its class, a refit task its refit and a mission its
+		// client, picked from the sector's roster, so their writer lists those.
+		accesstypes.List: {"Hangars", "ShipClasses", "Refits", "ClientRosters"},
 	})
 
 	const (
-		missingClientID = "10000000-0000-4000-8000-000000000099"
-		missingID       = "10000000-0000-4000-8000-000000000098"
+		missingKindID = "salvage-tow"
+		missingID     = "10000000-0000-4000-8000-000000000098"
 		// The seeded members of Portcullis and its pass.
 		memberPortcullisDispatcher = "f0000000-0000-4000-8000-000000000007"
 		memberPortcullisPilot      = "f0000000-0000-4000-8000-000000000004"
 		passPortcullisID           = "61000000-0000-4000-8000-000000000005"
 	)
-	mission := func(clientID, title string, hazard int) string {
-		return fmt.Sprintf(`{"op":"add","path":%q,"value":{"clientId":%q,"kindId":"courier","title":%q,"hazard":%d,"fee":100,"deadline":%q}}`, opPath(anvil, "missions"), clientID, title, hazard, deadline(365))
+	mission := func(kindID, title string, hazard int) string {
+		return fmt.Sprintf(`{"op":"add","path":%q,"value":{"clientId":%q,"kindId":%q,"title":%q,"hazard":%d,"fee":100,"deadline":%q}}`, opPath(anvil, "missions"), clientHalvardID, kindID, title, hazard, deadline(365))
 	}
 	removeIn := func(sector, rest string) string {
 		return fmt.Sprintf(`{"op":"remove","path":%q}`, opPath(sector, rest))
@@ -110,11 +111,12 @@ func TestCommitRefusal(t *testing.T) {
 		wantMessage string
 	}{
 		{
-			// Mission is change-tracked too; its client is not its tenancy hop, so the
-			// missing row is found at commit, not by the tenancy check.
-			name:        "a create naming a client that does not exist answers 409 with the write sentence",
+			// Mission is change-tracked too; its kind is not its tenancy hop, and no list
+			// it is picked from holds it before the commit, so the missing row is found at
+			// commit, not by the tenancy check.
+			name:        "a create naming a kind that does not exist answers 409 with the write sentence",
 			target:      "/console/api/resources",
-			ops:         "[" + mission(missingClientID, "Booked for nobody", 1) + "]",
+			ops:         "[" + mission(missingKindID, "Booked for no kind", 1) + "]",
 			wantStatus:  http.StatusConflict,
 			wantMessage: "This mission refers to a record that does not exist, or holds a value that is too long for its field.",
 		},
@@ -124,7 +126,7 @@ func TestCommitRefusal(t *testing.T) {
 			// Mission is change-tracked: the change event buffered beside it is not named.
 			name:        "a batch mixing a write and a delete answers the sentence covering both causes",
 			target:      "/console/api/resources",
-			ops:         "[" + mission(missingClientID, "Booked beside a delete", 1) + "," + remove("missions/"+missionBullionID) + "]",
+			ops:         "[" + mission(missingKindID, "Booked beside a delete", 1) + "," + remove("missions/"+missionBullionID) + "]",
 			wantStatus:  http.StatusConflict,
 			wantMessage: "The request could not be applied: a deleted record is still referenced, or a referenced record does not exist.",
 		},
@@ -204,7 +206,7 @@ func TestCommitRefusal(t *testing.T) {
 			// before anything is buffered.
 			name:        "a mission created with hazard 9 answers 400 from the create validator",
 			target:      "/console/api/resources",
-			ops:         "[" + mission(clientHalvardID, "Too hazardous to book", 9) + "]",
+			ops:         "[" + mission("courier", "Too hazardous to book", 9) + "]",
 			wantStatus:  http.StatusBadRequest,
 			wantMessage: "hazard must be between 1 and 5",
 		},

@@ -23,8 +23,11 @@ func NewQueryDecoder[Resource Resourcer, Request any](a *App, permissions ...acc
 
 // NewDecoder builds a patch decoder for a generated resource and request pair,
 // wired to the generated collection so conditional grants render into the
-// mutations' live check. The Resourcer union keeps construction inside the
-// generated universe: a decoder over any other struct is a compile error.
+// mutations' live check, and to the named-row sources (the application's; in an
+// auth's handlers, the auth's own) so a column picked from a view or a computed list
+// is set only to a row the writer's list of it shows. The Resourcer union keeps
+// construction inside the generated universe: a decoder over any other struct is a
+// compile error.
 func NewDecoder[Resource Resourcer, Request any](a *App, permissions ...accesstypes.Permission) *resource.Decoder[Resource, Request] {
-	return resource.MustNewDecoder[Resource, Request](a, router.Collection(), permissions...).WithFeatures(a.FeatureSet())
+	return resource.MustNewDecoder[Resource, Request](a, router.Collection(), permissions...).WithFeatures(a.FeatureSet()).WithNamedRowSources(a.namedRowSources())
 }

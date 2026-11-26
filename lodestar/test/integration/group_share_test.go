@@ -50,10 +50,6 @@ const (
 	passDockSlipHandsID          = "61000000-0000-4000-8000-0000000000b6"
 	passBayInspectorsID          = "61000000-0000-4000-8000-0000000000b7"
 
-	// groupNotKeptRefusal is the library's answer to a pass that names a group its
-	// sector does not keep.
-	groupNotKeptRefusal = "groupId names a group that is not one of this sector's own. Choose a group kept in this sector: a group kept in another sector, or for the whole application, cannot be named here."
-
 	// An id that is no pass: nothing writes it.
 	passNoneID = "61000000-0000-4000-8000-0000000000bf"
 )
@@ -678,10 +674,11 @@ func TestGroupShare_tenants(t *testing.T) {
 // TestGroupShare_groupNotKept holds the refusal of a pass that names a group its sector
 // does not keep, by requests written by hand, since the picker offers no such group: a
 // create in Anvil that names Bastion's group, a group kept for the whole fleet, or an id
-// that is no group's is refused with the library's one sentence, which says which groups
-// a pass may name and nothing of what another sector keeps, and writes no row; the same
-// request with a group Anvil keeps is written. The rule is the library's (the generated
-// GroupColumns of HangarPass), so nothing in Lodestar states it.
+// that is no group's is refused, and writes no row; the same request with a group Anvil
+// keeps is written. A pass's group is picked from the sector's groups, so the Marshal's
+// list of them, which shows Anvil's alone, refuses the others first, as rows that are not
+// there, which says nothing of what another sector keeps. The rule is the library's (the
+// generated NamedRows of HangarPass), so nothing in Lodestar states it.
 func TestGroupShare_groupNotKept(t *testing.T) {
 	t.Parallel()
 
@@ -711,11 +708,11 @@ func TestGroupShare_groupNotKept(t *testing.T) {
 	}
 	for _, tt := range tests {
 		status, body, _ := w.createPass(t, groupPass(tt.group, "run"))
-		if status != http.StatusBadRequest {
-			t.Errorf("a pass of Anvil's that names %s: status = %d, want 400: %s", tt.name, status, body)
+		if status != http.StatusNotFound {
+			t.Errorf("a pass of Anvil's that names %s: status = %d, want 404: %s", tt.name, status, body)
 		}
-		if got := refusalOf(t, body); got != groupNotKeptRefusal {
-			t.Errorf("a pass of Anvil's that names %s is answered\n  %s\nwant\n  %s", tt.name, got, groupNotKeptRefusal)
+		if got := refusalOf(t, body); got != referredRowMissing {
+			t.Errorf("a pass of Anvil's that names %s is answered\n  %s\nwant\n  %s", tt.name, got, referredRowMissing)
 		}
 		if n := w.passes(t, "GroupId = @group", map[string]any{"group": tt.group}); n != 0 {
 			t.Errorf("a pass of Anvil's that names %s: %d passes name the group, want none written", tt.name, n)

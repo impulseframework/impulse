@@ -83,6 +83,9 @@ func TestChangeRecordTenant(t *testing.T) {
 		accesstypes.Update:  append(withFields(ships, "name"), withFields(sectors, "region")...),
 		accesstypes.Delete:  {missionsResource},
 		accesstypes.Execute: {"HailShip", "InspectShip"},
+		// A mission names its client, picked from the sector's roster, so its writer lists
+		// the roster.
+		accesstypes.List: {"ClientRosters"},
 	})
 	write := func(t *testing.T, ops string) {
 		t.Helper()

@@ -30,6 +30,11 @@ type Caller struct {
 	// collection renders a conditional grant into the live check, when the
 	// frame's decoder was wired to one.
 	collection *GeneratedCollection
+	// namedRowSources are the views a named row is read from and the computed lists
+	// it is asked of, when the frame's decoder was handed them (WithNamedRowSources):
+	// a write the frame's body arms (Enforce) carries them, and a method's picked
+	// fields are held to them (HoldPicked).
+	namedRowSources NamedRowSources
 	// method and permission are what the frame's entry check asked: the method, and the
 	// permission on it. A method's decode sets them on the caller it answers
 	// (RPCDecoder.DecodeCaller, and ExecuteGate.Caller for the gate a
@@ -178,6 +183,7 @@ func (q *QuerySet[Resource]) arm(caller *Caller, rSet *Set[Resource], requiredPe
 	}
 	q.env = caller.Env
 	q.collection = caller.collection
+	q.namedRowSources = caller.namedRowSources
 	q.EnableUserPermissionEnforcement(rSet, caller.Permissions, caller.Scope, requiredPermission)
 }
 
@@ -193,7 +199,7 @@ func (q *QuerySet[Resource]) arm(caller *Caller, rSet *Set[Resource], requiredPe
 // written by hand over a computed query stamps it the same way. A QuerySet bound to no
 // permissions answers a zero Caller, which every question refuses.
 func (q *QuerySet[Resource]) Caller() *Caller {
-	return &Caller{Permissions: q.userPermissions, Scope: q.scope, Env: q.env, collection: q.collection}
+	return &Caller{Permissions: q.userPermissions, Scope: q.scope, Env: q.env, collection: q.collection, namedRowSources: q.namedRowSources}
 }
 
 // Enforce arms the query against the caller: Read and List run the read

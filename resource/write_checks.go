@@ -179,18 +179,161 @@ func (p *PatchSet[Resource]) enforceWriteConditions(ctx context.Context, txn Rea
 		}
 	}
 
-	q := p.querySet
 	for i, group := range groups {
 		var passed spanner.NullBool
 		if err := row.Column(i, &passed); err != nil {
 			return errors.Wrap(err, "spanner.Row.Column()")
 		}
 		if !passed.Valid || !passed.Bool {
-			return q.conditionRefused(group.resources)
+			return p.groupRefused(ctx, txn, group, tenancy)
 		}
 	}
 
 	return nil
+}
+
+// groupRefused is the answer to a write whose live check failed the group: the value's
+// (valueRefused) where a value the write sends is what the group's condition read and
+// the row would take another, and the row's (conditionRefused) where the stored row
+// refuses the write whatever it sends. A delete sends no value and is told the row's. A
+// create has one image, so every attribute its condition reads is a value it sends. An
+// update sends the values its condition reads under new. for a column the patch sets;
+// the condition with each of those taken as passing (condition.FailOpen) is the bound,
+// and the value is blamed where the bound is TRUE or holds for the stored row. A write
+// that fails both ways is told the row's. It is asked only once a group has failed, so a
+// write that is accepted runs no statement of its own.
+func (p *PatchSet[Resource]) groupRefused(ctx context.Context, txn ReadWriteTransaction, group writeCheckGroup, tenancy *mutationTenancy) error {
+	q := p.querySet
+	bindings, _ := q.collection.Bindings(q.collection.Scope(q.Resource()), q.Resource())
+	attributes := make(map[string]AttributeData, len(bindings.Attributes))
+	for _, attr := range bindings.Attributes {
+		attributes[attr.Name] = attr
+	}
+
+	columns := make(map[string]bool)
+	switch p.patchType {
+	case CreatePatchType:
+		for _, name := range condition.Bindings(group.expr) {
+			if attr, ok := attributes[name]; ok {
+				columns[attr.Column] = true
+			}
+		}
+	case UpdatePatchType:
+		proposed, err := p.proposedValues(txn.DBType(), false)
+		if err != nil {
+			return err
+		}
+		sent := make(map[string]bool)
+		for _, name := range condition.PostImageBindings(group.expr) {
+			attr, ok := attributes[name]
+			if !ok {
+				continue
+			}
+			if _, set := proposed.values[attr.Column]; set {
+				sent[name] = true
+				columns[attr.Column] = true
+			}
+		}
+		if len(sent) == 0 {
+			return q.conditionRefused(group.resources)
+		}
+
+		bound := condition.FailOpen(group.expr, func(atom condition.Expr) bool {
+			left, ok := atomLeft(atom)
+
+			return !ok || !left.PostImage || !sent[left.Name]
+		})
+		holds, err := p.boundHolds(ctx, txn, group, bound, tenancy)
+		if err != nil {
+			return err
+		}
+		if !holds {
+			return q.conditionRefused(group.resources)
+		}
+	default:
+		return q.conditionRefused(group.resources)
+	}
+
+	atFault := p.fieldsAtFault(txn.DBType(), columns)
+	if len(atFault) == 0 {
+		return q.conditionRefused(group.resources)
+	}
+
+	return q.valueRefused(group.resources, atFault)
+}
+
+// boundHolds answers whether the stored row would take the update with every value it
+// sends that the group's condition reads taken as passing: TRUE where the bound is the
+// constant TRUE, and otherwise the bound asked with one more check-SELECT in the same
+// transaction, rendered as the group's own with the update's tenancy, so the row is
+// located as the check located it and a new. reference the patch does not set still
+// reads the stored column.
+func (p *PatchSet[Resource]) boundHolds(ctx context.Context, txn ReadWriteTransaction, group writeCheckGroup, bound condition.Expr, tenancy *mutationTenancy) (bool, error) {
+	if truth, ok := bound.(condition.Truth); ok {
+		return truth.Value, nil
+	}
+
+	stmt, err := p.writeCheckStatement(txn.DBType(), []writeCheckGroup{{resources: group.resources, expr: bound, source: bound.String()}}, tenancy)
+	if err != nil {
+		return false, err
+	}
+
+	it := txn.SpannerReadOnlyTransaction().Query(ctx, stmt.SpannerStatement())
+	defer it.Stop()
+
+	row, err := it.Next()
+	if err != nil {
+		if errors.Is(err, iterator.Done) {
+			return false, recordNotFound[Resource](p.PrimaryKey().RowID())
+		}
+
+		return false, errors.Wrap(err, "spanner.RowIterator.Next()")
+	}
+
+	var holds spanner.NullBool
+	if err := row.Column(0, &holds); err != nil {
+		return false, errors.Wrap(err, "spanner.Row.Column()")
+	}
+
+	return holds.Valid && holds.Bool, nil
+}
+
+// fieldsAtFault answers the fields of the write whose column is one of columns, each as
+// the resource a refusal names it by: the patch's fields in their order, then, on a
+// create, its key parts.
+func (p *PatchSet[Resource]) fieldsAtFault(dbType DBType, columns map[string]bool) []accesstypes.Resource {
+	q := p.querySet
+	fieldMap := q.rMeta.dbFieldMap(dbType)
+	fields := slices.Clone(p.Fields())
+	if p.patchType == CreatePatchType {
+		for _, part := range p.PrimaryKey().Parts() {
+			fields = append(fields, part.Key)
+		}
+	}
+
+	var atFault []accesstypes.Resource
+	for _, field := range fields {
+		if meta, ok := fieldMap[field]; ok && columns[meta.ColumnName] {
+			atFault = append(atFault, q.resourceSet.Resource(field))
+		}
+	}
+
+	return atFault
+}
+
+// atomLeft is the reference an atom of a condition reads on its left: a comparison's, a
+// membership test's or a null test's. Any other node has none.
+func atomLeft(atom condition.Expr) (condition.Ref, bool) {
+	switch n := atom.(type) {
+	case condition.Comparison:
+		return n.Left, true
+	case condition.In:
+		return n.Left, true
+	case condition.NullTest:
+		return n.Left, true
+	default:
+		return condition.Ref{}, false
+	}
 }
 
 // writeCheckStatement renders one mutation's check-SELECT: one boolean term

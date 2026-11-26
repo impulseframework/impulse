@@ -181,7 +181,9 @@ func TestMissionCreateDefaultsAndValidator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := newTestApp(db, grants{accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline")})
+	// A mission names its client, picked from the sector's roster, so its writer lists the
+	// roster.
+	h := newTestApp(db, grants{accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"), accesstypes.List: {"ClientRosters"}})
 
 	// The validator rejects a deadline that has passed — someone is waiting.
 	status, body := doRequest(t, h, http.MethodPatch, "/console/api/resources",

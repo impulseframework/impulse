@@ -895,6 +895,23 @@ func makeCrewAccount(ctx context.Context, t *testing.T, db *initiator.SpannerDB,
 	return writeCrewAccount(ctx, t, db, username, nil)
 }
 
+// seatInSector gives the account the role in the sector through the crew's engine over the
+// database, as the bootstrap seats the cast, for a suite whose requests are answered from a
+// static grant table: a person a write names from the sector's people (CrewSectorUsers) is
+// one of them once they hold a role there.
+func seatInSector(ctx context.Context, t *testing.T, db *initiator.SpannerDB, user accesstypes.User, role accesstypes.Role, sector string) {
+	t.Helper()
+
+	engine, err := openEngine(db, crew.TablePrefix, crew.Roles())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close() })
+	if err := engine.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(accesstypes.Domain(sector)), user, role); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(%s, %s, %s) error = %v", user, role, sector, err)
+	}
+}
+
 // makeCrewAccountAt is makeCrewAccount for a person with an address, held as the person
 // typed it at a registration: nobody has confirmed it.
 func makeCrewAccountAt(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User, email string) accesstypes.User {

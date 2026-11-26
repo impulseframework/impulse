@@ -46,6 +46,9 @@ type Decoder[Resource Resourcer, Request any] struct {
 	// a flag that is off is unknown to the decoder, so a body naming it is refused as
 	// any unknown field is. Nil hides every gated field.
 	features *FeatureSet
+	// namedRowSources are the views a row a write names is read from
+	// (WithNamedRowSources), stamped on every patch the decoder answers.
+	namedRowSources NamedRowSources
 }
 
 // WithFeatures installs the FeatureSet the decoder reads the gated fields' flags
@@ -54,6 +57,16 @@ type Decoder[Resource Resourcer, Request any] struct {
 func (d *Decoder[Resource, Request]) WithFeatures(features *FeatureSet) *Decoder[Resource, Request] {
 	decoder := *d
 	decoder.features = features
+
+	return &decoder
+}
+
+// WithNamedRowSources installs the views a row a write names is read from: a column
+// picked from a view is set only to a row the writer's list of the view shows
+// (NamedRowSources). The generated wiring passes the application's.
+func (d *Decoder[Resource, Request]) WithNamedRowSources(sources NamedRowSources) *Decoder[Resource, Request] {
+	decoder := *d
+	decoder.namedRowSources = sources
 
 	return &decoder
 }
@@ -108,6 +121,7 @@ func (d *Decoder[Resource, Request]) DecodeWithoutPermissions(request *http.Requ
 		return nil, err
 	}
 	p.querySet.collection = d.collection
+	p.querySet.namedRowSources = d.namedRowSources
 
 	return p, nil
 }
@@ -120,6 +134,7 @@ func (d *Decoder[Resource, Request]) Decode(request *http.Request, userPermissio
 		return nil, err
 	}
 	p.querySet.collection = d.collection
+	p.querySet.namedRowSources = d.namedRowSources
 
 	p.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, scope, requiredPermission)
 
@@ -167,6 +182,7 @@ func (d *Decoder[Resource, Request]) DecideOperation(ctx context.Context, txn Re
 	}
 	p.querySet.env = RequestEnvironment()
 	p.querySet.collection = d.collection
+	p.querySet.namedRowSources = d.namedRowSources
 	p.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, scope, accesstypes.Update)
 	if err := p.querySet.checkResourcePermission(ctx); err != nil {
 		return nil, err
@@ -215,6 +231,7 @@ func (d *Decoder[Resource, Request]) DecodeOperation(oper *Operation, userPermis
 		patchSet := NewPatchSet(d.resourceSet.ResourceMetadata())
 		patchSet.querySet.env = RequestEnvironment()
 		patchSet.querySet.collection = d.collection
+		patchSet.querySet.namedRowSources = d.namedRowSources
 		if err := readRemoveValue(oper, patchSet); err != nil {
 			return nil, err
 		}

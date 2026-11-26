@@ -149,6 +149,12 @@ type QuerySet[Resource Resourcer] struct {
 	// hand-built QuerySet, which errors if conditions ever need rendering.
 	collection *GeneratedCollection
 
+	// namedRowSources are the views a row a write names is read from
+	// (NamedRowSources). Stamped by the decoder, or by Enforce from the caller;
+	// nil on a hand-built QuerySet, whose write refuses a column picked from a
+	// view it must read.
+	namedRowSources NamedRowSources
+
 	// jsonNames maps resource fields to their request-type JSON names for the
 	// masked-names column. Stamped by the decoder; a missing entry falls back
 	// to the Go field name.
