@@ -205,6 +205,10 @@ type Store interface {
 	DeleteRecordGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RecordGroupRoleKey) error
 	// RecordRoles reads every role held on the record, ended ones too, in key order.
 	RecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
+	// RecordPeriods reads the period of every role held on the record, ended ones too, a
+	// person's and a group's, each by its row's key. A role given with no period is among
+	// them with the zero period.
+	RecordPeriods(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (*RecordPeriods, error)
 	// TenantRecordRoles reads every role held on a record of the tenant, in key order.
 	TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, err error)
 	// RecordMemberships reads the roles the person holds on records, in any tenant, not ended.

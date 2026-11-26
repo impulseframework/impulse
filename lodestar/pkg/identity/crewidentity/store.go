@@ -1792,6 +1792,38 @@ func (store) RecordRoles(ctx context.Context, txn resource.ReadWriteTransaction,
 	return people, groups, nil
 }
 
+func (store) RecordPeriods(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (*identity.RecordPeriods, error) {
+	// Both tables' keys lead with the record: each map is the rows under the record's part
+	// of the key, ended ones too.
+	record := access.NewRecordMembershipKey(at, "", "")
+	periods := &identity.RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}
+	people := crewresources.NewCrewRecordUserRoleQuery().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record).
+		AddColumns(crewresources.NewCrewRecordUserRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().UserID().StartsAt().EndsAt())
+	for row, err := range people.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordUserRoleQuery.List()")
+		}
+		periods.People[recordMembershipKey(&row.Data)] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+	groups := crewresources.NewCrewRecordGroupRoleQuery().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record).
+		AddColumns(crewresources.NewCrewRecordGroupRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().GroupID().StartsAt().EndsAt())
+	for row, err := range groups.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewRecordGroupRoleQuery.List()")
+		}
+		held := row.Data
+		key := access.RecordGroupRoleKey{
+			Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+			Role: accesstypes.Role(held.Role), Group: accesstypes.Group(held.GroupID.String()),
+		}
+		periods.Groups[key] = storedPeriod(held.StartsAt, held.EndsAt)
+	}
+
+	return periods, nil
+}
+
 func (store) TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
 	// Both tables' keys lead with the record's tenant: each list is the rows under the
 	// tenant's part of the key.

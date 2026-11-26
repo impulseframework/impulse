@@ -1674,6 +1674,10 @@ func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesst
 	return nil, nil, nil
 }
 
+func (store) RecordPeriods(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (*identity.RecordPeriods, error) {
+	return &identity.RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}, nil
+}
+
 func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
 	return nil, nil, nil
 }

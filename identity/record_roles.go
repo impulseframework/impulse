@@ -2,6 +2,8 @@ package identity
 
 import (
 	"context"
+	"slices"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -27,6 +29,15 @@ import (
 // the tenant or are removed from it; and where a person belongs to one tenant
 // (WithOneTenantPerPerson), a role on a record of another tenant holds them there.
 
+// RecordPeriods are the periods of the roles held on one record, each by its row's key: a
+// person's (People) and a group's (Groups). A role given with no period has the zero
+// period. A store that keeps no roles on records answers both empty, and one that keeps no
+// groups an empty Groups.
+type RecordPeriods struct {
+	People map[access.RecordMembershipKey]accesstypes.Period
+	Groups map[access.RecordGroupRoleKey]accesstypes.Period
+}
+
 // GiveRoleOn buffers the person's role on one record of the tenant, for the period, in
 // the caller's transaction, and has the permission engine told once the transaction has
 // committed. record is the record's kind by its resource name, and id its key as text. A
@@ -38,6 +49,10 @@ import (
 // tenant's people (requireTenantPerson): a record is shared with somebody outside the
 // tenant once they are invited into it. The person behind a session that acts as someone
 // else gives themselves nothing.
+//
+// Nobody lengthens their own holding: a caller does not give their own role on the
+// record, or a role of a group they are in, a period that lasts longer than the one it
+// has (refuseLongerForOneself).
 func (t *Tenant) GiveRoleOn(
 	ctx context.Context, txn resource.ReadWriteTransaction, record accesstypes.Resource, id string, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period,
 ) error {
@@ -47,7 +62,8 @@ func (t *Tenant) GiveRoleOn(
 	if err := t.manager.refuseImpersonatorAsSubject(ctx, userID, "give yourself a role"); err != nil {
 		return err
 	}
-	key, err := t.manager.access.UserManager().RecordMembership(ctx, accesstypes.NewRecordScope(t.domain, record, id), User(userID), role)
+	at := accesstypes.NewRecordScope(t.domain, record, id)
+	key, err := t.manager.access.UserManager().RecordMembership(ctx, at, User(userID), role)
 	if err != nil {
 		return errors.Wrap(err, "access.UserManager.RecordMembership()")
 	}
@@ -56,6 +72,17 @@ func (t *Tenant) GiveRoleOn(
 	}
 	if err := t.requireTenantPerson(ctx, txn, userID); err != nil {
 		return err
+	}
+	if t.manager.callerIs(ctx, userID) {
+		periods, err := t.manager.store.RecordPeriods(ctx, txn, at)
+		if err != nil {
+			return errors.Wrap(err, "identity.Store.RecordPeriods()")
+		}
+		if had, held := periods.People[key]; held {
+			if err := refuseLongerForOneself(true, had, period, "your own role"); err != nil {
+				return err
+			}
+		}
 	}
 	if err := t.manager.store.SetRecordMembership(ctx, txn, &key, period); err != nil {
 		return errors.Wrap(err, "identity.Store.SetRecordMembership()")
@@ -88,6 +115,10 @@ func (t *Tenant) TakeRoleOn(ctx context.Context, txn resource.ReadWriteTransacti
 // GiveRoleOn gives a person's: every person in the group holds the role on the record. The
 // group is one kept in the tenant (requireTenantGroup), so a group kept anywhere else is
 // not found here, and the role is then held to the access library's rule for a group.
+//
+// Nobody lengthens their own holding: a caller does not give their own role on the
+// record, or a role of a group they are in, a period that lasts longer than the one it
+// has (refuseLongerForOneself).
 func (t *Tenant) GiveGroupRoleOn(
 	ctx context.Context, txn resource.ReadWriteTransaction, record accesstypes.Resource, id string, groupID impulse.UUID, role accesstypes.Role, period accesstypes.Period,
 ) error {
@@ -97,11 +128,15 @@ func (t *Tenant) GiveGroupRoleOn(
 	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
 		return err
 	}
-	key, err := t.manager.access.UserManager().RecordGroupRole(ctx, GroupID(groupID), t.scope(), accesstypes.NewRecordScope(t.domain, record, id), role)
+	at := accesstypes.NewRecordScope(t.domain, record, id)
+	key, err := t.manager.access.UserManager().RecordGroupRole(ctx, GroupID(groupID), t.scope(), at, role)
 	if err != nil {
 		return errors.Wrap(err, "access.UserManager.RecordGroupRole()")
 	}
 	if err := refuseRecordPeriod(role, period); err != nil {
+		return err
+	}
+	if err := t.refuseLongerGroupRole(ctx, txn, groupID, at, &key, period); err != nil {
 		return err
 	}
 	if err := t.manager.store.SetRecordGroupRole(ctx, txn, &key, period); err != nil {
@@ -109,6 +144,36 @@ func (t *Tenant) GiveGroupRoleOn(
 	}
 
 	return t.manager.policyChangesAtCommit(txn)
+}
+
+// refuseLongerGroupRole refuses a caller who is one of the group's people, whose place in
+// it has not ended, a period for the group's role on the record that lasts longer than the
+// one it has. A role the group does not hold there has no period to lengthen, and a call
+// outside any request has no caller.
+func (t *Tenant) refuseLongerGroupRole(
+	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, at accesstypes.RecordScope, key *access.RecordGroupRoleKey, period accesstypes.Period,
+) error {
+	caller, known := t.manager.callerUser(ctx)
+	if !known {
+		return nil
+	}
+	holding, err := t.manager.groupHolding(ctx, txn, groupID, time.Now())
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(holding.members, caller) {
+		return nil
+	}
+	periods, err := t.manager.store.RecordPeriods(ctx, txn, at)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.RecordPeriods()")
+	}
+	had, held := periods.Groups[*key]
+	if !held {
+		return nil
+	}
+
+	return refuseLongerForOneself(true, had, period, "a role of a group you are in")
 }
 
 // TakeGroupRoleOn buffers the removal of a group's role on one record of the tenant, as

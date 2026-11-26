@@ -254,6 +254,40 @@ func (store) RecordRoles(ctx context.Context, txn resource.ReadWriteTransaction,
 	{{- end }}
 }
 
+func (store) RecordPeriods(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (*identity.RecordPeriods, error) {
+	// Both tables' keys lead with the record: each map is the rows under the record's part
+	// of the key, ended ones too.
+	record := access.NewRecordMembershipKey(at, "", "")
+	periods := &identity.RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}
+	people := {{ .ResourcesPackage }}.New{{ .RecordUserRole }}Query().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record).
+		AddColumns({{ .ResourcesPackage }}.New{{ .RecordUserRole }}Columns().Axis().DomainID().ResourceName().RecordID().Role().UserID().StartsAt().EndsAt())
+	for row, err := range people.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .RecordUserRole }}Query.List()")
+		}
+		periods.People[recordMembershipKey(&row.Data)] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+	{{- if .KeepsRecordGroupRoles }}
+	groups := {{ .ResourcesPackage }}.New{{ .RecordGroupRole }}Query().
+		SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record).
+		AddColumns({{ .ResourcesPackage }}.New{{ .RecordGroupRole }}Columns().Axis().DomainID().ResourceName().RecordID().Role().GroupID().StartsAt().EndsAt())
+	for row, err := range groups.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .RecordGroupRole }}Query.List()")
+		}
+		held := row.Data
+		key := access.RecordGroupRoleKey{
+			Axis: held.Axis, Domain: held.DomainID, Resource: held.ResourceName, Record: held.RecordID,
+			Role: accesstypes.Role(held.Role), Group: accesstypes.Group(held.GroupID.String()),
+		}
+		periods.Groups[key] = storedPeriod(held.StartsAt, held.EndsAt)
+	}
+	{{- end }}
+
+	return periods, nil
+}
+
 func (store) TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
 	// Both tables' keys lead with the record's tenant: each list is the rows under the
 	// tenant's part of the key.
@@ -372,6 +406,10 @@ func (store) DeleteRecordGroupRole(context.Context, resource.ReadWriteTransactio
 
 func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
 	return nil, nil, nil
+}
+
+func (store) RecordPeriods(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (*identity.RecordPeriods, error) {
+	return &identity.RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}, nil
 }
 
 func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {

@@ -169,6 +169,13 @@ func Test_prepareIdentity_recordRoles(t *testing.T) {
 		"SetAxis(record.Axis).SetDomainID(record.Domain).SetResourceName(record.Resource).SetRecordID(record.Record)",
 		"func (store) TenantRecordRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {",
 		"func (store) RecordMemberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.RecordMembershipKey, error) {",
+		// The periods of the roles held on one record, a person's and a group's, ended
+		// ones too, which a give asks so nobody lengthens their own.
+		"func (store) RecordPeriods(ctx context.Context, txn resource.ReadWriteTransaction, at accesstypes.RecordScope) (*identity.RecordPeriods, error) {",
+		"AddColumns(crewresources.NewCrewRecordUserRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().UserID().StartsAt().EndsAt())",
+		"periods.People[recordMembershipKey(&row.Data)] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)",
+		"AddColumns(crewresources.NewCrewRecordGroupRoleColumns().Axis().DomainID().ResourceName().RecordID().Role().GroupID().StartsAt().EndsAt())",
+		"periods.Groups[key] = storedPeriod(held.StartsAt, held.EndsAt)",
 		// Read in the tables' key order.
 		"Sort(crewresources.NewCrewRecordUserRoleSort().Axis().DomainID().ResourceName().RecordID().Role().UserID())",
 		"Sort(crewresources.NewCrewRecordGroupRoleSort().Axis().DomainID().ResourceName().RecordID().Role().GroupID())",
@@ -188,6 +195,8 @@ func Test_prepareIdentity_recordRoles(t *testing.T) {
 		"func (store) RecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {\n\treturn nil, nil, nil\n}",
 		"func (store) TenantRecordRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {\n\treturn nil, nil, nil\n}",
 		"func (store) RecordMemberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.RecordMembershipKey, error) {\n\treturn nil, nil\n}",
+		"func (store) RecordPeriods(context.Context, resource.ReadWriteTransaction, accesstypes.RecordScope) (*identity.RecordPeriods, error) {\n" +
+			"\treturn &identity.RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}, nil\n}",
 	}), []string{"NewMembersRecordUserRole", "NewMembersRecordGroupRole"})
 
 	// The members hold a role on a voyage too, and keep no groups: their people's roles
@@ -210,6 +219,8 @@ func Test_prepareIdentity_recordRoles(t *testing.T) {
 			"create := membersresources.NewMembersRecordUserRoleCreatePatch(key.Axis, key.Domain, key.Resource, key.Record, string(key.Role), string(key.User)).",
 			"func (store) SetRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey, accesstypes.Period) error {\n\treturn errNoGroups\n}",
 			"func (store) DeleteRecordGroupRole(context.Context, resource.ReadWriteTransaction, *access.RecordGroupRoleKey) error {\n\treturn errNoGroups\n}",
+			// The people's periods alone: Groups stays empty.
+			"periods.People[recordMembershipKey(&row.Data)] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)\n\t}\n\n\treturn periods, nil\n}",
 		}), []string{"errNoRecordRoles", "NewMembersRecordGroupRole"})
 	})
 

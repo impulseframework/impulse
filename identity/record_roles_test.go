@@ -160,6 +160,134 @@ func TestTenant_GiveRoleOn(t *testing.T) {
 	})
 }
 
+// TestTenant_GiveRoleOn_ownPeriod pins the rule that nobody lengthens their own holding on
+// a record: a caller who gives themselves their own role on the record is refused a period
+// that lasts longer than the one it has, in the library's sentence, and is written one
+// that does not; a role they do not hold there, another person's role, and a call outside
+// any request are written.
+func TestTenant_GiveRoleOn_ownPeriod(t *testing.T) {
+	t.Parallel()
+
+	until := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	ended := accesstypes.Period{End: time.Now().Add(-time.Hour).UTC().Truncate(time.Second)}
+	const longer = "You cannot make your own role last longer than it was given for."
+	tests := []struct {
+		name string
+		// caller makes the request; "" is a call outside any request.
+		caller accesstypes.User
+		// had is the period of dana's editor's role on p1; nil where she holds none there.
+		had      *accesstypes.Period
+		next     accesstypes.Period
+		wantSays string
+	}{
+		{name: "the caller's own role, until an instant, given no end", caller: dana, had: &accesstypes.Period{End: until}, wantSays: longer},
+		{name: "the caller's own role given a later end", caller: dana, had: &accesstypes.Period{End: until}, next: accesstypes.Period{End: until.Add(time.Hour)}, wantSays: longer},
+		{name: "the caller's own role given a sooner end is written", caller: dana, had: &accesstypes.Period{End: until}, next: accesstypes.Period{End: until.Add(-30 * time.Minute)}},
+		{name: "the caller's own role, ended, given again", caller: dana, had: &ended, wantSays: longer},
+		{name: "a role the caller does not hold there is written", caller: dana},
+		{name: "another person gives the caller's role a later end", caller: erin, had: &accesstypes.Period{End: until}, next: accesstypes.Period{End: until.Add(time.Hour)}},
+		{name: "a call outside any request is written", had: &accesstypes.Period{End: until}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := recordStore([]impulse.UUID{userID})
+			if tt.had != nil {
+				store.recordRoles[danaOnP1] = *tt.had
+			}
+			m, engine := newManager(t, store, tenantRoles)
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				tenant, err := m.Tenant(inAlpha(ctx, erin))
+				if err != nil {
+					return err
+				}
+				if tt.caller != "" {
+					ctx = inAlpha(ctx, tt.caller)
+				}
+
+				return tenant.GiveRoleOn(ctx, txn, projects, "p1", userID, "ProjectEditor", tt.next)
+			})
+			if tt.wantSays != "" {
+				if !httpio.HasForbidden(err) || httpio.Message(err) != tt.wantSays {
+					t.Fatalf("GiveRoleOn() error = %v (%q), want 403 saying %q", err, httpio.Message(err), tt.wantSays)
+				}
+				if len(store.writes) != 0 || engine.changed != 0 {
+					t.Errorf("a refused give buffered %v and told the engine %d time(s), want nothing", store.writes, engine.changed)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("GiveRoleOn() error = %v", err)
+			}
+			if len(store.writes) != 1 || !strings.HasPrefix(store.writes[0], "set record membership alpha Projects/p1 "+userID.String()+" ProjectEditor") {
+				t.Errorf("buffered writes = %v, want the role written", store.writes)
+			}
+		})
+	}
+}
+
+// TestTenant_GiveGroupRoleOn_ownPeriod pins the same rule for a group's role on a record: a
+// caller who is one of the group's people, whose place has not ended, is refused a period
+// for the group's role that lasts longer than the one it has, in the library's sentence; a
+// caller who is not in the group, and one whose place in it has ended, are written.
+func TestTenant_GiveGroupRoleOn_ownPeriod(t *testing.T) {
+	t.Parallel()
+
+	until := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	nightOnP1 := access.NewRecordGroupRoleKey(GroupID(nightID), accesstypes.NewRecordScope("alpha", projects, "p1"), "ProjectViewer")
+	tests := []struct {
+		name string
+		// in says the caller, dana, is one of the night shift; place is her place's period.
+		in       bool
+		place    accesstypes.Period
+		wantSays string
+	}{
+		{name: "a caller in the group gives its role no end", in: true, wantSays: "You cannot make a role of a group you are in last longer than it was given for."},
+		{name: "a caller who is not in the group is written"},
+		{name: "a caller whose place in the group has ended is written", in: true, place: accesstypes.Period{End: time.Now().Add(-time.Hour)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := recordStore(nil)
+			store.recordGroupRoles = map[access.RecordGroupRoleKey]accesstypes.Period{nightOnP1: {End: until}}
+			if tt.in {
+				store.groupMembers[memberKey(nightID, userID)] = true
+				store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): tt.place}
+			}
+			m, _ := newManager(t, store, tenantRoles)
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				ctx = inAlpha(ctx, dana)
+				tenant, err := m.Tenant(ctx)
+				if err != nil {
+					return err
+				}
+
+				return tenant.GiveGroupRoleOn(ctx, txn, projects, "p1", nightID, "ProjectViewer", accesstypes.Period{})
+			})
+			if tt.wantSays != "" {
+				if !httpio.HasForbidden(err) || httpio.Message(err) != tt.wantSays {
+					t.Fatalf("GiveGroupRoleOn() error = %v (%q), want 403 saying %q", err, httpio.Message(err), tt.wantSays)
+				}
+				if len(store.writes) != 0 {
+					t.Errorf("a refused give buffered %v, want nothing", store.writes)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("GiveGroupRoleOn() error = %v", err)
+			}
+			if len(store.writes) != 1 || !strings.HasPrefix(store.writes[0], "set record group role alpha Projects/p1 "+nightID.String()+" ProjectViewer") {
+				t.Errorf("buffered writes = %v, want the group's role written", store.writes)
+			}
+		})
+	}
+}
+
 // TestTenant_TakeRoleOn pins a person's role taken from one record of the tenant: the row
 // goes and the engine is told at the commit, and a role the person does not hold there is
 // no error. The person behind a session that acts as someone else takes nothing from

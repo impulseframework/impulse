@@ -422,7 +422,8 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 
 // TestRecordRoles_periods holds a role on a mission given for a period: one whose end is
 // past already is refused and gives nothing, and one whose end passes during the test stops
-// counting, as does a group's role for a member whose place in the group ends.
+// counting, as does a group's role for a member whose place in the group ends. Nobody makes
+// their own role on a mission last longer than it was given for.
 func TestRecordRoles_periods(t *testing.T) {
 	t.Parallel()
 	w := newSharingWorld(t)
@@ -493,6 +494,20 @@ func TestRecordRoles_periods(t *testing.T) {
 	}
 	if got := w.holders("marshal", first.id); !slices.Equal(got, []string{"group Short watch MissionObserver"}) {
 		t.Errorf("the first mission's holders after sam's role ended = %v, want the group's alone", got)
+	}
+
+	// Nobody lengthens their own role on a mission: Wren, a marshal of the sector who may give
+	// any, gives herself an observer's role on the first mission until an instant, and then the
+	// same role with no end, which is refused in the library's sentence.
+	w.seat(t.Context(), t, "wren", "SectorMarshal", anvil)
+	own := func(endsAt time.Time) string {
+		return w.share(first.id, "wren", "", "MissionObserver", none, endsAt)
+	}
+	w.done("wren", "give-crew-role-on-mission", own(time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)))
+	status, body = w.as("wren", http.MethodPost, sectorPath(anvil, "give-crew-role-on-mission"), own(none))
+	assertStatus(t, status, http.StatusForbidden, body)
+	if got, want := refusalMessage(t, body), "You cannot make your own role last longer than it was given for."; got != want {
+		t.Errorf("a marshal lengthening her own role on a mission is refused saying %q, want %q", got, want)
 	}
 }
 

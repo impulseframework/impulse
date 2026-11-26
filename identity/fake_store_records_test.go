@@ -123,6 +123,29 @@ func (f *fakeStore) RecordRoles(_ context.Context, _ resource.ReadWriteTransacti
 	})
 }
 
+func (f *fakeStore) RecordPeriods(_ context.Context, _ resource.ReadWriteTransaction, at accesstypes.RecordScope) (*RecordPeriods, error) {
+	if err := f.fail("RecordPeriods"); err != nil {
+		return nil, err
+	}
+	record := access.NewRecordMembershipKey(at, "", "")
+	on := func(axis, domain, resource, id string) bool {
+		return axis == record.Axis && domain == record.Domain && resource == record.Resource && id == record.Record
+	}
+	periods := &RecordPeriods{People: map[access.RecordMembershipKey]accesstypes.Period{}, Groups: map[access.RecordGroupRoleKey]accesstypes.Period{}}
+	for key, period := range f.recordRoles {
+		if on(key.Axis, key.Domain, key.Resource, key.Record) {
+			periods.People[key] = period
+		}
+	}
+	for key, period := range f.recordGroupRoles {
+		if on(key.Axis, key.Domain, key.Resource, key.Record) {
+			periods.Groups[key] = period
+		}
+	}
+
+	return periods, nil
+}
+
 func (f *fakeStore) TenantRecordRoles(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.RecordMembershipKey, []access.RecordGroupRoleKey, error) {
 	if err := f.fail("TenantRecordRoles"); err != nil {
 		return nil, nil, err
