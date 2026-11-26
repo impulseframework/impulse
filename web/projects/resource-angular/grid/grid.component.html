@@ -41,7 +41,7 @@
                         title="Click to sort, shift-click to add a secondary sort"
                         (click)="toggleSort(col, $event)">
                         @if (!col.hideHeader) {
-                          <span class="col-header">{{ col.header || col.id | camelCaseToTitle }}</span>
+                          <span class="col-header">{{ col.header || (col.id | camelCaseToTitle) }}</span>
                         }
                         @if (sortInfo(col); as sort) {
                           <mat-icon class="sort-icon">{{
@@ -55,7 +55,7 @@
                     } @else {
                       <span class="header-label header-words">
                         @if (!col.hideHeader) {
-                          <span class="col-header">{{ col.header || col.id | camelCaseToTitle }}</span>
+                          <span class="col-header">{{ col.header || (col.id | camelCaseToTitle) }}</span>
                         }
                       </span>
                     }

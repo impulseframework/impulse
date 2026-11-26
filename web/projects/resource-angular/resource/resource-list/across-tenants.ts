@@ -41,9 +41,15 @@ export function refuseAcrossTenantsConfig(
   }
 }
 
-/** The application's word for one tenant, as the descriptor carries it; "Tenant" where it carries none. */
+/**
+ * The application's word for one tenant, as the descriptor carries it, which heads the
+ * tenant column; "Tenant" where it carries none. The table writes a heading as it is
+ * handed, and a label the tenant record declares may begin in lower case, so the first
+ * letter is made a capital and the rest is kept as written ("outlet" heads "Outlet").
+ */
 export function tenantWord(descriptor: ApiDescriptor): string {
-  return descriptor.domainRoute?.word?.one ?? 'Tenant';
+  const word = descriptor.domainRoute?.word?.one ?? 'Tenant';
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 /**
