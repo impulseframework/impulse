@@ -141,32 +141,28 @@ func (s *Spanner) resume(ctx context.Context, held *Version, src *Source) error 
 }
 
 // resolveOperation settles the DDL operation a stopped run left named on the version row.
-// For a name the runner makes, the row's checkpoint covers the file through the operation's
-// batch, and the file is checked against it first: nothing is sent or settled for a file that
-// changed in its applied part or in that batch. The batch is then sent under the recorded
-// name: Spanner accepts it if the stopped run never sent it, and answers that the operation
-// exists if it did, so the batch is sent once either way. The run waits for the operation and
-// counts the batch's applied statements into Applied: all of them when it succeeded, as many
-// as it holds commit timestamps when it failed. It reads none of the statements Spanner holds
-// for the operation: Spanner keeps its own rewritten text of each, not the text it was sent. A
-// name the runner did not make is only fetched: the row's checkpoint covers its applied part
-// alone, and the operation's statements must be the file's from Applied on. A wait that does
-// not finish leaves the operation named on the row for the next run; only for a name the
-// runner did not make, with the run's context still live, does the run say the operation
-// cannot be fetched.
+// The row's checkpoint covers the file through the operation's batch, and the file is checked
+// against it first: nothing is sent or settled for a file that changed in its applied part or
+// in that batch, nor for a row whose checkpoint does not cover the batch. When the name is one
+// the runner makes, the batch is then sent under it: Spanner accepts it if the stopped run
+// never sent it, and answers that the operation exists if it did, so the batch is sent once
+// either way. Under a name the runner did not make nothing is sent; the operation is only
+// fetched. The run waits for the operation and counts the batch's applied statements into
+// Applied: all of them when it succeeded, as many as it holds commit timestamps when it
+// failed. It reads none of the statements Spanner holds for the operation: Spanner keeps its
+// own rewritten text of each, not the text it was sent. A wait that does not finish leaves
+// the operation named on the row for the next run; only for a name the runner did not make,
+// with the run's context still live, does the run say the operation cannot be fetched.
 func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Migration, stmts []string) error {
+	g, err := inFlight(*held, file, stmts)
+	if err != nil {
+		return err
+	}
 	id, own := s.ownOperationID(held.Operation)
-	var g Group
 	if own {
-		var err error
-		if g, err = inFlight(*held, file, stmts); err != nil {
-			return err
-		}
 		if err := s.sendRecorded(ctx, held, file, stmts, g, id); err != nil {
 			return err
 		}
-	} else if err := checkApplied(*held, file, stmts); err != nil {
-		return err
 	}
 
 	v := *held
@@ -179,21 +175,15 @@ func (s *Spanner) resolveOperation(ctx context.Context, held *Version, file *Mig
 		return errors.Wrapf(waitErr, "DDL operation %s, recorded for version %d, cannot be fetched; force the version that matches the database's real state", v.Operation, v.Number)
 	}
 
-	var md *databasepb.UpdateDatabaseDdlMetadata
-	if !own || waitErr != nil {
-		var err error
-		if md, err = op.Metadata(); err != nil {
+	n := len(g.Statements)
+	if waitErr != nil {
+		md, err := op.Metadata()
+		if err != nil {
 			return errors.Wrapf(err, "metadata of DDL operation %s", v.Operation)
 		}
-	}
-	n := len(g.Statements)
-	switch {
-	case waitErr != nil:
 		n = len(md.GetCommitTimestamps())
-	case !own:
-		n = len(md.GetStatements())
 	}
-	if v.Applied+n > len(stmts) || (!own && !slices.Equal(stmts[v.Applied:v.Applied+n], md.GetStatements()[:n])) {
+	if v.Applied+n > len(stmts) {
 		return errors.Newf("%s changed in the part already applied: DDL operation %s applied %s the file no longer carries at that place; restore the file or force a version",
 			file.File, v.Operation, plural(n, "statement"))
 	}
