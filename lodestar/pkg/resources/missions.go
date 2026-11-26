@@ -108,11 +108,12 @@ type (
 	// sector enters it for that mission alone, and the sector's people list says so. A lead
 	// shares the mission with observers, and the mission's delete takes the roles held on
 	// it. What a lead picks from the sector's own lists she picks by a second role, held in
-	// the sector, that lists it: a sortie's ship (the Harbormaster's role lists the ships and
-	// gives nothing else), a group to share the mission with (Sector Crew lists the groups
-	// she is in herself) and a person to share it with (the Marshal's role alone lists the
-	// sector's people). Her role sets neither the mission's client nor its briefing sheet: a
-	// role held on one mission lists neither the roster nor the catalog.
+	// the sector, that lists it: a sortie's ship (the Harbormaster's role lists the ships
+	// and gives nothing else), a group to share the mission with (Sector Crew lists the
+	// groups she is in herself) and a person to share it with (the Muster Clerk's role lists
+	// the sector's people and its groups, and gives nothing else). Her role sets neither the
+	// mission's client nor its briefing sheet: a role held on one mission lists neither the
+	// roster nor the catalog.
 	//
 	// Demonstrates: @holdsRoles.
 	//

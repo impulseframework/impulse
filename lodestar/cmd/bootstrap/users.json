@@ -432,6 +432,7 @@
         "domains": {
           "Anvil": [
             "Harbormaster",
+            "MusterClerk",
             "SectorCrew"
           ]
         }

@@ -18,6 +18,7 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -344,4 +345,61 @@ func TestNamedRows_theRolesListWhatTheyActOn(t *testing.T) {
 			t.Errorf("a person who holds Headquarters alone lists no %s", path)
 		}
 	}
+}
+
+// TestNamedRows_aMusterClerk holds the Muster Clerk's role held alone in Anvil: the engine
+// grants its List on the sector's people and on its groups in Anvil and in no other sector.
+// Served, it lists Anvil's people by their username and their names and nothing else of an
+// account, and Anvil's groups, and nothing more: not who is in a group, not a role to give,
+// not the sector's missions.
+func TestNamedRows_aMusterClerk(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	w := newTenantListsWorld(t)
+
+	w.seat(ctx, t, "mona", "MusterClerk", anvil)
+	checker := w.engine.ForUser(accesstypes.User(w.ids["mona"]))
+	for _, res := range []accesstypes.Resource{"CrewSectorUsers", "CrewSectorGroups"} {
+		if d := decisionFor(ctx, t, checker, accesstypes.DomainScope(anvil), accesstypes.List, res, time.Now().Add(15*time.Second)); !d.IsGranted() {
+			t.Fatalf("List on %s in Anvil for a Muster Clerk of Anvil = %s, want granted", res, d)
+		}
+		if d := decisionFor(ctx, t, checker, accesstypes.DomainScope(bastion), accesstypes.List, res, time.Now()); d.IsGranted() {
+			t.Errorf("List on %s in Bastion for a Muster Clerk of Anvil = %s, want denied", res, d)
+		}
+	}
+
+	get := func(path string) (int, []byte) {
+		t.Helper()
+
+		return doRequestAs(t, w.h, "mona", http.MethodGet, sectorPath(anvil, path), "")
+	}
+	status, body := get(sectorPeoplePath + "?limit=200")
+	assertStatus(t, status, http.StatusOK, body)
+	people := decodeRows(t, body)
+	if len(people) == 0 {
+		t.Errorf("a Muster Clerk of Anvil lists none of its people: %s", body)
+	}
+	for _, row := range people {
+		for _, field := range []string{"username", "displayName"} {
+			if _, ok := row[field]; !ok {
+				t.Errorf("a row of Anvil's people, as a Muster Clerk lists it, carries no %s: %v", field, row)
+			}
+		}
+		for field := range row {
+			if !slices.Contains([]string{"id", "username", "name", "displayName"}, field) {
+				t.Errorf("a row of Anvil's people, as a Muster Clerk lists it, carries %s, want the username and the names alone: %v", field, row)
+			}
+		}
+	}
+	status, body = get(sectorGroupsPath + "?limit=200")
+	assertStatus(t, status, http.StatusOK, body)
+	if groups := decodeRows(t, body); len(groups) == 0 {
+		t.Errorf("a Muster Clerk of Anvil lists none of its groups: %s", body)
+	}
+	status, body = get(sectorGroupPeoplePath + "?limit=200")
+	assertStatus(t, status, http.StatusForbidden, body)
+	status, body = doRequestAs(t, w.h, "mona", http.MethodPost, sectorPath(anvil, "assign-crew-sector-role"), fmt.Sprintf(`{"userId":%q,"role":"Cadet"}`, w.ids["fay"]))
+	assertStatus(t, status, http.StatusForbidden, body)
+	status, body = get("missions")
+	assertStatus(t, status, http.StatusForbidden, body)
 }

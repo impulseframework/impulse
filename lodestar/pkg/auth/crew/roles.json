@@ -4777,6 +4777,45 @@
         }
       },
       {
+        "name": "MusterClerk",
+        "description": "Sees who is in the sector: its people and its groups.",
+        "permissions": {
+          "List": [
+            {
+              "resource": "CrewSectorUsers",
+              "fields": [
+                "username",
+                "name",
+                "displayName"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "CrewSectorUsers",
+              "fields": [
+                "username",
+                "name"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description"
+              ]
+            }
+          ]
+        }
+      },
+      {
         "name": "DroidIngest",
         "description": "The droids' account: ingests their reports and releases consignments.",
         "permissions": {
