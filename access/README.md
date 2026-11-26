@@ -972,7 +972,7 @@ func checkPolicy(ctx context.Context, client *access.Client) error {
 
 Every warning prints as one line. A consumer that wants the fields switches on
 the kind: `access.GrantWarning`, `access.RequiredFieldWarning`,
-`access.ConcealingKeyWarning` and `access.UnreadSetWarning` come from the role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
+`access.ConcealingKeyWarning`, `access.UnreadSetWarning` and `access.HeldOnWarning` come from the role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
 `*access.OrphanedMembership` from the store.
 
 `access.UnreadSetWarning` names a subject set the application declares
@@ -1195,6 +1195,12 @@ the closed-states grant admits rows the fee's condition does not select.
 
 Both warnings are about the role file's roles. A custom role's grants are written at run
 time through the user manager, and these two checks do not run on them.
+
+A role that can be held on a record (`heldOn`) is warned for each grant that gives nothing
+there: a grant on a resource that is neither under the record nor named by it, a Create on
+a resource the record only names or on the record's own kind, and an Execute on a method
+that names no row. The role keeps the grant, which counts when the role is held across the
+tenant (`HeldOnWarning`).
 
 `ValidateRoles` runs the validation `New` runs on the role file and returns its warnings
 as `[]access.Warning`, with no store and no client involved, so a project test or a tool

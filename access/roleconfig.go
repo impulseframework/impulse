@@ -391,6 +391,7 @@ func compileDefaultRoles(store PermissionCollection, roleConfig *RoleConfig, met
 	if err := validateHeldOnMarked(store, roleConfig.Roles.Domain); err != nil {
 		return nil, err
 	}
+	domainWarnings = append(domainWarnings, heldOnWarnings(store, roleConfig.Roles.Domain, domainGrants)...)
 	if err := validateRoleSetAuths(store, auth, roleConfig.Roles); err != nil {
 		return nil, err
 	}
