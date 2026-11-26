@@ -2,6 +2,7 @@ package generation
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -261,10 +262,8 @@ func Test_identityStoreTemplate_tenantKinds(t *testing.T) {
 	cascades := []identityUserCascade{{Table: "CrewSessionIdentities", Count: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId)", IndexEntries: 2}}
 
 	const (
-		directoryUsers = "func (store) DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {\n" +
-			"\tquery := crewresources.NewCrewSectorUserQuery().\n\t\tAddColumns(crewresources.NewCrewSectorUserColumns().ID()).\n" +
-			"\t\tWhere(crewresources.NewCrewSectorUserQueryClause().DomainID().Equal(string(domain)).And().ManagedHere().Equal(true))"
-		noDirectoryUsers = "func (store) DirectoryUsers(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {\n\treturn nil, nil\n}"
+		tenantHoldings   = "func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]identity.PersonHoldings, error) {"
+		noTenantHoldings = "func (store) TenantHoldings(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]identity.PersonHoldings, error) {\n\treturn nil, nil\n}"
 		tenantRoles      = "func (store) TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {"
 		noTenantRoles    = "func (store) TenantRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) (int, error) {\n\treturn 0, nil\n}"
 		deleteCosts      = "func (store) DeleteCosts() identity.TenantDeleteCosts {\n\treturn identity.TenantDeleteCosts{\n" +
@@ -289,17 +288,17 @@ func Test_identityStoreTemplate_tenantKinds(t *testing.T) {
 			name: "a tenant with a directory, an auth that keeps identities and memberships, a rule on the users",
 			data: data(sector, costs, cascades, identityUsers, identitySessions, identityIdentities, identityMemberships, identityRoles, identityRoleGrants, identityMailLinks),
 			wantContains: []string{
-				directoryUsers, tenantRoles, deleteCosts, rowsWithUser,
+				tenantHoldings, tenantRoles, deleteCosts, rowsWithUser,
 				"// (identity.Store.RowsWithUser). The tables: CrewSessionIdentities.",
 				"// DeleteTenantRoles removes the custom roles made in one tenant: the one write here to\n// the roles table,",
 			},
-			wantNotContains: []string{noDirectoryUsers, noTenantRoles, noRowsWithUser, grantDelete},
+			wantNotContains: []string{noTenantHoldings, noTenantRoles, noRowsWithUser, grantDelete},
 		},
 		{
 			name:            "no tenant record, the users and sessions alone, no rule on the users",
 			data:            data(nil, costs[1:2], nil, identityUsers, identitySessions),
-			wantContains:    []string{noDirectoryUsers, noTenantRoles, bareCosts, noRowsWithUser},
-			wantNotContains: []string{directoryUsers, tenantRoles, rowsWithUser},
+			wantContains:    []string{noTenantHoldings, noTenantRoles, bareCosts, noRowsWithUser},
+			wantNotContains: []string{tenantHoldings, tenantRoles, rowsWithUser},
 		},
 	}
 	for _, tt := range tests {
@@ -321,6 +320,114 @@ func Test_identityStoreTemplate_tenantKinds(t *testing.T) {
 			// A record's delete is handed the roles held on it through the client too.
 			recordKinds := "func (c *Client) RecordKinds(at accesstypes.RecordScope) []resource.TakenKind {\n\treturn c.manager.RecordKinds(at)\n}"
 			assertContains(t, "the client", squashSpace(string(client)), squashEach([]string{kinds, recordKinds}), []string{"ClearTenant"})
+		})
+	}
+}
+
+// Test_identityStoreTemplate_tenantHoldings pins the store's read of the people a tenant's
+// delete considers: one statement from the tenant's key, a branch of its union and a
+// column for each table the store keeps a person's holdings in, each reached by the
+// table's column of the user, and the directories table where the tenant record declares
+// a directory and the auth keeps identities. Nothing reads the tenant's list of its
+// people. A store that keeps none of the tables answers nobody.
+func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
+	t.Parallel()
+
+	directory := &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "SectorDirectories", TenantColumn: "SectorId", MethodColumn: "Method", ConnectionColumn: "Connection"}
+	data := func(tenant *identityTenant, tables ...identityTable) *identitySourceData {
+		inst := &identityInstance{auth: "Crew", tenant: tenant, tables: map[identityTable]bool{}, heldRecords: []identityHeldRecord{{}}}
+		for _, kind := range tables {
+			inst.tables[kind] = true
+		}
+
+		return &identitySourceData{
+			Source: "Auth", Package: "crewidentity", identityInstance: inst, ResourcesPackage: "crewresources", MethodsPackage: "crewidentity", Outlets: "default",
+			Tables: session.Tables{Users: "CrewSessionUsers", Identities: "CrewSessionIdentities"},
+			Policy: access.Tables{
+				UserRoles: "CrewUserRoles", Roles: "CrewRoles", Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", RecordUserRoles: "CrewRecordUserRoles",
+			},
+		}
+	}
+	every := []identityTable{identityUsers, identitySessions, identityIdentities, identityMemberships, identityGroups, identityGroupMembers, identityRecordUserRoles}
+	const (
+		username    = "(SELECT u.Username FROM CrewSessionUsers u WHERE u.Id = p.UserId) AS Username"
+		memberships = "ARRAY(SELECT AS STRUCT m.Kind, m.Axis, m.DomainId, m.Role FROM CrewUserRoles m WHERE m.UserId = p.UserId) AS Memberships"
+		places      = "ARRAY(SELECT AS STRUCT g.Id, g.Kind, g.Axis, g.DomainId FROM CrewGroupMembers gm JOIN CrewGroups g ON g.Id = gm.GroupId WHERE gm.UserId = p.UserId) AS Places"
+		records     = "ARRAY(SELECT AS STRUCT r.Axis, r.DomainId, r.Resource, r.RecordId, r.Role, r.EndsAt FROM CrewRecordUserRoles r WHERE r.UserId = p.UserId) AS RecordRoles"
+		links       = "ARRAY(SELECT AS STRUCT i.Id, i.Method, i.Connection, " +
+			"ARRAY(SELECT d.SectorId FROM SectorDirectories d WHERE d.Method = i.Method AND d.Connection = i.Connection) AS Tenants " +
+			"FROM CrewSessionIdentities i WHERE i.UserId = p.UserId) AS Links"
+		plainLinks = "ARRAY(SELECT AS STRUCT i.Id, i.Method, i.Connection FROM CrewSessionIdentities i WHERE i.UserId = p.UserId) AS Links"
+		heldHere   = "SELECT m.UserId FROM CrewUserRoles m WHERE m.Kind = @kind AND m.Axis = @axis AND m.DomainId = @domain"
+		inGroups   = "SELECT gm.UserId FROM CrewGroups g JOIN CrewGroupMembers gm ON gm.GroupId = g.Id WHERE g.Kind = @groupKind AND g.Axis = @groupAxis AND g.DomainId = @groupDomain"
+		onRecords  = "SELECT r.UserId FROM CrewRecordUserRoles r WHERE r.Axis = @recordAxis AND r.DomainId = @recordDomain"
+		through    = "SELECT i.UserId FROM SectorDirectories d JOIN CrewSessionIdentities i ON i.Method = d.Method AND i.Connection = d.Connection WHERE d.SectorId = @tenant"
+		signature  = "func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]identity.PersonHoldings, error) {"
+		stub       = "func (store) TenantHoldings(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]identity.PersonHoldings, error) {\n\treturn nil, nil\n}"
+	)
+	for _, tt := range []struct {
+		name            string
+		data            *identitySourceData
+		wantSQL         string
+		wantContains    []string
+		wantNotContains []string
+		// notInRead are what the read itself, from its signature to its end, holds none of.
+		notInRead []string
+	}{
+		{
+			name: "every table, a tenant record with a directory",
+			data: data(&identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directory: directory}, every...),
+			wantSQL: "SELECT p.UserId, " + strings.Join([]string{username, memberships, places, records, links}, ", ") +
+				" FROM (" + strings.Join([]string{heldHere, inGroups, onRecords, through}, " UNION DISTINCT ") + ") p ORDER BY p.UserId",
+			wantContains: []string{
+				signature, "type tenantHoldingsMembership struct {", "type tenantHoldingsPlace struct {", "type tenantHoldingsRecordRole struct {",
+				"Tenants []string `spanner:\"Tenants\"`", `stmt.Params["tenant"] = string(domain)`,
+			},
+			wantNotContains: []string{stub, "ManagingTenants", "DirectoryUsers"},
+			notInRead:       []string{"NewCrewSectorUserQuery", "CrewSectorUser"},
+		},
+		{
+			name: "every table, a tenant record with no directory",
+			data: data(&identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector"}, every...),
+			wantSQL: "SELECT p.UserId, " + strings.Join([]string{username, memberships, places, records, plainLinks}, ", ") +
+				" FROM (" + strings.Join([]string{heldHere, inGroups, onRecords}, " UNION DISTINCT ") + ") p ORDER BY p.UserId",
+			wantContains:    []string{signature, "type tenantHoldingsLink struct {"},
+			wantNotContains: []string{stub, "SectorDirectories", "Tenants []string", `stmt.Params["tenant"]`},
+		},
+		{
+			name:            "the users and sessions alone",
+			data:            data(nil, identityUsers, identitySessions),
+			wantContains:    []string{stub},
+			wantNotContains: []string{signature, "tenantHoldings"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ""
+			if quoted := tt.data.TenantHoldingsSQL(); quoted != "" {
+				var err error
+				if got, err = strconv.Unquote(quoted); err != nil {
+					t.Fatalf("TenantHoldingsSQL() = %s, not a Go string literal: %v", quoted, err)
+				}
+			}
+			if got != tt.wantSQL {
+				t.Errorf("TenantHoldingsSQL() =\n%s\nwant\n%s", got, tt.wantSQL)
+			}
+			c := &client{}
+			out, err := c.generateTemplateOutput("identityStoreTemplate", identityStoreTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(identityStoreTemplate) error = %v", err)
+			}
+			assertContains(t, "the store", squashSpace(string(out)), squashEach(tt.wantContains), squashEach(tt.wantNotContains))
+			if len(tt.notInRead) > 0 {
+				at := strings.Index(string(out), signature)
+				if at < 0 {
+					t.Fatal("the store holds no TenantHoldings that reads")
+				}
+				read, _, _ := strings.Cut(string(out)[at:], "\n}\n")
+				assertContains(t, "the store's TenantHoldings", read, nil, tt.notInRead)
+			}
 		})
 	}
 }

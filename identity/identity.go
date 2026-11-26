@@ -70,19 +70,6 @@ type Store interface {
 	// and the connection it came through, which say whether it can still sign the
 	// person in. It writes nothing, so a read outside a write asks it too (SignInWays).
 	Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]Link, error)
-	// ManagingTenants lists the tenants whose own list of their people says they manage
-	// the user's account (managedHere on the user's row of the tenant's list), as the
-	// transaction reads it. A tenant's delete asks it of each account it considers: an
-	// account another tenant manages is not deleted with the tenant. A schema with no
-	// tenant record, a tenant record that declares no directory and an auth that keeps
-	// no identities answer none, since there no tenant manages an account that holds
-	// nothing in it.
-	ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error)
-	// DirectoryUsers lists the accounts one tenant's directory manages, read from the
-	// view ManagingTenants reads (managedHere on the user's row of the tenant's list), as
-	// the transaction reads it. A tenant's delete takes the ones that hold nothing
-	// elsewhere. Where ManagingTenants answers none it answers none.
-	DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
 	// DeleteIdentity buffers the removal of an identity.
 	DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 
@@ -183,6 +170,13 @@ type Store interface {
 	// the rows of the memberships table under the tenant's own scope. A membership
 	// held in every tenant is no row of one tenant and is not listed.
 	TenantMemberships(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.MembershipKey, error)
+	// TenantHoldings reads the people a tenant's delete considers and what each holds, as
+	// the transaction reads it, in the order of their ids: everyone who holds a membership
+	// in the tenant, a place in one of its groups or a role on one of its records, or who
+	// signs in through its directory. It makes the same few statements whatever the tenant
+	// holds, each from the tenant's key, and none for a person: a tenant's delete decides
+	// from it which accounts are the tenant's alone.
+	TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]PersonHoldings, error)
 	// TenantRoles counts the custom roles made in one tenant: the rows of the roles
 	// table under the tenant's own scope, as the transaction reads them.
 	TenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error)

@@ -194,6 +194,74 @@ func TestManager_TenantKinds_counts(t *testing.T) {
 	}
 }
 
+// TestManager_TenantKinds_readsNoPersonAlone pins that the accounts kind reads the
+// tenant's people and what each holds once (Store.TenantHoldings) and nothing of one
+// person: with each of the store's reads of one person failing in turn, Count and Check
+// answer as they do with none failing.
+func TestManager_TenantKinds_readsNoPersonAlone(t *testing.T) {
+	t.Parallel()
+
+	for _, call := range []string{"Memberships", "UserGroups", "RecordMemberships", "Username"} {
+		t.Run(call, func(t *testing.T) {
+			t.Parallel()
+
+			store := alphaStore()
+			store.failOn = call
+			m, _ := newManager(t, store, engineRoles)
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				accounts := m.TenantKinds("alpha")[0]
+				count, err := accounts.Count(ctx, txn)
+				if err != nil {
+					return errors.Wrap(err, "resource.TakenKind.Count()")
+				}
+				if count != 3 {
+					t.Errorf("Count() = %d, want the 3 accounts that are alpha's alone", count)
+				}
+				if err := accounts.Check(ctx, txn); err != nil {
+					return errors.Wrap(err, "resource.TakenKind.Check()")
+				}
+
+				return nil
+			}); err != nil {
+				t.Fatalf("with %s failing: %v", call, err)
+			}
+		})
+	}
+}
+
+// TestManager_TenantKinds_directoriesAlone pins which accounts are the tenant's alone where
+// people sign in through tenants' directories and hold nothing: lu, who signs in through
+// alpha's directory and beta's, stays, since beta's directory signs her in too; max, who
+// signs in through beta's directory alone, is none of alpha's people.
+func TestManager_TenantKinds_directoriesAlone(t *testing.T) {
+	t.Parallel()
+
+	luID := mustUUID("0190c000-0000-7000-8000-00000000000f")
+	maxID := mustUUID("0190c000-0000-7000-8000-000000000010")
+	luLink := mustUUID("0190c000-0000-7000-8000-000000000026")
+	maxLink := mustUUID("0190c000-0000-7000-8000-000000000027")
+	store := alphaStore()
+	store.usernames[luID], store.usernames[maxID] = "lu", "max"
+	store.identities[luLink], store.identities[maxLink] = luID, maxID
+	store.managing[luID], store.managing[maxID] = []accesstypes.Domain{"alpha", "beta"}, []accesstypes.Domain{"beta"}
+
+	m, _ := newManager(t, store, engineRoles)
+	var accounts []string
+	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		alone, err := (&tenantHeld{manager: m, domain: "alpha"}).accounts(ctx, txn)
+		for i := range alone {
+			accounts = append(accounts, alone[i].username)
+		}
+
+		return err
+	}); err != nil {
+		t.Fatalf("inTransaction() error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"anna", "ben", "dora"}, accounts); diff != "" {
+		t.Errorf("the accounts the delete takes (-want +got):\n%s", diff)
+	}
+}
+
 // TestManager_TenantKinds_takeEverything pins a round with room for everything: the
 // three accounts go whole, each with what it held in the tenant, its identity links and
 // its sessions ended; cara's and evan's accounts stay, their memberships in alpha going

@@ -50,6 +50,21 @@ type TenantDeleteCosts struct {
 	ImpersonationEnd int
 }
 
+// PersonHoldings is one person a tenant's delete considers, with what they hold.
+type PersonHoldings struct {
+	ID          impulse.UUID
+	Username    string                       // "" where Found is false
+	Found       bool                         // a user row holds the id
+	Memberships []access.MembershipKey       // every one, wherever held: what Store.Memberships answers
+	Places      []GroupPlace                 // every place in a group whose row stands: what Store.UserGroups answers
+	RecordRoles []access.RecordMembershipKey // in any tenant, not ended: what Store.RecordMemberships answers
+	Links       []Link                       // what Store.Identities answers
+	// DirectoryTenants are the tenants whose directory one of the person's sign-in
+	// identities came through. A person who signs in through another tenant's directory
+	// is that tenant's to manage, and stays when this one is deleted.
+	DirectoryTenants []accesstypes.Domain
+}
+
 // TenantKinds answers what the auth holds for a tenant as kinds of the tenant's delete
 // (resource.TakenKind): the accounts that are the tenant's alone, the roles held in it,
 // the roles held on its records, its groups, its custom roles and its invitations that
@@ -105,120 +120,63 @@ func (h *tenantHeld) policyChanged(txn resource.ReadWriteTransaction, rows int64
 }
 
 // tenantAccount is an account that belongs to the tenant alone, with what it holds there:
-// its memberships, all in the tenant, and its places, all in the tenant's groups.
+// its memberships, all in the tenant, its places, all in the tenant's groups, and its
+// identity links.
 type tenantAccount struct {
 	id          impulse.UUID
 	username    string
 	memberships []access.MembershipKey
 	places      []GroupPlace
+	links       []Link
 }
 
 // accounts reads the accounts that are the tenant's alone, in key order: each person who
 // holds a membership in the tenant, a place in one of its groups or a role on one of its
-// records, or whom the tenant's directory manages, whose every membership is in the
+// records, or who signs in through its directory, whose every membership is in the
 // tenant, every place in one of its groups and every role on a record that has not ended
-// on one of its records, and whom no other tenant's directory manages. A person who holds
-// a role for the whole application, in every tenant, in another tenant or on another
-// tenant's record stays, and so does an id that is no account's.
+// on one of its records, and whom no other tenant's directory signs in. A person who
+// holds a role for the whole application, in every tenant, in another tenant or on
+// another tenant's record stays, and so does an id that is no account's. The people and
+// what they hold are read once for the tenant (Store.TenantHoldings) and decided here.
 func (h *tenantHeld) accounts(ctx context.Context, txn resource.ReadWriteTransaction) ([]tenantAccount, error) {
 	store := h.manager.store
-	held, err := store.TenantMemberships(ctx, txn, h.domain)
+	people, err := store.TenantHoldings(ctx, txn, h.domain)
 	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.TenantMemberships()")
+		return nil, errors.Wrap(err, "identity.Store.TenantHoldings()")
 	}
 	groups, err := store.TenantGroups(ctx, txn, h.domain)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.TenantGroups()")
 	}
-	managed, err := store.DirectoryUsers(ctx, txn, h.domain)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.DirectoryUsers()")
-	}
-	onRecords, _, err := store.TenantRecordRoles(ctx, txn, h.domain)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.TenantRecordRoles()")
-	}
-
-	people := make([]accesstypes.User, 0, len(held)+len(managed)+len(onRecords))
-	for _, key := range held {
-		people = append(people, key.User)
-	}
-	for _, key := range onRecords {
-		people = append(people, key.User)
-	}
-	for _, id := range groups {
-		members, err := store.GroupMembers(ctx, txn, id)
-		if err != nil {
-			return nil, errors.Wrap(err, "identity.Store.GroupMembers()")
-		}
-		people = append(people, members...)
-	}
-	for _, id := range managed {
-		people = append(people, User(id))
-	}
-	ids := make([]impulse.UUID, 0, len(people))
-	seen := make(map[impulse.UUID]bool, len(people))
-	for _, user := range people {
-		if id, ok := UserID(user); ok && !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
-	}
-	slices.SortFunc(ids, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
 
 	var accounts []tenantAccount
-	for _, id := range ids {
-		account, alone, err := h.alone(ctx, txn, id, groups)
-		if err != nil {
-			return nil, err
-		}
-		if alone {
-			accounts = append(accounts, *account)
+	for i := range people {
+		person := &people[i]
+		if h.alone(person, groups) {
+			accounts = append(accounts, tenantAccount{
+				id: person.ID, username: person.Username, memberships: person.Memberships, places: person.Places, links: person.Links,
+			})
 		}
 	}
 
 	return accounts, nil
 }
 
-// alone reads whether the account of the id is the tenant's alone (accounts), and what it
-// holds there where it is. groups are the tenant's own groups.
-func (h *tenantHeld) alone(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, groups []impulse.UUID) (*tenantAccount, bool, error) {
-	store := h.manager.store
-	memberships, err := store.Memberships(ctx, txn, id)
-	if err != nil {
-		return nil, false, errors.Wrap(err, "identity.Store.Memberships()")
+// alone reports whether the person's account is the tenant's alone (accounts), from what
+// the person holds. groups are the tenant's own groups.
+func (h *tenantHeld) alone(person *PersonHoldings, groups []impulse.UUID) bool {
+	switch {
+	case slices.ContainsFunc(person.Memberships, func(key access.MembershipKey) bool { return !h.inTenant(&key) }):
+		return false
+	case slices.ContainsFunc(person.Places, func(place GroupPlace) bool { return !slices.Contains(groups, place.ID) }):
+		return false
+	case slices.ContainsFunc(person.RecordRoles, func(key access.RecordMembershipKey) bool { return !recordHeldIn(&key, h.domain) }):
+		return false
+	case slices.ContainsFunc(person.DirectoryTenants, func(tenant accesstypes.Domain) bool { return tenant != h.domain }):
+		return false
+	default:
+		return person.Found
 	}
-	if slices.ContainsFunc(memberships, func(key access.MembershipKey) bool { return !h.inTenant(&key) }) {
-		return nil, false, nil
-	}
-	places, err := store.UserGroups(ctx, txn, id)
-	if err != nil {
-		return nil, false, errors.Wrap(err, "identity.Store.UserGroups()")
-	}
-	if slices.ContainsFunc(places, func(place GroupPlace) bool { return !slices.Contains(groups, place.ID) }) {
-		return nil, false, nil
-	}
-	records, err := store.RecordMemberships(ctx, txn, id)
-	if err != nil {
-		return nil, false, errors.Wrap(err, "identity.Store.RecordMemberships()")
-	}
-	if slices.ContainsFunc(records, func(key access.RecordMembershipKey) bool { return !recordHeldIn(&key, h.domain) }) {
-		return nil, false, nil
-	}
-	if elsewhere, err := h.manager.managedElsewhere(ctx, txn, id, h.domain); err != nil {
-		return nil, false, err
-	} else if elsewhere {
-		return nil, false, nil
-	}
-	username, found, err := store.Username(ctx, txn, id)
-	if err != nil {
-		return nil, false, errors.Wrap(err, "identity.Store.Username()")
-	}
-	if !found {
-		return nil, false, nil
-	}
-
-	return &tenantAccount{id: id, username: username, memberships: memberships, places: places}, true, nil
 }
 
 // refuseImpersonator refuses the tenant's delete where one of the accounts is the real

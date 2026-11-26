@@ -587,23 +587,3 @@ func (m *Manager) deleteAccount(ctx context.Context, txn resource.ReadWriteTrans
 
 	return nil
 }
-
-// managedElsewhere answers whether a tenant other than tenant manages the person's
-// account: whether they sign in through another tenant's directory. tenant is "" for
-// none. A person with no identity link signs in through no directory, so the store is
-// not asked who manages the account (Store.ManagingTenants).
-func (m *Manager) managedElsewhere(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
-	links, err := m.store.Identities(ctx, txn, userID)
-	if err != nil {
-		return false, errors.Wrap(err, "identity.Store.Identities()")
-	}
-	if len(links) == 0 {
-		return false, nil
-	}
-	tenants, err := m.store.ManagingTenants(ctx, txn, userID)
-	if err != nil {
-		return false, errors.Wrap(err, "identity.Store.ManagingTenants()")
-	}
-
-	return slices.ContainsFunc(tenants, func(managing accesstypes.Domain) bool { return managing != tenant }), nil
-}
