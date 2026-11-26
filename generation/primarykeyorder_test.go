@@ -10,10 +10,12 @@ import (
 
 // keyOrderFixtureTables is the table of the keyorderfixture's InvoiceLine: InvoiceLines,
 // keyed by its invoice and then its number, the other way round from the struct's order.
-func keyOrderFixtureTables(invoiceOrdinal, lineOrdinal int64) map[string]*tableMetadata {
+// lineOrdinal is the number's key ordinal: 1 for that key, 0 for ordinals that do not
+// tell the two fields apart.
+func keyOrderFixtureTables(lineOrdinal int64) map[string]*tableMetadata {
 	return map[string]*tableMetadata{
 		"InvoiceLines": {PkCount: 2, Columns: map[string]columnMeta{
-			"InvoiceId":   {IsPrimaryKey: true, KeyOrdinalPosition: invoiceOrdinal},
+			"InvoiceId":   {IsPrimaryKey: true, KeyOrdinalPosition: 0},
 			"LineNumber":  {IsPrimaryKey: true, KeyOrdinalPosition: lineOrdinal},
 			"Description": {},
 			"UpdatedAt":   {},
@@ -95,7 +97,7 @@ func Test_PrimaryKeys_keyOrder(t *testing.T) {
 	t.Run("the table's order", func(t *testing.T) {
 		t.Parallel()
 
-		res, _ := keyOrderFixtureResource(t, &client{tableMap: keyOrderFixtureTables(0, 1)})
+		res, _ := keyOrderFixtureResource(t, &client{tableMap: keyOrderFixtureTables(1)})
 		if got, want := primaryKeyNames(t, res), []string{"InvoiceID", "LineNumber"}; !slices.Equal(got, want) {
 			t.Errorf("PrimaryKeys() = %v, want %v", got, want)
 		}
@@ -110,7 +112,7 @@ func Test_PrimaryKeys_keyOrder(t *testing.T) {
 	t.Run("equal ordinals keep the struct's order", func(t *testing.T) {
 		t.Parallel()
 
-		res, _ := keyOrderFixtureResource(t, &client{tableMap: keyOrderFixtureTables(0, 0)})
+		res, _ := keyOrderFixtureResource(t, &client{tableMap: keyOrderFixtureTables(0)})
 		if got, want := primaryKeyNames(t, res), []string{"LineNumber", "InvoiceID"}; !slices.Equal(got, want) {
 			t.Errorf("PrimaryKeys() = %v, want %v", got, want)
 		}
@@ -122,7 +124,7 @@ func Test_PrimaryKeys_keyOrder(t *testing.T) {
 func Test_resourceFileTemplate_keyOrder(t *testing.T) {
 	t.Parallel()
 
-	res, _ := keyOrderFixtureResource(t, &client{tableMap: keyOrderFixtureTables(0, 1)})
+	res, _ := keyOrderFixtureResource(t, &client{tableMap: keyOrderFixtureTables(1)})
 	r := &resourceGenerator{client: &client{}}
 	data := &resourceFileData{Source: "fixture", Package: "resources", Resource: res}
 	out, err := r.generateTemplateOutput("resourceFileTemplate", resourceFileTemplate, data)
@@ -165,7 +167,7 @@ func Test_resourceFileTemplate_keyOrder(t *testing.T) {
 func Test_handlerTemplates_keyOrder(t *testing.T) {
 	t.Parallel()
 
-	c := &client{tableMap: keyOrderFixtureTables(0, 1)}
+	c := &client{tableMap: keyOrderFixtureTables(1)}
 	res, _ := keyOrderFixtureResource(t, c)
 	res.IsConsolidated = true
 	handlerData := handlerContentData{ResourcePackage: "resources", Resource: res, ApplicationName: "App", ReceiverName: "a"}
@@ -260,7 +262,7 @@ func Test_handlerTemplates_keyOrder(t *testing.T) {
 func Test_resourceRoute_keyOrder(t *testing.T) {
 	t.Parallel()
 
-	c := &client{tableMap: keyOrderFixtureTables(0, 1)}
+	c := &client{tableMap: keyOrderFixtureTables(1)}
 	res, _ := keyOrderFixtureResource(t, c)
 	r := &resourceGenerator{client: c, genRoutes: true, routePrefix: "api", applicationName: "App", receiverName: "a"}
 	route, err := r.resourceRoute(res, ReadHandler, "api")
@@ -285,7 +287,7 @@ func Test_resourceRoute_keyOrder(t *testing.T) {
 func Test_apiResource_keyOrder(t *testing.T) {
 	t.Parallel()
 
-	c := &client{tableMap: keyOrderFixtureTables(0, 1)}
+	c := &client{tableMap: keyOrderFixtureTables(1)}
 	res, _ := keyOrderFixtureResource(t, c)
 	gen := &typescriptGenerator{client: c}
 
@@ -303,7 +305,7 @@ func Test_apiResource_keyOrder(t *testing.T) {
 func Test_targetRootKeys_keyOrder(t *testing.T) {
 	t.Parallel()
 
-	res, s := keyOrderFixtureResource(t, &client{tableMap: keyOrderFixtureTables(0, 1)})
+	res, s := keyOrderFixtureResource(t, &client{tableMap: keyOrderFixtureTables(1)})
 	keys, err := targetRootKeys(s, "InvoiceLine", res, targetKeyword)
 	if err != nil {
 		t.Fatalf("targetRootKeys() error = %v", err)
