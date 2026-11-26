@@ -17,7 +17,9 @@ import (
 // at run time. Implementations are thin — each method is one SQL statement
 // against one store's tables; everything smarter (validation, resource/field
 // splitting, change signaling, snapshot compilation) lives in the access
-// package, one shared code path for every store.
+// package, one shared code path for every store. A membership held on one record of a
+// tenant is kept in two tables of its own, a person's and a group's, keyed by the record
+// first; the memberships tables hold none.
 //
 // The interface is sealed by construction: ReadPolicy's signature references
 // this module's internal/policy package, so only packages inside this module
@@ -85,8 +87,9 @@ import (
 //     so a grant whose condition changed (one row removed, one added) is never
 //     seen with neither row.
 //   - List results are sorted for deterministic output.
-//   - ReadPolicy reads roles, grants, memberships, groups and their members
-//     with snapshot consistency: the row sets observe the same store state.
+//   - ReadPolicy reads roles, grants, memberships, groups and their members,
+//     and the roles held on a record, with snapshot consistency: the row sets
+//     observe the same store state.
 //   - A group's member and a group's role each require the group's row
 //     (DB-enforced foreign key), and DeleteGroup deletes the group with its
 //     members and the roles it holds. A member or a role written to a group
@@ -220,4 +223,21 @@ type Store interface {
 	ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)
 	ListUserGroupRoles(ctx context.Context, user accesstypes.User) ([]policy.GroupRole, error)
 	ListRoleGroups(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.GroupRow, error)
+
+	// The roles held on one record of a tenant, a person's and a group's, with the
+	// contracts of the memberships': an insert gives the row its period, replacing the
+	// period of one that is there; a delete of an absent row is a no-op; the role is
+	// named by name alone. InsertRecordGroupRole requires the group's row, as
+	// InsertGroupRole does, and wraps policy.ErrNoGroup where it is not there; DeleteGroup
+	// takes the group's rows with its members and roles.
+	InsertRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
+	DeleteRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) error
+	InsertRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error
+	DeleteRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role) error
+	// ListRecordRoles returns who holds what on the record and has not ended, one whose period
+	// has not begun among them: the people's first, by user then role, then the groups', by
+	// group name, then id, then role.
+	ListRecordRoles(ctx context.Context, at accesstypes.RecordScope) ([]policy.RecordAssignment, error)
+	// DeleteRecordRoles removes every membership held on the record, a person's and a group's.
+	DeleteRecordRoles(ctx context.Context, at accesstypes.RecordScope) error
 }

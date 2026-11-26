@@ -41,6 +41,13 @@ func TestNew_naming(t *testing.T) {
 			if !strings.Contains(ddl, "CREATE TABLE "+tt.wantTable+" (") {
 				t.Errorf("DDL() does not create table %s:\n%s", tt.wantTable, ddl)
 			}
+			// The roles held on a record are named by the same rule.
+			base := strings.TrimSuffix(tt.wantTable, "Roles")
+			for _, table := range []string{base + "RecordUserRoles", base + "RecordGroupRoles"} {
+				if !strings.Contains(ddl, "CREATE TABLE "+table+" (") {
+					t.Errorf("DDL() does not create table %s:\n%s", table, ddl)
+				}
+			}
 		})
 	}
 }
@@ -202,6 +209,19 @@ func TestDDL_keys(t *testing.T) {
 			"PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role)",
 		}},
 		{name: "group roles by where they are held", stmt: 9, want: []string{"CREATE INDEX AccessGroupRolesByScope ON AccessGroupRoles (Kind, Axis, DomainId, Role)"}},
+		{name: "a person's roles on a record lead with the record", stmt: 10, want: []string{
+			"CREATE TABLE AccessRecordUserRoles (",
+			"Resource STRING(128) NOT NULL", "RecordId STRING(MAX) NOT NULL", "UserId STRING(320) NOT NULL",
+			"PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, UserId)",
+		}},
+		{name: "a person's roles on records by user", stmt: 11, want: []string{"CREATE INDEX AccessRecordUserRolesByUserId ON AccessRecordUserRoles (UserId, Axis, DomainId)"}},
+		{name: "a group's role on a record needs the group", stmt: 12, want: []string{
+			"CREATE TABLE AccessRecordGroupRoles (",
+			"GroupId STRING(36) NOT NULL",
+			"CONSTRAINT AccessRecordGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES AccessGroups (Id)",
+			"PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, GroupId)",
+		}},
+		{name: "a group's roles on records by group", stmt: 13, want: []string{"CREATE INDEX AccessRecordGroupRolesByGroupId ON AccessRecordGroupRoles (GroupId)"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

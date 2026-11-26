@@ -912,6 +912,35 @@ CREATE TABLE CrewGroupRoles (
 
 CREATE INDEX CrewGroupRolesByScope ON CrewGroupRoles (Kind, Axis, DomainId, Role);
 
+CREATE TABLE CrewRecordUserRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, UserId);
+
+CREATE INDEX CrewRecordUserRolesByUserId ON CrewRecordUserRoles (UserId, Axis, DomainId);
+
+CREATE TABLE CrewRecordGroupRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  GroupId STRING(36) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT CrewRecordGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, GroupId);
+
+CREATE INDEX CrewRecordGroupRolesByGroupId ON CrewRecordGroupRoles (GroupId);
+
 CREATE TABLE MembersRoles (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
@@ -991,6 +1020,35 @@ CREATE TABLE MembersGroupRoles (
 ) PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role);
 
 CREATE INDEX MembersGroupRolesByScope ON MembersGroupRoles (Kind, Axis, DomainId, Role);
+
+CREATE TABLE MembersRecordUserRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, UserId);
+
+CREATE INDEX MembersRecordUserRolesByUserId ON MembersRecordUserRoles (UserId, Axis, DomainId);
+
+CREATE TABLE MembersRecordGroupRoles (
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Resource STRING(128) NOT NULL,
+  RecordId STRING(MAX) NOT NULL,
+  Role STRING(128) NOT NULL,
+  GroupId STRING(36) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersRecordGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
+) PRIMARY KEY (Axis, DomainId, Resource, RecordId, Role, GroupId);
+
+CREATE INDEX MembersRecordGroupRolesByGroupId ON MembersRecordGroupRoles (GroupId);
 
 -- The feature flags: one row per flag the resources package declares (a resource.Feature
 -- constant), written by the deploy's resource.MigrateFeatures and flipped by SetFeature;

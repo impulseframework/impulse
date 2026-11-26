@@ -63,6 +63,7 @@ func newGroupStatements(n *tableNames) groupStatements {
 		deleteHeld: []string{
 			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group", n.groupMembers),
 			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group", n.groupRoles),
+			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group", n.recordGroupRoles),
 		},
 		group: fmt.Sprintf("SELECT Id, Kind, Axis, DomainId, Name, Description FROM %s WHERE Id = @group", n.groups),
 		listGroups: fmt.Sprintf("SELECT Id, Kind, Axis, DomainId, Name, Description FROM %s@{FORCE_INDEX=%s} WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Name",
@@ -239,8 +240,9 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 	return found, nil
 }
 
-// DeleteGroup deletes the group with its members and the roles it holds, in one
-// transaction, whatever their periods, and reports whether the group was there.
+// DeleteGroup deletes the group with its members and the roles it holds, in a tenant and
+// on records, in one transaction, whatever their periods, and reports whether the group
+// was there.
 func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error) {
 	params := map[string]any{paramGroup: string(group)}
 	var deleted bool

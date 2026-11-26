@@ -65,6 +65,7 @@ func newGroupStatements(n *tableNames) groupStatements {
 		deleteHeld: []string{
 			fmt.Sprintf(`delete from %s where "GroupId" = $1`, n.groupMembers),
 			fmt.Sprintf(`delete from %s where "GroupId" = $1`, n.groupRoles),
+			fmt.Sprintf(`delete from %s where "GroupId" = $1`, n.recordGroupRoles),
 		},
 		group:      fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId", "Name", "Description" from %s where "Id" = $1`, n.groups),
 		listGroups: fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId", "Name", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 order by "Name"`, n.groups),
@@ -253,8 +254,9 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 	return tag.RowsAffected() > 0, nil
 }
 
-// DeleteGroup deletes the group with its members and the roles it holds, in one
-// transaction, whatever their periods, and reports whether the group was there. The
+// DeleteGroup deletes the group with its members and the roles it holds, in a tenant and
+// on records, in one transaction, whatever their periods, and reports whether the group
+// was there. The
 // transaction first locks the group's row, which a member's or a role's insert for the
 // group waits on and holds a lock against: of a delete and such an insert at the same
 // moment, the delete takes the member or the role with the group, or the insert finds
