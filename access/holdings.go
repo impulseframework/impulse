@@ -99,11 +99,25 @@ type holdingStore interface {
 	groupRolesIn(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.Membership, error)
 }
 
+// recordStore is the management surface's part for the roles held on one record of a
+// tenant: giving and taking a person's and a group's, listing a record's holders and
+// taking them all. It stands beside policyStore, and one store manager implements both.
+type recordStore interface {
+	assignRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
+	deleteRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) error
+	// assignRecordGroupRole wraps policy.ErrNoGroup where the group's row is not there.
+	assignRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error
+	deleteRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role) error
+	recordRoles(ctx context.Context, at accesstypes.RecordScope) ([]policy.RecordAssignment, error)
+	deleteRecordRoles(ctx context.Context, at accesstypes.RecordScope) error
+}
+
 // managementStore is everything the user manager asks of the store: the policy rows and
 // what is said of them.
 type managementStore interface {
 	policyStore
 	holdingStore
+	recordStore
 }
 
 var _ managementStore = (*storeManager)(nil)

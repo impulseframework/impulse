@@ -346,3 +346,57 @@ func joinResourceField(base, field string) accesstypes.Resource {
 
 	return accesstypes.Resource(base + "." + field)
 }
+
+func (m *storeManager) assignRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+	if err := m.store.InsertRecordUserRole(ctx, at, user, role, period); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertRecordUserRole(): role %q on %s to %q", role, at, user)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) deleteRecordUserRole(ctx context.Context, at accesstypes.RecordScope, user accesstypes.User, role accesstypes.Role) error {
+	if err := m.store.DeleteRecordUserRole(ctx, at, user, role); err != nil {
+		return errors.Wrapf(err, "access.Store.DeleteRecordUserRole(): role %q on %s from %q", role, at, user)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) assignRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role, period accesstypes.Period) error {
+	if err := m.store.InsertRecordGroupRole(ctx, group, at, role, period); err != nil {
+		return errors.Wrapf(err, "access.Store.InsertRecordGroupRole(): role %q on %s to group %q", role, at, group)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) deleteRecordGroupRole(ctx context.Context, group accesstypes.Group, at accesstypes.RecordScope, role accesstypes.Role) error {
+	if err := m.store.DeleteRecordGroupRole(ctx, group, at, role); err != nil {
+		return errors.Wrapf(err, "access.Store.DeleteRecordGroupRole(): role %q on %s from group %q", role, at, group)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
+
+func (m *storeManager) recordRoles(ctx context.Context, at accesstypes.RecordScope) ([]policy.RecordAssignment, error) {
+	held, err := m.store.ListRecordRoles(ctx, at)
+	if err != nil {
+		return nil, errors.Wrapf(err, "access.Store.ListRecordRoles(): %s", at)
+	}
+
+	return held, nil
+}
+
+func (m *storeManager) deleteRecordRoles(ctx context.Context, at accesstypes.RecordScope) error {
+	if err := m.store.DeleteRecordRoles(ctx, at); err != nil {
+		return errors.Wrapf(err, "access.Store.DeleteRecordRoles(): %s", at)
+	}
+	m.notifyPolicyChange()
+
+	return nil
+}
