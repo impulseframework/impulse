@@ -1926,6 +1926,14 @@ with nothing gone where it cannot be made whole:
   finds it, so a row is deleted before the row it is under. A row that two levels find,
   with a level between them that does not find it, is counted at both, and the question's
   count comes out high by it.
+- A save is filled to Spanner's 80,000 mutations by what each row costs as the service
+  counts it: one for the delete and one for each index of the row's table; for a kind that
+  keeps a change history, one more for each column its change record sets (eleven for a
+  person in a session); for an update the library makes in a delete (an invitation
+  withdrawn, a session ended), one for each column of the key, one for each column written,
+  and for each index that holds a written column two where the column is in its key and one
+  and its stored columns otherwise. A row with an empty optional column costs less than its
+  count, never more.
 - A row is under a record of a tenant only where it is that tenant's. For a kind whose
   rows are a tenant's (`@domain`), each statement reads the rows of the record's own tenant
   alone: the tenant the record's key holds (the tenant record, or a record keyed by its

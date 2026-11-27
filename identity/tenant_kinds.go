@@ -39,14 +39,45 @@ type TenantDeleteCosts struct {
 	// database removes with it (Store.RowsWithUser).
 	Identity int
 	User     int
-	// Invitation is the withdrawal of one invitation: the columns it writes, and an entry
-	// of each index that holds one of them.
+	// Invitation is the withdrawal of one invitation: its update, counted as the store's
+	// generator counts an update (the key, the columns it writes, and each index that holds
+	// one of them).
 	Invitation int
 	// SessionEnd is the ending of one session of an account that is deleted, and
-	// ImpersonationEnd the ending of one impersonation record it holds: the columns each
-	// writes, and an entry of each index that holds one of them.
+	// ImpersonationEnd the ending of one impersonation record it holds, each counted as an
+	// update is.
 	SessionEnd       int
 	ImpersonationEnd int
+}
+
+// PersonHoldings is one person a tenant's delete considers, with what they hold.
+type PersonHoldings struct {
+	ID          impulse.UUID
+	Username    string                       // "" where Found is false
+	Found       bool                         // a user row holds the id
+	Memberships []access.MembershipKey       // every one, wherever held: what Store.Memberships answers
+	Places      []GroupPlace                 // every place in a group whose row stands: what Store.UserGroups answers
+	RecordRoles []access.RecordMembershipKey // in any tenant, not ended: what Store.RecordMemberships answers
+	Links       []Link                       // what Store.Identities answers
+	// DirectoryTenants are the tenants whose directory one of the person's sign-in
+	// identities came through. A person who signs in through another tenant's directory
+	// is that tenant's to manage, and stays when this one is deleted.
+	DirectoryTenants []accesstypes.Domain
+	Sessions         []LiveSession // the person's sessions that have not ended: what Store.LiveSessions answers
+	Held             []HeldRecord  // the records the person holds as actor that have not ended: what Store.ImpersonationsHeldBy answers
+	WithUser         int           // what Store.RowsWithUser answers for the person
+}
+
+// LiveSession is a session that has not ended; Record says its impersonation record stands (Store.Impersonation's live).
+type LiveSession struct {
+	ID     impulse.UUID
+	Record bool
+}
+
+// HeldRecord is an impersonation record a person holds as actor; Session says its session exists and has not ended (Store.SessionExpired).
+type HeldRecord struct {
+	SessionID impulse.UUID
+	Session   bool
 }
 
 // TenantKinds answers what the auth holds for a tenant as kinds of the tenant's delete
@@ -104,120 +135,67 @@ func (h *tenantHeld) policyChanged(txn resource.ReadWriteTransaction, rows int64
 }
 
 // tenantAccount is an account that belongs to the tenant alone, with what it holds there:
-// its memberships, all in the tenant, and its places, all in the tenant's groups.
+// its memberships, all in the tenant, its places, all in the tenant's groups, its
+// identity links, the endings of its sessions and of the impersonation records it holds,
+// and what the database removes with its row (Store.RowsWithUser).
 type tenantAccount struct {
 	id          impulse.UUID
 	username    string
 	memberships []access.MembershipKey
 	places      []GroupPlace
+	links       []Link
+	endings     []sessionEnding
+	withUser    int
 }
 
 // accounts reads the accounts that are the tenant's alone, in key order: each person who
 // holds a membership in the tenant, a place in one of its groups or a role on one of its
-// records, or whom the tenant's directory manages, whose every membership is in the
+// records, or who signs in through its directory, whose every membership is in the
 // tenant, every place in one of its groups and every role on a record that has not ended
-// on one of its records, and whom no other tenant's directory manages. A person who holds
-// a role for the whole application, in every tenant, in another tenant or on another
-// tenant's record stays, and so does an id that is no account's.
+// on one of its records, and whom no other tenant's directory signs in. A person who
+// holds a role for the whole application, in every tenant, in another tenant or on
+// another tenant's record stays, and so does an id that is no account's. The people and
+// what they hold are read once for the tenant (Store.TenantHoldings) and decided here.
 func (h *tenantHeld) accounts(ctx context.Context, txn resource.ReadWriteTransaction) ([]tenantAccount, error) {
 	store := h.manager.store
-	held, err := store.TenantMemberships(ctx, txn, h.domain)
+	people, err := store.TenantHoldings(ctx, txn, h.domain)
 	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.TenantMemberships()")
+		return nil, errors.Wrap(err, "identity.Store.TenantHoldings()")
 	}
 	groups, err := store.TenantGroups(ctx, txn, h.domain)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.TenantGroups()")
 	}
-	managed, err := store.DirectoryUsers(ctx, txn, h.domain)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.DirectoryUsers()")
-	}
-	onRecords, _, err := store.TenantRecordRoles(ctx, txn, h.domain)
-	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.TenantRecordRoles()")
-	}
-
-	people := make([]accesstypes.User, 0, len(held)+len(managed)+len(onRecords))
-	for _, key := range held {
-		people = append(people, key.User)
-	}
-	for _, key := range onRecords {
-		people = append(people, key.User)
-	}
-	for _, id := range groups {
-		members, err := store.GroupMembers(ctx, txn, id)
-		if err != nil {
-			return nil, errors.Wrap(err, "identity.Store.GroupMembers()")
-		}
-		people = append(people, members...)
-	}
-	for _, id := range managed {
-		people = append(people, User(id))
-	}
-	ids := make([]impulse.UUID, 0, len(people))
-	seen := make(map[impulse.UUID]bool, len(people))
-	for _, user := range people {
-		if id, ok := UserID(user); ok && !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
-	}
-	slices.SortFunc(ids, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
 
 	var accounts []tenantAccount
-	for _, id := range ids {
-		account, alone, err := h.alone(ctx, txn, id, groups)
-		if err != nil {
-			return nil, err
-		}
-		if alone {
-			accounts = append(accounts, *account)
+	for i := range people {
+		person := &people[i]
+		if h.alone(person, groups) {
+			accounts = append(accounts, tenantAccount{
+				id: person.ID, username: person.Username, memberships: person.Memberships, places: person.Places, links: person.Links,
+				endings: mergeEndings(person.Sessions, person.Held), withUser: person.WithUser,
+			})
 		}
 	}
 
 	return accounts, nil
 }
 
-// alone reads whether the account of the id is the tenant's alone (accounts), and what it
-// holds there where it is. groups are the tenant's own groups.
-func (h *tenantHeld) alone(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, groups []impulse.UUID) (*tenantAccount, bool, error) {
-	store := h.manager.store
-	memberships, err := store.Memberships(ctx, txn, id)
-	if err != nil {
-		return nil, false, errors.Wrap(err, "identity.Store.Memberships()")
+// alone reports whether the person's account is the tenant's alone (accounts), from what
+// the person holds. groups are the tenant's own groups.
+func (h *tenantHeld) alone(person *PersonHoldings, groups []impulse.UUID) bool {
+	switch {
+	case slices.ContainsFunc(person.Memberships, func(key access.MembershipKey) bool { return !h.inTenant(&key) }):
+		return false
+	case slices.ContainsFunc(person.Places, func(place GroupPlace) bool { return !slices.Contains(groups, place.ID) }):
+		return false
+	case slices.ContainsFunc(person.RecordRoles, func(key access.RecordMembershipKey) bool { return !recordHeldIn(&key, h.domain) }):
+		return false
+	case slices.ContainsFunc(person.DirectoryTenants, func(tenant accesstypes.Domain) bool { return tenant != h.domain }):
+		return false
+	default:
+		return person.Found
 	}
-	if slices.ContainsFunc(memberships, func(key access.MembershipKey) bool { return !h.inTenant(&key) }) {
-		return nil, false, nil
-	}
-	places, err := store.UserGroups(ctx, txn, id)
-	if err != nil {
-		return nil, false, errors.Wrap(err, "identity.Store.UserGroups()")
-	}
-	if slices.ContainsFunc(places, func(place GroupPlace) bool { return !slices.Contains(groups, place.ID) }) {
-		return nil, false, nil
-	}
-	records, err := store.RecordMemberships(ctx, txn, id)
-	if err != nil {
-		return nil, false, errors.Wrap(err, "identity.Store.RecordMemberships()")
-	}
-	if slices.ContainsFunc(records, func(key access.RecordMembershipKey) bool { return !recordHeldIn(&key, h.domain) }) {
-		return nil, false, nil
-	}
-	if elsewhere, err := h.manager.managedElsewhere(ctx, txn, id, h.domain); err != nil {
-		return nil, false, err
-	} else if elsewhere {
-		return nil, false, nil
-	}
-	username, found, err := store.Username(ctx, txn, id)
-	if err != nil {
-		return nil, false, errors.Wrap(err, "identity.Store.Username()")
-	}
-	if !found {
-		return nil, false, nil
-	}
-
-	return &tenantAccount{id: id, username: username, memberships: memberships, places: places}, true, nil
 }
 
 // refuseImpersonator refuses the tenant's delete where one of the accounts is the real
@@ -233,13 +211,19 @@ func (h *tenantHeld) refuseImpersonator(ctx context.Context, accounts []tenantAc
 	return nil
 }
 
-// auditRecordMutations is what the row of the audit log an account the tenant's delete
-// takes writes is counted to cost: an insert counts once for each column it writes, and a
-// row writes no more than the table's columns (auditlog.Columns), and once for each of
-// the table's two indexes it enters. A save is filled to the limit with no margin, so the
-// count is the most a row can cost.
-func auditRecordMutations() int {
-	return len(auditlog.Columns()) + auditRecordIndexes
+// auditRecordMutations is what the row of the audit log r is written as costs in a
+// commit: an insert counts once for each column it sets, which are the columns r answers
+// (auditlog.Record.Columns) and the time of the commit, and once for each of the table's
+// two indexes it enters. The index by tenant is entered only by a row that names a
+// tenant; it is counted for every row.
+func auditRecordMutations(r *auditlog.Record) (int, error) {
+	columns, err := r.Columns()
+	if err != nil {
+		return 0, errors.Wrap(err, "auditlog.Record.Columns()")
+	}
+
+	// CreatedAt, the time of the commit, is the writer's to set.
+	return len(columns) + 1 + auditRecordIndexes, nil
 }
 
 // auditRecordIndexes is the number of indexes the audit records table declares
@@ -297,7 +281,7 @@ func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransac
 	}
 	costs := k.manager.store.DeleteCosts()
 	for i := range accounts {
-		cost, err := k.cost(ctx, txn, &accounts[i], &costs)
+		cost, err := k.cost(ctx, &accounts[i], &costs)
 		if err != nil {
 			return rows, mutations, false, err
 		}
@@ -317,37 +301,31 @@ func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransac
 // cost is what taking the account costs in the commit: its memberships, its places, its
 // identity links, its row, the ending of its sessions and of the impersonation records it
 // holds, what the database removes with the row, and the row of the audit log that
-// records its delete (auditRecordMutations).
-func (k *tenantAccounts) cost(ctx context.Context, txn resource.ReadWriteTransaction, account *tenantAccount, costs *TenantDeleteCosts) (int, error) {
-	links, err := k.manager.store.Identities(ctx, txn, account.id)
-	if err != nil {
-		return 0, errors.Wrap(err, "identity.Store.Identities()")
-	}
-	endings, err := k.manager.sessionEndings(ctx, txn, account.id)
-	if err != nil {
-		return 0, err
-	}
+// records its delete (auditRecordMutations). It reads nothing: the account carries it.
+func (k *tenantAccounts) cost(ctx context.Context, account *tenantAccount, costs *TenantDeleteCosts) (int, error) {
 	ended := 0
-	for i := range endings {
-		if endings[i].session {
+	for i := range account.endings {
+		if account.endings[i].session {
 			ended += costs.SessionEnd
 		}
-		if endings[i].record {
+		if account.endings[i].record {
 			ended += costs.ImpersonationEnd
 		}
 	}
-	withUser, err := k.manager.store.RowsWithUser(ctx, txn, account.id)
+	audit, err := auditRecordMutations(k.deleted(ctx, account))
 	if err != nil {
-		return 0, errors.Wrap(err, "identity.Store.RowsWithUser()")
+		return 0, err
 	}
 
 	return len(account.memberships)*costs.Membership + len(account.places)*costs.GroupMember +
-		len(links)*costs.Identity + costs.User + ended + withUser + auditRecordMutations(), nil
+		len(account.links)*costs.Identity + costs.User + ended + account.withUser + audit, nil
 }
 
 // take buffers the delete of the account and of what it holds in the tenant, and the row
 // of the audit log that records it: the account deleted with its tenant, by its username,
-// in the tenant, by the round's caller. What it held there has no row of its own.
+// in the tenant, by the round's caller. What it held there has no row of its own. It reads
+// nothing: its memberships and places go, then its sessions are ended, its identity links
+// and its row go (deleteAccount), and the row of the audit log is written, in that order.
 func (k *tenantAccounts) take(ctx context.Context, txn resource.ReadWriteTransaction, account *tenantAccount) error {
 	store := k.manager.store
 	for i := range account.memberships {
@@ -360,17 +338,26 @@ func (k *tenantAccounts) take(ctx context.Context, txn resource.ReadWriteTransac
 			return errors.Wrap(err, "identity.Store.DeleteGroupMember()")
 		}
 	}
-	if err := k.manager.deleteAccount(ctx, txn, account.id); err != nil {
+	if err := k.manager.deleteAccount(ctx, txn, account.id, account.links, account.endings); err != nil {
 		return err
 	}
-	deleted := accountRecord(auditlog.ActAccountDeleted, account.id, account.username)
-	deleted.Form, deleted.TenantID = auditlog.FormWithTenant, string(k.domain)
-	if err := k.manager.record(ctx, txn, deleted); err != nil {
+	if err := k.manager.record(ctx, txn, k.deleted(ctx, account)); err != nil {
 		return err
 	}
 	logger.FromCtx(ctx).Infof("identity: %q belonged to the tenant %s alone, which is deleted, so the account is deleted with its identity links; its sessions are ended", account.username, k.domain)
 
 	return nil
+}
+
+// deleted is the row of the audit log that records the account's delete, filled as record
+// fills it: the account deleted with its tenant, by its username, in the tenant, by the
+// round's caller. cost counts it and take records it.
+func (k *tenantAccounts) deleted(ctx context.Context, account *tenantAccount) *auditlog.Record {
+	r := accountRecord(auditlog.ActAccountDeleted, account.id, account.username)
+	r.Form, r.TenantID = auditlog.FormWithTenant, string(k.domain)
+	k.manager.fill(ctx, r)
+
+	return r
 }
 
 // tenantRolesHeld is the kind of the roles held in the tenant: every membership held in

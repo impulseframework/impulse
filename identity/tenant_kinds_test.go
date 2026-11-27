@@ -194,6 +194,106 @@ func TestManager_TenantKinds_counts(t *testing.T) {
 	}
 }
 
+// TestManager_TenantKinds_readsNoPersonAlone pins that the accounts kind reads the
+// tenant's people and what each holds once (Store.TenantHoldings) and nothing of one
+// person: with each of the store's reads of one person failing in turn, Count and Check
+// answer as they do with none failing, and Take takes every account and buffers the
+// writes TestManager_TenantKinds_takeEverything wants of them, in its order.
+func TestManager_TenantKinds_readsNoPersonAlone(t *testing.T) {
+	t.Parallel()
+
+	for _, call := range []string{
+		"Memberships", "UserGroups", "RecordMemberships", "Username",
+		"Identities", "LiveSessions", "ImpersonationsHeldBy", "Impersonation", "SessionExpired", "RowsWithUser",
+	} {
+		t.Run(call, func(t *testing.T) {
+			t.Parallel()
+
+			store := alphaStore()
+			store.withUser = map[impulse.UUID]int{doraID: 2}
+			store.failOn = call
+			m, _ := newManager(t, store, engineRoles)
+			if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				accounts := m.TenantKinds("alpha")[0]
+				count, err := accounts.Count(ctx, txn)
+				if err != nil {
+					return errors.Wrap(err, "resource.TakenKind.Count()")
+				}
+				if count != 3 {
+					t.Errorf("Count() = %d, want the 3 accounts that are alpha's alone", count)
+				}
+				if err := accounts.Check(ctx, txn); err != nil {
+					return errors.Wrap(err, "resource.TakenKind.Check()")
+				}
+				rows, _, more, err := accounts.Take(ctx, txn, resource.DeleteMutationLimit)
+				if err != nil {
+					return errors.Wrap(err, "resource.TakenKind.Take()")
+				}
+				if rows != 3 || more {
+					t.Errorf("Take() = %d rows, more %t, want the 3 accounts and none left", rows, more)
+				}
+
+				return nil
+			}); err != nil {
+				t.Fatalf("with %s failing: %v", call, err)
+			}
+			if diff := cmp.Diff(alphaAccountWrites(), store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// alphaAccountWrites are the writes of taking alpha's three accounts, in order: anna's
+// membership, her session ended and her row; ben's membership, his place in the night
+// group and his row; dora's session ended, her identity link and her row.
+func alphaAccountWrites() []string {
+	return []string{
+		"delete membership " + membershipText(&annaAlpha),
+		"end session " + annaLogin.String(),
+		"delete user " + annaID.String() + " with its tenant",
+		"delete membership " + membershipText(&benAlpha),
+		"delete group member " + nightID.String() + " " + benID.String(),
+		"delete user " + benID.String() + " with its tenant",
+		"end session " + doraLogin.String(),
+		"delete identity " + doraLink.String(),
+		"delete user " + doraID.String() + " with its tenant",
+	}
+}
+
+// TestManager_TenantKinds_directoriesAlone pins which accounts are the tenant's alone where
+// people sign in through tenants' directories and hold nothing: lu, who signs in through
+// alpha's directory and beta's, stays, since beta's directory signs her in too; max, who
+// signs in through beta's directory alone, is none of alpha's people.
+func TestManager_TenantKinds_directoriesAlone(t *testing.T) {
+	t.Parallel()
+
+	luID := mustUUID("0190c000-0000-7000-8000-00000000000f")
+	maxID := mustUUID("0190c000-0000-7000-8000-000000000010")
+	luLink := mustUUID("0190c000-0000-7000-8000-000000000026")
+	maxLink := mustUUID("0190c000-0000-7000-8000-000000000027")
+	store := alphaStore()
+	store.usernames[luID], store.usernames[maxID] = "lu", "max"
+	store.identities[luLink], store.identities[maxLink] = luID, maxID
+	store.managing[luID], store.managing[maxID] = []accesstypes.Domain{"alpha", "beta"}, []accesstypes.Domain{"beta"}
+
+	m, _ := newManager(t, store, engineRoles)
+	var accounts []string
+	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		alone, err := (&tenantHeld{manager: m, domain: "alpha"}).accounts(ctx, txn)
+		for i := range alone {
+			accounts = append(accounts, alone[i].username)
+		}
+
+		return err
+	}); err != nil {
+		t.Fatalf("inTransaction() error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"anna", "ben", "dora"}, accounts); diff != "" {
+		t.Errorf("the accounts the delete takes (-want +got):\n%s", diff)
+	}
+}
+
 // TestManager_TenantKinds_takeEverything pins a round with room for everything: the
 // three accounts go whole, each with what it held in the tenant, its identity links and
 // its sessions ended; cara's and evan's accounts stay, their memberships in alpha going
@@ -230,7 +330,7 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 		// anna: a membership and the user (2); ben: a membership, a place and the user
 		// (3); dora: a link, the user and what the database removes with it (4); and each
 		// the row of the audit log that records its delete.
-		{Rows: 3, Mutations: 9 + 3*auditRecordMutations()},
+		{Rows: 3, Mutations: 9 + 3*deletedRowMutations(t, m)},
 		{Rows: 5, Mutations: 5},
 		// No role is held on alpha's records.
 		{},
@@ -242,25 +342,16 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Take() by kind (-want +got):\n%s", diff)
 	}
-	wantWrites := []string{
-		"delete membership " + membershipText(&annaAlpha),
-		"end session " + annaLogin.String(),
-		"delete user " + annaID.String() + " with its tenant",
-		"delete membership " + membershipText(&benAlpha),
-		"delete group member " + nightID.String() + " " + benID.String(),
-		"delete user " + benID.String() + " with its tenant",
-		"end session " + doraLogin.String(),
-		"delete identity " + doraLink.String(),
-		"delete user " + doraID.String() + " with its tenant",
-		"delete membership " + membershipText(&annaAlpha),
-		"delete membership " + membershipText(&benAlpha),
-		"delete membership " + membershipText(&caraAlpha),
-		"delete membership " + membershipText(&evanAlpha),
-		"delete group role " + groupRoleText(&staffInAlpha),
-		"delete group " + nightID.String() + " with its tenant",
+	wantWrites := append(alphaAccountWrites(),
+		"delete membership "+membershipText(&annaAlpha),
+		"delete membership "+membershipText(&benAlpha),
+		"delete membership "+membershipText(&caraAlpha),
+		"delete membership "+membershipText(&evanAlpha),
+		"delete group role "+groupRoleText(&staffInAlpha),
+		"delete group "+nightID.String()+" with its tenant",
 		"delete the custom roles of alpha",
-		"consume mail link " + invited.String(),
-	}
+		"consume mail link "+invited.String(),
+	)
 	if diff := cmp.Diff(wantWrites, store.writes); diff != "" {
 		t.Errorf("buffered writes (-want +got):\n%s", diff)
 	}
@@ -281,9 +372,12 @@ func TestManager_TenantKinds_takeEverything(t *testing.T) {
 	}
 }
 
-// TestAuditRecordMutations pins what an account the tenant's delete takes is counted to
-// cost for its row of the audit log: one for each column the audit records table
-// declares and one for each of its indexes, as the table's statements declare them.
+// TestAuditRecordMutations pins what the row of the audit log that records an account
+// deleted with its tenant costs: one for each column the row sets (auditlog.Record.Columns),
+// one for the time of the commit, and one for each of the table's indexes, as the table's
+// statements declare them. Written by a person in a session it sets twelve columns, four
+// of them of who acted; written where no session is, as the application's own act, nine,
+// one of who acted. Neither costs more than the table's columns and indexes.
 func TestAuditRecordMutations(t *testing.T) {
 	t.Parallel()
 
@@ -293,9 +387,47 @@ func TestAuditRecordMutations(t *testing.T) {
 			indexes++
 		}
 	}
-	if want := len(auditlog.Columns()) + indexes; auditRecordMutations() != want {
-		t.Errorf("auditRecordMutations() = %d, want the %d columns and %d indexes the table declares", auditRecordMutations(), len(auditlog.Columns()), indexes)
+	if indexes != auditRecordIndexes {
+		t.Errorf("auditRecordIndexes = %d, want the %d indexes the table declares", auditRecordIndexes, indexes)
 	}
+
+	m, _ := newManager(t, alphaStore(), engineRoles)
+	for _, tt := range []struct {
+		name string
+		ctx  context.Context
+		want int
+	}{
+		{name: "by a person in a session", ctx: recordCaller(accesstypes.DomainScope("alpha")), want: 15},
+		{name: "where no session is", ctx: t.Context(), want: 12},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			kind := &tenantAccounts{&tenantHeld{manager: m, domain: "alpha"}}
+			got, err := auditRecordMutations(kind.deleted(tt.ctx, &tenantAccount{id: annaID, username: "anna"}))
+			if err != nil {
+				t.Fatalf("auditRecordMutations() error = %v", err)
+			}
+			if got != tt.want || got > len(auditlog.Columns())+indexes {
+				t.Errorf("auditRecordMutations() = %d, want %d, no more than the %d columns and %d indexes the table declares", got, tt.want, len(auditlog.Columns()), indexes)
+			}
+		})
+	}
+}
+
+// deletedRowMutations is what the row of the audit log that records an account's delete
+// with alpha costs, built as the accounts kind builds it where no session is
+// (tenantAccounts.deleted): each account's row costs the same.
+func deletedRowMutations(t *testing.T, m *Manager) int {
+	t.Helper()
+
+	kind := &tenantAccounts{&tenantHeld{manager: m, domain: "alpha"}}
+	mutations, err := auditRecordMutations(kind.deleted(t.Context(), &tenantAccount{id: annaID, username: "anna"}))
+	if err != nil {
+		t.Fatalf("auditRecordMutations() error = %v", err)
+	}
+
+	return mutations
 }
 
 // TestManager_TenantKinds_takeInRounds pins the accounts kind in a save with room for one
@@ -305,13 +437,13 @@ func TestManager_TenantKinds_takeInRounds(t *testing.T) {
 	t.Parallel()
 
 	costs := TenantDeleteCosts{Membership: 1, GroupMember: 1, Identity: 1, User: 1}
-	// anna costs her membership, her user, the two rows the database removes with it and
-	// the row of the audit log that records her delete.
-	budget := 4 + auditRecordMutations()
 	first := alphaStore()
 	first.costs = costs
 	first.withUser = map[impulse.UUID]int{annaID: 2}
 	m, _ := newManager(t, first, engineRoles)
+	// anna costs her membership, her user, the two rows the database removes with it and
+	// the row of the audit log that records her delete.
+	budget := 4 + deletedRowMutations(t, m)
 	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		accounts := m.TenantKinds("alpha")[0]
 		rows, mutations, more, err := accounts.Take(ctx, txn, budget)
@@ -353,7 +485,7 @@ func TestManager_TenantKinds_takeInRounds(t *testing.T) {
 		if err != nil {
 			return errors.Wrap(err, "resource.TakenKind.Take()")
 		}
-		if got, want := (takenRows{Rows: rows, Mutations: mutations, More: more}), (takenRows{Rows: 1, Mutations: 3 + auditRecordMutations(), More: true}); got != want {
+		if got, want := (takenRows{Rows: rows, Mutations: mutations, More: more}), (takenRows{Rows: 1, Mutations: 3 + deletedRowMutations(t, m), More: true}); got != want {
 			t.Errorf("the next save's Take() = %+v, want %+v", got, want)
 		}
 
@@ -459,7 +591,8 @@ func TestManager_TenantKinds_sessionsCost(t *testing.T) {
 	ended := mustUUID("0190c000-0000-7000-8000-000000000042")
 	// The membership and the row (2), two session endings (10), a record's (7) and the
 	// row of the audit log that records the delete.
-	cost := 2 + 2*5 + 7 + auditRecordMutations()
+	counting, _ := newManager(t, alphaStore(), engineRoles)
+	cost := 2 + 2*5 + 7 + deletedRowMutations(t, counting)
 	for _, tt := range []struct {
 		name   string
 		budget int

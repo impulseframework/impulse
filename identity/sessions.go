@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -118,11 +119,11 @@ type sessionEnding struct {
 
 // sessionEndings reads what ending a person's sessions writes: each session of theirs
 // that stands, with its impersonation record where it is one, then each impersonation
-// record they hold as the actor, with its session where that stands. A session that is
-// the person's own and held by them as actor at once (the person viewing as themselves)
-// is one ending.
+// record they hold as the actor, with its session where that stands (mergeEndings). A
+// record of one of their own sessions has its session's ending already, and its session
+// is not read again.
 func (m *Manager) sessionEndings(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]sessionEnding, error) {
-	own, err := m.store.LiveSessions(ctx, txn, userID)
+	ids, err := m.store.LiveSessions(ctx, txn, userID)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.LiveSessions()")
 	}
@@ -130,44 +131,63 @@ func (m *Manager) sessionEndings(ctx context.Context, txn resource.ReadWriteTran
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Store.Username()")
 	}
-	var held []impulse.UUID
+	var records []HeldImpersonation
 	if found {
-		records, err := m.store.ImpersonationsHeldBy(ctx, txn, username)
-		if err != nil {
+		if records, err = m.store.ImpersonationsHeldBy(ctx, txn, username); err != nil {
 			return nil, errors.Wrap(err, "identity.Store.ImpersonationsHeldBy()")
-		}
-		for _, record := range records {
-			held = append(held, record.SessionID)
 		}
 	}
 
-	endings := make([]sessionEnding, 0, len(own)+len(held))
-	at := make(map[impulse.UUID]int, len(own)+len(held))
-	for _, id := range own {
+	own := make([]LiveSession, 0, len(ids))
+	for _, id := range ids {
 		live, _, err := m.store.Impersonation(ctx, txn, id)
 		if err != nil {
 			return nil, errors.Wrap(err, "identity.Store.Impersonation()")
 		}
-		at[id] = len(endings)
-		endings = append(endings, sessionEnding{id: id, session: true, record: live})
+		own = append(own, LiveSession{ID: id, Record: live})
 	}
-	for _, id := range held {
-		if i, planned := at[id]; planned {
-			endings[i].record = true
+	held := make([]HeldRecord, 0, len(records))
+	for _, record := range records {
+		if slices.ContainsFunc(own, func(session LiveSession) bool { return session.ID == record.SessionID }) {
+			held = append(held, HeldRecord{SessionID: record.SessionID, Session: true})
 
 			continue
 		}
 		// The record outlives its session as evidence and names no session row it
 		// can vouch for: the row is read, and ended only where it stands.
-		expired, exists, err := m.store.SessionExpired(ctx, txn, id)
+		expired, exists, err := m.store.SessionExpired(ctx, txn, record.SessionID)
 		if err != nil {
 			return nil, errors.Wrap(err, "identity.Store.SessionExpired()")
 		}
-		at[id] = len(endings)
-		endings = append(endings, sessionEnding{id: id, session: exists && !expired, record: true})
+		held = append(held, HeldRecord{SessionID: record.SessionID, Session: exists && !expired})
 	}
 
-	return endings, nil
+	return mergeEndings(own, held), nil
+}
+
+// mergeEndings is what ending a person's sessions writes, from their sessions that stand
+// (own) and the impersonation records they hold as the actor (held), and reads nothing:
+// each of their sessions, with its record where it stands, then each record held, with
+// its session where that stands. A session that is the person's own and held by them as
+// actor at once (the person viewing as themselves) is one ending.
+func mergeEndings(own []LiveSession, held []HeldRecord) []sessionEnding {
+	endings := make([]sessionEnding, 0, len(own)+len(held))
+	at := make(map[impulse.UUID]int, len(own)+len(held))
+	for _, session := range own {
+		at[session.ID] = len(endings)
+		endings = append(endings, sessionEnding{id: session.ID, session: true, record: session.Record})
+	}
+	for _, record := range held {
+		if i, planned := at[record.SessionID]; planned {
+			endings[i].record = true
+
+			continue
+		}
+		at[record.SessionID] = len(endings)
+		endings = append(endings, sessionEnding{id: record.SessionID, session: record.Session, record: true})
+	}
+
+	return endings
 }
 
 // endSessions buffers the endings sessionEndings read, in its order.

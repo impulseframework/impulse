@@ -592,6 +592,144 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	}
 }
 
+// TestTenantDelete_theAccountsThatGoAndThatStay proves, on the served stack, which
+// accounts a sector's delete takes from the one read of the sector's people, in the two
+// cases the test above does not hold: a person whose one place in the sector is in a
+// group kept there, and a person who holds a role there with two live sessions and a
+// sign-in identity. Each is the sector's alone and goes with it, as its founder does: the
+// question counts the three accounts and the delete takes each. Both live sessions are
+// ended, their rows left for the timed removal, and the sign-in identity goes with the
+// account. The test above holds the other cases: a person who holds a role in the sector
+// alone goes, one who holds a role in another sector stays and keeps it, one another
+// sector's directory signs in stays, and one the sector's own directory signs in, who
+// holds nothing, goes.
+func TestTenantDelete_theAccountsThatGoAndThatStay(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	hq := newBrowser(t, s, consoleAPI)
+	hq.signIn(ctx, "governor")
+
+	const (
+		closer          accesstypes.Role = "SectorCloser"
+		rostered        accesstypes.User = "kiln-rostered"
+		stoker          accesstypes.User = "kiln-stoker"
+		sectorsResource                  = accesstypes.Resource("Sectors")
+	)
+	// No role the release ships deletes a sector: the governor is given one that does, as
+	// in the test above.
+	crewManager := s.access.UserManager()
+	global := accesstypes.GlobalPolicyScope()
+	if err := crewManager.AddRole(ctx, global, closer, "Closes a sector the fleet has left."); err != nil {
+		t.Fatalf("access.UserManager.AddRole(%s) error = %v", closer, err)
+	}
+	if err := crewManager.AddRoleGrants(ctx, global, closer, access.GrantRow{Permission: accesstypes.Delete, Resource: sectorsResource}); err != nil {
+		t.Fatalf("access.UserManager.AddRoleGrants(%s) error = %v", closer, err)
+	}
+	governorUser := account(t, "governor")
+	if err := crewManager.AddUserRoles(ctx, global, governorUser, closer); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(governor, %s) error = %v", closer, err)
+	}
+	if d := decisionFor(ctx, t, s.access.ForUser(governorUser), accesstypes.GlobalScope(), accesstypes.Delete, sectorsResource, time.Now().Add(15*time.Second)); !d.IsGranted() {
+		t.Fatalf("Delete on Sectors for the governor holding %s = %s, want granted before the sector is made", closer, d)
+	}
+
+	// Headquarters invites Kiln's founder, whose first sign-in makes the sector and seats
+	// them as its marshal.
+	kiln := foundSector(ctx, t, s, hq, "Kiln", "Near frontier", "2226-11-02", "kiln-founder")
+	founderID := crewAccountID(ctx, t, hq, "kiln-founder")
+
+	// A person who holds nothing anywhere is put in a group of Kiln's, through the whole
+	// fleet's form, and is given nothing else.
+	rosteredID := s.seedCrewAccount(ctx, t, string(rostered), nil).String()
+	status, body := hq.do(ctx, http.MethodPost, sectorPath(kiln, "create-crew-sector-group"), []byte(`{"name":"Kiln roster","description":"Who Kiln calls on."}`))
+	assertStatus(t, status, http.StatusOK, body)
+	group := cell[string](t, decodeRow(t, body), "id")
+	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/add-crew-group-member", []byte(`{"groupId":"`+group+`","userId":"`+rosteredID+`"}`))
+	assertStatus(t, status, http.StatusNoContent, body)
+
+	// A person given a role in Kiln, with what a sign-in left, an identity and a session,
+	// and a second session beside it, both live.
+	stokerID := s.seedCrewAccount(ctx, t, string(stoker), nil).String()
+	status, body = hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+stokerID+`","role":"Cadet","domain":"`+kiln+`"}`))
+	assertStatus(t, status, http.StatusNoContent, body)
+	sessions := []string{leftBySignIn(ctx, t, s, stoker, stokerID, "google", "fleet"), newID(t)}
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessions", map[string]any{
+		"Id": sessions[1], "Username": string(stoker), "Expired": false, "UserId": stokerID,
+		"CreatedAt": spanner.CommitTimestamp, "UpdatedAt": spanner.CommitTimestamp,
+	})}); err != nil {
+		t.Fatalf("writing %s's second session: %v", stoker, err)
+	}
+
+	goers := []struct{ name, id string }{
+		{name: "Kiln's founder", id: founderID},
+		{name: "the person whose one place is in Kiln's group", id: rosteredID},
+		{name: "the person with a role in Kiln and two live sessions", id: stokerID},
+	}
+	// standing fails the test unless each of the three accounts, the identity and both
+	// sessions stand, the sessions live.
+	standing := func(after string) {
+		t.Helper()
+		for _, goer := range goers {
+			if !crewAccountExists(t, s.db, goer.id) {
+				t.Errorf("the account of %s is gone %s, want it standing", goer.name, after)
+			}
+		}
+		if n := rowsWhere(ctx, t, s, "CrewSessionIdentities", "UserId", stokerID); n != 1 {
+			t.Errorf("the person with two live sessions has %d sign-in identities %s, want the one", n, after)
+		}
+		for _, session := range sessions {
+			if n := rowsWhere(ctx, t, s, "CrewSessions", "Id", session); n != 1 || readColumn[bool](ctx, t, s.db, "CrewSessions", spanner.Key{session}, "Expired") {
+				t.Errorf("the session %s is ended or gone %s, want it live", session, after)
+			}
+		}
+	}
+
+	// Before the delete, the person in the group holds no role, and is in the group.
+	if got := crewHolds(t, s.db, string(rostered)); len(got) != 0 {
+		t.Fatalf("the person whose one place is in Kiln's group holds %v before the delete, want nothing", got)
+	}
+	if n := rowsWhere(ctx, t, s, "CrewGroupMembers", "UserId", rosteredID); n != 1 {
+		t.Fatalf("the person whose one place is in Kiln's group has %d place(s) before the delete, want the one", n)
+	}
+	standing("before the delete")
+
+	// Kiln is disabled, and the delete that does not say it takes what is under the sector
+	// is asked the question, which counts the three accounts: nothing is gone.
+	setSectorDisabled(ctx, t, hq, kiln, true)
+	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+kiln+`"}]`))
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	const counted = "Delete this sector and everything under it: 3 accounts, 2 roles held, 1 group. This can't be undone."
+	if got := refusalMessage(t, body); got != counted {
+		t.Errorf("the question = %q, want %q", got, counted)
+	}
+	standing("after the question")
+
+	// The delete that says so.
+	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+kiln+`","value":{"everythingUnder":true}}]`))
+	assertStatus(t, status, http.StatusOK, body)
+
+	for _, goer := range goers {
+		if crewAccountExists(t, s.db, goer.id) {
+			t.Errorf("the account of %s still exists, want it deleted with the sector: it was Kiln's alone", goer.name)
+		}
+	}
+	if n := rowsWhere(ctx, t, s, "CrewGroupMembers", "UserId", rosteredID); n != 0 {
+		t.Errorf("the person whose one place was in Kiln's group has %d place(s) after the delete, want none", n)
+	}
+	if n := rowsWhere(ctx, t, s, "CrewSessionIdentities", "UserId", stokerID); n != 0 {
+		t.Errorf("the person with two live sessions has %d sign-in identities after the delete, want none: they go with the account", n)
+	}
+	for _, session := range sessions {
+		if n := rowsWhere(ctx, t, s, "CrewSessions", "Id", session); n != 1 {
+			t.Errorf("the session %s: %d row(s) after the delete, want the row left for the timed removal", session, n)
+		} else if !readColumn[bool](ctx, t, s.db, "CrewSessions", spanner.Key{session}, "Expired") {
+			t.Errorf("the session %s is not ended after the account was deleted", session)
+		}
+	}
+}
+
 // leftBySignIn writes what a sign-in leaves of a person of the crew: an identity under
 // the method and the connection, and a session. It answers the session's id.
 func leftBySignIn(ctx context.Context, t *testing.T, s *served, username accesstypes.User, userID, method, connection string) string {

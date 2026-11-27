@@ -1965,65 +1965,15 @@ func (store) RevokeTrustedDevice(_ context.Context, _ resource.ReadWriteTransact
 	return errors.Newf("the schema holds no table {{ .Tables.TrustedDevices }}: there is no remembered browser %s to revoke", id)
 }
 {{ end }}
-{{- if .ReadsManagingTenants }}
-// ManagingTenants lists the {{ .TenantWord }}s whose own list of their people
-// ({{ .TenantUser }}) says they manage the user's account, the rows of the user whose
-// ManagedHere is true, read in the caller's transaction through the list's query type.
-// A tenant's delete asks it of each account it considers
-// (identity.Store.ManagingTenants).
-func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {
-	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().DomainID()).
-		Where({{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause().ID().Equal(userID).And().ManagedHere().Equal(true))
-	var tenants []accesstypes.Domain
-	for row, err := range query.List(ctx, txn) {
-		if err != nil {
-			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
-		}
-		tenants = append(tenants, accesstypes.Domain(row.Data.DomainID))
-	}
-
-	return tenants, nil
-}
-
-// DirectoryUsers lists the accounts the {{ .TenantWord }}'s directory manages: the rows of its own
-// list of its people ({{ .TenantUser }}) whose ManagedHere is true, the view ManagingTenants
-// reads, in the caller's transaction. A {{ .TenantWord }}'s delete takes the ones that hold
-// nothing elsewhere (identity.Store.DirectoryUsers).
-func (store) DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
-	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
-		Where({{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause().DomainID().Equal(string(domain)).And().ManagedHere().Equal(true))
-	var ids []impulse.UUID
-	for row, err := range query.List(ctx, txn) {
-		if err != nil {
-			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
-		}
-		ids = append(ids, row.Data.ID)
-	}
-
-	return ids, nil
-}
-{{ else }}
-// ManagingTenants answers no tenant: no tenant's directory signs a person of the
-// {{ .Auth }} auth in here, so no tenant manages an account that holds nothing in it
-// (identity.Store.ManagingTenants).
-func (store) ManagingTenants(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]accesstypes.Domain, error) {
-	return nil, nil
-}
-
-// DirectoryUsers answers no account, as ManagingTenants answers no tenant
-// (identity.Store.DirectoryUsers).
-func (store) DirectoryUsers(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]impulse.UUID, error) {
-	return nil, nil
-}
-{{ end }}
+` + identityTenantHoldingsStoreTemplate + `
 // DeleteCosts answers what the delete of one row of each of the {{ .Auth }} auth's tables
 // a tenant's delete takes costs in a commit, as the schema read at generation tells it:
 // the delete and an entry out of each of the table's indexes besides its key, with no
 // change record, since the declarations write none. The withdrawal of an invitation costs
-// the columns ConsumeMailLink writes and an entry of each index that holds one of them. A
-// table the schema does not hold costs nothing (identity.Store.DeleteCosts).
+// what its update costs: the key, the columns ConsumeMailLink writes, and each index that
+// holds one of them, two where the column is in the index's key and one and its stored
+// columns otherwise. A table the schema does not hold costs nothing
+// (identity.Store.DeleteCosts).
 func (store) DeleteCosts() identity.TenantDeleteCosts {
 	return identity.TenantDeleteCosts{
 		{{- range .DeleteCosts }}
@@ -2044,7 +1994,7 @@ func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction
 	}
 	costs := []int{
 		{{- range .UserCascades }}
-		resource.DeleteCost{IndexEntries: {{ .IndexEntries }}}.Mutations(false),
+		resource.DeleteCost{IndexEntries: {{ .IndexEntries }}}.Mutations(0),
 		{{- end }}
 	}
 	rows := 0

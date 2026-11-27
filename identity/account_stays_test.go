@@ -85,9 +85,9 @@ func keptAccountActs() []keptAccountAct {
 // TestManager_removalsKeepTheAccount pins that none of the four acts that can take the
 // last thing a person holds deletes the account: the account's row and its identity link
 // stand and no session of the person ends, for a person who signs in through no tenant's
-// directory and for one whom another tenant's directory signs in, and who manages the
-// account is never asked. The warning before a removal carries no note and the plain
-// button, and the person's own list offers the leaving with nothing said of the account.
+// directory and for one whom another tenant's directory signs in. The warning before a
+// removal carries no note and the plain button, and the person's own list offers the
+// leaving with nothing said of the account.
 func TestManager_removalsKeepTheAccount(t *testing.T) {
 	t.Parallel()
 
@@ -133,9 +133,6 @@ func TestManager_removalsKeepTheAccount(t *testing.T) {
 				}
 				if diff := cmp.Diff([]string{tt.row}, store.writes); diff != "" {
 					t.Errorf("buffered writes (-want +got):\n%s", diff)
-				}
-				if store.managingAsked != 0 {
-					t.Errorf("ManagingTenants() asked %d time(s), want never", store.managingAsked)
 				}
 				if len(mail.asked)+len(mail.sent) != 0 {
 					t.Errorf("mailed %v and asked for %v, want nothing", mail.sent, mail.asked)

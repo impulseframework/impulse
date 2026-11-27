@@ -111,8 +111,20 @@ func roleFormOf(ctx context.Context) auditlog.Form {
 
 // record buffers one row of the audit log in the act's transaction. It fills who acted
 // (acting), the tenant the act was done in where the row names none (tenantOfScope), and
-// the tenant's name.
+// the tenant's name (fill).
 func (m *Manager) record(ctx context.Context, txn resource.ReadWriteTransaction, r *auditlog.Record) error {
+	m.fill(ctx, r)
+	if err := m.store.InsertAuditRecord(ctx, txn, r); err != nil {
+		return errors.Wrap(err, "identity.Store.InsertAuditRecord()")
+	}
+
+	return nil
+}
+
+// fill fills the row as record writes it: who acted (acting), the tenant the act was done
+// in where the row names none (tenantOfScope), and the tenant's name. Filling a filled row
+// changes nothing.
+func (m *Manager) fill(ctx context.Context, r *auditlog.Record) {
 	caller := resource.CallerFrom(ctx)
 	// A person is read from the request's session, which every frame that stamps a
 	// caller serves; a caller stamped where no session is, by a hand-written handler,
@@ -132,11 +144,6 @@ func (m *Manager) record(ctx context.Context, txn resource.ReadWriteTransaction,
 	if r.TenantID != "" {
 		r.TenantName = m.tenantNamed(ctx, accesstypes.Domain(r.TenantID))
 	}
-	if err := m.store.InsertAuditRecord(ctx, txn, r); err != nil {
-		return errors.Wrap(err, "identity.Store.InsertAuditRecord()")
-	}
-
-	return nil
 }
 
 // tenantNamed is what a row calls tenant: the name the application's roster gives it;

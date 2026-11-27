@@ -14,7 +14,7 @@ import (
 
 // TestDeleteTree_Mutations pins the one count of what a delete costs in a commit: each
 // row's delete, an entry in each index of its table, the change record of its removal
-// where changes are tracked, counted at the most its columns can cost (the change history
+// where changes are tracked, counted as the function handed in says (the change history
 // table has no index), and nothing for a stored file's release, which the commit does not carry.
 func TestDeleteTree_Mutations(t *testing.T) {
 	t.Parallel()
@@ -29,8 +29,9 @@ func TestDeleteTree_Mutations(t *testing.T) {
 		},
 		RefusedBy: []DeleteKind{{Resource: "Invoices", Cost: DeleteCost{IndexEntries: 5}}},
 	}
-	// A change record is counted at the most it can write: the table's sixteen columns.
-	changeRecord := 16
+	// A change record is counted as the test hands it in: a person's in a session, eleven
+	// columns.
+	changeRecord := 11
 
 	tests := []struct {
 		name string
@@ -68,21 +69,25 @@ func TestDeleteTree_Mutations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tracked := func(kind accesstypes.Resource) bool {
-				return tt.tracked || slices.Contains(tt.trackedKinds, kind)
+			record := func(kind accesstypes.Resource) int {
+				if tt.tracked || slices.Contains(tt.trackedKinds, kind) {
+					return changeRecord
+				}
+
+				return 0
 			}
-			if got := tree.Mutations(tt.rows, tracked); got != tt.want {
+			if got := tree.Mutations(tt.rows, record); got != tt.want {
 				t.Errorf("DeleteTree.Mutations() = %d, want %d", got, tt.want)
 			}
 		})
 	}
 }
 
-// TestChangeRecordMutations pins what a delete counts a change record to cost: the number
-// of columns the change history table declares, which is the most a record can set, and
-// never less than the fullest record sets (a session acting as a person, through a
-// process, in an RPC method, on a tenant's row), since a save is filled to
-// DeleteMutationLimit with no margin.
+// TestChangeRecordMutations pins what a delete counts the change record of one removed
+// row to cost: the six columns every record sets, the tenant's, and each column of who
+// made the change that holds something, which is what a record of a tenant's row by that
+// source sets (DataChangeEvent.Columns). With no source, or a zero one, it is the columns
+// the change history table declares, the most a record can set.
 func TestChangeRecordMutations(t *testing.T) {
 	t.Parallel()
 
@@ -90,20 +95,53 @@ func TestChangeRecordMutations(t *testing.T) {
 	if len(stmts) == 0 {
 		t.Fatal("DataChangeEventsDDL() = 0 statements, want the table's")
 	}
-	if declared := len(tableColumns(t, stmts[0])); changeRecordMutations != declared {
-		t.Errorf("changeRecordMutations = %d, want the %d columns the table declares", changeRecordMutations, declared)
+	declared := len(tableColumns(t, stmts[0]))
+	if got := ChangeRecordMutations(); got != 16 || got != declared {
+		t.Errorf("ChangeRecordMutations() = %d, want 16, the %d columns the table declares", got, declared)
+	}
+	if got := ChangeRecordMutations(eventsource.EventSource{}); got != declared {
+		t.Errorf("ChangeRecordMutations() of a zero source = %d, want the %d columns the table declares", got, declared)
 	}
 
 	asPerson := accountCtx("bob", bobID, &sessioninfo.Impersonation{
 		Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
 	})
-	fullest := &DataChangeEvent{
-		TableName: "Orders", RowID: "order-1", EventTime: spanner.CommitTimestamp, Operation: ChangeDelete,
-		ChangeSet: spanner.NullJSON{Valid: true, Value: map[string]any{}}, TenantID: "tenant-1",
-		Source: eventsource.UserProcessEvent(WithRPC(WithAuth(asPerson, "crew"), "CloseOrder"), "Import"),
-	}
-	if got := len(fullest.Columns()); got != 15 || got > changeRecordMutations {
-		t.Errorf("the fullest record sets %d columns, want 15, no more than the count %d", got, changeRecordMutations)
+	for _, tt := range []struct {
+		name   string
+		source eventsource.EventSource
+		want   int
+	}{
+		{
+			name:   "the fullest record: a session acting as a person, through a process, in an RPC method",
+			source: eventsource.UserProcessEvent(WithRPC(WithAuth(asPerson, "crew"), "CloseOrder"), "Import"),
+			want:   15,
+		},
+		{
+			name:   "a person in a session",
+			source: eventsource.UserEvent(WithAuth(accountCtx("bob", bobID, nil), "crew")),
+			want:   11,
+		},
+		{
+			name:   "a process alone",
+			source: eventsource.ProcessEvent("Import"),
+			want:   8,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ChangeRecordMutations(tt.source)
+			if got != tt.want {
+				t.Errorf("ChangeRecordMutations() = %d, want %d", got, tt.want)
+			}
+			record := &DataChangeEvent{
+				TableName: "Orders", RowID: "order-1", EventTime: spanner.CommitTimestamp, Operation: ChangeDelete,
+				ChangeSet: spanner.NullJSON{Valid: true, Value: map[string]any{}}, TenantID: "tenant-1", Source: tt.source,
+			}
+			if sets := len(record.Columns()); got != sets {
+				t.Errorf("ChangeRecordMutations() = %d, want the %d columns a record of a tenant's row by the source sets", got, sets)
+			}
+		})
 	}
 }
 

@@ -120,10 +120,9 @@ type fakeStore struct {
 	// cameThrough is the method and the connection an identity came through, for the
 	// identities a test says it of; every other came through google's lakeside.
 	cameThrough map[impulse.UUID]Link
-	// managing are the tenants whose list of their people says they manage each user's
-	// account (ManagingTenants), and managingAsked how many times that was read.
-	managing      map[impulse.UUID][]accesstypes.Domain
-	managingAsked int
+	// managing are the tenants whose directory each user signs in through, for a user
+	// who holds an identity link (TenantHoldings' DirectoryTenants).
+	managing map[impulse.UUID][]accesstypes.Domain
 	// costs are what DeleteCosts answers, and withUser what RowsWithUser answers for
 	// each user (none for the others).
 	costs    TenantDeleteCosts
@@ -251,32 +250,6 @@ func (f *fakeStore) Identities(_ context.Context, _ resource.ReadOnlyTransaction
 	slices.SortFunc(links, func(a, b Link) int { return strings.Compare(a.ID.String(), b.ID.String()) })
 
 	return links, nil
-}
-
-func (f *fakeStore) ManagingTenants(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {
-	if err := f.fail("ManagingTenants"); err != nil {
-		return nil, err
-	}
-	f.managingAsked++
-
-	return f.managing[userID], nil
-}
-
-// DirectoryUsers answers the users whose tenants that manage them (managing) hold the
-// tenant, in key order.
-func (f *fakeStore) DirectoryUsers(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
-	if err := f.fail("DirectoryUsers"); err != nil {
-		return nil, err
-	}
-	var ids []impulse.UUID
-	for id, tenants := range f.managing {
-		if slices.Contains(tenants, domain) {
-			ids = append(ids, id)
-		}
-	}
-	slices.SortFunc(ids, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
-
-	return ids, nil
 }
 
 func (f *fakeStore) DeleteIdentity(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -706,6 +679,128 @@ func (f *fakeStore) TenantMemberships(_ context.Context, _ resource.ReadWriteTra
 	slices.SortFunc(keys, func(a, b access.MembershipKey) int { return strings.Compare(membershipText(&a), membershipText(&b)) })
 
 	return keys, nil
+}
+
+// TenantHoldings answers the people the tenant's delete considers as the generated store
+// reads them: everyone who holds a membership in the tenant, a place in one of its groups
+// or a role on one of its records, ended or not, and everyone with an identity link whose
+// tenants that manage them hold it, in the order of their ids. Each is what the fake's
+// per-person reads answer for them, read with no call failing, so a test that fails one of
+// those reads shows the delete asks it of nobody; DirectoryTenants are what managing holds
+// for a person with an identity link.
+func (f *fakeStore) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]PersonHoldings, error) {
+	if err := f.fail("TenantHoldings"); err != nil {
+		return nil, err
+	}
+	reads := *f
+	reads.failOn = ""
+	held, err := reads.TenantMemberships(ctx, txn, domain)
+	if err != nil {
+		return nil, err
+	}
+	onRecords, _, err := reads.TenantRecordRoles(ctx, txn, domain)
+	if err != nil {
+		return nil, err
+	}
+	groups, err := reads.TenantGroups(ctx, txn, domain)
+	if err != nil {
+		return nil, err
+	}
+	var users []accesstypes.User
+	for _, key := range held {
+		users = append(users, key.User)
+	}
+	for _, key := range onRecords {
+		users = append(users, key.User)
+	}
+	for _, id := range groups {
+		members, err := reads.GroupMembers(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, members...)
+	}
+	for id, tenants := range f.managing {
+		links, err := reads.Identities(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		if len(links) > 0 && slices.Contains(tenants, domain) {
+			users = append(users, User(id))
+		}
+	}
+	var ids []impulse.UUID
+	for _, user := range users {
+		if id, ok := UserID(user); ok && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	slices.SortFunc(ids, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
+
+	people := make([]PersonHoldings, 0, len(ids))
+	for _, id := range ids {
+		person, err := reads.holdings(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		people = append(people, *person)
+	}
+
+	return people, nil
+}
+
+// holdings is one row of TenantHoldings: what the per-person reads answer for the person,
+// the sessions, the records held and the rows with the user among them.
+func (f *fakeStore) holdings(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*PersonHoldings, error) {
+	person := &PersonHoldings{ID: id}
+	var err error
+	if person.Username, person.Found, err = f.Username(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if person.Memberships, err = f.Memberships(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if person.Places, err = f.UserGroups(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if person.RecordRoles, err = f.RecordMemberships(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if person.Links, err = f.Identities(ctx, txn, id); err != nil {
+		return nil, err
+	}
+	if len(person.Links) > 0 {
+		person.DirectoryTenants = f.managing[id]
+	}
+	sessions, err := f.LiveSessions(ctx, txn, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, session := range sessions {
+		live, _, err := f.Impersonation(ctx, txn, session)
+		if err != nil {
+			return nil, err
+		}
+		person.Sessions = append(person.Sessions, LiveSession{ID: session, Record: live})
+	}
+	if person.Found {
+		records, err := f.ImpersonationsHeldBy(ctx, txn, person.Username)
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range records {
+			expired, exists, err := f.SessionExpired(ctx, txn, record.SessionID)
+			if err != nil {
+				return nil, err
+			}
+			person.Held = append(person.Held, HeldRecord{SessionID: record.SessionID, Session: exists && !expired})
+		}
+	}
+	if person.WithUser, err = f.RowsWithUser(ctx, txn, id); err != nil {
+		return nil, err
+	}
+
+	return person, nil
 }
 
 // TenantRoles answers how many rows of the roles table the tenant holds.
