@@ -165,9 +165,12 @@ func readsAt(t *testing.T, reads spxapi.Querier) (string, *spanner.ReadOnlyTrans
 // one read-only transaction, and nothing is gone. A project with nothing under it is
 // counted read-only, then counted once more and deleted in a second run, in the save. A
 // rule that refuses refuses read-only. A delete told to take the rows asks nothing in the
-// first run and takes them in the second. A create beside the delete is made only in the
-// save: not at all where the question is answered. Run without asking, and on a
-// transaction wrapped by hand, the question is read in the save.
+// first run and takes them in the second. A create beside the delete is run only in the
+// save, its own rule asked there alone: not at all where the question is answered. Run
+// without asking, and on a transaction wrapped by hand, the question is read in the save.
+// A delete of a row that takes nothing with it asks nothing in the first run: its own
+// rule is asked in the save alone. A write buffered straight on the transaction of the
+// first run is dropped.
 func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	t.Parallel()
 
@@ -185,11 +188,27 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	if _, err := db.Apply(t.Context(), staged); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
+	// besideRule is the rule the create beside a delete asks: it notes where each
+	// transaction it is handed sends its reads.
+	besideRule := &questionRuleNotes{}
+	// readAt answers where each transaction a rule was handed sent its reads, in order.
+	readAt := func(notes *questionRuleNotes) []string {
+		noted := notes.noted()
+		at := make([]string, 0, len(noted))
+		for _, reads := range noted {
+			place, _ := readsAt(t, reads)
+			at = append(at, place)
+		}
+
+		return at
+	}
 	// deleteOf buffers the project's delete on the transaction, handed the kind, and,
-	// where created names one, the create of another project before it.
+	// where created names one, the create of another project before it, which asks
+	// besideRule.
 	deleteOf := func(ctx context.Context, txn ReadWriteTransaction, id string, kind *notingKind, everythingUnder bool, created string) error {
 		if created != "" {
 			create := NewPatchSet(NewMetadata[questionProject]()).SetPatchType(CreatePatchType)
+			create.RegisterValidateCreateFunc(besideRule.validate)
 			create.SetKey("ID", created)
 			if err := create.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
 				return err
@@ -320,19 +339,25 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	// 5. Another patch beside the delete.
 	name = "a create beside a delete that asks of a project with rows under it"
 	questionRule.reset(false)
+	besideRule.reset(false)
 	runs, err = deleteThrough(true, "beside", &notingKind{rows: 1, calls: nil}, false, "beside-new")
 	asked(name, err)
 	check(name, runs, []string{"read-only"}, "where each run of the function read")
+	if at := readAt(besideRule); len(at) != 0 {
+		t.Errorf("%s: the create's rule read %v, want it not asked: only the delete is run where the request is asked", name, at)
+	}
 	standing(name, "beside", untouched)
 	if got := roundCount(t, db, "SELECT COUNT(*) FROM CascadeProjects WHERE Id = @project", "beside-new"); got != 0 {
 		t.Errorf("%s: %d projects made, want none", name, got)
 	}
 	name = "a create beside a delete that asks of a project with nothing under it"
+	besideRule.reset(false)
 	runs, err = deleteThrough(true, "beside-empty", &notingKind{rows: 0, calls: nil}, false, "beside-empty-new")
 	if err != nil {
 		t.Errorf("%s error = %v, want the project deleted and the other made", name, err)
 	}
 	check(name, runs, []string{"read-only", "in the save"}, "where each run of the function read")
+	check(name, readAt(besideRule), []string{"in the save"}, "where the create's rule read")
 	standing(name, "beside-empty", gone)
 	if got := roundCount(t, db, "SELECT COUNT(*) FROM CascadeProjects WHERE Id = @project", "beside-empty-new"); got != 1 {
 		t.Errorf("%s: %d projects made, want one", name, got)
@@ -362,4 +387,47 @@ func TestExecuteDeleteFunc_asksFirst(t *testing.T) {
 	check(name, rule, []string{"in the save", "in the save"}, "where the rule read")
 	check(name, calls, []string{"Count in the save", "Check in the save"}, "where the kind read")
 	standing(name, "wrapped", untouched)
+
+	// 8. A delete of a row that takes nothing with it.
+	name = "a delete of a task, which takes nothing with it, run asking"
+	plainRule := &questionRuleNotes{}
+	runs = nil
+	err = NewSpannerClient(db).ExecuteDeleteFunc(t.Context(), true, func(ctx context.Context, txn ReadWriteTransaction) error {
+		at, _ := readsAt(t, txn.SpannerReadOnlyTransaction())
+		runs = append(runs, at)
+		task := NewPatchSet(NewMetadata[roundTask]()).SetPatchType(DeletePatchType)
+		task.RegisterValidateDeleteFunc(plainRule.validate)
+		task.SetKey("ID", "wrapped-1")
+
+		return task.Buffer(ctx, txn, eventsource.ProcessEvent("test"))
+	})
+	if err != nil {
+		t.Errorf("%s error = %v, want the task deleted", name, err)
+	}
+	check(name, runs, []string{"read-only", "in the save"}, "where each run of the function read")
+	check(name, readAt(plainRule), []string{"in the save"}, "where the task's rule read")
+	if got := roundCount(t, db, "SELECT COUNT(*) FROM CascadeTasks WHERE Id = @project", "wrapped-1"); got != 0 {
+		t.Errorf("%s: %d tasks left, want none", name, got)
+	}
+
+	// 9. A write buffered straight on the transaction of the first run.
+	name = "a write buffered straight on the transaction of the first run"
+	err = NewSpannerClient(db).ExecuteDeleteFunc(t.Context(), true, func(_ context.Context, txn ReadWriteTransaction) error {
+		direct := NewPatchSet(NewMetadata[questionProject]()).SetPatchType(CreatePatchType)
+		direct.SetKey("ID", "direct-new")
+		if err := txn.BufferMap(direct, map[string]any{"Id": "direct-new"}); err != nil {
+			return errors.Wrap(err, "ReadWriteTransaction.BufferMap()")
+		}
+		if err := txn.BufferStruct(direct); err != nil {
+			return errors.Wrap(err, "ReadWriteTransaction.BufferStruct()")
+		}
+
+		return httpio.NewBadRequestMessage("Nothing more is run.")
+	})
+	if got := httpio.Message(err); got != "Nothing more is run." {
+		t.Errorf("%s: the run answered %v (%q), want the function's own refusal", name, err, got)
+	}
+	if got := roundCount(t, db, "SELECT COUNT(*) FROM CascadeProjects WHERE Id = @project", "direct-new"); got != 0 {
+		t.Errorf("%s: %d projects made, want none", name, got)
+	}
 }
