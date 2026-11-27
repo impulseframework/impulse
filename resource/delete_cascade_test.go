@@ -215,6 +215,28 @@ func assignedTree() *DeleteTree {
 	return tree
 }
 
+// threadedTree describes a project whose delete takes its tasks, each of which may be
+// under another task, the replies on them, each of which may answer another reply, and
+// the reactions to the replies: two tables that nest, one under the other, with a kind
+// under the lower.
+func threadedTree() *DeleteTree {
+	tree := projectTree()
+	tree.Taken = []DeleteKind{
+		{
+			Resource: "CascadeReactions", Words: DeleteWords{One: "reaction", Many: "reactions"}, Key: []string{"Id"},
+			Paths: []DeletePath{{
+				{Columns: []string{"ReplyId"}, Table: "CascadeReplies", References: []string{"Id"}},
+				{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}},
+				{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
+			}},
+		},
+		deepRepliesTree().Taken[0],
+		tree.Taken[2],
+	}
+
+	return tree
+}
+
 // invoicedTree is projectTree with two kinds that refuse the project's delete: an
 // invoice, which names a task and may name a second one it was checked against, and a
 // timesheet, which names a task.

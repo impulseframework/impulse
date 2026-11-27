@@ -371,6 +371,11 @@ func (ranTwice) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn
 	return fakeDatabase{}.ExecuteFunc(ctx, f)
 }
 
+// ExecuteDeleteFunc is ExecuteFunc whatever asks says.
+func (d ranTwice) ExecuteDeleteFunc(ctx context.Context, _ bool, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
+	return d.ExecuteFunc(ctx, f)
+}
+
 // TestManager_DirectoryName pins that the manager names a directory as the session
 // library's registrations do: the directory's method and connection are the ones
 // asked, and the name and the label come back as the library answered them, so the

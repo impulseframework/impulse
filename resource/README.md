@@ -2004,6 +2004,21 @@ with nothing gone where it cannot be made whole:
 - The delete reads what the database held before the save: a row the same save deleted
   is found and deleted again, with the one change record its first delete wrote, and a
   row the same save changed is found where it stood before the save.
+- The question is asked in a read-only transaction, alone. A request whose remove has
+  not said it takes the rows under its record is first run with no read-write
+  transaction open: the record's own checks, the counts, the refusals and each row's
+  check read the database as it stood at one moment and lock nothing, so asking about a
+  record, however much is under it, holds up nobody who is writing, in the record or
+  anywhere else. A refusal or the question is answered from there. Where nothing is
+  under the record there is nothing to ask: the same request then opens its read-write
+  transaction and deletes the record as any delete of one row, its checks made again
+  inside that transaction. The answer is right for a record nobody is changing, which is
+  what is deleted in real use: a record is closed long before it is deleted, or was made
+  by mistake and never used. A delete rule (`@validateDeleteType`) the question asks of
+  a row is handed a transaction that reads at the question's moment, and nothing it
+  buffers is written. In code, `Client.ExecuteDeleteFunc` runs a function this way; a
+  delete buffered in a transaction opened another way (`ExecuteFunc`, `Apply`,
+  `resource.NewSpannerReadWriteTransaction`) asks inside that transaction.
 
 The delete in code is Spanner's write path. The mock client holds no rows and takes none,
 and PostgreSQL has no write path.

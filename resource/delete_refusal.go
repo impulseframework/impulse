@@ -423,7 +423,8 @@ func newRowsUnderStatement(dbType DBType, tree *DeleteTree, kind *DeleteKind, re
 	return rowsUnderStatement{SQL: sql, Args: w.args}, true
 }
 
-// rowCounter runs one count statement inside the delete's transaction.
+// rowCounter runs one count statement where the delete reads: its transaction, or the
+// read-only transaction of its question.
 type rowCounter func(ctx context.Context, statement rowsUnderStatement) (int64, error)
 
 // kindRows is a kind with the number of its rows under a record.
@@ -643,9 +644,9 @@ func (c *SpannerReadWriteTransaction) refuseDeletesOver(ctx context.Context) err
 	return c.deleted.refuse(ctx, SpannerDBType, c.countRows)
 }
 
-// countRows runs one count statement inside the transaction.
+// countRows runs one count statement through the transaction's reads (reads).
 func (c *SpannerReadWriteTransaction) countRows(ctx context.Context, statement rowsUnderStatement) (int64, error) {
-	it := c.txn.Query(ctx, statement.spannerStatement())
+	it := c.reads().Query(ctx, statement.spannerStatement())
 	defer it.Stop()
 
 	row, err := it.Next()

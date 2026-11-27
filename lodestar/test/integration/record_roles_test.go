@@ -806,7 +806,7 @@ func TestRecordRoles_periods(t *testing.T) {
 	assertStatus(t, status, http.StatusOK, body)
 	group := cell[string](t, decodeRow(t, body), "id")
 	w.done("marshal", "give-crew-group-role-on-mission", w.share(first.id, "", group, "MissionObserver", none, none))
-	var last time.Time
+	var last, earliest time.Time
 	endsSoon := func(what string, give func(endsAt time.Time) (int, []byte)) {
 		t.Helper()
 		for _, in := range []time.Duration{2 * time.Second, 10 * time.Second} {
@@ -819,6 +819,9 @@ func TestRecordRoles_periods(t *testing.T) {
 			if ends.After(last) {
 				last = ends
 			}
+			if earliest.IsZero() || ends.Before(earliest) {
+				earliest = ends
+			}
 
 			return
 		}
@@ -830,7 +833,7 @@ func TestRecordRoles_periods(t *testing.T) {
 	endsSoon("gus's place in the group", func(endsAt time.Time) (int, []byte) {
 		return w.as("marshal", http.MethodPost, sectorPath(anvil, "add-crew-sector-group-member"), periodBody(t, map[string]any{"groupId": group, "userId": w.ids["gus"]}, none, endsAt))
 	})
-	if before := []string{w.listedJoined("sam"), w.listedJoined("gus")}; time.Now().Before(last) && !slices.Equal(before, []string{fmt.Sprint(withFirst), fmt.Sprint(withFirst)}) {
+	if before := []string{w.listedJoined("sam"), w.listedJoined("gus")}; time.Now().Before(earliest) && !slices.Equal(before, []string{fmt.Sprint(withFirst), fmt.Sprint(withFirst)}) {
 		t.Errorf("before the ends, sam and gus list %v, want each the Cadet's missions and the first, %v", before, withFirst)
 	}
 	time.Sleep(time.Until(last.Add(300 * time.Millisecond)))

@@ -405,6 +405,11 @@ func (p *PatchSet[Resource]) Apply(ctx context.Context, client Client, eventSour
 // An OrCreate or OrSkip patch decides its case first, from whether its row is
 // there (patch_fork.go), and then runs as the create or the update it decided on.
 func (p *PatchSet[Resource]) Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
+	// A question transaction runs a delete that asks first and nothing else
+	// (SpannerClient.ExecuteDeleteFunc).
+	if question, ok := txn.(*SpannerReadWriteTransaction); ok && question.asking() && p.patchType != DeletePatchType {
+		return nil
+	}
 	if p.fork != nil {
 		return p.bufferFork(ctx, txn, eventSource...)
 	}
@@ -804,6 +809,9 @@ func (p *PatchSet[Resource]) DeleteLeft() *DeleteLeft {
 // takes the last row under it.
 func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	p.deleteLeft = nil
+	if question, ok := txn.(*SpannerReadWriteTransaction); ok && question.asking() {
+		return p.askDelete(ctx, txn, eventSource...)
+	}
 	if _, err := p.checkDelete(ctx, txn); err != nil {
 		return err
 	}
@@ -822,6 +830,31 @@ func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTran
 	}
 
 	return p.bufferCheckedDelete(ctx, txn, eventSource...)
+}
+
+// askDelete is the delete of the patch's row on a question transaction
+// (SpannerClient.ExecuteDeleteFunc), which buffers nothing. A delete told to take the
+// rows under its record is the read-write transaction's, and so is one deleteTaken does
+// not answer for (PatchSet.takes): it has nothing to ask, and its own check and the count
+// before the commit are made in the read-write transaction. Every other delete is
+// checked (checkDelete) and asks (deleteTaken) as it would in a read-write transaction,
+// and its error, a refusal or the question, is returned as it is. None means nothing is
+// under the record.
+func (p *PatchSet[Resource]) askDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
+	if p.everythingUnder {
+		return nil
+	}
+	if p.takes(txn) == nil {
+		return nil
+	}
+	if _, err := p.checkDelete(ctx, txn); err != nil {
+		return err
+	}
+	if _, err := p.deleteTaken(ctx, txn, eventSource...); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // bufferTaken buffers the delete of a row that a record's delete takes with it. That

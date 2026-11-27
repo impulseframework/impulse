@@ -46,8 +46,11 @@ import (
 // wraps its own transaction, so only the run that committed tells the engine.
 //
 // Inside a hook everything is read and written through the transaction it was handed:
-// the Spanner emulator allows one read-write transaction at a time, and a second one,
-// or a read through another client, would wait on this one for good.
+// the Spanner emulator allows one read-write transaction at a time, and a second one
+// would wait on this one for good. A read-only read under the context the transaction
+// handed its function is refused at once by the Spanner client ("Cloud Spanner does not
+// support nested transactions"); under the request's own context it is made beside the
+// open transaction and does not wait on it.
 //
 // Where a person belongs to one tenant (WithOneTenantPerPerson), the two hooks of one
 // sign-in share what they have given under the transaction they were both handed, so

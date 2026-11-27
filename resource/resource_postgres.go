@@ -67,6 +67,11 @@ func (c *PostgresClient) ExecuteFunc(_ context.Context, _ func(ctx context.Conte
 	panic("ExecuteFunc() not implemented for PostgresClient")
 }
 
+// ExecuteDeleteFunc panics, as ExecuteFunc does: PostgreSQL has no write path.
+func (c *PostgresClient) ExecuteDeleteFunc(_ context.Context, _ bool, _ func(ctx context.Context, _ ReadWriteTransaction) error) error {
+	panic("ExecuteDeleteFunc() not implemented for PostgresClient")
+}
+
 // ReadOnlyTransaction returns a ReadOnlyTransaction that can be used for multiple reads from the database.
 // You must call Close() when the ReadOnlyTransaction is no longer needed to release resources on the server.
 func (c *PostgresClient) ReadOnlyTransaction() ReadOnlyTransactionCloser {

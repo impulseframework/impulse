@@ -70,11 +70,19 @@ func (a *App) PatchResources() http.HandlerFunc {
 		// with it where one left any.
 		var left *resource.DeleteLeft
 
+		// A remove that has not been told to take what is under its record asks first: the
+		// request is then run with no read-write transaction open, and one is opened only
+		// where there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
+		asks, err := resource.RemovesAsk(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := a.ResourceClient().ExecuteDeleteFunc(ctx, asks, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			tenantsWritten = false
 			left = nil
