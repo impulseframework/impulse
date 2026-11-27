@@ -3591,6 +3591,55 @@ describe('identityPages, an Auth that keeps groups', () => {
     expect(answers).toEqual([{ answer: undefined }]);
   });
 
+  it("sends the token the server's question gave beside everythingUnder in a group's delete, at the next press and after a 202", async () => {
+    const remove = presentation(list(global[1]).rowMethods, 'DeleteCrewGroup');
+    const offered: OfferedMethod = {
+      method: 'DeleteCrewGroup' as Method,
+      meta: { target: { resource: 'CrewListedGroups', key: { groupId: 'id' } } } as unknown as MethodMeta,
+      label: 'Delete',
+      presentation: remove,
+    };
+    const counted = "Delete this group and everything under it: 3 members, 2 roles. This can't be undone.";
+    const sent: Record<string, unknown>[] = [];
+    const handle = {
+      execute: (body: Record<string, unknown>): Promise<unknown> => {
+        sent.push(body);
+        if (!body['everythingUnder']) {
+          return Promise.reject(
+            new ApiError('POST', '/api/delete-crew-group', 428, { message: counted, records: 5, token: 't-1' }),
+          );
+        }
+        return Promise.resolve(
+          sent.length === 2 ? { status: 202, result: { deleted: 3 } } : { status: 204, result: undefined },
+        );
+      },
+      warning: (): Promise<never> => Promise.reject(new Error('DeleteCrewGroup declares no warning')),
+    };
+    TestBed.configureTestingModule({ providers: [provideNoopAnimations()] });
+    const answers: unknown[] = [];
+    openDeleteMethodDialog(TestBed.inject(MatDialog), handle, offered, { id: 'g-1', name: 'Deck crew' }).subscribe(
+      (answer) => answers.push(answer),
+    );
+    const rest = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+    const press = async (): Promise<void> => {
+      await rest();
+      [...document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button')]
+        .find((button) => button.textContent?.trim() === 'Delete')
+        ?.click();
+      await rest();
+    };
+
+    await press();
+    await press();
+    await rest();
+    expect(sent).toEqual([
+      { groupId: 'g-1' },
+      { groupId: 'g-1', everythingUnder: true, token: 't-1' },
+      { groupId: 'g-1', everythingUnder: true, token: 't-1' },
+    ]);
+    expect(answers).toEqual([{ answer: undefined }]);
+  });
+
   it("draws a group's row page with the people in it and the roles it holds, each list under the group", () => {
     expect(
       children(global[1]).map((child) => [

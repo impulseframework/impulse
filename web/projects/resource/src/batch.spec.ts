@@ -193,6 +193,21 @@ describe('client.batch', () => {
     ]);
   });
 
+  it("sends the question's token with everythingUnder, and no token without it or where it is empty", async () => {
+    const transport = recording();
+    const client = api(transport);
+    await client.clients.remove(['c1'], { everythingUnder: true, token: 't-1' });
+    await client.clients.remove(['c2'], { everythingUnder: true, token: '' });
+    await client.clients.remove(['c3'], { everythingUnder: true });
+    await client.clients.remove(['c4'], { token: 't-1' });
+    expect(transport.requests.map((request) => request.body)).toEqual([
+      [{ op: 'remove', path: '/c1', value: { everythingUnder: true, token: 't-1' } }],
+      [{ op: 'remove', path: '/c2', value: { everythingUnder: true } }],
+      [{ op: 'remove', path: '/c3', value: { everythingUnder: true } }],
+      [{ op: 'remove', path: '/c4' }],
+    ]);
+  });
+
   it("carries what the handle's own remove says to the route of the resource", async () => {
     const transport = recording();
     const client = api(transport);

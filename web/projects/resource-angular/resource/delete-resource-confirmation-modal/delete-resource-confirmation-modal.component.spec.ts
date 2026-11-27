@@ -66,9 +66,14 @@ describe('DeleteResourceConfirmationModal', () => {
   }
   const overlay = (): Element | null => document.querySelector('.cdk-overlay-container');
   // The server's question, with the records it counted under the row where it gives the
-  // number (`records`), as a server from before the number does not.
-  const asksFirst = (message: string, records?: number): ApiError =>
-    new ApiError('PATCH', '/api/resources', 428, records === undefined ? { message } : { message, records });
+  // number (`records`), as a server from before the number does not, and the token the
+  // delete that goes ahead brings back where it gives one.
+  const asksFirst = (message: string, records?: number, token?: string): ApiError =>
+    new ApiError('PATCH', '/api/resources', 428, {
+      message,
+      ...(records === undefined ? {} : { records }),
+      ...(token === undefined ? {} : { token }),
+    });
 
   async function drawn(asked?: DeleteConfirmation): Promise<HTMLElement> {
     await TestBed.configureTestingModule({
@@ -456,6 +461,103 @@ describe('DeleteResourceConfirmationModal', () => {
     await server.answer({ deleted: 60 });
 
     expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 560 of 600 records…');
+
+    await server.answer(undefined);
+
+    expect(answers).toEqual([true]);
+  });
+
+  it("sends back the token the server's question gave, at the press after it and at each request after a 202", async () => {
+    const server = answered();
+    const { answers } = opened({ from: 'Missions', delete: server.run });
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 38,000 sorties. This can't be undone.", 38000, 't-1'),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 6800 });
+    await server.answer(undefined);
+
+    expect(server.said).toEqual([
+      undefined,
+      { everythingUnder: true, token: 't-1' },
+      { everythingUnder: true, token: 't-1' },
+    ]);
+    expect(answers).toEqual([true]);
+  });
+
+  it('shows a question the server asks part way, with the records already deleted, counts on to its own number from them, and sends its token from then on', async () => {
+    const server = answered();
+    const { ref, answers } = opened({ from: 'Missions', delete: server.run });
+    const again = "Delete this mission and everything under it: 24,400 sorties. This can't be undone.";
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 38,000 sorties. This can't be undone.", 38000, 't-1'),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 6800 });
+    await server.answer({ deleted: 6800 });
+    await server.answer(asksFirst(again, 24400, 't-2'));
+
+    expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(again);
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('13,600 records are already deleted.');
+    expect(overlay()?.querySelector('.refusal')).toBeNull();
+    expect(buttons().map((button) => [textOf(button), button.disabled])).toEqual([
+      ['Cancel', false],
+      ['Delete', false],
+    ]);
+    expect(ref.disableClose).toBeFalsy();
+    expect(answers).toEqual([]);
+
+    await press('Delete');
+    await server.answer({ deleted: 6800 });
+
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('Deleted 20,400 of 38,000 records…');
+
+    await server.answer(undefined);
+
+    expect(server.said).toEqual([
+      undefined,
+      { everythingUnder: true, token: 't-1' },
+      { everythingUnder: true, token: 't-1' },
+      { everythingUnder: true, token: 't-1' },
+      { everythingUnder: true, token: 't-2' },
+      { everythingUnder: true, token: 't-2' },
+    ]);
+    expect(answers).toEqual([true]);
+  });
+
+  // The dialog draws Close alone beside a refusal, so Delete pressed again is its own
+  // `confirm`, as a page that keeps the dialog open would call it.
+  it('keeps its token past a refusal part way, and shows the question the server then asks, whose token the next press sends', async () => {
+    const server = answered();
+    const { ref, answers } = opened({ from: 'Missions', delete: server.run });
+    const again = "Delete this mission and everything under it: 100 sorties. This can't be undone.";
+
+    await press('Delete');
+    await server.answer(
+      asksFirst("Delete this mission and everything under it: 600 sorties. This can't be undone.", 600, 't-1'),
+    );
+    await press('Delete');
+    await server.answer({ deleted: 500 });
+    await server.answer(new ApiError('PATCH', '/api/resources', 400, { message: 'A sortie is being flown.' }));
+
+    void ref.componentInstance.confirm();
+    await rest();
+
+    expect(server.said.at(-1)).toEqual({ everythingUnder: true, token: 't-1' });
+
+    await server.answer(asksFirst(again, 100, 't-2'));
+
+    expect(textOf(overlay()?.querySelector('.question') ?? null)).toBe(again);
+    expect(overlay()?.querySelector('.refusal')).toBeNull();
+    expect(textOf(overlay()?.querySelector('.progress') ?? null)).toBe('500 records are already deleted.');
+
+    await press('Delete');
+
+    expect(server.said.at(-1)).toEqual({ everythingUnder: true, token: 't-2' });
 
     await server.answer(undefined);
 

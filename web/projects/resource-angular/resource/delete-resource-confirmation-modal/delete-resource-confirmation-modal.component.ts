@@ -29,10 +29,12 @@ export interface DeleteConfirmation {
    * the server refuses is answered where it was asked, in the server's words ("This
    * squadron has 3 missions. Delete them first."). It resolves once the row is gone and
    * rejects with the client's `ApiError` on a refusal. A row whose delete takes records
-   * with it is deleted in two presses: the server answers the first with its own
-   * question (a 428), and the dialog runs the delete again with `everythingUnder` once
-   * the person has read that question and pressed Delete, so the delete passes the
-   * options on to the client (`ops.remove(key, options)`). A delete too large for one
+   * with it is deleted in two presses: the server answers the first with its own question
+   * (a 428), and the dialog runs the delete again with `everythingUnder` and the token
+   * that question gave once the person has read it and pressed Delete, so the delete
+   * passes the options on to the client (`ops.remove(key, options)`). The server may ask
+   * again at a later press (the token expired, or a request failed): the dialog shows the
+   * new question and goes on from the records already deleted. A delete too large for one
    * request resolves with the records the server deleted (`DeleteLeft`, a 202), and the
    * dialog runs it again; it resolves with nothing once the row is gone. Left out, the
    * dialog only answers the question, and whoever opened it does the delete.
@@ -66,6 +68,16 @@ function recordsOf(body: unknown): number | undefined {
   const { records } = body as Record<string, unknown>;
 
   return typeof records === 'number' ? records : undefined;
+}
+
+/** The token the server's question gave (the `token` of its body), where its body holds one that is not empty. */
+function tokenOf(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null) {
+    return undefined;
+  }
+  const { token } = body as Record<string, unknown>;
+
+  return typeof token === 'string' && token !== '' ? token : undefined;
 }
 
 /** The number of the next dialog, so each one's line of what to type has an id of its own. */
@@ -181,6 +193,8 @@ export class DeleteResourceConfirmationModalComponent {
   private total: number | undefined;
   /** The records the delete's requests have deleted, added up across presses while the dialog is open. */
   private done = 0;
+  /** The token the server's last question gave (its `token`), which every request with `everythingUnder` brings back; undefined where it gave none. */
+  private token: string | undefined;
   /** The text a person types before the row is deleted; empty where the page asks for none. */
   readonly typedText = this.asked?.typed?.trim() ?? '';
   /** The id of the line that says what to type, which names the input to a screen reader. */
@@ -235,7 +249,8 @@ export class DeleteResourceConfirmationModalComponent {
    * that question, and the next press runs the delete with `everythingUnder`. A delete
    * that answers with the records it deleted runs again, with `everythingUnder`, until an
    * answer says nothing of them. While the input does not hold the text the page asks
-   * for, it does nothing.
+   * for, it does nothing. A question the server asks at a later press is shown as the
+   * first one is, and its token takes the place of the one before.
    */
   async confirm(): Promise<void> {
     if (this.held()) {
@@ -253,11 +268,11 @@ export class DeleteResourceConfirmationModalComponent {
     this.busy.set(true);
     this.dialogRef.disableClose = true;
     try {
-      let left = deleteLeftOf(await run(this.everythingUnder ? { everythingUnder: true } : undefined));
+      let left = deleteLeftOf(await run(this.everythingUnder ? this.takingOptions() : undefined));
       while (left !== undefined) {
         this.done += left.deleted;
         this.progress.set(this.going());
-        left = deleteLeftOf(await run({ everythingUnder: true }));
+        left = deleteLeftOf(await run(this.takingOptions()));
       }
       this.close(true);
     } catch (error) {
@@ -265,11 +280,17 @@ export class DeleteResourceConfirmationModalComponent {
         this.close(false);
         throw error;
       }
-      if (error.status === asksFirst && !this.everythingUnder) {
+      if (error.status === asksFirst) {
+        // The server's question, at the first press or at a later one: it counts what is
+        // still under the row, and its token takes the place of the one before.
         this.everythingUnder = true;
-        this.total = recordsOf(error.body);
+        this.token = tokenOf(error.body);
+        const records = recordsOf(error.body);
+        this.total = records === undefined ? undefined : this.done + records;
         this.question.set(error.message);
         this.warned.set(undefined);
+        this.refusal.set('');
+        this.progress.set(this.done > 0 ? `${this.count(this.done)} records are already deleted.` : '');
         return;
       }
       this.refusal.set(error.message);
@@ -282,6 +303,11 @@ export class DeleteResourceConfirmationModalComponent {
       this.busy.set(false);
       this.dialogRef.disableClose = closable;
     }
+  }
+
+  /** What a request that takes the records under the row says: `everythingUnder`, and the token the server's question gave where it gave one. */
+  private takingOptions(): RemoveOptions {
+    return this.token === undefined ? { everythingUnder: true } : { everythingUnder: true, token: this.token };
   }
 
   /**

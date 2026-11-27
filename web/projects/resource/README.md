@@ -13,6 +13,7 @@ the `Api` type. This package interprets the descriptor at runtime, so behavior f
 ship here without regenerating applications.
 
 ```ts
+import { ApiError } from '@impulseframework/resource';
 import { createApi } from './zz_gen_api';
 
 const api = createApi({ baseUrl: '/api' });
@@ -43,17 +44,26 @@ await api.batch([
 await api.batch([api.clients.ops.patch([clientId], { trusted: true })]);
 
 // A record that declares what goes with it (@deleteCascade) is deleted with nothing said
-// only while nothing is under it. With records under it the server deletes nothing and
-// answers 428, an ApiError whose message is the question to ask a person first ("Delete
-// this work order and everything under it: 4 work order tasks. This can't be undone.").
-// The same delete saying it takes them deletes those records and the row; ops.remove
-// takes the same option. A delete too large for one request deletes what fits and
-// resolves with what it deleted ({ deleted }, a DeleteLeft, from a 202), the row
-// still standing; the same remove, sent again, goes on, and resolves with nothing once
-// the row is gone.
-let left = await station.workOrders.remove([orders[0].id], { everythingUnder: true });
-while (left) {
-  left = await station.workOrders.remove([orders[0].id], { everythingUnder: true });
+// only while nothing is under it. A row with records under it is deleted in two steps:
+// the first remove is answered 428 with the question to ask a person and a token, and
+// the remove that goes ahead brings the token back. The 428 is an ApiError whose message
+// is the question ("Delete this work order and everything under it: 4 work order tasks.
+// This can't be undone.") and whose body holds the token; ops.remove takes the same
+// options. A delete too large for one request deletes what fits and resolves with what
+// it deleted ({ deleted }, a DeleteLeft, from a 202), the row still standing; the same
+// remove, sent again with the token, goes on, and resolves with nothing once the row is
+// gone.
+try {
+  await station.workOrders.remove([orders[0].id]);
+} catch (error) {
+  if (!(error instanceof ApiError) || error.status !== 428) {
+    throw error;
+  }
+  const { token } = error.body as { token: string };
+  let left = await station.workOrders.remove([orders[0].id], { everythingUnder: true, token });
+  while (left) {
+    left = await station.workOrders.remove([orders[0].id], { everythingUnder: true, token });
+  }
 }
 
 // A page that learns its methods at run time (from the generated method metadata)
