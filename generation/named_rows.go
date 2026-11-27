@@ -148,12 +148,12 @@ func (r *resourceGenerator) namedRowKinds(resources []*resourceInfo) (byName map
 // A view's or a computed list's row carries the table the column's foreign key
 // references where it has one (Stored). Not declared: a column whose source is an
 // enumeration table, which everyone picks from under no grant; a source the run does not
-// list, which has no picker and nothing to read it by; a list of roles (a source whose key
-// is marked @roleOf), whose rows are the roles a person hands out, which the grant of the
-// method that hands them out says; the column that holds the row's own tenant key, which
-// the request stamps; a column the server never stores (input only); and, on a resource
-// that belongs to no tenant, a column naming a tenant's row, which no request of one
-// tenant writes.
+// list, which has no picker and nothing to read it by; the column that holds the row's
+// own tenant key, which the request stamps; a column the server never stores (input
+// only); and, on a resource that belongs to no tenant, a column naming a tenant's row,
+// which no request of one tenant writes. A column picked from a list of roles is declared
+// as any other: no method's grant stands over a write, so the writer's list is what holds
+// it.
 func (r *resourceGenerator) namedRowOf(res *resourceInfo, field *resourceField, byName map[string]*resourceInfo, lists map[string]*computedResource) *namedRow {
 	target, ok := pointedToResource(field)
 	if !ok || field.IsInputOnly() {
@@ -186,7 +186,7 @@ func (r *resourceGenerator) namedRowOf(res *resourceInfo, field *resourceField, 
 
 		return row
 	}
-	if !r.registersList(pointed) || keyHoldsRoles(pointed) {
+	if !r.registersList(pointed) {
 		return nil
 	}
 	keyColumn, keyed := pointedToKeyColumn(field, pointed, field.HasDeclaredEnumeration())
@@ -215,11 +215,11 @@ func tableNamedRow(inTenant bool, field namedField, table, keyColumn string, poi
 }
 
 // viewNamedRow is the declaration of a column or a field picked from the view pointed:
-// its own key, a List the run registers, a key that is no role's, and, for a tenant's
-// view, the view's bare @domain, named in a request of a tenant (inTenant). The caller
-// adds the table a column's foreign key references (Stored).
+// its own key, a List the run registers, and, for a tenant's view, the view's bare
+// @domain, named in a request of a tenant (inTenant). The caller adds the table a column's
+// foreign key references (Stored).
 func (r *resourceGenerator) viewNamedRow(inTenant bool, field namedField, target string, pointed *resourceInfo) *namedRow {
-	if !r.registersList(pointed) || keyHoldsRoles(pointed) {
+	if !r.registersList(pointed) {
 		return nil
 	}
 	keyColumn, keyed := soleKeyColumn(pointed)
@@ -239,14 +239,11 @@ func (r *resourceGenerator) viewNamedRow(inTenant bool, field namedField, target
 }
 
 // computedNamedRow is the declaration of a column or a field picked from the computed
-// list: one @primarykey field that is no role's, and a list the run serves; a tenant's
-// list, named in a request of a tenant (inTenant), asked in the request's tenant. The
-// caller adds the table a column's foreign key references (Stored).
+// list: one @primarykey field, and a list the run serves; a tenant's list, named in a
+// request of a tenant (inTenant), asked in the request's tenant. The caller adds the table
+// a column's foreign key references (Stored).
 func (r *resourceGenerator) computedNamedRow(inTenant bool, field namedField, target string, list *computedResource) *namedRow {
 	if len(list.PrimaryKeys()) != 1 || !r.genRoutes || list.RoutingDisabled() || list.SuppressListHandler {
-		return nil
-	}
-	if list.PrimaryKey().RoleOf() != "" {
 		return nil
 	}
 	row := &namedRow{Field: field, Resource: target, Computed: true, list: list}
@@ -362,14 +359,19 @@ func (r *resourceGenerator) pickedRowOf(method *rpcMethodInfo, field *rpcField, 
 		if list == nil {
 			return nil
 		}
+		if len(list.PrimaryKeys()) == 1 && list.PrimaryKey().RoleOf() != "" {
+			return nil
+		}
 
 		return r.computedNamedRow(inTenant, field, target, list)
+	case keyHoldsRoles(pointed):
+		return nil
 	case pointed.IsVirtual:
 		return r.viewNamedRow(inTenant, field, target, pointed)
 	case pointed.IsTenant && !inTenant:
 		return nil
 	}
-	if !r.registersList(pointed) || keyHoldsRoles(pointed) {
+	if !r.registersList(pointed) {
 		return nil
 	}
 	keyColumn, keyed := soleKeyColumn(pointed)

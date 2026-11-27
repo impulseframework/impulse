@@ -623,7 +623,7 @@ type (
 	}
 
 	// Duty is a list of roles: a computed list of the whole application keyed by a role's
-	// name, which neither a column nor a method's picked field is held to.
+	// name, which a method's picked field is not held to and a column is.
 	//
 	// @computed
 	Duty struct {

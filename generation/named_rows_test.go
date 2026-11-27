@@ -53,9 +53,10 @@ func namedRowsOf(t *testing.T, noRoutes bool, unlisted, enumerations []string, n
 // and of a computed list whose list the run serves, its List asked in the tenant for a
 // tenant's list, each with the table its foreign key references where it has one; and
 // not a key into an enumeration table (Grades, and a listed table the run takes for one),
-// a table or a view the run does not list, a computed list with no list, a list of roles
-// (a computed list or a view whose key is marked @roleOf), the row's own tenant key, or a
-// tenant's row named from a resource of no tenant.
+// a table or a view the run does not list, a computed list with no list, the row's own
+// tenant key, or a tenant's row named from a resource of no tenant. A column picked from a
+// list of roles (a computed list or a view whose key is marked @roleOf) is declared as any
+// other: only a method's field is left to the method's own grant.
 func Test_resolveNamedRows(t *testing.T) {
 	t.Parallel()
 
@@ -150,9 +151,14 @@ func Test_resolveNamedRows(t *testing.T) {
 			want:     map[string][]string{},
 		},
 		{
-			name:    "a column picked from a list of roles, a computed list's or a view's",
+			name:    "a column picked from a list of roles, a computed list's or a view's, is held as any other",
 			structs: []string{"Base", "Duty", "Rank", "Watch"},
-			want:    map[string][]string{},
+			want: map[string][]string{
+				"Watch": {
+					`{Field: "DutyName", Resource: "Duties", Table: "", KeyColumn: "", Computed: true}`,
+					`{Field: "RankName", Resource: "Ranks", Table: "Ranks", KeyColumn: "Name", View: true}`,
+				},
+			},
 		},
 	}
 	for _, tt := range tests {

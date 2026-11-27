@@ -982,7 +982,11 @@ across every application on this stack:
 - **A picked field names a row the caller can list.** A request field that declares
   `@enumerate` is filled by a picker over that list, and the generated handler holds what
   the request sends in it to the rows the caller's own list shows, before the body runs
-  (section 26). A method's body does not check it again.
+  (section 26). A method's body does not check it again. The hold is the generated
+  handler's, so two things stay the author's: a method that suppresses its handler
+  (`@suppress`) makes the call itself, in the handler it writes
+  (`resource.Caller.HoldPicked`), and a body that takes a row's key any other way (a
+  field with no picker, a request it builds for another method) checks that key itself.
 
 ### A method that warns before it runs
 
@@ -5484,7 +5488,9 @@ every policy store's schema holds it).
   role, a length and the reason, which is required here. The lengths are the ones
   `CrewTakeLengths` lists (1 hour, 4 hours, 8 hours, 1 day), and the role is held from
   now until the length is over, when it ends by itself as any period does. A longer
-  need is an ordinary role with an end.
+  need is an ordinary role with an end. The length is picked from that list, so a role
+  that runs `TakeCrewRole` also holds the List on `CrewTakeLengths`, and a length the
+  list does not hold is answered as a row that is not there (section 26).
 - Taking gives nobody a power that giving themselves the role directly would not.
   Beside the grant of `TakeCrewRole`, the caller needs what `AssignCrewRole` needs of
   them for the same role in the same place, asked for themselves, which a super
@@ -7165,8 +7171,13 @@ column picked from a computed list takes no id the list does not hold.
 
 A method's picked field is held the same way. A field of an `@rpc` struct with a field-scope
 `@enumerate` names only a row the caller's list of that kind shows, each key of a field that
-takes several, and a request that names any other is answered the same 404, after the grant's
-own refusal and before the method's warning, its transaction and its body.
+takes several, and a request that names any other is answered the same 404, after the
+method's grant has refused a caller who may not run it, or whose request its condition does
+not admit, and before the method's warning, its transaction and its body. A condition the
+grant carries on the row the method acts on is judged later, in the transaction, so a
+request that fails both reads this refusal. A field left empty, or an empty item of a field
+that takes several, names no row and is not asked: what an empty field means is the body's
+to say.
 
 An update that leaves the column as it is is not asked, and neither is a row the same
 transaction created before in the request's tenant, nor a write made outside a request (a
@@ -7181,11 +7192,14 @@ The rule holds for a column and a field the generator declares (`NamedRows()` on
 resource; the call of `HoldPicked` in a method's generated handler): one whose source is a
 table, a view or a computed list of the application that serves a list. The generated
 decoders are handed the views and the lists to ask (`WithNamedRowSources`); a decoder built
-by hand is handed them the same way. Not held: a column or a field picked from an enumeration
-table, since everyone picks from those; one picked from a list of roles (a list whose key is
-marked `@roleOf`), since which roles a person hands out is said on the method's own grant
-(`new.role`) and the list is made from that grant; a field of a method of the whole
-application picked from a tenant's list, or from the tenant record: the tenant such a method
-names is the place it acts in, as a tenant's method takes its tenant from its address, and
-what the caller may do there is for the method's own grant and its body to say; and the
-column that holds the row's own tenant key.
+by hand is handed them the same way. A method that suppresses its generated handler
+(`@suppress`) has no such call: the handler the application writes makes it. Not held: a
+column or a field picked from an enumeration table, since everyone picks from those; a
+method's field picked from a list of roles (a list whose key is marked `@roleOf`), since
+which roles a person hands out is said on the method's own grant (`new.role`) and the list
+is made from that grant, while a column picked from such a list is held as any other, no
+method's grant standing over a write; a field of a method of the whole application picked
+from a tenant's list, or from the tenant record: the tenant such a method names is the place
+it acts in, as a tenant's method takes its tenant from its address, and what the caller may
+do there is for the method's own grant and its body to say; and the column that holds the
+row's own tenant key.

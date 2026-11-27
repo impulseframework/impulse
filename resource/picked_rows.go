@@ -9,12 +9,13 @@ import (
 )
 
 // A method's request can pick rows as a column does: a field whose picker lists a table, a
-// view or a computed list the application lists. The method's body holds each such field to
-// the rows its caller can list (HoldPicked), as a write holds a column (checkNamedRows): the
-// picker offers only those rows, and the method refuses any other as a row that is not
-// there. The question is the one a write asks (listedAsk), over the method's caller and the
-// application's client, read outside any transaction. A method's request names no row it
-// made itself, and leaves no value as it was: there is no pass for either.
+// view or a computed list the application lists. The method's generated handler holds each
+// such field to the rows its caller can list (HoldPicked), before the body runs, as a write
+// holds a column (checkNamedRows): the picker offers only those rows, and the method
+// refuses any other as a row that is not there. The question is the one a write asks
+// (listedAsk), over the method's caller and the application's client, read outside any
+// transaction. A method's request names no row it made itself, and leaves no value as it
+// was: there is no pass for either.
 
 // PickedRow is one picked field of a method's request, with what the request holds in it.
 type PickedRow struct {
