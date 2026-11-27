@@ -6,6 +6,8 @@ package staffidentity
 import (
 	"context"
 	"iter"
+	"slices"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -1045,64 +1047,182 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 	return nil
 }
 
-// ManagingTenants lists the tenants whose own list of their people
-// (StaffTenantUser) says they manage the user's account, the rows of the user whose
-// ManagedHere is true, read in the caller's transaction through the list's query type.
-// A tenant's delete asks it of each account it considers
-// (identity.Store.ManagingTenants).
-func (store) ManagingTenants(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]accesstypes.Domain, error) {
-	query := staffresources.NewStaffTenantUserQuery().
-		AddColumns(staffresources.NewStaffTenantUserColumns().DomainID()).
-		Where(staffresources.NewStaffTenantUserQueryClause().ID().Equal(userID).And().ManagedHere().Equal(true))
-	var tenants []accesstypes.Domain
-	for row, err := range query.List(ctx, txn) {
-		if err != nil {
-			return nil, errors.Wrap(err, "staffresources.StaffTenantUserQuery.List()")
-		}
-		tenants = append(tenants, accesstypes.Domain(row.Data.DomainID))
-	}
-
-	return tenants, nil
+// tenantHoldingsMembership is one membership of a person as TenantHoldings reads it.
+type tenantHoldingsMembership struct {
+	Kind     string `spanner:"Kind"`
+	Axis     string `spanner:"Axis"`
+	DomainID string `spanner:"DomainId"`
+	Role     string `spanner:"Role"`
 }
 
-// DirectoryUsers lists the accounts the tenant's directory manages: the rows of its own
-// list of its people (StaffTenantUser) whose ManagedHere is true, the view ManagingTenants
-// reads, in the caller's transaction. A tenant's delete takes the ones that hold
-// nothing elsewhere (identity.Store.DirectoryUsers).
-func (store) DirectoryUsers(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
-	query := staffresources.NewStaffTenantUserQuery().
-		AddColumns(staffresources.NewStaffTenantUserColumns().ID()).
-		Where(staffresources.NewStaffTenantUserQueryClause().DomainID().Equal(string(domain)).And().ManagedHere().Equal(true))
-	var ids []impulse.UUID
-	for row, err := range query.List(ctx, txn) {
-		if err != nil {
-			return nil, errors.Wrap(err, "staffresources.StaffTenantUserQuery.List()")
+// tenantHoldingsPlace is one place of a person in a group, with where the group is kept,
+// as TenantHoldings reads it.
+type tenantHoldingsPlace struct {
+	ID       string `spanner:"Id"`
+	Kind     string `spanner:"Kind"`
+	Axis     string `spanner:"Axis"`
+	DomainID string `spanner:"DomainId"`
+}
+
+// tenantHoldingsLink is one identity link of a person as TenantHoldings reads it, with
+// the tenants whose directory it came through.
+type tenantHoldingsLink struct {
+	ID         string   `spanner:"Id"`
+	Method     string   `spanner:"Method"`
+	Connection string   `spanner:"Connection"`
+	Tenants    []string `spanner:"Tenants"`
+}
+
+// tenantHoldingsSession is one session of a person that has not ended, as TenantHoldings
+// reads it.
+type tenantHoldingsSession struct {
+	ID string `spanner:"Id"`
+}
+
+// TenantHoldings reads the people a tenant's delete considers and what each holds, in
+// the caller's transaction, by two statements: the first starts from the tenant's key and
+// reaches each person's rows by their tables' indexes on the user, and the second reads,
+// for the people the first found, their sessions, the impersonation records they hold and
+// what the database removes with their rows. A row whose user is no account's id names
+// nobody, and a role on a record whose period has ended is left out, as RecordMemberships
+// leaves it (identity.Store.TenantHoldings).
+func (store) TenantHoldings(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]identity.PersonHoldings, error) {
+	stmt := spanner.Statement{SQL: "SELECT p.UserId, (SELECT u.Username FROM StaffSessionUsers u WHERE u.Id = p.UserId) AS Username, ARRAY(SELECT AS STRUCT m.Kind, m.Axis, m.DomainId, m.Role FROM StaffUserRoles m WHERE m.UserId = p.UserId) AS Memberships, ARRAY(SELECT AS STRUCT g.Id, g.Kind, g.Axis, g.DomainId FROM StaffGroupMembers gm JOIN StaffGroups g ON g.Id = gm.GroupId WHERE gm.UserId = p.UserId) AS Places, ARRAY(SELECT AS STRUCT i.Id, i.Method, i.Connection, ARRAY(SELECT d.TenantId FROM TenantDirectories d WHERE d.Method = i.Method AND d.Connection = i.Connection) AS Tenants FROM StaffSessionIdentities i WHERE i.UserId = p.UserId) AS Links FROM (SELECT m.UserId FROM StaffUserRoles m WHERE m.Kind = @kind AND m.Axis = @axis AND m.DomainId = @domain UNION DISTINCT SELECT gm.UserId FROM StaffGroups g JOIN StaffGroupMembers gm ON gm.GroupId = g.Id WHERE g.Kind = @groupKind AND g.Axis = @groupAxis AND g.DomainId = @groupDomain UNION DISTINCT SELECT i.UserId FROM TenantDirectories d JOIN StaffSessionIdentities i ON i.Method = d.Method AND i.Connection = d.Connection WHERE d.TenantId = @tenant) p ORDER BY p.UserId", Params: map[string]any{}}
+	held := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	stmt.Params["kind"], stmt.Params["axis"], stmt.Params["domain"] = held.Kind, held.Axis, held.Domain
+	kept := access.NewGroupRoleKey("", accesstypes.DomainPolicyScope(domain), "")
+	stmt.Params["groupKind"], stmt.Params["groupAxis"], stmt.Params["groupDomain"] = kept.Kind, kept.Axis, kept.Domain
+	stmt.Params["tenant"] = string(domain)
+	var people []identity.PersonHoldings
+	// ids are the people's ids as the statement read them, which no two of its rows share:
+	// the second statement is asked by them and its rows are matched by them.
+	var ids []string
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var user string
+		var username spanner.NullString
+		if err := row.ColumnByName("UserId", &user); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
 		}
-		ids = append(ids, row.Data.ID)
+		if err := row.ColumnByName("Username", &username); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		id, ok := identity.UserID(accesstypes.User(user))
+		if !ok {
+			return nil
+		}
+		person := identity.PersonHoldings{ID: id, Username: username.StringVal, Found: username.Valid}
+		var memberships []*tenantHoldingsMembership
+		if err := row.ColumnByName("Memberships", &memberships); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, m := range memberships {
+			person.Memberships = append(person.Memberships, access.MembershipKey{Kind: m.Kind, Axis: m.Axis, Domain: m.DomainID, Role: accesstypes.Role(m.Role), User: accesstypes.User(user)})
+		}
+		var places []*tenantHoldingsPlace
+		if err := row.ColumnByName("Places", &places); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, place := range places {
+			groupID, err := impulse.UUIDFromString(place.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Places = append(person.Places, identity.GroupPlace{ID: groupID, Kind: place.Kind, Axis: place.Axis, Domain: place.DomainID})
+		}
+		var links []*tenantHoldingsLink
+		if err := row.ColumnByName("Links", &links); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, link := range links {
+			linkID, err := impulse.UUIDFromString(link.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Links = append(person.Links, identity.Link{ID: linkID, Method: sessioninfo.AuthMethod(link.Method), Connection: link.Connection})
+			for _, tenant := range link.Tenants {
+				if !slices.Contains(person.DirectoryTenants, accesstypes.Domain(tenant)) {
+					person.DirectoryTenants = append(person.DirectoryTenants, accesstypes.Domain(tenant))
+				}
+			}
+		}
+		slices.Sort(person.DirectoryTenants)
+		people = append(people, person)
+		ids = append(ids, user)
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	if len(people) == 0 {
+		return nil, nil
 	}
 
-	return ids, nil
+	at := make(map[string]int, len(ids))
+	for i, id := range ids {
+		at[id] = i
+	}
+	costs := []int{
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+	}
+	stmt = spanner.Statement{SQL: "SELECT p.UserId, ARRAY(SELECT AS STRUCT s.Id FROM StaffSessions s WHERE s.UserId = p.UserId AND s.Expired = FALSE) AS Sessions, (SELECT COUNT(*) FROM StaffSessionDeviceCodes c0 WHERE c0.UserId = p.UserId) AS WithUser0, (SELECT COUNT(*) FROM StaffSessionIdentities c0 WHERE c0.UserId = p.UserId) AS WithUser1, (SELECT COUNT(*) FROM StaffSessionMailLinks c0 WHERE c0.UserId = p.UserId) AS WithUser2, (SELECT COUNT(*) FROM StaffSessionTokens c0 WHERE c0.UserId = p.UserId) AS WithUser3, (SELECT COUNT(*) FROM StaffSessionTrustedDevices c0 WHERE c0.UserId = p.UserId) AS WithUser4 FROM (SELECT id AS UserId FROM UNNEST(@people) AS id) p ORDER BY p.UserId", Params: map[string]any{"people": ids}}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		var user string
+		if err := row.ColumnByName("UserId", &user); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		person := &people[at[user]]
+		var sessions []*tenantHoldingsSession
+		if err := row.ColumnByName("Sessions", &sessions); err != nil {
+			return errors.Wrap(err, "spanner.Row.ColumnByName()")
+		}
+		for _, session := range sessions {
+			sessionID, err := impulse.UUIDFromString(session.ID)
+			if err != nil {
+				return errors.Wrap(err, "impulse.UUIDFromString()")
+			}
+			person.Sessions = append(person.Sessions, identity.LiveSession{ID: sessionID})
+		}
+		for i, cost := range costs {
+			var count int64
+			if err := row.ColumnByName("WithUser"+strconv.Itoa(i), &count); err != nil {
+				return errors.Wrap(err, "spanner.Row.ColumnByName()")
+			}
+			person.WithUser += int(count) * cost
+		}
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return people, nil
 }
 
 // DeleteCosts answers what the delete of one row of each of the Staff auth's tables
 // a tenant's delete takes costs in a commit, as the schema read at generation tells it:
 // the delete and an entry out of each of the table's indexes besides its key, with no
 // change record, since the declarations write none. The withdrawal of an invitation costs
-// the columns ConsumeMailLink writes and an entry of each index that holds one of them. A
-// table the schema does not hold costs nothing (identity.Store.DeleteCosts).
+// what its update costs: the key, the columns ConsumeMailLink writes, and each index that
+// holds one of them, two where the column is in the index's key and one and its stored
+// columns otherwise. A table the schema does not hold costs nothing
+// (identity.Store.DeleteCosts).
 func (store) DeleteCosts() identity.TenantDeleteCosts {
 	return identity.TenantDeleteCosts{
-		Membership:       resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		Group:            resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		GroupMember:      resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		GroupRole:        resource.DeleteCost{IndexEntries: 1}.Mutations(false),
-		Role:             resource.DeleteCost{IndexEntries: 0}.Mutations(false),
-		Identity:         resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		User:             resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		RecordMembership: resource.DeleteCost{IndexEntries: 1}.Mutations(true),
-		RecordGroupRole:  resource.DeleteCost{IndexEntries: 2}.Mutations(true),
-		Invitation:       4,
-		SessionEnd:       3,
+		Membership:       resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		Group:            resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		GroupMember:      resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		GroupRole:        resource.DeleteCost{IndexEntries: 1}.Mutations(0),
+		Role:             resource.DeleteCost{IndexEntries: 0}.Mutations(0),
+		Identity:         resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		User:             resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		RecordMembership: resource.DeleteCost{IndexEntries: 1}.Mutations(resource.ChangeRecordMutations()),
+		RecordGroupRole:  resource.DeleteCost{IndexEntries: 2}.Mutations(resource.ChangeRecordMutations()),
+		Invitation:       8,
+		SessionEnd:       5,
 	}
 }
 
@@ -1117,11 +1237,11 @@ func (store) RowsWithUser(ctx context.Context, txn resource.ReadWriteTransaction
 		Params: map[string]any{"userId": userID.String()},
 	}
 	costs := []int{
-		resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		resource.DeleteCost{IndexEntries: 3}.Mutations(false),
-		resource.DeleteCost{IndexEntries: 4}.Mutations(false),
-		resource.DeleteCost{IndexEntries: 4}.Mutations(false),
-		resource.DeleteCost{IndexEntries: 3}.Mutations(false),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 4}.Mutations(0),
+		resource.DeleteCost{IndexEntries: 3}.Mutations(0),
 	}
 	rows := 0
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
