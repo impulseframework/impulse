@@ -2052,8 +2052,9 @@ with nothing gone where it cannot be made whole:
 - The delete reads what the database held before the save: a row the same save deleted
   is found and deleted again, with the one change record its first delete wrote, and a
   row the same save changed is found where it stood before the save.
-- The question is asked in a read-only transaction, alone. A request whose remove has
-  not said it takes the rows under its record is first run with no read-write
+- The question is asked in a read-only transaction, alone. A request whose remove does
+  not bring the token its question gave (a remove with no value, or one that says
+  `everythingUnder` with no token) is first run with no read-write
   transaction open: the record's own checks, the counts, the refusals and each row's
   check read the database as it stood at one moment and lock nothing, so asking about a
   record, however much is under it, holds up nobody who is writing, in the record or

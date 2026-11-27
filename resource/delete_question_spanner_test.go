@@ -611,6 +611,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	tasks := map[string]int{
 		"asked": 2, "none": 2, "four": 2, "other": 2, "refused": 2, "several": 5, "fails": 3, "dry": 2,
 		"nosession": 2, "code": 2, "code-nosession": 2, "invoiced": 2, "pair-a": 2, "pair-b": 3, "timed": 5,
+		"bare": 0,
 	}
 	for project, n := range tasks {
 		staged = append(staged, spanner.InsertMap("CascadeProjects", map[string]any{"Id": project}))
@@ -834,6 +835,15 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 		t.Errorf("%s: the token's row is gone, want it kept", name)
 	}
 	check(name, readRoundState(t, db, "dry"), untouched("dry"), "the project")
+
+	// A dry run of a request that asks and has nothing to ask runs in the save too.
+	name = "a dry run that asks about a project with nothing under it"
+	run = runTokenDeletes[tokenProject](t, db, ada, true, true, tokenDelete{id: "bare"})
+	if !errors.Is(run.err, ErrDryRun) {
+		t.Errorf("%s: error = %v, want ErrDryRun", name, run.err)
+	}
+	check(name, run.runs, []string{"read-only", "in the save"}, "where each run of the function read")
+	check(name, readRoundState(t, db, "bare"), untouched("bare"), "the project")
 
 	// 9. No session.
 	name = "a question with no session"

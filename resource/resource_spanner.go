@@ -175,10 +175,11 @@ func (c *SpannerClient) executeFunc(ctx context.Context, refusesOutside bool, f 
 // and of the patches f buffers only a delete that asks first is run (PatchSet.Buffer
 // does nothing there for any other). An error f returns there, a refusal or the question
 // a person is asked first, is the answer, and no read-write transaction was opened.
-// Where f returns none, nothing was asked, and f is run again as ExecuteFunc runs it:
-// the delete then reads and checks inside its own transaction. Where asks is false it is
-// ExecuteFunc. f must start each run from nothing, as it must for ExecuteFunc, which
-// runs it again when Spanner aborts the transaction.
+// Where f returns none, or ends a dry run there (ErrDryRun), nothing was asked, and f is
+// run again as ExecuteFunc runs it: the delete then reads and checks inside its own
+// transaction, and a dry run makes every write's own checks before it is rolled back.
+// Where asks is false it is ExecuteFunc. f must start each run from nothing, as it must
+// for ExecuteFunc, which runs it again when Spanner aborts the transaction.
 //
 // A delete that brings a token (PatchSet.DeleteWithToken) is not asked first: its request
 // says asks false, and the token is read inside the read-write transaction. Where it does
@@ -193,7 +194,7 @@ func (c *SpannerClient) ExecuteDeleteFunc(ctx context.Context, asks bool, f func
 			return err
 		}
 	}
-	if err := c.ask(ctx, f); err != nil {
+	if err := c.ask(ctx, f); err != nil && !errors.Is(err, ErrDryRun) {
 		return err
 	}
 

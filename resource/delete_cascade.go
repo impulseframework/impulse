@@ -1634,8 +1634,7 @@ func (d *takingDelete) bufferedOne() {
 
 // logSave logs the one line of a save whose round returned: the rows it took, how long
 // it ran, how long before its first row, and what ended it, its end, its budget or its
-// time limit. The lab reads a large delete's saves from it, and an operator why one is
-// slow.
+// time limit. It is the line that tells an operator why a delete is slow.
 func (d *takingDelete) logSave(ctx context.Context, round *takenRound) {
 	ended := "its budget"
 	switch {
