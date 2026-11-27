@@ -439,7 +439,7 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 					t.Errorf("%s of %s lacks %q:\n%s", handler, name, want, rendered)
 				}
 			}
-			const asksFirst = "A remove that has not been told to take what is under its record asks first: the request is then run with no read-write transaction open, and one is opened only where there was nothing to ask (resource.Executor.ExecuteDeleteFunc)."
+			const asksFirst = "A remove that does not bring the token its question gave asks first: the request is then run with no read-write transaction open, and one is opened only where there was nothing to ask (resource.Executor.ExecuteDeleteFunc)."
 			if prose := strings.Join(strings.Fields(strings.ReplaceAll(rendered, "//", "")), " "); !strings.Contains(prose, asksFirst) {
 				t.Errorf("%s of %s lacks the comment %q:\n%s", handler, name, asksFirst, rendered)
 			}

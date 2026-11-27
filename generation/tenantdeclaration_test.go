@@ -1085,7 +1085,7 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 				assertContains(t, name, out, nil, []string{".Remove(ctx, txn,"})
 				assertInOrder(t, out,
 					// The tenant record's delete takes rows: its patch is kept, handed what the
-					// auth holds for the tenant, buffered, and kept to say what it left.
+					// auth holds for the tenant, buffered, and kept to say what it deleted.
 					"patch := "+packageOf[name]+".New"+tt.resource+"DeletePatchFromPatchSet(id, patchSet)",
 					"patch.DeleteAlso(a.StaffIdentity().TenantKinds(accesstypes.Domain(id.String()))...)",
 					"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
@@ -1101,7 +1101,7 @@ func Test_tenantRecord_deleteTakesItsDirectory(t *testing.T) {
 // handler and in the consolidated one, in an application with rows under a tenant (its
 // directories) and in one with none: the caller's grants answer first, then the rule that
 // a tenant is disabled before it is deleted, then the delete is handed what the auths hold
-// for the tenant and buffered, what it left is kept, and the handler answers 202 with it
+// for the tenant and buffered, what it deleted is kept, and the handler answers 202 with it
 // once the commit has landed. No other resource asks the rule or hands its delete a kind.
 func Test_tenantRecord_deleteRequiresDisabled(t *testing.T) {
 	t.Parallel()

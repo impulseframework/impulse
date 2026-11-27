@@ -256,7 +256,7 @@ func TestManager_DeleteUser(t *testing.T) {
 		{name: "a person who holds no role: the engine is not told", caller: erin, noRoles: true, wantWrites: whole[:3]},
 		{name: "told everything under, the row's delete takes what goes with the account", caller: erin, everythingUnder: true, wantWrites: append([]string{taking}, rest...), wantChanged: 1},
 		{name: "rows that go with the account are asked about first, and nothing is buffered", caller: erin, asks: true, wantErr: httpio.HasPreconditionRequired},
-		{name: "a save that leaves rows answers what it left, and nothing else is buffered", caller: erin, everythingUnder: true, left: left, wantLeft: left, wantWrites: []string{taking}},
+		{name: "a save that leaves rows answers what it deleted, and nothing else is buffered", caller: erin, everythingUnder: true, left: left, wantLeft: left, wantWrites: []string{taking}},
 		{name: "the caller's own account is refused: the caller carries the account's id", caller: dana, wantErr: httpio.HasForbidden},
 		{name: "a user that does not exist is not found", caller: erin, missing: true, wantErr: httpio.HasNotFound},
 	}

@@ -391,7 +391,7 @@ func TestTakingDelete_reachStatements(t *testing.T) {
 // TestPatchSet_deleteTaken_withinReachRounds holds, over the emulator, an account's
 // delete in saves too small for its rows, for a caller checked in Acme: with one row of
 // another tenant the first request is refused, 409, and nothing goes; without it the
-// rounds go as any delete's do, each answering what it left, and the account goes last.
+// rounds go as any delete's do, each answering what it deleted, and the account goes last.
 func TestPatchSet_deleteTaken_withinReachRounds(t *testing.T) {
 	t.Parallel()
 

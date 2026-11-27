@@ -156,7 +156,7 @@ func (roundComment) Resource() accesstypes.Resource {
 
 // deleteRound runs one request's delete of the record R with the id, told to take what
 // is under it, in a save that holds size mutations (DeleteMutationLimit for 0), handed
-// source as who made the change, and returns what the delete left (PatchSet.DeleteLeft).
+// source as who made the change, and returns the delete's answer (PatchSet.DeleteLeft).
 func deleteRound[R Resourcer](t *testing.T, db *spanner.Client, id string, size int, source eventsource.EventSource) (*DeleteLeft, error) {
 	t.Helper()
 
@@ -716,7 +716,7 @@ func (k *innerDelete) Take(ctx context.Context, txn ReadWriteTransaction, _ int,
 
 // deleteSave runs one request's delete of the record R with the id, told to take what is
 // under it, in a save whose time is limit (PatchSet.deleteSaveTime; the transaction's for
-// 0), handed kinds, and returns what the delete left (PatchSet.DeleteLeft).
+// 0), handed kinds, and returns the delete's answer (PatchSet.DeleteLeft).
 func deleteSave[R Resourcer](t *testing.T, db *spanner.Client, id string, limit time.Duration, kinds ...TakenKind) (*DeleteLeft, error) {
 	t.Helper()
 

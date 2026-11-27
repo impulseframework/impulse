@@ -674,7 +674,7 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			tenant: true,
 			auth:   true,
 			wantContains: []string{
-				// The tenant record's delete takes rows: its patch is kept, to say what it left.
+				// The tenant record's delete takes rows: its patch is kept, to say what it deleted.
 				"patch := tenantfixture.NewSectorDeletePatchFromPatchSet(id, patchSet)\n",
 				"patch.DeleteAlso(a.StaffIdentity().TenantKinds(accesstypes.Domain(id.String()))...)\n",
 				"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",

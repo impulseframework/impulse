@@ -19,7 +19,7 @@ package integration
 // delete, or one row its rule refuses, stops the whole delete with nothing gone. A
 // client with a mission is refused whatever the request says. A record whose rows cost
 // more than one commit takes is deleted in rounds: each request takes what fits, deepest
-// first, and answers what it deleted and what is left, and the same request sent again
+// first, and answers what it deleted, and the same request sent again
 // goes on until the record goes with the last of them. The deletes are the Spanner write
 // path's.
 //
@@ -1037,9 +1037,9 @@ func TestDistressCall_caseNumberIsUniqueWithinASector(t *testing.T) {
 // TestDeleteCascade_rounds pins a delete whose rows cost more than one commit takes. A
 // sortie costs three mutations, its delete and an entry in each of two indexes, so a
 // mission with 26,700 sorties is over the 80,000 a commit takes. Asked first, the delete
-// counts them all. Confirmed, each request takes what fits and answers 202 with what it
-// deleted and what is left under the mission, the two adding up to the question's count
-// the first time; the mission stands after every round but the last, and the same
+// counts them all. Confirmed, each request takes what fits and answers 202 with the rows
+// it deleted alone, and the sorties that stand are the question's count less those
+// deleted so far; the mission stands after every round but the last, and the same
 // request sent again goes on until it answers 200 with nothing left. The mission keeps a
 // change record, and its delete writes one; its sorties keep none.
 //
