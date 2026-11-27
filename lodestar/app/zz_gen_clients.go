@@ -280,8 +280,8 @@ func (a *App) PatchClients() http.HandlerFunc {
 		}
 		live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)
 		if left != nil {
-			// A delete that took what fits one save says what is left: the same request,
-			// sent again, goes on.
+			// A delete that took what fits one save answers the rows it deleted: the same
+			// request, sent again, goes on.
 			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
 		}
 

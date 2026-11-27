@@ -476,13 +476,13 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_roles.go":               {"// @suppress(readHandler)", "// @suppress(patchHandler)", "// @outlet(default)", "CrewRole struct {"},
 		// The method that deletes a person asks first where the application's rows go with
 		// the account, as a group's delete asks: it says whether the person confirmed, and
-		// answers what one save left.
+		// answers the rows one save deleted.
 		"crewidentity/delete_crew_user.go": {
 			"// @answers(202, 204)\ntype DeleteCrewUser struct {",
 			"\t// EverythingUnder says the person was asked what the account's delete takes and\n\t// confirmed it, so the delete takes the application's rows that go with the account.\n\tEverythingUnder bool\n\t// Token is the token the delete's question gave (the 428's \"token\"): with\n\t// EverythingUnder, the delete takes what is under the account only on it.\n\t//\n\t// @deleteToken\n\tToken string\n}",
 			"type DeleteCrewUserResult struct {\n\tDeleted int64 `json:\"deleted\"`\n}",
 			"// HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.\nfunc (*DeleteCrewUserResult) HTTPStatus() int {\n\treturn http.StatusAccepted\n}",
-			"// Execute buffers the removal into the caller's transaction. It answers nothing (204)\n// once the account is gone, and what one save left (202) while it stands.\nfunc (m *DeleteCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*DeleteCrewUserResult, error) {",
+			"// Execute buffers the removal into the caller's transaction. It answers nothing (204)\n// once the account is gone, and the rows one save deleted (202) while it stands.\nfunc (m *DeleteCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*DeleteCrewUserResult, error) {",
 			"left, err := client.manager.DeleteUser(ctx, txn, m.UserID, m.EverythingUnder)\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"identity.Manager.DeleteUser()\")\n\t}\n\tif left == nil {\n\t\treturn nil, nil\n\t}\n\n\treturn &DeleteCrewUserResult{Deleted: left.Deleted}, nil",
 		},
 		"crewidentity/client.go": {

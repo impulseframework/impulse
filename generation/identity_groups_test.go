@@ -121,9 +121,9 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		},
 		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
 		// A group's delete takes its members and roles, after the question, and answers
-		// what one save left; the caller needs the grants of removing each member and
-		// taking each role whose period has not ended, and nothing is asked of one that
-		// has ended.
+		// the rows one save deleted; the caller needs the grants of removing each member
+		// and taking each role whose period has not ended, and nothing is asked of one
+		// that has ended.
 		"crewidentity/delete_crew_group.go": {
 			"// @answers(202, 204)\n// @class(access)\ntype DeleteCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID",
 			"\tEverythingUnder bool\n\t// Token is the token the delete's question gave (the 428's \"token\"): with\n\t// EverythingUnder, the delete takes what is under the group only on it.\n\t//\n\t// @deleteToken\n\tToken string\n}",

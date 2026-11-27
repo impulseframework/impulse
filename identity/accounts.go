@@ -121,8 +121,8 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // has such a row, it deletes nothing and answers the question a person is asked first,
 // with their counts, and so it does asked with it where the request's token
 // (resource.DeleteTokenFrom) does not hold; where they are more than one save holds, it
-// answers what the save left, and the account stands whole, with its sessions and its
-// ways to sign in, until a save takes the last of them. Called where no token was
+// answers the rows the save deleted, and the account stands whole, with its sessions and
+// its ways to sign in, until a save takes the last of them. Called where no token was
 // declared, by a job or by a method that declares no @deleteToken, it takes them on
 // code's word, every save asking everything again
 // (resource.PatchSet.DeleteEverythingUnder). Once the row goes, every session the person

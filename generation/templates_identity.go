@@ -2772,8 +2772,8 @@ import (
 // go with the account, and with it the application's rows that name the account in a
 // column that says so (@deletedWith). Asked without EverythingUnder of an account that
 // has such a row, it deletes nothing and answers the question a person is asked first,
-// with their counts; asked with it, it takes them. Nobody deletes themselves: the
-// caller's own account is refused.
+// with their counts; asked with it and the question's token, it takes them. Nobody
+// deletes themselves: the caller's own account is refused.
 //
 // The rows that go with the account go on this method's grant: no grant is asked on
 // their own tables. For a request made for the whole application every such row goes.
@@ -2839,7 +2839,7 @@ func (m *Delete{{ .Subject }}User) Warning(ctx context.Context, txn resource.Rea
 {{- end }}
 
 // Execute buffers the removal into the caller's transaction. It answers nothing (204)
-// once the account is gone, and what one save left (202) while it stands.
+// once the account is gone, and the rows one save deleted (202) while it stands.
 func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Delete{{ .Subject }}UserResult, error) {` + identityTenantGuardAnswering + `
 	left, err := client.manager.DeleteUser(ctx, txn, m.UserID, m.EverythingUnder)
 	if err != nil {

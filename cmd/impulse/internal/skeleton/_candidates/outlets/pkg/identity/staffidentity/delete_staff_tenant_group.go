@@ -18,9 +18,9 @@ import (
 // DeleteStaffTenantGroup deletes a group of the Staff auth with its members and the
 // roles it holds. Asked without EverythingUnder of a group that has either, it deletes
 // nothing and answers the question a person is asked first, with their counts; asked with
-// it, it takes them. Each member and each role whose period has not ended is asked what
-// its own removal asks, so nobody deletes a group that gives them the last administrator's
-// role of a tenant.
+// it and the question's token, it takes them. Each member and each role whose period has
+// not ended is asked what its own removal asks, so nobody deletes a group that gives them
+// the last administrator's role of a tenant.
 //
 // It is a tenant's method: served under the address of one Tenant, it names a
 // row of StaffTenantGroup, the tenant's own list of its groups. A group kept in
@@ -58,7 +58,8 @@ func (*DeleteStaffTenantGroupResult) HTTPStatus() int {
 
 // Execute asks the caller's grants of taking each member out of the group and each role
 // from it (mayEmpty), then buffers the delete into the caller's transaction. It answers
-// nothing (204) once the group is gone, and what one save left (202) while it stands.
+// nothing (204) once the group is gone, and the rows one save deleted (202) while it
+// stands.
 func (m *DeleteStaffTenantGroup) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*DeleteStaffTenantGroupResult, error) {
 	if err := m.mayEmpty(ctx, txn); err != nil {
 		return nil, err

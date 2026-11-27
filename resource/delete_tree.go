@@ -12,8 +12,8 @@ import (
 
 const (
 	// DeleteMutationLimit is the most mutations Spanner takes in one commit. A delete
-	// that would need more takes what fits and says what is left (PatchSet.DeleteLeft);
-	// the same delete sent again takes the next part.
+	// that would need more takes what fits and answers the rows it deleted
+	// (PatchSet.DeleteLeft); the same delete sent again takes the next part.
 	DeleteMutationLimit = 80_000
 
 	// DefaultDeleteSaveTime is how long one save of a delete that takes rows runs where

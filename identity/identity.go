@@ -112,8 +112,8 @@ type Store interface {
 	// first (428). Called where no token was declared, by a job or by a method that
 	// declares no @deleteToken, it takes them on code's word, every save asking everything
 	// again (resource.PatchSet.DeleteEverythingUnder). It is refused while a row names the
-	// account in a column that does not say so. It answers what one save left, nil where
-	// the row went.
+	// account in a column that does not say so. It answers the rows one save deleted, nil
+	// where the row went.
 	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error)
 	// DeleteUserWithTenant buffers the delete of the user row of an account that goes with
 	// its tenant, and nothing of the application's: the tenant's delete takes the

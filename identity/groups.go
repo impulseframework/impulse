@@ -60,15 +60,15 @@ type GroupStore interface {
 	// group with either deletes nothing and answers the question a person is asked first
 	// (428). Called where no token was declared, by a job or by a method that declares no
 	// @deleteToken, it takes them on code's word, every save asking everything again
-	// (resource.PatchSet.DeleteEverythingUnder). It answers what one save left (nil where
-	// the group went), and is not armed against a caller: the members and the roles are
-	// taken trusted.
+	// (resource.PatchSet.DeleteEverythingUnder). It answers the rows one save deleted (nil
+	// where the group went), and is not armed against a caller: the members and the roles
+	// are taken trusted.
 	DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error)
 	// DeleteGroupWithTenant buffers the delete of a group that goes with its tenant: its
 	// members and the roles it holds with it, and nothing of the application's. The
 	// tenant's delete takes the application's rows under the tenant itself, on its one
 	// permission, so the rows that name the group are neither counted, asked about nor
-	// taken here. It answers what one save left, as DeleteGroup does.
+	// taken here. It answers the rows one save deleted, as DeleteGroup does.
 	DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error)
 	// TenantGroups lists the groups kept in one tenant.
 	TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
@@ -207,11 +207,11 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 // so nobody deletes a group that gives them the last administrator's role of a tenant; a
 // role held on a record administers no tenant and is asked nothing. A member or a role
 // whose period has ended gives nobody anything and is asked nothing: the delete takes it
-// with the rest, and counts it in the question. It answers what one save left where the
-// group had more under it than one save holds (nil once the group is gone). The save that
-// deletes the group's own row writes the row of its removal, done to the group by its
-// name, in the tenant it is kept in; a save that leaves the group standing writes none,
-// and its members and roles have no row of their own.
+// with the rest, and counts it in the question. It answers the rows one save deleted
+// where the group had more under it than one save holds (nil once the group is gone). The
+// save that deletes the group's own row writes the row of its removal, done to the group
+// by its name, in the tenant it is kept in; a save that leaves the group standing writes
+// none, and its members and roles have no row of their own.
 func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

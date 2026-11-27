@@ -1085,10 +1085,10 @@ const (
 
 	// deleteLeftAnswered is spliced into a handler's answer once the commit has landed and
 	// open pages are told: a request with a delete that left rows under its record
-	// answers 202 with what its deletes left (deleteLeftKept).
+	// answers 202 with the rows its deletes took (deleteLeftKept).
 	deleteLeftAnswered = `if left != nil {
-			// A delete that took what fits one save says what is left: the same request,
-			// sent again, goes on.
+			// A delete that took what fits one save answers the rows it deleted: the same
+			// request, sent again, goes on.
 			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
 		}`
 
