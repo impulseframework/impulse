@@ -162,15 +162,17 @@ func runUnasked(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[stri
 // asked of refuses before it is sent (joinLimit), nil asking nothing; a frontier read
 // pageRows rows a page (takingDelete.pageRows), the delete's own where it is zero; a save
 // that asks nothing (takingDelete.unasked); the save's time limit (takingDelete.limit),
-// the default where it is zero; and the row at whose asking the save's time passes
-// (passesAt): each run of the function then hands its delete a clock of its own with an
-// hour to run, whose limit becomes a nanosecond as the row of that name is asked.
+// the default where it is zero; and the row at whose asking (passesAt), or the page at
+// whose reading (passesAtPage, 1 for the first the save reads), the save's time passes:
+// each run of the function then hands its delete a clock of its own with an hour to run,
+// whose limit becomes a nanosecond as the row of that name is asked or that page is read.
 type takingHow struct {
-	refuses  func(sql string) error
-	pageRows int
-	unasked  bool
-	limit    time.Duration
-	passesAt string
+	refuses      func(sql string) error
+	pageRows     int
+	unasked      bool
+	limit        time.Duration
+	passesAt     string
+	passesAtPage int
 }
 
 // joinLimit is the tests' stand-in for the database's refusal of a statement that joins
@@ -203,8 +205,8 @@ func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key ma
 	}
 	run := &cascadeRun{}
 	rows.asked, rows.made = &run.asked, &run.made
-	// clock is the clock of the run of the function going, where how names a row at whose
-	// asking its time passes: the emulator may abort a transaction and run the function
+	// clock is the clock of the run of the function going, where how names a row or a page
+	// at which its time passes: the emulator may abort a transaction and run the function
 	// again, and a clock already passed would be passed before the first page.
 	var clock *saveClock
 	if how.passesAt != "" {
@@ -236,6 +238,9 @@ func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key ma
 			txn:   spannerTxn,
 			page: func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error) {
 				run.pages++
+				if run.pages == how.passesAtPage {
+					clock.limit = time.Nanosecond
+				}
 				run.statements = append(run.statements, statement.SQL)
 				if err := refuses(statement.SQL); err != nil {
 					return nil, err
@@ -258,7 +263,7 @@ func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key ma
 			unasked:  how.unasked,
 			limit:    how.limit,
 		}
-		if how.passesAt != "" {
+		if how.passesAt != "" || how.passesAtPage != 0 {
 			clock = newSaveClock(time.Hour)
 			taking.clock = clock
 		}

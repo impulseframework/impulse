@@ -2003,8 +2003,8 @@ with nothing gone where it cannot be made whole:
   save ends at Spanner's 80,000 mutations or at its time limit, whichever comes first, and
   always takes at least one row. Where a save's time has passed before it reaches its
   first row, it takes the whole of the first page of rows it reads (the rows of one kind
-  at one level, as many as the commit has room for), so a delete is never left taking one
-  row a request; that save runs past its limit by its reads and that page. The limit is
+  at one level, as many as the commit has room for), so that it does not take one row a
+  request; that save runs past its limit by its reads and that page. The limit is
   the client's (`resource.WithDeleteSaveTime`; `resource.DefaultDeleteSaveTime` without
   it, none where it is set below zero): keep it under the time the deployment gives a
   request. The 202 does not say how many rows are left: the question's answer (the 428)

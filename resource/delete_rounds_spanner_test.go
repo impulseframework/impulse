@@ -646,7 +646,9 @@ func TestPatchSet_deleteTaken_roundsNestedToAnyDepth(t *testing.T) {
 
 // pacedKind is a kind of row a test hands a delete (TakenKind) that takes its rows one
 // after another, asking DeleteSaveOver once it has taken one, as the library's kinds do.
-// Its rows are what each save before it left.
+// Its rows are what the saves that committed left: the rows a save takes go once its
+// commit has landed (AfterCommit), since the emulator may abort a save's transaction and
+// run its function again, and what the aborted run took is still there.
 type pacedKind struct {
 	rows int64
 }
@@ -663,7 +665,7 @@ func (*pacedKind) Check(context.Context, ReadWriteTransaction) error {
 	return nil
 }
 
-func (k *pacedKind) Take(ctx context.Context, _ ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
+func (k *pacedKind) Take(ctx context.Context, txn ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	for rows < k.rows {
 		if rows > 0 && DeleteSaveOver(ctx) {
 			break
@@ -674,9 +676,14 @@ func (k *pacedKind) Take(ctx context.Context, _ ReadWriteTransaction, budget int
 		rows++
 		mutations++
 	}
-	k.rows -= rows
+	took := rows
+	if err := AfterCommit(txn, func(context.Context) {
+		k.rows -= took
+	}); err != nil {
+		return 0, 0, false, err
+	}
 
-	return rows, mutations, k.rows > 0, nil
+	return rows, mutations, rows < k.rows, nil
 }
 
 // innerDelete is a kind a test hands a delete (TakenKind) whose Take buffers the delete of
@@ -745,7 +752,8 @@ func deleteSave[R Resourcer](t *testing.T, db *spanner.Client, id string, limit 
 // has passed before its first row takes the first page it reads rows from whole, on
 // code's word and asking nothing alike. A save that reaches its first row within its time
 // is ended by its time inside that page, and so is a page read after the first: no more
-// of its rows is asked, and none is buffered once the save is over. A delete buffered
+// of its rows is asked, and none is buffered once the save is over; nor is a page read
+// after the first taken whole where it comes back with the time passed. A delete buffered
 // inside a save, on the context a handed kind's Take is handed, runs on that save's
 // clock: it takes its first page and says rows are left, where a clock of its own would
 // have let it take all five and the project. The default limit is pinned.
@@ -911,6 +919,24 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 		t.Parallel()
 
 		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "asked"}, cascadeRows{asks: &takenAsks{question: true}}, true, 0, nil, takingHow{passesAt: "ID=asked-1 trusted"})
+		if run.err != nil {
+			t.Fatalf("the save's error = %v", run.err)
+		}
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted", "ID=asked-1 trusted"}, run.asked); diff != "" {
+			t.Errorf("the rows the save asked about (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted"}, run.made); diff != "" {
+			t.Errorf("the rows the save deleted (-want +got):\n%s", diff)
+		}
+		if run.round == nil || run.round.finished {
+			t.Errorf("the save's round = %+v, want one that did not finish", run.round)
+		}
+	})
+
+	t.Run("a page read after the first that comes back with the time passed is not taken whole", func(t *testing.T) {
+		t.Parallel()
+
+		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "asked"}, cascadeRows{asks: &takenAsks{question: true}}, true, 0, nil, takingHow{passesAtPage: 2})
 		if run.err != nil {
 			t.Fatalf("the save's error = %v", run.err)
 		}
