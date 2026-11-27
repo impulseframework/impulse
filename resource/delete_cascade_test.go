@@ -198,6 +198,23 @@ func deepRepliesTree() *DeleteTree {
 	}
 }
 
+// assignedTree is projectTree with the assignments on the project's tasks in place of its
+// comments and labels. An assignment is a tenant's by a column of its own and goes on the
+// permission the request was let in by (WithinReach), so one in a tenant that permission
+// does not reach refuses the project's delete.
+func assignedTree() *DeleteTree {
+	tree := projectTree()
+	tree.Taken = []DeleteKind{
+		{
+			Resource: "CascadeAssignments", Words: DeleteWords{One: "assignment", Many: "assignments"}, Key: []string{"Id"},
+			Paths: tree.Taken[0].Paths, Tenant: &DomainBindingData{Column: "TenantId"}, WithinReach: true,
+		},
+		tree.Taken[2],
+	}
+
+	return tree
+}
+
 // invoicedTree is projectTree with two kinds that refuse the project's delete: an
 // invoice, which names a task and may name a second one it was checked against, and a
 // timesheet, which names a task.

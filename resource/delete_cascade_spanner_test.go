@@ -487,8 +487,10 @@ func deepestFirst(rows, want []string, under map[string]string) string {
 // of more than 20 joins by itself. A chain of 25 tasks, whether or not each holds the
 // project, with comments down it, is counted to its end, each row asked about once and
 // deleted once, deepest first; so is a chain of 25 folders, a section under a section by
-// a key of two columns and a reply under a reply by a column outside the key. A refusing row 20 deep refuses in the counted
-// sentence, and a rule that refuses the 20th task refuses in its own, nothing asked after
+// a key of two columns and a reply under a reply by a column outside the key. A refusing
+// row 20 deep refuses in the counted sentence; an assignment of another tenant on the last
+// task of a chain refuses a caller checked in one tenant, in the sentence that says where
+// it is; and a rule that refuses the 20th task refuses in its own, nothing asked after
 // it. A ring the walk goes down through fails the delete; a chain whose rows are found at
 // two levels, a page holding a row and a row under it, is no ring, and each such row is
 // counted, asked about and deleted at both levels. A statement refused at the record's
@@ -627,6 +629,11 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 	}
 	// A reply in another lane answers the 25th: no way of the description reaches it.
 	insert("CascadeReplies", map[string]any{"Id": "replied-other", "AnswersId": "replied-r25", "Lane": "closed"})
+	// A chain of twelve tasks with an assignment of the caller's own tenant on the second
+	// and one of another tenant on the last, which only a page's statements find.
+	chain("far", 12, false)
+	insert("CascadeAssignments", map[string]any{"Id": "far-a1", "TaskId": task("far", 2), "TenantId": "acme"})
+	insert("CascadeAssignments", map[string]any{"Id": "far-a2", "TaskId": task("far", 12), "TenantId": "borealis"})
 	databases := make(map[string]*spanner.Client, len(staged))
 	for _, key := range slices.Sorted(maps.Keys(staged)) {
 		databases[key] = cascadeDatabase(t, "deep-"+key)
@@ -673,6 +680,8 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 		twice int
 		// shallow is a case whose delete reads nothing from a page's ids.
 		shallow bool
+		// asked is whoever the delete's sentences are written for, nobody where it is nil.
+		asked *Caller
 		// check holds what else the case asks of the run, with the limit or not.
 		check func(t *testing.T, run *cascadeRun, limited bool)
 	}{
@@ -753,6 +762,14 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantMade: "replied",
 		},
 		{
+			name: "an assignment of another tenant on the last task of a chain refuses a delete that asks, for a caller checked in one tenant", tree: assignedTree(), key: project("far"), asked: acmeCaller(t), limitOnly: true,
+			wantStatus: http.StatusConflict, wantMessage: "This project still has 1 assignment in another tenant. It has to be removed there before the project can be deleted.",
+		},
+		{
+			name: "an assignment of another tenant on the last task of a chain refuses a delete that takes, for a caller checked in one tenant", tree: assignedTree(), key: project("far"), asked: acmeCaller(t), everythingUnder: true, limitOnly: true,
+			wantStatus: http.StatusConflict, wantMessage: "This project still has 1 assignment in another tenant. It has to be removed there before the project can be deleted.",
+		},
+		{
 			name: "a ring the walk goes down through fails the delete", tree: projectTree(), key: project("ring"), rows: cascadeRows{asks: asksEveryRow},
 			wantError: "a task under the project is nested under itself",
 		},
@@ -814,7 +831,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 				if !ok || databases[id] == nil {
 					t.Fatalf("no record %v is staged", tt.key)
 				}
-				run := runTakingRefused(t, databases[id], tt.tree, tt.key, tt.rows, tt.everythingUnder, 0, nil, refuses)
+				run := runTakingRefused(t, databases[id], tt.tree, tt.key, tt.rows, tt.everythingUnder, 0, tt.asked, refuses)
 				switch {
 				case tt.wantError != "":
 					if run.err == nil || !strings.Contains(run.err.Error(), tt.wantError) {
