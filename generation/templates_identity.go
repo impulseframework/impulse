@@ -2796,11 +2796,10 @@ type Delete{{ .Subject }}User struct {
 }
 
 // Delete{{ .Subject }}UserResult is what a delete of an account with more under it than
-// one save holds left (resource.DeleteLeft): the records this request deleted and the
-// records still under the account, which stands until a request takes the last of them.
+// one save holds left (resource.DeleteLeft): the records this request deleted. The account
+// stands until a request takes the last of them.
 type Delete{{ .Subject }}UserResult struct {
 	Deleted int64 ` + "`json:\"deleted\"`" + `
-	Left    int64 ` + "`json:\"left\"`" + `
 }
 
 // HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.
@@ -2838,7 +2837,7 @@ func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.Rea
 		return nil, nil
 	}
 
-	return &Delete{{ .Subject }}UserResult{Deleted: left.Deleted, Left: left.Left}, nil
+	return &Delete{{ .Subject }}UserResult{Deleted: left.Deleted}, nil
 }
 `
 

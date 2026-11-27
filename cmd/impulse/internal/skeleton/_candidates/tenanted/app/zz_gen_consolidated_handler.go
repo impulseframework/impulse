@@ -154,7 +154,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 

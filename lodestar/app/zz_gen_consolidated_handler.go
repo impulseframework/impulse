@@ -612,7 +612,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 
@@ -708,7 +707,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 					case "distress-relays":
@@ -748,7 +746,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 					case "hangar-passes":
@@ -849,7 +846,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 					case "mission-documents":
@@ -928,7 +924,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 					case "refit-tasks":
@@ -1105,7 +1100,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 					case "sortie-expenses":
@@ -1312,7 +1306,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 					default:

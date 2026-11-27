@@ -371,9 +371,9 @@ export interface RemoveOptions {
 
 export interface Removable<Key extends unknown[]> {
   /**
-   * Deletes the row. It resolves with nothing once the row is gone, and with what is left
-   * where the delete takes more records than one request holds (`DeleteLeft`, a 202): the
-   * row stands, and the same remove, sent again, goes on.
+   * Deletes the row. It resolves with nothing once the row is gone, and with the records
+   * this request deleted where the delete takes more records than one request holds
+   * (`DeleteLeft`, a 202): the row stands, and the same remove, sent again, goes on.
    */
   remove(key: Key, options?: RemoveOptions): Promise<DeleteLeft | undefined>;
 }
@@ -1046,14 +1046,14 @@ export function resolveAbsolute(baseUrl: string, reference: string): string {
   return origin && reference.startsWith('/') ? origin[0] + reference : reference;
 }
 
-/** What a delete's answer says it left (a 202's body); undefined for an answer that says nothing of it. */
+/** The records a delete's answer says it deleted (a 202's body); undefined for an answer that says nothing of it. */
 function deleteLeftOf(answer: unknown): DeleteLeft | undefined {
   if (typeof answer !== 'object' || answer === null) {
     return undefined;
   }
-  const { deleted, left } = answer as Record<string, unknown>;
+  const { deleted } = answer as Record<string, unknown>;
 
-  return typeof deleted === 'number' && typeof left === 'number' ? { deleted, left } : undefined;
+  return typeof deleted === 'number' ? { deleted } : undefined;
 }
 
 async function batch(request: Requester, descriptor: ApiDescriptor, operations: Operation[]): Promise<BatchResult> {

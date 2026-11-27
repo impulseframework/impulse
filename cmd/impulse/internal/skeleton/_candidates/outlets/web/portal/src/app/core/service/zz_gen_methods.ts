@@ -113,7 +113,6 @@ export interface DeleteMembersGroup {
 /** The result DeleteMembersGroup answers with. */
 export interface DeleteMembersGroupResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersGroup declares; the method chooses one per response. */
 export type DeleteMembersGroupStatus = 202 | 204;
@@ -134,7 +133,6 @@ export interface DeleteMembersTenantGroup {
 /** The result DeleteMembersTenantGroup answers with. */
 export interface DeleteMembersTenantGroupResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersTenantGroup declares; the method chooses one per response. */
 export type DeleteMembersTenantGroupStatus = 202 | 204;
@@ -155,7 +153,6 @@ export interface DeleteMembersTenantUser {
 /** The result DeleteMembersTenantUser answers with. */
 export interface DeleteMembersTenantUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersTenantUser declares; the method chooses one per response. */
 export type DeleteMembersTenantUserStatus = 202 | 204;
@@ -176,7 +173,6 @@ export interface DeleteMembersUser {
 /** The result DeleteMembersUser answers with. */
 export interface DeleteMembersUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersUser declares; the method chooses one per response. */
 export type DeleteMembersUserStatus = 202 | 204;

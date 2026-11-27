@@ -454,7 +454,7 @@ func TestManager_DeleteGroup(t *testing.T) {
 		{name: "an empty group is deleted at once", group: nightID, wantWrites: []string{"delete group " + nightID.String()}, wantChanged: 1},
 		{
 			name:  "what one save left is answered",
-			group: nightID, everythingUnder: true, left: &resource.DeleteLeft{Deleted: 6800, Left: 31200},
+			group: nightID, everythingUnder: true, left: &resource.DeleteLeft{Deleted: 6800},
 			places:     map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}},
 			wantWrites: []string{"delete group " + nightID.String() + " with everything under it"}, wantChanged: 1,
 		},

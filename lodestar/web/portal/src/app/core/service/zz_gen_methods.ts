@@ -17,7 +17,6 @@ export interface DeleteMembersSectorUser {
 /** The result DeleteMembersSectorUser answers with. */
 export interface DeleteMembersSectorUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersSectorUser declares; the method chooses one per response. */
 export type DeleteMembersSectorUserStatus = 202 | 204;
@@ -38,7 +37,6 @@ export interface DeleteMembersUser {
 /** The result DeleteMembersUser answers with. */
 export interface DeleteMembersUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersUser declares; the method chooses one per response. */
 export type DeleteMembersUserStatus = 202 | 204;

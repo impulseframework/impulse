@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"iter"
 	"reflect"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
@@ -29,19 +30,24 @@ type SpannerClient struct {
 	// secrets are the application's secret keys, which every transaction of the client
 	// seals a patch's secret fields with; nil when the client was built with none.
 	secrets *SecretKeys
+	// deleteSaveTime is how long one save of a delete that takes rows runs
+	// (WithDeleteSaveTime), DefaultDeleteSaveTime where it is zero.
+	deleteSaveTime time.Duration
 }
 
 // NewSpannerClient creates a new Client. WithFileStore and WithNamedFileStore hand it
 // the stores the frames drive and a committed transaction's released file objects are
 // deleted from; a store wired twice, or two stores on one location, panics here.
 // WithSecretKeys hands it the keys its transactions seal a patch's secret fields with.
+// WithDeleteSaveTime sets how long one save of a delete that takes rows runs.
 func NewSpannerClient(db *spanner.Client, opts ...ClientOption) *SpannerClient {
-	stores, secrets := applyClientOptions(opts)
+	stores, secrets, deleteSaveTime := applyClientOptions(opts)
 
 	return &SpannerClient{
-		spanner: db,
-		stores:  stores,
-		secrets: secrets,
+		spanner:        db,
+		stores:         stores,
+		secrets:        secrets,
+		deleteSaveTime: deleteSaveTime,
 	}
 }
 
@@ -111,6 +117,7 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 		committed = newAfterCommit()
 		funcFailed = false
 		wrapped := newSpannerReadWriteTransaction(txn, buffered, released, touched, committed).WithSecretKeys(c.secrets)
+		wrapped.deleteSaveTime = c.deleteSaveTime
 		if err := f(ctx, wrapped); err != nil {
 			funcFailed = true
 
@@ -516,6 +523,10 @@ type SpannerReadWriteTransaction struct {
 	// a transaction that writes. A question transaction has no read-write transaction
 	// (txn is nil): what is buffered through it is dropped.
 	snapshot *spanner.ReadOnlyTransaction
+	// deleteSaveTime is how long one save of a delete that takes rows runs in the
+	// transaction, the client's (WithDeleteSaveTime); DefaultDeleteSaveTime where it is
+	// zero, as on a transaction wrapped by hand.
+	deleteSaveTime time.Duration
 }
 
 // NewSpannerReadWriteTransaction creates a new SpannerReadWriteTransaction from a
@@ -552,6 +563,7 @@ func newSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction, buffered 
 		deleted:          newTransactionDeletes(),
 		rows:             newTransactionRows(),
 		snapshot:         nil,
+		deleteSaveTime:   0,
 	}
 }
 

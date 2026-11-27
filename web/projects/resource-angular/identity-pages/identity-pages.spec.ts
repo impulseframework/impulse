@@ -1549,7 +1549,7 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
       await rest();
     };
     // One person's delete through the dialog the page opens: the first press is answered
-    // with the server's question, the second with what one save left, the third with the
+    // with the server's question, the second with what one save deleted, the third with the
     // account gone.
     const deletes = async (
       rowMethods: ListViewConfig['rowMethods'],
@@ -1567,7 +1567,7 @@ describe("identityPages, a tenant's side that removes a person from the tenant",
             return Promise.reject(new ApiError('POST', '/api/delete', 428, { message: counted }));
           }
           return Promise.resolve(
-            sent.length === 2 ? { status: 202, result: { deleted: 5, left: 2 } } : { status: 204, result: undefined },
+            sent.length === 2 ? { status: 202, result: { deleted: 5 } } : { status: 204, result: undefined },
           );
         },
         warning: (): Promise<{ consequence: string; confirm: string }> =>

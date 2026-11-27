@@ -27,7 +27,7 @@ type PostgresClient struct {
 // store wired twice, or two stores on one location, panics here. WithSecretKeys hands it
 // the keys a patch's secret fields are sealed with.
 func NewPostgresClient(db *pgxpool.Pool, opts ...ClientOption) *PostgresClient {
-	stores, secrets := applyClientOptions(opts)
+	stores, secrets, _ := applyClientOptions(opts)
 
 	return &PostgresClient{
 		postgres: db,

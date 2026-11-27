@@ -29,7 +29,6 @@ func (h *Handlers) DeleteCrewSectorGroup() http.HandlerFunc {
 	// wire names, encoded after the transaction commits.
 	type response struct {
 		Deleted int64 `json:"deleted"`
-		Left    int64 `json:"left"`
 	}
 
 	decoder := NewTargetedRPCDecoder[crewidentity.DeleteCrewSectorGroup, request](h, accesstypes.Execute)

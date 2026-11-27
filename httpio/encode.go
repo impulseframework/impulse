@@ -18,6 +18,9 @@ import (
 type MessageResponse struct {
 	Message string `json:"message,omitempty"`
 	TraceID string `json:"traceId,omitempty"`
+	// Records is the number of records a question counted
+	// (NewPreconditionRequiredRecords), none for any other message.
+	Records int64 `json:"records,omitempty"`
 }
 
 // HTTPEncoder is an interface that is accepted when encoding http responses
@@ -66,16 +69,23 @@ func (e *Encoder) encode(body interface{}, skipFrames uint) error {
 // statusCodeWithMessage writes a statusCode and message to the response header and returns the original error
 // This also attempts to include a trace ID in the response if it exists, for debugging purposes
 func (e *Encoder) statusCodeWithMessage(ctx context.Context, statusCode int, err error, message string) error {
+	return e.statusCodeWithResponse(ctx, statusCode, err, MessageResponse{Message: message, TraceID: "", Records: 0}, 5)
+}
+
+// statusCodeWithResponse is statusCodeWithMessage for a body that carries more than a
+// message (MessageResponse.Records). It fills in the trace ID. An error of the encoding
+// names the frame skipFrames above it.
+func (e *Encoder) statusCodeWithResponse(ctx context.Context, statusCode int, err error, response MessageResponse, skipFrames uint) error {
 	e.w.WriteHeader(statusCode)
 
-	traceID := logger.FromCtx(ctx).TraceID()
+	response.TraceID = logger.FromCtx(ctx).TraceID()
 
-	// if we don't have any message or traceID, we don't need to write anything to the body
-	if message == "" && traceID == "" {
+	// if we don't have any message, number or traceID, we don't need to write anything to the body
+	if response.Message == "" && response.TraceID == "" && response.Records == 0 {
 		return err
 	}
 
-	if err := e.encode(&MessageResponse{Message: message, TraceID: traceID}, 4); err != nil {
+	if err := e.encode(&response, skipFrames); err != nil {
 		return err
 	}
 
@@ -1009,7 +1019,7 @@ func (e *Encoder) clientMessage(ctx context.Context, err error, prefix string) e
 
 	cerr := &ClientMessage{}
 	if errors.As(err, &cerr) {
-		return e.statusCodeWithMessage(ctx, int(cerr.msgType), rerr, cerr.clientMessage)
+		return e.statusCodeWithResponse(ctx, int(cerr.msgType), rerr, MessageResponse{Message: cerr.clientMessage, TraceID: "", Records: cerr.records}, 4)
 	}
 
 	// Check if the client disconnected.

@@ -429,7 +429,7 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 				"a.ResourceClient().ExecuteDeleteFunc(ctx, asks, func(ctx context.Context, txn resource.ReadWriteTransaction) error {",
 				"left = nil",
 				"patch := resources.New" + name + "DeletePatchFromPatchSet(id, patchSet) if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
-				"if taken := patch.Left(); taken != nil { if left == nil { left = &resource.DeleteLeft{} } left.Deleted += taken.Deleted left.Left += taken.Left }",
+				"if taken := patch.Left(); taken != nil { if left == nil { left = &resource.DeleteLeft{} } left.Deleted += taken.Deleted }",
 				"if left != nil {",
 				"return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)",
 			} {

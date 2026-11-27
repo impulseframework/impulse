@@ -66,6 +66,9 @@ type PatchSet[Resource Resourcer] struct {
 	// deleteSaveSize is the most mutations one save of a delete that takes rows holds,
 	// DeleteMutationLimit where it is zero: a test makes it small.
 	deleteSaveSize int
+	// deleteSaveTime is how long one save of a delete that takes rows runs, the
+	// transaction's where it is zero: a test makes it short.
+	deleteSaveTime time.Duration
 	// deleteRefuses is asked about every statement a delete that takes rows sends, before
 	// it is sent, and what it answers is the statement's answer where it is not nil: a
 	// test's stand-in for the database's refusal of a statement that joins too many tables.
@@ -798,8 +801,8 @@ func (p *PatchSet[Resource]) DeleteLibraryRowsAlone() *PatchSet[Resource] {
 
 // DeleteLeft is what the delete the patch carries left under its record once it is
 // buffered: nil for a delete that finished, the record's row with it; otherwise the rows
-// this save deleted, none where the save only made room for a later one, and the rows
-// still under the record, whose own row stands until a save takes the last of them.
+// this save deleted, none where the save only made room for a later one. The record's own
+// row stands until a save takes the last of the rows under it.
 func (p *PatchSet[Resource]) DeleteLeft() *DeleteLeft {
 	return p.deleteLeft
 }

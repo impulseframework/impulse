@@ -59,11 +59,10 @@ type DeleteMembersTenantUser struct {
 }
 
 // DeleteMembersTenantUserResult is what a delete of an account with more under it than
-// one save holds left (resource.DeleteLeft): the records this request deleted and the
-// records still under the account, which stands until a request takes the last of them.
+// one save holds left (resource.DeleteLeft): the records this request deleted. The account
+// stands until a request takes the last of them.
 type DeleteMembersTenantUserResult struct {
 	Deleted int64 `json:"deleted"`
-	Left    int64 `json:"left"`
 }
 
 // HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.
@@ -103,5 +102,5 @@ func (m *DeleteMembersTenantUser) Execute(ctx context.Context, txn resource.Read
 		return nil, nil
 	}
 
-	return &DeleteMembersTenantUserResult{Deleted: left.Deleted, Left: left.Left}, nil
+	return &DeleteMembersTenantUserResult{Deleted: left.Deleted}, nil
 }

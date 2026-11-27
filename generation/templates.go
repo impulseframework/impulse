@@ -893,8 +893,8 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // (DeleteAlso). The grant to delete the {{ .Resource.Name }} answers for them all. Without it, a delete of a {{ .Resource.Name }} that has such rows deletes
 // nothing and is answered with the question a person is asked first
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
-// delete takes what fits, deepest first, and Left says what is left: buffer the delete
-// again, in a transaction of its own, until Left answers nil.
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
 {{- else if .Resource.ApplicationCanName }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // the kinds its description lists as taken, the application's rows that name it in a
@@ -902,8 +902,9 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
 // {{ .Resource.Name }} that has such rows deletes nothing and is answered with the question a
 // person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
-// one save takes, the delete takes what fits, deepest first, and Left says what is left:
-// buffer the delete again, in a transaction of its own, until Left answers nil.
+// one save takes, the delete takes what fits, deepest first, and Left answers the rows
+// that save deleted: buffer the delete again, in a transaction of its own, until Left
+// answers nil.
 {{- else }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
@@ -911,8 +912,8 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // Without it, a delete of a {{ .Resource.Name }} that has such rows
 // deletes nothing and is answered with the question a person is asked first
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
-// delete takes what fits, deepest first, and Left says what is left: buffer the delete
-// again, in a transaction of its own, until Left answers nil.
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
 {{- end }}
 func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Name }}DeletePatch {
 	p.patchSet.DeleteEverythingUnder()
@@ -920,8 +921,9 @@ func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Na
 	return p
 }
 
-// Left is what the delete left under the {{ .Resource.Name }} once it is buffered
-// (resource.DeleteLeft): nil where the delete finished, the {{ .Resource.Name }} with it.
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the {{ .Resource.Name }}, which stands until a save
+// takes the last of them; nil where the delete finished, the {{ .Resource.Name }} with it.
 func (p *{{ .Resource.Name }}DeletePatch) Left() *resource.DeleteLeft {
 	return p.patchSet.DeleteLeft()
 }
@@ -1052,15 +1054,15 @@ const (
 		}`
 
 	// deleteLeftKept is spliced into the delete of a record that takes rows, after the
-	// delete patch (patch, which the splice's place sets) is buffered: what the delete left
-	// under its record (DeletePatch.Left) is added to what the request's other deletes
-	// left (left, declared before the transaction), which the handler answers 202 with.
+	// delete patch (patch, which the splice's place sets) is buffered: the rows its save
+	// deleted where rows are left under its record (DeletePatch.Left) are added to those of
+	// the request's other deletes (left, declared before the transaction), which the
+	// handler answers 202 with.
 	deleteLeftKept = `if taken := patch.Left(); taken != nil {
 						if left == nil {
 							left = &resource.DeleteLeft{}
 						}
 						left.Deleted += taken.Deleted
-						left.Left += taken.Left
 					}`
 
 	// deleteLeftAnswered is spliced into a handler's answer once the commit has landed and

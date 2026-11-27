@@ -175,8 +175,8 @@ describe('ResourceViewComponent row methods', () => {
   let deleteHeld: Promise<void> | undefined;
   /** While set, the row's own Delete is refused in these words, and the row stays. */
   let deleteRefused: string | undefined;
-  /** While set, the row's own Delete answers 202 with what it left, and the row stays. */
-  let deleteLeft: { deleted: number; left: number } | undefined;
+  /** While set, the row's own Delete answers 202 with the records it deleted, and the row stays. */
+  let deleteLeft: { deleted: number } | undefined;
 
   const server = (request: TransportRequest): TransportResponse | Promise<TransportResponse> => {
     const url = new URL(request.url, 'http://rows.test');
@@ -571,7 +571,7 @@ describe('ResourceViewComponent row methods', () => {
     expect((TestBed.inject(Location) as SpyLocation).urlChanges).toEqual(['/accounts/a-1', 'replace: /accounts']);
   });
 
-  it("stays on the row's page while its Delete answers that records are left, and says nothing of the row until a delete finishes", async () => {
+  it("stays on the row's page while its Delete answers that it deleted records and the row stands, and says nothing of the row until a delete finishes", async () => {
     await create({ rowGone: (was) => `${String(was['username'])} is no longer here.` }, 'a-1', '/accounts/a-1');
     const router = TestBed.inject(Router);
     const notices: string[] = [];
@@ -579,12 +579,12 @@ describe('ResourceViewComponent row methods', () => {
       notices.push(notice.message)) as never;
     const gone: boolean[] = [];
     component.deleted.subscribe((value) => gone.push(value));
-    deleteLeft = { deleted: 6800, left: 31200 };
+    deleteLeft = { deleted: 6800 };
 
     const left = await component.deleteResource({ everythingUnder: true });
     await settle(() => false);
 
-    expect(left).toEqual({ deleted: 6800, left: 31200 });
+    expect(left).toEqual({ deleted: 6800 });
     expect(router.url).toBe('/accounts/a-1');
     expect(gone).toEqual([]);
     expect(notices).toEqual([]);

@@ -862,16 +862,18 @@ func NewMembersSessionUserDeletePatch(id impulse.UUID) *MembersSessionUserDelete
 // the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
 // MembersSessionUser that has such rows deletes nothing and is answered with the question a
 // person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
-// one save takes, the delete takes what fits, deepest first, and Left says what is left:
-// buffer the delete again, in a transaction of its own, until Left answers nil.
+// one save takes, the delete takes what fits, deepest first, and Left answers the rows
+// that save deleted: buffer the delete again, in a transaction of its own, until Left
+// answers nil.
 func (p *MembersSessionUserDeletePatch) WithEverythingUnder() *MembersSessionUserDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
 
 	return p
 }
 
-// Left is what the delete left under the MembersSessionUser once it is buffered
-// (resource.DeleteLeft): nil where the delete finished, the MembersSessionUser with it.
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the MembersSessionUser, which stands until a save
+// takes the last of them; nil where the delete finished, the MembersSessionUser with it.
 func (p *MembersSessionUserDeletePatch) Left() *resource.DeleteLeft {
 	return p.patchSet.DeleteLeft()
 }

@@ -29,7 +29,6 @@ func (h *Handlers) DeleteMembersSectorUser() http.HandlerFunc {
 	// wire names, encoded after the transaction commits.
 	type response struct {
 		Deleted int64 `json:"deleted"`
-		Left    int64 `json:"left"`
 	}
 
 	decoder := NewTargetedRPCDecoder[membersidentity.DeleteMembersSectorUser, request](h, accesstypes.Execute)

@@ -236,7 +236,7 @@ func TestManager_DeleteUser(t *testing.T) {
 	}
 	whole := append([]string{"delete user " + userID.String()}, rest...)
 	taking := "delete user " + userID.String() + " with everything under it"
-	left := &resource.DeleteLeft{Deleted: 3, Left: 4}
+	left := &resource.DeleteLeft{Deleted: 3}
 
 	tests := []struct {
 		name            string

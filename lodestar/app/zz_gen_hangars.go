@@ -264,7 +264,6 @@ func (a *App) PatchHangars() http.HandlerFunc {
 							left = &resource.DeleteLeft{}
 						}
 						left.Deleted += taken.Deleted
-						left.Left += taken.Left
 					}
 				}
 			}

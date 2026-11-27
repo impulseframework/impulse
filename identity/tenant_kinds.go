@@ -265,8 +265,9 @@ func (k *tenantAccounts) Check(ctx context.Context, txn resource.ReadWriteTransa
 }
 
 // Take asks every account what Check asks before any is taken, then takes them in key
-// order while the next one's cost fits the budget: the person's memberships in the
-// tenant, their places in its groups, then the account with its identity links, its
+// order while the next one's cost fits the budget and the save has time
+// (resource.DeleteSaveOver, asked once an account is taken): the person's memberships in
+// the tenant, their places in its groups, then the account with its identity links, its
 // sessions ended first (deleteAccount).
 func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	ctx, span := tracer.Start(ctx)
@@ -281,6 +282,9 @@ func (k *tenantAccounts) Take(ctx context.Context, txn resource.ReadWriteTransac
 	}
 	costs := k.manager.store.DeleteCosts()
 	for i := range accounts {
+		if rows > 0 && resource.DeleteSaveOver(ctx) {
+			return rows, mutations, true, k.policyChanged(txn, rows)
+		}
 		cost, err := k.cost(ctx, &accounts[i], &costs)
 		if err != nil {
 			return rows, mutations, false, err
@@ -424,7 +428,8 @@ func (k *tenantRolesHeld) Check(context.Context, resource.ReadWriteTransaction) 
 }
 
 // Take takes the memberships, then the groups' roles, while the next one's cost fits the
-// budget: one row of its table each.
+// budget and the save has time (resource.DeleteSaveOver, asked once a row is taken): one
+// row of its table each.
 func (k *tenantRolesHeld) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	held, roles, err := k.rolesHeld(ctx, txn)
 	if err != nil {
@@ -433,7 +438,7 @@ func (k *tenantRolesHeld) Take(ctx context.Context, txn resource.ReadWriteTransa
 	store := k.manager.store
 	costs := store.DeleteCosts()
 	for i := range held {
-		if mutations+costs.Membership > budget {
+		if mutations+costs.Membership > budget || (rows > 0 && resource.DeleteSaveOver(ctx)) {
 			return rows, mutations, true, k.policyChanged(txn, rows)
 		}
 		if err := store.DeleteMembership(ctx, txn, &held[i]); err != nil {
@@ -443,7 +448,7 @@ func (k *tenantRolesHeld) Take(ctx context.Context, txn resource.ReadWriteTransa
 		mutations += costs.Membership
 	}
 	for i := range roles {
-		if mutations+costs.GroupRole > budget {
+		if mutations+costs.GroupRole > budget || (rows > 0 && resource.DeleteSaveOver(ctx)) {
 			return rows, mutations, true, k.policyChanged(txn, rows)
 		}
 		if err := store.DeleteGroupRole(ctx, txn, &roles[i]); err != nil {
@@ -505,7 +510,7 @@ func (k *tenantRecordRoles) Check(context.Context, resource.ReadWriteTransaction
 }
 
 // Take takes the people's roles, then the groups', while the next one's cost fits the
-// budget: one row of its table each.
+// budget and the save has time (takeRecordRoles): one row of its table each.
 func (k *tenantRecordRoles) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	people, roles, err := k.rolesHeld(ctx, txn)
 	if err != nil {
@@ -542,13 +547,15 @@ func (k *tenantGroups) Check(context.Context, resource.ReadWriteTransaction) err
 	return nil
 }
 
-// Take deletes the groups in key order while the next one's cost fits the budget, each by
-// the store's delete of a group with everything under it. A group its own delete could not
-// take in one save leaves rows of the kind. A group whose cost does not fit what the round
-// has left is taken in part, its members, then its roles and then its roles on records,
-// one at a time while the next fits, and goes in the round in which the rest of it fits.
-// The store's delete leaves the application's rows out (DeleteGroupWithTenant): the
-// tenant's delete took those under the tenant before this kind is reached.
+// Take deletes the groups in key order while the next one's cost fits the budget and the
+// save has time (resource.DeleteSaveOver, asked once a group is taken), each by the
+// store's delete of a group with everything under it, which runs on the save's clock. A
+// group its own delete could not take in one save leaves rows of the kind. A group whose
+// cost does not fit what the round has left is taken in part, its members, then its roles
+// and then its roles on records, one at a time while the next fits, and goes in the round
+// in which the rest of it fits. The store's delete leaves the application's rows out
+// (DeleteGroupWithTenant): the tenant's delete took those under the tenant before this
+// kind is reached.
 func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	store := k.manager.store
 	groups, err := store.TenantGroups(ctx, txn, k.domain)
@@ -562,6 +569,9 @@ func (k *tenantGroups) Take(ctx context.Context, txn resource.ReadWriteTransacti
 	}
 	costs := store.DeleteCosts()
 	for _, id := range groups {
+		if rows > 0 && resource.DeleteSaveOver(ctx) {
+			return rows, mutations, true, k.policyChanged(txn, rows)
+		}
 		members, err := store.GroupMembers(ctx, txn, id)
 		if err != nil {
 			return rows, mutations, false, errors.Wrap(err, "identity.Store.GroupMembers()")
@@ -604,8 +614,9 @@ type groupRows struct {
 
 // takeInPart deletes what fits the budget of a group too large for it: its members in key
 // order, then its roles in key order, then its roles on records in key order, one row
-// each, while the next one's cost fits. The group's own row stays for a later round. It
-// reports the rows it deleted and their cost.
+// each, while the next one's cost fits and the save has time (resource.DeleteSaveOver,
+// asked once a row is taken). The group's own row stays for a later round. It reports the
+// rows it deleted and their cost.
 func (k *tenantGroups) takeInPart(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, rows *groupRows, budget int) (taken int64, mutations int, err error) {
 	store := k.manager.store
 	costs := store.DeleteCosts()
@@ -613,7 +624,7 @@ func (k *tenantGroups) takeInPart(ctx context.Context, txn resource.ReadWriteTra
 	slices.SortFunc(members, func(a, b accesstypes.User) int { return strings.Compare(string(a), string(b)) })
 	slices.SortFunc(roles, func(a, b access.GroupRoleKey) int { return compareGroupRoles(&a, &b) })
 	for _, member := range members {
-		if mutations+costs.GroupMember > budget {
+		if mutations+costs.GroupMember > budget || (taken > 0 && resource.DeleteSaveOver(ctx)) {
 			return taken, mutations, nil
 		}
 		if err := store.DeleteGroupMember(ctx, txn, &access.GroupMemberKey{Group: GroupID(id), User: member}); err != nil {
@@ -623,7 +634,7 @@ func (k *tenantGroups) takeInPart(ctx context.Context, txn resource.ReadWriteTra
 		mutations += costs.GroupMember
 	}
 	for i := range roles {
-		if mutations+costs.GroupRole > budget {
+		if mutations+costs.GroupRole > budget || (taken > 0 && resource.DeleteSaveOver(ctx)) {
 			return taken, mutations, nil
 		}
 		if err := store.DeleteGroupRole(ctx, txn, &roles[i]); err != nil {
@@ -633,7 +644,7 @@ func (k *tenantGroups) takeInPart(ctx context.Context, txn resource.ReadWriteTra
 		mutations += costs.GroupRole
 	}
 	for i := range rows.onRecords {
-		if mutations+costs.RecordGroupRole > budget {
+		if mutations+costs.RecordGroupRole > budget || (taken > 0 && resource.DeleteSaveOver(ctx)) {
 			return taken, mutations, nil
 		}
 		if err := store.DeleteRecordGroupRole(ctx, txn, &rows.onRecords[i]); err != nil {
@@ -723,7 +734,8 @@ func (k *tenantInvitations) Check(context.Context, resource.ReadWriteTransaction
 	return nil
 }
 
-// Take withdraws the invitations in key order while the next one's cost fits the budget.
+// Take withdraws the invitations in key order while the next one's cost fits the budget
+// and the save has time (resource.DeleteSaveOver, asked once one is withdrawn).
 func (k *tenantInvitations) Take(ctx context.Context, txn resource.ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
 	store := k.manager.store
 	invitations, err := store.TenantInvitations(ctx, txn, k.domain)
@@ -733,7 +745,7 @@ func (k *tenantInvitations) Take(ctx context.Context, txn resource.ReadWriteTran
 	slices.SortFunc(invitations, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
 	cost := store.DeleteCosts().Invitation
 	for _, id := range invitations {
-		if mutations+cost > budget {
+		if mutations+cost > budget || (rows > 0 && resource.DeleteSaveOver(ctx)) {
 			return rows, mutations, true, nil
 		}
 		if err := store.ConsumeMailLink(ctx, txn, id); err != nil {

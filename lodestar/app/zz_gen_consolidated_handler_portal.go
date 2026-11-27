@@ -236,7 +236,6 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 					case "missions":
@@ -278,7 +277,6 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 									left = &resource.DeleteLeft{}
 								}
 								left.Deleted += taken.Deleted
-								left.Left += taken.Left
 							}
 						}
 					case "mission-documents":

@@ -307,7 +307,7 @@ func TestAccountActsRecorded_unlinkedDirectory(t *testing.T) {
 func TestDeleteUser_recordedOnce(t *testing.T) {
 	t.Parallel()
 
-	store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, userLeft: &resource.DeleteLeft{Deleted: 2, Left: 1}}
+	store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, userLeft: &resource.DeleteLeft{Deleted: 2}}
 	m, err := New(managedAuth, store, &fakeEngine{}, fakeSessions{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

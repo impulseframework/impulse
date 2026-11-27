@@ -1389,11 +1389,10 @@ type Delete{{ .Subject }}Group struct {
 }
 
 // Delete{{ .Subject }}GroupResult is what a delete of a group with more under it than one
-// save holds left (resource.DeleteLeft): the records this request deleted and the
-// records still under the group, which stands until a request takes the last of them.
+// save holds left (resource.DeleteLeft): the records this request deleted. The group
+// stands until a request takes the last of them.
 type Delete{{ .Subject }}GroupResult struct {
 	Deleted int64 ` + "`json:\"deleted\"`" + `
-	Left    int64 ` + "`json:\"left\"`" + `
 }
 
 // HTTPStatus answers 202: the group still stands, and the same delete, sent again, goes on.
@@ -1427,7 +1426,7 @@ func (m *Delete{{ .Subject }}Group) Execute(ctx context.Context, txn resource.Re
 		return nil, nil
 	}
 
-	return &Delete{{ .Subject }}GroupResult{Deleted: left.Deleted, Left: left.Left}, nil
+	return &Delete{{ .Subject }}GroupResult{Deleted: left.Deleted}, nil
 }
 
 // mayEmpty asks, in a request, what the caller needs to take each member out of the

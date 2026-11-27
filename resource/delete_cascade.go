@@ -9,12 +9,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/logger"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 )
@@ -46,11 +48,22 @@ import (
 // read a page at a time with the answers of the grant's conditions: every row by a delete
 // that asks, the rows it takes by a delete that takes them. A refusal says why. A delete
 // larger than one save runs in rounds: each request deletes what fits one save, deepest
-// rows first, and answers 202 with what is left; the record goes last (DeleteLeft). Each
-// row goes through the delete of one row (bufferTaken), so each has its change record, is
-// announced to open pages, and has its stored files released. Each round checks the rows
-// it takes, and nothing is kept between rounds: a refusal that comes after rounds have run
-// stops the delete there, and what is left is a whole, smaller record.
+// rows first, and answers 202 with the rows it deleted; the record goes last
+// (DeleteLeft). Each row goes through the delete of one row (bufferTaken), so each has its
+// change record, is announced to open pages, and has its stored files released. Nothing
+// is kept between rounds: a refusal that comes after rounds have run stops the delete
+// there, and what is left is a whole, smaller record.
+//
+// A delete that takes the rows has two kinds of save. A save of a delete code told to
+// take the rows (PatchSet.DeleteEverythingUnder) asks everything first, as the question
+// does: the counts, the refusing kinds, a row the delete does not take, a row beyond the
+// caller's reach, each kind's grant and the handed kinds' counts; then it takes its
+// round, each row asked what its own delete asks in the page that read it. A save that
+// asks nothing (takingDelete.unasked) is the save of a delete whose question asked all of
+// that already: it counts nothing, finds the deepest level by one-row reads, reads each
+// kind's page at each level from the deepest by its keys alone, and takes what it reads.
+// Either ends at the budget or at its time limit, whichever comes first, and says how
+// many rows it deleted.
 //
 // A kind with a row straight under the record that the description neither takes nor
 // lists under refusedBy refuses the delete as it refuses a plain one, in the same
@@ -148,6 +161,14 @@ type TakenRows interface {
 // question that is a question transaction, which reads the database as it stood at one
 // moment, locks nothing and drops what is buffered through it. Take is always handed the
 // read-write transaction of a save.
+//
+// Check is the question's. A save of a delete code told to take the rows
+// (PatchSet.DeleteEverythingUnder) counts as the question does, and calls Take for each
+// kind it counted a row of. A save that asks nothing (takingDelete.unasked) calls Take
+// and never Count: for every kind handed, in the order handed, whether or not the kind
+// has rows, and a kind with none answers that it took nothing and none are left. A Take
+// that takes its rows one after another asks DeleteSaveOver once it has taken a row and
+// stops, saying rows are left, where the save has run for its time.
 type TakenKind interface {
 	// Words are what the question calls the kind's rows.
 	Words() DeleteWords
@@ -569,6 +590,21 @@ func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks,
 	return rowsUnderStatement{SQL: sql, Args: w.args, Named: w.named()}, true
 }
 
+// exists is the read of whether a row of the kind is at the level, below the deepest
+// level: the count of the first such row alone, 0 or 1, at which the database stops. With
+// the deepest level the level itself it reads whether the level finds a row of the kind.
+// A save that asks nothing finds its deepest level by it, and tries its widest statement
+// by it (takingDelete.bottom). ok is false where the kind is not read there (condition).
+func (q *takenQuery) exists(kind *DeleteKind, level, deepest int) (rowsUnderStatement, bool) {
+	w := &rowsUnderWriter{dbType: SpannerDBType}
+	condition, ok := q.condition(w, kind, level, deepest)
+	if !ok {
+		return rowsUnderStatement{}, false
+	}
+
+	return rowsUnderStatement{SQL: fmt.Sprintf("SELECT COUNT(*) FROM (SELECT 1 FROM %s WHERE %s LIMIT 1)", w.quote(string(kind.Resource)), condition), Args: w.args, Named: w.named()}, true
+}
+
 // countedKind is a kind a delete counts, with the query its statements are written by.
 type countedKind struct {
 	kind  *DeleteKind
@@ -578,7 +614,9 @@ type countedKind struct {
 // takenLevels are the rows under where a start begins of each kind a delete counts,
 // level by level (rows, by kind, at each level from 0), and the deepest level that finds
 // a row of one of them. A cut start (cut) reads no deeper than its deepest level: the
-// rows under the rows at that level are read from their keys (takenStart).
+// rows under the rows at that level are read from their keys (takenStart). A save that
+// asks nothing counts nothing: its levels hold no rows (rows is nil), and each kind is
+// read at each level it has a way at (takenStart.holds).
 type takenLevels struct {
 	deepest int
 	rows    map[*DeleteKind][]int64
@@ -803,15 +841,14 @@ func (c *SpannerReadWriteTransaction) readPage(ctx context.Context, statement ro
 	return rows, nil
 }
 
-// DeleteLeft is what a delete that takes rows says when one save did not hold them all:
-// the rows this save deleted, and the rows still under the record. The record's own row
-// stands until a save takes the last of them. The same delete, sent again, goes on.
+// DeleteLeft is what a delete that takes rows says when one save did not take them all:
+// the rows this save deleted. The record's own row stands until a save takes the last of
+// them. The same delete, sent again, goes on. How many are left is not said. The question
+// the delete asked first counted them (httpio.NewPreconditionRequiredRecords), and
+// whoever shows progress counts the saves down from that.
 type DeleteLeft struct {
 	// Deleted is the rows this save deleted.
 	Deleted int64 `json:"deleted"`
-	// Left is the rows still under the record, as they were counted when the save began,
-	// less those it deleted.
-	Left int64 `json:"left"`
 }
 
 // takenDelete is one row a delete takes, with its kind.
@@ -820,11 +857,10 @@ type takenDelete struct {
 	row  takenRow
 }
 
-// takenRound is what one save of a delete that takes rows did: the rows counted under
-// the record as the save began, the rows the save buffered the delete of, and whether
-// it took the last of them, so the record goes in the same save.
+// takenRound is what one save of a delete that takes rows did: the rows the save
+// buffered the delete of, and whether it took the last of them, so the record goes in the
+// same save.
 type takenRound struct {
-	counted  int64
 	deleted  int64
 	finished bool
 }
@@ -836,7 +872,7 @@ func (r *takenRound) left() *DeleteLeft {
 		return nil
 	}
 
-	return &DeleteLeft{Deleted: r.deleted, Left: max(0, r.counted-r.deleted)}
+	return &DeleteLeft{Deleted: r.deleted}
 }
 
 // takenTotals are the rows of each kind a delete counted: across every start under the
@@ -870,6 +906,17 @@ func (s *takenStart) total(kind *DeleteKind) int64 {
 	return rows
 }
 
+// holds reports whether the start may hold rows of the kind at the level: where its
+// levels were counted, the kind's count there is not zero; where they were not (a save
+// that asks nothing), the kind has a way at the level.
+func (s *takenStart) holds(kind *DeleteKind, level int) bool {
+	if s.levels.rows == nil {
+		return len(s.query.ways(kind, level)) > 0
+	}
+
+	return s.levels.at(kind, level) > 0
+}
+
 // matches reports whether a page read again is the page the branch was counted from.
 func (s *takenStart) matches(kind *DeleteKind, page []takenPageRow) bool {
 	return s.kind == kind && s.rows == len(page) && s.digest == pageDigest(page)
@@ -891,6 +938,55 @@ type walkEnded struct{}
 
 func (walkEnded) Error() string {
 	return "the walk ended"
+}
+
+// saveClock is the time limit of one save of a delete that takes rows: when the save
+// began, and how long it may run, none where the limit is below zero. A delete buffered
+// inside a save, on the context the save hands a kind's Take (a group deleted with its
+// tenant), runs on that save's clock (saveClockFrom).
+type saveClock struct {
+	began time.Time
+	limit time.Duration
+}
+
+// newSaveClock starts the clock of a save that may run for the limit,
+// DefaultDeleteSaveTime where it is zero and none where it is below zero.
+func newSaveClock(limit time.Duration) *saveClock {
+	if limit == 0 {
+		limit = DefaultDeleteSaveTime
+	}
+
+	return &saveClock{began: time.Now(), limit: limit}
+}
+
+// passed reports whether the save has run for its limit.
+func (c *saveClock) passed() bool {
+	return c.limit >= 0 && time.Since(c.began) >= c.limit
+}
+
+// saveClockKey is the context key a save's clock is handed to a kind's Take under.
+type saveClockKey struct{}
+
+// withSaveClock is the context a save hands a kind's Take: it carries the save's clock.
+func withSaveClock(ctx context.Context, clock *saveClock) context.Context {
+	return context.WithValue(ctx, saveClockKey{}, clock)
+}
+
+// saveClockFrom is the clock of the save the context was handed by, if any.
+func saveClockFrom(ctx context.Context) (*saveClock, bool) {
+	clock, ok := ctx.Value(saveClockKey{}).(*saveClock)
+
+	return clock, ok
+}
+
+// DeleteSaveOver reports whether the save a handed kind is taking rows in
+// (TakenKind.Take) has run for its time limit, having taken something. A kind that takes
+// its rows one after another asks it between rows, stops where it is true and says rows
+// are left. It is false outside a save.
+func DeleteSaveOver(ctx context.Context) bool {
+	clock, ok := saveClockFrom(ctx)
+
+	return ok && clock.passed()
 }
 
 // takingDelete is the delete of one record that takes the rows under it, as deleteTaken
@@ -917,6 +1013,21 @@ type takingDelete struct {
 	// pageRows is the most rows one page of a frontier holds, takenPageRows where it is
 	// zero: a test makes it small.
 	pageRows int
+	// unasked marks a save that asks nothing, because the delete's question asked
+	// everything under the record already: it counts nothing, asks no refusal, no grant
+	// and no row, and takes what it reads (run).
+	unasked bool
+	// limit is how long one save runs before it stops taking rows, DefaultDeleteSaveTime
+	// where it is zero and none where it is below zero (WithDeleteSaveTime).
+	limit time.Duration
+	// clock is the save's time limit: run starts it, unless the delete is buffered inside
+	// another delete's save and runs on that save's clock (saveClockFrom).
+	clock *saveClock
+	// buffered says the delete has buffered a row, or a handed kind has buffered a
+	// mutation, in this save, and first is how long after the clock began the first
+	// was: a save that has buffered something is over once its time has passed (over).
+	buffered bool
+	first    time.Duration
 }
 
 // callerOf is the person a row of the kind is checked as: none for a trusted kind
@@ -989,16 +1100,23 @@ func (d *takingDelete) rowsAt(ctx context.Context, query *takenQuery, kind *Dele
 	}
 }
 
-// run is the delete, each count statement run by count: the counts, the refusing kinds'
-// refusal, the refusal over a row straight under the record that the delete does not
-// take, the refusal over a row beyond the reach of whoever the delete is for, then the
-// taken kinds' checks and the rows taken (take). Each request asks them all again, so
-// every round of a delete larger than one save does. Where the database refuses a page
-// or a count by tenant for its joins at a level above 0 of a start after the start's
-// counts were made, and nothing is buffered (levelRefused), the run reads no deeper than
-// the level before it from any start (its reach) and starts again from its first count.
-// The reach is the run's alone: nothing of it is kept for the next request.
+// run is the delete, each count statement run by count, in one of two ways. The
+// question, and a save of a delete code told to take the rows, make the counts, the
+// refusing kinds' refusal, the refusal over a row straight under the record that the
+// delete does not take, the refusal over a row beyond the reach of whoever the delete is
+// for, then the taken kinds' checks and the rows taken (take): each request asks them all
+// again, so every round of such a delete larger than one save does. A save that asks
+// nothing (unasked) makes none of them: it goes down to the bottom by one-row reads and
+// takes what it reads (descend), the rows of the description's kinds and then the handed
+// kinds' (round). Where the database refuses a page or a count by tenant for its joins at
+// a level above 0 of a start after the start's counts were made, and nothing is buffered
+// (levelRefused), the run reads no deeper than the level before it from any start (its
+// reach) and starts again. The reach is the run's alone: nothing of it is kept for the
+// next request. The save's clock starts here, unless it was handed one.
 func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
+	if d.clock == nil {
+		d.clock = newSaveClock(d.limit)
+	}
 	reach := -1
 	for {
 		round, err := d.runWithin(ctx, count, reach, tracked, everythingUnder, eventSource...)
@@ -1016,6 +1134,11 @@ func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[ac
 // runWithin is one run of the delete (run) that reads no deeper than the reach from any
 // start, -1 for none.
 func (d *takingDelete) runWithin(ctx context.Context, count rowCounter, reach int, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
+	if d.unasked {
+		return d.round(ctx, func(each func(at *takenStart) (bool, error)) (bool, error) {
+			return d.descend(ctx, count, d.query, reach, nil, each)
+		}, nil, nil, tracked, eventSource...)
+	}
 	start, err := d.count(ctx, count, reach)
 	if err != nil {
 		return nil, err
@@ -1089,7 +1212,8 @@ func (d *takingDelete) countFrom(ctx context.Context, count rowCounter, query *t
 
 // frontier calls each with every page of a cut start's frontier, in order: for each
 // taken kind whose table nests (DeleteTree.nestingLinks), in the description's order,
-// with rows at the start's deepest level, those rows read by their keys alone, in key
+// that may hold rows at the start's deepest level (takenStart.holds), those rows read by
+// their keys alone, in key
 // order, a page of takenPageRows at a time, each as the page a branch starts from
 // (takenUnder). A branch is crossed where the start it is opened from is not one of the
 // same table: the record, where the record's table is not the page's, or a page of
@@ -1101,7 +1225,7 @@ func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each fun
 	for i := range tree.Taken {
 		kind := &tree.Taken[i]
 		table := string(kind.Resource)
-		if len(tree.nestingLinks(table)) == 0 || start.levels.at(kind, level) == 0 {
+		if len(tree.nestingLinks(table)) == 0 || !start.holds(kind, level) {
 			continue
 		}
 		_, types, err := d.keyFields(kind)
@@ -1154,7 +1278,8 @@ func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each fun
 // walk read it with, in the same order, and walks the branch counted for it with the
 // page's keys; a page that does not match the branch counted for it is an error. It holds
 // one page of keys for each start it is inside, and no more. It ends where each says it
-// is done, and reports whether it did.
+// is done, or where the save is over before a branch is opened (over), and reports
+// whether it did.
 func (d *takingDelete) walk(ctx context.Context, start *takenStart, each func(start *takenStart) (done bool, err error)) (bool, error) {
 	if start.levels.cut {
 		tree := d.query.tree
@@ -1162,6 +1287,9 @@ func (d *takingDelete) walk(ctx context.Context, start *takenStart, each func(st
 		err := d.frontier(ctx, start, func(kind *DeleteKind, page []takenPageRow, under *takenUnder) error {
 			if next >= len(start.branches) || !start.branches[next].matches(kind, page) {
 				return errors.Newf("a page of the %s under a %s is not the page that was counted", kind.Words.Many, tree.Words.One)
+			}
+			if d.over() {
+				return walkEnded{}
 			}
 			branch := start.branches[next]
 			next++
@@ -1228,10 +1356,12 @@ func (d *takingDelete) take(ctx context.Context, start *takenStart, tracked map[
 			counted += rows
 		}
 		if counted == 0 {
-			return &takenRound{finished: true}, nil
+			return &takenRound{deleted: 0, finished: true}, nil
 		}
 
-		return d.round(ctx, start, asks, handed, counted, tracked, eventSource...)
+		return d.round(ctx, func(each func(at *takenStart) (bool, error)) (bool, error) {
+			return d.walk(ctx, start, each)
+		}, asks, handed, tracked, eventSource...)
 	}
 
 	if _, err := d.walk(ctx, start, func(at *takenStart) (bool, error) {
@@ -1260,7 +1390,7 @@ func (d *takingDelete) take(ctx context.Context, start *takenStart, tracked map[
 		counted += rows
 	}
 	if counted == 0 {
-		return &takenRound{finished: true}, nil
+		return &takenRound{deleted: 0, finished: true}, nil
 	}
 	for _, kind := range d.also {
 		if err := kind.Check(ctx, d.txn); err != nil {
@@ -1272,7 +1402,7 @@ func (d *takingDelete) take(ctx context.Context, start *takenStart, tracked map[
 		return nil, err
 	}
 
-	return nil, httpio.NewPreconditionRequiredMessage(question)
+	return nil, httpio.NewPreconditionRequiredRecords(question, counted)
 }
 
 // countAlso counts the rows of each kind code handed the delete, in the order handed.
@@ -1310,19 +1440,23 @@ func (d *takingDelete) handedRows(handed []int64) []kindRows {
 	return counted
 }
 
-// round takes what fits one save, from the deepest level to level 0 and in the
-// description's order within a level. The save's size is d.size less what the record's
-// own row costs; for each kind with rows at a level, the most rows it may take is what
-// is left of the size over what one of them costs, read in one page, each asked where
-// the kind asks anything (asks) and buffered. None left, or a page that came back full,
-// ends the round with the record left standing; a round that reaches the end takes the
-// record too, once each kind code handed the delete has had what is left of the size
-// (TakenKind.Take), in the order handed: one that says rows of it are left ends the round
-// there. handed is each handed kind's count, and counted the rows counted under the
-// record, the handed kinds' among them. A round that can buffer nothing at all, neither a
-// row of the description's kinds nor a mutation of a handed kind, is an error: one row,
-// or a handed kind taken the only way it is taken, costs more than a save holds.
-func (d *takingDelete) round(ctx context.Context, start *takenStart, asks map[*DeleteKind]*takenAsks, handed []int64, counted int64, tracked map[accesstypes.Resource]bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
+// round takes what fits one save, start by start as walk goes through them
+// (takingDelete.walk for a save that counted, takingDelete.descend for one that asks
+// nothing), in each from the deepest level to level 0 and in the description's order
+// within a level. The save's size is d.size less what the record's own row costs; for
+// each kind that may hold rows at a level (takenStart.holds), the most rows it may take
+// is what is left of the size over what one of them costs, read in one page, each asked
+// where the kind asks anything (asks; nothing is asked where it is nil) and buffered.
+// None left, a page that came back full, or a save that is over (over), ends the round
+// with the record left standing; a round that reaches the end takes the record too, once
+// each kind code handed the delete has had what is left of the size (TakenKind.Take,
+// takeAlso), in the order handed, on a context that carries the save's clock
+// (DeleteSaveOver): one that says rows of it are left ends the round there. handed is
+// each handed kind's count, and a kind with none is not taken; where it is nil, nothing
+// was counted, and every handed kind is taken. A round that can buffer nothing at all,
+// neither a row of the description's kinds nor a mutation of a handed kind, is an error:
+// one row, or a handed kind taken the only way it is taken, costs more than a save holds.
+func (d *takingDelete) round(ctx context.Context, walk func(each func(at *takenStart) (bool, error)) (bool, error), asks map[*DeleteKind]*takenAsks, handed []int64, tracked map[accesstypes.Resource]bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
 	tree := d.query.tree
 	size := d.size
 	if size == 0 {
@@ -1337,13 +1471,16 @@ func (d *takingDelete) round(ctx context.Context, start *takenStart, asks map[*D
 		return 0
 	}
 	taken := make(map[accesstypes.Resource]int, len(tree.Taken))
-	round := &takenRound{counted: counted, deleted: 0, finished: false}
-	full, err := d.walk(ctx, start, func(at *takenStart) (bool, error) {
+	round := &takenRound{deleted: 0, finished: false}
+	full, err := walk(func(at *takenStart) (bool, error) {
 		for level := at.levels.deepest; level >= 0; level-- {
 			for i := range tree.Taken {
 				kind := &tree.Taken[i]
-				if at.levels.at(kind, level) == 0 {
+				if !at.holds(kind, level) {
 					continue
+				}
+				if d.over() {
+					return true, nil
 				}
 				most := (size - tree.Mutations(taken, changeRecord)) / kind.Cost.Mutations(changeRecord(kind.Resource))
 				if most <= 0 {
@@ -1359,7 +1496,8 @@ func (d *takingDelete) round(ctx context.Context, start *takenStart, asks map[*D
 				}
 				taken[kind.Resource] += rows
 				round.deleted += int64(rows)
-				if rows == most {
+				// A page cut short at the save's time leaves rows of it for the next save.
+				if rows == most || d.over() {
 					return true, nil
 				}
 			}
@@ -1377,44 +1515,64 @@ func (d *takingDelete) round(ctx context.Context, start *takenStart, asks map[*D
 	if full {
 		return round, nil
 	}
-	spent := tree.Mutations(taken, changeRecord)
-	before := spent
-	for i, kind := range d.also {
-		if handed[i] == 0 {
-			continue
-		}
-		budget := size - spent
-		if budget <= 0 {
-			return round, nil
-		}
-		rows, mutations, more, err := kind.Take(ctx, d.txn, budget, eventSource...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "deleting the %s under a %s", kind.Words().Many, tree.Words.One)
-		}
-		if more && rows == 0 && mutations == 0 && round.deleted == 0 && spent == before {
-			return nil, errors.Newf("the delete of a %s can take nothing in one save: its %s cost more than a save holds, taken the only way they are taken", tree.Words.One, kind.Words().Many)
-		}
-		round.deleted += rows
-		spent += mutations
-		if more {
-			return round, nil
-		}
+	finished, err := d.takeAlso(ctx, round, handed, size, tree.Mutations(taken, changeRecord), eventSource...)
+	if err != nil {
+		return nil, err
 	}
-	round.finished = true
+	round.finished = finished
 
 	return round, nil
 }
 
+// takeAlso calls the Take of each kind code handed the delete, in the order handed, after
+// the description's kinds have taken what the round took of them (spent, of size): each
+// kind the counts found rows of (handed), or every kind where handed is nil (a save that
+// asks nothing), with what is left of the budget and the save's clock, until one says
+// rows are left, the budget is spent or the save is over. It adds what each took to the
+// round, and reports whether every kind took the last of its rows.
+func (d *takingDelete) takeAlso(ctx context.Context, round *takenRound, handed []int64, size, spent int, eventSource ...eventsource.EventSource) (bool, error) {
+	tree := d.query.tree
+	before := spent
+	for i, kind := range d.also {
+		if i < len(handed) && handed[i] == 0 {
+			continue
+		}
+		budget := size - spent
+		if budget <= 0 || d.over() {
+			return false, nil
+		}
+		rows, mutations, more, err := kind.Take(withSaveClock(ctx, d.clock), d.txn, budget, eventSource...)
+		if err != nil {
+			return false, errors.Wrapf(err, "deleting the %s under a %s", kind.Words().Many, tree.Words.One)
+		}
+		if more && rows == 0 && mutations == 0 && round.deleted == 0 && spent == before {
+			return false, errors.Newf("the delete of a %s can take nothing in one save: its %s cost more than a save holds, taken the only way they are taken", tree.Words.One, kind.Words().Many)
+		}
+		if rows > 0 || mutations > 0 {
+			d.bufferedOne()
+		}
+		round.deleted += rows
+		spent += mutations
+		if more {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
 // takeAt takes at most most of the kind's rows at the level, below the deepest level, in
 // key order, read in one page: each row is asked what its own delete asks where the kind
-// asks anything of its rows (asks), and once every row of the page has passed, each is
-// buffered. It reports how many it took.
+// asks anything of its rows (asks; nothing where it is nil), and once the rows have
+// passed, each is buffered. Where the save's time passes (saveClock), no more of the
+// page is asked or buffered: rows asked and not buffered are left for the next save, and
+// a save that has buffered nothing yet buffers one row first. It reports how many it took.
 func (d *takingDelete) takeAt(ctx context.Context, query *takenQuery, kind *DeleteKind, level, deepest int, asks *takenAsks, most int, eventSource ...eventsource.EventSource) (int, error) {
 	fields, types, err := d.keyFields(kind)
 	if err != nil {
 		return 0, err
 	}
-	if !asks.asksRows() {
+	if asks != nil && !asks.asksRows() {
 		asks = nil
 	}
 	answers := 0
@@ -1430,7 +1588,10 @@ func (d *takingDelete) takeAt(ctx context.Context, query *takenQuery, kind *Dele
 		return 0, refusedAt(level, errors.Wrapf(err, "reading the %s under a %s", kind.Words.Many, d.query.tree.Words.One))
 	}
 	taken := make([]takenRow, 0, len(rows))
-	for _, read := range rows {
+	for i, read := range rows {
+		if i > 0 && d.clock.passed() {
+			break
+		}
 		row := kind.Rows.row(fields, read.key, d.callerOf(kind))
 		if asks != nil {
 			if byRule, err := row.checkTaken(ctx, d.txn, asks, read.answers); err != nil {
@@ -1439,13 +1600,204 @@ func (d *takingDelete) takeAt(ctx context.Context, query *takenQuery, kind *Dele
 		}
 		taken = append(taken, row)
 	}
+	buffered := 0
 	for _, row := range taken {
+		if d.over() {
+			break
+		}
 		if err := row.bufferTaken(ctx, d.txn, eventSource...); err != nil {
 			return 0, errors.Wrapf(err, "deleting a %s under a %s", kind.Words.One, d.query.tree.Words.One)
 		}
+		d.bufferedOne()
+		buffered++
 	}
 
-	return len(taken), nil
+	return buffered, nil
+}
+
+// over reports whether the save is over: it has buffered something and its time has
+// passed.
+func (d *takingDelete) over() bool {
+	return d.buffered && d.clock.passed()
+}
+
+// bufferedOne notes that the save has buffered a row, or a handed kind a mutation, and
+// when it first did.
+func (d *takingDelete) bufferedOne() {
+	if !d.buffered {
+		d.buffered, d.first = true, time.Since(d.clock.began)
+	}
+}
+
+// logSave logs the one line of a save whose round returned: the rows it took, how long
+// it ran, how long before its first row, and what ended it, its end, its budget or its
+// time limit. The lab reads a large delete's saves from it, and an operator why one is
+// slow.
+func (d *takingDelete) logSave(ctx context.Context, round *takenRound) {
+	ended := "its budget"
+	switch {
+	case round.finished:
+		ended = "its end"
+	case d.over():
+		ended = "its time limit"
+	}
+	logger.FromCtx(ctx).Infof("resource: a save of the delete of a %s took %d rows in %s, the first after %s, and ended at %s",
+		d.query.tree.Words.One, round.deleted, time.Since(d.clock.began).Round(time.Millisecond), d.first.Round(time.Millisecond), ended)
+}
+
+// descend is the walk of a save that asks nothing (unasked), which no count went before:
+// it goes through the starts depth first, a start's branches before the start's own
+// levels, and calls each with every start, the record's last, on one budget and one
+// clock. For each start it finds the bottom and the start's cut (bottom). A cut start's
+// frontier pages are read as the first walk reads them (frontier), each page checked
+// against the pages the walk is inside, as countFrom checks it, and each page's branch
+// walked the same way before the next page is read; then the start's own levels. It ends
+// where each says it is done, or where the save is over before a branch is opened
+// (over), and reports whether it did.
+func (d *takingDelete) descend(ctx context.Context, count rowCounter, query *takenQuery, reach int, inside []*takenUnder, each func(start *takenStart) (done bool, err error)) (bool, error) {
+	levels, err := d.bottom(ctx, count, query, reach)
+	if err != nil {
+		return false, err
+	}
+	start := &takenStart{query: query, levels: levels, branches: nil, kind: nil, rows: 0, digest: 0}
+	if levels.cut {
+		tree := query.tree
+		err := d.frontier(ctx, start, func(kind *DeleteKind, _ []takenPageRow, under *takenUnder) error {
+			for _, outer := range inside {
+				if outer.table == under.table && maps.Equal(outer.rows, under.rows) {
+					return errors.Newf("a %s under the %s is nested under itself", kind.Words.One, tree.Words.One)
+				}
+			}
+			if d.over() {
+				return walkEnded{}
+			}
+			done, err := d.descend(ctx, count, &takenQuery{tree: tree, key: query.key, under: under}, reach, append(slices.Clip(inside), under), each)
+			if err != nil {
+				return err
+			}
+			if done {
+				return walkEnded{}
+			}
+
+			return nil
+		})
+		if errors.As(err, new(walkEnded)) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return each(start)
+}
+
+// bottom is where a save that asks nothing reads the start the query writes to
+// (descend): its deepest level and whether it is cut there, with no rows counted. The
+// deepest level is found by one-row reads (found), level by level from level 1, of each
+// taken kind with a way at level 1, as countLevels finds it by counts: the level before
+// the first that finds no row of any of them, no deeper than one level past the reach
+// (-1 for none). A start whose rows go past the reach is cut at the reach at the latest,
+// and one whose read is refused for its joins (joinsRefused) at a level two levels above
+// it, whose statements join more than the read that was refused. Then the start's widest
+// statement is tried (tries): a whole start with its deepest level d at 2 or more tries
+// level d-1 with level d left out, and is whole where none is refused; a cut start tries
+// the level it is cut at, with the next left out; where one is refused, the level below
+// is tried the same way, and the first level at which none is refused is the start's cut.
+// Nothing is tried at level 0: a start cut there reads level 0 alone, and a refusal there
+// is the error it is.
+func (d *takingDelete) bottom(ctx context.Context, count rowCounter, query *takenQuery, reach int) (*takenLevels, error) {
+	tree := query.tree
+	var nested []*DeleteKind
+	for i := range tree.Taken {
+		if kind := &tree.Taken[i]; len(query.ways(kind, 1)) > 0 {
+			nested = append(nested, kind)
+		}
+	}
+	deepest, latest := 0, -1
+	for level := 1; len(nested) > 0 && (reach < 0 || level <= reach+1); level++ {
+		foundAny, refused := false, false
+		for _, kind := range nested {
+			found, err := d.found(ctx, count, query, kind, level, level)
+			if joinsRefused(err) {
+				refused = true
+
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			foundAny = foundAny || found
+		}
+		if refused {
+			latest = max(level-2, 0)
+
+			break
+		}
+		if !foundAny {
+			break
+		}
+		deepest = level
+		if level == reach+1 {
+			latest = reach
+		}
+	}
+	if latest < 0 {
+		if deepest < 2 {
+			return &takenLevels{deepest: deepest, rows: nil, cut: false}, nil
+		}
+		refused, err := d.tries(ctx, count, query, deepest-1, deepest)
+		if err != nil {
+			return nil, err
+		}
+		if !refused {
+			return &takenLevels{deepest: deepest, rows: nil, cut: false}, nil
+		}
+		latest = deepest - 2
+	}
+	for cut := latest; cut > 0; cut-- {
+		refused, err := d.tries(ctx, count, query, cut, cut+1)
+		if err != nil {
+			return nil, err
+		}
+		if !refused {
+			return &takenLevels{deepest: cut, rows: nil, cut: true}, nil
+		}
+	}
+
+	return &takenLevels{deepest: 0, rows: nil, cut: true}, nil
+}
+
+// tries reads one row of each taken kind with a way at the level, below the deepest
+// level (found), and reports whether the database refused one of them for its joins.
+func (d *takingDelete) tries(ctx context.Context, count rowCounter, query *takenQuery, level, deepest int) (bool, error) {
+	tree := query.tree
+	for i := range tree.Taken {
+		_, err := d.found(ctx, count, query, &tree.Taken[i], level, deepest)
+		if joinsRefused(err) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
+}
+
+// found reports whether a row of the kind is at the level, below the deepest level, by
+// one-row read (takenQuery.exists) sent by count, false where the kind has no way there.
+func (d *takingDelete) found(ctx context.Context, count rowCounter, query *takenQuery, kind *DeleteKind, level, deepest int) (bool, error) {
+	statement, ok := query.exists(kind, level, deepest)
+	if !ok {
+		return false, nil
+	}
+	rows, err := count(ctx, statement)
+	if err != nil {
+		return false, errors.Wrapf(err, "reading whether %s are under a %s", kind.Words.Many, query.tree.Words.One)
+	}
+
+	return rows > 0, nil
 }
 
 // eachLevel calls each with every taken kind that has rows at a level, from the deepest
@@ -1503,6 +1855,13 @@ type takenRecord struct {
 // delete does, or where its kind is trusted; a row of a kind marked AsCaller is checked
 // as whoever the delete is for (callerOf). The sentences are written for whoever asked
 // (deleteCaller).
+//
+// A save runs for its time limit: the patch's (deleteSaveTime), else the transaction's
+// (WithDeleteSaveTime), else DefaultDeleteSaveTime. A delete buffered on the context a
+// save hands a kind's Take (a group deleted with its tenant) is part of that save: it
+// runs on that save's clock and logs nothing. Every other save logs one line once its
+// round returns: the rows it took, how long it ran, how long before its first row, and
+// what ended it.
 func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) (*takenRound, error) {
 	record := p.takes(txn)
 	if record == nil {
@@ -1534,6 +1893,11 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 			return spannerTxn.countByTenant(ctx, statement)
 		}
 	}
+	limit := p.deleteSaveTime
+	if limit == 0 {
+		limit = spannerTxn.deleteSaveTime
+	}
+	clock, inside := saveClockFrom(ctx)
 	taking := &takingDelete{
 		asked:    &recordedDelete{tree: tree, key: key, caller: p.deleteCaller(ctx)},
 		query:    &takenQuery{tree: tree, key: key, under: nil},
@@ -1543,9 +1907,20 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 		byTenant: byTenant,
 		size:     p.deleteSaveSize,
 		also:     p.alsoTaken,
+		pageRows: 0,
+		unasked:  false,
+		limit:    limit,
+		clock:    clock,
+		buffered: false,
+		first:    0,
 	}
 
-	return taking.run(ctx, count, tracked, p.everythingUnder, eventSource...)
+	round, err := taking.run(ctx, count, tracked, p.everythingUnder, eventSource...)
+	if err == nil && round != nil && p.everythingUnder && !inside {
+		taking.logSave(ctx, round)
+	}
+
+	return round, err
 }
 
 // takes is what deleteTaken reads of the patch's delete before it runs (takenRecord):

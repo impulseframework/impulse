@@ -1089,6 +1089,15 @@ func TestDeleteCascade_rounds(t *testing.T) {
 	if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 26,700 sorties. This can't be undone."; got != want {
 		t.Errorf("the question = %q, want %q", got, want)
 	}
+	var asked struct {
+		Records int64 `json:"records"`
+	}
+	if err := json.Unmarshal(body, &asked); err != nil {
+		t.Fatalf("the question answered %s: %v", body, err)
+	}
+	if asked.Records != sorties {
+		t.Errorf("the question counted %d records, want the %d sorties", asked.Records, sorties)
+	}
 	if n := sortiesLeft(); n != sorties || !missionStands() {
 		t.Fatalf("after the question %d of the %d sorties stand and the mission stands = %v, want all of them and the mission", n, sorties, missionStands())
 	}
@@ -1096,26 +1105,22 @@ func TestDeleteCascade_rounds(t *testing.T) {
 	events := countChangeEvents(ctx, t, db, "Missions")
 	const most = 10
 	rounds := 0
+	var deleted int64
 	for ; rounds < most; rounds++ {
 		status, body = remove(`,"value":{"everythingUnder":true}`)
 		if status != http.StatusAccepted {
 			break
 		}
-		var left struct {
-			Deleted int64 `json:"deleted"`
-			Left    int64 `json:"left"`
-		}
+		var left map[string]int64
 		if err := json.Unmarshal(body, &left); err != nil {
 			t.Fatalf("round %d answered %s: %v", rounds+1, body, err)
 		}
-		if left.Deleted <= 0 || left.Left <= 0 {
-			t.Errorf("round %d answered %+v, want rows deleted and rows left", rounds+1, left)
+		if _, ok := left["deleted"]; !ok || len(left) != 1 || left["deleted"] <= 0 {
+			t.Errorf("round %d answered %s, want the rows it deleted alone", rounds+1, body)
 		}
-		if rounds == 0 && left.Deleted+left.Left != sorties {
-			t.Errorf("the first round deleted %d and left %d, want the two to add up to the question's %d", left.Deleted, left.Left, sorties)
-		}
-		if n := sortiesLeft(); n != left.Left {
-			t.Errorf("after round %d %d sorties stand, want the %d it says are left", rounds+1, n, left.Left)
+		deleted += left["deleted"]
+		if n := sortiesLeft(); n != sorties-deleted {
+			t.Errorf("after round %d %d sorties stand, want the question's %d less the %d deleted", rounds+1, n, sorties, deleted)
 		}
 		if !missionStands() {
 			t.Errorf("the mission is gone after round %d, which left rows under it", rounds+1)

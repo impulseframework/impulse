@@ -208,7 +208,6 @@ export interface DeleteCrewGroup {
 /** The result DeleteCrewGroup answers with. */
 export interface DeleteCrewGroupResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteCrewGroup declares; the method chooses one per response. */
 export type DeleteCrewGroupStatus = 202 | 204;
@@ -229,7 +228,6 @@ export interface DeleteCrewSectorGroup {
 /** The result DeleteCrewSectorGroup answers with. */
 export interface DeleteCrewSectorGroupResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteCrewSectorGroup declares; the method chooses one per response. */
 export type DeleteCrewSectorGroupStatus = 202 | 204;
@@ -250,7 +248,6 @@ export interface DeleteCrewSectorUser {
 /** The result DeleteCrewSectorUser answers with. */
 export interface DeleteCrewSectorUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteCrewSectorUser declares; the method chooses one per response. */
 export type DeleteCrewSectorUserStatus = 202 | 204;
@@ -271,7 +268,6 @@ export interface DeleteCrewUser {
 /** The result DeleteCrewUser answers with. */
 export interface DeleteCrewUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteCrewUser declares; the method chooses one per response. */
 export type DeleteCrewUserStatus = 202 | 204;
@@ -292,7 +288,6 @@ export interface DeleteMembersSectorUser {
 /** The result DeleteMembersSectorUser answers with. */
 export interface DeleteMembersSectorUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersSectorUser declares; the method chooses one per response. */
 export type DeleteMembersSectorUserStatus = 202 | 204;
@@ -313,7 +308,6 @@ export interface DeleteMembersUser {
 /** The result DeleteMembersUser answers with. */
 export interface DeleteMembersUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersUser declares; the method chooses one per response. */
 export type DeleteMembersUserStatus = 202 | 204;

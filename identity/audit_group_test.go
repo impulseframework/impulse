@@ -396,7 +396,7 @@ func TestDeleteGroup_recorded(t *testing.T) {
 	store := groupStore()
 	store.groupMembers[memberKey(nightID, userID)] = true
 	store.groupRoles[access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")] = true
-	store.groupLeft = &resource.DeleteLeft{Deleted: 2, Left: 1}
+	store.groupLeft = &resource.DeleteLeft{Deleted: 2}
 	sessions := fakeSessions{tenantNames: map[accesstypes.Domain]string{"alpha": "Alpha Sector"}}
 	m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, sessions, WithTenantWord("sector"))
 	if err != nil {

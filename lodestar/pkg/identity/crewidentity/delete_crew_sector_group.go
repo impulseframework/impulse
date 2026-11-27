@@ -40,11 +40,10 @@ type DeleteCrewSectorGroup struct {
 }
 
 // DeleteCrewSectorGroupResult is what a delete of a group with more under it than one
-// save holds left (resource.DeleteLeft): the records this request deleted and the
-// records still under the group, which stands until a request takes the last of them.
+// save holds left (resource.DeleteLeft): the records this request deleted. The group
+// stands until a request takes the last of them.
 type DeleteCrewSectorGroupResult struct {
 	Deleted int64 `json:"deleted"`
-	Left    int64 `json:"left"`
 }
 
 // HTTPStatus answers 202: the group still stands, and the same delete, sent again, goes on.
@@ -71,7 +70,7 @@ func (m *DeleteCrewSectorGroup) Execute(ctx context.Context, txn resource.ReadWr
 		return nil, nil
 	}
 
-	return &DeleteCrewSectorGroupResult{Deleted: left.Deleted, Left: left.Left}, nil
+	return &DeleteCrewSectorGroupResult{Deleted: left.Deleted}, nil
 }
 
 // mayEmpty asks, in a request, what the caller needs to take each member out of the

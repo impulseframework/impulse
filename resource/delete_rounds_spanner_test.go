@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
@@ -102,6 +103,24 @@ func (ruledRoundProject) DeleteTree() *DeleteTree {
 			return nil
 		})
 	})
+}
+
+// invoicedRoundProject is roundProject whose delete is refused while an invoice is under
+// one of its tasks (the refusing kind of invoicedTree).
+type invoicedRoundProject struct {
+	ID   string             `spanner:"Id"`
+	Code spanner.NullString `spanner:"Code"`
+}
+
+func (invoicedRoundProject) Resource() accesstypes.Resource {
+	return "CascadeProjects"
+}
+
+func (invoicedRoundProject) DeleteTree() *DeleteTree {
+	tree := roundTree(func(*PatchSet[roundTask], *Caller) {})
+	tree.RefusedBy = invoicedTree().RefusedBy[:1]
+
+	return tree
 }
 
 // roundTask is a CascadeTasks row, whose changes are recorded.
@@ -249,13 +268,15 @@ func readRoundState(t *testing.T, db *spanner.Client, project string) roundState
 // TestPatchSet_deleteTaken_rounds holds, over the emulator, a delete larger than one
 // save. A project whose tasks sit three deep, every one holding the project, with keys
 // that put a task before the tasks under it, is deleted at a small save size: each
-// request takes what fits, the deepest first, says what it deleted and what is left, and
+// request takes what fits, the deepest first, says what it deleted, and
 // leaves the project standing, until the last takes the project too and says nothing.
 // After every commit no task or comment that is left names a task that is gone, and
 // every save stays within the size. Each task has the one change record of its delete.
 // A rule that starts refusing between two rounds refuses the round, which commits
 // nothing, while what earlier rounds took stays gone, and the delete finishes once the
-// rule allows again. A delete that fits one save deletes the record and says nothing.
+// rule allows again; so does a refusing row that turns up between two rounds, for every
+// save of a delete code told to take the rows asks everything again. A delete that fits
+// one save deletes the record and says nothing.
 func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 	t.Parallel()
 
@@ -279,6 +300,8 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		comment("big-c1", "big-3a"), comment("big-c2", "big-1a"),
 		spanner.InsertMap("CascadeProjects", map[string]any{"Id": "ruled"}),
 		task("ruled-1", "ruled", ""), task("ruled-2", "ruled", ""), task("ruled-3", "ruled", ""), task("ruled-4", "ruled", ""), task("ruled-5", "ruled", ""),
+		spanner.InsertMap("CascadeProjects", map[string]any{"Id": "invoiced"}),
+		task("invoiced-1", "invoiced", ""), task("invoiced-2", "invoiced", ""), task("invoiced-3", "invoiced", ""), task("invoiced-4", "invoiced", ""), task("invoiced-5", "invoiced", ""),
 		spanner.InsertMap("CascadeProjects", map[string]any{"Id": "small"}),
 		task("small-1", "small", ""), task("small-2", "small", "small-1"), comment("small-c1", "small-2"),
 		spanner.InsertMap("CascadeProjects", map[string]any{"Id": "two"}),
@@ -299,7 +322,7 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 
 		// The record, a comment and two tasks.
 		size := recordCost + commentCost + 2*taskCost
-		rounds := []*DeleteLeft{{Deleted: 3, Left: 8}, {Deleted: 2, Left: 6}, {Deleted: 2, Left: 4}, {Deleted: 3, Left: 1}, nil}
+		rounds := []*DeleteLeft{{Deleted: 3}, {Deleted: 2}, {Deleted: 2}, {Deleted: 3}, nil}
 		before := readRoundState(t, db, "big")
 		for i, want := range rounds {
 			got, err := deleteRound[roundProject](t, db, "big", size, eventsource.ProcessEvent("test"))
@@ -344,8 +367,8 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 
 		// The record and two tasks.
 		size := recordCost + 2*taskCost
-		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2, Left: 3}) {
-			t.Fatalf("the first round = %+v, %v, want {Deleted: 2, Left: 3}", got, err)
+		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2}) {
+			t.Fatalf("the first round = %+v, %v, want {Deleted: 2}", got, err)
 		}
 
 		refusingTasks.Store(true)
@@ -358,13 +381,47 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 			t.Errorf("after the refused round the record is there = %t with %d tasks, want it there with the 3 the first round left", state.record, state.tasks)
 		}
 
-		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2, Left: 1}) {
-			t.Fatalf("the round once the rule allows = %+v, %v, want {Deleted: 2, Left: 1}", got, err)
+		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2}) {
+			t.Fatalf("the round once the rule allows = %+v, %v, want {Deleted: 2}", got, err)
 		}
 		if got, err := deleteRound[ruledRoundProject](t, db, "ruled", size, eventsource.ProcessEvent("test")); err != nil || got != nil {
 			t.Fatalf("the last round = %+v, %v, want nil", got, err)
 		}
 		if state := readRoundState(t, db, "ruled"); state.record || state.tasks != 0 {
+			t.Errorf("once the delete finished the record is there = %t with %d tasks, want both gone", state.record, state.tasks)
+		}
+	})
+
+	t.Run("a refusing row that turns up between rounds refuses the next round", func(t *testing.T) {
+		t.Parallel()
+
+		// The record and two tasks.
+		size := recordCost + 2*taskCost
+		if got, err := deleteRound[invoicedRoundProject](t, db, "invoiced", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2}) {
+			t.Fatalf("the first round = %+v, %v, want {Deleted: 2}", got, err)
+		}
+
+		if _, err := db.Apply(t.Context(), []*spanner.Mutation{spanner.InsertMap("CascadeInvoices", map[string]any{"Id": "invoiced-i1", "TaskId": "invoiced-4"})}); err != nil {
+			t.Fatalf("spanner.Client.Apply() error = %v", err)
+		}
+		_, err := deleteRound[invoicedRoundProject](t, db, "invoiced", size, eventsource.ProcessEvent("test"))
+		if want := "This project has 1 invoice, so it can't be deleted."; statusOf(err) != http.StatusConflict || httpio.Message(err) != want {
+			t.Errorf("the second round's error = %v (%q), want a 409 saying %q", err, httpio.Message(err), want)
+		}
+		if state := readRoundState(t, db, "invoiced"); !state.record || state.tasks != 3 {
+			t.Errorf("after the refused round the record is there = %t with %d tasks, want it there with the 3 the first round left", state.record, state.tasks)
+		}
+
+		if _, err := db.Apply(t.Context(), []*spanner.Mutation{spanner.Delete("CascadeInvoices", spanner.Key{"invoiced-i1"})}); err != nil {
+			t.Fatalf("spanner.Client.Apply() error = %v", err)
+		}
+		if got, err := deleteRound[invoicedRoundProject](t, db, "invoiced", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2}) {
+			t.Fatalf("the round once the invoice is gone = %+v, %v, want {Deleted: 2}", got, err)
+		}
+		if got, err := deleteRound[invoicedRoundProject](t, db, "invoiced", size, eventsource.ProcessEvent("test")); err != nil || got != nil {
+			t.Fatalf("the last round = %+v, %v, want nil", got, err)
+		}
+		if state := readRoundState(t, db, "invoiced"); state.record || state.tasks != 0 {
 			t.Errorf("once the delete finished the record is there = %t with %d tasks, want both gone", state.record, state.tasks)
 		}
 	})
@@ -376,8 +433,8 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		// full. The second has room for two: it takes the other task, and with room left,
 		// the record.
 		record := rowDeleteMutations + ChangeRecordMutations(eventsource.ProcessEvent("first round"))
-		if got, err := deleteRound[trackedRoundProject](t, db, "two", record+taskCost, eventsource.ProcessEvent("first round")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 1, Left: 1}) {
-			t.Fatalf("the first round = %+v, %v, want {Deleted: 1, Left: 1}", got, err)
+		if got, err := deleteRound[trackedRoundProject](t, db, "two", record+taskCost, eventsource.ProcessEvent("first round")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 1}) {
+			t.Fatalf("the first round = %+v, %v, want {Deleted: 1}", got, err)
 		}
 		var first string
 		for _, id := range []string{"two-1", "two-2"} {
@@ -425,8 +482,8 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		if most := rowDeleteMutations + ChangeRecordMutations(); (size-recordCost)/most != 1 {
 			t.Fatalf("the save of %d holds %d tasks at %d a task, want 1", size, (size-recordCost)/most, most)
 		}
-		if got, err := deleteRound[roundProject](t, db, "exact", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2, Left: 0}) {
-			t.Fatalf("the first round = %+v, %v, want {Deleted: 2, Left: 0}", got, err)
+		if got, err := deleteRound[roundProject](t, db, "exact", size, eventsource.ProcessEvent("test")); err != nil || !cmp.Equal(got, &DeleteLeft{Deleted: 2}) {
+			t.Fatalf("the first round = %+v, %v, want {Deleted: 2}", got, err)
 		}
 		if state := readRoundState(t, db, "exact"); !state.record || state.tasks != 0 {
 			t.Errorf("after the first round the record is there = %t with %d tasks, want it there with none", state.record, state.tasks)
@@ -514,7 +571,7 @@ func TestPatchSet_deleteTaken_roundsNestedToAnyDepth(t *testing.T) {
 			}
 			state := readRoundState(t, db, "tall")
 			if round == 1 {
-				if diff := cmp.Diff(&DeleteLeft{Deleted: 10, Left: 65}, left); diff != "" {
+				if diff := cmp.Diff(&DeleteLeft{Deleted: 10}, left); diff != "" {
 					t.Errorf("round 1: DeleteLeft() (-want +got):\n%s", diff)
 				}
 				for _, deepest := range []string{"tall-a25", "tall-b25", "tall-c25", "tall-a23", "tall-c23"} {
@@ -534,14 +591,14 @@ func TestPatchSet_deleteTaken_roundsNestedToAnyDepth(t *testing.T) {
 				break
 			}
 			if !state.record {
-				t.Fatalf("round %d: the record is gone with %d tasks left to delete", round, left.Left)
+				t.Fatalf("round %d: the record is gone with %d tasks left to delete", round, state.tasks)
 			}
-			// What each round deleted and what it says is left come to what the rounds
-			// before it left, so the rounds together delete what the question counted.
-			if left.Deleted+left.Left != remaining || state.tasks != left.Left {
-				t.Errorf("round %d: DeleteLeft() = %+v with %d tasks in the database, want it to come to the %d not yet deleted", round, left, state.tasks, remaining)
+			// What each round deleted comes off what the rounds before it left, so the rounds
+			// together delete what the question counted.
+			remaining -= left.Deleted
+			if state.tasks != remaining {
+				t.Errorf("round %d: DeleteLeft() = %+v with %d tasks in the database, want the %d the question counted less what the rounds deleted", round, left, state.tasks, remaining)
 			}
-			remaining = left.Left
 			if round > 10 {
 				t.Fatalf("round %d: the delete has not finished", round)
 			}
@@ -569,7 +626,7 @@ func TestPatchSet_deleteTaken_roundsNestedToAnyDepth(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the refused round's error = %v, want none", err)
 		}
-		if diff := cmp.Diff(&DeleteLeft{Deleted: 15, Left: 12}, left); diff != "" {
+		if diff := cmp.Diff(&DeleteLeft{Deleted: 15}, left); diff != "" {
 			t.Errorf("the refused round's DeleteLeft() (-want +got):\n%s", diff)
 		}
 		if state := readRoundState(t, db, "late"); !state.record || state.tasks != 12 {
@@ -583,6 +640,265 @@ func TestPatchSet_deleteTaken_roundsNestedToAnyDepth(t *testing.T) {
 		}
 		if state := readRoundState(t, db, "late"); state.record || state.tasks != 0 {
 			t.Errorf("once the delete finished the record is there = %t with %d tasks, want both gone", state.record, state.tasks)
+		}
+	})
+}
+
+// pacedKind is a kind of row a test hands a delete (TakenKind) that takes its rows one
+// after another, asking DeleteSaveOver once it has taken one, as the library's kinds do.
+// Its rows are what each save before it left.
+type pacedKind struct {
+	rows int64
+}
+
+func (*pacedKind) Words() DeleteWords {
+	return DeleteWords{One: "paced row", Many: "paced rows"}
+}
+
+func (k *pacedKind) Count(context.Context, ReadWriteTransaction) (int64, error) {
+	return k.rows, nil
+}
+
+func (*pacedKind) Check(context.Context, ReadWriteTransaction) error {
+	return nil
+}
+
+func (k *pacedKind) Take(ctx context.Context, _ ReadWriteTransaction, budget int, _ ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
+	for rows < k.rows {
+		if rows > 0 && DeleteSaveOver(ctx) {
+			break
+		}
+		if mutations+1 > budget {
+			break
+		}
+		rows++
+		mutations++
+	}
+	k.rows -= rows
+
+	return rows, mutations, k.rows > 0, nil
+}
+
+// innerDelete is a kind a test hands a delete (TakenKind) whose Take buffers the delete of
+// another project told to take what is under it, on the context Take was handed, as the
+// library's kind of a tenant's groups deletes each group. left is what that delete left
+// (PatchSet.DeleteLeft).
+type innerDelete struct {
+	project string
+	left    *DeleteLeft
+}
+
+func (*innerDelete) Words() DeleteWords {
+	return DeleteWords{One: "inner project", Many: "inner projects"}
+}
+
+func (*innerDelete) Count(context.Context, ReadWriteTransaction) (int64, error) {
+	return 1, nil
+}
+
+func (*innerDelete) Check(context.Context, ReadWriteTransaction) error {
+	return nil
+}
+
+func (k *innerDelete) Take(ctx context.Context, txn ReadWriteTransaction, _ int, eventSource ...eventsource.EventSource) (rows int64, mutations int, more bool, err error) {
+	inner := NewPatchSet(NewMetadata[roundProject]()).SetPatchType(DeletePatchType).DeleteEverythingUnder()
+	inner.SetKey("ID", k.project)
+	if err := inner.Buffer(ctx, txn, eventSource...); err != nil {
+		return 0, 0, false, err
+	}
+	k.left = inner.DeleteLeft()
+	if k.left != nil {
+		return k.left.Deleted, int(k.left.Deleted), true, nil
+	}
+
+	return 1, 1, false, nil
+}
+
+// deleteSave runs one request's delete of the record R with the id, told to take what is
+// under it, in a save whose time is limit (PatchSet.deleteSaveTime; the transaction's for
+// 0), handed kinds, and returns what the delete left (PatchSet.DeleteLeft).
+func deleteSave[R Resourcer](t *testing.T, db *spanner.Client, id string, limit time.Duration, kinds ...TakenKind) (*DeleteLeft, error) {
+	t.Helper()
+
+	var left *DeleteLeft
+	err := NewSpannerClient(db).ExecuteFunc(t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
+		record := NewPatchSet(NewMetadata[R]()).SetPatchType(DeletePatchType).DeleteEverythingUnder().DeleteAlso(kinds...)
+		record.SetKey("ID", id)
+		record.deleteSaveTime = limit
+		if err := record.Buffer(ctx, txn, eventsource.ProcessEvent("test")); err != nil {
+			return err
+		}
+		left = record.DeleteLeft()
+
+		return nil
+	})
+
+	return left, err
+}
+
+// TestPatchSet_deleteTaken_saveTime holds, over the emulator and through PatchSet.Buffer,
+// a save's time limit beside its budget. A project with five tasks, at a limit of one
+// nanosecond, loses one task a save, each save saying it deleted one, and goes in the
+// sixth; with no limit (below zero), and with the default, it goes in one save. A handed
+// kind that asks DeleteSaveOver between its rows takes one a save at the same limit. A
+// save that asks nothing, at that limit, takes one row and does not finish. A delete
+// buffered inside a save, on the context a handed kind's Take is handed, runs on that
+// save's clock: it takes one task and says rows are left, where a clock of its own would
+// have let it take all five. The default limit is pinned.
+func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
+	t.Parallel()
+
+	db := cascadeDatabase(t, "delete-save-time")
+	var mutations []*spanner.Mutation
+	for _, project := range []string{"timed", "unlimited", "default", "handed", "handed-two", "inner", "outer", "unasked", "asked"} {
+		mutations = append(mutations, spanner.InsertMap("CascadeProjects", map[string]any{"Id": project}))
+		if project == "handed" || project == "handed-two" || project == "outer" {
+			continue
+		}
+		for i := 1; i <= 5; i++ {
+			mutations = append(mutations, spanner.InsertMap("CascadeTasks", map[string]any{"Id": fmt.Sprintf("%s-%d", project, i), "ProjectId": project}))
+		}
+	}
+	if _, err := db.Apply(t.Context(), mutations); err != nil {
+		t.Fatalf("spanner.Client.Apply() error = %v", err)
+	}
+
+	t.Run("at a limit of one nanosecond each save takes one task, and the project goes in the sixth", func(t *testing.T) {
+		t.Parallel()
+
+		for round := 1; round <= 6; round++ {
+			left, err := deleteSave[roundProject](t, db, "timed", time.Nanosecond)
+			if err != nil {
+				t.Fatalf("round %d: the delete error = %v", round, err)
+			}
+			want := &DeleteLeft{Deleted: 1}
+			if round == 6 {
+				want = nil
+			}
+			if diff := cmp.Diff(want, left); diff != "" {
+				t.Errorf("round %d: DeleteLeft() (-want +got):\n%s", round, diff)
+			}
+			if state := readRoundState(t, db, "timed"); state.record != (round < 6) || state.tasks != int64(max(5-round, 0)) {
+				t.Errorf("round %d: the record is there = %t with %d tasks, want %t with %d", round, state.record, state.tasks, round < 6, max(5-round, 0))
+			}
+		}
+	})
+
+	for _, tt := range []struct {
+		name    string
+		project string
+		limit   time.Duration
+	}{
+		{name: "with no limit the project goes in one save", project: "unlimited", limit: -1},
+		{name: "with the default limit the project goes in one save", project: "default", limit: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if left, err := deleteSave[roundProject](t, db, tt.project, tt.limit); err != nil || left != nil {
+				t.Fatalf("the delete = %+v, %v, want nil", left, err)
+			}
+			if state := readRoundState(t, db, tt.project); state != (roundState{}) {
+				t.Errorf("after the delete the database holds %+v of the project, want nothing", state)
+			}
+		})
+	}
+
+	t.Run("a handed kind that asks DeleteSaveOver takes one row a save at a limit of one nanosecond", func(t *testing.T) {
+		t.Parallel()
+
+		paced := &pacedKind{rows: 3}
+		for round, want := range []*DeleteLeft{{Deleted: 1}, {Deleted: 1}, nil} {
+			left, err := deleteSave[roundProject](t, db, "handed", time.Nanosecond, paced)
+			if err != nil {
+				t.Fatalf("round %d: the delete error = %v", round+1, err)
+			}
+			if diff := cmp.Diff(want, left); diff != "" {
+				t.Errorf("round %d: DeleteLeft() (-want +got):\n%s", round+1, diff)
+			}
+		}
+		if paced.rows != 0 {
+			t.Errorf("%d paced rows are left, want none", paced.rows)
+		}
+	})
+
+	t.Run("a save over once a handed kind took its last row leaves the next handed kind to the next save", func(t *testing.T) {
+		t.Parallel()
+
+		first, next := &pacedKind{rows: 1}, &pacedKind{rows: 2}
+		for round, want := range []*DeleteLeft{{Deleted: 1}, {Deleted: 1}, nil} {
+			left, err := deleteSave[roundProject](t, db, "handed-two", time.Nanosecond, first, next)
+			if err != nil {
+				t.Fatalf("round %d: the delete error = %v", round+1, err)
+			}
+			if diff := cmp.Diff(want, left); diff != "" {
+				t.Errorf("round %d: DeleteLeft() (-want +got):\n%s", round+1, diff)
+			}
+			if round == 0 && next.rows != 2 {
+				t.Errorf("after the first save the next kind has %d rows, want its 2: its Take was called after the save was over", next.rows)
+			}
+		}
+		if first.rows != 0 || next.rows != 0 {
+			t.Errorf("paced rows left: %d and %d, want none", first.rows, next.rows)
+		}
+	})
+
+	t.Run("a save on code's word at a limit of one nanosecond asks the first row of a page and no more", func(t *testing.T) {
+		t.Parallel()
+
+		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "asked"}, cascadeRows{asks: &takenAsks{question: true}}, true, 0, nil, takingHow{limit: time.Nanosecond})
+		if run.err != nil {
+			t.Fatalf("the save's error = %v", run.err)
+		}
+		if diff := cmp.Diff([]string{"ID=asked-1 trusted"}, run.asked); diff != "" {
+			t.Errorf("the rows the save asked about (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]string{"ID=asked-1 trusted"}, run.made); diff != "" {
+			t.Errorf("the rows the save deleted (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a save that asks nothing takes one row at a limit of one nanosecond and does not finish", func(t *testing.T) {
+		t.Parallel()
+
+		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "unasked"}, cascadeRows{}, true, 0, nil, takingHow{unasked: true, limit: time.Nanosecond})
+		if run.err != nil {
+			t.Fatalf("the save's error = %v", run.err)
+		}
+		if diff := cmp.Diff([]string{"ID=unasked-1 trusted"}, run.made); diff != "" {
+			t.Errorf("the rows the save deleted (-want +got):\n%s", diff)
+		}
+		if run.round == nil || run.round.finished {
+			t.Errorf("the save's round = %+v, want one that did not finish", run.round)
+		}
+	})
+
+	t.Run("a delete buffered inside a save runs on that save's clock", func(t *testing.T) {
+		t.Parallel()
+
+		inner := &innerDelete{project: "inner"}
+		left, err := deleteSave[roundProject](t, db, "outer", time.Nanosecond, inner)
+		if err != nil {
+			t.Fatalf("the delete error = %v", err)
+		}
+		if diff := cmp.Diff(&DeleteLeft{Deleted: 1}, inner.left); diff != "" {
+			t.Errorf("the inner delete's DeleteLeft() (-want +got):\n%s", diff)
+		}
+		if left == nil {
+			t.Error("the outer delete's DeleteLeft() = nil, want the rows its save took")
+		}
+		if state := readRoundState(t, db, "inner"); !state.record || state.tasks != 4 {
+			t.Errorf("after the save the inner project is there = %t with %d tasks, want it there with 4", state.record, state.tasks)
+		}
+	})
+
+	t.Run("the default limit is pinned", func(t *testing.T) {
+		t.Parallel()
+
+		// The number is provisional: it is to be chosen from measurements of large deletes
+		// on the real service, and changes only on purpose.
+		if DefaultDeleteSaveTime != 30*time.Second {
+			t.Errorf("DefaultDeleteSaveTime = %s, want 30s", DefaultDeleteSaveTime)
 		}
 	})
 }

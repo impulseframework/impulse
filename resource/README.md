@@ -1909,7 +1909,7 @@ with nothing gone where it cannot be made whole:
 | What stops it | Status | Message |
 | --- | --- | --- |
 | A row of a kind the record lists under `refusedBy` | 409 | `This client has 10 missions and 5 consignments, so it can't be deleted.` |
-| More rows than one commit takes | 202 | `{"deleted": 6800, "left": 31200}`: the rows this save deleted and the rows still under the record. Send the same remove again. |
+| More rows than one save takes | 202 | `{"deleted": 6800}`: the rows this save deleted. Send the same remove again. |
 | A row the person may not delete, of a kind they may list | 403 | `This mission has sortie expenses that you can't delete, so it can't be deleted.` |
 | A row the person may not delete, of a kind they may not list | 403 | `This mission has records under it that you can't delete, so it can't be deleted.` |
 | A row its delete rule refuses (`@validateDeleteType`) | the rule's | the rule's own sentence |
@@ -1993,8 +1993,13 @@ with nothing gone where it cannot be made whole:
   same, with its change record and the release of its files (section 16, "Deleting a
   tenant").
 - A delete larger than one save runs in rounds: each request deletes what fits one save,
-  deepest rows first, and answers 202 with what is left; the record goes last. Each round
-  checks the rows it takes. A refusal that comes after rounds have run stops the delete
+  deepest rows first, and answers 202 with the rows it deleted; the record goes last. A
+  save ends at Spanner's 80,000 mutations or at its time limit, whichever comes first, and
+  always takes at least one row. The limit is the client's (`resource.WithDeleteSaveTime`;
+  `resource.DefaultDeleteSaveTime` without it, none where it is set below zero): keep it
+  under the time the deployment gives a request. The 202 does not say how many rows are
+  left: the question's answer (the 428) carries the count of everything under the record
+  as `records`, and the dialog counts down from it. Each round checks the rows it takes. A refusal that comes after rounds have run stops the delete
   there: what is gone stays gone, what is left is a whole, smaller record, and the same
   delete goes on once the refusal's cause is gone. Nothing is kept between rounds.
 - The rows are checked as the person the record's delete is armed against, and the
@@ -4560,7 +4565,7 @@ GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, 
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-group-roles, …/{id}   List, Read on CrewSectorUserGroupRoles
 POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewListedUsers
-POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewListedUsers
+POST <prefix>/delete-crew-user                {"userId","everythingUnder"}     Execute on DeleteCrewUser, targeting CrewListedUsers (202 with the rows it deleted)
 POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewListedUsers
 POST <prefix>/set-crew-user-email             {"userId","email"} → {"sent","reason"}   Execute on SetCrewUserEmail, targeting CrewListedUsers
 POST <prefix>/send-crew-user-password-reset-link {"userId"} → {"sent","reason"}  Execute on SendCrewUserPasswordResetLink, targeting CrewListedUsers
@@ -4585,7 +4590,7 @@ POST <prefix>/take-crew-role                  {"domain","role","length","reason"
 POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole (declares a warning)
 POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
 POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewListedGroups
-POST <prefix>/delete-crew-group               {"groupId","everythingUnder"}    Execute on DeleteCrewGroup, targeting CrewListedGroups (202 with what is left)
+POST <prefix>/delete-crew-group               {"groupId","everythingUnder"}    Execute on DeleteCrewGroup, targeting CrewListedGroups (202 with the rows it deleted)
 POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewListedGroups
 POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers (declares a warning)
 POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewListedGroups
@@ -4602,7 +4607,7 @@ POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identit
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","description"} → {"id"}   Execute on CreateCrewSectorGroup
 POST <prefix>/sectors/{sectorID}/describe-crew-sector-group        {"groupId","description"}   Execute on DescribeCrewSectorGroup, targeting CrewSectorGroups
-POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId","everythingUnder"}   Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups (202 with what is left)
+POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId","everythingUnder"}   Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups (202 with the rows it deleted)
 POST <prefix>/sectors/{sectorID}/add-crew-sector-group-member      {"groupId","userId"} Execute on AddCrewSectorGroupMember, targeting CrewSectorGroups
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","userId"} Execute on RemoveCrewSectorGroupMember, targeting CrewSectorGroupUsers (declares a warning)
 POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
@@ -5258,7 +5263,7 @@ holding some of them is refused at generation.
   group that gives them the last administrator's role of a tenant. A member or a role
   whose period has ended is asked nothing: the question counts it and it goes with the
   rest. A group with more under it than one save
-  holds answers 202 with what is left, and the same delete, sent again, goes on. The
+  holds answers 202 with the rows it deleted, and the same delete, sent again, goes on. The
   lists of groups say what each holds (`people`, `roles`). The roles people hold in the
   tenant, its groups, its custom roles, its invitations and the accounts that belonged to
   it alone are kinds of the tenant's delete: counted in its question and taken in its

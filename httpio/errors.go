@@ -99,6 +99,9 @@ type ClientMessage struct {
 	msgType       msgType
 	clientMessage string
 	error         error
+	// records is the number a question counted, carried in the answer's body beside the
+	// message (NewPreconditionRequiredRecords); zero for any other message.
+	records int64
 }
 
 // Message returns the client message
@@ -497,6 +500,18 @@ func NewPreconditionRequiredMessage(message string) errors.Chain {
 	return wrap(&ClientMessage{
 		msgType:       preconditionRequired,
 		clientMessage: message,
+	})
+}
+
+// NewPreconditionRequiredRecords is NewPreconditionRequiredMessage for a question that
+// counts records: the answer's body carries the number beside the message, as records. A
+// delete that would take the records under the one it names asks with it, and whoever
+// repeats the delete shows its progress against that number.
+func NewPreconditionRequiredRecords(message string, records int64) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       preconditionRequired,
+		clientMessage: message,
+		records:       records,
 	})
 }
 

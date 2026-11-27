@@ -76,8 +76,9 @@ func (k *recordRolesHeld) Take(ctx context.Context, txn resource.ReadWriteTransa
 }
 
 // takeRecordRoles deletes the roles held on records, the people's and then the groups',
-// in the order given, while the next one's cost fits the budget: one row of its table
-// each. It answers the rows it took, what they cost and whether rows are left, and has the
+// in the order given, while the next one's cost fits the budget and the save has time
+// (resource.DeleteSaveOver, asked once a row is taken): one row of its table each. It
+// answers the rows it took, what they cost and whether rows are left, and has the
 // permission engine told at the commit where it took any.
 func (m *Manager) takeRecordRoles(
 	ctx context.Context, txn resource.ReadWriteTransaction, people []access.RecordMembershipKey, groups []access.RecordGroupRoleKey, budget int,
@@ -92,7 +93,7 @@ func (m *Manager) takeRecordRoles(
 		return m.policyChangesAtCommit(txn)
 	}
 	for i := range people {
-		if mutations+costs.RecordMembership > budget {
+		if mutations+costs.RecordMembership > budget || (rows > 0 && resource.DeleteSaveOver(ctx)) {
 			return rows, mutations, true, changed(rows)
 		}
 		if err := store.DeleteRecordMembership(ctx, txn, &people[i]); err != nil {
@@ -102,7 +103,7 @@ func (m *Manager) takeRecordRoles(
 		mutations += costs.RecordMembership
 	}
 	for i := range groups {
-		if mutations+costs.RecordGroupRole > budget {
+		if mutations+costs.RecordGroupRole > budget || (rows > 0 && resource.DeleteSaveOver(ctx)) {
 			return rows, mutations, true, changed(rows)
 		}
 		if err := store.DeleteRecordGroupRole(ctx, txn, &groups[i]); err != nil {

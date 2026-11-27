@@ -828,16 +828,17 @@ func NewDistressRelayDeletePatch(id impulse.UUID) *DistressRelayDeletePatch {
 // Without it, a delete of a DistressRelay that has such rows
 // deletes nothing and is answered with the question a person is asked first
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
-// delete takes what fits, deepest first, and Left says what is left: buffer the delete
-// again, in a transaction of its own, until Left answers nil.
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
 func (p *DistressRelayDeletePatch) WithEverythingUnder() *DistressRelayDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
 
 	return p
 }
 
-// Left is what the delete left under the DistressRelay once it is buffered
-// (resource.DeleteLeft): nil where the delete finished, the DistressRelay with it.
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the DistressRelay, which stands until a save
+// takes the last of them; nil where the delete finished, the DistressRelay with it.
 func (p *DistressRelayDeletePatch) Left() *resource.DeleteLeft {
 	return p.patchSet.DeleteLeft()
 }

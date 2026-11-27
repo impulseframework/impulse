@@ -33,9 +33,9 @@ export interface DeleteConfirmation {
    * question (a 428), and the dialog runs the delete again with `everythingUnder` once
    * the person has read that question and pressed Delete, so the delete passes the
    * options on to the client (`ops.remove(key, options)`). A delete too large for one
-   * request resolves with what the server left (`DeleteLeft`, a 202), and the dialog
-   * runs it again; it resolves with nothing once the row is gone. Left out, the dialog
-   * only answers the question, and whoever opened it does the delete.
+   * request resolves with the records the server deleted (`DeleteLeft`, a 202), and the
+   * dialog runs it again; it resolves with nothing once the row is gone. Left out, the
+   * dialog only answers the question, and whoever opened it does the delete.
    */
   delete?: (options?: RemoveOptions) => Promise<DeleteLeft | void>;
   /**
@@ -57,6 +57,16 @@ export interface DeleteConfirmation {
 
 /** The status of the server's question about the records a delete takes with it. */
 const asksFirst = 428;
+
+/** The records the server's question counted (the `records` of its body), where its body holds the number. */
+function recordsOf(body: unknown): number | undefined {
+  if (typeof body !== 'object' || body === null) {
+    return undefined;
+  }
+  const { records } = body as Record<string, unknown>;
+
+  return typeof records === 'number' ? records : undefined;
+}
 
 /** The number of the next dialog, so each one's line of what to type has an id of its own. */
 let nextDialog = 0;
@@ -114,12 +124,14 @@ export function deleteQuestion(asked: DeleteConfirmation = {}): string {
  * with Cancel and Delete as before, and Delete then runs the delete saying it takes
  * those records (`everythingUnder`). Cancel at either question deletes nothing.
  *
- * A delete too large for one request comes back with what is left. The dialog sends it
- * again until nothing is, showing how many records are gone, and cannot be closed
- * meanwhile. Every answer that says what is left is followed by another request, even
- * one that leaves no record, since the row stands until a request answers otherwise. A
- * refusal part way leaves the dialog open with the server's sentence and how many
- * records were deleted before it.
+ * A delete too large for one request comes back with how many records it deleted. The
+ * dialog sends it again until one comes back finished, showing how many records are gone
+ * of the number the server's question counted ("Deleted 6,800 of 38,000 records…"), and
+ * cannot be closed meanwhile. Every answer that says what it deleted is followed by
+ * another request, even one that deleted no record, since the row stands until a request
+ * answers otherwise. A refusal part way leaves the dialog open with the server's sentence
+ * and how many records were deleted before it, and Delete pressed again goes on counting
+ * from them.
  *
  * A page that hands the dialog a text to type (`DeleteConfirmation.typed`, a tenant's
  * name) has it asked for from the start, under the first question: a line says what to
@@ -165,6 +177,10 @@ export class DeleteResourceConfirmationModalComponent {
   readonly progress = signal('');
   /** Whether the server's own question is the one on screen, so the next Delete says it takes the records under the row. */
   private everythingUnder = false;
+  /** The records the server's question counted under the row (its `records`); undefined where it gave no number. */
+  private total: number | undefined;
+  /** The records the delete's requests have deleted, added up across presses while the dialog is open. */
+  private done = 0;
   /** The text a person types before the row is deleted; empty where the page asks for none. */
   readonly typedText = this.asked?.typed?.trim() ?? '';
   /** The id of the line that says what to type, which names the input to a screen reader. */
@@ -217,9 +233,9 @@ export class DeleteResourceConfirmationModalComponent {
    * The Delete button: answers true, after running the delete where the dialog was
    * handed it. A delete the server answers with its question leaves the dialog open on
    * that question, and the next press runs the delete with `everythingUnder`. A delete
-   * that answers with what is left runs again, with `everythingUnder`, until an answer
-   * says nothing of it. While the input does not hold the text the page asks for, it does
-   * nothing.
+   * that answers with the records it deleted runs again, with `everythingUnder`, until an
+   * answer says nothing of them. While the input does not hold the text the page asks
+   * for, it does nothing.
    */
   async confirm(): Promise<void> {
     if (this.held()) {
@@ -236,12 +252,11 @@ export class DeleteResourceConfirmationModalComponent {
     const closable = this.dialogRef.disableClose;
     this.busy.set(true);
     this.dialogRef.disableClose = true;
-    let done = 0;
     try {
       let left = deleteLeftOf(await run(this.everythingUnder ? { everythingUnder: true } : undefined));
       while (left !== undefined) {
-        done += left.deleted;
-        this.progress.set(`Deleted ${this.count(done)} of ${this.count(done + left.left)} records…`);
+        this.done += left.deleted;
+        this.progress.set(this.going());
         left = deleteLeftOf(await run({ everythingUnder: true }));
       }
       this.close(true);
@@ -252,20 +267,34 @@ export class DeleteResourceConfirmationModalComponent {
       }
       if (error.status === asksFirst && !this.everythingUnder) {
         this.everythingUnder = true;
+        this.total = recordsOf(error.body);
         this.question.set(error.message);
         this.warned.set(undefined);
         return;
       }
       this.refusal.set(error.message);
       this.progress.set(
-        done > 0
-          ? `${this.count(done)} records were deleted before this. Press Delete again once that is put right.`
+        this.done > 0
+          ? `${this.count(this.done)} records were deleted before this. Press Delete again once that is put right.`
           : '',
       );
     } finally {
       this.busy.set(false);
       this.dialogRef.disableClose = closable;
     }
+  }
+
+  /**
+   * The line while a delete goes on: the records deleted of the number the server's
+   * question counted, or of the records deleted where more went than it counted; the
+   * records deleted alone where the question gave no number.
+   */
+  private going(): string {
+    if (this.total === undefined) {
+      return `Deleted ${this.count(this.done)} records…`;
+    }
+
+    return `Deleted ${this.count(this.done)} of ${this.count(Math.max(this.total, this.done))} records…`;
   }
 
   /** A number of records as the person reads it, with the locale's digit grouping. */
