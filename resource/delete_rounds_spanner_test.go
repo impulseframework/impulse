@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -140,11 +141,20 @@ func (roundComment) Resource() accesstypes.Resource {
 func deleteRound[R Resourcer](t *testing.T, db *spanner.Client, id string, size int, source eventsource.EventSource) (*DeleteLeft, error) {
 	t.Helper()
 
+	return deleteRoundRefused[R](t, db, id, size, source, nil)
+}
+
+// deleteRoundRefused is deleteRound with each statement of the delete asked of refuses
+// before it is sent (PatchSet.deleteRefuses; joinLimit), nil asking nothing.
+func deleteRoundRefused[R Resourcer](t *testing.T, db *spanner.Client, id string, size int, source eventsource.EventSource, refuses func(sql string) error) (*DeleteLeft, error) {
+	t.Helper()
+
 	var left *DeleteLeft
 	err := NewSpannerClient(db).ExecuteFunc(t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
 		record := NewPatchSet(NewMetadata[R]()).SetPatchType(DeletePatchType).DeleteEverythingUnder()
 		record.SetKey("ID", id)
 		record.deleteSaveSize = size
+		record.deleteRefuses = refuses
 		if err := record.Buffer(ctx, txn, source); err != nil {
 			return err
 		}
@@ -154,6 +164,28 @@ func deleteRound[R Resourcer](t *testing.T, db *spanner.Client, id string, size 
 	})
 
 	return left, err
+}
+
+// askRound runs one request's delete of the record R with the id that asks before it
+// takes anything, each statement asked of refuses first (PatchSet.deleteRefuses), and
+// returns what it answered: the question, where the delete would take rows.
+func askRound[R Resourcer](t *testing.T, db *spanner.Client, id string, refuses func(sql string) error) error {
+	t.Helper()
+
+	var asked error
+	if err := NewSpannerClient(db).ExecuteFunc(t.Context(), func(ctx context.Context, txn ReadWriteTransaction) error {
+		record := NewPatchSet(NewMetadata[R]()).SetPatchType(DeletePatchType)
+		record.SetKey("ID", id)
+		record.deleteRefuses = refuses
+		asked = record.Buffer(ctx, txn, eventsource.ProcessEvent("test"))
+
+		// The question deletes nothing: the transaction commits nothing either way.
+		return nil
+	}); err != nil {
+		t.Fatalf("NewSpannerClient().ExecuteFunc() error = %v", err)
+	}
+
+	return asked
 }
 
 // roundRecord is a change record of a delete in rounds, read past the library: what kind
@@ -413,6 +445,144 @@ func TestPatchSet_deleteTaken_rounds(t *testing.T) {
 		}
 		if state := readRoundState(t, db, "small"); state != (roundState{}) {
 			t.Errorf("after the delete the database holds %+v of the project, want nothing", state)
+		}
+	})
+}
+
+// TestPatchSet_deleteTaken_roundsNestedToAnyDepth holds, over the emulator and through
+// PatchSet.Buffer, a delete larger than one save of a project whose tasks sit 25 deep in
+// three chains, every one holding the project, with the tests' stand-in for the
+// database's refusal of a statement that joins too many tables (joinLimit) set so that
+// the record reads four levels itself: the question counts every task across the pages
+// it goes down from; the first round fills inside the deepest page and says what is
+// left; every round deletes only tasks with nothing under them; the rounds delete as
+// many as the question counted, and the record goes in the last. A save whose page at
+// the record's own levels is refused after it took the rows under a page answers what
+// it took, and the next request goes on.
+func TestPatchSet_deleteTaken_roundsNestedToAnyDepth(t *testing.T) {
+	t.Parallel()
+
+	// chains stages the project in a database of its own, three chains of tasks as deep as
+	// given, every one holding the project.
+	chains := func(t *testing.T, project string, deep int) *spanner.Client {
+		t.Helper()
+
+		db := cascadeDatabase(t, "rounds-"+project)
+		mutations := []*spanner.Mutation{spanner.InsertMap("CascadeProjects", map[string]any{"Id": project})}
+		for _, chain := range []string{"a", "b", "c"} {
+			for i := 1; i <= deep; i++ {
+				row := map[string]any{"Id": fmt.Sprintf("%s-%s%02d", project, chain, i), "ProjectId": project}
+				if i > 1 {
+					row["ParentTaskId"] = fmt.Sprintf("%s-%s%02d", project, chain, i-1)
+				}
+				mutations = append(mutations, spanner.InsertMap("CascadeTasks", row))
+			}
+		}
+		if _, err := db.Apply(t.Context(), mutations); err != nil {
+			t.Fatalf("spanner.Client.Apply() error = %v", err)
+		}
+
+		return db
+	}
+	limit := joinLimit(8, false)
+	orphans := func(t *testing.T, db *spanner.Client, project string) int64 {
+		t.Helper()
+
+		return roundCount(t, db, "SELECT COUNT(*) FROM CascadeTasks t WHERE t.ProjectId = @project AND t.ParentTaskId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM CascadeTasks p WHERE p.Id = t.ParentTaskId)", project)
+	}
+	const recordCost = 1
+	taskCost := rowDeleteMutations + ChangeRecordMutations(eventsource.ProcessEvent("test"))
+
+	t.Run("a deep delete in rounds takes the deepest tasks first, and the record last", func(t *testing.T) {
+		t.Parallel()
+
+		db := chains(t, "tall", 25)
+
+		asked := askRound[roundProject](t, db, "tall", limit)
+		if want := "Delete this project and everything under it: 75 tasks. This can't be undone."; statusOf(asked) != http.StatusPreconditionRequired || httpio.Message(asked) != want {
+			t.Fatalf("the question = %v (%q), want a 428 saying %q", asked, httpio.Message(asked), want)
+		}
+
+		// The record and ten tasks: the first round takes the three deepest levels and one
+		// task of the next, inside the deepest page.
+		size := recordCost + 10*taskCost
+		remaining := int64(75)
+		for round := 1; ; round++ {
+			left, err := deleteRoundRefused[roundProject](t, db, "tall", size, eventsource.ProcessEvent("test"), limit)
+			if err != nil {
+				t.Fatalf("round %d: the delete error = %v", round, err)
+			}
+			state := readRoundState(t, db, "tall")
+			if round == 1 {
+				if diff := cmp.Diff(&DeleteLeft{Deleted: 10, Left: 65}, left); diff != "" {
+					t.Errorf("round 1: DeleteLeft() (-want +got):\n%s", diff)
+				}
+				for _, deepest := range []string{"tall-a25", "tall-b25", "tall-c25", "tall-a23", "tall-c23"} {
+					if got := roundCount(t, db, "SELECT COUNT(*) FROM CascadeTasks WHERE Id = @project", deepest); got != 0 {
+						t.Errorf("round 1: %s is there, want it taken among the deepest", deepest)
+					}
+				}
+			}
+			if got := orphans(t, db, "tall"); got != 0 {
+				t.Errorf("round %d: %d task(s) left name a task that is gone", round, got)
+			}
+			if left == nil {
+				if state.record || state.tasks != 0 {
+					t.Errorf("round %d: the last round left the record there = %t with %d tasks, want both gone", round, state.record, state.tasks)
+				}
+
+				break
+			}
+			if !state.record {
+				t.Fatalf("round %d: the record is gone with %d tasks left to delete", round, left.Left)
+			}
+			// What each round deleted and what it says is left come to what the rounds
+			// before it left, so the rounds together delete what the question counted.
+			if left.Deleted+left.Left != remaining || state.tasks != left.Left {
+				t.Errorf("round %d: DeleteLeft() = %+v with %d tasks in the database, want it to come to the %d not yet deleted", round, left, state.tasks, remaining)
+			}
+			remaining = left.Left
+			if round > 10 {
+				t.Fatalf("round %d: the delete has not finished", round)
+			}
+		}
+	})
+
+	t.Run("a save whose page is refused after it took rows answers what it took", func(t *testing.T) {
+		t.Parallel()
+
+		db := chains(t, "late", 9)
+
+		// The record reads four levels; its own pages are refused, so the save takes the 15
+		// tasks under its frontier and stops at its deepest level.
+		recordsPages := func(sql string) error {
+			if err := limit(sql); err != nil {
+				return err
+			}
+			if strings.HasPrefix(sql, "SELECT `CascadeTasks`.`Id` FROM") && !strings.Contains(sql, "UNNEST") && !strings.HasSuffix(sql, fmt.Sprintf("LIMIT %d", takenPageRows)) {
+				return limit(strings.Repeat(" AS w", 9))
+			}
+
+			return nil
+		}
+		left, err := deleteRoundRefused[roundProject](t, db, "late", 0, eventsource.ProcessEvent("test"), recordsPages)
+		if err != nil {
+			t.Fatalf("the refused round's error = %v, want none", err)
+		}
+		if diff := cmp.Diff(&DeleteLeft{Deleted: 15, Left: 12}, left); diff != "" {
+			t.Errorf("the refused round's DeleteLeft() (-want +got):\n%s", diff)
+		}
+		if state := readRoundState(t, db, "late"); !state.record || state.tasks != 12 {
+			t.Errorf("after the refused round the record is there = %t with %d tasks, want it there with 12", state.record, state.tasks)
+		}
+		if got := orphans(t, db, "late"); got != 0 {
+			t.Errorf("after the refused round %d task(s) left name a task that is gone", got)
+		}
+		if left, err := deleteRoundRefused[roundProject](t, db, "late", 0, eventsource.ProcessEvent("test"), limit); err != nil || left != nil {
+			t.Fatalf("the next round = %+v, %v, want nil", left, err)
+		}
+		if state := readRoundState(t, db, "late"); state.record || state.tasks != 0 {
+			t.Errorf("once the delete finished the record is there = %t with %d tasks, want both gone", state.record, state.tasks)
 		}
 	})
 }
