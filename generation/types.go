@@ -696,6 +696,11 @@ type rpcMethodInfo struct {
 	// page runs the method through holds its confirm button for the typed word. Nil
 	// for a method that declares none.
 	Warning *rpcWarning
+	// DeleteToken is the field that carries the token the method's delete goes on
+	// (@deleteToken), always Token: its handler asks the delete's question before it opens
+	// its transaction while the field is empty, and stamps the token into the context
+	// (resource.WithDeleteToken). Empty for a method that declares none.
+	DeleteToken string
 	// Feature is the method's @feature: the flag its route and its digest entry are
 	// gated behind; nil when the method is not gated.
 	Feature *featureGate
@@ -2689,6 +2694,7 @@ const (
 	notOnOwnAccountKeyword       string = "notOnOwnAccount"       // Declares that the row an RPC method names does not offer it to the person whose account the row is: @notOnOwnAccount(ID) names the row's field that holds the account's id
 	answersKeyword               string = "answers"               // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
 	uploadKeyword                string = "upload"                // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
+	deleteTokenKeyword           string = "deleteToken"           // Marks the field of an RPC method that carries the token its delete's question gave: the generated handler asks the question before it opens a transaction when the field is empty
 	warningKeyword               string = "warning"               // Declares an RPC method that warns before it runs: @warning, or @warning(typed: open) where a person types a word first; its Warning method writes the consequence of a call, and the dialog holds its confirm button until the server has answered and the word, where there is one, is typed
 	rowsOfKeyword                string = "rowsOf"                // Declares the table resource whose rows a virtual or computed view carries, one to one under the same key: @rowsOf(Missions)
 	changedByKeyword             string = "changedBy"             // Declares the tables whose changes change a virtual or computed resource, in place of what the generator reads off a virtual resource's query: @changedBy(Ships, DroidReports)
@@ -2753,6 +2759,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		answersKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		uploadKeyword:                {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		warningKeyword:               {genlang.ScanStruct: genlang.Exclusive},
+		deleteTokenKeyword:           {genlang.ScanField: genlang.Exclusive},
 		rowsOfKeyword:                {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		changedByKeyword:             {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		typescriptKeyword:            {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},

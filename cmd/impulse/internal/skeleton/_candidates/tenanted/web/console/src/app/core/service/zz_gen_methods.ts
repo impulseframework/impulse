@@ -105,15 +105,16 @@ export interface CreateStaffTenantGroupResult {
 export interface DeleteStaffGroupConfig {
   groupId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffGroup {
   groupId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteStaffGroup answers with. */
 export interface DeleteStaffGroupResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteStaffGroup declares; the method chooses one per response. */
 export type DeleteStaffGroupStatus = 202 | 204;
@@ -126,15 +127,16 @@ export interface DeleteStaffGroupAnswer {
 export interface DeleteStaffTenantGroupConfig {
   groupId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffTenantGroup {
   groupId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteStaffTenantGroup answers with. */
 export interface DeleteStaffTenantGroupResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteStaffTenantGroup declares; the method chooses one per response. */
 export type DeleteStaffTenantGroupStatus = 202 | 204;
@@ -147,15 +149,16 @@ export interface DeleteStaffTenantGroupAnswer {
 export interface DeleteStaffTenantUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffTenantUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteStaffTenantUser answers with. */
 export interface DeleteStaffTenantUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteStaffTenantUser declares; the method chooses one per response. */
 export type DeleteStaffTenantUserStatus = 202 | 204;
@@ -168,15 +171,16 @@ export interface DeleteStaffTenantUserAnswer {
 export interface DeleteStaffUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteStaffUser answers with. */
 export interface DeleteStaffUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteStaffUser declares; the method chooses one per response. */
 export type DeleteStaffUserStatus = 202 | 204;
@@ -973,6 +977,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteStaffTenantGroup]: {
@@ -984,6 +989,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteStaffTenantUser]: {
@@ -996,6 +1002,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteStaffUser]: {
@@ -1007,6 +1014,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DescribeStaffGroup]: {

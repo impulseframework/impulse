@@ -134,7 +134,7 @@ type fakeStore struct {
 	withUser map[impulse.UUID]int
 	// userAsks marks a user row with rows of the application's that go with it, so the
 	// row's delete not told everythingUnder asks first, and userLeft is what the row's
-	// delete told everythingUnder answers one save left, nil for a delete that took
+	// delete told everythingUnder answers one save deleted, nil for a delete that took
 	// everything.
 	userAsks bool
 	userLeft *resource.DeleteLeft

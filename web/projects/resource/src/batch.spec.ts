@@ -193,6 +193,21 @@ describe('client.batch', () => {
     ]);
   });
 
+  it("sends the question's token with everythingUnder, and no token without it or where it is empty", async () => {
+    const transport = recording();
+    const client = api(transport);
+    await client.clients.remove(['c1'], { everythingUnder: true, token: 't-1' });
+    await client.clients.remove(['c2'], { everythingUnder: true, token: '' });
+    await client.clients.remove(['c3'], { everythingUnder: true });
+    await client.clients.remove(['c4'], { token: 't-1' });
+    expect(transport.requests.map((request) => request.body)).toEqual([
+      [{ op: 'remove', path: '/c1', value: { everythingUnder: true, token: 't-1' } }],
+      [{ op: 'remove', path: '/c2', value: { everythingUnder: true } }],
+      [{ op: 'remove', path: '/c3', value: { everythingUnder: true } }],
+      [{ op: 'remove', path: '/c4' }],
+    ]);
+  });
+
   it("carries what the handle's own remove says to the route of the resource", async () => {
     const transport = recording();
     const client = api(transport);
@@ -204,14 +219,20 @@ describe('client.batch', () => {
     ]);
   });
 
-  it("resolves the handle's own remove with what a delete too large for one request left, and with nothing once the row is gone", async () => {
+  it("resolves the handle's own remove with the records a delete too large for one request deleted, and with nothing once the row is gone", async () => {
     const answers = [
-      { status: 202, body: { deleted: 6800, left: 31200 } },
+      { status: 202, body: { deleted: 6800 } },
       { status: 200, body: null },
     ];
     const client = api(scriptedTransport(() => answers.shift() ?? { status: 200, body: {} }));
-    expect(await client.clients.remove(['c1'], { everythingUnder: true })).toEqual({ deleted: 6800, left: 31200 });
+    expect(await client.clients.remove(['c1'], { everythingUnder: true })).toEqual({ deleted: 6800 });
     expect(await client.clients.remove(['c1'], { everythingUnder: true })).toBeUndefined();
+  });
+
+  it('reads a 202 that also says what is left, as a server from before answers, as the records it deleted alone', async () => {
+    const answers = [{ status: 202, body: { deleted: 5, left: 9 } }];
+    const client = api(scriptedTransport(() => answers.shift() ?? { status: 200, body: {} }));
+    expect(await client.clients.remove(['c1'], { everythingUnder: true })).toEqual({ deleted: 5 });
   });
 
   it("routes the handle's own patch the same way", async () => {

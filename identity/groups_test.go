@@ -25,7 +25,7 @@ type fakeGroupTables struct {
 	groupRoles   map[access.GroupRoleKey]bool
 	// nextGroupID is the id InsertGroup answers.
 	nextGroupID impulse.UUID
-	// groupLeft is what DeleteGroup answers one save left, nil for a delete that
+	// groupLeft is what DeleteGroup answers one save deleted, nil for a delete that
 	// took everything.
 	groupLeft *resource.DeleteLeft
 	// The periods of the committed rows that carry one (periods_test.go): a
@@ -94,7 +94,7 @@ const fakeGroupQuestion = "Delete this group and everything under it. This can't
 
 // DeleteGroup buffers the group's delete as the generated store does: told
 // everythingUnder, the delete takes the group's members and roles with it, and not told,
-// a group with either is asked about (428) and nothing is written. What one save left is
+// a group with either is asked about (428) and nothing is written. What one save deleted is
 // f.groupLeft.
 func (f *fakeStore) DeleteGroup(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	if err := f.fail("DeleteGroup"); err != nil {
@@ -122,7 +122,7 @@ func (f *fakeStore) DeleteGroup(_ context.Context, _ resource.ReadWriteTransacti
 
 // DeleteGroupWithTenant buffers the delete of a group that goes with its tenant as the
 // generated store does: its members and roles with it, and nothing of the application's.
-// The write it records says which of the two deletes was called. What one save left is
+// The write it records says which of the two deletes was called. What one save deleted is
 // f.groupLeft.
 func (f *fakeStore) DeleteGroupWithTenant(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {
 	if err := f.fail("DeleteGroupWithTenant"); err != nil {
@@ -415,7 +415,7 @@ func TestManager_CreateGroup(t *testing.T) {
 // told once the transaction has committed. Each role and each member whose period has
 // not ended is asked what its own removal asks before the store is called, so a delete
 // that would take a tenant's last administrator is refused in the words of a role taken
-// from a group. What one save left is answered, and nobody is mailed.
+// from a group. What one save deleted is answered, and nobody is mailed.
 func TestManager_DeleteGroup(t *testing.T) {
 	t.Parallel()
 
@@ -453,8 +453,8 @@ func TestManager_DeleteGroup(t *testing.T) {
 		},
 		{name: "an empty group is deleted at once", group: nightID, wantWrites: []string{"delete group " + nightID.String()}, wantChanged: 1},
 		{
-			name:  "what one save left is answered",
-			group: nightID, everythingUnder: true, left: &resource.DeleteLeft{Deleted: 6800, Left: 31200},
+			name:  "what one save deleted is answered",
+			group: nightID, everythingUnder: true, left: &resource.DeleteLeft{Deleted: 6800},
 			places:     map[access.GroupMemberKey]accesstypes.Period{memberKey(nightID, userID): {}},
 			wantWrites: []string{"delete group " + nightID.String() + " with everything under it"}, wantChanged: 1,
 		},

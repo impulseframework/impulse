@@ -27,6 +27,7 @@ import (
 
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 )
 
@@ -240,14 +241,22 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 		return rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroupMembers WHERE GroupId = @group", map[string]any{"group": group}),
 			rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroupRoles WHERE GroupId = @group", map[string]any{"group": group})
 	}
-	deleteGroup := func(everythingUnder bool) (int, []byte) {
-		return post("marshal", anvil, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":%t}`, group, everythingUnder))
+	// The question and the delete that goes ahead are the marshal's, in one session: the
+	// delete brings the token the question gave.
+	keepSession(t, "marshal")
+	deleteGroup := func(token string) (int, []byte) {
+		if token == "" {
+			return post("marshal", anvil, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":false}`, group))
+		}
+
+		return post("marshal", anvil, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true,"token":%q}`, group, token))
 	}
 
 	// Asked without saying it takes what is under it, the delete answers the question a
 	// person is asked first, with the group's members and roles counted, and nothing goes.
-	status, body = deleteGroup(false)
+	status, body = deleteGroup("")
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	token := deleteToken(t, body)
 	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 2 members, 2 roles. This can't be undone."; got != want {
 		t.Errorf("the question = %q, want %q", got, want)
 	}
@@ -255,11 +264,11 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 		t.Errorf("the group has %d members and %d roles after the question, want 2 and 2: the question deletes nothing", members, roles)
 	}
 
-	// Confirmed, the group goes with its members and its roles. Each member's account
-	// stands: ada keeps the role she holds herself, fay holds nothing, and neither holds
-	// the group's roles at her next request; Anvil answers fay, who holds nothing there,
-	// as a sector that does not exist.
-	status, body = deleteGroup(true)
+	// Confirmed, on the question's token, the group goes with its members and its roles.
+	// Each member's account stands: ada keeps the role she holds herself, fay holds
+	// nothing, and neither holds the group's roles at her next request; Anvil answers fay,
+	// who holds nothing there, as a sector that does not exist.
+	status, body = deleteGroup(token)
 	assertStatus(t, status, http.StatusNoContent, body)
 	if got, want := namesOf(t, list("marshal", anvil, sectorGroupsPath), "name"), []string{"Bay keepers", "Deck crew"}; !slices.Equal(got, want) {
 		t.Errorf("Anvil's groups after the delete = %v, want %v", got, want)
@@ -280,6 +289,92 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	}
 	if got := crewHeldBy(t, w.db, w.ids["fay"]); len(got) != 0 {
 		t.Errorf("fay holds %v after the group went, want nothing", got)
+	}
+}
+
+// TestGeneratedIdentityGroupDelete_onTheQuestionsToken holds the group's delete through
+// its method to the token its question gave (@deleteToken). The Marshal's group in Anvil,
+// with two members and a role, is asked about by the Marshal and by the governor, each in
+// a session of their own. The Marshal's delete that says it takes what is under the group
+// with no token, and with the governor's token, is answered with the question again and
+// nothing goes. On her own token, over an App whose saves end at a time limit of a
+// nanosecond, the group goes over several requests: each but the last answers 202 with
+// the rows it deleted, and the last 204.
+func TestGeneratedIdentityGroupDelete_onTheQuestionsToken(t *testing.T) {
+	t.Parallel()
+	w := newTenantListsWorld(t)
+
+	post := func(h http.Handler, method, body string) (int, []byte) {
+		return doRequestAs(t, h, "marshal", http.MethodPost, sectorPath(anvil, method), body)
+	}
+	status, body := post(w.h, "create-crew-sector-group", `{"name":"Night shift","description":"The crew who stand Anvil's night shift."}`)
+	assertStatus(t, status, http.StatusOK, body)
+	group := cell[string](t, decodeRow(t, body), "id")
+	for _, name := range []string{"ada", "fay"} {
+		status, body = post(w.h, "add-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, group, w.ids[name]))
+		assertStatus(t, status, http.StatusNoContent, body)
+	}
+	status, body = post(w.h, "give-crew-sector-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Engineer"}`, group))
+	assertStatus(t, status, http.StatusNoContent, body)
+	standing := func() (members, roles int64) {
+		t.Helper()
+
+		return rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroupMembers WHERE GroupId = @group", map[string]any{"group": group}),
+			rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroupRoles WHERE GroupId = @group", map[string]any{"group": group})
+	}
+
+	// Each asks the question in a session kept for the requests after it.
+	keepSession(t, "marshal")
+	keepSession(t, "governor")
+	const question = "Delete this group and everything under it: 2 members, 1 role. This can't be undone."
+	status, body = post(w.h, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, group))
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	if got := refusalMessage(t, body); got != question {
+		t.Errorf("the Marshal's question = %q, want %q", got, question)
+	}
+	token := deleteToken(t, body)
+	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/delete-crew-group", fmt.Sprintf(`{"groupId":%q}`, group))
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	governorsToken := deleteToken(t, body)
+
+	for _, asked := range []struct{ name, body string }{
+		{name: "with no token", body: fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, group)},
+		{name: "on the governor's token", body: fmt.Sprintf(`{"groupId":%q,"everythingUnder":true,"token":%q}`, group, governorsToken)},
+	} {
+		status, body = post(w.h, "delete-crew-sector-group", asked.body)
+		assertStatus(t, status, http.StatusPreconditionRequired, body)
+		if got := refusalMessage(t, body); got != question {
+			t.Errorf("the Marshal's delete %s answered %q, want the question %q", asked.name, got, question)
+		}
+		if members, roles := standing(); members != 2 || roles != 1 {
+			t.Errorf("the group has %d members and %d roles after the Marshal's delete %s, want 2 and 1: nothing goes", members, roles, asked.name)
+		}
+	}
+
+	timed := withHandWrittenRoutes(app.New(&testConfigurer{db: w.db, access: w.engine, membersAccess: w.members, deleteSaveTime: time.Nanosecond}))
+	onToken := fmt.Sprintf(`{"groupId":%q,"everythingUnder":true,"token":%q}`, group, token)
+	saves := 0
+	for ; saves < 20; saves++ {
+		status, body = post(timed, "delete-crew-sector-group", onToken)
+		if status != http.StatusAccepted {
+			break
+		}
+		if deleted := cell[float64](t, decodeRow(t, body), "deleted"); deleted <= 0 {
+			t.Fatalf("save %d answered %s, want the rows it deleted", saves+1, body)
+		}
+		if n := rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroups WHERE Id = @group", map[string]any{"group": group}); n != 1 {
+			t.Fatalf("the group: %d row(s) after save %d, which left rows under it, want the one", n, saves+1)
+		}
+	}
+	assertStatus(t, status, http.StatusNoContent, body)
+	if saves == 0 {
+		t.Error("the group went in one request, want it over several saves")
+	}
+	if members, roles := standing(); members != 0 || roles != 0 {
+		t.Errorf("the deleted group leaves %d members and %d roles, want none", members, roles)
+	}
+	if n := rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroups WHERE Id = @group", map[string]any{"group": group}); n != 0 {
+		t.Errorf("the group: %d row(s) after the last save, want none", n)
 	}
 }
 
@@ -407,8 +502,17 @@ func TestGeneratedIdentityGroupDeleteRefusals(t *testing.T) {
 
 		return cell[string](t, decodeRow(t, body), "id")
 	}
+	// deleteGroup sends the delete that says it takes what is under the group, and, where
+	// it is asked the question, sends it again on the question's token, in the one
+	// session: a refusal is answered either way.
 	deleteGroup := func(user accesstypes.User, group string) (int, []byte) {
-		return hq(user, "delete-crew-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, group))
+		keepSession(t, user)
+		status, body := hq(user, "delete-crew-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, group))
+		if status != http.StatusPreconditionRequired {
+			return status, body
+		}
+
+		return hq(user, "delete-crew-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true,"token":%q}`, group, deleteToken(t, body)))
 	}
 	standing := func(group string) (members, roles int64) {
 		t.Helper()
@@ -539,6 +643,9 @@ func TestGeneratedIdentitySectorGroupDeleteCondition(t *testing.T) {
 	deleteGroup := func(group string, everythingUnder bool) (int, []byte) {
 		return post("delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":%t}`, group, everythingUnder))
 	}
+	// The question and the delete that goes ahead on its token are the marshal's, in one
+	// session.
+	keepSession(t, "marshal")
 	rolesStanding := func(group string) int64 {
 		t.Helper()
 
@@ -566,7 +673,7 @@ func TestGeneratedIdentitySectorGroupDeleteCondition(t *testing.T) {
 	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 1 role. This can't be undone."; got != want {
 		t.Errorf("the question = %q, want %q", got, want)
 	}
-	status, body = deleteGroup(dawn, true)
+	status, body = post("delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true,"token":%q}`, dawn, deleteToken(t, body)))
 	assertStatus(t, status, http.StatusNoContent, body)
 	if n := rolesStanding(dawn); n != 0 {
 		t.Errorf("the deleted dawn watch leaves %d roles, want none", n)

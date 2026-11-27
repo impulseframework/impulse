@@ -145,6 +145,26 @@ func TestFeatureFlagsMigration(t *testing.T) {
 	}
 }
 
+// TestDeleteTokensMigration pins the schema's delete tokens table to the library's
+// statements.
+func TestDeleteTokensMigration(t *testing.T) {
+	t.Parallel()
+
+	migration, err := os.ReadFile("../../schema/migrations/000001_Baseline.up.sql")
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	statements := resource.DeleteTokensDDL(resource.SpannerDBType)
+	if len(statements) == 0 {
+		t.Fatal("resource.DeleteTokensDDL(SpannerDBType) declares no statement")
+	}
+	for _, stmt := range statements {
+		if !strings.Contains(string(migration), stmt+";") {
+			t.Errorf("the migration does not carry the statement:\n%s", stmt)
+		}
+	}
+}
+
 // TestChangeHistoryMigration pins the schema's change history table to the library's
 // statements, with the period Lodestar keeps its change records for: 365 days.
 func TestChangeHistoryMigration(t *testing.T) {

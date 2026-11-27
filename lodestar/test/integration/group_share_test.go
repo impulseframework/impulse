@@ -545,11 +545,15 @@ func TestGroupShare_places(t *testing.T) {
 			t.Errorf("%s: the Bay keepers' places = %d, want the novice's ended place standing", when, got)
 		}
 	}
+	// The Marshal's question and the delete that goes ahead on its token are made in one
+	// session.
+	keepSession(t, "marshal")
 	status, body = w.post(t, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, group))
 	assertStatus(t, status, http.StatusPreconditionRequired, body)
 	if got, want := refusalMessage(t, body), "Delete this group and everything under it: 1 member, 1 hangar pass. This can't be undone."; got != want {
 		t.Errorf("the asking delete answered %q, want the question %q", got, want)
 	}
+	token := deleteToken(t, body)
 	standing("after the question")
 
 	// Told to take them, by a person who may delete the sector's groups and take their
@@ -567,7 +571,7 @@ func TestGroupShare_places(t *testing.T) {
 	// Told to take them by the Marshal, who may delete the pass too, the group goes with
 	// the novice's ended place and the pass: no pass is left that names a group nobody
 	// keeps.
-	status, body = w.post(t, "delete-crew-sector-group", deleteGroup)
+	status, body = w.post(t, "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true,"token":%q}`, group, token))
 	assertStatus(t, status, http.StatusNoContent, body)
 	if got := w.passes(t, "GroupId = @group OR Id = @pass", map[string]any{"group": group, "pass": passBayKeepersQuarantineID}); got != 0 {
 		t.Errorf("the passes that name the Bay keepers = %d after the group is deleted, want none", got)

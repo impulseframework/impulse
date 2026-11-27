@@ -828,16 +828,29 @@ func NewDistressRelayDeletePatch(id impulse.UUID) *DistressRelayDeletePatch {
 // Without it, a delete of a DistressRelay that has such rows
 // deletes nothing and is answered with the question a person is asked first
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
-// delete takes what fits, deepest first, and Left says what is left: buffer the delete
-// again, in a transaction of its own, until Left answers nil.
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
 func (p *DistressRelayDeletePatch) WithEverythingUnder() *DistressRelayDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
 
 	return p
 }
 
-// Left is what the delete left under the DistressRelay once it is buffered
-// (resource.DeleteLeft): nil where the delete finished, the DistressRelay with it.
+// WithDeleteToken says the delete takes the rows under the DistressRelay on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *DistressRelayDeletePatch) WithDeleteToken(token string) *DistressRelayDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the DistressRelay, which stands until a save
+// takes the last of them; nil where the delete finished, the DistressRelay with it.
 func (p *DistressRelayDeletePatch) Left() *resource.DeleteLeft {
 	return p.patchSet.DeleteLeft()
 }

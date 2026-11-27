@@ -23,13 +23,13 @@ func (h *Handlers) DeleteMembersTenantGroup() http.HandlerFunc {
 	type request struct {
 		GroupID         impulse.UUID `json:"groupId"`
 		EverythingUnder bool         `json:"everythingUnder"`
+		Token           string       `json:"token"`
 	}
 
 	// The answer as the wire carries it: Execute's result mirrored with generated
 	// wire names, encoded after the transaction commits.
 	type response struct {
 		Deleted int64 `json:"deleted"`
-		Left    int64 `json:"left"`
 	}
 
 	decoder := NewTargetedRPCDecoder[membersidentity.DeleteMembersTenantGroup, request](h, accesstypes.Execute)
@@ -57,6 +57,10 @@ func (h *Handlers) DeleteMembersTenantGroup() http.HandlerFunc {
 		ctx = resource.WithRPC(ctx, "DeleteMembersTenantGroup")
 
 		p := (*membersidentity.DeleteMembersTenantGroup)(params)
+		// The token the method's delete goes on rides the context (@deleteToken): the
+		// delete hands it to its patch (resource.DeleteTokenFrom), and the request asks the
+		// delete's question before the transaction is opened while it is empty.
+		ctx = resource.WithDeleteToken(ctx, p.Token)
 
 		// The X-Warning header takes the value true or is left off the request: any
 		// other value is refused here, and the call is not run.
@@ -88,7 +92,7 @@ func (h *Handlers) DeleteMembersTenantGroup() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := h.ResourceClient().ExecuteDeleteFunc(ctx, p.Token == "", func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			// Declared target: a row of the MembersTenantGroup view.
 			// A view's row is one row of its query, and its key names a row in
 			// each tenant that holds one, so the gate locates it by the key

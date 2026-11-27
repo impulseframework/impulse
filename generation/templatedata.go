@@ -118,8 +118,8 @@ type consolidatedPatchData struct {
 	// signals the tenants kind.
 	HasTenant bool
 	// TakesRowsUnder says a case's delete may take rows under its record
-	// (resourceInfo.TakesRowsUnder): the dispatcher keeps what its deletes left under
-	// their records and answers 202 with it.
+	// (resourceInfo.TakesRowsUnder): the dispatcher keeps the rows its deletes took
+	// where one left rows under its record, and answers 202 with them.
 	TakesRowsUnder      bool
 	DomainRouteSegment  string
 	DomainPatternPrefix string // "/stations/{stationID}" — the chi pattern the descent case prefix-matches

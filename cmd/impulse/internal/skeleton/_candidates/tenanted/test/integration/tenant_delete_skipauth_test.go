@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"slices"
@@ -166,8 +167,17 @@ func TestTenants_aDeletedTenantTakesItsDirectoryAndItsRows(t *testing.T) {
 		t.Errorf("change events of TenantDirectories: %d before the question and %d after, want no more", before, after)
 	}
 
-	// One request that says so, with nothing before it but the disable.
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+ember+`","value":{"everythingUnder":true}}]`)); status != http.StatusOK {
+	// The delete that goes ahead brings the token the question gave, in this session.
+	var asked struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &asked); err != nil || asked.Token == "" {
+		t.Fatalf("the question carries no token (%v): %s", err, body)
+	}
+
+	// One request that says so, on the question's token, with nothing before it but the
+	// disable.
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+ember+`","value":{"everythingUnder":true,"token":"`+asked.Token+`"}}]`)); status != http.StatusOK {
 		t.Fatalf("deleting Ember, directory only, with its directory, its people and an announcement: status %d, want 200: %s", status, body)
 	}
 

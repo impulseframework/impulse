@@ -1512,6 +1512,7 @@ export namespace DeleteStaffGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     everythingUnder: 'everythingUnder' as FieldName,
+    token: 'token' as FieldName,
   };
 }
 
@@ -1519,6 +1520,7 @@ export namespace DeleteStaffTenantGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     everythingUnder: 'everythingUnder' as FieldName,
+    token: 'token' as FieldName,
   };
 }
 
@@ -1526,6 +1528,7 @@ export namespace DeleteStaffTenantUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
     everythingUnder: 'everythingUnder' as FieldName,
+    token: 'token' as FieldName,
   };
 }
 
@@ -1533,6 +1536,7 @@ export namespace DeleteStaffUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
     everythingUnder: 'everythingUnder' as FieldName,
+    token: 'token' as FieldName,
   };
 }
 

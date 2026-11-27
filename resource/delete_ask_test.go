@@ -9,8 +9,8 @@ import (
 )
 
 // Test_RemovesAsk holds which patch requests hold a remove that asks first: a remove whose
-// value does not say "everythingUnder": true, the operation's name read without regard to
-// case. A body that is not a list of operations answers false and no error, and the body
+// value does not say "everythingUnder": true with a token that is not empty, the
+// operation's name read without regard to case. A body that is not a list of operations answers false and no error, and the body
 // reads again from its start once asked.
 func Test_RemovesAsk(t *testing.T) {
 	t.Parallel()
@@ -21,11 +21,14 @@ func Test_RemovesAsk(t *testing.T) {
 		want bool
 	}{
 		{name: "a remove with no value", body: `[{"op": "remove", "path": "/p1"}]`, want: true},
-		{name: "a remove that says it takes everything under", body: `[{"op": "remove", "path": "/p1", "value": {"everythingUnder": true}}]`, want: false},
+		{name: "a remove that says it takes everything under, with its token", body: `[{"op": "remove", "path": "/p1", "value": {"everythingUnder": true, "token": "t-1"}}]`, want: false},
+		{name: "a remove that says it takes everything under, with an empty token", body: `[{"op": "remove", "path": "/p1", "value": {"everythingUnder": true, "token": ""}}]`, want: true},
+		{name: "a remove that says it takes everything under, with no token", body: `[{"op": "remove", "path": "/p1", "value": {"everythingUnder": true}}]`, want: true},
+		{name: "a remove that brings a token and does not say it takes everything under", body: `[{"op": "remove", "path": "/p1", "value": {"token": "t-1"}}]`, want: true},
 		{name: "a remove that says it does not", body: `[{"op": "remove", "path": "/p1", "value": {"everythingUnder": false}}]`, want: true},
 		{name: "a remove named in capitals", body: `[{"op": "REMOVE", "path": "/p1"}]`, want: true},
 		{name: "an add and a patch alone", body: `[{"op": "add", "path": "/p1", "value": {"name": "One"}}, {"op": "patch", "path": "/p2", "value": {"name": "Two"}}]`, want: false},
-		{name: "a remove that says it beside one that does not", body: `[{"op": "remove", "path": "/p1", "value": {"everythingUnder": true}}, {"op": "remove", "path": "/p2"}]`, want: true},
+		{name: "a remove that says it beside one that does not", body: `[{"op": "remove", "path": "/p1", "value": {"everythingUnder": true, "token": "t-1"}}, {"op": "remove", "path": "/p2"}]`, want: true},
 		{name: "an empty list", body: `[]`, want: false},
 		{name: "a body that is not a list", body: `{"op": "remove", "path": "/p1"}`, want: false},
 	}

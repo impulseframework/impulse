@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/eventsource"
@@ -11,9 +12,14 @@ import (
 
 const (
 	// DeleteMutationLimit is the most mutations Spanner takes in one commit. A delete
-	// that would need more takes what fits and says what is left (PatchSet.DeleteLeft);
-	// the same delete sent again takes the next part.
+	// that would need more takes what fits and answers the rows it deleted
+	// (PatchSet.DeleteLeft); the same delete sent again takes the next part.
 	DeleteMutationLimit = 80_000
+
+	// DefaultDeleteSaveTime is how long one save of a delete that takes rows runs where
+	// the client was given no WithDeleteSaveTime. The number is provisional: it is to be
+	// chosen from measurements of large deletes on the real service.
+	DefaultDeleteSaveTime = 30 * time.Second
 
 	// rowDeleteMutations is what the delete of one row costs by itself: Spanner counts a
 	// delete once, whatever the row's columns.

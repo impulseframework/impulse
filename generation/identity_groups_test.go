@@ -121,15 +121,15 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		},
 		"crewidentity/describe_crew_group.go": {"// @answers(204)\ntype DescribeCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID     impulse.UUID", "client.manager.DescribeGroup(ctx, txn, m.GroupID, m.Description)"},
 		// A group's delete takes its members and roles, after the question, and answers
-		// what one save left; the caller needs the grants of removing each member and
-		// taking each role whose period has not ended, and nothing is asked of one that
-		// has ended.
+		// the rows one save deleted; the caller needs the grants of removing each member
+		// and taking each role whose period has not ended, and nothing is asked of one
+		// that has ended.
 		"crewidentity/delete_crew_group.go": {
 			"// @answers(202, 204)\n// @class(access)\ntype DeleteCrewGroup struct {\n\t// @target(CrewListedGroup)\n\tGroupID impulse.UUID",
-			"\tEverythingUnder bool\n}",
+			"\tEverythingUnder bool\n\t// Token is the token the delete's question gave (the 428's \"token\"): with\n\t// EverythingUnder, the delete takes what is under the group only on it.\n\t//\n\t// @deleteToken\n\tToken string\n}",
 			"left, err := client.manager.DeleteGroup(ctx, txn, m.GroupID, m.EverythingUnder)",
-			"return &DeleteCrewGroupResult{Deleted: left.Deleted, Left: left.Left}, nil",
-			"type DeleteCrewGroupResult struct {\n\tDeleted int64 `json:\"deleted\"`\n\tLeft    int64 `json:\"left\"`\n}",
+			"return &DeleteCrewGroupResult{Deleted: left.Deleted}, nil",
+			"type DeleteCrewGroupResult struct {\n\tDeleted int64 `json:\"deleted\"`\n}",
 			"func (*DeleteCrewGroupResult) HTTPStatus() int {\n\treturn http.StatusAccepted\n}",
 			"periods, err := store{}.GroupPeriods(ctx, txn, m.GroupID)",
 			"for _, member := range members {\n\t\tif periods.Members[member].Ended(now) {\n\t\t\tcontinue\n\t\t}",
@@ -167,7 +167,9 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			"func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {",
 			// A row the delete takes that keeps a change history records its delete as the
 			// request's person's, where the delete is made in a request (deletedBy).
-			"patch := crewresources.NewCrewGroupDeletePatch(id)\n\tif everythingUnder {\n\t\tpatch = patch.WithEverythingUnder()\n\t}\n\tif err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {",
+			// Where the method declared its token the delete goes on it; anywhere else it is
+			// code's word.
+			"patch := crewresources.NewCrewGroupDeletePatch(id)\n\tif everythingUnder {\n\t\t// Where the method that called declared a token (@deleteToken), the delete goes on\n\t\t// it, and asks where it does not hold. Anywhere else it is code's word: every save\n\t\t// asks everything again.\n\t\tif token, declared := resource.DeleteTokenFrom(ctx); declared {\n\t\t\tpatch = patch.WithDeleteToken(token)\n\t\t} else {\n\t\t\tpatch = patch.WithEverythingUnder()\n\t\t}\n\t}\n\tif err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {",
 			// The tenant's delete takes the application's rows under the tenant, so a group
 			// it takes leaves them out.
 			"func (store) DeleteGroupWithTenant(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (*resource.DeleteLeft, error) {",

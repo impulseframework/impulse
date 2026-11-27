@@ -210,7 +210,10 @@ func TestTenantDisabled_aDisabledSectorShutsItsCrewOut(t *testing.T) {
 	}
 	drift := foundSector(ctx, t, s, governor, "Drift", "Far frontier", "2226-12-01", "drift-founder")
 	setSectorDisabled(ctx, t, hq, drift, true)
-	if status, answer := writeRecords(ctx, hq, recordOp("remove", "/sectors/"+drift, `{"everythingUnder":true}`)); status != http.StatusOK {
+	status, answer := writeRecords(ctx, hq, recordOp("remove", "/sectors/"+drift, ""))
+	assertStatus(t, status, http.StatusPreconditionRequired, []byte(answer))
+	onToken := recordOp("remove", "/sectors/"+drift, fmt.Sprintf(`{"everythingUnder":true,"token":%q}`, deleteToken(t, []byte(answer))))
+	if status, answer := writeRecords(ctx, hq, onToken); status != http.StatusOK {
 		t.Fatalf("the adjutant deleting Drift once it is disabled: status %d, want 200: %s", status, answer)
 	}
 	if n := rowsWhere(ctx, t, s, "Sectors", "Id", drift); n != 0 {

@@ -220,6 +220,7 @@ func All() []Check {
 		constantAnnotations{},
 		featureFlags{},
 		changeHistory{},
+		deleteTokens{},
 		sitesGenerators{},
 		envTemplate{},
 		envReads{},

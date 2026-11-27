@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"iter"
 	"reflect"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	sppb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/internal/spannertxn"
 	"github.com/impulseframework/impulse/spxscan"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
@@ -29,19 +31,24 @@ type SpannerClient struct {
 	// secrets are the application's secret keys, which every transaction of the client
 	// seals a patch's secret fields with; nil when the client was built with none.
 	secrets *SecretKeys
+	// deleteSaveTime is how long one save of a delete that takes rows runs
+	// (WithDeleteSaveTime), DefaultDeleteSaveTime where it is zero.
+	deleteSaveTime time.Duration
 }
 
 // NewSpannerClient creates a new Client. WithFileStore and WithNamedFileStore hand it
 // the stores the frames drive and a committed transaction's released file objects are
 // deleted from; a store wired twice, or two stores on one location, panics here.
 // WithSecretKeys hands it the keys its transactions seal a patch's secret fields with.
+// WithDeleteSaveTime sets how long one save of a delete that takes rows runs.
 func NewSpannerClient(db *spanner.Client, opts ...ClientOption) *SpannerClient {
-	stores, secrets := applyClientOptions(opts)
+	stores, secrets, deleteSaveTime := applyClientOptions(opts)
 
 	return &SpannerClient{
-		spanner: db,
-		stores:  stores,
-		secrets: secrets,
+		spanner:        db,
+		stores:         stores,
+		secrets:        secrets,
+		deleteSaveTime: deleteSaveTime,
 	}
 }
 
@@ -96,11 +103,20 @@ func (c *SpannerClient) SpannerReadOnlyTransaction() spxapi.Querier {
 // transaction's writes registered for after the commit runs (AfterCommit), in
 // registration order; a transaction that does not commit runs none of it.
 func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
+	return c.executeFunc(ctx, false, f)
+}
+
+// executeFunc is ExecuteFunc, with a delete whose token does not hold ending the
+// transaction where refusesOutside is set (SpannerReadWriteTransaction.refusesOutside).
+// Where the transaction does not commit, the tokens its last attempt's deletes went on
+// are deleted (dropTokens), unless it ended for a reason that keeps them (keepsToken).
+func (c *SpannerClient) executeFunc(ctx context.Context, refusesOutside bool, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
 	var (
 		buffered   = newBufferedPatches()
 		released   = newReleasedKeys()
 		touched    = newTouchedRows()
 		committed  = newAfterCommit()
+		honored    = &honoredTokens{ids: nil}
 		funcFailed bool
 	)
 	_, err := spannertxn.Serializable(ctx, c.spanner, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -109,8 +125,12 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 		released = newReleasedKeys()
 		touched = newTouchedRows()
 		committed = newAfterCommit()
+		honored = &honoredTokens{ids: nil}
 		funcFailed = false
 		wrapped := newSpannerReadWriteTransaction(txn, buffered, released, touched, committed).WithSecretKeys(c.secrets)
+		wrapped.deleteSaveTime = c.deleteSaveTime
+		wrapped.refusesOutside = refusesOutside
+		wrapped.honored = honored
 		if err := f(ctx, wrapped); err != nil {
 			funcFailed = true
 
@@ -130,6 +150,9 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 		return nil
 	})
 	if err != nil {
+		if !keepsToken(err) {
+			c.dropTokens(ctx, honored.ids)
+		}
 		err = errors.Wrap(err, "spannertxn.Serializable()")
 		if funcFailed {
 			return err
@@ -152,15 +175,27 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 // and of the patches f buffers only a delete that asks first is run (PatchSet.Buffer
 // does nothing there for any other). An error f returns there, a refusal or the question
 // a person is asked first, is the answer, and no read-write transaction was opened.
-// Where f returns none, nothing was asked, and f is run again as ExecuteFunc runs it:
-// the delete then reads and checks inside its own transaction. Where asks is false it is
-// ExecuteFunc. f must start each run from nothing, as it must for ExecuteFunc, which
-// runs it again when Spanner aborts the transaction.
+// Where f returns none, or ends a dry run there (ErrDryRun), nothing was asked, and f is
+// run again as ExecuteFunc runs it: the delete then reads and checks inside its own
+// transaction, and a dry run makes every write's own checks before it is rolled back.
+// Where asks is false it is ExecuteFunc. f must start each run from nothing, as it must
+// for ExecuteFunc, which runs it again when Spanner aborts the transaction.
+//
+// A delete that brings a token (PatchSet.DeleteWithToken) is not asked first: its request
+// says asks false, and the token is read inside the read-write transaction. Where it does
+// not hold, that transaction ends without a commit and f is run as a request that asks. A
+// question that passes on the question transaction writes its token in a short
+// transaction of its own, and the answer carries it (httpio.NewPreconditionRequiredToken).
+// Where a save that went on a token fails, the token is deleted: the person is asked
+// again.
 func (c *SpannerClient) ExecuteDeleteFunc(ctx context.Context, asks bool, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
-	if asks {
-		if err := c.ask(ctx, f); err != nil {
+	if !asks {
+		if err := c.executeFunc(ctx, true, f); !errors.Is(err, errDeleteTokenRefused) {
 			return err
 		}
+	}
+	if err := c.ask(ctx, f); err != nil && !errors.Is(err, ErrDryRun) {
+		return err
 	}
 
 	return c.ExecuteFunc(ctx, f)
@@ -168,18 +203,31 @@ func (c *SpannerClient) ExecuteDeleteFunc(ctx context.Context, asks bool, f func
 
 // ask runs f once on a question transaction (SpannerReadWriteTransaction.asking) over one
 // read-only transaction of the client, under the context it was given, and closes the
-// read-only transaction when f returns. Nothing else happens: no read-write transaction
-// is opened, nothing is counted before a commit, no file is released and nothing
-// registered for after a commit runs.
+// read-only transaction when f returns. Where f answers with the question a delete asked
+// there (httpio.HasPreconditionRequired) and the context has a holder (holderOf), the
+// question's token is written in a transaction of its own (giveToken) and the question is
+// answered with it (httpio.NewPreconditionRequiredToken). Nothing else happens: no other
+// read-write transaction is opened, nothing is counted before a commit, no file is
+// released and nothing registered for after a commit runs.
 func (c *SpannerClient) ask(ctx context.Context, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
 	snapshot := c.spanner.ReadOnlyTransaction()
 	defer snapshot.Close()
 
-	if err := f(ctx, newSpannerQuestionTransaction(snapshot, c.secrets)); err != nil {
-		return errors.Wrap(err, "f()")
+	question := newSpannerQuestionTransaction(snapshot, c.secrets)
+	err := f(ctx, question)
+	if err == nil {
+		return nil
+	}
+	if asked, holder := question.question, holderOf(ctx); asked != nil && holder != nil && httpio.HasPreconditionRequired(err) {
+		id, err := c.giveToken(ctx, asked, holder)
+		if err != nil {
+			return err
+		}
+
+		return httpio.NewPreconditionRequiredToken(asked.sentence, asked.records, id)
 	}
 
-	return nil
+	return errors.Wrap(err, "f()")
 }
 
 // ReadOnlyTransaction returns a read-only transaction that can be used for multiple reads from the database.
@@ -516,6 +564,21 @@ type SpannerReadWriteTransaction struct {
 	// a transaction that writes. A question transaction has no read-write transaction
 	// (txn is nil): what is buffered through it is dropped.
 	snapshot *spanner.ReadOnlyTransaction
+	// deleteSaveTime is how long one save of a delete that takes rows runs in the
+	// transaction, the client's (WithDeleteSaveTime); DefaultDeleteSaveTime where it is
+	// zero, as on a transaction wrapped by hand.
+	deleteSaveTime time.Duration
+	// question notes the question a delete asked on a question transaction, nil where none
+	// did: the token a passed question gives names its record (SpannerClient.ask).
+	question *askedQuestion
+	// refusesOutside says a delete whose token does not hold ends the transaction
+	// (errDeleteTokenRefused), so the executor asks its question with no read-write
+	// transaction open: the first run of SpannerClient.ExecuteDeleteFunc. Elsewhere such a
+	// delete asks inside the transaction.
+	refusesOutside bool
+	// honored notes the tokens the transaction's deletes went on, which the executor
+	// deletes where the transaction does not commit; nil on a transaction with no executor.
+	honored *honoredTokens
 }
 
 // NewSpannerReadWriteTransaction creates a new SpannerReadWriteTransaction from a
@@ -552,6 +615,10 @@ func newSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction, buffered 
 		deleted:          newTransactionDeletes(),
 		rows:             newTransactionRows(),
 		snapshot:         nil,
+		deleteSaveTime:   0,
+		question:         nil,
+		refusesOutside:   false,
+		honored:          nil,
 	}
 }
 

@@ -250,15 +250,19 @@ func (d *Decoder[Resource, Request]) DecodeOperation(oper *Operation, userPermis
 
 // removeValue is what a remove operation's value may say.
 type removeValue struct {
-	// EverythingUnder says the delete takes the rows the record lists as going with it
-	// (PatchSet.DeleteEverythingUnder).
+	// EverythingUnder says the delete takes the rows the record lists as going with it,
+	// on the token beside it.
 	EverythingUnder bool `json:"everythingUnder"`
+	// Token is the token the delete's question gave (PatchSet.DeleteWithToken).
+	Token string `json:"token"`
 }
 
 // readRemoveValue reads a remove operation's value into the delete it decodes to:
-// {"everythingUnder": true} says the delete takes the rows the record lists as going
-// with it. A remove with no value, or one that says nothing of it, takes the record's
-// row alone.
+// {"everythingUnder": true, "token": "…"} says the delete takes the rows the record lists
+// as going with it, on the token its question gave (PatchSet.DeleteWithToken); with no
+// token, or an empty one, the delete asks first. A token beside a value that does not say
+// everythingUnder is not looked at. A remove with no value, or one that says nothing of
+// it, takes the record's row alone.
 func readRemoveValue[Resource Resourcer](oper *Operation, patchSet *PatchSet[Resource]) error {
 	if oper.Req == nil || oper.Req.Body == nil {
 		return nil
@@ -272,10 +276,10 @@ func readRemoveValue[Resource Resourcer](oper *Operation, patchSet *PatchSet[Res
 	}
 	var value removeValue
 	if err := json.Unmarshal(body, &value); err != nil {
-		return httpio.NewBadRequestMessageWithError(err, `a remove operation's value is an object, and "everythingUnder" in it is true or false`)
+		return httpio.NewBadRequestMessageWithError(err, `a remove operation's value is an object: "everythingUnder" in it is true or false, and "token" is the text the question's answer gave`)
 	}
 	if value.EverythingUnder {
-		patchSet.DeleteEverythingUnder()
+		patchSet.DeleteWithToken(value.Token)
 	}
 
 	return nil

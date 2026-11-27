@@ -1321,6 +1321,7 @@ export namespace DeleteMembersGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     everythingUnder: 'everythingUnder' as FieldName,
+    token: 'token' as FieldName,
   };
 }
 
@@ -1328,6 +1329,7 @@ export namespace DeleteMembersTenantGroup {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     everythingUnder: 'everythingUnder' as FieldName,
+    token: 'token' as FieldName,
   };
 }
 
@@ -1335,6 +1337,7 @@ export namespace DeleteMembersTenantUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
     everythingUnder: 'everythingUnder' as FieldName,
+    token: 'token' as FieldName,
   };
 }
 
@@ -1342,6 +1345,7 @@ export namespace DeleteMembersUser {
   export const fieldName = {
     userId: 'userId' as FieldName,
     everythingUnder: 'everythingUnder' as FieldName,
+    token: 'token' as FieldName,
   };
 }
 

@@ -18,9 +18,9 @@ import (
 // DeleteMembersTenantGroup deletes a group of the Members auth with its members and the
 // roles it holds. Asked without EverythingUnder of a group that has either, it deletes
 // nothing and answers the question a person is asked first, with their counts; asked with
-// it, it takes them. Each member and each role whose period has not ended is asked what
-// its own removal asks, so nobody deletes a group that gives them the last administrator's
-// role of a tenant.
+// it and the question's token, it takes them. Each member and each role whose period has
+// not ended is asked what its own removal asks, so nobody deletes a group that gives them
+// the last administrator's role of a tenant.
 //
 // It is a tenant's method: served under the address of one Tenant, it names a
 // row of MembersTenantGroup, the tenant's own list of its groups. A group kept in
@@ -37,14 +37,18 @@ type DeleteMembersTenantGroup struct {
 	// EverythingUnder says the person was asked what the group's delete takes and confirmed
 	// it, so the delete takes the group's members and roles.
 	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the group only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
 // DeleteMembersTenantGroupResult is what a delete of a group with more under it than one
-// save holds left (resource.DeleteLeft): the records this request deleted and the
-// records still under the group, which stands until a request takes the last of them.
+// save holds left (resource.DeleteLeft): the records this request deleted. The group
+// stands until a request takes the last of them.
 type DeleteMembersTenantGroupResult struct {
 	Deleted int64 `json:"deleted"`
-	Left    int64 `json:"left"`
 }
 
 // HTTPStatus answers 202: the group still stands, and the same delete, sent again, goes on.
@@ -54,7 +58,8 @@ func (*DeleteMembersTenantGroupResult) HTTPStatus() int {
 
 // Execute asks the caller's grants of taking each member out of the group and each role
 // from it (mayEmpty), then buffers the delete into the caller's transaction. It answers
-// nothing (204) once the group is gone, and what one save left (202) while it stands.
+// nothing (204) once the group is gone, and the rows one save deleted (202) while it
+// stands.
 func (m *DeleteMembersTenantGroup) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*DeleteMembersTenantGroupResult, error) {
 	if err := m.mayEmpty(ctx, txn); err != nil {
 		return nil, err
@@ -71,7 +76,7 @@ func (m *DeleteMembersTenantGroup) Execute(ctx context.Context, txn resource.Rea
 		return nil, nil
 	}
 
-	return &DeleteMembersTenantGroupResult{Deleted: left.Deleted, Left: left.Left}, nil
+	return &DeleteMembersTenantGroupResult{Deleted: left.Deleted}, nil
 }
 
 // mayEmpty asks, in a request, what the caller needs to take each member out of the

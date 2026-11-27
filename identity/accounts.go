@@ -119,21 +119,25 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // each other tenant in which the person holds the same permission, a row of any other
 // tenant or of none refusing the delete. Asked without everythingUnder of an account that
 // has such a row, it deletes nothing and answers the question a person is asked first,
-// with their counts; where they are more than one save holds, it answers what the
-// save left, and the account stands whole, with its sessions and its ways to sign in,
-// until a save takes the last of them. Once the row goes, every session the person holds
-// is ended, and their identity links, every membership they hold, every role they hold
-// on a record that has not ended and their place in every group go with it, and the
+// with their counts, and so it does asked with it where the request's token
+// (resource.DeleteTokenFrom) does not hold; where they are more than one save holds, it
+// answers the rows the save deleted, and the account stands whole, with its sessions and
+// its ways to sign in, until a save takes the last of them. Called where no token was
+// declared, by a job or by a method that declares no @deleteToken, it takes them on
+// code's word, every save asking everything again
+// (resource.PatchSet.DeleteEverythingUnder). Once the row goes, every session the person
+// holds is ended, and their identity links, every membership they hold, every role they
+// hold on a record that has not ended and their place in every group go with it, and the
 // permission engine is told once the transaction has committed. The save that deletes the
 // row writes the row of the account's delete, done to the account by the username the
-// transaction read; what goes with the account has no
-// row of its own. Nobody deletes themselves: the person acting, the real person behind the
-// session, is refused their own account, and a session that views as someone else the
-// account it views as (refuseOwnAccount). In a session that acts as someone else the
-// refusal of the real person's own account is the one DisableUser and EnableUser give
-// there, in the same sentence form and with the same log line. A super administrator's
-// account is deleted by a super administrator alone, and the last one who can sign in by
-// nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
+// transaction read; what goes with the account has no row of its own. Nobody deletes
+// themselves: the person acting, the real person behind the session, is refused their own
+// account, and a session that views as someone else the account it views as
+// (refuseOwnAccount). In a session that acts as someone else the refusal of the real
+// person's own account is the one DisableUser and EnableUser give there, in the same
+// sentence form and with the same log line. A super administrator's account is deleted by
+// a super administrator alone, and the last one who can sign in by nobody
+// (requireSuperAdministrator, refuseLastSuperAdministrator).
 //
 // Shared rule: the session library's DeleteSessionUser; the memberships are the user
 // management's, which removes every one the person holds with the account.

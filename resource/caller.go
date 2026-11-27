@@ -69,6 +69,24 @@ func CallerFrom(ctx context.Context) *Caller {
 	return &Caller{}
 }
 
+type deleteTokenKey struct{}
+
+// WithDeleteToken stamps the token a request brought for its delete into the context.
+// The frame of a method that declares one (@deleteToken) calls it.
+func WithDeleteToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, deleteTokenKey{}, token)
+}
+
+// DeleteTokenFrom returns the token the request's frame stamped and true, or "" and false
+// where no frame stamped one. A method's delete hands a declared token to its patch
+// (DeleteWithToken); a delete called where none was declared, from a method that declares
+// no @deleteToken or outside a request, is code's (PatchSet.DeleteEverythingUnder).
+func DeleteTokenFrom(ctx context.Context) (token string, declared bool) {
+	token, declared = ctx.Value(deleteTokenKey{}).(string)
+
+	return token, declared
+}
+
 // WithAuth binds the request to the auth whose sessions its outlet serves, by the auth's
 // name (the auth package's Name). An outlet's generated routes bind it on every request
 // (live.Subscribing), so whatever answers for the request can tell the people of one auth

@@ -1426,16 +1426,29 @@ func NewMissionDeletePatch(id impulse.UUID) *MissionDeletePatch {
 // Without it, a delete of a Mission that has such rows
 // deletes nothing and is answered with the question a person is asked first
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
-// delete takes what fits, deepest first, and Left says what is left: buffer the delete
-// again, in a transaction of its own, until Left answers nil.
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
 func (p *MissionDeletePatch) WithEverythingUnder() *MissionDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
 
 	return p
 }
 
-// Left is what the delete left under the Mission once it is buffered
-// (resource.DeleteLeft): nil where the delete finished, the Mission with it.
+// WithDeleteToken says the delete takes the rows under the Mission on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *MissionDeletePatch) WithDeleteToken(token string) *MissionDeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the Mission, which stands until a save
+// takes the last of them; nil where the delete finished, the Mission with it.
 func (p *MissionDeletePatch) Left() *resource.DeleteLeft {
 	return p.patchSet.DeleteLeft()
 }

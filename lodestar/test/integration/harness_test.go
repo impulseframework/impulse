@@ -312,6 +312,10 @@ type testConfigurer struct {
 	// builds one of its own (servedOptions.oneTenantPerPerson); nil runs the one the
 	// crew auth built.
 	crewIdentity *crewidentity.Client
+	// deleteSaveTime is the time limit of a save of a delete that takes rows
+	// (resource.WithDeleteSaveTime), for a suite that has a delete take its rows over
+	// several saves; zero leaves the library's.
+	deleteSaveTime time.Duration
 }
 
 // invitationLog holds the invitations the suites without a session manager handed
@@ -545,7 +549,12 @@ func (c *testConfigurer) CursorKey() *resource.CursorKey { return testCursorKey 
 // transaction's released objects are deleted from their store, and a write of a secret
 // field is sealed with the keys.
 func (c *testConfigurer) ResourceClient() resource.Client {
-	return resource.NewSpannerClient(c.db.Client, append(c.Stores().options(), resource.WithSecretKeys(testSecretKeys))...)
+	options := append(c.Stores().options(), resource.WithSecretKeys(testSecretKeys))
+	if c.deleteSaveTime != 0 {
+		options = append(options, resource.WithDeleteSaveTime(c.deleteSaveTime))
+	}
+
+	return resource.NewSpannerClient(c.db.Client, options...)
 }
 
 func (c *testConfigurer) Access() access.Controller { return c.access }
@@ -713,8 +722,11 @@ var portalUsers = map[accesstypes.User]bool{clientUser: true}
 func doRequest(t *testing.T, h http.Handler, method, target, body string) (statusCode int, respBody []byte) {
 	t.Helper()
 
-	return doRequestAs(t, h, "integration-test-user", method, target, body)
+	return doRequestAs(t, h, defaultUser, method, target, body)
 }
+
+// defaultUser is the username doRequest sends a request as.
+const defaultUser accesstypes.User = "integration-test-user"
 
 // doRequestAs performs a request against the app as the given user, named by username.
 // The bootstrap-parity suites run against the real engines, where the acting user
@@ -736,7 +748,7 @@ func doRequestAs(t *testing.T, h http.Handler, user accesstypes.User, method, ta
 func doRequestRecorded(t *testing.T, h http.Handler, target string) *httptest.ResponseRecorder {
 	t.Helper()
 
-	return doRequestRecordedAs(t, h, "integration-test-user", http.MethodGet, target, "")
+	return doRequestRecordedAs(t, h, defaultUser, http.MethodGet, target, "")
 }
 
 // doRequestRecordedAs performs a request as the given user and returns the recorded
@@ -786,9 +798,12 @@ func doRequestRecordedWithHeaders(t *testing.T, h http.Handler, user accesstypes
 func sessionContext(t *testing.T, user accesstypes.User) context.Context {
 	t.Helper()
 
-	sessionID, err := impulse.NewUUID()
-	if err != nil {
-		t.Fatalf("impulse.NewUUID: %v", err)
+	sessionID, kept := keptSessionID(t, user)
+	if !kept {
+		var err error
+		if sessionID, err = impulse.NewUUID(); err != nil {
+			t.Fatalf("impulse.NewUUID: %v", err)
+		}
 	}
 	data := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: string(user)}}
 	if id, ok := accountID(user); ok {
@@ -801,6 +816,68 @@ func sessionContext(t *testing.T, user accesstypes.User) context.Context {
 	}
 
 	return context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, data)
+}
+
+// keptSessions holds the session a person's synthetic requests share in a test that said
+// so (keepSession), by the test's name and the person's username.
+var keptSessions sync.Map
+
+// keptSession is the key of keptSessions.
+type keptSession struct {
+	test     string
+	username accesstypes.User
+}
+
+// keepSession tells the harness that the person's synthetic requests in this test, and in
+// the tests it runs, are made in one session from here on, and forgets it when the test
+// ends. A delete's token holds only in the session its question was asked in, so a test
+// that sends the question and then the delete on its token keeps the one session for
+// both; every other request is made in a session of its own.
+func keepSession(t *testing.T, user accesstypes.User) {
+	t.Helper()
+
+	id, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID: %v", err)
+	}
+	key := keptSession{test: t.Name(), username: user}
+	keptSessions.Store(key, id)
+	t.Cleanup(func() { keptSessions.CompareAndDelete(key, id) })
+}
+
+// keptSessionID is the session this test, or a test it runs under, keeps for the person
+// (keepSession).
+func keptSessionID(t *testing.T, user accesstypes.User) (impulse.UUID, bool) {
+	t.Helper()
+
+	name := t.Name()
+	for {
+		if held, ok := keptSessions.Load(keptSession{test: name, username: user}); ok {
+			id, isID := held.(impulse.UUID)
+
+			return id, isID
+		}
+		i := strings.LastIndex(name, "/")
+		if i < 0 {
+			return impulse.UUID{}, false
+		}
+		name = name[:i]
+	}
+}
+
+// deleteToken reads the token a delete's question gave off the 428's body ("token"): the
+// delete that goes ahead brings it back, in the same session (keepSession).
+func deleteToken(t *testing.T, body []byte) string {
+	t.Helper()
+
+	var asked struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &asked); err != nil || asked.Token == "" {
+		t.Fatalf("the question's answer carries no token (%v): %s", err, body)
+	}
+
+	return asked.Token
 }
 
 // signedInEvents holds how the people of the tests signed in: a test that says how a
@@ -1155,6 +1232,9 @@ type servedOptions struct {
 	// the suite that proves the library refuses a portal request asked of another auth's
 	// engine.
 	crewEngineAsMembers bool
+	// deleteSaveTime is the time limit of a save of a delete that takes rows
+	// (testConfigurer.deleteSaveTime), zero for the library's.
+	deleteSaveTime time.Duration
 	// crewNotAdministered configures the crew auth's Workspace as one the fleet does not
 	// administer (auth.Directory.Administered false), so a sign-in through it carries no
 	// second factor of its own, for the suite that proves a sector's word for its
@@ -1318,19 +1398,20 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		}
 	}
 	a := app.New(&testConfigurer{
-		db:            db,
-		access:        crewAuth.Access(),
-		membersAccess: membersEngine,
-		crewAuth:      crewAuth,
-		membersAuth:   membersAuth,
-		stores:        stores,
-		live:          fake,
-		version:       version,
-		scheduler:     scheduled.NewGuard(schedulerInvoker, keys),
-		jobs:          starter,
-		tenants:       roster,
-		declarations:  roster.Declarations,
-		crewIdentity:  crewIdentity,
+		db:             db,
+		access:         crewAuth.Access(),
+		membersAccess:  membersEngine,
+		crewAuth:       crewAuth,
+		membersAuth:    membersAuth,
+		stores:         stores,
+		live:           fake,
+		version:        version,
+		scheduler:      scheduled.NewGuard(schedulerInvoker, keys),
+		jobs:           starter,
+		tenants:        roster,
+		declarations:   roster.Declarations,
+		crewIdentity:   crewIdentity,
+		deleteSaveTime: opts.deleteSaveTime,
 	})
 	server.Config.Handler = router.New(a, router.AppHooks(a))
 	server.Start()

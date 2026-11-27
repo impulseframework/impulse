@@ -537,7 +537,7 @@ func TestManager_TenantKinds_otherKindsInRounds(t *testing.T) {
 		},
 		{
 			name: "groups: the group's own delete left rows under it", kind: 3, budget: 4,
-			groupLeft:  &resource.DeleteLeft{Deleted: 2, Left: 1},
+			groupLeft:  &resource.DeleteLeft{Deleted: 2},
 			want:       takenRows{Mutations: 4, More: true},
 			wantWrites: []string{"delete group " + nightID.String() + " with its tenant"},
 		},

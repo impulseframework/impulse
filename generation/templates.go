@@ -893,8 +893,11 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // (DeleteAlso). The grant to delete the {{ .Resource.Name }} answers for them all. Without it, a delete of a {{ .Resource.Name }} that has such rows deletes
 // nothing and is answered with the question a person is asked first
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
-// delete takes what fits, deepest first, and Left says what is left: buffer the delete
-// again, in a transaction of its own, until Left answers nil.
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
 {{- else if .Resource.ApplicationCanName }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // the kinds its description lists as taken, the application's rows that name it in a
@@ -902,8 +905,12 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // the kinds handed to the delete as well (DeleteAlso). Without it, a delete of a
 // {{ .Resource.Name }} that has such rows deletes nothing and is answered with the question a
 // person is asked first (httpio.HasPreconditionRequired). Where the rows cost more than
-// one save takes, the delete takes what fits, deepest first, and Left says what is left:
-// buffer the delete again, in a transaction of its own, until Left answers nil.
+// one save takes, the delete takes what fits, deepest first, and Left answers the rows
+// that save deleted: buffer the delete again, in a transaction of its own, until Left
+// answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
 {{- else }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
@@ -911,8 +918,11 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // Without it, a delete of a {{ .Resource.Name }} that has such rows
 // deletes nothing and is answered with the question a person is asked first
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
-// delete takes what fits, deepest first, and Left says what is left: buffer the delete
-// again, in a transaction of its own, until Left answers nil.
+// delete takes what fits, deepest first, and Left answers the rows that save deleted:
+// buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
 {{- end }}
 func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Name }}DeletePatch {
 	p.patchSet.DeleteEverythingUnder()
@@ -920,8 +930,18 @@ func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Na
 	return p
 }
 
-// Left is what the delete left under the {{ .Resource.Name }} once it is buffered
-// (resource.DeleteLeft): nil where the delete finished, the {{ .Resource.Name }} with it.
+// WithDeleteToken says the delete takes the rows under the {{ .Resource.Name }} on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *{{ .Resource.Name }}DeletePatch) WithDeleteToken(token string) *{{ .Resource.Name }}DeletePatch {
+	p.patchSet.DeleteWithToken(token)
+
+	return p
+}
+
+// Left is what the delete says once it is buffered (resource.DeleteLeft): the rows the
+// save deleted where rows are left under the {{ .Resource.Name }}, which stands until a save
+// takes the last of them; nil where the delete finished, the {{ .Resource.Name }} with it.
 func (p *{{ .Resource.Name }}DeletePatch) Left() *resource.DeleteLeft {
 	return p.patchSet.DeleteLeft()
 }
@@ -1052,23 +1072,23 @@ const (
 		}`
 
 	// deleteLeftKept is spliced into the delete of a record that takes rows, after the
-	// delete patch (patch, which the splice's place sets) is buffered: what the delete left
-	// under its record (DeletePatch.Left) is added to what the request's other deletes
-	// left (left, declared before the transaction), which the handler answers 202 with.
+	// delete patch (patch, which the splice's place sets) is buffered: the rows its save
+	// deleted where rows are left under its record (DeletePatch.Left) are added to those of
+	// the request's other deletes (left, declared before the transaction), which the
+	// handler answers 202 with.
 	deleteLeftKept = `if taken := patch.Left(); taken != nil {
 						if left == nil {
 							left = &resource.DeleteLeft{}
 						}
 						left.Deleted += taken.Deleted
-						left.Left += taken.Left
 					}`
 
 	// deleteLeftAnswered is spliced into a handler's answer once the commit has landed and
 	// open pages are told: a request with a delete that left rows under its record
-	// answers 202 with what its deletes left (deleteLeftKept).
+	// answers 202 with the rows its deletes took (deleteLeftKept).
 	deleteLeftAnswered = `if left != nil {
-			// A delete that took what fits one save says what is left: the same request,
-			// sent again, goes on.
+			// A delete that took what fits one save answers the rows it deleted: the same
+			// request, sent again, goes on.
 			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
 		}`
 
@@ -3927,13 +3947,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 
 		{{- if .Resource.TakesRowsUnder }}
 
-		// What the request's deletes left under their records, summed: the answer is a 202
-		// with it where one left any.
+		// The rows deleted by each of the request's deletes that left rows under its record,
+		// summed: the answer is a 202 with it where one left any.
 		var left *resource.DeleteLeft
 
-		// A remove that has not been told to take what is under its record asks first: the
-		// request is then run with no read-write transaction open, and one is opened only
-		// where there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
+		// A remove that does not bring the token its question gave asks first: the request
+		// is then run with no read-write transaction open, and one is opened only where
+		// there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
 		asks, err := resource.RemovesAsk(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -4198,13 +4218,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 
 		{{- if .TakesRowsUnder }}
 
-		// What the request's deletes left under their records, summed: the answer is a 202
-		// with it where one left any.
+		// The rows deleted by each of the request's deletes that left rows under its record,
+		// summed: the answer is a 202 with it where one left any.
 		var left *resource.DeleteLeft
 
-		// A remove that has not been told to take what is under its record asks first: the
-		// request is then run with no read-write transaction open, and one is opened only
-		// where there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
+		// A remove that does not bring the token its question gave asks first: the request
+		// is then run with no read-write transaction open, and one is opened only where
+		// there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
 		asks, err := resource.RemovesAsk(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -6473,6 +6493,12 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 
 		p := {{ .RPCMethod.RequestConverterName }}(*params)
 		{{- end }}
+		{{- if .RPCMethod.DeleteToken }}
+		// The token the method's delete goes on rides the context (@deleteToken): the
+		// delete hands it to its patch (resource.DeleteTokenFrom), and the request asks the
+		// delete's question before the transaction is opened while it is empty.
+		ctx = resource.WithDeleteToken(ctx, p.{{ .RPCMethod.DeleteToken }})
+		{{- end }}
 		{{- template "rpcHoldPicked" $ }}
 		{{- template "rpcWarningAsked" $ }}
 		{{- template "rpcCollectTouched" $ }}
@@ -6487,7 +6513,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
-			if err := {{ $.ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			if err := {{ $.ReceiverName }}.ResourceClient().{{ if .RPCMethod.DeleteToken }}ExecuteDeleteFunc(ctx, p.{{ .RPCMethod.DeleteToken }} == "", {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				{{- template "rpcTargetFrame" $ }}
 				{{- template "rpcReadWarning" $ }}
 				{{- if .RPCMethod.Answers -}}

@@ -1913,3 +1913,48 @@ func TestEncoder_ClientMessage(t *testing.T) {
 		})
 	}
 }
+
+// TestEncoder_ClientMessage_records holds the body of a question that counts records
+// (NewPreconditionRequiredRecords): the number beside the message, as records; a message
+// with no number carries no records.
+func TestEncoder_ClientMessage_records(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		err      error
+		wantBody string
+	}{
+		{
+			name:     "a question that counts records carries the number beside the message",
+			err:      NewPreconditionRequiredRecords("Delete this client and everything under it: 38,000 contacts. This can't be undone.", 38000),
+			wantBody: `{"message":"Delete this client and everything under it: 38,000 contacts. This can't be undone.","records":38000}` + "\n",
+		},
+		{
+			name:     "a question that passed carries its token beside the number",
+			err:      NewPreconditionRequiredToken("Delete this client and everything under it: 2 contacts. This can't be undone.", 2, "t-1"),
+			wantBody: `{"message":"Delete this client and everything under it: 2 contacts. This can't be undone.","records":2,"token":"t-1"}` + "\n",
+		},
+		{
+			name:     "a message with no number carries no records",
+			err:      NewPreconditionRequiredMessage("Delete this client and everything under it? This can't be undone."),
+			wantBody: `{"message":"Delete this client and everything under it? This can't be undone."}` + "\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			recorder := httptest.NewRecorder()
+			if err := NewEncoder(recorder).ClientMessage(context.Background(), tt.err); err == nil {
+				t.Errorf("Encoder.ClientMessage() error = nil, want the message's")
+			}
+			if got := recorder.Result().StatusCode; got != http.StatusPreconditionRequired {
+				t.Errorf("the status = %d, want %d", got, http.StatusPreconditionRequired)
+			}
+			if got := recorder.Body.String(); got != tt.wantBody {
+				t.Errorf("the body = %q, want %q", got, tt.wantBody)
+			}
+		})
+	}
+}

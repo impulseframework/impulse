@@ -1426,7 +1426,14 @@ func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	// delete as theirs.
 	patch := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id)
 	if everythingUnder {
-		patch = patch.WithEverythingUnder()
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
 	}
 	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
 		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}DeletePatch.Buffer()")
@@ -2765,8 +2772,8 @@ import (
 // go with the account, and with it the application's rows that name the account in a
 // column that says so (@deletedWith). Asked without EverythingUnder of an account that
 // has such a row, it deletes nothing and answers the question a person is asked first,
-// with their counts; asked with it, it takes them. Nobody deletes themselves: the
-// caller's own account is refused.
+// with their counts; asked with it and the question's token, it takes them. Nobody
+// deletes themselves: the caller's own account is refused.
 //
 // The rows that go with the account go on this method's grant: no grant is asked on
 // their own tables. For a request made for the whole application every such row goes.
@@ -2793,14 +2800,18 @@ type Delete{{ .Subject }}User struct {
 	// EverythingUnder says the person was asked what the account's delete takes and
 	// confirmed it, so the delete takes the application's rows that go with the account.
 	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the account only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
 // Delete{{ .Subject }}UserResult is what a delete of an account with more under it than
-// one save holds left (resource.DeleteLeft): the records this request deleted and the
-// records still under the account, which stands until a request takes the last of them.
+// one save holds left (resource.DeleteLeft): the records this request deleted. The account
+// stands until a request takes the last of them.
 type Delete{{ .Subject }}UserResult struct {
 	Deleted int64 ` + "`json:\"deleted\"`" + `
-	Left    int64 ` + "`json:\"left\"`" + `
 }
 
 // HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.
@@ -2828,7 +2839,7 @@ func (m *Delete{{ .Subject }}User) Warning(ctx context.Context, txn resource.Rea
 {{- end }}
 
 // Execute buffers the removal into the caller's transaction. It answers nothing (204)
-// once the account is gone, and what one save left (202) while it stands.
+// once the account is gone, and the rows one save deleted (202) while it stands.
 func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Delete{{ .Subject }}UserResult, error) {` + identityTenantGuardAnswering + `
 	left, err := client.manager.DeleteUser(ctx, txn, m.UserID, m.EverythingUnder)
 	if err != nil {
@@ -2838,7 +2849,7 @@ func (m *Delete{{ .Subject }}User) Execute(ctx context.Context, txn resource.Rea
 		return nil, nil
 	}
 
-	return &Delete{{ .Subject }}UserResult{Deleted: left.Deleted, Left: left.Left}, nil
+	return &Delete{{ .Subject }}UserResult{Deleted: left.Deleted}, nil
 }
 `
 

@@ -804,7 +804,7 @@ func (r *resourceInfo) DeclaresDeleteCascade() bool {
 // not a record of the application's names it, or a record a role can be held on
 // (@holdsRoles), whose delete takes the roles held on it, handed to it the same way. Its
 // delete patch then carries WithEverythingUnder, Left and DeleteAlso, and its handlers
-// keep what a delete left.
+// keep the rows a delete took where it left rows under its record.
 func (r *resourceInfo) TakesRowsUnder() bool {
 	return r.IsTenant || r.isAccountRecord() || r.holdsRoles || r.deleteCascade != nil && r.DeleteTree != nil && len(r.DeleteTree.Taken) > 0
 }

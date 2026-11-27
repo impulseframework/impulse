@@ -64,6 +64,7 @@ DROP INDEX CrewSessionIdentitiesByKey;
 DROP TABLE CrewSessionIdentities;
 DROP INDEX CommendationsByPilotIdAwardedAt;
 DROP TABLE Commendations;
+DROP TABLE DeleteTokens;
 DROP TABLE FeatureFlagChanges;
 DROP TABLE FeatureFlags;
 DROP INDEX MembersRecordGroupRolesByGroupId;

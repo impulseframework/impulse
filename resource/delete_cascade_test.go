@@ -30,6 +30,8 @@ type cascadeRows struct {
 	asks  *takenAsks
 	asked *[]string
 	made  *[]string
+	// onAsked is called with each row's name as the row is asked; nil calls nothing.
+	onAsked func(name string)
 }
 
 // cascadeRefusal is what a row's check answers.
@@ -54,7 +56,7 @@ func (r cascadeRows) row(fields []accesstypes.Field, values []any, caller *Calle
 	if !caller.IsZero() {
 		who = "armed"
 	}
-	row := &cascadeRow{name: strings.Join(name, ",") + " " + who, asked: r.asked, made: r.made}
+	row := &cascadeRow{name: strings.Join(name, ",") + " " + who, asked: r.asked, made: r.made, onAsked: r.onAsked}
 	if refusal, ok := r.refused[fmt.Sprint(values...)]; ok {
 		row.refusal = refusal
 	}
@@ -96,11 +98,15 @@ type cascadeRow struct {
 	refusal cascadeRefusal
 	asked   *[]string
 	made    *[]string
+	onAsked func(name string)
 }
 
 func (r *cascadeRow) checkTaken(_ context.Context, _ ReadWriteTransaction, _ *takenAsks, answers []spanner.NullBool) (byRule bool, err error) {
 	if r.asked != nil {
 		*r.asked = append(*r.asked, r.name)
+	}
+	if r.onAsked != nil {
+		r.onAsked(r.name)
 	}
 	if r.refusal.err != nil {
 		return r.refusal.byRule, r.refusal.err
@@ -446,9 +452,11 @@ func TestRecordedDelete_question(t *testing.T) {
 }
 
 // TestDecoder_readsWhatARemoveSays pins a remove operation's value: "everythingUnder":
-// true makes the delete one that takes the rows under its record, a remove that says
-// nothing of it takes the record's row alone, and a value that is not an object, or
-// says it with anything but true or false, is a 400.
+// true makes the delete one that goes on the token beside it (DeleteWithToken), and never
+// one code told to take the rows (DeleteEverythingUnder); a token beside a value that does
+// not say everythingUnder is not looked at; a remove that says nothing of it takes the
+// record's row alone; and a value that is not an object, or says it with anything but
+// true or false, is a 400.
 func TestDecoder_readsWhatARemoveSays(t *testing.T) {
 	t.Parallel()
 
@@ -462,12 +470,15 @@ func TestDecoder_readsWhatARemoveSays(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		value   string
-		want    bool
-		wantBad bool
+		name      string
+		value     string
+		wantToken string
+		wantBad   bool
 	}{
-		{name: "a remove that says so", value: `{"everythingUnder":true}`, want: true},
+		{name: "a remove that says so, with its token", value: `{"everythingUnder":true,"token":"t-1"}`, wantToken: "t-1"},
+		{name: "a remove that says so, with no token", value: `{"everythingUnder":true}`},
+		{name: "a token with no everythingUnder", value: `{"token":"t-1"}`},
+		{name: "a token that is not text", value: `{"everythingUnder":true,"token":7}`, wantBad: true},
 		{name: "a remove that says no", value: `{"everythingUnder":false}`},
 		{name: "a remove with the value an operation without one is given", value: `{}`},
 		{name: "a remove with no value at all"},
@@ -498,8 +509,8 @@ func TestDecoder_readsWhatARemoveSays(t *testing.T) {
 				if err != nil {
 					t.Fatalf("%s() error = %v", name, err)
 				}
-				if patchSet.everythingUnder != tt.want {
-					t.Errorf("%s(): the delete takes everything under its record = %v, want %v", name, patchSet.everythingUnder, tt.want)
+				if patchSet.everythingUnder || patchSet.deleteToken != tt.wantToken {
+					t.Errorf("%s(): the delete is code's word = %v, on the token %q, want false and %q", name, patchSet.everythingUnder, patchSet.deleteToken, tt.wantToken)
 				}
 			}
 		})

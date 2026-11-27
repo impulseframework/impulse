@@ -2,13 +2,17 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -46,13 +50,14 @@ func cascadeDatabase(t *testing.T, name string) *spanner.Client {
 }
 
 // cascadeRun is what one delete that takes rows did: what it answered, the round it
-// took, the rows it asked about and deleted, in order, how many count, page and
-// by-tenant statements it sent, and the text of each, in order.
+// took, the rows it asked about and deleted, in order, the handed kinds it counted, how
+// many count, page and by-tenant statements it sent, and the text of each, in order.
 type cascadeRun struct {
 	err        error
 	round      *takenRound
 	asked      []string
 	made       []string
+	counted    []string
 	counts     int
 	pages      int
 	byTenant   int
@@ -61,9 +66,10 @@ type cascadeRun struct {
 
 // handedKind is a kind of row a test hands the delete (TakenKind): rows of it under the
 // record, each costing cost mutations, and what its check answers. It notes its check
-// with the rows asked about and what it took with the rows deleted. A kind that drains
-// has fewer rows once it has taken some, as a committed save leaves it. A kind with an
-// answer takes what the answer gives, whatever its rows and the budget.
+// with the rows asked about, its count with the kinds counted and what it took with the
+// rows deleted. A kind that drains has fewer rows once it has taken some, as a committed
+// save leaves it. A kind with an answer takes what the answer gives, whatever its rows
+// and the budget.
 type handedKind struct {
 	words   DeleteWords
 	rows    int64
@@ -73,6 +79,7 @@ type handedKind struct {
 	answer  *handedTake
 	asked   *[]string
 	made    *[]string
+	counted *[]string
 }
 
 // handedTake is what a handed kind's Take answers in place of what its rows and the
@@ -89,6 +96,10 @@ func (k *handedKind) Words() DeleteWords {
 }
 
 func (k *handedKind) Count(context.Context, ReadWriteTransaction) (int64, error) {
+	if k.counted != nil {
+		*k.counted = append(*k.counted, k.words.Many+" counted")
+	}
+
 	return k.rows, nil
 }
 
@@ -136,7 +147,32 @@ func runTakingAlso(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[s
 func runTakingFor(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, size int, asked *Caller, handed ...*handedKind) *cascadeRun {
 	t.Helper()
 
-	return runTakingRefused(t, db, tree, key, rows, everythingUnder, size, asked, nil, 0, handed...)
+	return runTakingRefused(t, db, tree, key, rows, everythingUnder, size, asked, takingHow{}, handed...)
+}
+
+// runUnasked is runTakingAlso for a save that asks nothing (takingDelete.unasked), as a
+// save on the token its question gave runs.
+func runUnasked(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, size int, handed ...*handedKind) *cascadeRun {
+	t.Helper()
+
+	return runTakingRefused(t, db, tree, key, rows, true, size, nil, takingHow{unasked: true}, handed...)
+}
+
+// takingHow is how a test's delete runs beyond its record and its caller: each statement
+// asked of refuses before it is sent (joinLimit), nil asking nothing; a frontier read
+// pageRows rows a page (takingDelete.pageRows), the delete's own where it is zero; a save
+// that asks nothing (takingDelete.unasked); the save's time limit (takingDelete.limit),
+// the default where it is zero; and the row at whose asking (passesAt), or the page at
+// whose reading (passesAtPage, 1 for the first the save reads), the save's time passes:
+// each run of the function then hands its delete a clock of its own with an hour to run,
+// whose limit becomes a nanosecond as the row of that name is asked or that page is read.
+type takingHow struct {
+	refuses      func(sql string) error
+	pageRows     int
+	unasked      bool
+	limit        time.Duration
+	passesAt     string
+	passesAtPage int
 }
 
 // joinLimit is the tests' stand-in for the database's refusal of a statement that joins
@@ -157,20 +193,32 @@ func joinLimit(tables int, terms bool) func(sql string) error {
 	}
 }
 
-// runTakingRefused is runTakingFor with each statement asked of refuses before it is sent
-// (joinLimit), as deleteTaken asks PatchSet.deleteRefuses; nil asks nothing. A frontier
-// is read pageRows rows a page (takingDelete.pageRows), the delete's own where it is zero.
-func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, size int, asked *Caller, refuses func(sql string) error, pageRows int, handed ...*handedKind) *cascadeRun {
+// runTakingRefused is runTakingFor run as how says: each statement asked of its refuses
+// before it is sent, as deleteTaken asks PatchSet.deleteRefuses; a frontier read its
+// pageRows rows a page; unasked; and with its time limit.
+func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, size int, asked *Caller, how takingHow, handed ...*handedKind) *cascadeRun {
 	t.Helper()
 
+	refuses := how.refuses
 	if refuses == nil {
 		refuses = func(string) error { return nil }
 	}
 	run := &cascadeRun{}
 	rows.asked, rows.made = &run.asked, &run.made
+	// clock is the clock of the run of the function going, where how names a row or a page
+	// at which its time passes: the emulator may abort a transaction and run the function
+	// again, and a clock already passed would be passed before the first page.
+	var clock *saveClock
+	if how.passesAt != "" {
+		rows.onAsked = func(name string) {
+			if name == how.passesAt {
+				clock.limit = time.Nanosecond
+			}
+		}
+	}
 	also := make([]TakenKind, 0, len(handed))
 	for _, kind := range handed {
-		kind.asked, kind.made = &run.asked, &run.made
+		kind.asked, kind.made, kind.counted = &run.asked, &run.made, &run.counted
 		also = append(also, kind)
 	}
 	for _, kinds := range [][]DeleteKind{tree.Taken, tree.RefusedBy} {
@@ -183,13 +231,16 @@ func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key ma
 		if !ok {
 			return errors.Newf("the transaction is a %T, want Spanner's", txn)
 		}
-		run.asked, run.made, run.counts, run.pages, run.byTenant, run.statements = nil, nil, 0, 0, 0, nil
+		run.asked, run.made, run.counted, run.counts, run.pages, run.byTenant, run.statements = nil, nil, nil, 0, 0, 0, nil
 		taking := &takingDelete{
 			asked: &recordedDelete{tree: tree, key: key, caller: asked},
 			query: &takenQuery{tree: tree, key: key},
 			txn:   spannerTxn,
 			page: func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error) {
 				run.pages++
+				if run.pages == how.passesAtPage {
+					clock.limit = time.Nanosecond
+				}
 				run.statements = append(run.statements, statement.SQL)
 				if err := refuses(statement.SQL); err != nil {
 					return nil, err
@@ -208,7 +259,13 @@ func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key ma
 			},
 			size:     size,
 			also:     also,
-			pageRows: pageRows,
+			pageRows: how.pageRows,
+			unasked:  how.unasked,
+			limit:    how.limit,
+		}
+		if how.passesAt != "" || how.passesAtPage != 0 {
+			clock = newSaveClock(time.Hour)
+			taking.clock = clock
 		}
 		tracked, _ := takenTracked(tree, false)
 		round, err := taking.run(ctx, func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
@@ -242,7 +299,10 @@ func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key ma
 // its rows is counted and never read; a row a condition of the grant refuses refuses the
 // whole delete, its page read by one statement; and a row a rule refuses refuses the
 // whole delete in the rule's sentence, asked or taken alike. Nothing is deleted where
-// the delete is refused.
+// the delete is refused. A save that asks nothing (unasked) reads only what it takes:
+// it counts nothing but one row at a time, reads no refusing kind and no page's terms,
+// asks no row, deletes the rows in the order a save on code's word deletes them, and is
+// refused neither by a refusing row nor by a row's rule.
 func TestTakingDelete(t *testing.T) {
 	t.Parallel()
 
@@ -326,6 +386,8 @@ func TestTakingDelete(t *testing.T) {
 		wantFirstMade []string
 		// wantPages is the page statements the delete sent; -1 is not checked.
 		wantPages int
+		// unasked runs the delete as a save that asks nothing (takingDelete.unasked).
+		unasked bool
 	}{
 		{
 			name: "a comment under the project by two ways is counted once", tree: twoWays(), key: project("two"),
@@ -408,13 +470,55 @@ func TestTakingDelete(t *testing.T) {
 			wantAsked: []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted"},
 			wantPages: 1,
 		},
+		{
+			name: "an unasked save deletes nested tasks that hold no project as a save on code's word does, asking nothing", tree: projectTree(), key: project("deep"), rows: cascadeRows{asks: asksEveryRow}, unasked: true,
+			wantMade:  []string{"ID=deep-c3 trusted", "ID=deep-t3 trusted", "ID=deep-t2 trusted", "ID=deep-t1 trusted"},
+			wantPages: -1,
+		},
+		{
+			name: "an unasked save deletes nested tasks that hold the project as a save on code's word does, asking nothing", tree: projectTree(), key: project("keyed"), rows: cascadeRows{asks: asksEveryRow}, unasked: true,
+			wantMade:  []string{"ID=keyed-t3 trusted", "ID=keyed-t2 trusted", "ID=keyed-t1 trusted"},
+			wantPages: -1,
+		},
+		{
+			name: "an unasked save deletes nested tasks the top two of which hold the project as a save on code's word does, asking nothing", tree: projectTree(), key: project("mixed"), rows: cascadeRows{asks: asksEveryRow}, unasked: true,
+			wantMade:  []string{"ID=mixed-t3 trusted", "ID=mixed-t2 trusted", "ID=mixed-t1 trusted"},
+			wantPages: -1,
+		},
+		{
+			name: "an unasked save deletes a nested task that holds the project under one that does not before the task it is under, asking nothing", tree: projectTree(), key: project("gap"), rows: cascadeRows{asks: asksEveryRow}, unasked: true,
+			wantFirstMade: []string{"ID=gap-t3 trusted", "ID=gap-t2 trusted", "ID=gap-t1 trusted"},
+			wantPages:     -1,
+		},
+		{
+			name: "an unasked save deletes a folder in a folder, the deepest first, asking nothing", tree: cascadeFolderTree(), key: map[string]any{"Id": "f1"}, rows: cascadeRows{asks: asksEveryRow}, unasked: true,
+			wantMade:  []string{"ID=f3 trusted", "ID=f2 trusted"},
+			wantPages: -1,
+		},
+		{
+			name: "an unasked save asks no refusal: the tasks over an invoice are deleted", tree: invoicedTree(), key: project("deep"), unasked: true,
+			wantMade:  []string{"ID=deep-c3 trusted", "ID=deep-t3 trusted", "ID=deep-t2 trusted", "ID=deep-t1 trusted"},
+			wantPages: -1,
+		},
+		{
+			name: "an unasked save asks no row's rule: a task a rule refuses is deleted", tree: projectTree(), key: project("plain"), unasked: true,
+			rows:      cascadeRows{asks: &takenAsks{rule: true}, refused: map[string]cascadeRefusal{"plain-t2": {byRule: true, err: httpio.NewBadRequestMessage("A task that is being worked on can't be deleted.")}}},
+			wantMade:  []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted"},
+			wantPages: -1,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			run := runTaking(t, db, tt.tree, tt.key, tt.rows, tt.everythingUnder)
+			var run *cascadeRun
+			if tt.unasked {
+				run = runUnasked(t, db, tt.tree, tt.key, tt.rows, 0)
+				readsOnlyWhatItTakes(t, run, tt.tree)
+			} else {
+				run = runTaking(t, db, tt.tree, tt.key, tt.rows, tt.everythingUnder)
+			}
 			switch {
 			case tt.wantStatus == 0 && run.err != nil:
 				t.Fatalf("the delete error = %v, want none", run.err)
@@ -451,6 +555,33 @@ func TestTakingDelete(t *testing.T) {
 		})
 	}
 }
+
+// readsOnlyWhatItTakes holds what a save that asks nothing sends (takingDelete.unasked):
+// each count is of one row at most, no statement names a table of the refusing kinds, and
+// no page carries a term. Its round finished.
+func readsOnlyWhatItTakes(t *testing.T, run *cascadeRun, tree *DeleteTree) {
+	t.Helper()
+
+	for _, sql := range run.statements {
+		if strings.HasPrefix(sql, "SELECT COUNT(*)") && !strings.HasSuffix(sql, " LIMIT 1)") {
+			t.Errorf("an unasked save counted more than one row:\n%s", sql)
+		}
+		for i := range tree.RefusedBy {
+			if refusing := &tree.RefusedBy[i]; strings.Contains(sql, string(refusing.Resource)) {
+				t.Errorf("an unasked save read the refusing %s:\n%s", refusing.Words.Many, sql)
+			}
+		}
+		if termed.MatchString(sql) {
+			t.Errorf("an unasked save read a page's terms:\n%s", sql)
+		}
+	}
+	if run.err == nil && (run.round == nil || !run.round.finished) {
+		t.Errorf("the unasked save's round = %+v, want one that finished", run.round)
+	}
+}
+
+// termed finds a page's term in a statement (takenQuery.page: "<term> AS a1").
+var termed = regexp.MustCompile(` AS a\d`)
 
 // deepestFirst is what is wrong with rows, the rows a delete asked about or deleted in
 // order, against want, the rows under the record: each must be there once, and after
@@ -499,7 +630,11 @@ func deepestFirst(rows, want []string, under map[string]string) string {
 // two levels, a page holding a row and a row under it, is no ring, and each such row is
 // counted, asked about and deleted at both levels. A statement refused at the record's
 // first level is the error it is, and a page refused where its count was not starts the
-// run again from its first count.
+// run again from its first count. The cases that take the rows of the two chains of
+// tasks, the folders, the sections, the replies, the two tables that nest and the wide
+// frontier are run once more as a save that asks nothing (unasked), with the limit: it
+// finds each start's bottom and cut by one-row reads, every row is made once and after
+// every row under it, and the ring fails it as it fails the question.
 func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the cases run one after another, as the comment at their loop says
 	t.Parallel()
 
@@ -727,6 +862,8 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 		pageRows int
 		// check holds what else the case asks of the run, with the limit or not.
 		check func(t *testing.T, run *cascadeRun, limited bool)
+		// unasked runs the case once more as a save that asks nothing, with the limit.
+		unasked bool
 	}{
 		{
 			name: "a chain of tasks that hold no project is counted to its end and each row asked about once", tree: projectTree(), key: project("deep"), rows: cascadeRows{asks: asksEveryRow},
@@ -734,7 +871,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantAsked: "deep",
 		},
 		{
-			name: "a chain of tasks that hold no project is deleted, every row once and the deepest first", tree: projectTree(), key: project("deep"), everythingUnder: true,
+			name: "a chain of tasks that hold no project is deleted, every row once and the deepest first", unasked: true, tree: projectTree(), key: project("deep"), everythingUnder: true,
 			wantMade: "deep",
 		},
 		{
@@ -743,7 +880,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantAsked: "keyed",
 		},
 		{
-			name: "a chain of tasks that each hold the project is deleted, every row once and the deepest first", tree: projectTree(), key: project("keyed"), everythingUnder: true,
+			name: "a chain of tasks that each hold the project is deleted, every row once and the deepest first", unasked: true, tree: projectTree(), key: project("keyed"), everythingUnder: true,
 			wantMade: "keyed",
 		},
 		{
@@ -752,7 +889,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantAsked: "folder-00",
 		},
 		{
-			name: "a chain of folders is deleted, the deepest first", tree: cascadeFolderTree(), key: project("folder-00"), everythingUnder: true,
+			name: "a chain of folders is deleted, the deepest first", unasked: true, tree: cascadeFolderTree(), key: project("folder-00"), everythingUnder: true,
 			wantMade: "folder-00",
 		},
 		{
@@ -792,7 +929,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantAsked: "sectioned",
 		},
 		{
-			name: "a section under a section by a key of two columns is deleted, the deepest first", tree: deepSectionsTree(), key: project("sectioned"), everythingUnder: true,
+			name: "a section under a section by a key of two columns is deleted, the deepest first", unasked: true, tree: deepSectionsTree(), key: project("sectioned"), everythingUnder: true,
 			wantMade: "sectioned",
 		},
 		{
@@ -801,7 +938,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantAsked: "replied",
 		},
 		{
-			name: "a reply under a reply by a column outside the key is deleted, the deepest first", tree: deepRepliesTree(), key: project("replied"), everythingUnder: true,
+			name: "a reply under a reply by a column outside the key is deleted, the deepest first", unasked: true, tree: deepRepliesTree(), key: project("replied"), everythingUnder: true,
 			wantMade: "replied",
 		},
 		{
@@ -818,7 +955,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantAsked: "threaded",
 		},
 		{
-			name: "two tables that nest, one under the other, with a kind under the lower, are deleted, every row once and the deepest first", tree: threadedTree(), key: project("threaded"), everythingUnder: true,
+			name: "two tables that nest, one under the other, with a kind under the lower, are deleted, every row once and the deepest first", unasked: true, tree: threadedTree(), key: project("threaded"), everythingUnder: true,
 			wantMade: "threaded",
 		},
 		{
@@ -828,12 +965,12 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 			wantAsked: "wide", check: pagedByTwo,
 		},
 		{
-			name: "a frontier wider than one page is deleted, every row once and the deepest first", tree: projectTree(), key: project("wide"), everythingUnder: true,
+			name: "a frontier wider than one page is deleted, every row once and the deepest first", unasked: true, tree: projectTree(), key: project("wide"), everythingUnder: true,
 			limitOnly: true, pageRows: 2,
 			wantMade: "wide", check: pagedByTwo,
 		},
 		{
-			name: "a ring the walk goes down through fails the delete", tree: projectTree(), key: project("ring"), rows: cascadeRows{asks: asksEveryRow},
+			name: "a ring the walk goes down through fails the delete", unasked: true, tree: projectTree(), key: project("ring"), rows: cascadeRows{asks: asksEveryRow},
 			wantError: "a task under the project is nested under itself",
 		},
 		{
@@ -872,6 +1009,40 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 	}
 
 	for _, tt := range tests { //nolint:paralleltest // one after another, as the comment below says
+		if tt.unasked {
+			// One after another, as below.
+			t.Run(tt.name+", unasked, with the limit", func(t *testing.T) {
+				refuses := tt.limit
+				if refuses == nil {
+					refuses = joinLimit(8, false)
+				}
+				id, ok := tt.key["Id"].(string)
+				if !ok || databases[id] == nil {
+					t.Fatalf("no record %v is staged", tt.key)
+				}
+				run := runTakingRefused(t, databases[id], tt.tree, tt.key, tt.rows, true, 0, tt.asked, takingHow{refuses: refuses, pageRows: tt.pageRows, unasked: true})
+				if tt.wantError != "" {
+					if run.err == nil || !strings.Contains(run.err.Error(), tt.wantError) {
+						t.Errorf("the unasked save's error = %v, want one that says %q", run.err, tt.wantError)
+					}
+
+					return
+				}
+				if run.err != nil {
+					t.Fatalf("the unasked save's error = %v, want none", run.err)
+				}
+				readsOnlyWhatItTakes(t, run, tt.tree)
+				if wrong := deepestFirst(run.made, rows[tt.wantMade], under); wrong != "" {
+					t.Errorf("the rows the unasked save deleted: %s", wrong)
+				}
+				if len(run.asked) > 0 {
+					t.Errorf("the rows the unasked save asked about = %v, want none", run.asked)
+				}
+				if fromIDs := slices.DeleteFunc(slices.Clone(run.statements), func(sql string) bool { return !strings.Contains(sql, "IN UNNEST(@ids)") }); len(fromIDs) < 3 {
+					t.Errorf("%d statements of the unasked save started from a page's ids, want at least 3", len(fromIDs))
+				}
+			})
+		}
 		for _, limited := range []bool{true, false} {
 			if !limited && tt.limitOnly {
 				continue
@@ -894,7 +1065,7 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 				if !ok || databases[id] == nil {
 					t.Fatalf("no record %v is staged", tt.key)
 				}
-				run := runTakingRefused(t, databases[id], tt.tree, tt.key, tt.rows, tt.everythingUnder, 0, tt.asked, refuses, tt.pageRows)
+				run := runTakingRefused(t, databases[id], tt.tree, tt.key, tt.rows, tt.everythingUnder, 0, tt.asked, takingHow{refuses: refuses, pageRows: tt.pageRows})
 				switch {
 				case tt.wantError != "":
 					if run.err == nil || !strings.Contains(run.err.Error(), tt.wantError) {
@@ -963,10 +1134,13 @@ func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the
 
 // TestTakingDelete_handedKinds holds, over the emulator, the kinds code hands a delete
 // (TakenKind): the question counts them after the description's kinds, in the order
-// handed, two with the same words as one, once each is checked; a handed kind's check
-// refuses the asking delete with nothing gone; and a round takes them after the
-// description's kinds with what is left of the save's size, a kind with rows left leaving
-// the record standing, and the record going once the last is taken.
+// handed, two with the same words as one, once each is checked, and its answer carries
+// the count of every record, the handed kinds' among them; a handed kind's check refuses
+// the asking delete with nothing gone; and a round takes them after the description's
+// kinds with what is left of the save's size, a kind with rows left leaving the record
+// standing, and the record going once the last is taken. A save on code's word counts
+// each handed kind and takes the kinds with rows; a save that asks nothing (unasked)
+// counts none, and takes every one in the order handed, a kind with none among them.
 func TestTakingDelete_handedKinds(t *testing.T) {
 	t.Parallel()
 
@@ -997,12 +1171,19 @@ func TestTakingDelete_handedKinds(t *testing.T) {
 		wantMade        []string
 		wantRound       *takenRound
 		wantError       string
+		// wantCounted is the handed kinds counted, in order, and wantRecords the count the
+		// question's answer carries (-1 for none).
+		wantCounted []string
+		wantRecords int64
+		unasked     bool
 	}{
 		{
 			name:       "the question counts the handed kinds after the description's, two with the same words as one",
 			handed:     []*handedKind{roles(2), invitations(1), roles(3)},
 			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 2 tasks, 5 roles, 1 invitation. This can't be undone.",
-			wantAsked: []string{"roles checked", "invitations checked", "roles checked"},
+			wantAsked:   []string{"roles checked", "invitations checked", "roles checked"},
+			wantCounted: []string{"roles counted", "invitations counted", "roles counted"},
+			wantRecords: 2 + 2 + 1 + 3,
 		},
 		{
 			name: "a handed kind's check refuses the asking delete with nothing gone",
@@ -1013,34 +1194,67 @@ func TestTakingDelete_handedKinds(t *testing.T) {
 				return []*handedKind{roles(2), refusing}
 			}(),
 			wantStatus: http.StatusForbidden, wantMessage: "You can't withdraw these invitations.",
-			wantAsked: []string{"roles checked", "invitations checked"},
+			wantAsked:   []string{"roles checked", "invitations checked"},
+			wantCounted: []string{"roles counted", "invitations counted"},
+			wantRecords: -1,
 		},
 		{
 			name:   "a round takes the handed kinds after the description's with what the size leaves, and rows left leave the record",
 			handed: []*handedKind{roles(10), invitations(1)}, everythingUnder: true,
 			// The record, the two tasks and five roles.
-			size:      1 + 2 + 5,
-			wantMade:  []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "5 roles of 5 mutations"},
-			wantRound: &takenRound{counted: 13, deleted: 7},
+			size:        1 + 2 + 5,
+			wantMade:    []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "5 roles of 5 mutations"},
+			wantRound:   &takenRound{deleted: 7},
+			wantCounted: []string{"roles counted", "invitations counted"},
+			wantRecords: -1,
 		},
 		{
 			name:   "a handed kind that can take nothing, after the description's kinds took rows, leaves the record with what the round took",
 			handed: []*handedKind{{words: DeleteWords{One: "group", Many: "groups"}, rows: 1, answer: &handedTake{more: true}}}, everythingUnder: true,
-			wantMade:  []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "0 groups and 0 mutations of 79997"},
-			wantRound: &takenRound{counted: 3, deleted: 2},
+			wantMade:    []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "0 groups and 0 mutations of 79997"},
+			wantRound:   &takenRound{deleted: 2},
+			wantCounted: []string{"groups counted"},
+			wantRecords: -1,
 		},
 		{
 			name:            "a round in which a kind of the description cannot take one row, and nothing was taken before it, is an error",
 			everythingUnder: true,
 			// The record alone.
-			size:      1,
-			wantError: "the delete of a project can take nothing in one save: one of its tasks costs more than a save holds",
+			size:        1,
+			wantError:   "the delete of a project can take nothing in one save: one of its tasks costs more than a save holds",
+			wantRecords: -1,
 		},
 		{
 			name:   "a round that takes the last of the handed kinds takes the record",
 			handed: []*handedKind{roles(10), invitations(1)}, everythingUnder: true,
-			wantMade:  []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "10 roles of 79997 mutations", "1 invitations of 79987 mutations"},
-			wantRound: &takenRound{counted: 13, deleted: 13, finished: true},
+			wantMade:    []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "10 roles of 79997 mutations", "1 invitations of 79987 mutations"},
+			wantRound:   &takenRound{deleted: 13, finished: true},
+			wantCounted: []string{"roles counted", "invitations counted"},
+			wantRecords: -1,
+		},
+		{
+			name:   "a save on code's word counts each handed kind and takes only those with rows",
+			handed: []*handedKind{roles(2), invitations(0), roles(1)}, everythingUnder: true,
+			wantMade:    []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "2 roles of 79997 mutations", "1 roles of 79995 mutations"},
+			wantRound:   &takenRound{deleted: 5, finished: true},
+			wantCounted: []string{"roles counted", "invitations counted", "roles counted"},
+			wantRecords: -1,
+		},
+		{
+			name:   "an unasked save counts no handed kind and takes every one in the order handed, one with no rows among them",
+			handed: []*handedKind{roles(2), invitations(0), roles(1)}, unasked: true,
+			wantMade:    []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "2 roles of 79997 mutations", "0 invitations of 79995 mutations", "1 roles of 79995 mutations"},
+			wantRound:   &takenRound{deleted: 5, finished: true},
+			wantRecords: -1,
+		},
+		{
+			name:   "an unasked save with rows of a handed kind left leaves the record",
+			handed: []*handedKind{roles(10), invitations(1)}, unasked: true,
+			// The record, the two tasks and five roles.
+			size:        1 + 2 + 5,
+			wantMade:    []string{"ID=plain-t1 trusted", "ID=plain-t2 trusted", "5 roles of 5 mutations"},
+			wantRound:   &takenRound{deleted: 7},
+			wantRecords: -1,
 		},
 	}
 
@@ -1048,7 +1262,12 @@ func TestTakingDelete_handedKinds(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			run := runTakingAlso(t, db, projectTree(), project, cascadeRows{}, tt.everythingUnder, tt.size, tt.handed...)
+			var run *cascadeRun
+			if tt.unasked {
+				run = runUnasked(t, db, projectTree(), project, cascadeRows{}, tt.size, tt.handed...)
+			} else {
+				run = runTakingAlso(t, db, projectTree(), project, cascadeRows{}, tt.everythingUnder, tt.size, tt.handed...)
+			}
 			switch {
 			case tt.wantError != "":
 				if run.err == nil || errors.Cause(run.err).Error() != tt.wantError || statusOf(run.err) != 0 {
@@ -1073,8 +1292,31 @@ func TestTakingDelete_handedKinds(t *testing.T) {
 			if diff := cmp.Diff(tt.wantRound, run.round, cmp.AllowUnexported(takenRound{})); diff != "" {
 				t.Errorf("the round (-want +got):\n%s", diff)
 			}
+			if diff := cmp.Diff(tt.wantCounted, run.counted); diff != "" {
+				t.Errorf("the handed kinds counted (-want +got):\n%s", diff)
+			}
+			if tt.wantRecords >= 0 {
+				if got := questionRecords(t, run.err); got != tt.wantRecords {
+					t.Errorf("the question's answer carries %d records, want %d", got, tt.wantRecords)
+				}
+			}
 		})
 	}
+}
+
+// questionRecords is the count of records the answer to err carries, as the encoder
+// writes it (httpio.NewPreconditionRequiredRecords): 0 where it carries none.
+func questionRecords(t *testing.T, err error) int64 {
+	t.Helper()
+
+	w := httptest.NewRecorder()
+	_ = httpio.NewEncoder(w).ClientMessage(t.Context(), err)
+	var body httpio.MessageResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding the answer %q: %v", w.Body.String(), err)
+	}
+
+	return body.Records
 }
 
 // TestTakingDelete_anotherTenantsRow reads, over the emulator, the rows under a record of
@@ -1422,7 +1664,7 @@ func (bareForkRow) DeleteTree() *DeleteTree {
 // nothing under it and that code hands a kind with rows: its delete asks first, naming
 // the kind, and deletes nothing; told to take what is under it, it takes the kind's rows
 // and the record. Where the kind's rows cost more than one save takes, the record
-// stands, the delete says what the kind took and what is left, and sent again it goes on
+// stands, the delete says what the kind took, and sent again it goes on
 // until the kind has nothing left, and the record goes.
 func TestPatchSet_DeleteAlso(t *testing.T) {
 	t.Parallel()
@@ -1489,7 +1731,7 @@ func TestPatchSet_DeleteAlso(t *testing.T) {
 
 	// The record and two notes a save.
 	many := &handedKind{words: DeleteWords{One: "note", Many: "notes"}, rows: 5, cost: 1, drains: true, asked: &asked, made: &made}
-	for i, want := range []*DeleteLeft{{Deleted: 2, Left: 3}, {Deleted: 2, Left: 1}, nil} {
+	for i, want := range []*DeleteLeft{{Deleted: 2}, {Deleted: 2}, nil} {
 		left, err := deleteRecordOf("r2", many, true, 1+2)
 		if err != nil {
 			t.Fatalf("round %d: the delete error = %v", i+1, err)
@@ -1502,14 +1744,14 @@ func TestPatchSet_DeleteAlso(t *testing.T) {
 		}
 	}
 
-	// A save that only made room for a later one, deleting no row, still says what is
-	// left, and the record stands; the save that finishes takes it.
+	// A save that only made room for a later one, deleting no row, still answers what it
+	// deleted, none, and the record stands; the save that finishes takes it.
 	roomy := &handedKind{words: DeleteWords{One: "note", Many: "notes"}, rows: 2, answer: &handedTake{mutations: 3, more: true}, asked: &asked, made: &made}
 	left, err = deleteRecordOf("r3", roomy, true, 0)
 	if err != nil {
 		t.Fatalf("the save that makes room: error = %v", err)
 	}
-	if diff := cmp.Diff(&DeleteLeft{Deleted: 0, Left: 2}, left); diff != "" {
+	if diff := cmp.Diff(&DeleteLeft{Deleted: 0}, left); diff != "" {
 		t.Errorf("the save that makes room: DeleteLeft() (-want +got):\n%s", diff)
 	}
 	if readForkRow(t, db, "r3") == nil {

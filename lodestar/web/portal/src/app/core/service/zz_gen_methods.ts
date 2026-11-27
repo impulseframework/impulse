@@ -9,15 +9,16 @@ export interface FieldPointer {
 export interface DeleteMembersSectorUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersSectorUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteMembersSectorUser answers with. */
 export interface DeleteMembersSectorUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersSectorUser declares; the method chooses one per response. */
 export type DeleteMembersSectorUserStatus = 202 | 204;
@@ -30,15 +31,16 @@ export interface DeleteMembersSectorUserAnswer {
 export interface DeleteMembersUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteMembersUser answers with. */
 export interface DeleteMembersUserResult {
   deleted: number;
-  left: number;
 }
 /** The statuses DeleteMembersUser declares; the method chooses one per response. */
 export type DeleteMembersUserStatus = 202 | 204;
@@ -381,6 +383,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteMembersUser]: {
@@ -392,6 +395,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DisableMembersSectorUser]: {

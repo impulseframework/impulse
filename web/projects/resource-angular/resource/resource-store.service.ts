@@ -810,9 +810,9 @@ export class ResourceStore {
   /**
    * Sends operations through the client's consolidated endpoint as one transaction
    * and reports success. The client raises ApiError on refusal, so the notification
-   * fires only on commit. A delete too large for one request answers with what it left
-   * (`DeleteLeft`), and its row still stands: that answer is reported by whoever sends the
-   * delete again, and the notification waits for the request that finishes.
+   * fires only on commit. A delete too large for one request answers with the records it
+   * deleted (`DeleteLeft`), and its row still stands: that answer is reported by whoever
+   * sends the delete again, and the notification waits for the request that finishes.
    */
   async apply(operations: Operation[], message: string): Promise<BatchResult> {
     const result = await this.client.batch(operations);

@@ -103,6 +103,7 @@ func Test_rejectRPCOnlyAnnotations(t *testing.T) {
 		wantContains string
 	}{
 		{name: "a field-scope @target is refused on a resource", structName: "TargetedField", wantContains: "struct TargetedField field WidgetID: @target is only valid on @rpc structs; a resource declares no handler to frame"},
+		{name: "a field-scope @deleteToken is refused on a resource", structName: "TokenField", wantContains: "struct TokenField field Token: @deleteToken is only valid on @rpc structs; a resource declares no handler to frame"},
 		{name: "a field-scope @enumerate passes on a resource", structName: "EnumeratedField"},
 		{name: "a struct without RPC-only annotations passes", structName: "Clean"},
 	}

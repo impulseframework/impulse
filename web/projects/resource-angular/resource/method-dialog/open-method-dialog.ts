@@ -56,16 +56,28 @@ export function openMethodDialog(
 }
 
 /**
+ * The body a method run through the delete dialog sends: the row's own, with
+ * `everythingUnder` and the question's `token` where the options say so.
+ */
+function deleteBody(body: Record<string, unknown>, options?: RemoveOptions): Record<string, unknown> {
+  if (!options?.everythingUnder) {
+    return body;
+  }
+
+  return options.token ? { ...body, everythingUnder: true, token: options.token } : { ...body, everythingUnder: true };
+}
+
+/**
  * Opens the delete dialog for a method that deletes the row it is offered on
  * (`MethodPresentation.deletes`), in place of the method's own dialog. The dialog asks
  * the page's question for the method, then the server's where the delete takes records
  * with it, and runs the method through `handle` with the row's key: with
- * `everythingUnder` at the press after the server's question, and again for as long as
- * it answers what is left (a 202, `DeleteLeft`). A method whose metadata declares a
- * warning has it asked through `handle`, with the body the delete sends, and the dialog
- * shows the server's words under the page's question. It answers as openMethodDialog
- * does: the method's answer, nothing, once the row is gone, and nothing at all when the
- * person canceled.
+ * `everythingUnder` and the question's `token` at the press after the server's question,
+ * and again for as long as it answers with the records it deleted (a 202, `DeleteLeft`).
+ * A method whose metadata declares a warning has it asked through `handle`, with the body
+ * the delete sends, and the dialog shows the server's words under the page's question.
+ * It answers as openMethodDialog does: the method's answer, nothing, once the row is
+ * gone, and nothing at all when the person canceled.
  */
 export function openDeleteMethodDialog(
   dialog: MatDialog,
@@ -80,9 +92,9 @@ export function openDeleteMethodDialog(
     inList: true,
     ...(method.meta.warning ? { warning: () => handle.warning(body) } : {}),
     delete: async (options?: RemoveOptions): Promise<DeleteLeft | undefined> => {
-      const answer = await handle.execute(options?.everythingUnder ? { ...body, everythingUnder: true } : body);
-      // A method that declares its statuses answers { status, result }: what is left
-      // rides a 202's result.
+      const answer = await handle.execute(deleteBody(body, options));
+      // A method that declares its statuses answers { status, result }: the records a
+      // save deleted ride a 202's result.
       return deleteLeftOf(
         answer && typeof answer === 'object' && 'status' in answer ? (answer as { result?: unknown }).result : answer,
       );

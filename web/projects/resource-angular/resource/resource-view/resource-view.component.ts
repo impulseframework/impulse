@@ -746,9 +746,9 @@ export class ResourceViewComponent implements OnInit {
    * its create form in the row's place. A delete the server refuses rejects with the
    * client's `ApiError`, for whoever asked to show, and so does the delete of a row with
    * records under it that its delete takes, until the options say it takes them
-   * (`everythingUnder`). A delete too large for one request resolves with what it left
-   * (`DeleteLeft`), and the page stays on the row, which still stands, until a delete
-   * resolves with nothing.
+   * (`everythingUnder`). A delete too large for one request resolves with the records it
+   * deleted (`DeleteLeft`), and the page stays on the row, which still stands, until a
+   * delete resolves with nothing.
    */
   deleteResource(options?: RemoveOptions): Promise<DeleteLeft | undefined> {
     const handle = this.store.handle();

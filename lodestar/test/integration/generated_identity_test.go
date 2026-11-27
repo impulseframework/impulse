@@ -46,6 +46,8 @@ type identityWorld struct {
 	app    *app.App
 	h      http.Handler
 	engine *access.Client
+	// members is the members' permission engine the App runs over.
+	members *access.Client
 }
 
 // newIdentityWorld is the world with the cast's accounts in it, each under its fixed id
@@ -95,7 +97,7 @@ func buildIdentityWorldOver(t *testing.T, castAccounts bool, crewRoles access.Ro
 	}
 	a := app.New(&testConfigurer{db: db, access: crewEngine, membersAccess: membersEngine})
 
-	return &identityWorld{db: db, app: a, h: withHandWrittenRoutes(a), engine: crewEngine}
+	return &identityWorld{db: db, app: a, h: withHandWrittenRoutes(a), engine: crewEngine, members: membersEngine}
 }
 
 // inTransaction runs the methods and writes of f in one transaction of the application's

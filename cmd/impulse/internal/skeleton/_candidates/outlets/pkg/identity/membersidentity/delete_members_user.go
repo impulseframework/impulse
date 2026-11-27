@@ -17,8 +17,8 @@ import (
 // go with the account, and with it the application's rows that name the account in a
 // column that says so (@deletedWith). Asked without EverythingUnder of an account that
 // has such a row, it deletes nothing and answers the question a person is asked first,
-// with their counts; asked with it, it takes them. Nobody deletes themselves: the
-// caller's own account is refused.
+// with their counts; asked with it and the question's token, it takes them. Nobody
+// deletes themselves: the caller's own account is refused.
 //
 // The rows that go with the account go on this method's grant: no grant is asked on
 // their own tables. For a request made for the whole application every such row goes.
@@ -44,14 +44,18 @@ type DeleteMembersUser struct {
 	// EverythingUnder says the person was asked what the account's delete takes and
 	// confirmed it, so the delete takes the application's rows that go with the account.
 	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the account only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
 // DeleteMembersUserResult is what a delete of an account with more under it than
-// one save holds left (resource.DeleteLeft): the records this request deleted and the
-// records still under the account, which stands until a request takes the last of them.
+// one save holds left (resource.DeleteLeft): the records this request deleted. The account
+// stands until a request takes the last of them.
 type DeleteMembersUserResult struct {
 	Deleted int64 `json:"deleted"`
-	Left    int64 `json:"left"`
 }
 
 // HTTPStatus answers 202: the account still stands, and the same delete, sent again, goes on.
@@ -60,7 +64,7 @@ func (*DeleteMembersUserResult) HTTPStatus() int {
 }
 
 // Execute buffers the removal into the caller's transaction. It answers nothing (204)
-// once the account is gone, and what one save left (202) while it stands.
+// once the account is gone, and the rows one save deleted (202) while it stands.
 func (m *DeleteMembersUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*DeleteMembersUserResult, error) {
 	left, err := client.manager.DeleteUser(ctx, txn, m.UserID, m.EverythingUnder)
 	if err != nil {
@@ -70,5 +74,5 @@ func (m *DeleteMembersUser) Execute(ctx context.Context, txn resource.ReadWriteT
 		return nil, nil
 	}
 
-	return &DeleteMembersUserResult{Deleted: left.Deleted, Left: left.Left}, nil
+	return &DeleteMembersUserResult{Deleted: left.Deleted}, nil
 }

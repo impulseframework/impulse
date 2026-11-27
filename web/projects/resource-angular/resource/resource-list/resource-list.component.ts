@@ -1496,8 +1496,8 @@ export class ResourceListComponent implements OnInit {
    * list's page is read again once the row is gone. A delete the server refuses rejects
    * with the client's `ApiError`, for whoever asked to show, and so does the delete of a
    * row with records under it that its delete takes, until the options say it takes them
-   * (`everythingUnder`). A delete too large for one request resolves with what it left
-   * (`DeleteLeft`), and the page is read again once a delete resolves with nothing.
+   * (`everythingUnder`). A delete too large for one request resolves with the records it
+   * deleted (`DeleteLeft`), and the page is read again once a delete resolves with nothing.
    */
   deleteRow(row: RecordData, options?: RemoveOptions): Promise<DeleteLeft | undefined> {
     const handle = this.store.handle();

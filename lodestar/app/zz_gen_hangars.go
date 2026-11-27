@@ -205,13 +205,13 @@ func (a *App) PatchHangars() http.HandlerFunc {
 		var resp response
 		eventSource := eventsource.UserEvent(ctx)
 
-		// What the request's deletes left under their records, summed: the answer is a 202
-		// with it where one left any.
+		// The rows deleted by each of the request's deletes that left rows under its record,
+		// summed: the answer is a 202 with it where one left any.
 		var left *resource.DeleteLeft
 
-		// A remove that has not been told to take what is under its record asks first: the
-		// request is then run with no read-write transaction open, and one is opened only
-		// where there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
+		// A remove that does not bring the token its question gave asks first: the request
+		// is then run with no read-write transaction open, and one is opened only where
+		// there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
 		asks, err := resource.RemovesAsk(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -264,7 +264,6 @@ func (a *App) PatchHangars() http.HandlerFunc {
 							left = &resource.DeleteLeft{}
 						}
 						left.Deleted += taken.Deleted
-						left.Left += taken.Left
 					}
 				}
 			}
@@ -275,8 +274,8 @@ func (a *App) PatchHangars() http.HandlerFunc {
 		}
 		live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)
 		if left != nil {
-			// A delete that took what fits one save says what is left: the same request,
-			// sent again, goes on.
+			// A delete that took what fits one save answers the rows it deleted: the same
+			// request, sent again, goes on.
 			return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)
 		}
 

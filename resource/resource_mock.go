@@ -42,7 +42,7 @@ type MockClient struct {
 // fields with, built from fixed bytes in a test (NewSecretKeys), so what a patch buffers
 // is the sealed value and the test can open it.
 func NewMockClient(txnMock ReadWriteTransaction, readOnlyMocks, txnReadMocks []any, opts ...ClientOption) *MockClient {
-	stores, secrets := applyClientOptions(opts)
+	stores, secrets, _ := applyClientOptions(opts)
 
 	return &MockClient{
 		dbType:        SpannerDBType,

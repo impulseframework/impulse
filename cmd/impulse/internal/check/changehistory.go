@@ -41,10 +41,10 @@ var primaryKeyRE = regexp.MustCompile(`(?i)\)\s*PRIMARY\s+KEY\s*\(([^)]*)\)`)
 // addChangeHistoryColumnRE finds the column a statement adds to the change history table.
 var addChangeHistoryColumnRE = regexp.MustCompile("(?i)ALTER\\s+TABLE\\s+`?" + changeHistoryTable + "`?\\s+ADD\\s+COLUMN\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?`?([A-Za-z_][A-Za-z0-9_]*)`?")
 
-// changeHistoryDDL is what the library declares for the change history table: its
-// columns in order, and its key as keyForm writes it. source names the file they were
-// read from.
-type changeHistoryDDL struct {
+// libraryTableDDL is what the library declares for one of its tables (the change history
+// table, the delete tokens table): its columns in order, and its key as keyForm writes
+// it. source names the file they were read from.
+type libraryTableDDL struct {
 	source  string
 	columns []string
 	key     string
@@ -77,7 +77,7 @@ func (c changeHistory) Run(ctx context.Context, env *Env) Result {
 	if !ok {
 		return skip(c.Name(), "no migration creates the "+changeHistoryTable+" table")
 	}
-	library, declared, problem, err := libraryChangeHistory(ctx, env)
+	library, declared, problem, err := libraryTable(ctx, env, changeHistoryDDLFunc, changeHistoryTable)
 	switch {
 	case err != nil:
 		return fail(c.Name(), err.Error())
@@ -108,28 +108,41 @@ func (c changeHistory) Run(ctx context.Context, env *Env) Result {
 }
 
 // columnFindings names each column of the library's table the application's table
-// lacks: one its CREATE TABLE statement does not name as a whole word after the opening
-// parenthesis, and no up migration adds.
-func (changeHistory) columnFindings(file, created string, statements []string, library changeHistoryDDL) []string {
+// lacks (columnsLacking).
+func (changeHistory) columnFindings(file, created string, statements []string, library libraryTableDDL) []string {
+	lacking := columnsLacking(created, statements, addChangeHistoryColumnRE, library.columns)
+	details := make([]string, 0, len(lacking))
+	for _, column := range lacking {
+		details = append(details, fmt.Sprintf("%s: the %s table has no %s column. Every tracked write fills the columns resource.%s declares (%s), so a tracked write to this table fails. Add the column in a new migration under %s; change the migration that creates the table instead if no database has run it yet.", file, changeHistoryTable, column, changeHistoryDDLFunc, library.source, path.Dir(file)))
+	}
+
+	return details
+}
+
+// columnsLacking answers each of the library's columns the application's table lacks:
+// one the statement that creates the table (created) does not name as a whole word after
+// the opening parenthesis, and no up migration adds (addColumn finds the column a
+// statement adds to the table).
+func columnsLacking(created string, statements []string, addColumn *regexp.Regexp, columns []string) []string {
 	body := created
 	if i := strings.Index(created, "("); i >= 0 {
 		body = created[i+1:]
 	}
 	var added []string
 	for _, stmt := range statements {
-		for _, m := range addChangeHistoryColumnRE.FindAllStringSubmatch(stmt, -1) {
+		for _, m := range addColumn.FindAllStringSubmatch(stmt, -1) {
 			added = append(added, m[1])
 		}
 	}
-	var details []string
-	for _, column := range library.columns {
+	var lacking []string
+	for _, column := range columns {
 		if regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(column)+`\b`).MatchString(body) || namedFold(added, column) {
 			continue
 		}
-		details = append(details, fmt.Sprintf("%s: the %s table has no %s column. Every tracked write fills the columns resource.%s declares (%s), so a tracked write to this table fails. Add the column in a new migration under %s; change the migration that creates the table instead if no database has run it yet.", file, changeHistoryTable, column, changeHistoryDDLFunc, library.source, path.Dir(file)))
+		lacking = append(lacking, column)
 	}
 
-	return details
+	return lacking
 }
 
 // keyFinding names a key of the application's table that is not the library's: the
@@ -137,7 +150,7 @@ func (changeHistory) columnFindings(file, created string, statements []string, l
 // by migrationStatement), as keyForm writes it, against the library's, letter case aside.
 // A table's key cannot be altered, so no later migration changes it; a library statement
 // that gives no key is compared with nothing.
-func (changeHistory) keyFinding(file, created string, library changeHistoryDDL) string {
+func (changeHistory) keyFinding(file, created string, library libraryTableDDL) string {
 	key := tableKey(created)
 	if library.key == "" || strings.EqualFold(key, library.key) {
 		return ""
@@ -179,38 +192,39 @@ func namedFold(list []string, name string) bool {
 	return false
 }
 
-// libraryChangeHistory reads the Spanner statements of resource.DataChangeEventsDDL from
-// the resource package of the framework module the application pins: the columns of the
-// table's statement (the first word of each line between its first line and its
-// ") PRIMARY KEY" line) and its key. declared is false when the
-// package declares no such function: its version predates the library's change history
-// statements. A module that cannot be found, and a function with no table statement, are
-// the problem returned; a file that cannot be read is an error.
-func libraryChangeHistory(ctx context.Context, env *Env) (ddl changeHistoryDDL, declared bool, problem string, err error) {
-	dir, name, data, problem, err := libraryFunctionFile(ctx, env, changeHistoryDDLFunc)
+// libraryTable reads the Spanner statements of the resource package's function (as
+// resource.DataChangeEventsDDL) from the resource package of the framework module the
+// application pins: the columns of the statement that creates the table (the first word
+// of each line between its first line and its ") PRIMARY KEY" line) and its key. declared
+// is false when the package declares no such function: its version predates the library's
+// statements for the table. A module that cannot be found, and a function with no
+// statement for the table, are the problem returned; a file that cannot be read is an
+// error.
+func libraryTable(ctx context.Context, env *Env, function, table string) (ddl libraryTableDDL, declared bool, problem string, err error) {
+	dir, name, data, problem, err := libraryFunctionFile(ctx, env, function)
 	switch {
 	case err != nil:
-		return changeHistoryDDL{}, false, "", err
+		return libraryTableDDL{}, false, "", err
 	case problem != "":
-		return changeHistoryDDL{}, false, problem, nil
+		return libraryTableDDL{}, false, problem, nil
 	case data == nil:
-		return changeHistoryDDL{}, false, "", nil
+		return libraryTableDDL{}, false, "", nil
 	}
-	raw, err := spannerDDL(name, data, changeHistoryDDLFunc)
+	raw, err := spannerDDL(name, data, function)
 	if err != nil {
-		return changeHistoryDDL{}, true, "", err
+		return libraryTableDDL{}, true, "", err
 	}
-	ddl = changeHistoryDDL{source: path.Join(path.Base(dir), name)}
-	table := false
+	ddl = libraryTableDDL{source: path.Join(path.Base(dir), name)}
+	found := false
 	for _, stmt := range raw {
-		if m := createTableRE.FindStringSubmatch(stmt); len(m) > 1 && m[1] == changeHistoryTable {
-			table = true
+		if m := createTableRE.FindStringSubmatch(stmt); len(m) > 1 && m[1] == table {
+			found = true
 			ddl.columns = tableColumns(stmt)
 			ddl.key = tableKey(stmt)
 		}
 	}
-	if !table {
-		return changeHistoryDDL{}, true, fmt.Sprintf("%s in %s declares no CREATE TABLE statement for %s, so the schema cannot be compared with it", changeHistoryDDLFunc, filepath.Join(dir, name), spannerDBTypeIdent), nil
+	if !found {
+		return libraryTableDDL{}, true, fmt.Sprintf("%s in %s declares no CREATE TABLE statement for %s, so the schema cannot be compared with it", function, filepath.Join(dir, name), spannerDBTypeIdent), nil
 	}
 
 	return ddl, true, "", nil

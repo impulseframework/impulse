@@ -549,6 +549,8 @@ func TestAccountMail(t *testing.T) {
 	// that tells nobody either.
 	sentBefore = len(s.mail.Messages())
 	status, body = hq.do(ctx, http.MethodPost, sectorPath(anvil, "delete-crew-sector-group"), jsonBody(t, map[string]any{"groupId": group, "everythingUnder": true}))
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	status, body = hq.do(ctx, http.MethodPost, sectorPath(anvil, "delete-crew-sector-group"), jsonBody(t, map[string]any{"groupId": group, "everythingUnder": true, "token": deleteToken(t, body)}))
 	assertStatus(t, status, http.StatusNoContent, body)
 	if sent := s.mail.Messages()[sentBefore:]; len(sent) != 0 {
 		t.Errorf("deleting a group the cadet was in mailed %q, want nothing", subjects(sent))

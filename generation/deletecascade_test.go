@@ -147,6 +147,7 @@ func Test_deleteCascade_description(t *testing.T) {
 		"Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Task], caller *resource.Caller) {",
 		"patch := &TaskDeletePatch{patchSet: patchSet}",
 		"func (p *ClientDeletePatch) WithEverythingUnder() *ClientDeletePatch {",
+		"func (p *ClientDeletePatch) WithDeleteToken(token string) *ClientDeletePatch {\n\tp.patchSet.DeleteWithToken(token)\n\n\treturn p\n}",
 		"func (p *ClientDeletePatch) Left() *resource.DeleteLeft {",
 		"func (p *ClientDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *ClientDeletePatch {",
 	} {
@@ -366,6 +367,7 @@ func Test_deleteCascade_bareTenant(t *testing.T) {
 	}
 	for _, want := range []string{
 		"func (p *SupplierDeletePatch) WithEverythingUnder() *SupplierDeletePatch {",
+		"func (p *SupplierDeletePatch) WithDeleteToken(token string) *SupplierDeletePatch {",
 		"// (DeleteAlso). The grant to delete the Supplier answers for them all.",
 		"func (p *SupplierDeletePatch) Left() *resource.DeleteLeft {",
 		"func (p *SupplierDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *SupplierDeletePatch {",
@@ -429,7 +431,7 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 				"a.ResourceClient().ExecuteDeleteFunc(ctx, asks, func(ctx context.Context, txn resource.ReadWriteTransaction) error {",
 				"left = nil",
 				"patch := resources.New" + name + "DeletePatchFromPatchSet(id, patchSet) if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
-				"if taken := patch.Left(); taken != nil { if left == nil { left = &resource.DeleteLeft{} } left.Deleted += taken.Deleted left.Left += taken.Left }",
+				"if taken := patch.Left(); taken != nil { if left == nil { left = &resource.DeleteLeft{} } left.Deleted += taken.Deleted }",
 				"if left != nil {",
 				"return httpio.NewEncoder(w).StatusCodeWithBody(http.StatusAccepted, left)",
 			} {
@@ -437,7 +439,7 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 					t.Errorf("%s of %s lacks %q:\n%s", handler, name, want, rendered)
 				}
 			}
-			const asksFirst = "A remove that has not been told to take what is under its record asks first: the request is then run with no read-write transaction open, and one is opened only where there was nothing to ask (resource.Executor.ExecuteDeleteFunc)."
+			const asksFirst = "A remove that does not bring the token its question gave asks first: the request is then run with no read-write transaction open, and one is opened only where there was nothing to ask (resource.Executor.ExecuteDeleteFunc)."
 			if prose := strings.Join(strings.Fields(strings.ReplaceAll(rendered, "//", "")), " "); !strings.Contains(prose, asksFirst) {
 				t.Errorf("%s of %s lacks the comment %q:\n%s", handler, name, asksFirst, rendered)
 			}
@@ -1005,7 +1007,7 @@ func Test_deleteCascade_rowsUnderRowsOfTheirKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
 	}
-	for _, unwanted := range []string{"WithEverythingUnder", "NewTakenRows"} {
+	for _, unwanted := range []string{"WithEverythingUnder", "WithDeleteToken", "NewTakenRows"} {
 		if strings.Contains(string(project), unwanted) {
 			t.Errorf("rendered Project carries %s, though it declares no @%s", unwanted, deleteCascadeKeyword)
 		}

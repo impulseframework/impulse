@@ -161,7 +161,14 @@ func TestTenants_aDeletedTenantTakesItsRolesAndInvitations(t *testing.T) {
 			t.Fatalf("the account of %s is gone after the question: a delete that is asked the question deletes nothing", username)
 		}
 	}
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`","value":{"everythingUnder":true}}]`)); status != http.StatusOK {
+	// The delete that goes ahead brings the token the question gave, in this session.
+	var asked struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &asked); err != nil || asked.Token == "" {
+		t.Fatalf("the question carries no token (%v): %s", err, body)
+	}
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"/tenants/`+east+`","value":{"everythingUnder":true,"token":"`+asked.Token+`"}}]`)); status != http.StatusOK {
 		t.Fatalf("deleting the tenant: status %d: %s", status, body)
 	}
 

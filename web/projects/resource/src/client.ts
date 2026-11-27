@@ -364,16 +364,23 @@ export interface RemoveOptions {
    * what goes with it is deleted with nothing said only while nothing is under it: with
    * records under it the server deletes nothing and answers 428 (an `ApiError`) with the
    * question to ask a person first, which names what will be deleted. The same delete
-   * with this set deletes those records and the row.
+   * with this set, and the question's `token`, deletes those records and the row.
    */
   everythingUnder?: boolean;
+  /**
+   * The token the server's question gave: the `token` of the 428's body (`ApiError.body`).
+   * The delete that takes the records under the row brings it back with `everythingUnder`,
+   * in every request until the row is gone. Without it, or with one the server no longer
+   * holds, the server asks again.
+   */
+  token?: string;
 }
 
 export interface Removable<Key extends unknown[]> {
   /**
-   * Deletes the row. It resolves with nothing once the row is gone, and with what is left
-   * where the delete takes more records than one request holds (`DeleteLeft`, a 202): the
-   * row stands, and the same remove, sent again, goes on.
+   * Deletes the row. It resolves with nothing once the row is gone, and with the records
+   * this request deleted where the delete takes more records than one request holds
+   * (`DeleteLeft`, a 202): the row stands, and the same remove, sent again, goes on.
    */
   remove(key: Key, options?: RemoveOptions): Promise<DeleteLeft | undefined>;
 }
@@ -1046,14 +1053,14 @@ export function resolveAbsolute(baseUrl: string, reference: string): string {
   return origin && reference.startsWith('/') ? origin[0] + reference : reference;
 }
 
-/** What a delete's answer says it left (a 202's body); undefined for an answer that says nothing of it. */
+/** The records a delete's answer says it deleted (a 202's body); undefined for an answer that says nothing of it. */
 function deleteLeftOf(answer: unknown): DeleteLeft | undefined {
   if (typeof answer !== 'object' || answer === null) {
     return undefined;
   }
-  const { deleted, left } = answer as Record<string, unknown>;
+  const { deleted } = answer as Record<string, unknown>;
 
-  return typeof deleted === 'number' && typeof left === 'number' ? { deleted, left } : undefined;
+  return typeof deleted === 'number' ? { deleted } : undefined;
 }
 
 async function batch(request: Requester, descriptor: ApiDescriptor, operations: Operation[]): Promise<BatchResult> {
@@ -1184,12 +1191,15 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
       return bound({ op: 'add', path: path(key), value: body });
     },
     patch: (key: Key, value: Record<string, unknown>): Operation => bound({ op: 'patch', path: path(key), value }),
-    remove: (key: Key, options?: RemoveOptions): Operation =>
-      bound(
-        options?.everythingUnder
-          ? { op: 'remove', path: path(key), value: { everythingUnder: true } }
-          : { op: 'remove', path: path(key) },
-      ),
+    remove: (key: Key, options?: RemoveOptions): Operation => {
+      if (!options?.everythingUnder) {
+        return bound({ op: 'remove', path: path(key) });
+      }
+      // The question's token goes with everythingUnder where the options hold one.
+      const value = options.token ? { everythingUnder: true, token: options.token } : { everythingUnder: true };
+
+      return bound({ op: 'remove', path: path(key), value });
+    },
     patchOrAdd: (value: Record<string, unknown>): Operation => keyed('patch-or-add', value),
     addOrSkip: (value: Record<string, unknown>): Operation => keyed('add-or-skip', value),
   };

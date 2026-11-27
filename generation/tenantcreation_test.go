@@ -143,7 +143,7 @@ func Test_recordKeyText(t *testing.T) {
 // Test_patchHandler_recordKinds pins the delete of a record a role can be held on, in its
 // own handler and in the consolidated one: the delete takes rows, so its patch is kept,
 // handed the roles each auth holds on the record, under the request's tenant, before it is
-// buffered, and kept to say what it left. The delete of a record that is not marked is
+// buffered, and kept to say what it deleted. The delete of a record that is not marked is
 // handed none of it.
 func Test_patchHandler_recordKinds(t *testing.T) {
 	t.Parallel()
