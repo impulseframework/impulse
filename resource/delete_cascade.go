@@ -344,15 +344,6 @@ func (p *PatchSet[Resource]) checkTaken(ctx context.Context, txn ReadWriteTransa
 	return false, nil
 }
 
-// takenQuery writes a kind's path statement at a level for the delete of one record: the
-// record's description and key, and the page the statements start from in place of the
-// record (under), nil where they start from the record.
-type takenQuery struct {
-	tree  *DeleteTree
-	key   map[string]any
-	under *takenUnder
-}
-
 // takenUnder is a page of rows of a table that nests, where a delete's
 // statements start from in place of the record: the rows a level of the delete could
 // still read, by their keys, when the database refused the next level's statement for its
@@ -370,6 +361,11 @@ type takenUnder struct {
 	// rows are the page's keys as read, one text for each row, for the check that no page
 	// is read inside itself (takingDelete.countFrom).
 	rows map[string]bool
+}
+
+// withoutKeys is the page with its keys let go: what a branch keeps between the walks.
+func (u *takenUnder) withoutKeys() *takenUnder {
+	return &takenUnder{table: u.table, key: u.key, ids: nil, crossed: u.crossed, rows: nil}
 }
 
 // pageKeys are the keys of a page's rows as a statement binds them: for a key of one
@@ -452,6 +448,15 @@ func pageValue(value any) (any, error) {
 	default:
 		return value, nil
 	}
+}
+
+// takenQuery writes a kind's path statement at a level for the delete of one record: the
+// record's description and key, and the page the statements start from in place of the
+// record (under), nil where they start from the record.
+type takenQuery struct {
+	tree  *DeleteTree
+	key   map[string]any
+	under *takenUnder
 }
 
 // ways are the kind's ways at the level from where the query starts: up to the record
@@ -563,17 +568,6 @@ type takenLevels struct {
 	cut     bool
 }
 
-// below is the level each statement of the start is written below (takenQuery.condition):
-// one past the deepest for a cut start, whose deepest level leaves out what the next level
-// finds, and the deepest itself for a whole one.
-func (l *takenLevels) below() int {
-	if l.cut {
-		return l.deepest + 1
-	}
-
-	return l.deepest
-}
-
 // countLevels finds the deepest level, counting what each level from level 1 finds of
 // each kind with a place on a way for a link to a row of the same table
 // (takenQuery.ways), until a level finds no row of any of them: the deepest is the
@@ -614,6 +608,36 @@ func countLevels(ctx context.Context, count rowCounter, kinds []countedKind, rea
 	}
 
 	return levels, nil
+}
+
+// below is the level each statement of the start is written below (takenQuery.condition):
+// one past the deepest for a cut start, whose deepest level leaves out what the next level
+// finds, and the deepest itself for a whole one.
+func (l *takenLevels) below() int {
+	if l.cut {
+		return l.deepest + 1
+	}
+
+	return l.deepest
+}
+
+// total is the kind's rows under the record, every level summed.
+func (l *takenLevels) total(kind *DeleteKind) int64 {
+	var rows int64
+	for _, at := range l.rows[kind] {
+		rows += at
+	}
+
+	return rows
+}
+
+// at is the kind's rows at the level.
+func (l *takenLevels) at(kind *DeleteKind, level int) int64 {
+	if level >= len(l.rows[kind]) {
+		return 0
+	}
+
+	return l.rows[kind][level]
 }
 
 // levelCounts is one countLevels: how its counts are sent, and the lowest level the start
@@ -721,25 +745,6 @@ func (c *levelCounts) kindRows(ctx context.Context, k countedKind, finds []int64
 	return at, nil
 }
 
-// total is the kind's rows under the record, every level summed.
-func (l *takenLevels) total(kind *DeleteKind) int64 {
-	var rows int64
-	for _, at := range l.rows[kind] {
-		rows += at
-	}
-
-	return rows
-}
-
-// at is the kind's rows at the level.
-func (l *takenLevels) at(kind *DeleteKind, level int) int64 {
-	if level >= len(l.rows[kind]) {
-		return 0
-	}
-
-	return l.rows[kind][level]
-}
-
 // takenPageRow is one row of a page: its key, column by column in key order, in the Go
 // types the kind's resource holds them in, and what the page's terms answered of it.
 type takenPageRow struct {
@@ -796,6 +801,79 @@ type DeleteLeft struct {
 type takenDelete struct {
 	kind *DeleteKind
 	row  takenRow
+}
+
+// takenRound is what one save of a delete that takes rows did: the rows counted under
+// the record as the save began, the rows the save buffered the delete of, and whether
+// it took the last of them, so the record goes in the same save.
+type takenRound struct {
+	counted  int64
+	deleted  int64
+	finished bool
+}
+
+// left is what the round says of the delete (PatchSet.DeleteLeft): nil where it
+// finished.
+func (r *takenRound) left() *DeleteLeft {
+	if r.finished {
+		return nil
+	}
+
+	return &DeleteLeft{Deleted: r.deleted, Left: max(0, r.counted-r.deleted)}
+}
+
+// takenTotals are the rows of each kind a delete counted: across every start under the
+// record (takenStart), or within one (takenLevels).
+type takenTotals interface {
+	total(kind *DeleteKind) int64
+}
+
+// takenStart is one place a delete's statements start from, with what they counted
+// there: the record, or a page of a frontier (takenUnder); its levels (takenLevels); and,
+// for a cut start, the branches opened from its frontier, in the order they were opened.
+// A branch keeps its counts and not its page's keys: the second walk reads the page
+// again (takingDelete.walk) and matches it by its kind, its rows and what its keys come
+// to.
+type takenStart struct {
+	query    *takenQuery
+	levels   *takenLevels
+	branches []*takenStart
+	kind     *DeleteKind
+	rows     int
+	digest   uint64
+}
+
+// total is the kind's rows in the start and in every start under it.
+func (s *takenStart) total(kind *DeleteKind) int64 {
+	rows := s.levels.total(kind)
+	for _, branch := range s.branches {
+		rows += branch.total(kind)
+	}
+
+	return rows
+}
+
+// matches reports whether a page read again is the page the branch was counted from.
+func (s *takenStart) matches(kind *DeleteKind, page []takenPageRow) bool {
+	return s.kind == kind && s.rows == len(page) && s.digest == pageDigest(page)
+}
+
+// pageDigest is what a page's keys come to, by which a page read again is matched to
+// the page a branch was counted from.
+func pageDigest(page []takenPageRow) uint64 {
+	digest := fnv.New64a()
+	for _, row := range page {
+		_, _ = fmt.Fprintf(digest, "%#v;", row.key)
+	}
+
+	return digest.Sum64()
+}
+
+// walkEnded ends a walk where each says it is done (walk).
+type walkEnded struct{}
+
+func (walkEnded) Error() string {
+	return "the walk ended"
 }
 
 // takingDelete is the delete of one record that takes the rows under it, as deleteTaken
@@ -893,125 +971,6 @@ func (d *takingDelete) rowsAt(ctx context.Context, query *takenQuery, kind *Dele
 	}
 }
 
-// deleteTaken takes the rows the record's description lists as going with it, before
-// the record's own row is deleted: the whole procedure this file opens with. The round
-// says what the save took and whether it took the last row under the record, so the
-// record goes too; nil says the rows under the record were not answered for here, and
-// are counted before the commit. It does nothing for a record that lists none, for a
-// description written before its kinds had their deletes (DeleteKind.Rows), and on a
-// transaction that is not Spanner's (the Mock's has no rows to read; PostgreSQL has no
-// write path): the count before the commit answers for those.
-//
-// The rows are read as the database held them before the transaction: a row the same
-// transaction changed is found where it stood, and a row it deleted is found and deleted
-// again. The answers come in this order: a record with rows that refuse its delete
-// (refusedBy), counted level by level as the taken kinds are, is refused in the
-// sentence that names them; then a record with a row straight under it that the
-// description neither takes nor lists under refusedBy, in the counted sentence of a
-// plain delete (refusedUnder); then a row of a kind marked WithinReach that the
-// permission the request was let in by does not reach, in the sentence that says where
-// it is (refusedBeyondReach); then a kind with rows under the record that the caller's
-// grants refuse; then the first row of a kind that asks anything of its rows that is
-// refused, each row asked as its own delete would ask it: every row by a delete that
-// asks, the rows the save takes by one that takes them; then a kind code handed the
-// delete (DeleteAlso) that refuses. A row is checked as the person the record's own
-// delete is armed against, in that delete's scope, and runs trusted where the record's
-// delete does, or where its kind is trusted; a row of a kind marked AsCaller is checked
-// as whoever the delete is for (callerOf). The sentences are written for whoever asked
-// (deleteCaller).
-func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) (*takenRound, error) {
-	tree := p.deleteDescription()
-	if tree == nil || len(tree.Taken) == 0 && len(p.alsoTaken) == 0 {
-		return nil, nil
-	}
-	spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
-	if !ok {
-		return nil, nil
-	}
-	key, ok := p.keyByColumn(txn.DBType())
-	if !ok {
-		return nil, nil
-	}
-	tracked, ok := takenTracked(tree, p.querySet.rMeta.trackChanges)
-	if !ok {
-		return nil, nil
-	}
-
-	count, page, byTenant := rowCounter(spannerTxn.countRows), spannerTxn.readPage, spannerTxn.countByTenant
-	if refuses := p.deleteRefuses; refuses != nil {
-		count = func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
-			if err := refuses(statement.SQL); err != nil {
-				return 0, err
-			}
-
-			return spannerTxn.countRows(ctx, statement)
-		}
-		page = func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error) {
-			if err := refuses(statement.SQL); err != nil {
-				return nil, err
-			}
-
-			return spannerTxn.readPage(ctx, statement, types, answers)
-		}
-		byTenant = func(ctx context.Context, statement rowsUnderStatement) ([]tenantRows, error) {
-			if err := refuses(statement.SQL); err != nil {
-				return nil, err
-			}
-
-			return spannerTxn.countByTenant(ctx, statement)
-		}
-	}
-	taking := &takingDelete{
-		asked:    &recordedDelete{tree: tree, key: key, caller: p.deleteCaller(ctx)},
-		query:    &takenQuery{tree: tree, key: key, under: nil},
-		txn:      spannerTxn,
-		caller:   p.querySet.Caller(),
-		page:     page,
-		byTenant: byTenant,
-		size:     p.deleteSaveSize,
-		also:     p.alsoTaken,
-	}
-
-	return taking.run(ctx, count, tracked, p.everythingUnder, eventSource...)
-}
-
-// deleteDescription is the description the patch's delete reads: its record's, with
-// every kind marked AsCaller or WithinReach left out of each of its lists where the
-// delete takes the library's rows alone (DeleteLibraryRowsAlone). The record's own
-// description is not changed.
-func (p *PatchSet[Resource]) deleteDescription() *DeleteTree {
-	tree := p.querySet.rMeta.deleteTree
-	if tree == nil || !p.libraryRowsAlone {
-		return tree
-	}
-	library := func(kinds []DeleteKind) []DeleteKind {
-		return slices.DeleteFunc(slices.Clone(kinds), func(kind DeleteKind) bool { return kind.AsCaller || kind.WithinReach })
-	}
-	narrowed := *tree
-	narrowed.Taken, narrowed.RefusedBy, narrowed.Under = library(tree.Taken), library(tree.RefusedBy), library(tree.Under)
-
-	return &narrowed
-}
-
-// takenRound is what one save of a delete that takes rows did: the rows counted under
-// the record as the save began, the rows the save buffered the delete of, and whether
-// it took the last of them, so the record goes in the same save.
-type takenRound struct {
-	counted  int64
-	deleted  int64
-	finished bool
-}
-
-// left is what the round says of the delete (PatchSet.DeleteLeft): nil where it
-// finished.
-func (r *takenRound) left() *DeleteLeft {
-	if r.finished {
-		return nil
-	}
-
-	return &DeleteLeft{Deleted: r.deleted, Left: max(0, r.counted-r.deleted)}
-}
-
 // run is the delete, each count statement run by count: the counts, the refusing kinds'
 // refusal, the refusal over a row straight under the record that the delete does not
 // take, the refusal over a row beyond the reach of whoever the delete is for, then the
@@ -1054,53 +1013,6 @@ func (d *takingDelete) runWithin(ctx context.Context, count rowCounter, reach in
 	}
 
 	return d.take(ctx, start, tracked, everythingUnder, eventSource...)
-}
-
-// takenTotals are the rows of each kind a delete counted: across every start under the
-// record (takenStart), or within one (takenLevels).
-type takenTotals interface {
-	total(kind *DeleteKind) int64
-}
-
-// takenStart is one place a delete's statements start from, with what they counted
-// there: the record, or a page of a frontier (takenUnder); its levels (takenLevels); and,
-// for a cut start, the branches opened from its frontier, in the order they were opened.
-// A branch keeps its counts and not its page's keys: the second walk reads the page
-// again (takingDelete.walk) and matches it by its kind, its rows and what its keys come
-// to.
-type takenStart struct {
-	query    *takenQuery
-	levels   *takenLevels
-	branches []*takenStart
-	kind     *DeleteKind
-	rows     int
-	digest   uint64
-}
-
-// total is the kind's rows in the start and in every start under it.
-func (s *takenStart) total(kind *DeleteKind) int64 {
-	rows := s.levels.total(kind)
-	for _, branch := range s.branches {
-		rows += branch.total(kind)
-	}
-
-	return rows
-}
-
-// matches reports whether a page read again is the page the branch was counted from.
-func (s *takenStart) matches(kind *DeleteKind, page []takenPageRow) bool {
-	return s.kind == kind && s.rows == len(page) && s.digest == pageDigest(page)
-}
-
-// pageDigest is what a page's keys come to, by which a page read again is matched to
-// the page a branch was counted from.
-func pageDigest(page []takenPageRow) uint64 {
-	digest := fnv.New64a()
-	for _, row := range page {
-		_, _ = fmt.Fprintf(digest, "%#v;", row.key)
-	}
-
-	return digest.Sum64()
 }
 
 // count is the first walk: it counts the refusing kinds' rows and the taken kinds' under
@@ -1155,11 +1067,6 @@ func (d *takingDelete) countFrom(ctx context.Context, count rowCounter, query *t
 	}
 
 	return start, nil
-}
-
-// withoutKeys is the page with its keys let go: what a branch keeps between the walks.
-func (u *takenUnder) withoutKeys() *takenUnder {
-	return &takenUnder{table: u.table, key: u.key, ids: nil, crossed: u.crossed, rows: nil}
 }
 
 // frontier calls each with every page of a cut start's frontier, in order: for each
@@ -1221,13 +1128,6 @@ func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each fun
 	}
 
 	return nil
-}
-
-// walkEnded ends a walk where each says it is done (walk).
-type walkEnded struct{}
-
-func (walkEnded) Error() string {
-	return "the walk ended"
 }
 
 // walk is the second walk: it goes through the starts the first walk counted, a start's
@@ -1546,6 +1446,106 @@ func (d *takingDelete) eachLevel(levels *takenLevels, each func(kind *DeleteKind
 	}
 
 	return nil
+}
+
+// deleteTaken takes the rows the record's description lists as going with it, before
+// the record's own row is deleted: the whole procedure this file opens with. The round
+// says what the save took and whether it took the last row under the record, so the
+// record goes too; nil says the rows under the record were not answered for here, and
+// are counted before the commit. It does nothing for a record that lists none, for a
+// description written before its kinds had their deletes (DeleteKind.Rows), and on a
+// transaction that is not Spanner's (the Mock's has no rows to read; PostgreSQL has no
+// write path): the count before the commit answers for those.
+//
+// The rows are read as the database held them before the transaction: a row the same
+// transaction changed is found where it stood, and a row it deleted is found and deleted
+// again. The answers come in this order: a record with rows that refuse its delete
+// (refusedBy), counted level by level as the taken kinds are, is refused in the
+// sentence that names them; then a record with a row straight under it that the
+// description neither takes nor lists under refusedBy, in the counted sentence of a
+// plain delete (refusedUnder); then a row of a kind marked WithinReach that the
+// permission the request was let in by does not reach, in the sentence that says where
+// it is (refusedBeyondReach); then a kind with rows under the record that the caller's
+// grants refuse; then the first row of a kind that asks anything of its rows that is
+// refused, each row asked as its own delete would ask it: every row by a delete that
+// asks, the rows the save takes by one that takes them; then a kind code handed the
+// delete (DeleteAlso) that refuses. A row is checked as the person the record's own
+// delete is armed against, in that delete's scope, and runs trusted where the record's
+// delete does, or where its kind is trusted; a row of a kind marked AsCaller is checked
+// as whoever the delete is for (callerOf). The sentences are written for whoever asked
+// (deleteCaller).
+func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) (*takenRound, error) {
+	tree := p.deleteDescription()
+	if tree == nil || len(tree.Taken) == 0 && len(p.alsoTaken) == 0 {
+		return nil, nil
+	}
+	spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
+	if !ok {
+		return nil, nil
+	}
+	key, ok := p.keyByColumn(txn.DBType())
+	if !ok {
+		return nil, nil
+	}
+	tracked, ok := takenTracked(tree, p.querySet.rMeta.trackChanges)
+	if !ok {
+		return nil, nil
+	}
+
+	count, page, byTenant := rowCounter(spannerTxn.countRows), spannerTxn.readPage, spannerTxn.countByTenant
+	if refuses := p.deleteRefuses; refuses != nil {
+		count = func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
+			if err := refuses(statement.SQL); err != nil {
+				return 0, err
+			}
+
+			return spannerTxn.countRows(ctx, statement)
+		}
+		page = func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error) {
+			if err := refuses(statement.SQL); err != nil {
+				return nil, err
+			}
+
+			return spannerTxn.readPage(ctx, statement, types, answers)
+		}
+		byTenant = func(ctx context.Context, statement rowsUnderStatement) ([]tenantRows, error) {
+			if err := refuses(statement.SQL); err != nil {
+				return nil, err
+			}
+
+			return spannerTxn.countByTenant(ctx, statement)
+		}
+	}
+	taking := &takingDelete{
+		asked:    &recordedDelete{tree: tree, key: key, caller: p.deleteCaller(ctx)},
+		query:    &takenQuery{tree: tree, key: key, under: nil},
+		txn:      spannerTxn,
+		caller:   p.querySet.Caller(),
+		page:     page,
+		byTenant: byTenant,
+		size:     p.deleteSaveSize,
+		also:     p.alsoTaken,
+	}
+
+	return taking.run(ctx, count, tracked, p.everythingUnder, eventSource...)
+}
+
+// deleteDescription is the description the patch's delete reads: its record's, with
+// every kind marked AsCaller or WithinReach left out of each of its lists where the
+// delete takes the library's rows alone (DeleteLibraryRowsAlone). The record's own
+// description is not changed.
+func (p *PatchSet[Resource]) deleteDescription() *DeleteTree {
+	tree := p.querySet.rMeta.deleteTree
+	if tree == nil || !p.libraryRowsAlone {
+		return tree
+	}
+	library := func(kinds []DeleteKind) []DeleteKind {
+		return slices.DeleteFunc(slices.Clone(kinds), func(kind DeleteKind) bool { return kind.AsCaller || kind.WithinReach })
+	}
+	narrowed := *tree
+	narrowed.Taken, narrowed.RefusedBy, narrowed.Under = library(tree.Taken), library(tree.RefusedBy), library(tree.Under)
+
+	return &narrowed
 }
 
 // takenTracked reports whether each taken kind's changes are recorded, and the record's
