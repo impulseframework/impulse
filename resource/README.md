@@ -2001,16 +2001,20 @@ with nothing gone where it cannot be made whole:
 - A delete larger than one save runs in rounds: each request deletes what fits one save,
   deepest rows first, and answers 202 with the rows it deleted; the record goes last. A
   save ends at Spanner's 80,000 mutations or at its time limit, whichever comes first, and
-  always takes at least one row. The limit is the client's (`resource.WithDeleteSaveTime`;
-  `resource.DefaultDeleteSaveTime` without it, none where it is set below zero): keep it
-  under the time the deployment gives a request. The 202 does not say how many rows are
-  left: the question's answer (the 428) carries the count of everything under the record
-  as `records`, and the dialog counts down from it. A round that goes on the question's
-  token checks nothing again, and a round of a delete made in code checks everything
-  again (the next three bullets). A refusal that comes after rounds have run stops the
-  delete there: what is gone stays gone, what is left is a whole, smaller record, and the
-  same delete goes on once the refusal's cause is gone. Nothing is kept between rounds but
-  the token: each round starts from the record again.
+  always takes at least one row. Where a save's time has passed before it reaches its
+  first row, it takes the whole of the first page of rows it reads (the rows of one kind
+  at one level, as many as the commit has room for), so a delete is never left taking one
+  row a request; that save runs past its limit by its reads and that page. The limit is
+  the client's (`resource.WithDeleteSaveTime`; `resource.DefaultDeleteSaveTime` without
+  it, none where it is set below zero): keep it under the time the deployment gives a
+  request. The 202 does not say how many rows are left: the question's answer (the 428)
+  carries the count of everything under the record as `records`, and the dialog counts
+  down from it. A round that goes on the question's token checks nothing again, and a
+  round of a delete made in code checks everything again (the next three bullets). A
+  refusal that comes after rounds have run stops the delete there: what is gone stays
+  gone, what is left is a whole, smaller record, and the same delete goes on once the
+  refusal's cause is gone. Nothing is kept between rounds but the token: each round starts
+  from the record again.
 - A request's delete takes rows only on the token its question gave. When the question
   passes, the server writes one row to `DeleteTokens`: a random id, the record, the
   session and the person it was given to, and when it expires (`resource.DeleteTokenLife`

@@ -63,9 +63,10 @@ import (
 // that already: it counts nothing, finds the deepest level by one-row reads, reads each
 // kind's page at each level from the deepest by its keys alone, and takes what it reads.
 // Either ends at the budget or at its time limit, whichever comes first, and says how
-// many rows it deleted. A request's delete is the second, and only on the token its
-// question gave (PatchSet.DeleteWithToken); a request reaches the first only through an
-// application's own code.
+// many rows it deleted; a save whose time has passed before its first row takes the page
+// it then reads whole (takeAt). A request's delete is the second, and only on the token
+// its question gave (PatchSet.DeleteWithToken); a request reaches the first only through
+// an application's own code.
 //
 // A kind with a row straight under the record that the description neither takes nor
 // lists under refusedBy refuses the delete as it refuses a plain one, in the same
@@ -1499,7 +1500,9 @@ func (d *takingDelete) round(ctx context.Context, walk func(each func(at *takenS
 				}
 				taken[kind.Resource] += rows
 				round.deleted += int64(rows)
-				// A page cut short at the save's time leaves rows of it for the next save.
+				// A page cut short at the save's time leaves rows of it for the next save,
+				// and a save that took its first page after its time had passed leaves the
+				// next page to it.
 				if rows == most || d.over() {
 					return true, nil
 				}
@@ -1569,7 +1572,10 @@ func (d *takingDelete) takeAlso(ctx context.Context, round *takenRound, handed [
 // asks anything of its rows (asks; nothing where it is nil), and once the rows have
 // passed, each is buffered. Where the save's time passes (saveClock), no more of the
 // page is asked or buffered: rows asked and not buffered are left for the next save, and
-// a save that has buffered nothing yet buffers one row first. It reports how many it took.
+// a save that has buffered nothing yet buffers one row first. A page that comes back when
+// the save's time has already passed and the save has buffered nothing is taken whole:
+// such a save would otherwise take one row, and a large delete a request for each. It
+// reports how many it took.
 func (d *takingDelete) takeAt(ctx context.Context, query *takenQuery, kind *DeleteKind, level, deepest int, asks *takenAsks, most int, eventSource ...eventsource.EventSource) (int, error) {
 	fields, types, err := d.keyFields(kind)
 	if err != nil {
@@ -1590,9 +1596,12 @@ func (d *takingDelete) takeAt(ctx context.Context, query *takenQuery, kind *Dele
 	if err != nil {
 		return 0, refusedAt(level, errors.Wrapf(err, "reading the %s under a %s", kind.Words.Many, d.query.tree.Words.One))
 	}
+	// late says the page came back with the save's time already passed and nothing
+	// buffered: such a page is taken whole.
+	late := !d.buffered && d.clock.passed()
 	taken := make([]takenRow, 0, len(rows))
 	for i, read := range rows {
-		if i > 0 && d.clock.passed() {
+		if i > 0 && !late && d.clock.passed() {
 			break
 		}
 		row := kind.Rows.row(fields, read.key, d.callerOf(kind))
@@ -1605,7 +1614,7 @@ func (d *takingDelete) takeAt(ctx context.Context, query *takenQuery, kind *Dele
 	}
 	buffered := 0
 	for _, row := range taken {
-		if d.over() {
+		if !late && d.over() {
 			break
 		}
 		if err := row.bufferTaken(ctx, d.txn, eventSource...); err != nil {

@@ -161,13 +161,16 @@ func runUnasked(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[stri
 // takingHow is how a test's delete runs beyond its record and its caller: each statement
 // asked of refuses before it is sent (joinLimit), nil asking nothing; a frontier read
 // pageRows rows a page (takingDelete.pageRows), the delete's own where it is zero; a save
-// that asks nothing (takingDelete.unasked); and the save's time limit
-// (takingDelete.limit), the default where it is zero.
+// that asks nothing (takingDelete.unasked); the save's time limit (takingDelete.limit),
+// the default where it is zero; and the row at whose asking the save's time passes
+// (passesAt): each run of the function then hands its delete a clock of its own with an
+// hour to run, whose limit becomes a nanosecond as the row of that name is asked.
 type takingHow struct {
 	refuses  func(sql string) error
 	pageRows int
 	unasked  bool
 	limit    time.Duration
+	passesAt string
 }
 
 // joinLimit is the tests' stand-in for the database's refusal of a statement that joins
@@ -200,6 +203,17 @@ func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key ma
 	}
 	run := &cascadeRun{}
 	rows.asked, rows.made = &run.asked, &run.made
+	// clock is the clock of the run of the function going, where how names a row at whose
+	// asking its time passes: the emulator may abort a transaction and run the function
+	// again, and a clock already passed would be passed before the first page.
+	var clock *saveClock
+	if how.passesAt != "" {
+		rows.onAsked = func(name string) {
+			if name == how.passesAt {
+				clock.limit = time.Nanosecond
+			}
+		}
+	}
 	also := make([]TakenKind, 0, len(handed))
 	for _, kind := range handed {
 		kind.asked, kind.made, kind.counted = &run.asked, &run.made, &run.counted
@@ -243,6 +257,10 @@ func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key ma
 			pageRows: how.pageRows,
 			unasked:  how.unasked,
 			limit:    how.limit,
+		}
+		if how.passesAt != "" {
+			clock = newSaveClock(time.Hour)
+			taking.clock = clock
 		}
 		tracked, _ := takenTracked(tree, false)
 		round, err := taking.run(ctx, func(ctx context.Context, statement rowsUnderStatement) (int64, error) {

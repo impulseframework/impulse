@@ -737,14 +737,18 @@ func deleteSave[R Resourcer](t *testing.T, db *spanner.Client, id string, limit 
 }
 
 // TestPatchSet_deleteTaken_saveTime holds, over the emulator and through PatchSet.Buffer,
-// a save's time limit beside its budget. A project with five tasks, at a limit of one
-// nanosecond, loses one task a save, each save saying it deleted one, and goes in the
-// sixth; with no limit (below zero), and with the default, it goes in one save. A handed
-// kind that asks DeleteSaveOver between its rows takes one a save at the same limit. A
-// save that asks nothing, at that limit, takes one row and does not finish. A delete
-// buffered inside a save, on the context a handed kind's Take is handed, runs on that
-// save's clock: it takes one task and says rows are left, where a clock of its own would
-// have let it take all five. The default limit is pinned.
+// a save's time limit beside its budget. A project with five tasks, two of them under
+// another, at a limit of one nanosecond, loses the first page each save reads, the two
+// nested tasks and then the three they were under, and goes in the third save; with no
+// limit (below zero), and with the default, it goes in one save. A handed kind that asks
+// DeleteSaveOver between its rows takes one a save at the same limit. A save whose time
+// has passed before its first row takes the first page it reads rows from whole, on
+// code's word and asking nothing alike. A save that reaches its first row within its time
+// is ended by its time inside that page, and so is a page read after the first: no more
+// of its rows is asked, and none is buffered once the save is over. A delete buffered
+// inside a save, on the context a handed kind's Take is handed, runs on that save's
+// clock: it takes its first page and says rows are left, where a clock of its own would
+// have let it take all five and the project. The default limit is pinned.
 func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 	t.Parallel()
 
@@ -756,30 +760,39 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 			continue
 		}
 		for i := 1; i <= 5; i++ {
-			mutations = append(mutations, spanner.InsertMap("CascadeTasks", map[string]any{"Id": fmt.Sprintf("%s-%d", project, i), "ProjectId": project}))
+			task := map[string]any{"Id": fmt.Sprintf("%s-%d", project, i), "ProjectId": project}
+			if i > 3 {
+				// The fourth and fifth tasks sit under the first: two pages of tasks, the
+				// nested two at level 1, then the three at level 0.
+				task["ParentTaskId"] = project + "-1"
+			}
+			mutations = append(mutations, spanner.InsertMap("CascadeTasks", task))
 		}
 	}
 	if _, err := db.Apply(t.Context(), mutations); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
 
-	t.Run("at a limit of one nanosecond each save takes one task, and the project goes in the sixth", func(t *testing.T) {
+	t.Run("at a limit of one nanosecond each save takes the first page it reads rows from, and the project goes in the third", func(t *testing.T) {
 		t.Parallel()
 
-		for round := 1; round <= 6; round++ {
+		for round, want := range []struct {
+			left  *DeleteLeft
+			state roundState
+		}{
+			{left: &DeleteLeft{Deleted: 2}, state: roundState{record: true, tasks: 3, comments: 0}},
+			{left: &DeleteLeft{Deleted: 3}, state: roundState{record: true, tasks: 0, comments: 0}},
+			{left: nil, state: roundState{record: false, tasks: 0, comments: 0}},
+		} {
 			left, err := deleteSave[roundProject](t, db, "timed", time.Nanosecond)
 			if err != nil {
-				t.Fatalf("round %d: the delete error = %v", round, err)
+				t.Fatalf("round %d: the delete error = %v", round+1, err)
 			}
-			want := &DeleteLeft{Deleted: 1}
-			if round == 6 {
-				want = nil
+			if diff := cmp.Diff(want.left, left); diff != "" {
+				t.Errorf("round %d: DeleteLeft() (-want +got):\n%s", round+1, diff)
 			}
-			if diff := cmp.Diff(want, left); diff != "" {
-				t.Errorf("round %d: DeleteLeft() (-want +got):\n%s", round, diff)
-			}
-			if state := readRoundState(t, db, "timed"); state.record != (round < 6) || state.tasks != int64(max(5-round, 0)) {
-				t.Errorf("round %d: the record is there = %t with %d tasks, want %t with %d", round, state.record, state.tasks, round < 6, max(5-round, 0))
+			if state := readRoundState(t, db, "timed"); state != want.state {
+				t.Errorf("round %d: the database holds %+v of the project, want %+v", round+1, state, want.state)
 			}
 		}
 	})
@@ -843,29 +856,68 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 		}
 	})
 
-	t.Run("a save on code's word at a limit of one nanosecond asks the first row of a page and no more", func(t *testing.T) {
+	t.Run("a save on code's word at a limit of one nanosecond asks and takes the first page it reads rows from, and leaves the next page to the next save", func(t *testing.T) {
 		t.Parallel()
 
 		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "asked"}, cascadeRows{asks: &takenAsks{question: true}}, true, 0, nil, takingHow{limit: time.Nanosecond})
 		if run.err != nil {
 			t.Fatalf("the save's error = %v", run.err)
 		}
-		if diff := cmp.Diff([]string{"ID=asked-1 trusted"}, run.asked); diff != "" {
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted"}, run.asked); diff != "" {
 			t.Errorf("the rows the save asked about (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff([]string{"ID=asked-1 trusted"}, run.made); diff != "" {
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted"}, run.made); diff != "" {
 			t.Errorf("the rows the save deleted (-want +got):\n%s", diff)
+		}
+		if run.round == nil || run.round.finished {
+			t.Errorf("the save's round = %+v, want one that did not finish", run.round)
 		}
 	})
 
-	t.Run("a save that asks nothing takes one row at a limit of one nanosecond and does not finish", func(t *testing.T) {
+	t.Run("a save that asks nothing takes the first page it reads rows from at a limit of one nanosecond and does not finish", func(t *testing.T) {
 		t.Parallel()
 
 		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "unasked"}, cascadeRows{}, true, 0, nil, takingHow{unasked: true, limit: time.Nanosecond})
 		if run.err != nil {
 			t.Fatalf("the save's error = %v", run.err)
 		}
-		if diff := cmp.Diff([]string{"ID=unasked-1 trusted"}, run.made); diff != "" {
+		if diff := cmp.Diff([]string{"ID=unasked-4 trusted", "ID=unasked-5 trusted"}, run.made); diff != "" {
+			t.Errorf("the rows the save deleted (-want +got):\n%s", diff)
+		}
+		if run.round == nil || run.round.finished {
+			t.Errorf("the save's round = %+v, want one that did not finish", run.round)
+		}
+	})
+
+	t.Run("a save that reaches its first row within its time is ended by its time inside that page", func(t *testing.T) {
+		t.Parallel()
+
+		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "asked"}, cascadeRows{asks: &takenAsks{question: true}}, true, 0, nil, takingHow{passesAt: "ID=asked-4 trusted"})
+		if run.err != nil {
+			t.Fatalf("the save's error = %v", run.err)
+		}
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted"}, run.asked); diff != "" {
+			t.Errorf("the rows the save asked about (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted"}, run.made); diff != "" {
+			t.Errorf("the rows the save deleted (-want +got):\n%s", diff)
+		}
+		if run.round == nil || run.round.finished {
+			t.Errorf("the save's round = %+v, want one that did not finish", run.round)
+		}
+	})
+
+	t.Run("the time passing inside a page read after the first cuts it", func(t *testing.T) {
+		t.Parallel()
+
+		run := runTakingRefused(t, db, projectTree(), map[string]any{"Id": "asked"}, cascadeRows{asks: &takenAsks{question: true}}, true, 0, nil, takingHow{passesAt: "ID=asked-1 trusted"})
+		if run.err != nil {
+			t.Fatalf("the save's error = %v", run.err)
+		}
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted", "ID=asked-1 trusted"}, run.asked); diff != "" {
+			t.Errorf("the rows the save asked about (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]string{"ID=asked-4 trusted", "ID=asked-5 trusted"}, run.made); diff != "" {
 			t.Errorf("the rows the save deleted (-want +got):\n%s", diff)
 		}
 		if run.round == nil || run.round.finished {
@@ -881,14 +933,14 @@ func TestPatchSet_deleteTaken_saveTime(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the delete error = %v", err)
 		}
-		if diff := cmp.Diff(&DeleteLeft{Deleted: 1}, inner.left); diff != "" {
+		if diff := cmp.Diff(&DeleteLeft{Deleted: 2}, inner.left); diff != "" {
 			t.Errorf("the inner delete's DeleteLeft() (-want +got):\n%s", diff)
 		}
 		if left == nil {
 			t.Error("the outer delete's DeleteLeft() = nil, want the rows its save took")
 		}
-		if state := readRoundState(t, db, "inner"); !state.record || state.tasks != 4 {
-			t.Errorf("after the save the inner project is there = %t with %d tasks, want it there with 4", state.record, state.tasks)
+		if state := readRoundState(t, db, "inner"); !state.record || state.tasks != 3 {
+			t.Errorf("after the save the inner project is there = %t with %d tasks, want it there with 3", state.record, state.tasks)
 		}
 	})
 

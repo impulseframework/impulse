@@ -758,11 +758,12 @@ func TestTenantDelete_theAccountsThatGoAndThatStay(t *testing.T) {
 
 // TestTenantDelete_overSeveralSavesOnOneToken proves a sector whose rows take more than
 // one save is deleted over several requests on the one token its question gave, on the
-// served stack. The stack's saves end at a time limit of a nanosecond, so each takes one
-// row at least and few more: every request but the last answers 202 with the rows it
-// deleted, and the sector stands until the last, which answers 200, takes it, and deletes
-// the token. The token's row stands while the sector does, and the saves before the last
-// delete no more records than the question counted.
+// served stack. The stack's saves end at a time limit of a nanosecond, so each takes the
+// first page of rows it reads, or one row of a kind the library hands the delete, and no
+// more: every request but the last answers 202 with the rows it deleted, and the sector
+// stands until the last, which answers 200, takes it, and deletes the token. The token's
+// row stands while the sector does, and the saves before the last delete no more records
+// than the question counted.
 func TestTenantDelete_overSeveralSavesOnOneToken(t *testing.T) {
 	t.Parallel()
 

@@ -30,6 +30,8 @@ type cascadeRows struct {
 	asks  *takenAsks
 	asked *[]string
 	made  *[]string
+	// onAsked is called with each row's name as the row is asked; nil calls nothing.
+	onAsked func(name string)
 }
 
 // cascadeRefusal is what a row's check answers.
@@ -54,7 +56,7 @@ func (r cascadeRows) row(fields []accesstypes.Field, values []any, caller *Calle
 	if !caller.IsZero() {
 		who = "armed"
 	}
-	row := &cascadeRow{name: strings.Join(name, ",") + " " + who, asked: r.asked, made: r.made}
+	row := &cascadeRow{name: strings.Join(name, ",") + " " + who, asked: r.asked, made: r.made, onAsked: r.onAsked}
 	if refusal, ok := r.refused[fmt.Sprint(values...)]; ok {
 		row.refusal = refusal
 	}
@@ -96,11 +98,15 @@ type cascadeRow struct {
 	refusal cascadeRefusal
 	asked   *[]string
 	made    *[]string
+	onAsked func(name string)
 }
 
 func (r *cascadeRow) checkTaken(_ context.Context, _ ReadWriteTransaction, _ *takenAsks, answers []spanner.NullBool) (byRule bool, err error) {
 	if r.asked != nil {
 		*r.asked = append(*r.asked, r.name)
+	}
+	if r.onAsked != nil {
+		r.onAsked(r.name)
 	}
 	if r.refusal.err != nil {
 		return r.refusal.byRule, r.refusal.err

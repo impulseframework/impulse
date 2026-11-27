@@ -616,7 +616,12 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	for project, n := range tasks {
 		staged = append(staged, spanner.InsertMap("CascadeProjects", map[string]any{"Id": project}))
 		for i := 1; i <= n; i++ {
-			staged = append(staged, spanner.InsertMap("CascadeTasks", map[string]any{"Id": fmt.Sprintf("%s-%d", project, i), "ProjectId": project}))
+			task := map[string]any{"Id": fmt.Sprintf("%s-%d", project, i), "ProjectId": project}
+			if project == "timed" && i > 3 {
+				// The fourth and fifth timed tasks sit under the first: two pages of tasks.
+				task["ParentTaskId"] = "timed-1"
+			}
+			staged = append(staged, spanner.InsertMap("CascadeTasks", task))
 		}
 	}
 	staged = append(staged, spanner.InsertMap("CascadeInvoices", map[string]any{"Id": "invoiced-i1", "TaskId": "invoiced-1"}))
@@ -923,17 +928,14 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	name = "a time limit of one nanosecond on a token"
 	token = ask(ada, "timed", nil)
 	expires = readToken(t, db, token).ExpiresAt
-	for save := 1; save <= 6; save++ {
+	for i, want := range []*DeleteLeft{{Deleted: 2}, {Deleted: 3}, nil} {
+		save := i + 1
 		run = runTokenDeletes[tokenProject](t, db, ada, false, false, tokenDelete{id: "timed", token: token, saveTime: time.Nanosecond})
 		if run.err != nil {
 			t.Fatalf("%s: save %d: error = %v", name, save, run.err)
 		}
-		want := &DeleteLeft{Deleted: 1}
-		if save == 6 {
-			want = nil
-		}
 		check(name, run.lefts, []*DeleteLeft{want}, fmt.Sprintf("what save %d left", save))
-		if save < 6 {
+		if save < 3 {
 			stored := readToken(t, db, token)
 			if stored == nil || !stored.ExpiresAt.After(expires) {
 				t.Fatalf("%s: save %d left the token %+v, want it there and expiring after %s", name, save, stored, expires)
@@ -943,7 +945,7 @@ func TestExecuteDeleteFunc_token(t *testing.T) { //nolint:maintidx // one case a
 	}
 	check(name, readRoundState(t, db, "timed"), gone, "the project")
 	if readToken(t, db, token) != nil {
-		t.Errorf("%s: the token's row is there, want it deleted in the sixth save", name)
+		t.Errorf("%s: the token's row is there, want it deleted in the third save", name)
 	}
 }
 

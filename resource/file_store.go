@@ -168,10 +168,13 @@ func WithNamedFileStore[S NamedStore](store FileStore) ClientOption {
 // WithDeleteSaveTime sets how long one save of a delete that takes the rows under its
 // record may run before it stops taking rows, commits what it has and answers that there
 // is more to do (DeleteLeft). A save also stops at Spanner's limit of mutations in a
-// commit (DeleteMutationLimit); whichever comes first ends it. Without the option a save
-// runs for DefaultDeleteSaveTime. A limit below zero is none: the mutations alone end a
-// save. Set it under the time the deployment gives one request, or a large delete is cut
-// off before its save commits and starts again from nothing.
+// commit (DeleteMutationLimit); whichever comes first ends it. A save whose time has
+// passed before it reaches its first row takes the whole of the first page of rows it
+// reads, as many rows of one kind as the commit has room for, so that it does not take
+// one row a request: it runs past the limit by its reads and that page. Without the
+// option a save runs for DefaultDeleteSaveTime. A limit below zero is none: the mutations
+// alone end a save. Set it under the time the deployment gives one request, or a large
+// delete is cut off before its save commits and starts again from nothing.
 func WithDeleteSaveTime(limit time.Duration) ClientOption {
 	return func(o *clientOptions) {
 		o.deleteSaveTime = limit
