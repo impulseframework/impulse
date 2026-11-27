@@ -980,6 +980,10 @@ func (c *client) resolveRPCDeclarations(rpcMethod *rpcMethodInfo, s *parser.Stru
 		return err
 	}
 
+	if err := resolveDeleteToken(rpcMethod, s, annotations); err != nil {
+		return err
+	}
+
 	if err := resolveRPCBodyLimit(rpcMethod, s, annotations); err != nil {
 		return err
 	}

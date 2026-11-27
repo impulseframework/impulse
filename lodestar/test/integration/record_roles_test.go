@@ -465,7 +465,9 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 	}
 
 	// The first mission's delete asks first, counting the roles held on it with the rest;
-	// confirmed, it takes them, and the people who held only those hold nothing in the sector.
+	// confirmed on the question's token, in the same session, it takes them, and the people
+	// who held only those hold nothing in the sector.
+	keepSession(t, "keeper")
 	remove := func(everythingUnder string) (int, []byte) {
 		return w.as("keeper", http.MethodPatch, "/console/api/resources", fmt.Sprintf(`[{"op":"remove","path":%q%s}]`, opPath(anvil, "missions/"+first.id), everythingUnder))
 	}
@@ -474,7 +476,7 @@ func TestRecordRoles_aMissionShared(t *testing.T) {
 	if got, want := refusalMessage(t, body), "Delete this mission and everything under it: 1 mission document, 1 sortie, 1 sortie expense, 3 roles held on it. This can't be undone."; got != want {
 		t.Errorf("the question = %q, want %q", got, want)
 	}
-	status, body = remove(`,"value":{"everythingUnder":true}`)
+	status, body = remove(fmt.Sprintf(`,"value":{"everythingUnder":true,"token":%q}`, deleteToken(t, body)))
 	assertStatus(t, status, http.StatusOK, body)
 	params := map[string]any{"mission": first.id}
 	if got := rowsStanding(t, w.tenantListsWorld, "SELECT COUNT(*) FROM CrewRecordUserRoles WHERE Resource = 'Missions' AND RecordId = @mission", params) +

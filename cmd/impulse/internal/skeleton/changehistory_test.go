@@ -51,6 +51,49 @@ func TestCandidateChangeHistoryMigration(t *testing.T) {
 	}
 }
 
+// TestCandidateDeleteTokensMigration holds the migration of every candidate whose name
+// ends _DeleteTokens.up.sql to the delete tokens table's statements as the resource
+// package declares them: the table the question a delete asks first leaves its token in.
+func TestCandidateDeleteTokensMigration(t *testing.T) {
+	t.Parallel()
+
+	candidates, err := Candidates()
+	if err != nil {
+		t.Fatalf("Candidates() error = %v", err)
+	}
+	statements := resource.DeleteTokensDDL(resource.SpannerDBType)
+	if len(statements) == 0 {
+		t.Fatal("resource.DeleteTokensDDL(SpannerDBType) declares no statement")
+	}
+
+	for _, candidate := range candidates {
+		t.Run(candidate.Name, func(t *testing.T) {
+			t.Parallel()
+
+			sub, err := FS(candidate.Name)
+			if err != nil {
+				t.Fatalf("FS() error = %v", err)
+			}
+			found, err := fs.Glob(sub, "schema/migrations/*_DeleteTokens.up.sql")
+			if err != nil {
+				t.Fatalf("fs.Glob() error = %v", err)
+			}
+			if len(found) != 1 {
+				t.Fatalf("the candidate has %d migrations whose names end _DeleteTokens.up.sql (%v), want 1: copy the statements of resource.DeleteTokensDDL into a new migration", len(found), found)
+			}
+			migration, err := fs.ReadFile(sub, found[0])
+			if err != nil {
+				t.Fatalf("fs.ReadFile() error = %v", err)
+			}
+			for _, stmt := range statements {
+				if !strings.Contains(string(migration), stmt+";") {
+					t.Errorf("the candidate's %s does not carry the statement:\n%s\ncopy the statements of resource.DeleteTokensDDL into it", found[0], stmt)
+				}
+			}
+		})
+	}
+}
+
 // TestCandidateAuditRecordsMigration holds each auth's sessions migration in every
 // candidate to the audit records table's statements as the auditlog package declares them,
 // under the auth's prefix and kept forever: the table a new application's auth writes its

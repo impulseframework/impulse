@@ -54,6 +54,13 @@ type (
 		WidgetID string
 	}
 
+	// TokenField carries @deleteToken outside an RPC struct, which only a method may.
+	TokenField struct {
+		ID string
+		// @deleteToken
+		Token string
+	}
+
 	// Clean carries only recognized values.
 	Clean struct {
 		ID   string

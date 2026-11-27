@@ -44,6 +44,11 @@ type DeleteStaffUser struct {
 	// EverythingUnder says the person was asked what the account's delete takes and
 	// confirmed it, so the delete takes the application's rows that go with the account.
 	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the account only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
 // DeleteStaffUserResult is what a delete of an account with more under it than

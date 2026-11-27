@@ -381,14 +381,19 @@ func TestGeneratedIdentityGroupsSayWhatTheyHold(t *testing.T) {
 	endNow(t, w.db, "CrewGroupRoles", map[string]any{"GroupId": watch, "Kind": "domain", "Axis": "", "DomainId": anvil, "Role": "Harbormaster"})
 	holds("one place and one role ended", sector()["Night watch"], groupRow{People: 1, Roles: []string{"Engineer"}})
 
-	// The delete asks first, and its question counts the ended rows with the rest.
-	asked := func(want string) {
+	// The delete asks first, and its question counts the ended rows with the rest. The
+	// question and the delete that goes ahead are the marshal's, in one session: the
+	// delete brings the token the question gave.
+	keepSession(t, "marshal")
+	asked := func(want string) string {
 		t.Helper()
 		status, body := post("marshal", "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q}`, watch))
 		assertStatus(t, status, http.StatusPreconditionRequired, body)
 		if got := refusalMessage(t, body); got != want {
 			t.Errorf("the question = %q, want %q", got, want)
 		}
+
+		return deleteToken(t, body)
 	}
 	asked("Delete this group and everything under it: 2 members, 2 roles. This can't be undone.")
 	// With nothing left in it that has not ended, the list says it holds nothing, and
@@ -397,8 +402,8 @@ func TestGeneratedIdentityGroupsSayWhatTheyHold(t *testing.T) {
 	done(post("marshal", "remove-crew-sector-group-member", fmt.Sprintf(`{"groupId":%q,"userId":%q}`, watch, w.ids["ada"])))
 	done(post("marshal", "take-crew-sector-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Engineer"}`, watch)))
 	holds("nothing left that counts", sector()["Night watch"], groupRow{Roles: []string{}})
-	asked("Delete this group and everything under it: 1 member, 1 role. This can't be undone.")
-	done(post("marshal", "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true}`, watch)))
+	token := asked("Delete this group and everything under it: 1 member, 1 role. This can't be undone.")
+	done(post("marshal", "delete-crew-sector-group", fmt.Sprintf(`{"groupId":%q,"everythingUnder":true,"token":%q}`, watch, token)))
 	if _, listed := sector()["Night watch"]; listed {
 		t.Error("the night watch is listed after it was deleted")
 	}

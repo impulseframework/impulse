@@ -1931,6 +1931,11 @@ func TestEncoder_ClientMessage_records(t *testing.T) {
 			wantBody: `{"message":"Delete this client and everything under it: 38,000 contacts. This can't be undone.","records":38000}` + "\n",
 		},
 		{
+			name:     "a question that passed carries its token beside the number",
+			err:      NewPreconditionRequiredToken("Delete this client and everything under it: 2 contacts. This can't be undone.", 2, "t-1"),
+			wantBody: `{"message":"Delete this client and everything under it: 2 contacts. This can't be undone.","records":2,"token":"t-1"}` + "\n",
+		},
+		{
 			name:     "a message with no number carries no records",
 			err:      NewPreconditionRequiredMessage("Delete this client and everything under it? This can't be undone."),
 			wantBody: `{"message":"Delete this client and everything under it? This can't be undone."}` + "\n",

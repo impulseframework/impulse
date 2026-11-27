@@ -408,3 +408,73 @@ func (*WarningOtherKey) Execute(context.Context, resource.ReadWriteTransaction, 
 func (*WarningOtherKey) Warning(context.Context, resource.ReadWriteTransaction, *Client) (*resource.Warning, error) {
 	return nil, nil
 }
+
+// The @deleteToken shapes: the one accepted, and each refused.
+type (
+	// @rpc
+	DeleteTokenForm struct {
+		ID string
+		// @deleteToken
+		Token string
+	}
+
+	// @rpc
+	DeleteTokenTwice struct {
+		// @deleteToken
+		Token string
+		// @deleteToken
+		Again string
+	}
+
+	// @rpc
+	DeleteTokenNotText struct {
+		// @deleteToken
+		Token []byte
+	}
+
+	// @rpc
+	DeleteTokenOtherName struct {
+		// @deleteToken
+		Key string
+	}
+
+	// @rpc
+	DeleteTokenClientForm struct {
+		// @deleteToken
+		Token string
+	}
+
+	// @rpc
+	// @upload(max: 5MB)
+	DeleteTokenUpload struct {
+		// @deleteToken
+		Token string
+	}
+
+	// @rpc
+	// @schedule("30 3 * * *")
+	DeleteTokenScheduled struct {
+		// @deleteToken
+		Token string
+	}
+)
+
+func (*DeleteTokenForm) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*DeleteTokenTwice) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*DeleteTokenNotText) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*DeleteTokenOtherName) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (*DeleteTokenClientForm) Execute(context.Context, resource.Client, *Client) error { return nil }
+func (*DeleteTokenUpload) Execute(context.Context, resource.ReadWriteTransaction, resource.Files, *Client) error {
+	return nil
+}
+func (*DeleteTokenScheduled) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}

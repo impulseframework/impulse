@@ -190,6 +190,7 @@ checks:
   constant-annotations
   feature-flags
   change-history
+  delete-tokens
   sites-generators
   env-template
   env-reads

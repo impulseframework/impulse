@@ -56,6 +56,9 @@ type PatchSet[Resource Resourcer] struct {
 	// everythingUnder says a delete takes the rows the record's description lists as
 	// going with it (DeleteEverythingUnder).
 	everythingUnder bool
+	// deleteToken is the token a question gave that the delete takes the rows under its
+	// record on (DeleteWithToken), empty where it brought none.
+	deleteToken string
 	// underAnswered marks a delete whose rows under the record were answered for when it
 	// was buffered, so nothing is counted under it before the commit: a record whose rows
 	// to take were counted and checked (deleteTaken), and a row a record's delete takes
@@ -766,11 +769,28 @@ func (p *PatchSet[Resource]) checkDelete(ctx context.Context, txn ReadWriteTrans
 // lists as going with it (@deleteCascade), every one checked first as its own delete
 // would be. Without it a delete of a record that has such rows deletes nothing and is
 // answered with the question a person is asked first, a 428: "Delete this client and
-// everything under it: 2 client contacts. This can't be undone." A request says it in
-// the remove operation's value, as "everythingUnder": true. It changes nothing for a
-// record that lists no rows to take.
+// everything under it: 2 client contacts. This can't be undone." It changes nothing for a
+// record that lists no rows to take. It is code's word, for a delete made outside a
+// request or inside another delete, and nobody was asked a question for it: every save of
+// such a delete asks everything the question asks (the counts, the refusals, each kind's
+// grant) before it takes a row, and asks each row it takes. A request's remove says
+// "everythingUnder": true with the token its question gave, and goes on the token
+// (DeleteWithToken).
 func (p *PatchSet[Resource]) DeleteEverythingUnder() *PatchSet[Resource] {
 	p.everythingUnder = true
+
+	return p
+}
+
+// DeleteWithToken says the delete the patch carries takes the rows under its record on
+// the token a question gave (the "token" of the 428 that asked). The delete takes them
+// only where the token holds: its row is there, names this record, was given to the
+// session and the person the delete is made as, and has not expired. It then asks nothing
+// of the rows it takes: the question asked. With an empty token, or one that does not
+// hold, the delete is one that asks first. A generated handler gives a remove operation's
+// token to it; code that deletes outside a request says DeleteEverythingUnder.
+func (p *PatchSet[Resource]) DeleteWithToken(token string) *PatchSet[Resource] {
+	p.deleteToken = token
 
 	return p
 }
@@ -838,22 +858,38 @@ func (p *PatchSet[Resource]) bufferDelete(ctx context.Context, txn ReadWriteTran
 // askDelete is the delete of the patch's row on a question transaction
 // (SpannerClient.ExecuteDeleteFunc), which buffers nothing. A delete told to take the
 // rows under its record is the read-write transaction's, and so is one deleteTaken does
-// not answer for (PatchSet.takes): it has nothing to ask, and its own check and the count
-// before the commit are made in the read-write transaction. Every other delete is
+// not answer for (PatchSet.takes), and one whose token holds (DeleteWithToken), read
+// through the question transaction: it has nothing to ask, and its own check and the
+// count before the commit are made in the read-write transaction. Every other delete is
 // checked (checkDelete) and asks (deleteTaken) as it would in a read-write transaction,
-// and its error, a refusal or the question, is returned as it is. None means nothing is
+// and its error, a refusal or the question, is returned as it is; the question is noted
+// on the transaction, which gives its token (SpannerClient.ask). None means nothing is
 // under the record.
 func (p *PatchSet[Resource]) askDelete(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) error {
 	if p.everythingUnder {
 		return nil
 	}
-	if p.takes(txn) == nil {
+	record := p.takes(txn)
+	if record == nil {
 		return nil
+	}
+	if p.deleteToken != "" {
+		holds, err := record.txn.tokenHolds(ctx, p.deleteToken, string(p.Resource()), rowMatchKey(p.PrimaryKey()))
+		if err != nil {
+			return err
+		}
+		if holds {
+			return nil
+		}
 	}
 	if _, err := p.checkDelete(ctx, txn); err != nil {
 		return err
 	}
 	if _, err := p.deleteTaken(ctx, txn, eventSource...); err != nil {
+		if httpio.HasPreconditionRequired(err) {
+			record.txn.noteQuestion(string(p.Resource()), rowMatchKey(p.PrimaryKey()), err)
+		}
+
 		return err
 	}
 

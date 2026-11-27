@@ -345,7 +345,14 @@ func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	// delete as theirs.
 	patch := staffresources.NewStaffSessionUserDeletePatch(id)
 	if everythingUnder {
-		patch = patch.WithEverythingUnder()
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
 	}
 	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
 		return nil, errors.Wrap(err, "staffresources.StaffSessionUserDeletePatch.Buffer()")
@@ -1326,7 +1333,14 @@ func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction,
 	// a row it takes that keeps a change history records its delete as theirs.
 	patch := staffresources.NewStaffGroupDeletePatch(id)
 	if everythingUnder {
-		patch = patch.WithEverythingUnder()
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
 	}
 	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
 		return nil, errors.Wrap(err, "staffresources.StaffGroupDeletePatch.Buffer()")

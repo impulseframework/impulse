@@ -9,9 +9,9 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
-// RemovesAsk reports whether a patch request holds a remove that has not been told to
-// take what is under its record ("everythingUnder": true in its value): such a request is
-// run with ExecuteDeleteFunc asking first. It reads the body and leaves it to be read
+// RemovesAsk reports whether a patch request holds a remove that does not bring the token
+// its question gave ("everythingUnder": true and a "token" in its value): such a request
+// is run with ExecuteDeleteFunc asking first. It reads the body and leaves it to be read
 // again. A body that is not a list of operations answers false: the handler's own loop
 // refuses it.
 func RemovesAsk(r *http.Request) (bool, error) {
@@ -24,7 +24,7 @@ func RemovesAsk(r *http.Request) (bool, error) {
 		return false, nil
 	}
 	for _, op := range operations {
-		if strings.EqualFold(op.Op, string(OperationDelete)) && !takesEverythingUnder(op.Value) {
+		if strings.EqualFold(op.Op, string(OperationDelete)) && !bringsToken(op.Value) {
 			return true, nil
 		}
 	}
@@ -42,13 +42,14 @@ func operationsIn(body io.Reader) (operations []patchOperation, ok bool) {
 	return operations, true
 }
 
-// takesEverythingUnder reports whether a remove operation's value says "everythingUnder":
-// true. A remove with no value, or with one that is not an object, does not.
-func takesEverythingUnder(value json.RawMessage) bool {
+// bringsToken reports whether a remove operation's value says "everythingUnder": true and
+// carries a token that is not empty. A remove with no value, or with one that is not an
+// object, does not.
+func bringsToken(value json.RawMessage) bool {
 	var said removeValue
 	if json.Unmarshal(value, &said) != nil {
 		return false
 	}
 
-	return said.EverythingUnder
+	return said.EverythingUnder && said.Token != ""
 }

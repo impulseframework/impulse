@@ -200,10 +200,12 @@ export interface CreateCrewSectorGroupResult {
 export interface DeleteCrewGroupConfig {
   groupId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteCrewGroup {
   groupId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteCrewGroup answers with. */
 export interface DeleteCrewGroupResult {
@@ -220,10 +222,12 @@ export interface DeleteCrewGroupAnswer {
 export interface DeleteCrewSectorGroupConfig {
   groupId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteCrewSectorGroup {
   groupId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteCrewSectorGroup answers with. */
 export interface DeleteCrewSectorGroupResult {
@@ -240,10 +244,12 @@ export interface DeleteCrewSectorGroupAnswer {
 export interface DeleteCrewSectorUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteCrewSectorUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteCrewSectorUser answers with. */
 export interface DeleteCrewSectorUserResult {
@@ -260,10 +266,12 @@ export interface DeleteCrewSectorUserAnswer {
 export interface DeleteCrewUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteCrewUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteCrewUser answers with. */
 export interface DeleteCrewUserResult {
@@ -280,10 +288,12 @@ export interface DeleteCrewUserAnswer {
 export interface DeleteMembersSectorUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersSectorUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteMembersSectorUser answers with. */
 export interface DeleteMembersSectorUserResult {
@@ -300,10 +310,12 @@ export interface DeleteMembersSectorUserAnswer {
 export interface DeleteMembersUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteMembersUser answers with. */
 export interface DeleteMembersUserResult {
@@ -1578,6 +1590,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteCrewSectorGroup]: {
@@ -1589,6 +1602,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteCrewSectorUser]: {
@@ -1601,6 +1615,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteCrewUser]: {
@@ -1612,6 +1627,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteMembersSectorUser]: {
@@ -1623,6 +1639,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteMembersUser]: {
@@ -1634,6 +1651,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DescribeCrewGroup]: {

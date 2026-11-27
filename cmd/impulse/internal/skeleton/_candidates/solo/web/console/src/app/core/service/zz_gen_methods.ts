@@ -54,10 +54,12 @@ export interface CreateStaffGroupResult {
 export interface DeleteStaffGroupConfig {
   groupId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffGroup {
   groupId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteStaffGroup answers with. */
 export interface DeleteStaffGroupResult {
@@ -74,10 +76,12 @@ export interface DeleteStaffGroupAnswer {
 export interface DeleteStaffUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteStaffUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteStaffUser answers with. */
 export interface DeleteStaffUserResult {
@@ -546,6 +550,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'groupId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteStaffUser]: {
@@ -557,6 +562,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DescribeStaffGroup]: {

@@ -895,6 +895,9 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
 // delete takes what fits, deepest first, and Left answers the rows that save deleted:
 // buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
 {{- else if .Resource.ApplicationCanName }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // the kinds its description lists as taken, the application's rows that name it in a
@@ -905,6 +908,9 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // one save takes, the delete takes what fits, deepest first, and Left answers the rows
 // that save deleted: buffer the delete again, in a transaction of its own, until Left
 // answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
 {{- else }}
 // WithEverythingUnder says the delete takes the rows under the {{ .Resource.Name }} with it:
 // every row of the kinds its @deleteCascade lists as taken, each deleted as its own
@@ -914,9 +920,21 @@ func (p *{{ .Resource.Name }}DeletePatch) registerValidateFunc() {
 // (httpio.HasPreconditionRequired). Where the rows cost more than one save takes, the
 // delete takes what fits, deepest first, and Left answers the rows that save deleted:
 // buffer the delete again, in a transaction of its own, until Left answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
 {{- end }}
 func (p *{{ .Resource.Name }}DeletePatch) WithEverythingUnder() *{{ .Resource.Name }}DeletePatch {
 	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the {{ .Resource.Name }} on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *{{ .Resource.Name }}DeletePatch) WithDeleteToken(token string) *{{ .Resource.Name }}DeletePatch {
+	p.patchSet.DeleteWithToken(token)
 
 	return p
 }
@@ -6475,6 +6493,12 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 
 		p := {{ .RPCMethod.RequestConverterName }}(*params)
 		{{- end }}
+		{{- if .RPCMethod.DeleteToken }}
+		// The token the method's delete goes on rides the context (@deleteToken): the
+		// delete hands it to its patch (resource.DeleteTokenFrom), and the request asks the
+		// delete's question before the transaction is opened while it is empty.
+		ctx = resource.WithDeleteToken(ctx, p.{{ .RPCMethod.DeleteToken }})
+		{{- end }}
 		{{- template "rpcHoldPicked" $ }}
 		{{- template "rpcWarningAsked" $ }}
 		{{- template "rpcCollectTouched" $ }}
@@ -6489,7 +6513,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 			if err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
-			if err := {{ $.ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			if err := {{ $.ReceiverName }}.ResourceClient().{{ if .RPCMethod.DeleteToken }}ExecuteDeleteFunc(ctx, p.{{ .RPCMethod.DeleteToken }} == "", {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				{{- template "rpcTargetFrame" $ }}
 				{{- template "rpcReadWarning" $ }}
 				{{- if .RPCMethod.Answers -}}

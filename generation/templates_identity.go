@@ -1426,7 +1426,14 @@ func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	// delete as theirs.
 	patch := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id)
 	if everythingUnder {
-		patch = patch.WithEverythingUnder()
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
 	}
 	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
 		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}DeletePatch.Buffer()")
@@ -2793,6 +2800,11 @@ type Delete{{ .Subject }}User struct {
 	// EverythingUnder says the person was asked what the account's delete takes and
 	// confirmed it, so the delete takes the application's rows that go with the account.
 	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the account only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
 // Delete{{ .Subject }}UserResult is what a delete of an account with more under it than

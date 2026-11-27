@@ -865,8 +865,20 @@ func NewCrewSessionUserDeletePatch(id impulse.UUID) *CrewSessionUserDeletePatch 
 // one save takes, the delete takes what fits, deepest first, and Left answers the rows
 // that save deleted: buffer the delete again, in a transaction of its own, until Left
 // answers nil.
+// It is for code that deletes outside a request, and every save of such a delete asks
+// everything again before it takes a row: a request's delete goes on the token its
+// question gave (WithDeleteToken).
 func (p *CrewSessionUserDeletePatch) WithEverythingUnder() *CrewSessionUserDeletePatch {
 	p.patchSet.DeleteEverythingUnder()
+
+	return p
+}
+
+// WithDeleteToken says the delete takes the rows under the CrewSessionUser on the token
+// its question gave (resource.PatchSet.DeleteWithToken): it takes them only where the
+// token holds, and is answered with the question again where it does not.
+func (p *CrewSessionUserDeletePatch) WithDeleteToken(token string) *CrewSessionUserDeletePatch {
+	p.patchSet.DeleteWithToken(token)
 
 	return p
 }

@@ -61,7 +61,10 @@ import (
 // a request that does not say so: the plain remove is answered with the question a
 // person is asked first, which counts every kind of the sector's rows and of what the
 // auths hold for it, for whoever may delete the sector, and nothing is gone. The request
-// that goes ahead says it takes everything under the sector.
+// that goes ahead says it takes everything under the sector, with the token the question
+// gave, in the session it was asked in: the remove that says so with no token, or with
+// the token another person's question gave, is answered with the question again, and
+// nothing is gone.
 //
 // No role the release ships deletes a sector, so the suite makes one that does: a custom
 // role of the whole application holding Delete on Sectors, given to the governor.
@@ -392,6 +395,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	if got := refusalMessage(t, body); got != counted {
 		t.Errorf("the governor's question = %q, want %q", got, counted)
 	}
+	token := deleteToken(t, body)
 	// So is a person who may list none of the sector's kinds there: the deckhand, given
 	// the closing role, may delete the sector, and holds no role in Ember or in every
 	// sector.
@@ -409,11 +413,33 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 	if got := refusalMessage(t, body); got != counted {
 		t.Errorf("the deckhand's question = %q, want %q", got, counted)
 	}
+	deckhandToken := deleteToken(t, body)
 	nothingGone("the question")
 
-	// One request that says so, with nothing before it but the disable: directory only
-	// is not turned off and the directory is not removed first.
-	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", everythingUnder)
+	// The remove that says it takes everything under the sector goes ahead only on the
+	// token the governor's own question gave: with none, and with the deckhand's, it is
+	// answered with the question again, and nothing is gone.
+	onToken := func(token string) []byte {
+		return []byte(`[{"op":"remove","path":"/sectors/` + ember + `","value":{"everythingUnder":true,"token":"` + token + `"}}]`)
+	}
+	for _, asked := range []struct {
+		name string
+		body []byte
+	}{
+		{name: "the remove that says so with no token", body: everythingUnder},
+		{name: "the remove that says so on the deckhand's token", body: onToken(deckhandToken)},
+	} {
+		status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", asked.body)
+		assertStatus(t, status, http.StatusPreconditionRequired, body)
+		if got := refusalMessage(t, body); got != counted {
+			t.Errorf("%s: the answer = %q, want the question %q", asked.name, got, counted)
+		}
+		nothingGone(asked.name)
+	}
+
+	// One request that says so on the question's token, with nothing before it but the
+	// disable: directory only is not turned off and the directory is not removed first.
+	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", onToken(token))
 	assertStatus(t, status, http.StatusOK, body)
 
 	// The directory went with the sector and every other sector's directory stands.
@@ -706,8 +732,8 @@ func TestTenantDelete_theAccountsThatGoAndThatStay(t *testing.T) {
 	}
 	standing("after the question")
 
-	// The delete that says so.
-	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+kiln+`","value":{"everythingUnder":true}}]`))
+	// The delete that says so, on the question's token.
+	status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+kiln+`","value":{"everythingUnder":true,"token":"`+deleteToken(t, body)+`"}}]`))
 	assertStatus(t, status, http.StatusOK, body)
 
 	for _, goer := range goers {
@@ -727,6 +753,106 @@ func TestTenantDelete_theAccountsThatGoAndThatStay(t *testing.T) {
 		} else if !readColumn[bool](ctx, t, s.db, "CrewSessions", spanner.Key{session}, "Expired") {
 			t.Errorf("the session %s is not ended after the account was deleted", session)
 		}
+	}
+}
+
+// TestTenantDelete_overSeveralSavesOnOneToken proves a sector whose rows take more than
+// one save is deleted over several requests on the one token its question gave, on the
+// served stack. The stack's saves end at a time limit of a nanosecond, so each takes one
+// row at least and few more: every request but the last answers 202 with the rows it
+// deleted, and the sector stands until the last, which answers 200, takes it, and deletes
+// the token. The token's row stands while the sector does, and the saves before the last
+// delete no more records than the question counted.
+func TestTenantDelete_overSeveralSavesOnOneToken(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServedWith(ctx, t, servedOptions{deleteSaveTime: time.Nanosecond})
+	hq := newBrowser(t, s, consoleAPI)
+	hq.signIn(ctx, "governor")
+
+	const (
+		closer          accesstypes.Role = "SectorCloser"
+		sectorsResource                  = accesstypes.Resource("Sectors")
+	)
+	// No role the release ships deletes a sector: the governor is given one that does, as
+	// in the tests above.
+	crewManager := s.access.UserManager()
+	global := accesstypes.GlobalPolicyScope()
+	if err := crewManager.AddRole(ctx, global, closer, "Closes a sector the fleet has left."); err != nil {
+		t.Fatalf("access.UserManager.AddRole(%s) error = %v", closer, err)
+	}
+	if err := crewManager.AddRoleGrants(ctx, global, closer, access.GrantRow{Permission: accesstypes.Delete, Resource: sectorsResource}); err != nil {
+		t.Fatalf("access.UserManager.AddRoleGrants(%s) error = %v", closer, err)
+	}
+	governorUser := account(t, "governor")
+	if err := crewManager.AddUserRoles(ctx, global, governorUser, closer); err != nil {
+		t.Fatalf("access.UserManager.AddUserRoles(governor, %s) error = %v", closer, err)
+	}
+	if d := decisionFor(ctx, t, s.access.ForUser(governorUser), accesstypes.GlobalScope(), accesstypes.Delete, sectorsResource, time.Now().Add(15*time.Second)); !d.IsGranted() {
+		t.Fatalf("Delete on Sectors for the governor holding %s = %s, want granted before the sector is made", closer, d)
+	}
+
+	// Slag is founded, given three wings and a hangar, and disabled.
+	slag := foundSector(ctx, t, s, hq, "Slag", "Far frontier", "2226-12-08", "slag-founder")
+	mutations := []*spanner.Mutation{spanner.Insert("Hangars", []string{"Id", "SectorId", "Name", "Zone"}, []any{newID(t), slag, "Slag Dock", "dock"})}
+	for _, name := range []string{"Cinder Wing", "Ash Wing", "Clinker Wing"} {
+		mutations = append(mutations, spanner.Insert("Wings", []string{"Id", "SectorId", "Name"}, []any{newID(t), slag, name}))
+	}
+	if _, err := s.db.Apply(ctx, mutations); err != nil {
+		t.Fatalf("writing Slag's wings and hangar: %v", err)
+	}
+	setSectorDisabled(ctx, t, hq, slag, true)
+
+	status, body := hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"/sectors/`+slag+`"}]`))
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	var asked struct {
+		Records int64  `json:"records"`
+		Token   string `json:"token"`
+	}
+	if err := json.Unmarshal(body, &asked); err != nil || asked.Token == "" {
+		t.Fatalf("the question answered %s (%v), want its count and a token", body, err)
+	}
+
+	onToken := []byte(`[{"op":"remove","path":"/sectors/` + slag + `","value":{"everythingUnder":true,"token":"` + asked.Token + `"}}]`)
+	var deleted int64
+	saves := 0
+	for ; saves < 100; saves++ {
+		status, body = hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", onToken)
+		if status != http.StatusAccepted {
+			break
+		}
+		var left struct {
+			Deleted int64 `json:"deleted"`
+		}
+		if err := json.Unmarshal(body, &left); err != nil || left.Deleted <= 0 {
+			t.Fatalf("save %d answered %s (%v), want the rows it deleted", saves+1, body, err)
+		}
+		deleted += left.Deleted
+		if n := rowsWhere(ctx, t, s, "Sectors", "Id", slag); n != 1 {
+			t.Fatalf("Slag holds %d row(s) after save %d, which left rows under it, want the one", n, saves+1)
+		}
+		if n := rowsWhere(ctx, t, s, "DeleteTokens", "Id", asked.Token); n != 1 {
+			t.Fatalf("the token's row: %d after save %d, want it standing while the sector does", n, saves+1)
+		}
+	}
+	assertStatus(t, status, http.StatusOK, body)
+	if saves == 0 {
+		t.Error("Slag went in one request, want it over several saves")
+	}
+	if n := rowsWhere(ctx, t, s, "Sectors", "Id", slag); n != 0 {
+		t.Errorf("Slag holds %d row(s) after the last save, want none", n)
+	}
+	for _, table := range []string{"Wings", "Hangars"} {
+		if n := sectorRows(ctx, t, s, table, slag); n != 0 {
+			t.Errorf("%s holds %d row(s) of Slag after the last save, want none", table, n)
+		}
+	}
+	if n := rowsWhere(ctx, t, s, "DeleteTokens", "Id", asked.Token); n != 0 {
+		t.Errorf("the token's row: %d after the sector went, want it deleted with the sector", n)
+	}
+	if deleted > asked.Records {
+		t.Errorf("the saves that left rows deleted %d records, more than the %d the question counted", deleted, asked.Records)
 	}
 }
 

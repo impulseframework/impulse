@@ -613,8 +613,9 @@ A delete of such a record that has
 rows under it deletes nothing at first. It is answered 428 with the question a person is
 asked ("Delete this mission and everything under it: 1 mission document, 2 sorties, 1
 sortie expense. This can't be undone."), which counts each kind the person may list and
-says "and records you can't see" of the rest. The same delete saying so (the remove
-operation's value `{"everythingUnder": true}`) deletes the rows and then the record, in
+says "and records you can't see" of the rest. The same delete saying so, with the token
+the question's answer carries (the remove operation's value
+`{"everythingUnder": true, "token": "…"}`), deletes the rows and then the record, in
 one request where they fit one save and in rounds where they do not; the delete dialog asks the server's question in place of its own and sends
 that at the next press. Each row goes by its own resource's delete, so the person needs
 Delete on every kind taken ("This mission has sortie expenses that you can't delete, so

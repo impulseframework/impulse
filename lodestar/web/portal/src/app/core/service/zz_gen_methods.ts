@@ -9,10 +9,12 @@ export interface FieldPointer {
 export interface DeleteMembersSectorUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersSectorUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteMembersSectorUser answers with. */
 export interface DeleteMembersSectorUserResult {
@@ -29,10 +31,12 @@ export interface DeleteMembersSectorUserAnswer {
 export interface DeleteMembersUserConfig {
   userId: string | FieldPointer;
   everythingUnder: boolean | FieldPointer;
+  token: string | FieldPointer;
 }
 export interface DeleteMembersUser {
   userId: string;
   everythingUnder: boolean;
+  token: string;
 }
 /** The result DeleteMembersUser answers with. */
 export interface DeleteMembersUserResult {
@@ -379,6 +383,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DeleteMembersUser]: {
@@ -390,6 +395,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'everythingUnder', displayType: 'boolean' },
+      { fieldName: 'token', displayType: 'string' },
     ],
   },
   [Methods.DisableMembersSectorUser]: {

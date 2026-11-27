@@ -450,8 +450,12 @@ func TestImpersonation_sectorDeletedActingAsAPerson(t *testing.T) {
 		t.Fatalf("ending the session that acts as the governor: status %d, want 200: %s", status, answer)
 	}
 
-	// The governor himself holds the grant, and his own session carries no mask.
-	if status, answer := writeRecords(ctx, hq, remove); status != http.StatusOK {
+	// The governor himself holds the grant, and his own session carries no mask: he is
+	// asked the question, and the delete goes ahead on its token.
+	status, answer := writeRecords(ctx, hq, recordOp("remove", "/sectors/"+forge, ""))
+	assertStatus(t, status, http.StatusPreconditionRequired, []byte(answer))
+	onToken := recordOp("remove", "/sectors/"+forge, fmt.Sprintf(`{"everythingUnder":true,"token":%q}`, deleteToken(t, []byte(answer))))
+	if status, answer := writeRecords(ctx, hq, onToken); status != http.StatusOK {
 		t.Fatalf("the governor deleting the sector in his own session: status %d, want 200: the grant is his: %s", status, answer)
 	}
 	if got := tableRows(ctx, t, s, "Sectors"); got != sectors-1 {

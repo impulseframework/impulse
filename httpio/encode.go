@@ -21,6 +21,9 @@ type MessageResponse struct {
 	// Records is the number of records a question counted
 	// (NewPreconditionRequiredRecords), none for any other message.
 	Records int64 `json:"records,omitempty"`
+	// Token is the token a question that passed gave (NewPreconditionRequiredToken), which
+	// the delete that takes the records brings back; none for any other message.
+	Token string `json:"token,omitempty"`
 }
 
 // HTTPEncoder is an interface that is accepted when encoding http responses
@@ -69,19 +72,19 @@ func (e *Encoder) encode(body interface{}, skipFrames uint) error {
 // statusCodeWithMessage writes a statusCode and message to the response header and returns the original error
 // This also attempts to include a trace ID in the response if it exists, for debugging purposes
 func (e *Encoder) statusCodeWithMessage(ctx context.Context, statusCode int, err error, message string) error {
-	return e.statusCodeWithResponse(ctx, statusCode, err, MessageResponse{Message: message, TraceID: "", Records: 0}, 5)
+	return e.statusCodeWithResponse(ctx, statusCode, err, MessageResponse{Message: message, TraceID: "", Records: 0, Token: ""}, 5)
 }
 
 // statusCodeWithResponse is statusCodeWithMessage for a body that carries more than a
-// message (MessageResponse.Records). It fills in the trace ID. An error of the encoding
+// message (MessageResponse.Records, MessageResponse.Token). It fills in the trace ID. An error of the encoding
 // names the frame skipFrames above it.
 func (e *Encoder) statusCodeWithResponse(ctx context.Context, statusCode int, err error, response MessageResponse, skipFrames uint) error {
 	e.w.WriteHeader(statusCode)
 
 	response.TraceID = logger.FromCtx(ctx).TraceID()
 
-	// if we don't have any message, number or traceID, we don't need to write anything to the body
-	if response.Message == "" && response.TraceID == "" && response.Records == 0 {
+	// if we don't have any message, number, token or traceID, we don't need to write anything to the body
+	if response.Message == "" && response.TraceID == "" && response.Records == 0 && response.Token == "" {
 		return err
 	}
 
@@ -1019,7 +1022,7 @@ func (e *Encoder) clientMessage(ctx context.Context, err error, prefix string) e
 
 	cerr := &ClientMessage{}
 	if errors.As(err, &cerr) {
-		return e.statusCodeWithResponse(ctx, int(cerr.msgType), rerr, MessageResponse{Message: cerr.clientMessage, TraceID: "", Records: cerr.records}, 4)
+		return e.statusCodeWithResponse(ctx, int(cerr.msgType), rerr, MessageResponse{Message: cerr.clientMessage, TraceID: "", Records: cerr.records, Token: cerr.token}, 4)
 	}
 
 	// Check if the client disconnected.

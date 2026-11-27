@@ -106,10 +106,14 @@ type Store interface {
 	// rows that name the account in a column that says so (@deletedWith). They go on the
 	// permission the request was let in by: no grant is asked on a row, and a row that
 	// permission does not reach refuses the delete (resource.DeleteKind.WithinReach). Told
-	// everythingUnder, it takes them; not told, an account with such a row deletes
-	// nothing and answers the question a person is asked first (428). It is refused while
-	// a row names the account in a column that does not say so. It answers what one save
-	// left, nil where the row went.
+	// everythingUnder, it takes them on the token the request brought
+	// (resource.DeleteTokenFrom), and asks again where that does not hold; not told, an
+	// account with such a row deletes nothing and answers the question a person is asked
+	// first (428). Called where no token was declared, by a job or by a method that
+	// declares no @deleteToken, it takes them on code's word, every save asking everything
+	// again (resource.PatchSet.DeleteEverythingUnder). It is refused while a row names the
+	// account in a column that does not say so. It answers what one save left, nil where
+	// the row went.
 	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error)
 	// DeleteUserWithTenant buffers the delete of the user row of an account that goes with
 	// its tenant, and nothing of the application's: the tenant's delete takes the

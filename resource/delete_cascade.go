@@ -63,7 +63,9 @@ import (
 // that already: it counts nothing, finds the deepest level by one-row reads, reads each
 // kind's page at each level from the deepest by its keys alone, and takes what it reads.
 // Either ends at the budget or at its time limit, whichever comes first, and says how
-// many rows it deleted.
+// many rows it deleted. A request's delete is the second, and only on the token its
+// question gave (PatchSet.DeleteWithToken); a request reaches the first only through an
+// application's own code.
 //
 // A kind with a row straight under the record that the description neither takes nor
 // lists under refusedBy refuses the delete as it refuses a plain one, in the same
@@ -1015,7 +1017,8 @@ type takingDelete struct {
 	pageRows int
 	// unasked marks a save that asks nothing, because the delete's question asked
 	// everything under the record already: it counts nothing, asks no refusal, no grant
-	// and no row, and takes what it reads (run).
+	// and no row, and takes what it reads (run). deleteTaken sets it where the request's
+	// token holds (PatchSet.DeleteWithToken), and nothing else does.
 	unasked bool
 	// limit is how long one save runs before it stops taking rows, DefaultDeleteSaveTime
 	// where it is zero and none where it is below zero (WithDeleteSaveTime).
@@ -1893,6 +1896,18 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 			return spannerTxn.countByTenant(ctx, statement)
 		}
 	}
+	token, err := p.tokenHeld(ctx, spannerTxn)
+	if err != nil {
+		return nil, err
+	}
+	size := p.deleteSaveSize
+	if token != "" {
+		if size == 0 {
+			size = DeleteMutationLimit
+		}
+		// The token's own write, in the save's commit (writeTokenAfterSave).
+		size -= tokenWriteMutations
+	}
 	limit := p.deleteSaveTime
 	if limit == 0 {
 		limit = spannerTxn.deleteSaveTime
@@ -1905,22 +1920,60 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 		caller:   p.querySet.Caller(),
 		page:     page,
 		byTenant: byTenant,
-		size:     p.deleteSaveSize,
+		size:     size,
 		also:     p.alsoTaken,
 		pageRows: 0,
-		unasked:  false,
+		unasked:  token != "",
 		limit:    limit,
 		clock:    clock,
 		buffered: false,
 		first:    0,
 	}
 
-	round, err := taking.run(ctx, count, tracked, p.everythingUnder, eventSource...)
-	if err == nil && round != nil && p.everythingUnder && !inside {
+	round, err := taking.run(ctx, count, tracked, p.everythingUnder || token != "", eventSource...)
+	if err != nil || round == nil {
+		return round, err
+	}
+	if token != "" {
+		if err := spannerTxn.writeTokenAfterSave(token, round.finished); err != nil {
+			return nil, err
+		}
+	}
+	if (p.everythingUnder || token != "") && !inside {
 		taking.logSave(ctx, round)
 	}
 
-	return round, err
+	return round, nil
+}
+
+// tokenWriteMutations is what the write of a save's token costs in its commit: the
+// delete of its row, or the update of its expiry (writeTokenAfterSave).
+const tokenWriteMutations = 2
+
+// tokenHeld is the token the delete goes on in a read-write transaction: the patch's
+// (DeleteWithToken) where it holds, which the transaction notes as honored, and "" for a
+// delete code told to take the rows (DeleteEverythingUnder), whose token is not read,
+// and for one that brought none. A token that does not hold ends the transaction where it
+// refuses such a token outside (errDeleteTokenRefused); elsewhere the delete asks as one
+// that brought none. On a question transaction it is "": askDelete read the token there.
+func (p *PatchSet[Resource]) tokenHeld(ctx context.Context, txn *SpannerReadWriteTransaction) (string, error) {
+	if p.everythingUnder || p.deleteToken == "" || txn.asking() {
+		return "", nil
+	}
+	holds, err := txn.tokenHolds(ctx, p.deleteToken, string(p.Resource()), rowMatchKey(p.PrimaryKey()))
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case holds:
+		txn.honorToken(p.deleteToken)
+
+		return p.deleteToken, nil
+	case txn.refusesOutside:
+		return "", errDeleteTokenRefused
+	default:
+		return "", nil
+	}
 }
 
 // takes is what deleteTaken reads of the patch's delete before it runs (takenRecord):

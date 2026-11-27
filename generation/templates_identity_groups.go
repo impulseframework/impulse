@@ -251,7 +251,14 @@ func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction,
 	// a row it takes that keeps a change history records its delete as theirs.
 	patch := {{ .ResourcesPackage }}.New{{ .Group }}DeletePatch(id)
 	if everythingUnder {
-		patch = patch.WithEverythingUnder()
+		// Where the method that called declared a token (@deleteToken), the delete goes on
+		// it, and asks where it does not hold. Anywhere else it is code's word: every save
+		// asks everything again.
+		if token, declared := resource.DeleteTokenFrom(ctx); declared {
+			patch = patch.WithDeleteToken(token)
+		} else {
+			patch = patch.WithEverythingUnder()
+		}
 	}
 	if err := patch.Buffer(ctx, txn, deletedBy(ctx)...); err != nil {
 		return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Group }}DeletePatch.Buffer()")
@@ -1386,6 +1393,11 @@ type Delete{{ .Subject }}Group struct {
 	// EverythingUnder says the person was asked what the group's delete takes and confirmed
 	// it, so the delete takes the group's members and roles.
 	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the group only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
 // Delete{{ .Subject }}GroupResult is what a delete of a group with more under it than one

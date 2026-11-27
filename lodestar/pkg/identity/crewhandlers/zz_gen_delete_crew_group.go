@@ -23,6 +23,7 @@ func (h *Handlers) DeleteCrewGroup() http.HandlerFunc {
 	type request struct {
 		GroupID         impulse.UUID `json:"groupId"`
 		EverythingUnder bool         `json:"everythingUnder"`
+		Token           string       `json:"token"`
 	}
 
 	// The answer as the wire carries it: Execute's result mirrored with generated
@@ -55,6 +56,10 @@ func (h *Handlers) DeleteCrewGroup() http.HandlerFunc {
 		ctx = resource.WithRPC(ctx, "DeleteCrewGroup")
 
 		p := (*crewidentity.DeleteCrewGroup)(params)
+		// The token the method's delete goes on rides the context (@deleteToken): the
+		// delete hands it to its patch (resource.DeleteTokenFrom), and the request asks the
+		// delete's question before the transaction is opened while it is empty.
+		ctx = resource.WithDeleteToken(ctx, p.Token)
 
 		// The X-Warning header takes the value true or is left off the request: any
 		// other value is refused here, and the call is not run.
@@ -86,7 +91,7 @@ func (h *Handlers) DeleteCrewGroup() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := h.ResourceClient().ExecuteDeleteFunc(ctx, p.Token == "", func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			// Declared target: a row of the CrewListedGroup view.
 			// A view's row is one row of its query, so the gate locates it by
 			// the key and judges any row-referencing condition on the caller's

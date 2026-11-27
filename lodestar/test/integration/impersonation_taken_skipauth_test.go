@@ -112,6 +112,10 @@ func TestImpersonation_ownRecordTakenWithARecord(t *testing.T) {
 
 		return fmt.Appendf(nil, `[{"op":"remove","path":%q,"value":{"everythingUnder":true}}]`, path)
 	}
+	// removeOn is the remove that goes ahead on the token the question gave the session.
+	removeOn := func(path, token string) []byte {
+		return fmt.Appendf(nil, `[{"op":"remove","path":%q,"value":{"everythingUnder":true,"token":%q}}]`, path, token)
+	}
 	// refused sends the delete twice, plain and saying it takes everything under the
 	// record: both are refused with the sentence, and every row stands.
 	refused := func(name string, b *browser, target, path, says string, rows []takenRow) {
@@ -144,9 +148,9 @@ func TestImpersonation_ownRecordTakenWithARecord(t *testing.T) {
 				t.Errorf("%s: %s %v is gone after the question, though the delete was not made", name, row.table, row.key)
 			}
 		}
-		status, body = b.do(ctx, http.MethodPatch, target, remove(path, true))
+		status, body = b.do(ctx, http.MethodPatch, target, removeOn(path, deleteToken(t, body)))
 		if status != http.StatusOK {
-			t.Errorf("%s, saying it takes everything under it: status %d, want 200: %s", name, status, body)
+			t.Errorf("%s, saying it takes everything under it on the question's token: status %d, want 200: %s", name, status, body)
 		}
 		for _, row := range rows {
 			if stands(row) {
@@ -207,7 +211,9 @@ func TestImpersonation_ownRecordTakenWithARecord(t *testing.T) {
 	if status, answer := governor.do(ctx, http.MethodPost, consoleAPI+"/impersonate/end", nil); status != http.StatusOK {
 		t.Fatalf("the governor ending his session: status %d, want 200: %s", status, answer)
 	}
-	if status, body := governor.do(ctx, http.MethodPatch, clients, remove("/"+governorsClient, true)); status != http.StatusOK {
+	status, body := governor.do(ctx, http.MethodPatch, clients, remove("/"+governorsClient, false))
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	if status, body := governor.do(ctx, http.MethodPatch, clients, removeOn("/"+governorsClient, deleteToken(t, body))); status != http.StatusOK {
 		t.Errorf("the governor in his own session again, a client whose contact he is: status %d, want 200: %s", status, body)
 	}
 	for _, row := range governorRows {

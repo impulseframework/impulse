@@ -32,6 +32,11 @@ type DeleteStaffGroup struct {
 	// EverythingUnder says the person was asked what the group's delete takes and confirmed
 	// it, so the delete takes the group's members and roles.
 	EverythingUnder bool
+	// Token is the token the delete's question gave (the 428's "token"): with
+	// EverythingUnder, the delete takes what is under the group only on it.
+	//
+	// @deleteToken
+	Token string
 }
 
 // DeleteStaffGroupResult is what a delete of a group with more under it than one

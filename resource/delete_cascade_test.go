@@ -446,9 +446,11 @@ func TestRecordedDelete_question(t *testing.T) {
 }
 
 // TestDecoder_readsWhatARemoveSays pins a remove operation's value: "everythingUnder":
-// true makes the delete one that takes the rows under its record, a remove that says
-// nothing of it takes the record's row alone, and a value that is not an object, or
-// says it with anything but true or false, is a 400.
+// true makes the delete one that goes on the token beside it (DeleteWithToken), and never
+// one code told to take the rows (DeleteEverythingUnder); a token beside a value that does
+// not say everythingUnder is not looked at; a remove that says nothing of it takes the
+// record's row alone; and a value that is not an object, or says it with anything but
+// true or false, is a 400.
 func TestDecoder_readsWhatARemoveSays(t *testing.T) {
 	t.Parallel()
 
@@ -462,12 +464,15 @@ func TestDecoder_readsWhatARemoveSays(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		value   string
-		want    bool
-		wantBad bool
+		name      string
+		value     string
+		wantToken string
+		wantBad   bool
 	}{
-		{name: "a remove that says so", value: `{"everythingUnder":true}`, want: true},
+		{name: "a remove that says so, with its token", value: `{"everythingUnder":true,"token":"t-1"}`, wantToken: "t-1"},
+		{name: "a remove that says so, with no token", value: `{"everythingUnder":true}`},
+		{name: "a token with no everythingUnder", value: `{"token":"t-1"}`},
+		{name: "a token that is not text", value: `{"everythingUnder":true,"token":7}`, wantBad: true},
 		{name: "a remove that says no", value: `{"everythingUnder":false}`},
 		{name: "a remove with the value an operation without one is given", value: `{}`},
 		{name: "a remove with no value at all"},
@@ -498,8 +503,8 @@ func TestDecoder_readsWhatARemoveSays(t *testing.T) {
 				if err != nil {
 					t.Fatalf("%s() error = %v", name, err)
 				}
-				if patchSet.everythingUnder != tt.want {
-					t.Errorf("%s(): the delete takes everything under its record = %v, want %v", name, patchSet.everythingUnder, tt.want)
+				if patchSet.everythingUnder || patchSet.deleteToken != tt.wantToken {
+					t.Errorf("%s(): the delete is code's word = %v, on the token %q, want false and %q", name, patchSet.everythingUnder, patchSet.deleteToken, tt.wantToken)
 				}
 			}
 		})

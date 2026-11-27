@@ -1,6 +1,6 @@
 // Package resource stands in for the resource module in the module cache: the checks
-// read FeatureFlagsDDL and DataChangeEventsDDL from its source, so this fixture carries
-// the functions in the library's shape and nothing else.
+// read FeatureFlagsDDL, DataChangeEventsDDL and DeleteTokensDDL from its source, so this
+// fixture carries the functions in the library's shape and nothing else.
 package resource
 
 // DBType is the database kind.

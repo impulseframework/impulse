@@ -150,7 +150,12 @@ func TestRefitTaskKeyOrder_takenWithItsRefit(t *testing.T) {
 	sendAsMarshal(t, h, refitTaskOp("add", bay, 1, `{"instructions":"Strip the old plating"}`))
 	sendAsMarshal(t, h, refitTaskOp("patch", bay, 1, `{"done":true}`))
 
-	sendAsMarshal(t, h, fmt.Sprintf(`[{"op":"remove","path":%q,"value":{"everythingUnder":true}}]`, opPath(anvil, "refits/"+bay)))
+	// The remove that takes the task is asked first, and goes ahead on the question's
+	// token, in the same session.
+	keepSession(t, "marshal")
+	status, body := doRequestAs(t, h, "marshal", http.MethodPatch, "/console/api/resources", fmt.Sprintf(`[{"op":"remove","path":%q}]`, opPath(anvil, "refits/"+bay)))
+	assertStatus(t, status, http.StatusPreconditionRequired, body)
+	sendAsMarshal(t, h, fmt.Sprintf(`[{"op":"remove","path":%q,"value":{"everythingUnder":true,"token":%q}}]`, opPath(anvil, "refits/"+bay), deleteToken(t, body)))
 	if _, err := db.Single().ReadRow(t.Context(), "Refits", spanner.Key{bay}, []string{"Id"}); spanner.ErrCode(err) != codes.NotFound {
 		t.Errorf("reading the refit after its remove: %v, want it gone", err)
 	}

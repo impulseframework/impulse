@@ -147,6 +147,7 @@ func Test_deleteCascade_description(t *testing.T) {
 		"Rows: resource.NewTakenRows(func(patchSet *resource.PatchSet[Task], caller *resource.Caller) {",
 		"patch := &TaskDeletePatch{patchSet: patchSet}",
 		"func (p *ClientDeletePatch) WithEverythingUnder() *ClientDeletePatch {",
+		"func (p *ClientDeletePatch) WithDeleteToken(token string) *ClientDeletePatch {\n\tp.patchSet.DeleteWithToken(token)\n\n\treturn p\n}",
 		"func (p *ClientDeletePatch) Left() *resource.DeleteLeft {",
 		"func (p *ClientDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *ClientDeletePatch {",
 	} {
@@ -366,6 +367,7 @@ func Test_deleteCascade_bareTenant(t *testing.T) {
 	}
 	for _, want := range []string{
 		"func (p *SupplierDeletePatch) WithEverythingUnder() *SupplierDeletePatch {",
+		"func (p *SupplierDeletePatch) WithDeleteToken(token string) *SupplierDeletePatch {",
 		"// (DeleteAlso). The grant to delete the Supplier answers for them all.",
 		"func (p *SupplierDeletePatch) Left() *resource.DeleteLeft {",
 		"func (p *SupplierDeletePatch) DeleteAlso(kinds ...resource.TakenKind) *SupplierDeletePatch {",
@@ -1005,7 +1007,7 @@ func Test_deleteCascade_rowsUnderRowsOfTheirKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
 	}
-	for _, unwanted := range []string{"WithEverythingUnder", "NewTakenRows"} {
+	for _, unwanted := range []string{"WithEverythingUnder", "WithDeleteToken", "NewTakenRows"} {
 		if strings.Contains(string(project), unwanted) {
 			t.Errorf("rendered Project carries %s, though it declares no @%s", unwanted, deleteCascadeKeyword)
 		}

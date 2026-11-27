@@ -55,10 +55,14 @@ type GroupStore interface {
 	// it holds with it (the group's @deleteCascade). It takes with them the application's
 	// rows that name the group in a column that says so (@deletedWith), each checked as
 	// the request's caller, and is refused while a row names the group in a column that
-	// does not. Told everythingUnder, it takes them; not told, a group with either deletes
-	// nothing and answers the question a person is asked first (428). It answers what one
-	// save left (nil where the group went), and is not armed against a caller: the members
-	// and the roles are taken trusted.
+	// does not. Told everythingUnder, it takes them on the token the request brought
+	// (resource.DeleteTokenFrom), and asks again where that does not hold; not told, a
+	// group with either deletes nothing and answers the question a person is asked first
+	// (428). Called where no token was declared, by a job or by a method that declares no
+	// @deleteToken, it takes them on code's word, every save asking everything again
+	// (resource.PatchSet.DeleteEverythingUnder). It answers what one save left (nil where
+	// the group went), and is not armed against a caller: the members and the roles are
+	// taken trusted.
 	DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error)
 	// DeleteGroupWithTenant buffers the delete of a group that goes with its tenant: its
 	// members and the roles it holds with it, and nothing of the application's. The
@@ -195,16 +199,19 @@ func (m *Manager) DescribeGroup(ctx context.Context, txn resource.ReadWriteTrans
 // records among them, in the caller's transaction, and has the permission engine told
 // once the transaction has committed. Asked without everythingUnder of a group that has
 // either, it deletes nothing and answers the question a person is asked first, with their
-// counts; asked with it, it takes them. Each member and each role held in a scope is asked
-// what its own removal asks (RemoveGroupMember, TakeGroupRole), so nobody deletes a group
-// that gives them the last administrator's role of a tenant; a role held on a record
-// administers no tenant and is asked nothing. A member or a role whose period has ended
-// gives nobody anything and is asked nothing: the delete takes it with the rest, and
-// counts it in the question. It answers what one save left where the group had more under
-// it than one save holds (nil once the group is gone). The save that deletes the group's
-// own row writes the row of its removal, done to the group by its name, in the tenant it
-// is kept in; a save that leaves the group standing writes none, and its members and roles
-// have no row of their own.
+// counts; asked with it, it takes them on the token the request brought, and asks again
+// where that does not hold. Called where no token was declared, by a job or by a method
+// that declares no @deleteToken, it takes them on code's word, every save asking
+// everything again (resource.PatchSet.DeleteEverythingUnder). Each member and each role
+// held in a scope is asked what its own removal asks (RemoveGroupMember, TakeGroupRole),
+// so nobody deletes a group that gives them the last administrator's role of a tenant; a
+// role held on a record administers no tenant and is asked nothing. A member or a role
+// whose period has ended gives nobody anything and is asked nothing: the delete takes it
+// with the rest, and counts it in the question. It answers what one save left where the
+// group had more under it than one save holds (nil once the group is gone). The save that
+// deletes the group's own row writes the row of its removal, done to the group by its
+// name, in the tenant it is kept in; a save that leaves the group standing writes none,
+// and its members and roles have no row of their own.
 func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, everythingUnder bool) (*resource.DeleteLeft, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
