@@ -139,7 +139,7 @@ SELECT
     SELECT DISTINCT hr.Role
     FROM (
       SELECT o.Role AS Role
-      FROM MembersUserRoles o
+      FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} o
       WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
         AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
     ) hr
@@ -149,26 +149,26 @@ SELECT
    WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))
      AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,
   (EXISTS (
-    SELECT 1 FROM MembersUserRoles o
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM MembersUserRoles o
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
   EXISTS (
-    SELECT 1 FROM MembersUserRoles g
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
       AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
   ) AS HeldGlobally,
   (EXISTS (
-    SELECT 1 FROM MembersUserRoles o
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldHere,
   (EXISTS (
-    SELECT 1 FROM MembersUserRoles o
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldInEveryTenant,
@@ -190,7 +190,7 @@ SELECT
     SELECT 1 FROM MembersSessionIdentities di
     WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
   ) AND NOT EXISTS (
-    SELECT 1 FROM MembersUserRoles sa
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
       AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
   )) AS OutsideDirectory,
@@ -198,7 +198,7 @@ SELECT
     SELECT 1 FROM MembersSessionIdentities di
     WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
   ) AND NOT EXISTS (
-    SELECT 1 FROM MembersUserRoles sa
+    SELECT 1 FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
       AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
   ),

@@ -72,33 +72,33 @@ SELECT
       SELECT
         t.DomainId AS DomainId,
   (EXISTS (
-    SELECT 1 FROM StaffUserRoles o
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffUserRoles o
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups og ON og.Id = gm.GroupId
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm JOIN StaffGroups og ON og.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
   (EXISTS (
-    SELECT 1 FROM StaffUserRoles g
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
       AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups gg ON gg.Id = gm.GroupId
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm JOIN StaffGroups gg ON gg.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND gg.Kind = 'global'
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldGlobally,
   (EXISTS (
-    SELECT 1 FROM StaffUserRoles o
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffGroupMembers gm
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm
     WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
       AND EXISTS (
         SELECT 1 FROM StaffGroups hg
@@ -121,12 +121,12 @@ SELECT
   ) AS ThroughAnother
       FROM (
         SELECT mm.DomainId AS DomainId
-        FROM StaffUserRoles mm
+        FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} mm
         WHERE mm.UserId = u.Id AND mm.Kind = 'domain' AND mm.Axis = ''
           AND (mm.StartsAt IS NULL OR mm.StartsAt <= CURRENT_TIMESTAMP()) AND (mm.EndsAt IS NULL OR mm.EndsAt > CURRENT_TIMESTAMP())
         UNION DISTINCT
         SELECT mg AS DomainId
-        FROM StaffGroupMembers mp, UNNEST(ARRAY(
+        FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} mp, UNNEST(ARRAY(
           SELECT g.DomainId FROM StaffGroups g
           WHERE g.Id = mp.GroupId AND g.Kind = 'domain' AND g.Axis = ''
         )) AS mg
