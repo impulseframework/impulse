@@ -379,8 +379,11 @@ func Test_deleteCascade_bareTenant(t *testing.T) {
 // Test_patchTemplates_deleteLeft pins the answer of a delete larger than one save: the
 // patch handler of a record that takes rows and the dispatcher that serves one keep what
 // each delete left (the delete patch's Left), summed and reset with the transaction, and
-// once the commit has landed and open pages are told answer 202 with it. A record that
-// takes no rows carries none of it.
+// once the commit has landed and open pages are told answer 202 with it. Before the
+// transaction each reads whether the request holds a remove that asks first
+// (resource.RemovesAsk) and runs it with ExecuteDeleteFunc, so the question is asked with
+// no read-write transaction open. A record that takes no rows carries none of it and runs
+// its request with ExecuteFunc.
 func Test_patchTemplates_deleteLeft(t *testing.T) {
 	t.Parallel()
 
@@ -422,6 +425,8 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 			flat := strings.Join(strings.Fields(rendered), " ")
 			for _, want := range []string{
 				"var left *resource.DeleteLeft",
+				"asks, err := resource.RemovesAsk(r) if err != nil { return httpio.NewEncoder(w).ClientMessage(ctx, err) }",
+				"a.ResourceClient().ExecuteDeleteFunc(ctx, asks, func(ctx context.Context, txn resource.ReadWriteTransaction) error {",
 				"left = nil",
 				"patch := resources.New" + name + "DeletePatchFromPatchSet(id, patchSet) if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
 				"if taken := patch.Left(); taken != nil { if left == nil { left = &resource.DeleteLeft{} } left.Deleted += taken.Deleted left.Left += taken.Left }",
@@ -432,6 +437,13 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 					t.Errorf("%s of %s lacks %q:\n%s", handler, name, want, rendered)
 				}
 			}
+			const asksFirst = "A remove that has not been told to take what is under its record asks first: the request is then run with no read-write transaction open, and one is opened only where there was nothing to ask (resource.Executor.ExecuteDeleteFunc)."
+			if prose := strings.Join(strings.Fields(strings.ReplaceAll(rendered, "//", "")), " "); !strings.Contains(prose, asksFirst) {
+				t.Errorf("%s of %s lacks the comment %q:\n%s", handler, name, asksFirst, rendered)
+			}
+			if asked, opened := strings.Index(rendered, "resource.RemovesAsk(r)"), strings.Index(rendered, "ExecuteDeleteFunc("); asked < 0 || opened < asked {
+				t.Errorf("%s of %s asks whether its request asks at %d, after it runs it at %d:\n%s", handler, name, asked, opened, rendered)
+			}
 			published := strings.Index(rendered, "live.Publish(")
 			accepted := strings.Index(rendered, "StatusCodeWithBody(http.StatusAccepted, left)")
 			answered := strings.LastIndex(rendered, "return httpio.NewEncoder(w).Ok(")
@@ -441,10 +453,13 @@ func Test_patchTemplates_deleteLeft(t *testing.T) {
 		}
 	}
 	for handler, rendered := range render(t, byName["Invoice"]) {
-		for _, unwanted := range []string{"DeleteLeft", "Left()", "StatusAccepted"} {
+		for _, unwanted := range []string{"DeleteLeft", "Left()", "StatusAccepted", "RemovesAsk", "ExecuteDeleteFunc"} {
 			if strings.Contains(rendered, unwanted) {
 				t.Errorf("%s of a record that takes no rows holds %q:\n%s", handler, unwanted, rendered)
 			}
+		}
+		if !strings.Contains(rendered, "a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {") {
+			t.Errorf("%s of a record that takes no rows runs its request otherwise than with ExecuteFunc:\n%s", handler, rendered)
 		}
 	}
 }

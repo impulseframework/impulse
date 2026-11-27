@@ -43,10 +43,10 @@ func (q *takenQuery) byTenant(kind *DeleteKind, level, deepest int) (rowsUnderSt
 	return rowsUnderStatement{SQL: sql, Args: w.args, Named: w.named()}, true
 }
 
-// countByTenant runs one statement that counts a kind's rows by their tenant inside the
-// transaction (takenQuery.byTenant).
+// countByTenant runs one statement that counts a kind's rows by their tenant through the
+// transaction's reads (reads) (takenQuery.byTenant).
 func (c *SpannerReadWriteTransaction) countByTenant(ctx context.Context, statement rowsUnderStatement) ([]tenantRows, error) {
-	it := c.txn.Query(ctx, statement.spannerStatement())
+	it := c.reads().Query(ctx, statement.spannerStatement())
 	defer it.Stop()
 
 	var counted []tenantRows
@@ -67,10 +67,10 @@ func (c *SpannerReadWriteTransaction) countByTenant(ctx context.Context, stateme
 }
 
 // tenantName reads the name of the tenant whose key, read as text, is the one given,
-// inside the transaction: the Name column of the row of the tenants table the
-// description names (DeleteTree.Tenants). It answers "" where there is no name to show:
-// a description that names no tenants or no name column, no such row, and a name that is
-// NULL or empty. The key goes into the statement as a value.
+// through the transaction's reads (reads): the Name column of the row of the tenants
+// table the description names (DeleteTree.Tenants). It answers "" where there is no name
+// to show: a description that names no tenants or no name column, no such row, and a
+// name that is NULL or empty. The key goes into the statement as a value.
 func (c *SpannerReadWriteTransaction) tenantName(ctx context.Context, tenants *DeleteTenants, key string) (string, error) {
 	if tenants == nil || tenants.Name == "" {
 		return "", nil
@@ -81,7 +81,7 @@ func (c *SpannerReadWriteTransaction) tenantName(ctx context.Context, tenants *D
 			w.quote(tenants.Name), columnTypeString, w.quote(tenants.Table), w.quote(tenants.Key), columnTypeString, w.value(key)),
 	}
 	statement.Args = w.args
-	it := c.txn.Query(ctx, statement.spannerStatement())
+	it := c.reads().Query(ctx, statement.spannerStatement())
 	defer it.Stop()
 
 	row, err := it.Next()

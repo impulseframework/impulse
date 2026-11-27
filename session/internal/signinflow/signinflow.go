@@ -120,8 +120,11 @@ type Driver[Tx any] interface {
 // transaction that consumes the invitation, which it is handed: the invitation is
 // spent and its roles given together, or neither. It reads and writes through tx
 // alone: the Spanner emulator allows one read-write transaction at a time, so a second
-// transaction or a read through another client inside the hook waits on the one it
-// runs in. A user the same transaction makes (one a directory sign-in provisions, and
+// transaction inside the hook waits on the one it runs in, and a read-only read under
+// the context of the transaction it runs in is refused at once by the Spanner client
+// ("Cloud Spanner does not support nested transactions"); under the request's own
+// context such a read is made beside the open transaction and does not wait on it. A
+// user the same transaction makes (one a directory sign-in provisions, and
 // the account of a sign-up with a password through the invitation) is buffered and not
 // readable in it (Spanner applies a buffered row at the commit), so the user is named
 // by id, which is what the hook writes under, and by username, for what it reports.

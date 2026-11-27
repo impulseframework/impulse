@@ -3930,12 +3930,20 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 		// What the request's deletes left under their records, summed: the answer is a 202
 		// with it where one left any.
 		var left *resource.DeleteLeft
+
+		// A remove that has not been told to take what is under its record asks first: the
+		// request is then run with no read-write transaction open, and one is opened only
+		// where there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
+		asks, err := resource.RemovesAsk(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		{{- end }}
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := {{ .ReceiverName }}.ResourceClient().{{ if .Resource.TakesRowsUnder }}ExecuteDeleteFunc(ctx, asks, {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			{{- if $PrimaryKeyIsGeneratedUUID }}
 			resp = response{}
 			{{- end }}
@@ -4193,13 +4201,21 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		// What the request's deletes left under their records, summed: the answer is a 202
 		// with it where one left any.
 		var left *resource.DeleteLeft
+
+		// A remove that has not been told to take what is under its record asks first: the
+		// request is then run with no read-write transaction open, and one is opened only
+		// where there was nothing to ask (resource.Executor.ExecuteDeleteFunc).
+		asks, err := resource.RemovesAsk(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		{{- end }}
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
 		// operation was decoded in.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := {{ .ReceiverName }}.ResourceClient().{{ if .TakesRowsUnder }}ExecuteDeleteFunc(ctx, asks, {{ else }}ExecuteFunc(ctx, {{ end }}func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			resp = response{}
 			{{- if .HasTenant }}
 			tenantsWritten = false

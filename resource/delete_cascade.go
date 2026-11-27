@@ -69,6 +69,17 @@ import (
 // client and everything under it: 2 client contacts. This can't be undone." It is a 428,
 // answered once the whole check has passed, so the question is never asked of a delete
 // that would be refused.
+//
+// A request's question is asked with no read-write transaction open
+// (SpannerClient.ExecuteDeleteFunc): the record's own check, the counts, the refusals,
+// the grants' conditions and each row's check read the database as it stood at one
+// moment, and lock nothing. What is deleted in real use is not being written: a record
+// is closed long before it is deleted, or was made by mistake and never used, so the
+// answer does not change while it is asked, and nothing is built for a writer that races
+// the question. Where nothing is under the record there is nothing to ask, and the
+// request opens its read-write transaction and deletes the record there, counting once
+// more inside it. A delete that takes the rows runs wholly inside its read-write
+// transaction.
 
 // takenPageRows is the most rows one read of a page of a kind's rows brings.
 const takenPageRows = 1000
@@ -132,10 +143,16 @@ type TakenRows interface {
 // The question counts it, the check before the delete asks it, and each round takes what
 // fits of it, after the kinds the description lists and before the record. The library's
 // rows for a tenant are such kinds.
+//
+// Count and Check are handed the transaction the delete reads on. For a request's
+// question that is a question transaction, which reads the database as it stood at one
+// moment, locks nothing and drops what is buffered through it. Take is always handed the
+// read-write transaction of a save.
 type TakenKind interface {
 	// Words are what the question calls the kind's rows.
 	Words() DeleteWords
-	// Count is the number of the kind's rows under the record as the transaction reads it.
+	// Count is the number of the kind's rows under the record as the transaction it is
+	// handed reads them.
 	Count(ctx context.Context, txn ReadWriteTransaction) (int64, error)
 	// Check refuses the delete where a row of the kind may not go. It writes nothing.
 	Check(ctx context.Context, txn ReadWriteTransaction) error
@@ -752,10 +769,10 @@ type takenPageRow struct {
 	answers []spanner.NullBool
 }
 
-// readPage reads the rows a page statement finds, inside the transaction: each row's
-// key, in the given types, and as many answers after it.
+// readPage reads the rows a page statement finds, through the transaction's reads
+// (reads): each row's key, in the given types, and as many answers after it.
 func (c *SpannerReadWriteTransaction) readPage(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error) {
-	it := c.txn.Query(ctx, statement.spannerStatement())
+	it := c.reads().Query(ctx, statement.spannerStatement())
 	defer it.Stop()
 
 	var rows []takenPageRow
@@ -877,7 +894,8 @@ func (walkEnded) Error() string {
 }
 
 // takingDelete is the delete of one record that takes the rows under it, as deleteTaken
-// runs it inside the delete's transaction.
+// runs it on a transaction: a question transaction, for a request's question, or the
+// delete's own read-write transaction.
 type takingDelete struct {
 	asked *recordedDelete
 	query *takenQuery
@@ -1448,6 +1466,17 @@ func (d *takingDelete) eachLevel(levels *takenLevels, each func(kind *DeleteKind
 	return nil
 }
 
+// takenRecord is what the delete of a record that takes the rows under it reads of the
+// record before it runs (PatchSet.takes): the description the delete reads, the
+// transaction as Spanner's, the record's key by column, and whether each taken kind's
+// changes are recorded (takenTracked).
+type takenRecord struct {
+	tree    *DeleteTree
+	txn     *SpannerReadWriteTransaction
+	key     map[string]any
+	tracked map[accesstypes.Resource]bool
+}
+
 // deleteTaken takes the rows the record's description lists as going with it, before
 // the record's own row is deleted: the whole procedure this file opens with. The round
 // says what the save took and whether it took the last row under the record, so the
@@ -1475,22 +1504,11 @@ func (d *takingDelete) eachLevel(levels *takenLevels, each func(kind *DeleteKind
 // as whoever the delete is for (callerOf). The sentences are written for whoever asked
 // (deleteCaller).
 func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTransaction, eventSource ...eventsource.EventSource) (*takenRound, error) {
-	tree := p.deleteDescription()
-	if tree == nil || len(tree.Taken) == 0 && len(p.alsoTaken) == 0 {
+	record := p.takes(txn)
+	if record == nil {
 		return nil, nil
 	}
-	spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
-	if !ok {
-		return nil, nil
-	}
-	key, ok := p.keyByColumn(txn.DBType())
-	if !ok {
-		return nil, nil
-	}
-	tracked, ok := takenTracked(tree, p.querySet.rMeta.trackChanges)
-	if !ok {
-		return nil, nil
-	}
+	tree, spannerTxn, key, tracked := record.tree, record.txn, record.key, record.tracked
 
 	count, page, byTenant := rowCounter(spannerTxn.countRows), spannerTxn.readPage, spannerTxn.countByTenant
 	if refuses := p.deleteRefuses; refuses != nil {
@@ -1528,6 +1546,31 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 	}
 
 	return taking.run(ctx, count, tracked, p.everythingUnder, eventSource...)
+}
+
+// takes is what deleteTaken reads of the patch's delete before it runs (takenRecord):
+// nil where deleteTaken does not answer for the rows under the record, for a record that
+// lists no rows to take and was handed no kind, on a transaction that is not Spanner's,
+// and for a key or kinds it cannot read.
+func (p *PatchSet[Resource]) takes(txn ReadWriteTransaction) *takenRecord {
+	tree := p.deleteDescription()
+	if tree == nil || len(tree.Taken) == 0 && len(p.alsoTaken) == 0 {
+		return nil
+	}
+	spannerTxn, ok := txn.(*SpannerReadWriteTransaction)
+	if !ok {
+		return nil
+	}
+	key, ok := p.keyByColumn(txn.DBType())
+	if !ok {
+		return nil
+	}
+	tracked, ok := takenTracked(tree, p.querySet.rMeta.trackChanges)
+	if !ok {
+		return nil
+	}
+
+	return &takenRecord{tree: tree, txn: spannerTxn, key: key, tracked: tracked}
 }
 
 // deleteDescription is the description the patch's delete reads: its record's, with
