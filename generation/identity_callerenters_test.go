@@ -129,7 +129,10 @@ func Test_identityGroupTemplates_administeredTenants(t *testing.T) {
 		return &identitySourceData{
 			Source: "Auth", Package: "crewresources", identityInstance: inst, ResourcesPackage: "crewresources", Outlets: "default", ForTenant: forTenant,
 			Tables: session.Tables{Users: "CrewSessionUsers"},
-			Policy: access.Tables{UserRoles: "CrewUserRoles", Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", GroupRoles: "CrewGroupRoles"},
+			Policy: access.Tables{
+				UserRoles: "CrewUserRoles", UserRolesByUserID: "CrewUserRolesByUserId",
+				Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", GroupRoles: "CrewGroupRoles", GroupMembersByUserID: "CrewGroupMembersByUserId",
+			},
 		}
 	}
 	none := []string{"AdministeredTenants", "enteringAdministratorRoles", "TenantsToEnter", "impulse/resource\""}

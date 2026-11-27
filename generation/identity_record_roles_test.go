@@ -671,9 +671,9 @@ func Test_prepareIdentity_recordPeople(t *testing.T) {
 	assertContains(t, "the crew's people", people, squashEach([]string{
 		"RecordsHeld int64 `spanner:\"RecordsHeld\"` RecordsHeldKind string `spanner:\"RecordsHeldKind\"` RecordHeldName string `spanner:\"RecordHeldName\"`",
 		"SELECT * EXCEPT (RecordsHeldOn),",
-		"ARRAY( SELECT AS STRUCT hr.Resource AS Resource, hr.RecordId AS RecordId FROM ( SELECT o.Resource AS Resource, o.RecordId AS RecordId FROM CrewRecordUserRoles o" +
+		"ARRAY( SELECT AS STRUCT hr.Resource AS Resource, hr.RecordId AS RecordId FROM ( SELECT o.Resource AS Resource, o.RecordId AS RecordId FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} o" +
 			" WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId AND " + standingSQL("o"),
-		"UNION ALL SELECT gr.Resource AS Resource, gr.RecordId AS RecordId FROM CrewGroupMembers gm, UNNEST(ARRAY( SELECT AS STRUCT r.Resource AS Resource, r.RecordId AS RecordId" +
+		"UNION ALL SELECT gr.Resource AS Resource, gr.RecordId AS RecordId FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm, UNNEST(ARRAY( SELECT AS STRUCT r.Resource AS Resource, r.RecordId AS RecordId" +
 			" FROM CrewRecordGroupRoles r WHERE r.GroupId = gm.GroupId AND r.Axis = '' AND r.DomainId = t.DomainId AND " + standingSQL("r") + " )) AS gr" +
 			" WHERE gm.UserId = u.Id AND " + standingSQL("gm"),
 		"GROUP BY hr.Resource, hr.RecordId ORDER BY hr.Resource, hr.RecordId ) AS RecordsHeldOn,",
@@ -694,10 +694,10 @@ func Test_prepareIdentity_recordPeople(t *testing.T) {
 	// and one on a record of another tenant is held elsewhere: each an equality on the
 	// leading columns of the people's table's index by user, beside the group's check. The
 	// accounts' list reads who manages an account by the same two facts.
-	recordHere := "OR EXISTS ( SELECT 1 FROM CrewRecordUserRoles o WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId AND " +
-		standingSQL("o") + " ) OR EXISTS ( SELECT 1 FROM CrewGroupMembers gm WHERE gm.UserId = u.Id"
-	recordElsewhere := "OR EXISTS ( SELECT 1 FROM CrewRecordUserRoles o WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId != t.DomainId AND " +
-		standingSQL("o") + " ) OR EXISTS ( SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups og"
+	recordHere := "OR EXISTS ( SELECT 1 FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} o WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId AND " +
+		standingSQL("o") + " ) OR EXISTS ( SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm WHERE gm.UserId = u.Id"
+	recordElsewhere := "OR EXISTS ( SELECT 1 FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} o WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId != t.DomainId AND " +
+		standingSQL("o") + " ) OR EXISTS ( SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm JOIN CrewGroups og"
 	for _, file := range []string{"internal/crewresources/crew_ship_users.go", "internal/crewresources/crew_listed_users.go"} {
 		assertContains(t, file, readIdentityFile(t, file), squashEach([]string{recordHere, recordElsewhere}), nil)
 	}
@@ -708,7 +708,7 @@ func Test_prepareIdentity_recordPeople(t *testing.T) {
 	// has none of), an equality on the leading columns of the people's table's index by user
 	// that joins no table.
 	managing := squashSpace("WHERE mp.UserId = u.Id AND " + countingSQL("mp") +
-		" UNION DISTINCT SELECT mr.DomainId AS DomainId FROM CrewRecordUserRoles mr WHERE mr.UserId = u.Id AND mr.Axis = '' AND " +
+		" UNION DISTINCT SELECT mr.DomainId AS DomainId FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} mr WHERE mr.UserId = u.Id AND mr.Axis = '' AND " +
 		countingSQL("mr") + " ) t )")
 	managingLists := []string{"internal/crewresources/crew_listed_users.go", "internal/crewresources/crew_listed_identities.go"}
 	for _, file := range managingLists {

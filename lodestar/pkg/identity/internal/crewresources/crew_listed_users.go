@@ -116,41 +116,41 @@ SELECT
       SELECT
         t.DomainId AS DomainId,
   (EXISTS (
-    SELECT 1 FROM CrewUserRoles o
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM CrewUserRoles o
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM CrewRecordUserRoles o
+    SELECT 1 FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups og ON og.Id = gm.GroupId
+    SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm JOIN CrewGroups og ON og.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
   (EXISTS (
-    SELECT 1 FROM CrewUserRoles g
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
       AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM CrewGroupMembers gm JOIN CrewGroups gg ON gg.Id = gm.GroupId
+    SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm JOIN CrewGroups gg ON gg.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND gg.Kind = 'global'
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldGlobally,
   (EXISTS (
-    SELECT 1 FROM CrewUserRoles o
+    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM CrewRecordUserRoles o
+    SELECT 1 FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Axis = '' AND o.DomainId = t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM CrewGroupMembers gm
+    SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm
     WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
       AND EXISTS (
         SELECT 1 FROM CrewGroups hg
@@ -173,19 +173,19 @@ SELECT
   ) AS ThroughAnother
       FROM (
         SELECT mm.DomainId AS DomainId
-        FROM CrewUserRoles mm
+        FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} mm
         WHERE mm.UserId = u.Id AND mm.Kind = 'domain' AND mm.Axis = ''
           AND (mm.StartsAt IS NULL OR mm.StartsAt <= CURRENT_TIMESTAMP()) AND (mm.EndsAt IS NULL OR mm.EndsAt > CURRENT_TIMESTAMP())
         UNION DISTINCT
         SELECT mg AS DomainId
-        FROM CrewGroupMembers mp, UNNEST(ARRAY(
+        FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} mp, UNNEST(ARRAY(
           SELECT g.DomainId FROM CrewGroups g
           WHERE g.Id = mp.GroupId AND g.Kind = 'domain' AND g.Axis = ''
         )) AS mg
         WHERE mp.UserId = u.Id AND (mp.StartsAt IS NULL OR mp.StartsAt <= CURRENT_TIMESTAMP()) AND (mp.EndsAt IS NULL OR mp.EndsAt > CURRENT_TIMESTAMP())
         UNION DISTINCT
         SELECT mr.DomainId AS DomainId
-        FROM CrewRecordUserRoles mr
+        FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} mr
         WHERE mr.UserId = u.Id AND mr.Axis = ''
           AND (mr.StartsAt IS NULL OR mr.StartsAt <= CURRENT_TIMESTAMP()) AND (mr.EndsAt IS NULL OR mr.EndsAt > CURRENT_TIMESTAMP())
         UNION DISTINCT

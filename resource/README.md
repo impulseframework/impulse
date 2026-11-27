@@ -4903,15 +4903,24 @@ at any size).
 Three costs are worth knowing. A filter on one of the person's facts (`heldElsewhere`,
 `heldGlobally`, `managedHere`, `managedByAnotherDirectory`), or a grant on the list
 whose condition reads one and so holds every row to it, costs index reads for each
-person of the tenant (two for where a person holds roles, and the person's identities
-besides for who manages them; seconds at 50,000 people; a condition on a field costs
-them for the page's rows alone). A row of the roles held is keyed by the
+person of the tenant (the person's own memberships, places in groups and roles on
+records, each through the permission store's index by user, which the list's statement
+names, and the person's identities besides for who manages them; seconds at 50,000 people
+on 2026-11-15, when the facts were two such reads; a condition on a field costs them for
+the page's rows alone). The whole application's two lists pay the same for each account:
+sorted or filtered by `managedByTenant`, `managingTenant` or `managingTenantName`, or read
+under a grant whose condition reads one of them, they make those index reads for every
+account of the application. A reader who lists a tenant's own people reads the accounts
+that tenant manages at the cost of that tenant alone: the tenant's list, filtered by
+`managedHere`. A row of the roles held is keyed by the
 user's id and the role, two columns the database looks up, so a read of one row, and the
 check a method makes of the role it names, reads the one person's memberships (2 to 4 ms
 and three rows at 50,000 people; a key that joined the two in one value could not be
 looked up, and the same read joined the tenant's memberships, about a second there). And
 a schema applied by hand without those two indexes serves the identities and the
-invitations by reading their tables whole.
+invitations by reading their tables whole; one applied without the permission store's
+three indexes by user is refused by the database when one of these lists is read, since
+the lists' statements name them.
 
 **The roles a tenant picks from.** Where a tenant gives roles by hand, the generated
 management declares one more list per Auth, `CrewSectorRoles`: the roles that

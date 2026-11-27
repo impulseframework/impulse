@@ -1272,7 +1272,7 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 		return &identitySourceData{
 			Source: "Auth", Package: "crewresources", identityInstance: inst, ResourcesPackage: "crewresources", Outlets: "default",
 			Tables: session.Tables{Users: "CrewSessionUsers", Identities: "CrewSessionIdentities"},
-			Policy: access.Tables{UserRoles: "CrewUserRoles"},
+			Policy: access.Tables{UserRoles: "CrewUserRoles", UserRolesByUserID: "CrewUserRolesByUserId"},
 		}
 	}
 	withPassword := func(d *identitySourceData) *identitySourceData {
@@ -1284,6 +1284,7 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 		d.groupSet = "crewGroups"
 		d.tables[identityGroups], d.tables[identityGroupMembers], d.tables[identityGroupRoles] = true, true, true
 		d.Policy.Groups, d.Policy.GroupMembers, d.Policy.GroupRoles = "CrewGroups", "CrewGroupMembers", "CrewGroupRoles"
+		d.Policy.GroupMembersByUserID = "CrewGroupMembersByUserId"
 
 		return d
 	}
@@ -1333,7 +1334,7 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 			name: "an auth that keeps no identities signs nobody in through a directory",
 			data: data(directory, identityUsers, identityMemberships),
 			wantContains: []string{
-				"(td.SectorId IS NOT NULL AND NOT EXISTS (\n    SELECT 1 FROM CrewUserRoles sa",
+				"(td.SectorId IS NOT NULL AND NOT EXISTS (\n    SELECT 1 FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} sa",
 				// Nobody signs in through a directory: the tenant manages the account of the
 				// person it holds alone, and no directory manages anyone's.
 				"const crewSectorUserQuery = `\nSELECT\n  *,\n  (HeldHere AND NOT HeldElsewhere AND NOT HeldGlobally) AS ManagedHere,\n  FALSE AS ManagedByAnotherDirectory\nFROM (\n",

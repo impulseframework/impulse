@@ -980,7 +980,7 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			// that keeps no groups, the person's own memberships in the row's tenant that have
 			// not ended, read as the tenant's list of the roles held reads them.
 			"// @roleOf(Crew)\n\t\tRoles       []string   `spanner:\"Roles\"`\n\t\tLockedUntil *time.Time `spanner:\"LockedUntil\"`\n",
-			"  u.LastSignInAt AS LastSignInAt,\n  ARRAY(\n    SELECT DISTINCT hr.Role\n    FROM (\n      SELECT o.Role AS Role\n      FROM CrewUserRoles o\n" +
+			"  u.LastSignInAt AS LastSignInAt,\n  ARRAY(\n    SELECT DISTINCT hr.Role\n    FROM (\n      SELECT o.Role AS Role\n      FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} o\n" +
 				"      WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId\n        AND " + standingSQL("o") + "\n    ) hr\n    ORDER BY hr.Role\n  ) AS Roles,\n",
 			// Until when the person's sign-in is locked: the schema holds the sign-in attempts
 			// table, so the lock is read by the account's three keys.

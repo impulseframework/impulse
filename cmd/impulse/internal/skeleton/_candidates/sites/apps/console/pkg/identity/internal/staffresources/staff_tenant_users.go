@@ -151,12 +151,12 @@ SELECT
     SELECT DISTINCT hr.Role
     FROM (
       SELECT o.Role AS Role
-      FROM StaffUserRoles o
+      FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
       WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
         AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
       UNION ALL
       SELECT gr AS Role
-      FROM StaffGroupMembers gm, UNNEST(ARRAY(
+      FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm, UNNEST(ARRAY(
         SELECT r.Role FROM StaffGroupRoles r
         WHERE r.GroupId = gm.GroupId AND r.Kind = 'domain' AND r.Axis = '' AND r.DomainId = t.DomainId
           AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
@@ -181,33 +181,33 @@ SELECT
    WHERE la.Name IN (u.NormalizedUsername, CONCAT('FIRST-PASSWORD:', u.Id), CONCAT('CODE-GUESS:', u.Id))
      AND la.LockedUntil > CURRENT_TIMESTAMP()) AS LockedUntil,
   (EXISTS (
-    SELECT 1 FROM StaffUserRoles o
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffUserRoles o
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups og ON og.Id = gm.GroupId
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm JOIN StaffGroups og ON og.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
   (EXISTS (
-    SELECT 1 FROM StaffUserRoles g
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
       AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups gg ON gg.Id = gm.GroupId
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm JOIN StaffGroups gg ON gg.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND gg.Kind = 'global'
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldGlobally,
   (EXISTS (
-    SELECT 1 FROM StaffUserRoles o
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId = t.DomainId
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffGroupMembers gm
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm
     WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
       AND EXISTS (
         SELECT 1 FROM StaffGroups hg
@@ -215,11 +215,11 @@ SELECT
       )
   )) AS HeldHere,
   (EXISTS (
-    SELECT 1 FROM StaffUserRoles o
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
       AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
-    SELECT 1 FROM StaffGroupMembers gm
+    SELECT 1 FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} gm
     WHERE gm.UserId = u.Id AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
       AND EXISTS (
         SELECT 1 FROM StaffGroups eg
@@ -249,7 +249,7 @@ SELECT
     SELECT 1 FROM StaffSessionIdentities di
     WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
   ) AND NOT EXISTS (
-    SELECT 1 FROM StaffUserRoles sa
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
       AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
   ) AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (
@@ -272,7 +272,7 @@ SELECT
     SELECT 1 FROM StaffSessionIdentities di
     WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
   ) AND NOT EXISTS (
-    SELECT 1 FROM StaffUserRoles sa
+    SELECT 1 FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
       AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
   ) AND NOT (u.PasswordHash IS NOT NULL AND (EXISTS (

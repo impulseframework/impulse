@@ -372,12 +372,12 @@ func Test_prepareIdentity_whoManagesEachAccount(t *testing.T) {
 	wrapped := "const crewListedUserQuery = `\nSELECT\n  *,\n  ManagingTenant IS NOT NULL AS ManagedByTenant\nFROM (\nSELECT\n  u.Id AS Id,\n"
 	held := "      FROM (\n" +
 		"        SELECT mm.DomainId AS DomainId\n" +
-		"        FROM CrewUserRoles mm\n" +
+		"        FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} mm\n" +
 		"        WHERE mm.UserId = u.Id AND mm.Kind = 'domain' AND mm.Axis = ''\n" +
 		"          AND " + countingSQL("mm") + "\n" +
 		"        UNION DISTINCT\n" +
 		"        SELECT mg AS DomainId\n" +
-		"        FROM CrewGroupMembers mp, UNNEST(ARRAY(\n" +
+		"        FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} mp, UNNEST(ARRAY(\n" +
 		"          SELECT g.DomainId FROM CrewGroups g\n" +
 		"          WHERE g.Id = mp.GroupId AND g.Kind = 'domain' AND g.Axis = ''\n" +
 		"        )) AS mg\n" +
@@ -471,6 +471,94 @@ func Test_prepareIdentity_whoManagesEachAccount(t *testing.T) {
 			"Tenant is the link's own column, the organization its directory\n // vouched for, and is not the citadel that manages the account.",
 		), nil)
 	})
+}
+
+// Test_prepareIdentity_personReadsNameTheIndexByUser pins how the four lists that say
+// what a person holds (a tenant's people and identities, the whole application's
+// accounts and identities) read one person's rows of the permission store: each read of
+// the person's memberships, places in groups and roles on records names the table's
+// index by user in the statement, so the database does not read a tenant's whole
+// membership by the table's key for every person. The reads the table's key finds, and
+// the ones a tenant's people are selected by, are left to the database.
+func Test_prepareIdentity_personReadsNameTheIndexByUser(t *testing.T) {
+	unhinted := []string{
+		"FROM CrewUserRoles o\n", "FROM CrewUserRoles g\n", "FROM CrewUserRoles mm\n", "FROM CrewUserRoles sa\n",
+		"FROM CrewRecordUserRoles o\n", "FROM CrewRecordUserRoles mr\n",
+		"FROM CrewGroupMembers gm\n", "FROM CrewGroupMembers gm JOIN", "FROM CrewGroupMembers gm,", "FROM CrewGroupMembers mp,",
+	}
+	// The reads a tenant's people are selected by: by the tenant, not by the person.
+	selected := []string{"FROM CrewUserRoles m\n", "FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n"}
+	userRoles := "CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId}"
+	groupMembers := "CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId}"
+	recordUserRoles := "CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId}"
+	withGroups := func(r *resourceGenerator) {
+		for _, table := range crewGroupTables {
+			r.tableMap[table] = &tableMetadata{}
+		}
+	}
+	tests := []struct {
+		name     string
+		generate func(t *testing.T) *resourceGenerator
+		// people is the tenant's list of its people, which reads every table the fixture
+		// keeps for one person.
+		people string
+		hinted []string
+		// alone are the reads each file of the four lists holds that stay unhinted.
+		alone map[string][]string
+	}{
+		{
+			name: "groups and roles on records",
+			generate: func(t *testing.T) *resourceGenerator {
+				t.Helper()
+
+				writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": voyageRecordSource})
+				writeRoleFile(t, crewAuthPath, navigatorOnVoyages)
+				writeRoleFile(t, membersAuthPath, deckhandOnNothing)
+
+				return sharingGenerator(t)
+			},
+			people: "internal/crewresources/crew_ship_users.go",
+			hinted: []string{userRoles, groupMembers, recordUserRoles},
+			alone: map[string][]string{
+				"internal/crewresources/crew_ship_users.go":        append(slices.Clone(selected), "FROM CrewRecordUserRoles rr\n"),
+				"internal/crewresources/crew_ship_identities.go":   append(slices.Clone(selected), "FROM CrewRecordUserRoles rr\n"),
+				"internal/crewresources/crew_listed_users.go":      nil,
+				"internal/crewresources/crew_listed_identities.go": nil,
+			},
+		},
+		{
+			name: "a directory and groups",
+			generate: func(t *testing.T) *resourceGenerator {
+				t.Helper()
+
+				return citadelGenerator(t, citadelTenantSource, withGroups)
+			},
+			people: "internal/crewresources/crew_citadel_users.go",
+			hinted: []string{userRoles, groupMembers},
+			alone: map[string][]string{
+				// The tenant's own administrator's check fixes kind, axis, tenant and role,
+				// and reads the members by their group: the keys find the rows.
+				"internal/crewresources/crew_citadel_users.go":      append(slices.Clone(selected), "FROM CrewUserRoles ta\n", "JOIN CrewGroupMembers tm ON tm.GroupId = tr.GroupId"),
+				"internal/crewresources/crew_citadel_identities.go": selected,
+				"internal/crewresources/crew_listed_users.go":       nil,
+				"internal/crewresources/crew_listed_identities.go":  nil,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+			t.Chdir(t.TempDir())
+
+			if err := tt.generate(t).prepareIdentity(); err != nil {
+				t.Fatalf("prepareIdentity() error = %v", err)
+			}
+			for file, alone := range tt.alone {
+				assertContains(t, file, readTreeFile(t, file), alone, unhinted)
+			}
+			assertContains(t, tt.people, readTreeFile(t, tt.people), tt.hinted, nil)
+		})
+	}
 }
 
 // Test_prepareIdentity_unlinkNamesTheListedIdentity pins the row the whole application's
