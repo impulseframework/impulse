@@ -14,6 +14,10 @@ const (
 	// so it reads that person's memberships and nothing else. HeldElsewhere is two checks
 	// for that reason: written as one, with the two kinds under an OR, the database read
 	// the memberships table by its key for every listed person (measured on Spanner).
+	// Each check names that index in the statement (FORCE_INDEX): left to choose, the
+	// database read a tenant's whole membership by the table's key for each person of a
+	// list where the check also names the tenant, about a thousand rows a person for a
+	// tenant of two thousand (measured on Spanner, 2026-11-26).
 	// Where the auth keeps groups, a place in a group counts as a role held where the
 	// group is kept (identityGroupPersonElsewhere, identityGroupPersonGlobally). Where it
 	// keeps the roles held on a record, a role on a record of another tenant is held
@@ -23,16 +27,16 @@ const (
 	// the person is known there and will hold it, as the rules on where a person belongs
 	// read it (identitySourceData.Standing).
 	identityTenantPersonFacts = `  (EXISTS (
-    SELECT 1 FROM {{ .Policy.UserRoles }} o
+    SELECT 1 FROM {{ .Policy.UserRoles }}@{FORCE_INDEX={{ .Policy.UserRolesByUserID }}} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindEvery }} AND o.Axis = {{ .ScopeAxis }}
       AND {{ .Standing "o" }}
   ) OR EXISTS (
-    SELECT 1 FROM {{ .Policy.UserRoles }} o
+    SELECT 1 FROM {{ .Policy.UserRoles }}@{FORCE_INDEX={{ .Policy.UserRolesByUserID }}} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId != t.DomainId
       AND {{ .Standing "o" }}
   )` + identityRecordPersonElsewhere + identityGroupPersonElsewhere + `) AS HeldElsewhere,
   {{ if .KeepsGroups }}({{ end }}EXISTS (
-    SELECT 1 FROM {{ .Policy.UserRoles }} g
+    SELECT 1 FROM {{ .Policy.UserRoles }}@{FORCE_INDEX={{ .Policy.UserRolesByUserID }}} g
     WHERE g.UserId = u.Id AND g.Kind = {{ .KindGlobal }}
       AND {{ .Standing "g" }}
   )` + identityGroupPersonGlobally + ` AS HeldGlobally`
@@ -52,7 +56,7 @@ const (
 	// who manages the account (identityTenantManagedFacts).
 	identityTenantPersonHeldHere = `,
   (EXISTS (
-    SELECT 1 FROM {{ .Policy.UserRoles }} o
+    SELECT 1 FROM {{ .Policy.UserRoles }}@{FORCE_INDEX={{ .Policy.UserRolesByUserID }}} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
       AND {{ .Standing "o" }}
   )` + identityRecordPersonHere + identityGroupPersonHere + `) AS HeldHere`
@@ -64,20 +68,20 @@ const (
 	// columns of the people's table's index by user, as the checks beside it are on theirs.
 	// A role held through a group is counted by the person's place in the group.
 	identityRecordPersonElsewhere = `{{- if .HoldsRecordRoles }} OR EXISTS (
-    SELECT 1 FROM {{ .Policy.RecordUserRoles }} o
+    SELECT 1 FROM {{ .Policy.RecordUserRoles }}@{FORCE_INDEX={{ .Policy.RecordUserRolesByUserID }}} o
     WHERE o.UserId = u.Id AND o.Axis = {{ .ScopeAxis }} AND o.DomainId != t.DomainId
       AND {{ .Standing "o" }}
   ){{- end }}`
 
 	identityRecordPersonHere = `{{- if .HoldsRecordRoles }} OR EXISTS (
-    SELECT 1 FROM {{ .Policy.RecordUserRoles }} o
+    SELECT 1 FROM {{ .Policy.RecordUserRoles }}@{FORCE_INDEX={{ .Policy.RecordUserRolesByUserID }}} o
     WHERE o.UserId = u.Id AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
       AND {{ .Standing "o" }}
   ){{- end }}`
 
 	identityTenantPersonInEveryTenant = `,
   (EXISTS (
-    SELECT 1 FROM {{ .Policy.UserRoles }} o
+    SELECT 1 FROM {{ .Policy.UserRoles }}@{FORCE_INDEX={{ .Policy.UserRolesByUserID }}} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindEvery }} AND o.Axis = {{ .ScopeAxis }}
       AND {{ .Standing "o" }}
   )` + identityGroupPersonInEveryTenant + `) AS HeldInEveryTenant`
@@ -99,7 +103,7 @@ const (
     SELECT DISTINCT hr.Role
     FROM (
       SELECT o.Role AS Role
-      FROM {{ .Policy.UserRoles }} o
+      FROM {{ .Policy.UserRoles }}@{FORCE_INDEX={{ .Policy.UserRolesByUserID }}} o
       WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
         AND {{ .Standing "o" }}` + identityGroupPersonRoles + `
     ) hr
@@ -184,7 +188,10 @@ const (
 	// ManagedHere through the tenant's directory alone, so those tenants are found by the
 	// directory. Each is found through an index by user (the memberships', the group
 	// members', the roles on records', the identities'): no row reads the tenant record's
-	// table or the memberships table as a whole. A group's tenant and a
+	// table or the memberships table as a whole. The three indexes of the permission
+	// store are named in the statement (identityTenantPersonFacts); the identities' is
+	// left to the database, since it holds every column the read uses and the table's key
+	// is the link's id. A group's tenant and a
 	// directory's are read as an array unnested beside the place's or the identity's row,
 	// which Spanner counts as no join (identityTenantDirectoryPeople): the column adds to
 	// the joins of the statement only the two of identityGroupPersonElsewhere and
@@ -197,13 +204,13 @@ const (
 ` + identityTenantPersonFacts + identityTenantPersonHeldHere + identityTenantThroughFacts + `
       FROM (
         SELECT mm.DomainId AS DomainId
-        FROM {{ .Policy.UserRoles }} mm
+        FROM {{ .Policy.UserRoles }}@{FORCE_INDEX={{ .Policy.UserRolesByUserID }}} mm
         WHERE mm.UserId = u.Id AND mm.Kind = {{ .KindDomain }} AND mm.Axis = {{ .ScopeAxis }}
           AND {{ .Counting "mm" }}
 {{- if .KeepsGroups }}
         UNION DISTINCT
         SELECT mg AS DomainId
-        FROM {{ .Policy.GroupMembers }} mp, UNNEST(ARRAY(
+        FROM {{ .Policy.GroupMembers }}@{FORCE_INDEX={{ .Policy.GroupMembersByUserID }}} mp, UNNEST(ARRAY(
           SELECT g.DomainId FROM {{ .Policy.Groups }} g
           WHERE g.Id = mp.GroupId AND g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }}
         )) AS mg
@@ -212,7 +219,7 @@ const (
 {{- if .HoldsRecordRoles }}
         UNION DISTINCT
         SELECT mr.DomainId AS DomainId
-        FROM {{ .Policy.RecordUserRoles }} mr
+        FROM {{ .Policy.RecordUserRoles }}@{FORCE_INDEX={{ .Policy.RecordUserRolesByUserID }}} mr
         WHERE mr.UserId = u.Id AND mr.Axis = {{ .ScopeAxis }}
           AND {{ .Counting "mr" }}
 {{- end }}
@@ -282,22 +289,23 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
 	// auth keeps the roles held on a record: RecordsHeldOn, each record once by its
 	// resource and its key, in that order. A role that has not ended counts, one that has
 	// not begun among them, as the roles column reads a role (identityTenantPersonRoles):
-	// the person's own, read by the people's table's key, and, where the auth keeps groups,
-	// the ones a group the person has a place in holds there, read as an array unnested
-	// beside the place's row, which Spanner counts as no join. The list's own facts are
-	// read over the column (identityTenantRecordFacts), which is no column of the list.
+	// the person's own, read by the people's table's index by user, and, where the auth
+	// keeps groups, the ones a group the person has a place in holds there, read as an
+	// array unnested beside the place's row, which Spanner counts as no join. The list's
+	// own facts are read over the column (identityTenantRecordFacts), which is no column
+	// of the list.
 	identityTenantRecordsHeldOn = `{{ if .HoldsRecordRoles }}
   ARRAY(
     SELECT AS STRUCT hr.Resource AS Resource, hr.RecordId AS RecordId
     FROM (
       SELECT o.Resource AS Resource, o.RecordId AS RecordId
-      FROM {{ .Policy.RecordUserRoles }} o
+      FROM {{ .Policy.RecordUserRoles }}@{FORCE_INDEX={{ .Policy.RecordUserRolesByUserID }}} o
       WHERE o.UserId = u.Id AND o.Axis = {{ .ScopeAxis }} AND o.DomainId = t.DomainId
         AND {{ .Standing "o" }}
 {{- if .KeepsRecordGroupRoles }}
       UNION ALL
       SELECT gr.Resource AS Resource, gr.RecordId AS RecordId
-      FROM {{ .Policy.GroupMembers }} gm, UNNEST(ARRAY(
+      FROM {{ .Policy.GroupMembers }}@{FORCE_INDEX={{ .Policy.GroupMembersByUserID }}} gm, UNNEST(ARRAY(
         SELECT AS STRUCT r.Resource AS Resource, r.RecordId AS RecordId
         FROM {{ .Policy.RecordGroupRoles }} r
         WHERE r.GroupId = gm.GroupId AND r.Axis = {{ .ScopeAxis }} AND r.DomainId = t.DomainId
@@ -380,7 +388,7 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
     SELECT 1 FROM {{ .Tables.Identities }} di
     WHERE di.UserId = u.Id AND di.Method = td.{{ .TenantDirectory.MethodColumn }} AND di.Connection = td.{{ .TenantDirectory.ConnectionColumn }}
   ){{ end }} AND NOT EXISTS (
-    SELECT 1 FROM {{ .Policy.UserRoles }} sa
+    SELECT 1 FROM {{ .Policy.UserRoles }}@{FORCE_INDEX={{ .Policy.UserRolesByUserID }}} sa
     WHERE sa.UserId = u.Id AND sa.Kind = {{ .KindGlobal }} AND sa.Role = {{ .SuperAdministratorRole }}
       AND {{ .Counting "sa" }}
   ){{ if .AdministratorsEnter }} AND NOT (` + identityTenantAdministratorWithPassword + `){{ end }}`

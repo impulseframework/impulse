@@ -659,13 +659,13 @@ func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction
 	// is one, as it is to the rules on where a person belongs
 	// (identitySourceData.Standing).
 	identityGroupPersonElsewhere = `{{- if .KeepsGroups }} OR EXISTS (
-    SELECT 1 FROM {{ .Policy.GroupMembers }} gm JOIN {{ .Policy.Groups }} og ON og.Id = gm.GroupId
+    SELECT 1 FROM {{ .Policy.GroupMembers }}@{FORCE_INDEX={{ .Policy.GroupMembersByUserID }}} gm JOIN {{ .Policy.Groups }} og ON og.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND og.Kind = {{ .KindDomain }} AND og.Axis = {{ .ScopeAxis }} AND og.DomainId != t.DomainId
       AND {{ .Standing "gm" }}
   ){{- end }}`
 
 	identityGroupPersonGlobally = `{{- if .KeepsGroups }} OR EXISTS (
-    SELECT 1 FROM {{ .Policy.GroupMembers }} gm JOIN {{ .Policy.Groups }} gg ON gg.Id = gm.GroupId
+    SELECT 1 FROM {{ .Policy.GroupMembers }}@{FORCE_INDEX={{ .Policy.GroupMembersByUserID }}} gm JOIN {{ .Policy.Groups }} gg ON gg.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND gg.Kind = {{ .KindGlobal }}
       AND {{ .Standing "gm" }}
   )){{- end }}`
@@ -681,7 +681,7 @@ func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction
 	// than twenty joins, and the list of a tenant whose record declares the directory-only
 	// switch, for an auth that keeps groups, holds eighteen without these two.
 	identityGroupPersonHere = `{{- if .KeepsGroups }} OR EXISTS (
-    SELECT 1 FROM {{ .Policy.GroupMembers }} gm
+    SELECT 1 FROM {{ .Policy.GroupMembers }}@{FORCE_INDEX={{ .Policy.GroupMembersByUserID }}} gm
     WHERE gm.UserId = u.Id AND {{ .Standing "gm" }}
       AND EXISTS (
         SELECT 1 FROM {{ .Policy.Groups }} hg
@@ -690,7 +690,7 @@ func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction
   ){{- end }}`
 
 	identityGroupPersonInEveryTenant = `{{- if .KeepsGroups }} OR EXISTS (
-    SELECT 1 FROM {{ .Policy.GroupMembers }} gm
+    SELECT 1 FROM {{ .Policy.GroupMembers }}@{FORCE_INDEX={{ .Policy.GroupMembersByUserID }}} gm
     WHERE gm.UserId = u.Id AND {{ .Standing "gm" }}
       AND EXISTS (
         SELECT 1 FROM {{ .Policy.Groups }} eg
@@ -720,7 +720,7 @@ func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction
 	identityGroupPersonRoles = `{{- if .KeepsGroups }}
       UNION ALL
       SELECT gr AS Role
-      FROM {{ .Policy.GroupMembers }} gm, UNNEST(ARRAY(
+      FROM {{ .Policy.GroupMembers }}@{FORCE_INDEX={{ .Policy.GroupMembersByUserID }}} gm, UNNEST(ARRAY(
         SELECT r.Role FROM {{ .Policy.GroupRoles }} r
         WHERE r.GroupId = gm.GroupId AND r.Kind = {{ .KindDomain }} AND r.Axis = {{ .ScopeAxis }} AND r.DomainId = t.DomainId
           AND {{ .Standing "r" }}

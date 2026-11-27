@@ -328,13 +328,13 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 			// itself, and a place in a group kept for the whole application that holds a role
 			// in every tenant is a role held in every tenant.
 			// Each is written with EXISTS alone, as it adds no join to the query (below).
-			"SELECT 1 FROM CrewGroupMembers gm\n    WHERE gm.UserId = u.Id AND " + standingSQL("gm") + "\n      AND EXISTS (\n        SELECT 1 FROM CrewGroups hg\n        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId\n      )\n  )) AS HeldHere,",
-			"SELECT 1 FROM CrewGroupMembers gm\n    WHERE gm.UserId = u.Id AND " + standingSQL("gm") + "\n      AND EXISTS (\n        SELECT 1 FROM CrewGroups eg\n        WHERE eg.Id = gm.GroupId AND eg.Kind = 'global'\n      )\n      AND EXISTS (\n        SELECT 1 FROM CrewGroupRoles er\n        WHERE er.GroupId = gm.GroupId AND er.Kind = 'every' AND er.Axis = ''\n          AND " + standingSQL("er") + "\n      )\n  )) AS HeldInEveryTenant",
+			"SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm\n    WHERE gm.UserId = u.Id AND " + standingSQL("gm") + "\n      AND EXISTS (\n        SELECT 1 FROM CrewGroups hg\n        WHERE hg.Id = gm.GroupId AND hg.Kind = 'domain' AND hg.Axis = '' AND hg.DomainId = t.DomainId\n      )\n  )) AS HeldHere,",
+			"SELECT 1 FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm\n    WHERE gm.UserId = u.Id AND " + standingSQL("gm") + "\n      AND EXISTS (\n        SELECT 1 FROM CrewGroups eg\n        WHERE eg.Id = gm.GroupId AND eg.Kind = 'global'\n      )\n      AND EXISTS (\n        SELECT 1 FROM CrewGroupRoles er\n        WHERE er.GroupId = gm.GroupId AND er.Kind = 'every' AND er.Axis = ''\n          AND " + standingSQL("er") + "\n      )\n  )) AS HeldInEveryTenant",
 			// What the person holds in the tenant itself through a group: for each place of
 			// theirs, the roles the group holds in the row's tenant and gives its members, as
 			// the tenant's list of the roles held through a group reads them, unnested beside
 			// the place's row.
-			"      UNION ALL\n      SELECT gr AS Role\n      FROM CrewGroupMembers gm, UNNEST(ARRAY(\n        SELECT r.Role FROM CrewGroupRoles r\n" +
+			"      UNION ALL\n      SELECT gr AS Role\n      FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm, UNNEST(ARRAY(\n        SELECT r.Role FROM CrewGroupRoles r\n" +
 				"        WHERE r.GroupId = gm.GroupId AND r.Kind = 'domain' AND r.Axis = '' AND r.DomainId = t.DomainId\n          AND " + standingSQL("r") + "\n" +
 				"          AND ((" + countingSQL("r") + ") OR NOT EXISTS (\n            SELECT 1 FROM CrewGroupRoles e\n" +
 				"            WHERE e.GroupId = r.GroupId AND e.Kind = 'every' AND e.Axis = r.Axis AND e.Role = r.Role\n              AND " + countingSQL("e") + "\n          ))\n" +
