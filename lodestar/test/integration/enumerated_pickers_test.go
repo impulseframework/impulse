@@ -253,8 +253,10 @@ func TestPickerReadModes(t *testing.T) {
 }
 
 // TestCompileBriefing_template compiles on a named template: the request field names
-// the computed catalog, the body validates the id against it, and the hazard-first
-// sheet carries the board whether or not it was asked for.
+// the computed catalog, an id outside it is answered as a row that is not there before
+// the body runs, and the hazard-first sheet carries the board whether or not it was
+// asked for. The seeded archivist in Anvil and the liaison in Cinder, each an Archivist
+// there who also holds BriefingClerk, compile on a named sheet.
 func TestCompileBriefing_template(t *testing.T) {
 	t.Parallel()
 
@@ -262,6 +264,8 @@ func TestCompileBriefing_template(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		user         accesstypes.User
+		sector       string
 		body         string
 		wantStatus   int
 		wantTemplate string
@@ -270,14 +274,23 @@ func TestCompileBriefing_template(t *testing.T) {
 		{name: "an empty template compiles the standard sheet", body: `{}`, wantStatus: http.StatusOK, wantTemplate: "Standard sheet"},
 		{name: "a named template compiles on it", body: `{"templateId":"client-facing"}`, wantStatus: http.StatusOK, wantTemplate: "Client summary"},
 		{name: "the hazard-first sheet folds the board in unasked", body: `{"templateId":"hazard-first","includeHazards":false}`, wantStatus: http.StatusOK, wantTemplate: "Hazard-first sheet", wantHazards: true},
-		{name: "an id outside the catalog is refused", body: `{"templateId":"legacy-9"}`, wantStatus: http.StatusBadRequest},
+		{name: "an id outside the catalog is refused", body: `{"templateId":"legacy-9"}`, wantStatus: http.StatusNotFound},
+		{name: "the archivist compiles on a named sheet in Anvil", user: "archivist", body: `{"templateId":"client-facing"}`, wantStatus: http.StatusOK, wantTemplate: "Client summary"},
+		{name: "the liaison compiles on a named sheet in Cinder", user: "liaison", sector: cinder, body: `{"templateId":"client-facing"}`, wantStatus: http.StatusOK, wantTemplate: "Client summary"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			status, body := doRequestAs(t, h, "marshal", http.MethodPost, sectorPath(anvil, "compile-briefing"), tt.body)
+			user, sector := tt.user, tt.sector
+			if user == "" {
+				user = "marshal"
+			}
+			if sector == "" {
+				sector = anvil
+			}
+			status, body := doRequestAs(t, h, user, http.MethodPost, sectorPath(sector, "compile-briefing"), tt.body)
 			assertStatus(t, status, tt.wantStatus, body)
 			if status != http.StatusOK {
 				return

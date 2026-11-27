@@ -63,7 +63,7 @@ type Ship struct { ... }
 | `@computed` | struct in the resources package | none | A read-only resource (List/Read only) whose rows are produced by hand-written query logic rather than a table. Primary-key fields are marked with `@primarykey`, and the key is optional: without one the resource is a whole read-only list, with no read route and no paging (one list route, every row the filter admits in one response, sorted when asked or declared; a numeric `limit` or a `cursor` is refused naming `@primarykey` as the way to page, `@page` is refused at generation, and the Collection registers List only, so a Read grant on it is refused at deploy). Example: [StandingOrder](../lodestar/pkg/computedresources/standing_orders.go). A computed view that carries a table's rows one to one declares the table with `@rowsOf`, so a page listing it writes to the table. Its permission checks run when the request is decoded, since the rows come from a Go function and no query of the library's. A grant on it may still carry a condition that reads the row: the struct declares the fields a condition may read with a bare `@attribute(name)` on the field, and the library judges each row the function yields, in Go, by the rules a table's rows follow (a row the condition on the resource refuses is not listed, not counted, and read as a row that is not there; a field granted under a condition the row does not meet is left out of that row; a row that would show none of the fields a grant covers is left out). The condition reads the declared fields, `subject`, `now`, and the facts about the caller that are held in tables (`subject.<name>`, a subject set or a subject value). A table's statement reads such a fact as a subquery beside its rows; for a computed resource the library reads it once for the request, when the request is decoded, through the resource client, by a statement built from the same pieces (the anchor table, the caller's rows on it, the anchor's own tenancy filter, a dotted value hop by hop). So a request costs one read for each fact its conditions name, whatever the number of rows, and none where no condition names one. The read is implemented for Spanner, the database the resource client reads; the PostgreSQL statements are rendered and proven by test, as the rest of the PostgreSQL rendering is. Deploy-time role migration validates a computed resource's condition as a table's, against the fields the resource declares, and the generated Collection marks the resource computed so a refusal names that declaration. Example: Lodestar's Flight Lead reads the [expense manifests](../lodestar/pkg/computedresources/expense_manifests.go) of the missions their own squadrons fly (`assignedSquadron IN subject.squadrons`), through the list, the read and the rendered file. A field a list sorts, filters or searches by needs a grant with no condition left once the request is checked (an unconditional grant, or one whose conditions read the time of the request alone, while one of them holds), or one under the same condition as the list's own rows, since a row that fails that condition is dropped before the sort, the filter and the search read it; and `qSet.TakePage()` answers false while a condition is left to judge the rows by. Example: the roles a tenant picks from (section 22). From the browser a computed resource answers a list query exactly as a table does, with no code in its List function: the generated handler applies the filter, then the sort when the request asks one or the struct declares one (`@order`), then the page (cursor, Link header, count) over the rows the function yields; with neither a `sort` nor an `@order` only the whole list (`limit=all`) is served, the rows in the order the function yielded them, after the filter; a paged request without an order is refused (section 4). A field is filterable when it carries `allow_filter`, as on a table; `index` and `uniqueindex` are refused (there is no database index), and `allow_filter` on a field the in-memory evaluator cannot compare fails generation with the field named. A List function that runs its own queries may take pieces of the work to push down — `qSet.Filter().Take(fields…)` returns the conditions on those fields and leaves the handler the rest (defined on an AND-only filter; an OR takes nothing; a field is taken whole, so a body that takes a text field answers its matches too, `Condition.MatchesText`, and one that takes the box reads its `SearchTerms` and `SearchFields`, section 4), `qSet.TakeSort()` returns the total order (empty when the list is not sorted: the body's own order stands) and marks it the body's, and `qSet.TakePage()` returns the page bounds only when paging in the body is correct (nothing left to filter, the sort taken, no count asked) and otherwise answers false so the handler pages. Taking is the only way to opt out, so a body can never make the result wrong. A computed list sorts and pages `NULL` where the application's database does, the same end as the tables beside it (Spanner first ascending and last descending, PostgreSQL the reverse); a body's plain `ORDER BY` already produces that placement, and the generated decoder carries the database type so the handler's in-memory sort and page boundary agree with the rows a body yields. Example: [SectorHazardBoard](../lodestar/pkg/computedresources/sector_hazard_boards.go). |
 | `@rpc` | struct in the rpc package | none, or `max: 8MB`, `log: onEvent`, `trace: off` | Declares an RPC method: the struct's fields are the request payload, and the struct declares `Execute` in one of two forms, read off its signature — `Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error` runs inside the generated handler's read-write transaction; `Execute(ctx context.Context, client resource.Client, rpcClient *Client) error` runs outside one. The third parameter is the application's own RPC client type. `Execute` returns `error` alone, and the handler answers with an empty 200, or `(Result, error)` with `Result` a struct type or a pointer to one, and the handler answers with the result after the transaction commits, mirrored with generated wire names (a nil pointer answers empty). A method answers with identifiers and outcomes, never rows: a `@resource` or `@computed` struct in the result position is refused, since rows are read through their own routes, where permission masking applies. A struct with no `Execute`, or one of another shape, fails generation naming the struct; no interface declaration takes part. Example of an answering method: [InspectShip](../lodestar/pkg/rpc/inspect_ship.go). The generated frame stamps the caller into the context before `Execute` (`resource.CallerFrom`), so a body may arm a typed patch or query with `.Enforce(caller)` and run the pipeline the resource routes run, or ask `caller.Check` for a decision to branch on; without either the body is trusted, the default. A transaction-form method honors `X-Dry-Run: true`: the whole frame and the body run and the transaction rolls back, refusing exactly as the real call would and answering an empty 200 where it would have succeeded; a client-form method refuses the header with 400. The generated TypeScript method metadata says which a method is (`dryRun: true` on a transaction-form method, nothing on a client-form one), so a page knows a dry run previews the call before it sends one, and names on each request field the name a grant's condition reads it by (`attribute: 'role'` for a bare `@attribute(role)` on the field): the Angular library's method dialog rehearses a method this way where the caller's grant on it carries a condition, waiting for the fields a condition may read and marking them when the dry run is refused as not permitted. Examples: [HoldMission](../lodestar/pkg/rpc/hold_mission.go) (armed), [CompleteMission](../lodestar/pkg/rpc/complete_mission.go) (decision as data). Gated by the `Execute` permission. The struct lives in a file named after it in snake case (`claim_mission.go`), as every generated kind does; a name ending in `Test` carries the `_rpc` marker instead (`start_flight_test_rpc.go`), so neither it nor the `zz_gen_` files generated beside it are Go `_test.go` files. Example: [ClaimMission](../lodestar/pkg/rpc/claim_mission.go). `max:` bounds the method's request body (a byte count or `KB`/`MB`/`GB`, 1024-based), applied by its generated handler in place of the application's limit (section 8, request body limits); a method that declares none takes that limit. Example: [IssueBulletin](../lodestar/pkg/rpc/issue_bulletin.go). `log:` is the method's own request log word, `always`, `onEvent`, `sampled` (with `fraction: 0.01`) or `never`, and `trace:` its own trace setting, `followFrontEnd`, `capped` (with `rate: 0.1`) or `off`: the nearest declaration, over its outlet's and the application's (section 8, request logs and traces). A word is refused on a scheduled method, which declares it on `@schedule`, and with `@suppress`, where no route carries it; a trace setting needs `GenerateRouter`. Example: [IngestDroidReports](../lodestar/pkg/rpc/ingest_droid_reports.go). |
 | `@enumerate` | named type with underlying type `string` | enum table name | Generates typed constants for the named type from the rows of an enum table, and declares the table an enumeration: its rows are the program's constants, fixed at generation time. Two rules follow. A table-backed field whose foreign key points into the table is emitted as an `enumerated` picker whose values ride in the TypeScript metadata (`enumeration: [{ id, display }]`, Description as the display), so the browser needs neither a request nor a List grant, and this wins even when a struct also exposes the table as a resource. A `@resource` struct backing the table is read-only by derivation: no patch handler, no Create/Update/Delete in the collection, fields marked `readOnly`, and create or update defaults, validators, a delete rule, or a manual patch Set on it fail generation. A table is an enum table when it has an `Id` column and a `Description` column (the generator runs `SELECT DISTINCT Id, Description` against the migrated schema); a `Description` column on a table keyed otherwise, such as the feature flags or an auth's roles, names no enumeration. An enum table with more than 500 rows warns at every generation, since each field keyed into it carries every row in the TypeScript metadata; the warning names the bytes and the fields, and the way out is to drop `@enumerate` from the type and expose the table with a `@resource` struct, whose picker reads it whole or, under a `@page` maximum, one page at a time. Example: [ShipRole](../lodestar/pkg/resources/enums.go) behind [ShipClass.RoleID](../lodestar/pkg/resources/ship_classes.go). |
-| `@enumerate` | field of an `@rpc`, `@resource`, `@virtual`, or `@computed` struct | resource or enum table name | Declares which resource a picker for the field lists — the field holds another resource's identifier, and the generator alone says which. The generated metadata emits `displayType: 'enumerated'` with `enumeratedResource: Resources.X`; the browser narrows and presents X's rows and never chooses another resource. X must exist — a table-backed, virtual, or computed resource — and be keyed by a single column, since a picker stores one key. On a list field of an `@rpc` struct (a list of plain values) the field holds several picked keys and the metadata emits `displayType: 'enumerated[]'`; a list field of a table, a view or a computed resource refuses the annotation, since a column stores one key, and so does a list of nested values; a picker of several reads X whole, so an X with a `@page` maximum fails generation there. A picker reads X in one of two ways, chosen by X's `@page` maximum: with none, the whole list in one request (`limit=all`), the chosen row resolved from it, so X may suppress its read; with a maximum, one server page at a time, the chosen row read by key, so X must serve a read — a bounded X with a suppressed read fails generation naming the two ways out (keep the read, or drop the maximum), on this path and on an undeclared foreign key into a routed resource alike. A list field cannot declare one: the field would store many keys where a picker stores one, so `@enumerate` on a slice, an array, or a named list type fails generation on every path naming the struct and field (`struct Ship field Tags: @enumerate on a list field; a picker stores one key`), and a byte slice, one value on the wire, is not a list here. Four rules: a **plain column** (no foreign key) names the resource the picker lists, with no Go validation and no database check, as for an identifier held from outside the schema (example: [Mission.BriefingTemplateID](../lodestar/pkg/resources/missions.go) → [BriefingTemplates](../lodestar/pkg/computedresources/briefing_templates.go)); a **foreign key** may name a resource other than its target whose rows key into the same space, typically a virtual view over the target carrying display columns the target lacks, while the constraint stays the guard at write time — naming the target itself is refused as redundant, the schema already says so (example: [Mission.ClientID](../lodestar/pkg/resources/missions.go) → [ClientRosters](../lodestar/pkg/virtualresources/client_rosters.go)); naming an **enum table** — one an `@enumerate` type declares, with or without a struct over it — renders the field from the inline `enumeration` values exactly as an inferred key into that table does, one rule for declared and inferred (example: [FailMission.ReasonID](../lodestar/pkg/rpc/fail_mission.go)); and a declaration on a foreign key that **already points into an enum table** is refused as a contradiction, since those values are program constants baked into the metadata. A request field has no schema, so it always declares (example: [CompileBriefing.TemplateID](../lodestar/pkg/rpc/compile_briefing.go), naming a computed resource). A declared enumeration follows the RPC outlet rule: naming a resource that is not on the target outlet fails generation with the fix named, where an inferred key degrades to its plain type. |
+| `@enumerate` | field of an `@rpc`, `@resource`, `@virtual`, or `@computed` struct | resource or enum table name | Declares which resource a picker for the field lists — the field holds another resource's identifier, and the generator alone says which. The generated metadata emits `displayType: 'enumerated'` with `enumeratedResource: Resources.X`; the browser narrows and presents X's rows and never chooses another resource. X must exist — a table-backed, virtual, or computed resource — and be keyed by a single column, since a picker stores one key. On a list field of an `@rpc` struct (a list of plain values) the field holds several picked keys and the metadata emits `displayType: 'enumerated[]'`; a list field of a table, a view or a computed resource refuses the annotation, since a column stores one key, and so does a list of nested values; a picker of several reads X whole, so an X with a `@page` maximum fails generation there. A picker reads X in one of two ways, chosen by X's `@page` maximum: with none, the whole list in one request (`limit=all`), the chosen row resolved from it, so X may suppress its read; with a maximum, one server page at a time, the chosen row read by key, so X must serve a read — a bounded X with a suppressed read fails generation naming the two ways out (keep the read, or drop the maximum), on this path and on an undeclared foreign key into a routed resource alike. A list field cannot declare one: the field would store many keys where a picker stores one, so `@enumerate` on a slice, an array, or a named list type fails generation on every path naming the struct and field (`struct Ship field Tags: @enumerate on a list field; a picker stores one key`), and a byte slice, one value on the wire, is not a list here. Four rules: a **plain column** (no foreign key) names the resource the picker lists, with no database check, as for an identifier held from outside the schema (example: [Mission.BriefingTemplateID](../lodestar/pkg/resources/missions.go) → [BriefingTemplates](../lodestar/pkg/computedresources/briefing_templates.go)); a **foreign key** may name a resource other than its target whose rows key into the same space, typically a virtual view over the target carrying display columns the target lacks, while the constraint stays the guard at write time — naming the target itself is refused as redundant, the schema already says so (example: [Mission.ClientID](../lodestar/pkg/resources/missions.go) → [ClientRosters](../lodestar/pkg/virtualresources/client_rosters.go)); naming an **enum table** — one an `@enumerate` type declares, with or without a struct over it — renders the field from the inline `enumeration` values exactly as an inferred key into that table does, one rule for declared and inferred (example: [FailMission.ReasonID](../lodestar/pkg/rpc/fail_mission.go)); and a declaration on a foreign key that **already points into an enum table** is refused as a contradiction, since those values are program constants baked into the metadata. A request field has no schema, so it always declares (example: [CompileBriefing.TemplateID](../lodestar/pkg/rpc/compile_briefing.go), naming a computed resource). A declared enumeration follows the RPC outlet rule: naming a resource that is not on the target outlet fails generation with the fix named, where an inferred key degrades to its plain type. What a write or a method sends in the field is held to the rows the sender's own list of X shows (section 26). |
 | `@suppress` | `@resource`, `@computed`, or `@rpc` struct | one or more of `listHandler`, `readHandler`, `patchHandler`, `allHandlers`, `allRoutes` | Skips generating the named handlers, or all routes. Suppressing `readHandler` on a resource a picker lists is refused where the resource declares a `@page` maximum (`@enumerate`). Suppressing `patchHandler` also removes the resource from the consolidated patch handler. `allRoutes` is rejected on consolidated resources unless the patch handler is suppressed or the resource is excluded from consolidation. On an `@rpc` struct, any argument suppresses the generated handler. |
 | `@defaultsCreateType` | `@resource` struct | type name | The generated create path calls `Defaults()` on the named type to set defaults when creating the resource. |
 | `@defaultsUpdateType` | `@resource` struct | type name | As above, for updates. |
@@ -694,7 +694,8 @@ accepted with another value, the sentence names the fields whose values the cond
 and says the value is what may not be set. Where the stored row refuses the write whatever
 is sent, the sentence is the row's ("but not of this one"), and a write that fails both
 ways is told the row's. Several fields read "the budget or the due date" and "these
-values".
+values". Where a write's fields fall under several conditions, each is judged by itself,
+and the sentence is that of the first one that fails.
 
 The verb is the permission's: Create is "add", Read is "see", Update is "change", Delete
 is "delete" and List is "list". The resource is its name split into lower-case words
@@ -941,7 +942,7 @@ about it:
 ## 7. RPC methods: what a method is for
 
 The generator enforces a method's shape (`@rpc`, the `Execute` forms, the wire
-vocabulary, the frame). Three conventions it cannot see are stated here, and hold
+vocabulary, the frame). Four conventions it cannot see are stated here, and hold
 across every application on this stack:
 
 - **A method answers with identifiers and outcomes, never rows.** `Execute` may return
@@ -978,6 +979,14 @@ across every application on this stack:
   framework ships (`resource/filestore`, section 13) removes such objects once they are
   older than the window, and the window is the application's decision. The cleanup is
   the safety net, never the mechanism.
+- **A picked field names a row the caller can list.** A request field that declares
+  `@enumerate` is filled by a picker over that list, and the generated handler holds what
+  the request sends in it to the rows the caller's own list shows, before the body runs
+  (section 26). A method's body does not check it again. The hold is the generated
+  handler's, so two things stay the author's: a method that suppresses its handler
+  (`@suppress`) makes the call itself, in the handler it writes
+  (`resource.Caller.HoldPicked`), and a body that takes a row's key any other way (a
+  field with no picker, a request it builds for another method) checks that key itself.
 
 ### A method that warns before it runs
 
@@ -5249,14 +5258,18 @@ holding some of them is refused at generation.
   cannot be named here.`, the column by its JSON name and the tenant by the application's
   word for one). An update that moves a row which names a group to another tenant is held
   the same way, and an id that is no group's is refused in the same words, so the answer
-  says nothing of what another tenant keeps. The rule is the patch set's, so it holds for
-  every writer that writes through a patch (a generated route, a method, a job, a
-  bootstrap), armed or trusted, and no application states it: the generator declares the
-  columns (`GroupColumns` on the generated resource), every column of a `@domain`
-  resource that a `who:` tests against an Auth's groups set. A writer that goes past the
-  patch with SQL of its own is outside it. An application with several Auths that keep
-  groups has one set for each, named for its Auth (`subject.crewGroups`,
-  `subject.staffGroups`), since `subject.<name>` is one namespace for the application.
+  says nothing of what another tenant keeps. A column that is also picked from a list
+  (section 26) is held to its writer's own list as well, and a request's create that names
+  a group the list does not show is answered by that rule, as a row that is not there
+  (404), before this one is asked; this rule's own sentence is what a writer no list is
+  asked of (a job, a bootstrap) reads. The rule is the patch set's, so it holds for every
+  writer that writes through a patch (a generated route, a method, a job, a bootstrap),
+  armed or trusted, and no application states it: the generator declares the columns
+  (`GroupColumns` on the generated resource), every column of a `@domain` resource that a
+  `who:` tests against an Auth's groups set. A writer that goes past the patch with SQL of
+  its own is outside it. An application with several Auths that keep groups has one set
+  for each, named for its Auth (`subject.crewGroups`, `subject.staffGroups`), since
+  `subject.<name>` is one namespace for the application.
 
 The lists: `CrewGroups` (the groups, with where each is kept), `CrewGroupUsers` (the
 people of the groups, with their names), `CrewGroupRoles` (the roles the groups hold)
@@ -5475,7 +5488,9 @@ every policy store's schema holds it).
   role, a length and the reason, which is required here. The lengths are the ones
   `CrewTakeLengths` lists (1 hour, 4 hours, 8 hours, 1 day), and the role is held from
   now until the length is over, when it ends by itself as any period does. A longer
-  need is an ordinary role with an end.
+  need is an ordinary role with an end. The length is picked from that list, so a role
+  that runs `TakeCrewRole` also holds the List on `CrewTakeLengths`, and a length the
+  list does not hold is answered as a row that is not there (section 26).
 - Taking gives nobody a power that giving themselves the role directly would not.
   Beside the grant of `TakeCrewRole`, the caller needs what `AssignCrewRole` needs of
   them for the same role in the same place, asked for themselves, which a super
@@ -7051,8 +7066,9 @@ and its fields under that one condition, so the project's lead filters it.
 
 The dialogs pick the person from the tenant's list of its people and the group from its
 groups. Those are the tenant's lists, and a role held on one project lists neither: a person
-who is to share from the page also holds, in the tenant, a role that lists them. The methods
-run without it, for a request that names the person or the group by id.
+who is to share also holds, in the tenant, a role that lists them. The methods hold a request
+to the same lists (section 26): one that names a person or a group the caller's own list does
+not show is answered as a row that is not there.
 
 A person put in a group that holds a role on a record is given that role there, so the
 request needs what giving it to them on that record needs: the grant of
@@ -7130,21 +7146,60 @@ on missions, and the console's missions page carries the Sharing list.
 
 ## 26. A row a write names
 
-A column that names a row of another table (a foreign key, or a column picked from a table's
-list) is set only to a row its writer can list: a row the person's own list of that table
-would show. The picker of such a column lists its source under the person's own List grant,
-so it offers only those rows; the server holds a create and an update to the same rows, and
-answers any other 404, `A record this one refers to does not exist.`, as it answers a row
-that is not there. A role that sets such a column therefore needs the List grant on the table
-it picks from; a grant under a condition lets it name the rows the condition holds for, and a
-role held on one record the rows that record reaches (section 25). The refusal comes after
-the grant's own (a person who may not create at all is told so). A create is refused before
-its conditions are asked. An update and an update-or-create are asked once the row is found in
-the request's tenant and the write's conditions hold for it, so the answer tells a writer
-nothing of a row they may not change.
+A column that names a row of another kind (a foreign key, or a column picked from a list with
+a field-scope `@enumerate`) is set only to a row its writer can list: a row the person's own
+list of that kind would show. The kind is a table, a view or a computed list. The picker of
+such a column lists its source under the person's own List grant, so it offers only those
+rows; the server holds a create and an update to the same rows, and answers any other 404,
+`A record this one refers to does not exist.`, as it answers a row that is not there. A role
+that sets such a column therefore needs the List grant on what it picks from; a grant under a
+condition lets it name the rows the condition holds for, and a role held on one record the
+rows that record reaches (section 25). The refusal comes after the grant's own (a person who
+may not create at all is told so). A create is refused before its conditions are asked. An
+update and an update-or-create are asked once the row is found in the request's tenant and
+the write's conditions hold for it, so the answer tells a writer nothing of a row they may
+not change.
+
+How each kind is asked. A table's row is read by its key, in the request's tenant where the
+table belongs to one, under the grant's condition; where the grant carries no condition and
+the table belongs to no tenant, nothing is read. A view's row is read the same way from the
+view's own query, and always, since the query says which rows the view has. A computed list
+is asked through its own function: the library runs the function for the writer as the list's
+route runs it, with no filter, judges each row it yields by the List grant's condition, and
+looks for the key. One write runs the function once for each such column it sets, and a plain
+column picked from a computed list takes no id the list does not hold.
+
+A method's picked field is held the same way. A field of an `@rpc` struct with a field-scope
+`@enumerate` names only a row the caller's list of that kind shows, each key of a field that
+takes several, and a request that names any other is answered the same 404, after the
+method's grant has refused a caller who may not run it, or whose request its condition does
+not admit, and before the method's warning, its transaction and its body. A condition the
+grant carries on the row the method acts on is judged later, in the transaction, so a
+request that fails both reads this refusal. A field left empty, or an empty item of a field
+that takes several, names no row and is not asked: what an empty field means is the body's
+to say.
 
 An update that leaves the column as it is is not asked, and neither is a row the same
 transaction created before in the request's tenant, nor a write made outside a request (a
-job, a bootstrap: a patch set that is not armed). The rule holds for a column the generator
-declares (`NamedRows()` on the resource): one whose source is a table of the application with
-a list. A column picked from an enumeration table is not held: everyone picks from those.
+job, a bootstrap: a patch set that is not armed). For a column picked from a view or a
+computed list, the row made before is a row of the table the column's foreign key references;
+a column with no foreign key has none, and names a row once the request that made it has
+committed. Such a row passes on that table's facts alone, its key and, where the table
+belongs to a tenant, its tenant: the view's own query and the list's function are not asked
+of a row the request has not committed.
+
+The rule holds for a column and a field the generator declares (`NamedRows()` on the
+resource; the call of `HoldPicked` in a method's generated handler): one whose source is a
+table, a view or a computed list of the application that serves a list. The generated
+decoders are handed the views and the lists to ask (`WithNamedRowSources`); a decoder built
+by hand is handed them the same way. A method that suppresses its generated handler
+(`@suppress`) has no such call: the handler the application writes makes it. Not held: a
+column or a field picked from an enumeration table, since everyone picks from those; a
+method's field picked from a list of roles (a list whose key is marked `@roleOf`), since
+which roles a person hands out is said on the method's own grant (`new.role`) and the list
+is made from that grant, while a column picked from such a list is held as any other, no
+method's grant standing over a write; a field of a method of the whole application picked
+from a tenant's list, or from the tenant record: the tenant such a method names is the place
+it acts in, as a tenant's method takes its tenant from its address, and what the caller may
+do there is for the method's own grant and its body to say; and the column that holds the
+row's own tenant key.

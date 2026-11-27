@@ -777,6 +777,39 @@
               "fields": [
                 "description"
               ]
+            },
+            {
+              "resource": "Sectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "disabled"
+              ]
+            },
+            {
+              "resource": "ShipClasses",
+              "fields": [
+                "designation",
+                "roleId",
+                "tonnage",
+                "hardened",
+                "inService"
+              ]
+            },
+            {
+              "resource": "Pilots",
+              "fields": [
+                "userId",
+                "displayName",
+                "clearance",
+                "feeLimit"
+              ]
+            },
+            {
+              "resource": "PilotCertifications",
+              "fields": []
             }
           ],
           "Read": [
@@ -1125,6 +1158,39 @@
                 "people",
                 "roles"
               ]
+            },
+            {
+              "resource": "Sectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "disabled"
+              ]
+            },
+            {
+              "resource": "ShipClasses",
+              "fields": [
+                "designation",
+                "roleId",
+                "tonnage",
+                "hardened",
+                "inService"
+              ]
+            },
+            {
+              "resource": "Pilots",
+              "fields": [
+                "userId",
+                "displayName",
+                "clearance",
+                "feeLimit"
+              ]
+            },
+            {
+              "resource": "PilotCertifications",
+              "fields": []
             }
           ],
           "Create": [
@@ -1574,6 +1640,12 @@
                 "awardedByName",
                 "awardedAt"
               ]
+            },
+            {
+              "resource": "Pilots",
+              "fields": [
+                "displayName"
+              ]
             }
           ],
           "Read": [
@@ -1585,6 +1657,12 @@
                 "awardedByUserId",
                 "awardedByName",
                 "awardedAt"
+              ]
+            },
+            {
+              "resource": "Pilots",
+              "fields": [
+                "displayName"
               ]
             }
           ],
@@ -1670,6 +1748,28 @@
               "resource": "CrewInvitedSectorRoles",
               "fields": [
                 "description"
+              ]
+            },
+            {
+              "resource": "Sectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "disabled"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "Sectors",
+              "fields": [
+                "name",
+                "region",
+                "established",
+                "directoryOnly",
+                "disabled"
               ]
             }
           ],
@@ -4677,6 +4777,45 @@
         }
       },
       {
+        "name": "MusterClerk",
+        "description": "Sees who is in the sector: its people and its groups.",
+        "permissions": {
+          "List": [
+            {
+              "resource": "CrewSectorUsers",
+              "fields": [
+                "username",
+                "name",
+                "displayName"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "CrewSectorUsers",
+              "fields": [
+                "username",
+                "name"
+              ]
+            },
+            {
+              "resource": "CrewSectorGroups",
+              "fields": [
+                "name",
+                "description"
+              ]
+            }
+          ]
+        }
+      },
+      {
         "name": "DroidIngest",
         "description": "The droids' account: ingests their reports and releases consignments.",
         "permissions": {
@@ -5216,7 +5355,6 @@
             {
               "resource": "Missions",
               "fields": [
-                "clientId",
                 "kindId",
                 "title",
                 "brief",
@@ -5225,8 +5363,7 @@
                 "deadline",
                 "requiredCertId",
                 "assignedSquadronId",
-                "notes",
-                "briefingTemplateId"
+                "notes"
               ]
             },
             {

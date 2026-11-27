@@ -341,7 +341,8 @@
       "roles": {
         "global": [
           "CrewCommon",
-          "ClientBrowser"
+          "ClientBrowser",
+          "BriefingClerk"
         ],
         "everyDomain": [
           "Archivist"
@@ -431,6 +432,7 @@
         "domains": {
           "Anvil": [
             "Harbormaster",
+            "MusterClerk",
             "SectorCrew"
           ]
         }
@@ -521,7 +523,8 @@
       "password": "follow-the-lodestar-home",
       "roles": {
         "global": [
-          "CrewCommon"
+          "CrewCommon",
+          "BriefingClerk"
         ],
         "domains": {
           "Anvil": [

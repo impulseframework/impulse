@@ -3,14 +3,30 @@
 
 package membershandlers
 
-import "github.com/impulseframework/impulse/resource"
+import (
+	"context"
+	"iter"
 
-// NamedRowSources are the sources the rows a write names are asked of: the views and the
-// computed lists of the auth's generated management that a column is picked from, handed
-// to these handlers' decoders (WithNamedRowSources) and merged into the application's. A
-// column picked from a view or a computed list is set only to a row the writer's list of
-// it shows: the library reads the row from the view's query, or asks the list's own
-// function for it.
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/internal/membersresources"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/membersidentity"
+	"github.com/impulseframework/impulse/resource"
+)
+
+// NamedRowSources are the sources the rows a write or a method's request names are asked
+// of: the views and the computed lists of the auth's generated management that a column or
+// a method's picked field is picked from, handed to these handlers' decoders
+// (WithNamedRowSources) and merged into the application's. A column picked from a view or
+// a computed list is set only to a row the writer's list of it shows, and a method's picked
+// field names only a row its caller's list shows: the library reads the row from the view's
+// query, or asks the list's own function for it.
 func (h *Handlers) NamedRowSources() resource.NamedRowSources {
-	return resource.NamedRowSources{}
+	return resource.NamedRowSources{
+		"MembersRememberLengths": resource.ComputedRows("Name", func(ctx context.Context, q *resource.QuerySet[membersidentity.MembersRememberLength]) iter.Seq2[*membersidentity.MembersRememberLength, error] {
+			return membersidentity.ListMembersRememberLength(ctx, q, h.ResourceClient(), h.ComputedClient())
+		}),
+		"MembersTakeLengths": resource.ComputedRows("Name", func(ctx context.Context, q *resource.QuerySet[membersidentity.MembersTakeLength]) iter.Seq2[*membersidentity.MembersTakeLength, error] {
+			return membersidentity.ListMembersTakeLength(ctx, q, h.ResourceClient(), h.ComputedClient())
+		}),
+		"MembersTenantUsers": resource.ViewRows(membersresources.MembersTenantUser{}),
+	}
 }

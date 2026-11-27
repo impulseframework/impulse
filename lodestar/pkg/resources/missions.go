@@ -36,10 +36,12 @@ type (
 	// the enumerate annotation). ClientID is a foreign key into Clients, and it names
 	// ClientRosters, a sector-scoped view over Clients keyed by the same id that carries
 	// the contact and mission counts a booking picker wants; the constraint stays the
-	// guard at write time, and the roster's maximum makes it a bounded source the picker
+	// guard at write time, the library holds a write to the clients the writer's list of
+	// the roster shows, and the roster's maximum makes it a bounded source the picker
 	// pages and reads by key. BriefingTemplateID is a plain column with no foreign key: it
 	// holds an identifier from the BriefingTemplates catalog, which lives in Go, not in
-	// the schema, so nothing but the declaration says what the picker lists.
+	// the schema, so nothing but the declaration says what the picker lists, and the
+	// library takes only an id the writer's list of the catalog shows.
 	//
 	// Fee is allow_filter on an unindexed column, so its metadata says filterable:
 	// withIndexed — the browser offers a fee filter only beside one on an indexed
@@ -105,7 +107,13 @@ type (
 	// (AssignedSquadronId), and on nothing else: a person who holds nothing else in the
 	// sector enters it for that mission alone, and the sector's people list says so. A lead
 	// shares the mission with observers, and the mission's delete takes the roles held on
-	// it.
+	// it. What a lead picks from the sector's own lists she picks by a second role, held in
+	// the sector, that lists it: a sortie's ship (the Harbormaster's role lists the ships
+	// and gives nothing else), a group to share the mission with (Sector Crew lists the
+	// groups she is in herself) and a person to share it with (the Muster Clerk's role lists
+	// the sector's people and its groups, and gives nothing else). Her role sets neither the
+	// mission's client nor its briefing sheet: a role held on one mission lists neither the
+	// roster nor the catalog.
 	//
 	// Demonstrates: @holdsRoles.
 	//

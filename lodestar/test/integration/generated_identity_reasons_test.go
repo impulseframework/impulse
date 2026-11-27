@@ -131,7 +131,8 @@ func withoutGrant(t *testing.T, roles access.RoleFile, role, permission, res str
 // TestGeneratedIdentityTakeRole holds the taking of a role for a set time, the act of
 // the Break glass page: the governor takes a role in a sector with a reason, and holds
 // it from then until the length is over; the reason is required and the length is one
-// of the ones offered; the list of the roles held for a set time says who, where, why
+// of the ones offered, a length the list does not offer answered as a row that is not
+// there; the list of the roles held for a set time says who, where, why
 // and until when; the sector's Marshal reads why beside the role; taking again writes the
 // new time and the new reason over the old ones, where giving himself a longer time the
 // ordinary way is refused; the Marshal ends it early by taking the role away; and a role
@@ -214,14 +215,20 @@ func TestGeneratedIdentityTakeRole(t *testing.T) {
 	const why = "Inspecting Anvil's hangar after the collision"
 	status, body := take("marshal", taking("Engineer", "1 hour", why))
 	assertStatus(t, status, http.StatusForbidden, body)
-	// The reason is required, and the length is one of the ones offered.
+	// The reason is required, and the length is one of the ones offered: the request's
+	// length is picked from the list of lengths, so one it does not offer is answered as a
+	// row that is not there, before the method reads it.
+	status, body = take("governor", taking("Engineer", "2 days", why))
+	assertStatus(t, status, http.StatusNotFound, body)
+	if got, want := refusalMessage(t, body), "A record this one refers to does not exist."; got != want {
+		t.Errorf("a length that is not offered: the refusal says %q, want %q", got, want)
+	}
 	for _, tt := range []struct {
 		name, body, says string
 	}{
 		{name: "no reason", body: fmt.Sprintf(`{"domain":%q,"role":"Engineer","length":"1 hour"}`, anvil)},
 		{name: "a reason of spaces alone", body: taking("Engineer", "1 hour", "   "), says: "Say why you need the role. A role taken for a set time carries a reason, one line that the people it is taken with can read."},
 		{name: "a reason of two lines", body: taking("Engineer", "1 hour", "Inspecting\nthe hangar"), says: "The reason is one line of plain text, and this one holds a line break or a character that cannot be shown. Type it again as one line."},
-		{name: "a length that is not offered", body: taking("Engineer", "2 days", why), says: `A role is taken for 1 hour, 4 hours, 8 hours or 1 day, and "2 days" is none of them. A longer need is an ordinary role with an end, given from the people pages.`},
 		{name: "the Super Administrator role", body: fmt.Sprintf(`{"domain":%q,"role":%q,"length":"1 hour","reason":%q}`, anvil, accesstypes.SuperAdministrator, why)},
 	} {
 		status, body = take("governor", tt.body)

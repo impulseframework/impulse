@@ -88,7 +88,8 @@ func nameFixtureTables() map[string]*tableMetadata {
 		"Rotas": {PkCount: 1, Columns: map[string]columnMeta{
 			"Id": pk, "BaseId": to("Bases"), "HangarId": plain, "MemberId": plain, "WingId": to("Wings"), "DrillId": plain, "ShiftId": plain, "RationId": plain,
 		}},
-		"Depots": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HangarId": plain, "ShiftId": plain, "DrillId": plain}},
+		"Depots":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HangarId": plain, "ShiftId": plain, "DrillId": plain}},
+		"Watches": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "BaseId": to("Bases"), "DutyName": plain, "RankName": plain}},
 		"Dockets": {PkCount: 1, Columns: map[string]columnMeta{
 			"Id": pk, "BadgeId": indexedTo("Badges"), "Grade": indexedTo("Grades"), "SealId": indexedTo("Seals"),
 			"SpareSealId": to("Seals"), "LooseBadgeId": to("Badges"), "KitId": indexedTo("Kits"), "WardId": indexedTo("Wards"),

@@ -47,6 +47,15 @@ func (h *Handlers) SetStaffRememberedBrowsers() http.HandlerFunc {
 
 		p := (*staffidentity.SetStaffRememberedBrowsers)(params)
 
+		// A row the request names in a picked field is one the caller can list
+		// (resource.Caller.HoldPicked): any other is answered as a row that is not there,
+		// before the warning, the transaction and the body.
+		if err := caller.HoldPicked(ctx, h.ResourceClient(), "SetStaffRememberedBrowsers",
+			resource.PickedRow{Row: resource.NamedRow{Field: "Length", Resource: "StaffRememberLengths", Table: "", KeyColumn: "", Computed: true}, Value: p.Length},
+		); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
 		// The X-Warning header takes the value true or is left off the request: any
 		// other value is refused here, and the call is not run.
 		asksWarning, err := resource.AsksWarning(r)
