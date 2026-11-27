@@ -818,6 +818,9 @@ type takingDelete struct {
 	// also are the kinds code handed the delete (PatchSet.DeleteAlso), in the order
 	// handed.
 	also []TakenKind
+	// pageRows is the most rows one page of a frontier holds, takenPageRows where it is
+	// zero: a test makes it small.
+	pageRows int
 }
 
 // callerOf is the person a row of the kind is checked as: none for a trusted kind
@@ -1184,8 +1187,12 @@ func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each fun
 		if start.query.under != nil {
 			crossed = start.query.under.table != table
 		}
-		for offset := 0; ; offset += takenPageRows {
-			statement, ok := start.query.page(kind, level, start.levels.below(), nil, takenPageRows, offset)
+		pageRows := d.pageRows
+		if pageRows == 0 {
+			pageRows = takenPageRows
+		}
+		for offset := 0; ; offset += pageRows {
+			statement, ok := start.query.page(kind, level, start.levels.below(), nil, pageRows, offset)
 			if !ok {
 				break
 			}
@@ -1207,7 +1214,7 @@ func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each fun
 			if err := each(kind, page, &takenUnder{table: table, key: kind.Key, ids: ids, crossed: crossed, rows: rows}); err != nil {
 				return err
 			}
-			if len(page) < takenPageRows {
+			if len(page) < pageRows {
 				break
 			}
 		}
