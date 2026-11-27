@@ -40,7 +40,7 @@ func (q *takenQuery) byTenant(kind *DeleteKind, level, deepest int) (rowsUnderSt
 	sql := fmt.Sprintf("SELECT tenant, COUNT(*) FROM (SELECT CAST(%s AS %s) AS tenant FROM %s WHERE %s) GROUP BY tenant",
 		tenant, columnTypeString, outer, condition)
 
-	return rowsUnderStatement{SQL: sql, Args: w.args}, true
+	return rowsUnderStatement{SQL: sql, Args: w.args, Named: w.named()}, true
 }
 
 // countByTenant runs one statement that counts a kind's rows by their tenant inside the
@@ -111,7 +111,7 @@ func (c *SpannerReadWriteTransaction) tenantName(ctx context.Context, tenants *D
 // row of no tenant and sends no statement. A row of a tenant out of reach refuses in the
 // sentence for the first such tenant, its key read as text, counting each marked kind's
 // rows in it; with none, a row of no tenant refuses in the sentence for those.
-func (d *takingDelete) refusedBeyondReach(ctx context.Context, levels *takenLevels) error {
+func (d *takingDelete) refusedBeyondReach(ctx context.Context, start *takenStart) error {
 	caller := d.asked.caller
 	if caller.IsZero() || caller.Scope.IsGlobal() {
 		return nil
@@ -126,7 +126,7 @@ func (d *takingDelete) refusedBeyondReach(ctx context.Context, levels *takenLeve
 		if !kind.WithinReach || kind.Trusted {
 			continue
 		}
-		total := levels.total(kind)
+		total := start.total(kind)
 		if total == 0 {
 			continue
 		}
@@ -135,8 +135,20 @@ func (d *takingDelete) refusedBeyondReach(ctx context.Context, levels *takenLeve
 
 			continue
 		}
-		inTenant, ofNone, err := d.kindByTenant(ctx, kind, levels, own)
-		if err != nil {
+		inTenant := make(map[string]int64)
+		var ofNone int64
+		if _, err := d.walk(ctx, start, func(at *takenStart) (bool, error) {
+			tenants, noTenant, err := d.kindByTenant(ctx, at.query, kind, at.levels, own)
+			if err != nil {
+				return false, err
+			}
+			for tenant, rows := range tenants {
+				inTenant[tenant] += rows
+			}
+			ofNone += noTenant
+
+			return false, nil
+		}); err != nil {
 			return err
 		}
 		for tenant, rows := range inTenant {
@@ -172,21 +184,23 @@ func (d *takingDelete) refusedBeyondReach(ctx context.Context, levels *takenLeve
 	return nil
 }
 
-// kindByTenant counts a marked kind's rows by their tenant, level by level: the rows of
-// each tenant but the caller's own (own), and the rows of no tenant.
-func (d *takingDelete) kindByTenant(ctx context.Context, kind *DeleteKind, levels *takenLevels, own accesstypes.Domain) (inTenant map[string]int64, ofNone int64, err error) {
+// kindByTenant counts a marked kind's rows by their tenant, level by level, in the start
+// the query writes: the rows of each tenant but the caller's own (own), and the rows of
+// no tenant. A count the database refuses for its joins at a level above 0 is a
+// levelRefused.
+func (d *takingDelete) kindByTenant(ctx context.Context, query *takenQuery, kind *DeleteKind, levels *takenLevels, own accesstypes.Domain) (inTenant map[string]int64, ofNone int64, err error) {
 	inTenant = make(map[string]int64)
 	for level := 0; level <= levels.deepest; level++ {
 		if levels.at(kind, level) == 0 {
 			continue
 		}
-		statement, ok := d.query.byTenant(kind, level, levels.deepest)
+		statement, ok := query.byTenant(kind, level, levels.below())
 		if !ok {
 			continue
 		}
 		counted, err := d.countByTenant(ctx, statement)
 		if err != nil {
-			return nil, 0, errors.Wrapf(err, "counting the %s under a %s by their tenant", kind.Words.Many, d.query.tree.Words.One)
+			return nil, 0, refusedAt(level, errors.Wrapf(err, "counting the %s under a %s by their tenant", kind.Words.Many, d.query.tree.Words.One))
 		}
 		for _, tenant := range counted {
 			switch {

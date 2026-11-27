@@ -3,9 +3,11 @@ package resource
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -14,6 +16,8 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // cascadeDatabase makes a database with the taken delete's fixture on the shared
@@ -132,6 +136,35 @@ func runTakingAlso(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[s
 func runTakingFor(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, size int, asked *Caller, handed ...*handedKind) *cascadeRun {
 	t.Helper()
 
+	return runTakingRefused(t, db, tree, key, rows, everythingUnder, size, asked, nil, handed...)
+}
+
+// joinLimit is the tests' stand-in for the database's refusal of a statement that joins
+// too many tables ("the limit"): it answers Spanner's error for a statement that joins
+// more than the given number of tables, the tables a way joins being the " AS w" in its
+// text, and nil for any other. With terms, a page's terms count as tables too (" AS a").
+func joinLimit(tables int, terms bool) func(sql string) error {
+	return func(sql string) error {
+		joined := strings.Count(sql, " AS w")
+		if terms {
+			joined += strings.Count(sql, " AS a")
+		}
+		if joined > tables {
+			return spanner.ToSpannerError(status.Error(codes.InvalidArgument, "Number of joins exceeds the maximum allowed limit of 20."))
+		}
+
+		return nil
+	}
+}
+
+// runTakingRefused is runTakingFor with each statement asked of refuses before it is sent
+// (joinLimit), as deleteTaken asks PatchSet.deleteRefuses; nil asks nothing.
+func runTakingRefused(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[string]any, rows cascadeRows, everythingUnder bool, size int, asked *Caller, refuses func(sql string) error, handed ...*handedKind) *cascadeRun {
+	t.Helper()
+
+	if refuses == nil {
+		refuses = func(string) error { return nil }
+	}
 	run := &cascadeRun{}
 	rows.asked, rows.made = &run.asked, &run.made
 	also := make([]TakenKind, 0, len(handed))
@@ -157,12 +190,18 @@ func runTakingFor(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[st
 			page: func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error) {
 				run.pages++
 				run.statements = append(run.statements, statement.SQL)
+				if err := refuses(statement.SQL); err != nil {
+					return nil, err
+				}
 
 				return spannerTxn.readPage(ctx, statement, types, answers)
 			},
 			byTenant: func(ctx context.Context, statement rowsUnderStatement) ([]tenantRows, error) {
 				run.byTenant++
 				run.statements = append(run.statements, statement.SQL)
+				if err := refuses(statement.SQL); err != nil {
+					return nil, err
+				}
 
 				return spannerTxn.countByTenant(ctx, statement)
 			},
@@ -173,6 +212,9 @@ func runTakingFor(t *testing.T, db *spanner.Client, tree *DeleteTree, key map[st
 		round, err := taking.run(ctx, func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
 			run.counts++
 			run.statements = append(run.statements, statement.SQL)
+			if err := refuses(statement.SQL); err != nil {
+				return 0, err
+			}
 
 			return spannerTxn.countRows(ctx, statement)
 		}, tracked, everythingUnder)
@@ -266,15 +308,6 @@ func TestTakingDelete(t *testing.T) {
 
 		return tree
 	}
-	folderTree := func() *DeleteTree {
-		return &DeleteTree{
-			Record: "CascadeFolders", Words: DeleteWords{One: "folder", Many: "folders"}, Key: []string{"Id"},
-			Taken: []DeleteKind{{
-				Resource: "CascadeFolders", Words: DeleteWords{One: "folder", Many: "folders"}, Key: []string{"Id"},
-				Paths: []DeletePath{{{Columns: []string{"ParentId"}, Table: "CascadeFolders", References: []string{"Id"}}}},
-			}},
-		}
-	}
 
 	tests := []struct {
 		name            string
@@ -338,7 +371,7 @@ func TestTakingDelete(t *testing.T) {
 			wantPages:     -1,
 		},
 		{
-			name: "a folder in a folder is taken, the deepest first", tree: folderTree(), key: map[string]any{"Id": "f1"}, everythingUnder: true,
+			name: "a folder in a folder is taken, the deepest first", tree: cascadeFolderTree(), key: map[string]any{"Id": "f1"}, everythingUnder: true,
 			wantMade:  []string{"ID=f3 trusted", "ID=f2 trusted"},
 			wantPages: -1,
 		},
@@ -414,6 +447,437 @@ func TestTakingDelete(t *testing.T) {
 				t.Error("the delete counted nothing")
 			}
 		})
+	}
+}
+
+// deepestFirst is what is wrong with rows, the rows a delete asked about or deleted in
+// order, against want, the rows under the record: each must be there once, and after
+// every row under it (under, each row by the row it is directly under). It is empty
+// where nothing is.
+func deepestFirst(rows, want []string, under map[string]string) string {
+	at := make(map[string]int, len(rows))
+	for i, row := range rows {
+		if _, twice := at[row]; twice {
+			return row + " is there twice"
+		}
+		at[row] = i
+	}
+	if diff := cmp.Diff(slices.Sorted(slices.Values(want)), slices.Sorted(slices.Values(rows))); diff != "" {
+		return "the rows (-want +got):\n" + diff
+	}
+	for row, parent := range under {
+		child, ok := at[row]
+		if !ok {
+			continue
+		}
+		if above, ok := at[parent]; ok && above < child {
+			return fmt.Sprintf("%s comes before %s, which is under it", parent, row)
+		}
+	}
+
+	return ""
+}
+
+// TestTakingDelete_nestedToAnyDepth holds, over the emulator, a delete that follows a kind
+// nested under itself deeper than one statement joins: the record reads the levels the
+// database lets it, and what is under the last of them is read from its rows' keys, a
+// page at a time, as often as it must. Each case runs with the tests' stand-in for the
+// database's refusal (joinLimit, "the limit"), set so that the record reads three or four
+// levels and each page four, and again without it, where the emulator refuses a statement
+// of more than 20 joins by itself. A chain of 25 tasks, whether or not each holds the
+// project, with comments down it, is counted to its end, each row asked about once and
+// deleted once, deepest first; so is a chain of 25 folders, a section under a section by
+// a key of two columns and a reply under a reply by a column outside the key. A refusing row 20 deep refuses in the counted
+// sentence, and a rule that refuses the 20th task refuses in its own, nothing asked after
+// it. A ring the walk goes down through fails the delete; a chain whose rows are found at
+// two levels, a page holding a row and a row under it, is no ring, and each such row is
+// counted, asked about and deleted at both levels. A statement refused at the record's
+// first level is the error it is, and a page refused where its count was not starts the
+// run again from its first count.
+func TestTakingDelete_nestedToAnyDepth(t *testing.T) { //nolint:tparallel // the cases run one after another, as the comment at their loop says
+	t.Parallel()
+
+	// staged are the rows of each record, by the record's key, each staged in a database
+	// of its own: the emulator reads a statement's joins row by row, so a statement over
+	// one record's rows stays quick. insert stages a row of the record being staged.
+	staged := make(map[string][]*spanner.Mutation)
+	record := ""
+	insert := func(table string, row map[string]any) {
+		staged[record] = append(staged[record], spanner.InsertMap(table, row))
+	}
+	// rows are the names of each record's rows, as cascadeRows names them; under is each
+	// row by the row it is directly under.
+	rows := make(map[string][]string)
+	under := make(map[string]string)
+	named := func(id string) string {
+		return "ID=" + id + " trusted"
+	}
+	task := func(project string, i int) string {
+		return fmt.Sprintf("%s-t%02d", project, i)
+	}
+	// chain stages n tasks of the project, each under the one before it: only the first
+	// holds the project, or every one where keyed.
+	chain := func(project string, n int, keyed bool) {
+		record = project
+		insert("CascadeProjects", map[string]any{"Id": project})
+		for i := 1; i <= n; i++ {
+			row := map[string]any{"Id": task(project, i)}
+			if i == 1 || keyed {
+				row["ProjectId"] = project
+			}
+			if i > 1 {
+				row["ParentTaskId"] = task(project, i-1)
+				under[named(task(project, i))] = named(task(project, i-1))
+			}
+			insert("CascadeTasks", row)
+			rows[project] = append(rows[project], named(task(project, i)))
+		}
+	}
+	comment := func(project string, on int) {
+		record = project
+		id := fmt.Sprintf("%s-c%02d", project, on)
+		insert("CascadeComments", map[string]any{"Id": id, "TaskId": task(project, on)})
+		under[named(id)] = named(task(project, on))
+		rows[project] = append(rows[project], named(id))
+	}
+	for _, project := range []string{"deep", "keyed"} {
+		chain(project, 25, project == "keyed")
+		for _, on := range []int{2, 3, 8, 25} {
+			comment(project, on)
+		}
+	}
+	// An invoice under the 20th task.
+	chain("billed", 25, false)
+	insert("CascadeInvoices", map[string]any{"Id": "billed-i1", "TaskId": task("billed", 20)})
+	// Nine tasks in a chain, then sixteen in a ring: the 10th holds the project and is
+	// under the 25th.
+	record = "ring"
+	insert("CascadeProjects", map[string]any{"Id": "ring"})
+	for i := 1; i <= 25; i++ {
+		row := map[string]any{"Id": task("ring", i)}
+		switch i {
+		case 1:
+			row["ProjectId"] = "ring"
+		case 10:
+			row["ProjectId"], row["ParentTaskId"] = "ring", task("ring", 25)
+		default:
+			row["ParentTaskId"] = task("ring", i-1)
+		}
+		insert("CascadeTasks", row)
+	}
+	// One chain of 16 tasks, two of which hold the project: the top one and the fifth. The
+	// rows from the fifth down are found at two levels, four apart, so a page holds a row
+	// and a row under it, and the page under it holds that row again: no ring.
+	record = "twice"
+	insert("CascadeProjects", map[string]any{"Id": "twice"})
+	twice := []string{"p7", "p6", "p5", "p4", "p3", "p2", "p1", "y", "y1", "y2", "y3", "y4", "y5", "y6", "y7", "y8"}
+	parent := ""
+	for _, id := range twice {
+		row := map[string]any{"Id": "twice-" + id}
+		if parent != "" {
+			row["ParentTaskId"] = "twice-" + parent
+			under[named("twice-"+id)] = named("twice-" + parent)
+		}
+		if id == "p7" || id == "p3" {
+			row["ProjectId"] = "twice"
+		}
+		insert("CascadeTasks", row)
+		rows["twice"] = append(rows["twice"], named("twice-"+id))
+		parent = id
+	}
+	// A chain of 25 folders under the record's folder.
+	record = "folder-00"
+	insert("CascadeFolders", map[string]any{"Id": "folder-00"})
+	for i := 1; i <= 25; i++ {
+		id, parent := fmt.Sprintf("folder-%02d", i), fmt.Sprintf("folder-%02d", i-1)
+		insert("CascadeFolders", map[string]any{"Id": id, "ParentId": parent})
+		if i > 1 {
+			under[named(id)] = named(parent)
+		}
+		rows["folder-00"] = append(rows["folder-00"], named(id))
+	}
+	// 25 sections, each under the one before it in the same project.
+	record = "sectioned"
+	insert("CascadeProjects", map[string]any{"Id": "sectioned"})
+	for i := 1; i <= 25; i++ {
+		row := map[string]any{"ProjectId": "sectioned", "Id": fmt.Sprintf("s%02d", i)}
+		name := fmt.Sprintf("ProjectID=sectioned,ID=s%02d trusted", i)
+		if i > 1 {
+			row["ParentId"] = fmt.Sprintf("s%02d", i-1)
+			under[name] = fmt.Sprintf("ProjectID=sectioned,ID=s%02d trusted", i-1)
+		}
+		insert("CascadeSections", row)
+		rows["sectioned"] = append(rows["sectioned"], name)
+	}
+	// 25 replies in one lane on a task, each answering the one before it.
+	record = "replied"
+	insert("CascadeProjects", map[string]any{"Id": "replied"})
+	insert("CascadeTasks", map[string]any{"Id": "replied-t01", "ProjectId": "replied"})
+	for i := 1; i <= 25; i++ {
+		id := fmt.Sprintf("replied-r%02d", i)
+		row := map[string]any{"Id": id, "Lane": "open"}
+		if i == 1 {
+			row["TaskId"] = "replied-t01"
+		} else {
+			row["AnswersId"] = fmt.Sprintf("replied-r%02d", i-1)
+			under[named(id)] = named(fmt.Sprintf("replied-r%02d", i-1))
+		}
+		insert("CascadeReplies", row)
+		rows["replied"] = append(rows["replied"], named(id))
+	}
+	// A reply in another lane answers the 25th: no way of the description reaches it.
+	insert("CascadeReplies", map[string]any{"Id": "replied-other", "AnswersId": "replied-r25", "Lane": "closed"})
+	databases := make(map[string]*spanner.Client, len(staged))
+	for _, key := range slices.Sorted(maps.Keys(staged)) {
+		databases[key] = cascadeDatabase(t, "deep-"+key)
+		if _, err := databases[key].Apply(t.Context(), staged[key]); err != nil {
+			t.Fatalf("spanner.Client.Apply() error = %v", err)
+		}
+	}
+
+	asksEveryRow := &takenAsks{question: true}
+	project := func(id string) map[string]any {
+		return map[string]any{"Id": id}
+	}
+	workedOn := cascadeRows{asks: &takenAsks{rule: true}, refused: map[string]cascadeRefusal{task("deep", 20): {byRule: true, err: httpio.NewBadRequestMessage("A task that is being worked on can't be deleted.")}}}
+	countsTwice := func(t *testing.T, run *cascadeRun) {
+		t.Helper()
+
+		if first := run.statements[0]; slices.Index(run.statements[1:], first) < 0 {
+			t.Errorf("the run sent its first count once, want it started again:\n%s", first)
+		}
+	}
+
+	tests := []struct {
+		name            string
+		tree            *DeleteTree
+		key             map[string]any
+		rows            cascadeRows
+		everythingUnder bool
+		// limitOnly runs the case with the limit alone: the emulator refuses nothing it
+		// needs by itself.
+		limitOnly   bool
+		limit       func(sql string) error
+		wantStatus  int
+		wantMessage string
+		// wantError is a part of the error's words where the delete fails.
+		wantError string
+		// wantAsked is the rows asked about, each once and deepest first, by the record
+		// whose rows they are; wantMade the same of the rows deleted.
+		wantAsked string
+		wantMade  string
+		// wantTaken is the rows deleted as the rows asked about, but the last.
+		wantTaken bool
+		// twice is how many rows are asked about or deleted where rows two levels find
+		// come at both: wantAsked and wantMade then hold of each row's first time.
+		twice int
+		// shallow is a case whose delete reads nothing from a page's ids.
+		shallow bool
+		// check holds what else the case asks of the run, with the limit or not.
+		check func(t *testing.T, run *cascadeRun, limited bool)
+	}{
+		{
+			name: "a chain of tasks that hold no project is counted to its end and each row asked about once", tree: projectTree(), key: project("deep"), rows: cascadeRows{asks: asksEveryRow},
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 tasks, 4 comments. This can't be undone.",
+			wantAsked: "deep",
+		},
+		{
+			name: "a chain of tasks that hold no project is deleted, every row once and the deepest first", tree: projectTree(), key: project("deep"), everythingUnder: true,
+			wantMade: "deep",
+		},
+		{
+			name: "a chain of tasks that each hold the project is counted to its end and each row asked about once", tree: projectTree(), key: project("keyed"), rows: cascadeRows{asks: asksEveryRow},
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 tasks, 4 comments. This can't be undone.",
+			wantAsked: "keyed",
+		},
+		{
+			name: "a chain of tasks that each hold the project is deleted, every row once and the deepest first", tree: projectTree(), key: project("keyed"), everythingUnder: true,
+			wantMade: "keyed",
+		},
+		{
+			name: "a chain of folders is counted to its end", tree: cascadeFolderTree(), key: project("folder-00"), rows: cascadeRows{asks: asksEveryRow},
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this folder and everything under it: 25 folders. This can't be undone.",
+			wantAsked: "folder-00",
+		},
+		{
+			name: "a chain of folders is deleted, the deepest first", tree: cascadeFolderTree(), key: project("folder-00"), everythingUnder: true,
+			wantMade: "folder-00",
+		},
+		{
+			name: "an invoice under the 20th task refuses a delete that asks in the counted sentence", tree: invoicedTree(), key: project("billed"),
+			wantStatus: http.StatusConflict, wantMessage: "This project has 1 invoice, so it can't be deleted.",
+		},
+		{
+			name: "an invoice under the 20th task refuses a delete that takes in the counted sentence", tree: invoicedTree(), key: project("billed"), everythingUnder: true,
+			wantStatus: http.StatusConflict, wantMessage: "This project has 1 invoice, so it can't be deleted.",
+		},
+		{
+			name: "a rule that refuses the 20th task refuses a delete that asks in the rule's sentence", tree: projectTree(), key: project("deep"), rows: workedOn,
+			wantStatus: http.StatusBadRequest, wantMessage: "A task that is being worked on can't be deleted.",
+			check: func(t *testing.T, run *cascadeRun, _ bool) {
+				t.Helper()
+
+				if len(run.asked) == 0 || run.asked[len(run.asked)-1] != named(task("deep", 20)) {
+					t.Errorf("the rows asked about = %v, want the 20th task last", run.asked)
+				}
+			},
+		},
+		{
+			name: "a rule that refuses the 20th task refuses a delete that takes in the rule's sentence", tree: projectTree(), key: project("deep"), rows: workedOn, everythingUnder: true,
+			wantStatus: http.StatusBadRequest, wantMessage: "A task that is being worked on can't be deleted.",
+			wantTaken: true,
+			check: func(t *testing.T, run *cascadeRun, _ bool) {
+				t.Helper()
+
+				if len(run.asked) == 0 || run.asked[len(run.asked)-1] != named(task("deep", 20)) {
+					t.Errorf("the rows asked about = %v, want the 20th task last", run.asked)
+				}
+			},
+		},
+		{
+			name: "a section under a section by a key of two columns is counted to its end", tree: deepSectionsTree(), key: project("sectioned"), rows: cascadeRows{asks: asksEveryRow},
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 sections. This can't be undone.",
+			wantAsked: "sectioned",
+		},
+		{
+			name: "a section under a section by a key of two columns is deleted, the deepest first", tree: deepSectionsTree(), key: project("sectioned"), everythingUnder: true,
+			wantMade: "sectioned",
+		},
+		{
+			name: "a reply under a reply by a column outside the key is counted to its end", tree: deepRepliesTree(), key: project("replied"), rows: cascadeRows{asks: asksEveryRow},
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 replies. This can't be undone.",
+			wantAsked: "replied",
+		},
+		{
+			name: "a reply under a reply by a column outside the key is deleted, the deepest first", tree: deepRepliesTree(), key: project("replied"), everythingUnder: true,
+			wantMade: "replied",
+		},
+		{
+			name: "a ring the walk goes down through fails the delete", tree: projectTree(), key: project("ring"), rows: cascadeRows{asks: asksEveryRow},
+			wantError: "a task under the project is nested under itself",
+		},
+		{
+			name: "a chain two rows of which hold the project is no ring: a row two levels find is counted and asked about at both", tree: projectTree(), key: project("twice"), rows: cascadeRows{asks: asksEveryRow},
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 28 tasks. This can't be undone.",
+			wantAsked: "twice", twice: 28,
+		},
+		{
+			name: "a chain two rows of which hold the project is no ring: it is deleted, a row two levels find at both", tree: projectTree(), key: project("twice"), everythingUnder: true,
+			wantMade: "twice", twice: 28,
+		},
+		{
+			name: "a statement refused at the record's first level is the error it is", tree: projectTree(), key: project("deep"), rows: cascadeRows{asks: asksEveryRow},
+			limitOnly: true, limit: joinLimit(0, false), shallow: true,
+			wantError: "Number of joins exceeds the maximum allowed limit of 20.",
+			check: func(t *testing.T, run *cascadeRun, _ bool) {
+				t.Helper()
+
+				if !joinsRefused(run.err) || errors.As(run.err, new(*levelRefused)) {
+					t.Errorf("the delete's error = %v, want the database's refusal as it is", run.err)
+				}
+			},
+		},
+		{
+			name: "a page refused where its count was not starts the run again, and the question answers its counts", tree: projectTree(), key: project("deep"),
+			rows:      cascadeRows{asks: &takenAsks{terms: []string{"(TRUE)", "(TRUE)", "(TRUE)", "(TRUE)"}}},
+			limitOnly: true, limit: joinLimit(8, true),
+			wantStatus: http.StatusPreconditionRequired, wantMessage: "Delete this project and everything under it: 25 tasks, 4 comments. This can't be undone.",
+			// The run that started again asks again the rows the first had asked.
+			check: func(t *testing.T, run *cascadeRun, _ bool) {
+				t.Helper()
+
+				countsTwice(t, run)
+			},
+		},
+	}
+
+	for _, tt := range tests { //nolint:paralleltest // one after another, as the comment below says
+		for _, limited := range []bool{true, false} {
+			if !limited && tt.limitOnly {
+				continue
+			}
+			name := tt.name + ", with the limit"
+			if !limited {
+				name = tt.name + ", with the emulator's own"
+			}
+			// One after another: each case reads hundreds of statements in a read-write
+			// transaction, and the emulator runs one at a time on a database.
+			t.Run(name, func(t *testing.T) {
+				var refuses func(sql string) error
+				if limited {
+					refuses = tt.limit
+					if refuses == nil {
+						refuses = joinLimit(8, false)
+					}
+				}
+				id, ok := tt.key["Id"].(string)
+				if !ok || databases[id] == nil {
+					t.Fatalf("no record %v is staged", tt.key)
+				}
+				run := runTakingRefused(t, databases[id], tt.tree, tt.key, tt.rows, tt.everythingUnder, 0, nil, refuses)
+				switch {
+				case tt.wantError != "":
+					if run.err == nil || !strings.Contains(run.err.Error(), tt.wantError) {
+						t.Errorf("the delete's error = %v, want one that says %q", run.err, tt.wantError)
+					}
+				case tt.wantStatus == 0 && run.err != nil:
+					t.Fatalf("the delete error = %v, want none", run.err)
+				case tt.wantStatus == 0:
+					if run.round == nil || !run.round.finished {
+						t.Errorf("the delete's round = %+v, want one that finished", run.round)
+					}
+				default:
+					if got := statusOf(run.err); got != tt.wantStatus {
+						t.Errorf("the delete's status = %d, want %d (%v)", got, tt.wantStatus, run.err)
+					}
+					if got := httpio.Message(run.err); got != tt.wantMessage {
+						t.Errorf("the delete's message = %q, want %q", got, tt.wantMessage)
+					}
+				}
+				firstTimes := func(rows []string) []string {
+					if tt.twice == 0 {
+						return rows
+					}
+					if len(rows) != tt.twice {
+						t.Errorf("%d rows, want %d: %v", len(rows), tt.twice, rows)
+					}
+					var first []string
+					for _, row := range rows {
+						if !slices.Contains(first, row) {
+							first = append(first, row)
+						}
+					}
+
+					return first
+				}
+				switch {
+				case tt.wantAsked != "":
+					if wrong := deepestFirst(firstTimes(run.asked), rows[tt.wantAsked], under); wrong != "" {
+						t.Errorf("the rows asked about: %s", wrong)
+					}
+				case tt.check == nil && len(run.asked) > 0:
+					t.Errorf("the rows asked about = %v, want none", run.asked)
+				}
+				switch {
+				case tt.wantMade != "":
+					if wrong := deepestFirst(firstTimes(run.made), rows[tt.wantMade], under); wrong != "" {
+						t.Errorf("the rows deleted: %s", wrong)
+					}
+				case tt.wantTaken:
+					if len(run.asked) == 0 || !slices.Equal(run.made, run.asked[:len(run.asked)-1]) {
+						t.Errorf("the rows deleted = %v, want the rows asked about but the last, %v", run.made, run.asked)
+					}
+				case len(run.made) > 0:
+					t.Errorf("the rows deleted = %v, want none", run.made)
+				}
+				if fromIDs := slices.DeleteFunc(slices.Clone(run.statements), func(sql string) bool { return !strings.Contains(sql, "IN UNNEST(@ids)") }); len(fromIDs) < 3 && !tt.shallow {
+					t.Errorf("%d statements started from a page's ids, want at least 3", len(fromIDs))
+				}
+				if tt.check != nil {
+					tt.check(t, run, limited)
+				}
+			})
+		}
 	}
 }
 
@@ -667,7 +1131,7 @@ func TestTakingDelete_anotherTenantsRow(t *testing.T) {
 						return errors.Newf("the transaction is a %T, want Spanner's", txn)
 					}
 					query := &takenQuery{tree: &tree, key: tt.key}
-					levels, err := countLevels(ctx, spannerTxn.countRows, []countedKind{{kind: &tree.Taken[0], query: query}})
+					levels, err := countLevels(ctx, spannerTxn.countRows, []countedKind{{kind: &tree.Taken[0], query: query}}, -1)
 					if err != nil {
 						return err
 					}

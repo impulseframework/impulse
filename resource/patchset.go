@@ -66,6 +66,11 @@ type PatchSet[Resource Resourcer] struct {
 	// deleteSaveSize is the most mutations one save of a delete that takes rows holds,
 	// DeleteMutationLimit where it is zero: a test makes it small.
 	deleteSaveSize int
+	// deleteRefuses is asked about every statement a delete that takes rows sends, before
+	// it is sent, and what it answers is the statement's answer where it is not nil: a
+	// test's stand-in for the database's refusal of a statement that joins too many tables.
+	// It is nil outside tests.
+	deleteRefuses func(sql string) error
 	// alsoTaken are the kinds code hands the delete to take beside the description's
 	// (DeleteAlso).
 	alsoTaken []TakenKind

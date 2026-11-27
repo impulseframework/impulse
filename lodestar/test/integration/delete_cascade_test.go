@@ -680,7 +680,9 @@ func TestDeleteCascade_fourRecords(t *testing.T) {
 // with their relays. The first call has a relay, an answer to it, and an answer to that
 // answer which names the second call's case number, so it is under the first call
 // through the relay it answers alone. The second call has a relay of its own, and a
-// thread of three under it.
+// thread of three under it. A third call has a thread of 25 relays, each answering the one
+// before it, deeper than the database joins in one statement: its question counts every
+// one of them, and its delete takes them all.
 func TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind(t *testing.T) {
 	t.Parallel()
 
@@ -703,8 +705,15 @@ func TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind(t *testing.T) {
 		threadTop    = "dc100000-0000-4000-8000-0000000c0005" // on the second call
 		threadMiddle = "dc100000-0000-4000-8000-0000000c0006" // answers threadTop
 		threadEnd    = "dc100000-0000-4000-8000-0000000c0007" // answers threadMiddle
+		deepCall     = "dc000000-0000-4000-8000-0000000c0003"
+		deepNumber   = "DC-CASCADE-0003"
 		batch        = "/console/api/resources"
 	)
+	// deepThread is the third call's thread, each relay answering the one before it.
+	deepThread := make([]string, 0, 25)
+	for i := range 25 {
+		deepThread = append(deepThread, fmt.Sprintf("dc200000-0000-4000-8000-%012x", i+1))
+	}
 	call := func(id, number string) *spanner.Mutation {
 		return spanner.InsertMap("DistressCalls", map[string]any{
 			"Id": id, "SectorId": anvil, "Summary": "Cascade call " + number, "Severity": 1, "CaseNumber": number,
@@ -721,7 +730,7 @@ func TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind(t *testing.T) {
 
 		return spanner.InsertMap("DistressRelays", row)
 	}
-	if _, err := db.Apply(ctx, []*spanner.Mutation{
+	mutations := []*spanner.Mutation{
 		call(firstCall, firstNumber),
 		call(secondCall, secondNumber),
 		relay(heard, firstNumber, ""),
@@ -731,7 +740,16 @@ func TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind(t *testing.T) {
 		relay(threadTop, secondNumber, ""),
 		relay(threadMiddle, secondNumber, threadTop),
 		relay(threadEnd, secondNumber, threadMiddle),
-	}); err != nil {
+		call(deepCall, deepNumber),
+	}
+	for i, id := range deepThread {
+		answers := ""
+		if i > 0 {
+			answers = deepThread[i-1]
+		}
+		mutations = append(mutations, relay(id, deepNumber, answers))
+	}
+	if _, err := db.Apply(ctx, mutations); err != nil {
 		t.Fatalf("spanner.Apply(): %v", err)
 	}
 
@@ -842,6 +860,41 @@ func TestDeleteCascade_byAnotherColumnAndUnderItsOwnKind(t *testing.T) {
 		assertStatus(t, status, http.StatusOK, body)
 		if stands(t, "DistressCalls", secondCall) {
 			t.Error("the second call stands after its delete")
+		}
+	})
+
+	deepStanding := func(t *testing.T) int {
+		t.Helper()
+
+		standing := 0
+		for _, id := range deepThread {
+			if stands(t, "DistressRelays", id) {
+				standing++
+			}
+		}
+
+		return standing
+	}
+
+	t.Run("a call's question counts a thread of relays deeper than one statement joins", func(t *testing.T) {
+		status, body := doRequest(t, h, http.MethodPatch, batch, remove("distress-calls/"+deepCall, false))
+		assertStatus(t, status, http.StatusPreconditionRequired, body)
+		if got, want := refusalMessage(t, body), "Delete this distress call and everything under it: 25 distress relays. This can't be undone."; got != want {
+			t.Errorf("message = %q, want %q", got, want)
+		}
+		if got := deepStanding(t); got != 25 || !stands(t, "DistressCalls", deepCall) {
+			t.Errorf("after the question %d of the 25 relays stand, and the call stands: %v; want everything", got, stands(t, "DistressCalls", deepCall))
+		}
+	})
+
+	t.Run("a call goes with a thread of relays deeper than one statement joins", func(t *testing.T) {
+		status, body := doRequest(t, h, http.MethodPatch, batch, remove("distress-calls/"+deepCall, true))
+		assertStatus(t, status, http.StatusOK, body)
+		if got := deepStanding(t); got != 0 {
+			t.Errorf("%d of the 25 relays stand after the call's delete, want none", got)
+		}
+		if stands(t, "DistressCalls", deepCall) {
+			t.Error("the third call stands after its delete")
 		}
 	})
 }

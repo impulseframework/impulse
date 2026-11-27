@@ -150,7 +150,17 @@ type rowsUnderWriter struct {
 	// ways counts the ways up to the record written, so the rows between on each are
 	// read under names of their own.
 	ways int
+	// page is the page whose keys a way compared with (inPage), nil where none did: its
+	// keys are bound under pageName (named).
+	page *takenUnder
+	// given are the values the statement names by name besides a page's keys (the values
+	// a page's terms name, takenAsks.params).
+	given map[string]any
 }
+
+// pageIDs is the name a statement binds a page's keys under (inPage), where the
+// statement's other named values do not hold it (pageName).
+const pageIDs = "ids"
 
 // quote spells an identifier as the database type quotes it.
 func (w *rowsUnderWriter) quote(identifier string) string {
@@ -245,17 +255,7 @@ func (w *rowsUnderWriter) way(path DeletePath, recordKey map[string]any, outer s
 	index := w.ways
 	w.ways++
 	last := path[len(path)-1]
-	tables := make([]string, 0, len(path))
-	var conditions []string
-	alias := outer
-	for step, link := range path[:len(path)-1] {
-		next := fmt.Sprintf("w%d_%d", index, step+1)
-		tables = append(tables, fmt.Sprintf("%s AS %s", w.quote(link.Table), next))
-		for i, column := range link.Columns {
-			conditions = append(conditions, fmt.Sprintf("%s.%s = %s.%s", next, w.quote(link.References[i]), alias, w.quote(column)))
-		}
-		alias = next
-	}
+	tables, conditions, alias := w.stepsBefore(path, index, outer)
 	if slices.ContainsFunc(last.References, func(column string) bool {
 		_, held := recordKey[column]
 
@@ -279,6 +279,119 @@ func (w *rowsUnderWriter) way(path DeletePath, recordKey map[string]any, outer s
 	}
 
 	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(tables, ", "), strings.Join(conditions, " AND "))
+}
+
+// stepsBefore writes the steps of the path before its last, as way and wayUnder write
+// them: each row between read under a name of its own (w<index>_<step>) and joined to the
+// one before it, the first to the row read under the name outer. It answers the tables
+// read, the conditions that join them, and the name of the row the last step is taken
+// from.
+func (w *rowsUnderWriter) stepsBefore(path DeletePath, index int, outer string) (tables, conditions []string, alias string) {
+	tables = make([]string, 0, len(path))
+	alias = outer
+	for step, link := range path[:len(path)-1] {
+		next := fmt.Sprintf("w%d_%d", index, step+1)
+		tables = append(tables, fmt.Sprintf("%s AS %s", w.quote(link.Table), next))
+		for i, column := range link.Columns {
+			conditions = append(conditions, fmt.Sprintf("%s.%s = %s.%s", next, w.quote(link.References[i]), alias, w.quote(column)))
+		}
+		alias = next
+	}
+
+	return tables, conditions, alias
+}
+
+// wayUnder is the condition that a row of the kind, read under the name outer, is under
+// a row of a page (takenUnder) by one way, whose last step lands on the page's table.
+// The steps before the last are written as way writes them. The last is compared with
+// the page's rows: where it references exactly the table's key, its columns are compared
+// with the page's keys (inPage); where it references a column outside the key, the
+// page's own row of the table is read (w<index>_r), the step's columns are compared with
+// that row's, and that row's key with the page's keys.
+func (w *rowsUnderWriter) wayUnder(path DeletePath, under *takenUnder, outer string) string {
+	index := w.ways
+	w.ways++
+	last := path[len(path)-1]
+	tables, conditions, alias := w.stepsBefore(path, index, outer)
+	if columns, ok := keyColumnsOf(last, under.key); ok {
+		conditions = append(conditions, w.inPage(alias, columns, under))
+	} else {
+		row := fmt.Sprintf("w%d_r", index)
+		tables = append(tables, fmt.Sprintf("%s AS %s", w.quote(last.Table), row))
+		for i, column := range last.Columns {
+			conditions = append(conditions, fmt.Sprintf("%s.%s = %s.%s", alias, w.quote(column), row, w.quote(last.References[i])))
+		}
+		conditions = append(conditions, w.inPage(row, under.key, under))
+	}
+	if len(tables) == 0 {
+		return "(" + strings.Join(conditions, " AND ") + ")"
+	}
+
+	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(tables, ", "), strings.Join(conditions, " AND "))
+}
+
+// keyColumnsOf are the step's columns that hold the table's key, in the key's order,
+// where the step references exactly the key's columns; ok is false where it references
+// any other.
+func keyColumnsOf(step DeleteLink, key []string) (columns []string, ok bool) {
+	if len(step.References) != len(key) {
+		return nil, false
+	}
+	columns = make([]string, 0, len(key))
+	for _, column := range key {
+		at := slices.Index(step.References, column)
+		if at < 0 {
+			return nil, false
+		}
+		columns = append(columns, step.Columns[at])
+	}
+
+	return columns, true
+}
+
+// inPage is the condition that the columns of the row read under the name alias, in the
+// key's order, hold the key of one of the page's rows: the one column against the
+// page's keys, or the columns as one value against the page's keys as rows. The page's
+// keys are bound once a statement, under pageIDs.
+func (w *rowsUnderWriter) inPage(alias string, columns []string, under *takenUnder) string {
+	w.page = under
+	if len(columns) == 1 {
+		return alias + "." + w.quote(columns[0]) + " IN UNNEST(@" + w.pageName() + ")"
+	}
+	// The value's fields are named as the page's keys name theirs (pageKeys): the
+	// emulator compares the two only where the names match.
+	spelled := make([]string, 0, len(columns))
+	for i, column := range columns {
+		spelled = append(spelled, fmt.Sprintf("%s.%s AS %s", alias, w.quote(column), pageKeyField(i)))
+	}
+
+	return "STRUCT(" + strings.Join(spelled, ", ") + ") IN UNNEST(@" + w.pageName() + ")"
+}
+
+// pageName is the name the statement binds a page's keys under: pageIDs, or, where the
+// statement's other named values hold that name (given), pageIDs with the first number
+// after it they do not hold.
+func (w *rowsUnderWriter) pageName() string {
+	name := pageIDs
+	for n := 2; ; n++ {
+		if _, held := w.given[name]; !held {
+			return name
+		}
+		name = pageIDs + strconv.Itoa(n)
+	}
+}
+
+// named is the values the statement names by name: the given ones, and the page's keys
+// under pageName where a way compared with them (inPage).
+func (w *rowsUnderWriter) named() map[string]any {
+	if w.page == nil {
+		return w.given
+	}
+	named := make(map[string]any, len(w.given)+1)
+	maps.Copy(named, w.given)
+	named[w.pageName()] = w.page.ids
+
+	return named
 }
 
 // anyWay is the condition that a row of the kind, read under the name outer, is under

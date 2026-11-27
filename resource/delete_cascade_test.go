@@ -39,7 +39,10 @@ type cascadeRefusal struct {
 }
 
 func (cascadeRows) columns(DBType) map[string]takenColumn {
-	return map[string]takenColumn{"Id": {field: "ID", typ: reflect.TypeFor[string]()}}
+	return map[string]takenColumn{
+		"Id":        {field: "ID", typ: reflect.TypeFor[string]()},
+		"ProjectId": {field: "ProjectID", typ: reflect.TypeFor[string]()},
+	}
 }
 
 func (r cascadeRows) row(fields []accesstypes.Field, values []any, caller *Caller) takenRow {
@@ -149,6 +152,49 @@ func projectTree() *DeleteTree {
 				Within:   []DeleteLink{{Columns: []string{"ParentTaskId"}, Table: "CascadeTasks", References: []string{"Id"}}},
 			},
 		},
+	}
+}
+
+// cascadeFolderTree describes a folder whose delete takes the folders in it, each of which may
+// hold folders of its own: the record's own kind, nested under itself.
+func cascadeFolderTree() *DeleteTree {
+	return &DeleteTree{
+		Record: "CascadeFolders", Words: DeleteWords{One: "folder", Many: "folders"}, Key: []string{"Id"},
+		Taken: []DeleteKind{{
+			Resource: "CascadeFolders", Words: DeleteWords{One: "folder", Many: "folders"}, Key: []string{"Id"},
+			Paths: []DeletePath{{{Columns: []string{"ParentId"}, Table: "CascadeFolders", References: []string{"Id"}}}},
+		}},
+	}
+}
+
+// deepSectionsTree describes a project whose delete takes its sections, each of which may
+// sit under another section of the same project: a table keyed by several columns that
+// nests.
+func deepSectionsTree() *DeleteTree {
+	return &DeleteTree{
+		Record: "CascadeProjects", Words: DeleteWords{One: "project", Many: "projects"}, Key: []string{"Id"},
+		Taken: []DeleteKind{{
+			Resource: "CascadeSections", Words: DeleteWords{One: "section", Many: "sections"}, Key: []string{"ProjectId", "Id"},
+			Paths:  []DeletePath{{{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}}}},
+			Within: []DeleteLink{{Columns: []string{"ProjectId", "ParentId"}, Table: "CascadeSections", References: []string{"ProjectId", "Id"}}},
+		}},
+	}
+}
+
+// deepRepliesTree describes a project whose delete takes the replies on its tasks, each
+// of which may answer another reply in the same lane: a table that nests by a link to a
+// column outside its key.
+func deepRepliesTree() *DeleteTree {
+	return &DeleteTree{
+		Record: "CascadeProjects", Words: DeleteWords{One: "project", Many: "projects"}, Key: []string{"Id"},
+		Taken: []DeleteKind{{
+			Resource: "CascadeReplies", Words: DeleteWords{One: "reply", Many: "replies"}, Key: []string{"Id"},
+			Paths: []DeletePath{{
+				{Columns: []string{"TaskId"}, Table: "CascadeTasks", References: []string{"Id"}},
+				{Columns: []string{"ProjectId"}, Table: "CascadeProjects", References: []string{"Id"}},
+			}},
+			Within: []DeleteLink{{Columns: []string{"AnswersId", "Lane"}, Table: "CascadeReplies", References: []string{"Id", "Lane"}}},
+		}},
 	}
 }
 
@@ -494,5 +540,96 @@ func Test_takenQuery(t *testing.T) {
 	}
 	if _, ok := query.count(labels, 1, 2); ok {
 		t.Error("count() of the labels at level 1 wrote a statement, want none: no way of theirs has a place for a link to a row of the same table")
+	}
+
+	// A page's statements compare the last step of each way with the page's keys, bound
+	// once by name: a key of one column against the keys themselves.
+	ids := []string{"t1", "t2"}
+	underTasks := &takenQuery{tree: tree, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeTasks", key: []string{"Id"}, ids: ids}}
+	statement, ok = underTasks.count(tasks, 0, 1)
+	if !ok {
+		t.Fatal("count() of the tasks under a page of tasks wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM `CascadeTasks` WHERE ((`CascadeTasks`.`ParentTaskId` IN UNNEST(@ids))) " +
+		"AND NOT COALESCE((EXISTS (SELECT 1 FROM `CascadeTasks` AS w1_1 WHERE w1_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w1_1.`ParentTaskId` IN UNNEST(@ids))), FALSE)"; statement.SQL != want {
+		t.Errorf("count() of the tasks under a page of tasks =\n%s\nwant\n%s", statement.SQL, want)
+	}
+	if diff := cmp.Diff(map[string]any{"ids": ids}, statement.spannerStatement().Params); diff != "" {
+		t.Errorf("count() of the tasks under a page of tasks values (-want +got):\n%s", diff)
+	}
+	comments := &tree.Taken[0]
+	statement, ok = underTasks.count(comments, 0, 0)
+	if !ok {
+		t.Fatal("count() of the comments under a page of tasks wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM `CascadeComments` WHERE ((`CascadeComments`.`TaskId` IN UNNEST(@ids)))"; statement.SQL != want {
+		t.Errorf("count() of the comments under a page of tasks =\n%s\nwant\n%s", statement.SQL, want)
+	}
+	page, ok = underTasks.page(tasks, 1, 1, asks, takenPageRows, 0)
+	if !ok {
+		t.Fatal("page() of the tasks under a page of tasks wrote no read")
+	}
+	if want := "SELECT `CascadeTasks`.`Id`, (CascadeTasks.Title != @_c1) AS a1 FROM `CascadeTasks` " +
+		"WHERE (EXISTS (SELECT 1 FROM `CascadeTasks` AS w0_1 WHERE w0_1.`Id` = `CascadeTasks`.`ParentTaskId` AND w0_1.`ParentTaskId` IN UNNEST(@ids))) " +
+		"ORDER BY `CascadeTasks`.`Id` LIMIT 1000"; page.SQL != want {
+		t.Errorf("page() of the tasks under a page of tasks =\n%s\nwant\n%s", page.SQL, want)
+	}
+	if diff := cmp.Diff(map[string]any{"_c1": "secret", "ids": ids}, page.spannerStatement().Params); diff != "" {
+		t.Errorf("page() of the tasks under a page of tasks values (-want +got):\n%s", diff)
+	}
+	// Under a crossed page, a comment counts only with a link of the tasks between it and
+	// the page: the comments on the page's own tasks were counted where the page was read.
+	crossed := &takenQuery{tree: tree, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeTasks", key: []string{"Id"}, ids: ids, crossed: true}}
+	if statement, ok := crossed.count(comments, 0, 1); ok {
+		t.Errorf("count() of the comments at level 0 under a crossed page = %q, want none", statement.SQL)
+	}
+	statement, ok = crossed.count(comments, 1, 1)
+	if !ok {
+		t.Fatal("count() of the comments at level 1 under a crossed page wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM `CascadeComments` WHERE (EXISTS (SELECT 1 FROM `CascadeTasks` AS w0_1 WHERE w0_1.`Id` = `CascadeComments`.`TaskId` AND w0_1.`ParentTaskId` IN UNNEST(@ids)))"; statement.SQL != want {
+		t.Errorf("count() of the comments at level 1 under a crossed page =\n%s\nwant\n%s", statement.SQL, want)
+	}
+	// Where a page's terms name a value ids, the page's keys take another name.
+	named := &takenAsks{terms: []string{"(CascadeTasks.Title != @ids)"}, params: map[string]any{"ids": "secret"}}
+	page, ok = underTasks.page(tasks, 0, 0, named, takenPageRows, 0)
+	if !ok {
+		t.Fatal("page() of the tasks with a term that names ids wrote no read")
+	}
+	if want := "SELECT `CascadeTasks`.`Id`, (CascadeTasks.Title != @ids) AS a1 FROM `CascadeTasks` WHERE ((`CascadeTasks`.`ParentTaskId` IN UNNEST(@ids2))) ORDER BY `CascadeTasks`.`Id` LIMIT 1000"; page.SQL != want {
+		t.Errorf("page() of the tasks with a term that names ids =\n%s\nwant\n%s", page.SQL, want)
+	}
+	if diff := cmp.Diff(map[string]any{"ids": "secret", "ids2": ids}, page.spannerStatement().Params); diff != "" {
+		t.Errorf("page() of the tasks with a term that names ids values (-want +got):\n%s", diff)
+	}
+
+	// A key of several columns: the step's columns, in the key's order, as one value
+	// against the page's keys as rows.
+	sections := deepSectionsTree()
+	keys := []struct{ C1, C2 string }{{"p1", "s1"}}
+	underSections := &takenQuery{tree: sections, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeSections", key: []string{"ProjectId", "Id"}, ids: keys}}
+	statement, ok = underSections.count(&sections.Taken[0], 0, 0)
+	if !ok {
+		t.Fatal("count() of the sections under a page of sections wrote no statement")
+	}
+	if want := "SELECT COUNT(*) FROM `CascadeSections` WHERE ((STRUCT(`CascadeSections`.`ProjectId` AS C1, `CascadeSections`.`ParentId` AS C2) IN UNNEST(@ids)))"; statement.SQL != want {
+		t.Errorf("count() of the sections under a page of sections =\n%s\nwant\n%s", statement.SQL, want)
+	}
+	if diff := cmp.Diff(map[string]any{"ids": keys}, statement.spannerStatement().Params); diff != "" {
+		t.Errorf("count() of the sections under a page of sections values (-want +got):\n%s", diff)
+	}
+
+	// A link to a column outside the key: the page's own row is read, and its key
+	// compared with the page's.
+	answers := deepRepliesTree()
+	underReplies := &takenQuery{tree: answers, key: map[string]any{"Id": "p1"}, under: &takenUnder{table: "CascadeReplies", key: []string{"Id"}, ids: []string{"r1"}}}
+	page, ok = underReplies.page(&answers.Taken[0], 0, 0, nil, takenPageRows, 0)
+	if !ok {
+		t.Fatal("page() of the replies under a page of replies wrote no read")
+	}
+	if want := "SELECT `CascadeReplies`.`Id` FROM `CascadeReplies` WHERE (EXISTS (SELECT 1 FROM `CascadeReplies` AS w0_r " +
+		"WHERE `CascadeReplies`.`AnswersId` = w0_r.`Id` AND `CascadeReplies`.`Lane` = w0_r.`Lane` AND w0_r.`Id` IN UNNEST(@ids))) " +
+		"ORDER BY `CascadeReplies`.`Id` LIMIT 1000"; page.SQL != want {
+		t.Errorf("page() of the replies under a page of replies =\n%s\nwant\n%s", page.SQL, want)
 	}
 }

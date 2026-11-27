@@ -429,3 +429,48 @@ func nestedWays(path DeletePath, places []nestingPlace, counts []int) []DeletePa
 
 	return ways
 }
+
+// waysUnder are the kind's ways up to a row of a page of the table at the
+// level. A kind of the table itself is under a page row by the table's links to itself,
+// one more than the level. Any other kind is under one by the part of each of its paths
+// that ends on the table, with that many links added at the places on it (placesOn). A
+// crossed page is one whose rows' own level was read by a start of another table, or by
+// the record: the rows that hang on a page row with no link of the table between were
+// read there too, so under a crossed page a way counts only with a link at its last
+// place.
+func (t *DeleteTree) waysUnder(kind *DeleteKind, table string, crossed bool, level int) []DeletePath {
+	links := t.nestingLinks(table)
+	if string(kind.Resource) == table {
+		ways := []DeletePath{{}}
+		for range level + 1 {
+			grown := make([]DeletePath, 0, len(ways)*len(links))
+			for _, way := range ways {
+				for _, link := range links {
+					grown = append(grown, append(slices.Clone(way), link))
+				}
+			}
+			ways = grown
+		}
+
+		return ways
+	}
+
+	var ways []DeletePath
+	for _, path := range kind.Paths {
+		places := t.placesOn(kind, path)
+		for i := 1; i <= len(path); i++ {
+			if path[i-1].Table != table {
+				continue
+			}
+			upTo := slices.DeleteFunc(slices.Clone(places), func(place nestingPlace) bool { return place.at > i })
+			for _, counts := range spread(level, len(upTo)) {
+				if crossed && (len(upTo) == 0 || upTo[len(upTo)-1].at != i || counts[len(counts)-1] == 0) {
+					continue
+				}
+				ways = append(ways, nestedWays(path[:i], upTo, counts)...)
+			}
+		}
+	}
+
+	return ways
+}

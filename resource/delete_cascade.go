@@ -3,8 +3,11 @@ package resource
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
+	"maps"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"cloud.google.com/go/spanner"
@@ -13,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/eventsource"
 	"github.com/impulseframework/impulse/httpio"
 	"google.golang.org/api/iterator"
+	"google.golang.org/grpc/codes"
 )
 
 // A delete of a record that declares what goes with it (@deleteCascade) takes those rows
@@ -22,6 +26,18 @@ import (
 // sits under itself (DeleteKind.Within) is found level by level, by the same statement
 // with the kind's link to itself repeated, until a level finds nothing. A row belongs
 // to the deepest level that finds it, so a row is deleted before the row it is under.
+//
+// A kind may be nested under itself to any depth. A level's statement is one link longer
+// than the level before it, and the database joins only so many tables in one statement.
+// Where it refuses one (joinsRefused), the delete reads no deeper from where it started:
+// it takes the rows of the nesting kinds at the last level it read, a page at a time (the
+// frontier), and reads what is under each page from the page's keys (takenUnder) as it
+// read what is under the record from the record's, level by level, and from pages again
+// wherever those statements are refused in turn. A delete first counts every start
+// (takenStart), so the refusals, the grants and the question are answered for everything
+// under the record before anything goes. Then it walks the starts again, a start's
+// branches before the start's own levels, and asks or takes the rows deepest first. A save
+// shares one budget over the whole walk and ends where it is full.
 //
 // Before anything is deleted, the kinds are checked as their own deletes would check
 // them: the caller's grants on each kind once, then, for a kind whose rows have anything
@@ -56,6 +72,41 @@ import (
 
 // takenPageRows is the most rows one read of a page of a kind's rows brings.
 const takenPageRows = 1000
+
+// joinsRefused reports whether the database refused a statement because
+// it joins more tables than one statement may. It is the one thing the delete knows about
+// how deep a statement can go: the library counts no joins and holds no depth of its own.
+func joinsRefused(err error) bool {
+	return spanner.ErrCode(err) == codes.InvalidArgument && strings.Contains(err.Error(), "Number of joins exceeds")
+}
+
+// levelRefused is a page or a count by tenant the database refused for its joins
+// (joinsRefused) at a level above 0 of a start, after the start's counts were made: the
+// run reads no deeper than the level before it from every start and starts again
+// (takingDelete.run), or, in a save that has buffered a row, ends the save there.
+type levelRefused struct {
+	level int
+	err   error
+}
+
+func (e *levelRefused) Error() string {
+	return e.err.Error()
+}
+
+func (e *levelRefused) Unwrap() error {
+	return e.err
+}
+
+// refusedAt is the error of a page or a count by tenant at the level: a levelRefused
+// where the database refused it for its joins at a level above 0, the error as it is
+// otherwise.
+func refusedAt(level int, err error) error {
+	if level > 0 && joinsRefused(err) {
+		return &levelRefused{level: level, err: err}
+	}
+
+	return err
+}
 
 // TakenRows is how a delete that takes a kind's rows reaches the delete of one of them.
 // The generator writes one for each kind under DeleteTree.Taken of a record that
@@ -294,10 +345,138 @@ func (p *PatchSet[Resource]) checkTaken(ctx context.Context, txn ReadWriteTransa
 }
 
 // takenQuery writes a kind's path statement at a level for the delete of one record: the
-// record's description and key.
+// record's description and key, and the page the statements start from in place of the
+// record (under), nil where they start from the record.
 type takenQuery struct {
-	tree *DeleteTree
-	key  map[string]any
+	tree  *DeleteTree
+	key   map[string]any
+	under *takenUnder
+}
+
+// takenUnder is a page of rows of a table that nests, where a delete's
+// statements start from in place of the record: the rows a level of the delete could
+// still read, by their keys, when the database refused the next level's statement for its
+// joins. What is under them is read from their keys as what is under the record is read
+// from the record's.
+type takenUnder struct {
+	// table is the table that nests, and key its key columns, in key order.
+	table string
+	key   []string
+	// ids are the page's keys as a statement binds them (pageKeys).
+	ids any
+	// crossed says the page's rows' own level was read by a start of another table, or by
+	// the record (DeleteTree.waysUnder).
+	crossed bool
+	// rows are the page's keys as read, one text for each row, for the check that no page
+	// is read inside itself (takingDelete.countFrom).
+	rows map[string]bool
+}
+
+// pageKeys are the keys of a page's rows as a statement binds them: for a key of one
+// column, an array of the column's values; for a key of several, an array of rows, each
+// holding the row's key columns in key order. Each value is encoded as the Spanner client
+// encodes it in any statement (spanner.Encoder), and a value of a type of the
+// application's own over a plain one is the plain value.
+func pageKeys(rows []takenPageRow) (any, error) {
+	if len(rows) == 0 {
+		return nil, errors.New("a page of no rows has no keys")
+	}
+	encoded := make([][]reflect.Value, 0, len(rows))
+	for _, row := range rows {
+		values := make([]reflect.Value, 0, len(row.key))
+		for _, value := range row.key {
+			plain, err := pageValue(value)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, reflect.ValueOf(plain))
+		}
+		encoded = append(encoded, values)
+	}
+	if len(encoded[0]) == 1 {
+		ids := reflect.MakeSlice(reflect.SliceOf(encoded[0][0].Type()), 0, len(encoded))
+		for _, values := range encoded {
+			ids = reflect.Append(ids, values[0])
+		}
+
+		return ids.Interface(), nil
+	}
+	fields := make([]reflect.StructField, 0, len(encoded[0]))
+	for i, value := range encoded[0] {
+		name := pageKeyField(i)
+		fields = append(fields, reflect.StructField{Name: name, Type: value.Type(), Tag: reflect.StructTag(`spanner:"` + name + `"`)})
+	}
+	keyType := reflect.StructOf(fields)
+	ids := reflect.MakeSlice(reflect.SliceOf(keyType), 0, len(encoded))
+	for _, values := range encoded {
+		key := reflect.New(keyType).Elem()
+		for i, value := range values {
+			key.Field(i).Set(value)
+		}
+		ids = reflect.Append(ids, key)
+	}
+
+	return ids.Interface(), nil
+}
+
+// pageKeyField is the name of the field of a page's key that holds its key column at the
+// index, in key order, where the key has several columns: C1, C2 and on.
+func pageKeyField(index int) string {
+	return "C" + strconv.Itoa(index+1)
+}
+
+// pageValue is one key value of a page's row as a statement binds it: what the value
+// encodes to where it encodes itself (spanner.Encoder), and a value of a named type over a
+// string, an integer, a float or a bool as the plain value.
+func pageValue(value any) (any, error) {
+	if encoder, ok := value.(spanner.Encoder); ok {
+		encoded, err := encoder.EncodeSpanner()
+		if err != nil {
+			return nil, errors.Wrap(err, "spanner.Encoder.EncodeSpanner()")
+		}
+		value = encoded
+	}
+	v := reflect.ValueOf(value)
+	if !v.IsValid() || v.Type().PkgPath() == "" {
+		return value, nil
+	}
+	switch v.Kind() {
+	case reflect.String:
+		return v.String(), nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int(), nil
+	case reflect.Float32, reflect.Float64:
+		return v.Float(), nil
+	case reflect.Bool:
+		return v.Bool(), nil
+	default:
+		return value, nil
+	}
+}
+
+// ways are the kind's ways at the level from where the query starts: up to the record
+// (DeleteTree.waysAt), or up to a row of its page (DeleteTree.waysUnder).
+func (q *takenQuery) ways(kind *DeleteKind, level int) []DeletePath {
+	if q.under == nil {
+		return q.tree.waysAt(kind, level)
+	}
+
+	return q.tree.waysUnder(kind, q.under.table, q.under.crossed, level)
+}
+
+// anyWay is the condition that a row of the kind, read under the name outer, is where the
+// query starts by one of the ways: under the record (rowsUnderWriter.anyWay), or under a
+// row of its page (rowsUnderWriter.wayUnder).
+func (q *takenQuery) anyWay(w *rowsUnderWriter, ways []DeletePath, outer string) string {
+	if q.under == nil {
+		return w.anyWay(ways, q.key, outer)
+	}
+	conditions := make([]string, 0, len(ways))
+	for _, path := range ways {
+		conditions = append(conditions, w.wayUnder(path, q.under, outer))
+	}
+
+	return "(" + strings.Join(conditions, " OR ") + ")"
 }
 
 // condition is the condition that a row of the kind, read under its table's name, is
@@ -309,16 +488,16 @@ type takenQuery struct {
 // counted twice, and deleted at the deeper level first. ok is false where the kind has
 // no way at the level.
 func (q *takenQuery) condition(w *rowsUnderWriter, kind *DeleteKind, level, deepest int) (string, bool) {
-	ways := q.tree.waysAt(kind, level)
+	ways := q.ways(kind, level)
 	if len(ways) == 0 {
 		return "", false
 	}
 	outer := w.quote(string(kind.Resource))
-	condition := w.anyWay(ways, q.key, outer)
-	if next := q.tree.waysAt(kind, level+1); level < deepest && len(next) > 0 {
+	condition := q.anyWay(w, ways, outer)
+	if next := q.ways(kind, level+1); level < deepest && len(next) > 0 {
 		// A way that compares an empty column is NULL, not false: COALESCE makes it false,
 		// so a row the next level does not find is kept.
-		condition += " AND NOT COALESCE(" + w.anyWay(next, q.key, outer) + ", FALSE)"
+		condition += " AND NOT COALESCE(" + q.anyWay(w, next, outer) + ", FALSE)"
 	}
 
 	return condition + w.ofRecordsTenant(outer+".", kind, q.tree, q.key), true
@@ -334,7 +513,7 @@ func (q *takenQuery) count(kind *DeleteKind, level, deepest int) (rowsUnderState
 		return rowsUnderStatement{}, false
 	}
 
-	return rowsUnderStatement{SQL: fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", w.quote(string(kind.Resource)), condition), Args: w.args}, true
+	return rowsUnderStatement{SQL: fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", w.quote(string(kind.Resource)), condition), Args: w.args, Named: w.named()}, true
 }
 
 // page is the read of one page of at most limit of the kind's rows at the level, below
@@ -342,6 +521,9 @@ func (q *takenQuery) count(kind *DeleteKind, level, deepest int) (rowsUnderState
 // of the terms asks reads of it (none where asks is nil).
 func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks, limit, offset int) (rowsUnderStatement, bool) {
 	w := &rowsUnderWriter{dbType: SpannerDBType}
+	if asks != nil {
+		w.given = asks.params
+	}
 	condition, ok := q.condition(w, kind, level, deepest)
 	if !ok {
 		return rowsUnderStatement{}, false
@@ -352,19 +534,17 @@ func (q *takenQuery) page(kind *DeleteKind, level, deepest int, asks *takenAsks,
 		key = append(key, outer+"."+w.quote(column))
 	}
 	columns := slices.Clone(key)
-	var named map[string]any
 	if asks != nil {
 		for i, term := range asks.terms {
 			columns = append(columns, fmt.Sprintf("%s AS a%d", term, i+1))
 		}
-		named = asks.params
 	}
 	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT %d", strings.Join(columns, ", "), outer, condition, strings.Join(key, ", "), limit)
 	if offset > 0 {
 		sql += fmt.Sprintf(" OFFSET %d", offset)
 	}
 
-	return rowsUnderStatement{SQL: sql, Args: w.args, Named: named}, true
+	return rowsUnderStatement{SQL: sql, Args: w.args, Named: w.named()}, true
 }
 
 // countedKind is a kind a delete counts, with the query its statements are written by.
@@ -373,46 +553,120 @@ type countedKind struct {
 	query *takenQuery
 }
 
-// takenLevels are the rows under the record of each kind a delete counts, level by
-// level (rows, by kind, at each level from 0), and the deepest level that finds a row of
-// one of them.
+// takenLevels are the rows under where a start begins of each kind a delete counts,
+// level by level (rows, by kind, at each level from 0), and the deepest level that finds
+// a row of one of them. A cut start (cut) reads no deeper than its deepest level: the
+// rows under the rows at that level are read from their keys (takenStart).
 type takenLevels struct {
 	deepest int
 	rows    map[*DeleteKind][]int64
+	cut     bool
+}
+
+// below is the level each statement of the start is written below (takenQuery.condition):
+// one past the deepest for a cut start, whose deepest level leaves out what the next level
+// finds, and the deepest itself for a whole one.
+func (l *takenLevels) below() int {
+	if l.cut {
+		return l.deepest + 1
+	}
+
+	return l.deepest
 }
 
 // countLevels finds the deepest level, counting what each level from level 1 finds of
 // each kind with a place on a way for a link to a row of the same table
-// (DeleteTree.waysAt), until a level finds no row of any of them: the deepest is the
+// (takenQuery.ways), until a level finds no row of any of them: the deepest is the
 // level before it. Then it counts each kind's rows at each level from 0 to the deepest
 // (takenQuery.condition): the deepest level's count is the one that found it, and a
 // level that found no row of the kind holds none without a second count. A kind with no
 // place has rows at level 0 alone. A kind's count is the sum of its levels (total).
-func countLevels(ctx context.Context, count rowCounter, kinds []countedKind) (*takenLevels, error) {
-	levels := &takenLevels{rows: make(map[*DeleteKind][]int64, len(kinds))}
-	counted := func(k countedKind, level, deepest int) (int64, error) {
-		statement, ok := k.query.count(k.kind, level, deepest)
-		if !ok {
-			return 0, nil
-		}
-		rows, err := count(ctx, statement)
+//
+// Where the database refuses a count above level 0 for its joins (joinsRefused), the
+// start is cut: a finding count refused at a level ends the finding there and cuts the
+// start at the level before it at the latest, and a kind's count refused at a level ends
+// that kind's counts above level 0 and cuts the start at the level before it at the
+// latest; the kinds after it count no level above the lowest cut. A start with a reach
+// (reach, -1 for none) finds no deeper than the level after it, and a row found there
+// cuts the start at the reach. A cut start's deepest level is its cut, and each kind's
+// rows are its counts at levels 0 to the cut, every one leaving out what the next level
+// finds. A count at level 0 that is refused is returned as the error it is.
+func countLevels(ctx context.Context, count rowCounter, kinds []countedKind, reach int) (*takenLevels, error) {
+	counts := &levelCounts{count: count, cut: -1}
+	found, deepest, err := counts.find(ctx, kinds, reach)
+	if err != nil {
+		return nil, err
+	}
+	levels := &takenLevels{deepest: deepest, rows: make(map[*DeleteKind][]int64, len(kinds))}
+	for _, k := range kinds {
+		finds, nested := found[k.kind]
+		at, err := counts.kindRows(ctx, k, finds, nested, deepest)
 		if err != nil {
-			return 0, errors.Wrapf(err, "counting the %s under a %s", k.kind.Words.Many, k.query.tree.Words.One)
+			return nil, err
 		}
-
-		return rows, nil
+		levels.rows[k.kind] = at
+	}
+	if counts.cut >= 0 {
+		levels.cut, levels.deepest = true, counts.cut
+		for kind, at := range levels.rows {
+			levels.rows[kind] = at[:min(len(at), counts.cut+1)]
+		}
 	}
 
+	return levels, nil
+}
+
+// levelCounts is one countLevels: how its counts are sent, and the lowest level the start
+// is cut at so far, -1 where it is not cut.
+type levelCounts struct {
+	count rowCounter
+	cut   int
+}
+
+// counted is the kind's count at the level, below the deepest level, none where the kind
+// is not counted there (takenQuery.count).
+func (c *levelCounts) counted(ctx context.Context, k countedKind, level, deepest int) (int64, error) {
+	statement, ok := k.query.count(k.kind, level, deepest)
+	if !ok {
+		return 0, nil
+	}
+	rows, err := c.count(ctx, statement)
+	if err != nil {
+		return 0, errors.Wrapf(err, "counting the %s under a %s", k.kind.Words.Many, k.query.tree.Words.One)
+	}
+
+	return rows, nil
+}
+
+// cutAt cuts the start at the level at the latest.
+func (c *levelCounts) cutAt(level int) {
+	if c.cut < 0 || level < c.cut {
+		c.cut = level
+	}
+}
+
+// find counts what each level from level 1 finds of each kind with a place on a way for a
+// link to a row of the same table, until a level finds no row of any of them, a finding
+// count is refused (the refused level is taken to hold rows, and the start is cut at the
+// level before it), or the level after the reach (a row found there cuts the start at the
+// reach). It answers what each level found of each such kind (found[kind][i] is what
+// level i+1 found) and the deepest level.
+func (c *levelCounts) find(ctx context.Context, kinds []countedKind, reach int) (found map[*DeleteKind][]int64, deepest int, err error) {
 	nested := slices.DeleteFunc(slices.Clone(kinds), func(k countedKind) bool {
-		return len(k.query.tree.waysAt(k.kind, 1)) == 0
+		return len(k.query.ways(k.kind, 1)) == 0
 	})
-	found := make(map[*DeleteKind][]int64, len(nested))
-	for level := 1; len(nested) > 0; level++ {
+	found = make(map[*DeleteKind][]int64, len(nested))
+	for level := 1; len(nested) > 0 && (reach < 0 || level <= reach+1); level++ {
 		foundAny := false
 		for _, k := range nested {
-			rows, err := counted(k, level, level)
+			rows, err := c.counted(ctx, k, level, level)
+			if joinsRefused(err) {
+				c.cutAt(level - 1)
+
+				return found, level, nil
+			}
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 			found[k.kind] = append(found[k.kind], rows)
 			foundAny = foundAny || rows > 0
@@ -420,37 +674,51 @@ func countLevels(ctx context.Context, count rowCounter, kinds []countedKind) (*t
 		if !foundAny {
 			break
 		}
-		levels.deepest = level
+		deepest = level
+		if level == reach+1 {
+			c.cutAt(reach)
+		}
 	}
 
-	for _, k := range kinds {
-		at := []int64{0}
-		if finds, ok := found[k.kind]; ok {
-			// finds[i] is what level i+1 finds; the level after the deepest found nothing.
-			at = make([]int64, levels.deepest+1)
-			for level := 1; level < levels.deepest; level++ {
-				if finds[level-1] == 0 {
-					continue
-				}
-				rows, err := counted(k, level, levels.deepest)
-				if err != nil {
-					return nil, err
-				}
-				at[level] = rows
-			}
-			if levels.deepest > 0 {
-				at[levels.deepest] = finds[levels.deepest-1]
-			}
-		}
-		rows, err := counted(k, 0, levels.deepest)
-		if err != nil {
-			return nil, err
-		}
-		at[0] = rows
-		levels.rows[k.kind] = at
-	}
+	return found, deepest, nil
+}
 
-	return levels, nil
+// kindRows are the kind's rows at each level from 0 to the deepest. A nested kind (one
+// that find counted; finds is what each level found of it) is counted at each level from
+// 1 that found a row of it, up to the cut, and holds at the deepest level what found it
+// there where the start is not cut; a count refused at a level ends its counts above
+// level 0 and cuts the start at the level before it. Every kind's level-0 count comes
+// last.
+func (c *levelCounts) kindRows(ctx context.Context, k countedKind, finds []int64, nested bool, deepest int) ([]int64, error) {
+	at := []int64{0}
+	if nested {
+		at = make([]int64, deepest+1)
+		for level := 1; level < deepest && (c.cut < 0 || level <= c.cut); level++ {
+			if finds[level-1] == 0 {
+				continue
+			}
+			rows, err := c.counted(ctx, k, level, deepest)
+			if joinsRefused(err) {
+				c.cutAt(level - 1)
+
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			at[level] = rows
+		}
+		if c.cut < 0 && deepest > 0 {
+			at[deepest] = finds[deepest-1]
+		}
+	}
+	rows, err := c.counted(ctx, k, 0, deepest)
+	if err != nil {
+		return nil, err
+	}
+	at[0] = rows
+
+	return at, nil
 }
 
 // total is the kind's rows under the record, every level summed.
@@ -588,10 +856,12 @@ func (d *takingDelete) keyFields(kind *DeleteKind) ([]accesstypes.Field, []refle
 	return fields, types, nil
 }
 
-// rowsAt calls each with the delete of each of the kind's rows at the level, below the
-// deepest level, page by page in key order, with what the page's terms answered of the
-// row (asks; none where it is nil). It stops at the first error each answers.
-func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level, deepest int, asks *takenAsks, each func(taken takenDelete, answers []spanner.NullBool) error) error {
+// rowsAt calls each with the delete of each of the kind's rows at the level of the
+// start the query writes, below the deepest level, page by page in key order, with what
+// the page's terms answered of the row (asks; none where it is nil). It stops at the
+// first error each answers. A page the database refuses for its joins at a level above 0
+// is a levelRefused.
+func (d *takingDelete) rowsAt(ctx context.Context, query *takenQuery, kind *DeleteKind, level, deepest int, asks *takenAsks, each func(taken takenDelete, answers []spanner.NullBool) error) error {
 	fields, types, err := d.keyFields(kind)
 	if err != nil {
 		return err
@@ -601,13 +871,13 @@ func (d *takingDelete) rowsAt(ctx context.Context, kind *DeleteKind, level, deep
 		answers = len(asks.terms)
 	}
 	for offset := 0; ; offset += takenPageRows {
-		statement, ok := d.query.page(kind, level, deepest, asks, takenPageRows, offset)
+		statement, ok := query.page(kind, level, deepest, asks, takenPageRows, offset)
 		if !ok {
 			return nil
 		}
 		rows, err := d.page(ctx, statement, types, answers)
 		if err != nil {
-			return errors.Wrapf(err, "reading the %s under a %s", kind.Words.Many, d.query.tree.Words.One)
+			return refusedAt(level, errors.Wrapf(err, "reading the %s under a %s", kind.Words.Many, d.query.tree.Words.One))
 		}
 		for _, row := range rows {
 			if err := each(takenDelete{kind: kind, row: kind.Rows.row(fields, row.key, d.callerOf(kind))}, row.answers); err != nil {
@@ -664,18 +934,42 @@ func (p *PatchSet[Resource]) deleteTaken(ctx context.Context, txn ReadWriteTrans
 		return nil, nil
 	}
 
+	count, page, byTenant := rowCounter(spannerTxn.countRows), spannerTxn.readPage, spannerTxn.countByTenant
+	if refuses := p.deleteRefuses; refuses != nil {
+		count = func(ctx context.Context, statement rowsUnderStatement) (int64, error) {
+			if err := refuses(statement.SQL); err != nil {
+				return 0, err
+			}
+
+			return spannerTxn.countRows(ctx, statement)
+		}
+		page = func(ctx context.Context, statement rowsUnderStatement, types []reflect.Type, answers int) ([]takenPageRow, error) {
+			if err := refuses(statement.SQL); err != nil {
+				return nil, err
+			}
+
+			return spannerTxn.readPage(ctx, statement, types, answers)
+		}
+		byTenant = func(ctx context.Context, statement rowsUnderStatement) ([]tenantRows, error) {
+			if err := refuses(statement.SQL); err != nil {
+				return nil, err
+			}
+
+			return spannerTxn.countByTenant(ctx, statement)
+		}
+	}
 	taking := &takingDelete{
 		asked:    &recordedDelete{tree: tree, key: key, caller: p.deleteCaller(ctx)},
-		query:    &takenQuery{tree: tree, key: key},
+		query:    &takenQuery{tree: tree, key: key, under: nil},
 		txn:      spannerTxn,
 		caller:   p.querySet.Caller(),
-		page:     spannerTxn.readPage,
-		byTenant: spannerTxn.countByTenant,
+		page:     page,
+		byTenant: byTenant,
 		size:     p.deleteSaveSize,
 		also:     p.alsoTaken,
 	}
 
-	return taking.run(ctx, spannerTxn.countRows, tracked, p.everythingUnder, eventSource...)
+	return taking.run(ctx, count, tracked, p.everythingUnder, eventSource...)
 }
 
 // deleteDescription is the description the patch's delete reads: its record's, with
@@ -719,37 +1013,257 @@ func (r *takenRound) left() *DeleteLeft {
 // refusal, the refusal over a row straight under the record that the delete does not
 // take, the refusal over a row beyond the reach of whoever the delete is for, then the
 // taken kinds' checks and the rows taken (take). Each request asks them all again, so
-// every round of a delete larger than one save does.
+// every round of a delete larger than one save does. Where the database refuses a page
+// or a count by tenant for its joins at a level above 0 of a start after the start's
+// counts were made, and nothing is buffered (levelRefused), the run reads no deeper than
+// the level before it from any start (its reach) and starts again from its first count.
+// The reach is the run's alone: nothing of it is kept for the next request.
 func (d *takingDelete) run(ctx context.Context, count rowCounter, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
-	levels, err := d.count(ctx, count)
+	reach := -1
+	for {
+		round, err := d.runWithin(ctx, count, reach, tracked, everythingUnder, eventSource...)
+		var refused *levelRefused
+		if !errors.As(err, &refused) {
+			return round, err
+		}
+		if reach >= 0 && refused.level-1 >= reach {
+			return nil, err
+		}
+		reach = refused.level - 1
+	}
+}
+
+// runWithin is one run of the delete (run) that reads no deeper than the reach from any
+// start, -1 for none.
+func (d *takingDelete) runWithin(ctx context.Context, count rowCounter, reach int, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
+	start, err := d.count(ctx, count, reach)
 	if err != nil {
 		return nil, err
 	}
-	if err := d.asked.refusedNow(ctx, levels); err != nil {
+	if err := d.asked.refusedNow(ctx, start); err != nil {
 		return nil, err
 	}
 	if err := d.asked.refusedUnder(ctx, d.txn.DBType(), count); err != nil {
 		return nil, err
 	}
-	if err := d.refusedBeyondReach(ctx, levels); err != nil {
+	if err := d.refusedBeyondReach(ctx, start); err != nil {
 		return nil, err
 	}
 
-	return d.take(ctx, levels, tracked, everythingUnder, eventSource...)
+	return d.take(ctx, start, tracked, everythingUnder, eventSource...)
 }
 
-// count counts the refusing kinds' rows and the taken kinds' under the record, level by
-// level.
-func (d *takingDelete) count(ctx context.Context, count rowCounter) (*takenLevels, error) {
-	kinds := make([]countedKind, 0, len(d.query.tree.RefusedBy)+len(d.query.tree.Taken))
-	for i := range d.query.tree.RefusedBy {
-		kinds = append(kinds, countedKind{kind: &d.query.tree.RefusedBy[i], query: d.query})
-	}
-	for i := range d.query.tree.Taken {
-		kinds = append(kinds, countedKind{kind: &d.query.tree.Taken[i], query: d.query})
+// takenTotals are the rows of each kind a delete counted: across every start under the
+// record (takenStart), or within one (takenLevels).
+type takenTotals interface {
+	total(kind *DeleteKind) int64
+}
+
+// takenStart is one place a delete's statements start from, with what they counted
+// there: the record, or a page of a frontier (takenUnder); its levels (takenLevels); and,
+// for a cut start, the branches opened from its frontier, in the order they were opened.
+// A branch keeps its counts and not its page's keys: the second walk reads the page
+// again (takingDelete.walk) and matches it by its kind, its rows and what its keys come
+// to.
+type takenStart struct {
+	query    *takenQuery
+	levels   *takenLevels
+	branches []*takenStart
+	kind     *DeleteKind
+	rows     int
+	digest   uint64
+}
+
+// total is the kind's rows in the start and in every start under it.
+func (s *takenStart) total(kind *DeleteKind) int64 {
+	rows := s.levels.total(kind)
+	for _, branch := range s.branches {
+		rows += branch.total(kind)
 	}
 
-	return countLevels(ctx, count, kinds)
+	return rows
+}
+
+// matches reports whether a page read again is the page the branch was counted from.
+func (s *takenStart) matches(kind *DeleteKind, page []takenPageRow) bool {
+	return s.kind == kind && s.rows == len(page) && s.digest == pageDigest(page)
+}
+
+// pageDigest is what a page's keys come to, by which a page read again is matched to
+// the page a branch was counted from.
+func pageDigest(page []takenPageRow) uint64 {
+	digest := fnv.New64a()
+	for _, row := range page {
+		_, _ = fmt.Fprintf(digest, "%#v;", row.key)
+	}
+
+	return digest.Sum64()
+}
+
+// count is the first walk: it counts the refusing kinds' rows and the taken kinds' under
+// the record, level by level, and, where the record's start is cut, under each page of
+// its frontier the same way, depth first, to the bottom of every descent. It reads no
+// deeper than the reach from any start (-1 for none).
+func (d *takingDelete) count(ctx context.Context, count rowCounter, reach int) (*takenStart, error) {
+	return d.countFrom(ctx, count, d.query, reach, nil)
+}
+
+// countFrom counts the start the query writes, and, where it is cut, each branch of its
+// frontier (frontier). inside are the pages of the branches the walk is inside: a page
+// with the same keys as one of them, of the same table, is a page of rows nested under
+// themselves, whose descent would never end, and the delete fails, as it did when the
+// levels of such rows never ended. A row a page shares with a page it is inside is no
+// ring: a row two levels find is read at both. A ring every level finds whole reaches
+// no page, as it reaches no level (takenQuery.condition): it is left out.
+func (d *takingDelete) countFrom(ctx context.Context, count rowCounter, query *takenQuery, reach int, inside []*takenUnder) (*takenStart, error) {
+	tree := query.tree
+	kinds := make([]countedKind, 0, len(tree.RefusedBy)+len(tree.Taken))
+	for i := range tree.RefusedBy {
+		kinds = append(kinds, countedKind{kind: &tree.RefusedBy[i], query: query})
+	}
+	for i := range tree.Taken {
+		kinds = append(kinds, countedKind{kind: &tree.Taken[i], query: query})
+	}
+	levels, err := countLevels(ctx, count, kinds, reach)
+	if err != nil {
+		return nil, err
+	}
+	start := &takenStart{query: query, levels: levels, branches: nil, kind: nil, rows: 0, digest: 0}
+	if !levels.cut {
+		return start, nil
+	}
+	if err := d.frontier(ctx, start, func(kind *DeleteKind, page []takenPageRow, under *takenUnder) error {
+		for _, outer := range inside {
+			if outer.table == under.table && maps.Equal(outer.rows, under.rows) {
+				return errors.Newf("a %s under the %s is nested under itself", kind.Words.One, tree.Words.One)
+			}
+		}
+		branch, err := d.countFrom(ctx, count, &takenQuery{tree: tree, key: query.key, under: under}, reach, append(slices.Clip(inside), under))
+		if err != nil {
+			return err
+		}
+		branch.kind, branch.rows, branch.digest = kind, len(page), pageDigest(page)
+		branch.query.under = under.withoutKeys()
+		start.branches = append(start.branches, branch)
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return start, nil
+}
+
+// withoutKeys is the page with its keys let go: what a branch keeps between the walks.
+func (u *takenUnder) withoutKeys() *takenUnder {
+	return &takenUnder{table: u.table, key: u.key, ids: nil, crossed: u.crossed, rows: nil}
+}
+
+// frontier calls each with every page of a cut start's frontier, in order: for each
+// taken kind whose table nests (DeleteTree.nestingLinks), in the description's order,
+// with rows at the start's deepest level, those rows read by their keys alone, in key
+// order, a page of takenPageRows at a time, each as the page a branch starts from
+// (takenUnder). A branch is crossed where the start it is opened from is not one of the
+// same table: the record, where the record's table is not the page's, or a page of
+// another table. A page the database refuses for its joins at a level above 0 is a
+// levelRefused.
+func (d *takingDelete) frontier(ctx context.Context, start *takenStart, each func(kind *DeleteKind, page []takenPageRow, under *takenUnder) error) error {
+	tree := d.query.tree
+	level := start.levels.deepest
+	for i := range tree.Taken {
+		kind := &tree.Taken[i]
+		table := string(kind.Resource)
+		if len(tree.nestingLinks(table)) == 0 || start.levels.at(kind, level) == 0 {
+			continue
+		}
+		_, types, err := d.keyFields(kind)
+		if err != nil {
+			return err
+		}
+		crossed := table != string(tree.Record)
+		if start.query.under != nil {
+			crossed = start.query.under.table != table
+		}
+		for offset := 0; ; offset += takenPageRows {
+			statement, ok := start.query.page(kind, level, start.levels.below(), nil, takenPageRows, offset)
+			if !ok {
+				break
+			}
+			page, err := d.page(ctx, statement, types, 0)
+			if err != nil {
+				return refusedAt(level, errors.Wrapf(err, "reading the %s under a %s", kind.Words.Many, tree.Words.One))
+			}
+			if len(page) == 0 {
+				break
+			}
+			ids, err := pageKeys(page)
+			if err != nil {
+				return err
+			}
+			rows := make(map[string]bool, len(page))
+			for _, row := range page {
+				rows[fmt.Sprintf("%#v", row.key)] = true
+			}
+			if err := each(kind, page, &takenUnder{table: table, key: kind.Key, ids: ids, crossed: crossed, rows: rows}); err != nil {
+				return err
+			}
+			if len(page) < takenPageRows {
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// walkEnded ends a walk where each says it is done (walk).
+type walkEnded struct{}
+
+func (walkEnded) Error() string {
+	return "the walk ended"
+}
+
+// walk is the second walk: it goes through the starts the first walk counted, a start's
+// branches before the start's own levels, and calls each with every start, the record's
+// last. For a cut start it reads each frontier page again with the statements the first
+// walk read it with, in the same order, and walks the branch counted for it with the
+// page's keys; a page that does not match the branch counted for it is an error. It holds
+// one page of keys for each start it is inside, and no more. It ends where each says it
+// is done, and reports whether it did.
+func (d *takingDelete) walk(ctx context.Context, start *takenStart, each func(start *takenStart) (done bool, err error)) (bool, error) {
+	if start.levels.cut {
+		tree := d.query.tree
+		next := 0
+		err := d.frontier(ctx, start, func(kind *DeleteKind, page []takenPageRow, under *takenUnder) error {
+			if next >= len(start.branches) || !start.branches[next].matches(kind, page) {
+				return errors.Newf("a page of the %s under a %s is not the page that was counted", kind.Words.Many, tree.Words.One)
+			}
+			branch := start.branches[next]
+			next++
+			branch.query.under = under
+			done, err := d.walk(ctx, branch, each)
+			branch.query.under = under.withoutKeys()
+			if err != nil {
+				return err
+			}
+			if done {
+				return walkEnded{}
+			}
+
+			return nil
+		})
+		if errors.As(err, new(walkEnded)) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if next != len(start.branches) {
+			return false, errors.Newf("fewer pages of what is under a %s were read than were counted", tree.Words.One)
+		}
+	}
+
+	return each(start)
 }
 
 // take checks the caller's grants on each taken kind with rows under the record, once no
@@ -759,13 +1273,13 @@ func (d *takingDelete) count(ctx context.Context, count rowCounter) (*takenLevel
 // description's order within a level, each handed kind is counted and then asked
 // (TakenKind.Check), and the person is asked the question. With no row under the record
 // the delete goes on as a plain one.
-func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
+func (d *takingDelete) take(ctx context.Context, start *takenStart, tracked map[accesstypes.Resource]bool, everythingUnder bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
 	tree := d.query.tree
 	asks := make(map[*DeleteKind]*takenAsks, len(tree.Taken))
 	var counted int64
 	for i := range tree.Taken {
 		kind := &tree.Taken[i]
-		total := levels.total(kind)
+		total := start.total(kind)
 		if total == 0 {
 			continue
 		}
@@ -792,21 +1306,23 @@ func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked ma
 			return &takenRound{finished: true}, nil
 		}
 
-		return d.round(ctx, levels, asks, handed, counted, tracked, eventSource...)
+		return d.round(ctx, start, asks, handed, counted, tracked, eventSource...)
 	}
 
-	if err := d.eachLevel(levels, func(kind *DeleteKind, level int) error {
-		if !asks[kind].asksRows() {
-			return nil
-		}
-
-		return d.rowsAt(ctx, kind, level, levels.deepest, asks[kind], func(taken takenDelete, answers []spanner.NullBool) error {
-			byRule, err := taken.row.checkTaken(ctx, d.txn, asks[kind], answers)
-			if err != nil {
-				return d.asked.refuseRow(ctx, kind, byRule, err)
+	if _, err := d.walk(ctx, start, func(at *takenStart) (bool, error) {
+		return false, d.eachLevel(at.levels, func(kind *DeleteKind, level int) error {
+			if !asks[kind].asksRows() {
+				return nil
 			}
 
-			return nil
+			return d.rowsAt(ctx, at.query, kind, level, at.levels.below(), asks[kind], func(taken takenDelete, answers []spanner.NullBool) error {
+				byRule, err := taken.row.checkTaken(ctx, d.txn, asks[kind], answers)
+				if err != nil {
+					return d.asked.refuseRow(ctx, kind, byRule, err)
+				}
+
+				return nil
+			})
 		})
 	}); err != nil {
 		return nil, err
@@ -826,7 +1342,7 @@ func (d *takingDelete) take(ctx context.Context, levels *takenLevels, tracked ma
 			return nil, errors.Wrapf(err, "checking the %s under a %s", kind.Words().Many, tree.Words.One)
 		}
 	}
-	question, err := d.asked.question(ctx, levels, d.handedRows(handed))
+	question, err := d.asked.question(ctx, start, d.handedRows(handed))
 	if err != nil {
 		return nil, err
 	}
@@ -881,7 +1397,7 @@ func (d *takingDelete) handedRows(handed []int64) []kindRows {
 // record, the handed kinds' among them. A round that can buffer nothing at all, neither a
 // row of the description's kinds nor a mutation of a handed kind, is an error: one row,
 // or a handed kind taken the only way it is taken, costs more than a save holds.
-func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[*DeleteKind]*takenAsks, handed []int64, counted int64, tracked map[accesstypes.Resource]bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
+func (d *takingDelete) round(ctx context.Context, start *takenStart, asks map[*DeleteKind]*takenAsks, handed []int64, counted int64, tracked map[accesstypes.Resource]bool, eventSource ...eventsource.EventSource) (*takenRound, error) {
 	tree := d.query.tree
 	size := d.size
 	if size == 0 {
@@ -896,31 +1412,45 @@ func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[
 		return 0
 	}
 	taken := make(map[accesstypes.Resource]int, len(tree.Taken))
-	round := &takenRound{counted: counted}
-	for level := levels.deepest; level >= 0; level-- {
-		for i := range tree.Taken {
-			kind := &tree.Taken[i]
-			if levels.at(kind, level) == 0 {
-				continue
-			}
-			most := (size - tree.Mutations(taken, changeRecord)) / kind.Cost.Mutations(changeRecord(kind.Resource))
-			if most <= 0 {
-				if round.deleted == 0 {
-					return nil, errors.Newf("the delete of a %s can take nothing in one save: one of its %s costs more than a save holds", tree.Words.One, kind.Words.Many)
+	round := &takenRound{counted: counted, deleted: 0, finished: false}
+	full, err := d.walk(ctx, start, func(at *takenStart) (bool, error) {
+		for level := at.levels.deepest; level >= 0; level-- {
+			for i := range tree.Taken {
+				kind := &tree.Taken[i]
+				if at.levels.at(kind, level) == 0 {
+					continue
 				}
+				most := (size - tree.Mutations(taken, changeRecord)) / kind.Cost.Mutations(changeRecord(kind.Resource))
+				if most <= 0 {
+					if round.deleted == 0 {
+						return false, errors.Newf("the delete of a %s can take nothing in one save: one of its %s costs more than a save holds", tree.Words.One, kind.Words.Many)
+					}
 
-				return round, nil
-			}
-			rows, err := d.takeAt(ctx, kind, level, levels.deepest, asks[kind], most, eventSource...)
-			if err != nil {
-				return nil, err
-			}
-			taken[kind.Resource] += rows
-			round.deleted += int64(rows)
-			if rows == most {
-				return round, nil
+					return true, nil
+				}
+				rows, err := d.takeAt(ctx, at.query, kind, level, at.levels.below(), asks[kind], most, eventSource...)
+				if err != nil {
+					return false, err
+				}
+				taken[kind.Resource] += rows
+				round.deleted += int64(rows)
+				if rows == most {
+					return true, nil
+				}
 			}
 		}
+
+		return false, nil
+	})
+	if refused := new(levelRefused); errors.As(err, &refused) && round.deleted > 0 {
+		// A save that has buffered rows cannot start again: it ends as one that filled.
+		return round, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if full {
+		return round, nil
 	}
 	spent := tree.Mutations(taken, changeRecord)
 	before := spent
@@ -954,7 +1484,7 @@ func (d *takingDelete) round(ctx context.Context, levels *takenLevels, asks map[
 // key order, read in one page: each row is asked what its own delete asks where the kind
 // asks anything of its rows (asks), and once every row of the page has passed, each is
 // buffered. It reports how many it took.
-func (d *takingDelete) takeAt(ctx context.Context, kind *DeleteKind, level, deepest int, asks *takenAsks, most int, eventSource ...eventsource.EventSource) (int, error) {
+func (d *takingDelete) takeAt(ctx context.Context, query *takenQuery, kind *DeleteKind, level, deepest int, asks *takenAsks, most int, eventSource ...eventsource.EventSource) (int, error) {
 	fields, types, err := d.keyFields(kind)
 	if err != nil {
 		return 0, err
@@ -966,13 +1496,13 @@ func (d *takingDelete) takeAt(ctx context.Context, kind *DeleteKind, level, deep
 	if asks != nil {
 		answers = len(asks.terms)
 	}
-	statement, ok := d.query.page(kind, level, deepest, asks, most, 0)
+	statement, ok := query.page(kind, level, deepest, asks, most, 0)
 	if !ok {
 		return 0, nil
 	}
 	rows, err := d.page(ctx, statement, types, answers)
 	if err != nil {
-		return 0, errors.Wrapf(err, "reading the %s under a %s", kind.Words.Many, d.query.tree.Words.One)
+		return 0, refusedAt(level, errors.Wrapf(err, "reading the %s under a %s", kind.Words.Many, d.query.tree.Words.One))
 	}
 	taken := make([]takenRow, 0, len(rows))
 	for _, read := range rows {
@@ -1033,7 +1563,7 @@ func takenTracked(tree *DeleteTree, record bool) (tracked map[accesstypes.Resour
 // refusedNow refuses the delete of a record that has rows of a kind its description
 // lists under refusedBy, in the sentence that names them. The rows are the ones under
 // the record as the database held them before the transaction, at every level.
-func (d *recordedDelete) refusedNow(ctx context.Context, levels *takenLevels) error {
+func (d *recordedDelete) refusedNow(ctx context.Context, levels takenTotals) error {
 	var refusing []kindRows
 	for i := range d.tree.RefusedBy {
 		kind := &d.tree.RefusedBy[i]
@@ -1111,7 +1641,7 @@ func (d *recordedDelete) refuseRow(ctx context.Context, kind *DeleteKind, byRule
 // kinds they may see, each with its count, in the delete order read backward (the kind
 // nearest the record first, and kinds equally near by name), then the kinds code handed
 // the delete (handed), which every caller is told.
-func (d *recordedDelete) question(ctx context.Context, levels *takenLevels, handed []kindRows) (string, error) {
+func (d *recordedDelete) question(ctx context.Context, levels takenTotals, handed []kindRows) (string, error) {
 	var kinds []kindRows
 	for i := range slices.Backward(d.tree.Taken) {
 		kind := &d.tree.Taken[i]

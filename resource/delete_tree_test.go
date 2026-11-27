@@ -244,3 +244,53 @@ func TestDeleteTree_waysAt(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteTree_waysUnder pins the ways a kind's rows are found under a row of a page of
+// a table that nests, at each level: a kind of the table itself by the table's links to
+// itself, one more than the level; any other kind by the part of its path that ends on
+// the table, with as many links added as the level, and under a crossed page only with
+// a link at its last place, so none at level 0; a kind with no step on the table has no
+// way at any level; and the record's own kind under a page of its own table (a folder in
+// a folder).
+func TestDeleteTree_waysUnder(t *testing.T) {
+	t.Parallel()
+
+	tree := projectTree()
+	comments, labels, tasks := &tree.Taken[0], &tree.Taken[1], &tree.Taken[2]
+	byParent := tasks.Within[0]
+	byTask := comments.Paths[0][0]
+	folders := cascadeFolderTree()
+	byFolder := folders.Taken[0].Paths[0][0]
+
+	tests := []struct {
+		name    string
+		tree    *DeleteTree
+		kind    *DeleteKind
+		table   string
+		crossed bool
+		level   int
+		want    []DeletePath
+	}{
+		{name: "tasks under a page of tasks, level 0", tree: tree, kind: tasks, table: "CascadeTasks", level: 0, want: []DeletePath{{byParent}}},
+		{name: "tasks under a page of tasks, level 1", tree: tree, kind: tasks, table: "CascadeTasks", level: 1, want: []DeletePath{{byParent, byParent}}},
+		{name: "tasks under a page of tasks, level 2", tree: tree, kind: tasks, table: "CascadeTasks", level: 2, want: []DeletePath{{byParent, byParent, byParent}}},
+		{name: "tasks under a crossed page of tasks are the same", tree: tree, kind: tasks, table: "CascadeTasks", crossed: true, level: 1, want: []DeletePath{{byParent, byParent}}},
+		{name: "comments under a crossed page of tasks, none at level 0", tree: tree, kind: comments, table: "CascadeTasks", crossed: true, level: 0, want: nil},
+		{name: "comments under a crossed page of tasks, one way at level 1", tree: tree, kind: comments, table: "CascadeTasks", crossed: true, level: 1, want: []DeletePath{{byTask, byParent}}},
+		{name: "comments under a page of tasks, the step to the task at level 0", tree: tree, kind: comments, table: "CascadeTasks", level: 0, want: []DeletePath{{byTask}}},
+		{name: "comments under a page of tasks, level 1", tree: tree, kind: comments, table: "CascadeTasks", level: 1, want: []DeletePath{{byTask, byParent}}},
+		{name: "labels have no step on the tasks, level 0", tree: tree, kind: labels, table: "CascadeTasks", level: 0, want: nil},
+		{name: "labels have no step on the tasks, level 2", tree: tree, kind: labels, table: "CascadeTasks", level: 2, want: nil},
+		{name: "folders under a page of folders, level 0", tree: folders, kind: &folders.Taken[0], table: "CascadeFolders", level: 0, want: []DeletePath{{byFolder}}},
+		{name: "folders under a page of folders, level 1", tree: folders, kind: &folders.Taken[0], table: "CascadeFolders", level: 1, want: []DeletePath{{byFolder, byFolder}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := cmp.Diff(tt.want, tt.tree.waysUnder(tt.kind, tt.table, tt.crossed, tt.level)); diff != "" {
+				t.Errorf("waysUnder() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
