@@ -361,15 +361,16 @@ func Test_identityStoreTemplate_tenantHoldings(t *testing.T) {
 			},
 			Policy: access.Tables{
 				UserRoles: "CrewUserRoles", Roles: "CrewRoles", Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", RecordUserRoles: "CrewRecordUserRoles",
+				UserRolesByUserID: "CrewUserRolesByUserId", GroupMembersByUserID: "CrewGroupMembersByUserId", RecordUserRolesByUserID: "CrewRecordUserRolesByUserId",
 			},
 		}
 	}
 	every := []identityTable{identityUsers, identitySessions, identityIdentities, identityMemberships, identityGroups, identityGroupMembers, identityRecordUserRoles}
 	const (
 		username    = "(SELECT u.Username FROM CrewSessionUsers u WHERE u.Id = p.UserId) AS Username"
-		memberships = "ARRAY(SELECT AS STRUCT m.Kind, m.Axis, m.DomainId, m.Role FROM CrewUserRoles m WHERE m.UserId = p.UserId) AS Memberships"
-		places      = "ARRAY(SELECT AS STRUCT g.Id, g.Kind, g.Axis, g.DomainId FROM CrewGroupMembers gm JOIN CrewGroups g ON g.Id = gm.GroupId WHERE gm.UserId = p.UserId) AS Places"
-		roles       = "ARRAY(SELECT AS STRUCT r.Axis, r.DomainId, r.Resource, r.RecordId, r.Role, r.EndsAt FROM CrewRecordUserRoles r WHERE r.UserId = p.UserId) AS RecordRoles"
+		memberships = "ARRAY(SELECT AS STRUCT m.Kind, m.Axis, m.DomainId, m.Role FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} m WHERE m.UserId = p.UserId) AS Memberships"
+		places      = "ARRAY(SELECT AS STRUCT g.Id, g.Kind, g.Axis, g.DomainId FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} gm JOIN CrewGroups g ON g.Id = gm.GroupId WHERE gm.UserId = p.UserId) AS Places"
+		roles       = "ARRAY(SELECT AS STRUCT r.Axis, r.DomainId, r.Resource, r.RecordId, r.Role, r.EndsAt FROM CrewRecordUserRoles@{FORCE_INDEX=CrewRecordUserRolesByUserId} r WHERE r.UserId = p.UserId) AS RecordRoles"
 		links       = "ARRAY(SELECT AS STRUCT i.Id, i.Method, i.Connection, " +
 			"ARRAY(SELECT d.SectorId FROM SectorDirectories d WHERE d.Method = i.Method AND d.Connection = i.Connection) AS Tenants " +
 			"FROM CrewSessionIdentities i WHERE i.UserId = p.UserId) AS Links"

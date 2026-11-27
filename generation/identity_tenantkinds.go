@@ -263,26 +263,31 @@ func (d *identitySourceData) UserCascades() []identityUserCascade {
 // came through its directory. Each person's holdings are a column each, reached by its
 // table's column of the user, which the table has an index on: the username, every
 // membership, every place with its group, every role on a record with its end, and every
-// identity link with the tenants whose directory it came through. Each branch and each
-// column is there where the store keeps the table its own per-person read reads. Nothing
-// reads the tenant's list of its people.
+// identity link with the tenants whose directory it came through. The memberships, the
+// places and the roles on records name their table's index by user in the statement
+// (FORCE_INDEX), as the lists' reads of one person do (identityTenantPersonFacts), where
+// the database, left to choose, read the group members' table whole for each person
+// (measured on Spanner, 2026-11-26). Each branch and each column is there where the store
+// keeps the table its own per-person read reads. Nothing reads the tenant's list of its
+// people.
 func (d *identitySourceData) TenantHoldingsSQL() string {
 	var people []string
 	columns := []string{"p.UserId", "(SELECT u.Username FROM " + d.Tables.Users + " u WHERE u.Id = p.UserId) AS Username"}
 	if d.has(identityMemberships) {
 		people = append(people, "SELECT m.UserId FROM "+d.Policy.UserRoles+" m WHERE m.Kind = @kind AND m.Axis = @axis AND m.DomainId = @domain")
-		columns = append(columns, "ARRAY(SELECT AS STRUCT m.Kind, m.Axis, m.DomainId, m.Role FROM "+d.Policy.UserRoles+" m WHERE m.UserId = p.UserId) AS Memberships")
+		columns = append(columns, "ARRAY(SELECT AS STRUCT m.Kind, m.Axis, m.DomainId, m.Role FROM "+d.Policy.UserRoles+"@{FORCE_INDEX="+d.Policy.UserRolesByUserID+"}"+
+			" m WHERE m.UserId = p.UserId) AS Memberships")
 	}
 	if d.keepsGroups() {
 		people = append(people, "SELECT gm.UserId FROM "+d.Policy.Groups+" g JOIN "+d.Policy.GroupMembers+" gm ON gm.GroupId = g.Id"+
 			" WHERE g.Kind = @groupKind AND g.Axis = @groupAxis AND g.DomainId = @groupDomain")
-		columns = append(columns, "ARRAY(SELECT AS STRUCT g.Id, g.Kind, g.Axis, g.DomainId FROM "+d.Policy.GroupMembers+" gm JOIN "+d.Policy.Groups+" g ON g.Id = gm.GroupId"+
-			" WHERE gm.UserId = p.UserId) AS Places")
+		columns = append(columns, "ARRAY(SELECT AS STRUCT g.Id, g.Kind, g.Axis, g.DomainId FROM "+d.Policy.GroupMembers+"@{FORCE_INDEX="+d.Policy.GroupMembersByUserID+"}"+
+			" gm JOIN "+d.Policy.Groups+" g ON g.Id = gm.GroupId WHERE gm.UserId = p.UserId) AS Places")
 	}
 	if d.holdsRecordRoles() {
 		people = append(people, "SELECT r.UserId FROM "+d.Policy.RecordUserRoles+" r WHERE r.Axis = @recordAxis AND r.DomainId = @recordDomain")
-		columns = append(columns, "ARRAY(SELECT AS STRUCT r.Axis, r.DomainId, r.Resource, r.RecordId, r.Role, r.EndsAt FROM "+d.Policy.RecordUserRoles+" r"+
-			" WHERE r.UserId = p.UserId) AS RecordRoles")
+		columns = append(columns, "ARRAY(SELECT AS STRUCT r.Axis, r.DomainId, r.Resource, r.RecordId, r.Role, r.EndsAt FROM "+d.Policy.RecordUserRoles+
+			"@{FORCE_INDEX="+d.Policy.RecordUserRolesByUserID+"} r WHERE r.UserId = p.UserId) AS RecordRoles")
 	}
 	if d.HasIdentities() {
 		links := "ARRAY(SELECT AS STRUCT i.Id, i.Method, i.Connection"
