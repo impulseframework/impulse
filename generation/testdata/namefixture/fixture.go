@@ -621,4 +621,59 @@ type (
 		ShiftID  string       `spanner:"ShiftId"`  // @enumerate(Shifts)
 		DrillID  string       `spanner:"DrillId"`  // @enumerate(Drills)
 	}
+
+	// Duty is a list of roles: a computed list of the whole application keyed by a role's
+	// name, which a method's picked field is not held to and a column is.
+	//
+	// @computed
+	Duty struct {
+		// @primarykey
+		// @roleOf(Crew)
+		Name  string
+		Label string
+	}
+
+	// Rank is a list of roles a view lists: a view of the whole application keyed by a
+	// role's name.
+	//
+	// @virtual
+	Rank struct {
+		// @primarykey
+		// @roleOf(Crew)
+		Name  string `spanner:"Name" index:"true"`
+		Label string `spanner:"Label"`
+	}
+
+	// Watch is a tenant's resource picking a role from each list of roles.
+	//
+	// @resource
+	// @permissionScope(domain)
+	Watch struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		BaseID   impulse.UUID `spanner:"BaseId"`
+		DutyName string       `spanner:"DutyName"` // @enumerate(Duties)
+		RankName string       `spanner:"RankName"` // @enumerate(Ranks)
+	}
+
+	// Dispatch is a method's request picking from each kind of source: the tenant record, a
+	// tenant's table, a table of no tenant, a tenant's view, a computed list of the whole
+	// application, a tenant's computed list, several rows of a tenant's table, an
+	// enumeration table, a computed list and a view that list roles, and a computed list
+	// with no list; and a field picking nothing. The tests read it as a method's request,
+	// never as a resource.
+	Dispatch struct {
+		BaseID   impulse.UUID   // @enumerate(Bases)
+		WingID   impulse.UUID   // @enumerate(Wings)
+		KitID    impulse.UUID   // @enumerate(Kits)
+		HangarID impulse.UUID   // @enumerate(Hangars)
+		DrillID  string         // @enumerate(Drills)
+		ShiftID  string         // @enumerate(Shifts)
+		CrateIDs []impulse.UUID // @enumerate(Crates)
+		Grade    string         // @enumerate(Grades)
+		DutyName string         // @enumerate(Duties)
+		RankName string         // @enumerate(Ranks)
+		RationID string         // @enumerate(Rations)
+		Note     string
+	}
 )

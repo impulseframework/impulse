@@ -5,12 +5,13 @@ package app
 
 import "github.com/impulseframework/impulse/resource"
 
-// namedRowSources are the sources the rows a write names are asked of: the views and the
-// computed lists of the application that a column is picked from, and those of every
-// auth's generated management, merged into the one value the generated decoders are
-// handed (WithNamedRowSources). A column picked from a view or a computed list is set
-// only to a row the writer's list of it shows: the library reads the row from the view's
-// query, or asks the list's own function for it.
+// namedRowSources are the sources the rows a write or a method's request names are asked
+// of: the views and the computed lists of the application that a column or a method's
+// picked field is picked from, and those of every auth's generated management, merged into
+// the one value the generated decoders are handed (WithNamedRowSources). A column picked
+// from a view or a computed list is set only to a row the writer's list of it shows, and a
+// method's picked field names only a row its caller's list shows: the library reads the
+// row from the view's query, or asks the list's own function for it.
 func (a *App) namedRowSources() resource.NamedRowSources {
 	return resource.MergeNamedRowSources(
 		resource.NamedRowSources{},

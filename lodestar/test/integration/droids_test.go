@@ -119,6 +119,15 @@ func TestIngestDroidReports(t *testing.T) {
 		}
 	}
 
+	// A ship of another sector is not there for a reading sent to Anvil's address, and
+	// nothing is written.
+	before := countRows(ctx, t, db, "DroidReports", "Id")
+	status, body = doRequest(t, h, http.MethodPost, ingest, `{"shipId":"`+shipBastionWatchID+`","subsystem":"reactor","reading":0.4}`)
+	assertStatus(t, status, http.StatusNotFound, body)
+	if after := countRows(ctx, t, db, "DroidReports", "Id"); after != before {
+		t.Errorf("DroidReports holds %d rows after a reading for another sector's ship, want %d", after, before)
+	}
+
 	// A reading without a subsystem is refused by the body.
 	status, body = doRequest(t, h, http.MethodPost, ingest, `{"shipId":"`+shipLanternID+`","reading":0.9}`)
 	assertStatus(t, status, http.StatusBadRequest, body)

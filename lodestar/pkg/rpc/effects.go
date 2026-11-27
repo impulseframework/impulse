@@ -159,7 +159,9 @@ func stampShipRefitted(ctx context.Context, txn resource.ReadWriteTransaction, r
 }
 
 // ingestDroidReport writes one telemetry row, resolving the tenant through the ship's
-// hangar — the payload never asserts its own tenancy.
+// hangar — the payload never asserts its own tenancy. The ship is one of the sector the
+// request was sent to, where the droid's grant was asked: a ship of another sector is
+// answered as a ship that is not there.
 func ingestDroidReport(ctx context.Context, txn resource.ReadWriteTransaction, shipID impulse.UUID, subsystem string, reading float64, recordedAt time.Time, frame telemetry.Frame) error {
 	ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().HangarID()).SetID(shipID).Read(ctx, txn)
 	if err != nil {
@@ -175,6 +177,18 @@ func ingestDroidReport(ctx context.Context, txn resource.ReadWriteTransaction, s
 	}
 	if hangar == nil {
 		return resource.TargetNotFound("Hangar", ship.Data.HangarID)
+	}
+
+	domain, ok := resource.CallerFrom(ctx).Scope.Domain()
+	if !ok {
+		return errors.New("IngestDroidReports is sector-scoped but was checked in the global scope")
+	}
+	sector, err := impulse.UUIDFromString(string(domain))
+	if err != nil {
+		return errors.Wrapf(err, "impulse.UUIDFromString(): the sector %s", domain)
+	}
+	if hangar.Data.SectorID != sector {
+		return resource.TargetNotFound("Ship", shipID)
 	}
 
 	if recordedAt.IsZero() {

@@ -476,6 +476,13 @@ func pointedToKeyColumn(field *resourceField, pointed *resourceInfo, declared bo
 	if !declared && field.IsForeignKey && field.ReferencedField != "" {
 		return field.ReferencedField, true
 	}
+
+	return soleKeyColumn(pointed)
+}
+
+// soleKeyColumn is the resource's one key column; a resource keyed by several columns has
+// none.
+func soleKeyColumn(pointed *resourceInfo) (string, bool) {
 	var column string
 	keys := 0
 	for _, key := range pointed.PrimaryKeys() {

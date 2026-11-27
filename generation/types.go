@@ -717,6 +717,10 @@ type rpcMethodInfo struct {
 	// outlet's.
 	RequestLog RequestLog
 	Traces     Traces
+	// pickedRows are the request's picked fields that name a row of another resource the
+	// application lists, in field order (resolvePickedRows): the generated handler holds
+	// each to the rows its caller can list (PickedRows).
+	pickedRows []*namedRow
 }
 
 // FormerRouteName is the kebab-cased former name the method's former route is served

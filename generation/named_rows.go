@@ -8,14 +8,16 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
-// namedRow is one column of a resource that names a row of another resource the
-// application lists: a column whose picker lists that resource's table, a view or a
-// computed list. A write sets it only to a row its caller can list, and the library holds
-// it to that (resource.NamedRow); the generated resource declares each such column for it
-// (NamedRows).
+// namedRow is one column of a resource, or one picked field of a method's request, that
+// names a row of another resource the application lists: a column or a field whose picker
+// lists that resource's table, a view or a computed list. A write sets a column only to a
+// row its caller can list, and a method takes in a field only such a row; the library holds
+// both to that (resource.NamedRow, resource.Caller.HoldPicked). The generated resource
+// declares each such column for it (NamedRows), and a method's generated handler each such
+// field (PickedRows).
 type namedRow struct {
-	// Field is the column that names the row.
-	Field *resourceField
+	// Field is the column, or the request's field, that names the row.
+	Field namedField
 	// Resource is the named row's resource, by its plural name, Table its table and
 	// KeyColumn the table's column the column's value matches. For a view, Table is the
 	// view's plural name and KeyColumn its own key; for a computed list both are empty.
@@ -45,6 +47,12 @@ type namedRow struct {
 	// named-row sources hand it to the library (namedRowSourcesOf); nil for a table's.
 	view *resourceInfo
 	list *computedResource
+}
+
+// namedField is the column of a resource, or the field of a method's request, that names a
+// row: the generated declaration says it by its Go name.
+type namedField interface {
+	Name() string
 }
 
 // Literal renders the column as the resource.NamedRow the generated NamedRows method
@@ -94,14 +102,7 @@ func (n *namedRow) writeTenant(b *strings.Builder) {
 // row of another resource the application lists (namedRowOf). It runs once the
 // enumerations are resolved, where the name fields are found.
 func (r *resourceGenerator) resolveNamedRows(resources []*resourceInfo) {
-	byName := make(map[string]*resourceInfo, len(resources))
-	for _, res := range resources {
-		byName[r.pluralize(res.Name())] = res
-	}
-	lists := make(map[string]*computedResource, len(r.computedResources))
-	for _, list := range r.computedResources {
-		lists[r.pluralize(list.Name())] = list
-	}
+	byName, lists := r.namedRowKinds(resources)
 	for _, res := range resources {
 		res.namedRows = nil
 		if res.IsVirtual {
@@ -114,6 +115,21 @@ func (r *resourceGenerator) resolveNamedRows(resources []*resourceInfo) {
 			}
 		}
 	}
+}
+
+// namedRowKinds are the run's tables and views, and its computed lists, by plural name:
+// where a column or a field's picker source is looked for.
+func (r *resourceGenerator) namedRowKinds(resources []*resourceInfo) (byName map[string]*resourceInfo, lists map[string]*computedResource) {
+	byName = make(map[string]*resourceInfo, len(resources))
+	for _, res := range resources {
+		byName[r.pluralize(res.Name())] = res
+	}
+	lists = make(map[string]*computedResource, len(r.computedResources))
+	for _, list := range r.computedResources {
+		lists[r.pluralize(list.Name())] = list
+	}
+
+	return byName, lists
 }
 
 // namedRowOf is the declaration of field as a column that names a row of another
@@ -135,7 +151,9 @@ func (r *resourceGenerator) resolveNamedRows(resources []*resourceInfo) {
 // list, which has no picker and nothing to read it by; the column that holds the row's
 // own tenant key, which the request stamps; a column the server never stores (input
 // only); and, on a resource that belongs to no tenant, a column naming a tenant's row,
-// which no request of one tenant writes.
+// which no request of one tenant writes. A column picked from a list of roles is declared
+// as any other: no method's grant stands over a write, so the writer's list is what holds
+// it.
 func (r *resourceGenerator) namedRowOf(res *resourceInfo, field *resourceField, byName map[string]*resourceInfo, lists map[string]*computedResource) *namedRow {
 	target, ok := pointedToResource(field)
 	if !ok || field.IsInputOnly() {
@@ -154,10 +172,19 @@ func (r *resourceGenerator) namedRowOf(res *resourceInfo, field *resourceField, 
 		if list == nil {
 			return nil
 		}
+		row := r.computedNamedRow(res.IsDomainScoped(), field, target, list)
+		if row != nil {
+			row.Stored = r.storedNamedRow(res, field, byName)
+		}
 
-		return r.computedNamedRow(res, field, target, list, byName)
+		return row
 	case pointed.IsVirtual:
-		return r.viewNamedRow(res, field, target, pointed, byName)
+		row := r.viewNamedRow(res.IsDomainScoped(), field, target, pointed)
+		if row != nil {
+			row.Stored = r.storedNamedRow(res, field, byName)
+		}
+
+		return row
 	}
 	if !r.registersList(pointed) {
 		return nil
@@ -167,16 +194,17 @@ func (r *resourceGenerator) namedRowOf(res *resourceInfo, field *resourceField, 
 		return nil
 	}
 
-	return tableNamedRow(res, field, target, keyColumn, pointed)
+	return tableNamedRow(res.IsDomainScoped(), field, target, keyColumn, pointed)
 }
 
-// tableNamedRow is the declaration of a column naming a row of the table pointed, read by
-// keyColumn: the table, its key column and its tenant facts, nil where the table is a
-// tenant's and its tenant cannot be said for res.
-func tableNamedRow(res *resourceInfo, field *resourceField, table, keyColumn string, pointed *resourceInfo) *namedRow {
+// tableNamedRow is the declaration of a column or a field naming a row of the table
+// pointed, read by keyColumn: the table, its key column and its tenant facts, nil where the
+// table is a tenant's and its tenant cannot be said, or the request it is named in
+// (inTenant) is of no tenant.
+func tableNamedRow(inTenant bool, field namedField, table, keyColumn string, pointed *resourceInfo) *namedRow {
 	row := &namedRow{Field: field, Resource: table, Table: table, KeyColumn: keyColumn}
 	if pointed.IsDomainScoped() {
-		if pointed.DomainBinding == nil || pointed.DomainBinding.Anchor == nil || !res.IsDomainScoped() {
+		if pointed.DomainBinding == nil || pointed.DomainBinding.Anchor == nil || !inTenant {
 			return nil
 		}
 		row.TenantColumn = fieldColumn(pointed.DomainBinding.Anchor)
@@ -186,47 +214,59 @@ func tableNamedRow(res *resourceInfo, field *resourceField, table, keyColumn str
 	return row
 }
 
-// viewNamedRow is the declaration of a column picked from the view pointed: its own key,
-// a List the run registers, and, for a tenant's view, the view's bare @domain, on a
-// resource that is a tenant's too.
-func (r *resourceGenerator) viewNamedRow(res *resourceInfo, field *resourceField, target string, pointed *resourceInfo, byName map[string]*resourceInfo) *namedRow {
+// viewNamedRow is the declaration of a column or a field picked from the view pointed:
+// its own key, a List the run registers, and, for a tenant's view, the view's bare
+// @domain, named in a request of a tenant (inTenant). The caller adds the table a column's
+// foreign key references (Stored).
+func (r *resourceGenerator) viewNamedRow(inTenant bool, field namedField, target string, pointed *resourceInfo) *namedRow {
 	if !r.registersList(pointed) {
 		return nil
 	}
-	keyColumn, keyed := pointedToKeyColumn(field, pointed, true)
+	keyColumn, keyed := soleKeyColumn(pointed)
 	if !keyed {
 		return nil
 	}
 	row := &namedRow{Field: field, Resource: target, Table: target, KeyColumn: keyColumn, View: true, view: pointed}
 	if pointed.IsDomainScoped() {
 		binding := pointed.DomainBinding
-		if binding == nil || binding.Anchor == nil || len(binding.Path) > 0 || !res.IsDomainScoped() {
+		if binding == nil || binding.Anchor == nil || len(binding.Path) > 0 || !inTenant {
 			return nil
 		}
 		row.TenantColumn = fieldColumn(binding.Anchor)
 	}
-	row.Stored = r.storedNamedRow(res, field, byName)
 
 	return row
 }
 
-// computedNamedRow is the declaration of a column picked from the computed list: one
-// @primarykey field and a list the run serves; a tenant's list, on a resource that is a
-// tenant's too, asked in the request's tenant.
-func (r *resourceGenerator) computedNamedRow(res *resourceInfo, field *resourceField, target string, list *computedResource, byName map[string]*resourceInfo) *namedRow {
+// computedNamedRow is the declaration of a column or a field picked from the computed
+// list: one @primarykey field, and a list the run serves; a tenant's list, named in a
+// request of a tenant (inTenant), asked in the request's tenant. The caller adds the table
+// a column's foreign key references (Stored).
+func (r *resourceGenerator) computedNamedRow(inTenant bool, field namedField, target string, list *computedResource) *namedRow {
 	if len(list.PrimaryKeys()) != 1 || !r.genRoutes || list.RoutingDisabled() || list.SuppressListHandler {
 		return nil
 	}
 	row := &namedRow{Field: field, Resource: target, Computed: true, list: list}
 	if list.IsDomainScoped() {
-		if !res.IsDomainScoped() {
+		if !inTenant {
 			return nil
 		}
 		row.GrantInTenant = true
 	}
-	row.Stored = r.storedNamedRow(res, field, byName)
 
 	return row
+}
+
+// keyHoldsRoles reports whether a key of the table or the view holds a role's name
+// (@roleOf): its rows are a list of roles.
+func keyHoldsRoles(pointed *resourceInfo) bool {
+	for _, key := range pointed.PrimaryKeys() {
+		if key.RoleOf() != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // storedNamedRow is the table a column picked from a view or a computed list references
@@ -248,7 +288,7 @@ func (r *resourceGenerator) storedNamedRow(res *resourceInfo, field *resourceFie
 	if !keyed {
 		return nil
 	}
-	stored := tableNamedRow(res, field, field.ReferencedResource, keyColumn, table)
+	stored := tableNamedRow(res.IsDomainScoped(), field, field.ReferencedResource, keyColumn, table)
 	if stored != nil {
 		stored.Field = nil
 	}
@@ -271,4 +311,80 @@ func (r *resourceGenerator) registersList(res *resourceInfo) bool {
 // application lists, in field order: what the generated NamedRows method declares.
 func (r *resourceInfo) NamedRows() []*namedRow {
 	return r.namedRows
+}
+
+// resolvePickedRows finds, on every method a person calls through a generated handler,
+// the fields of its request that name a row of another resource the application lists
+// (pickedRowOf). It runs once the methods are parsed, before their handlers render, and
+// before the named-row sources do. A method whose handler is written by hand holds what it
+// takes itself.
+func (r *resourceGenerator) resolvePickedRows(methods []*rpcMethodInfo) {
+	byName, lists := r.namedRowKinds(r.resources)
+	for _, method := range methods {
+		method.pickedRows = nil
+		if method.SuppressHandler {
+			continue
+		}
+		for _, field := range method.Fields {
+			if row := r.pickedRowOf(method, field, byName, lists); row != nil {
+				method.pickedRows = append(method.pickedRows, row)
+			}
+		}
+	}
+}
+
+// pickedRowOf is the declaration of a method's request field as one that names a row of
+// another resource the application lists, nil where it is none. The field is one of the
+// request's own with a field-scope @enumerate, and its source is declared as a column's
+// is (namedRowOf): a table of the run with one key column that registers a List, read by
+// that key with its tenant facts; a view; a computed list. A method names no row its own
+// request made, so none carries Stored. Not declared: a source that is an enumeration
+// table, one the run does not know or that serves no list, a list of roles (its key marked
+// @roleOf: the method's own grant says which roles a person hands out), a tenant's source
+// on a method of the whole application, which is asked in no tenant, and the tenant record
+// on such a method: the tenant it names is the place it acts in, as a tenant's method takes
+// its tenant from its address, and what the caller may do there is for the method's own
+// grant and its body to say. A scheduled method has no caller, and is not among the
+// methods asked.
+func (r *resourceGenerator) pickedRowOf(method *rpcMethodInfo, field *rpcField, byName map[string]*resourceInfo, lists map[string]*computedResource) *namedRow {
+	if !field.IsEnumerated() || field.Enumeration != "" {
+		return nil
+	}
+	target := field.EnumeratedResource()
+	inTenant := method.IsDomainScoped()
+	pointed := byName[target]
+	switch {
+	case pointed == nil:
+		list := lists[target]
+		if list == nil {
+			return nil
+		}
+		if len(list.PrimaryKeys()) == 1 && list.PrimaryKey().RoleOf() != "" {
+			return nil
+		}
+
+		return r.computedNamedRow(inTenant, field, target, list)
+	case keyHoldsRoles(pointed):
+		return nil
+	case pointed.IsVirtual:
+		return r.viewNamedRow(inTenant, field, target, pointed)
+	case pointed.IsTenant && !inTenant:
+		return nil
+	}
+	if !r.registersList(pointed) {
+		return nil
+	}
+	keyColumn, keyed := soleKeyColumn(pointed)
+	if !keyed {
+		return nil
+	}
+
+	return tableNamedRow(inTenant, field, target, keyColumn, pointed)
+}
+
+// PickedRows are the method's request fields that name a row of another resource the
+// application lists, in field order: what the generated handler holds to the rows its
+// caller can list (resource.Caller.HoldPicked).
+func (r *rpcMethodInfo) PickedRows() []*namedRow {
+	return r.pickedRows
 }

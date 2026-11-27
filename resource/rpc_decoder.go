@@ -18,8 +18,8 @@ type RPCDecoder[Request any] struct {
 	// collection lets a body's armed writes render conditional grants into their
 	// live check; nil when the application generates no collection.
 	collection *GeneratedCollection
-	// namedRowSources are the views a row a body's armed write names is read from
-	// (WithNamedRowSources).
+	// namedRowSources are the views and the computed lists a row the request's picked
+	// field or a body's armed write names is asked of (WithNamedRowSources).
 	namedRowSources NamedRowSources
 }
 
@@ -60,8 +60,10 @@ func (s *RPCDecoder[Request]) WithCollection(collection *GeneratedCollection) *R
 	return &decoder
 }
 
-// WithNamedRowSources installs the views a row a write names is read from, so the
-// caller the decoder stamps carries them to a body's armed writes (NamedRowSources).
+// WithNamedRowSources installs the views and the computed lists a row a write or a
+// method's picked field names is asked of, so the caller the decoder stamps carries them
+// to the generated handler's hold on the request's picked fields (HoldPicked) and to a
+// body's armed writes (NamedRowSources).
 func (s *RPCDecoder[Request]) WithNamedRowSources(sources NamedRowSources) *RPCDecoder[Request] {
 	decoder := *s
 	decoder.namedRowSources = sources

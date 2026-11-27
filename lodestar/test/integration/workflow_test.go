@@ -26,8 +26,10 @@ func workflowGrants() grants {
 		// HoldMission and CompleteMission write the notes AS THE CALLER (an armed
 		// body), so the walk needs the Update grant the routes would need.
 		accesstypes.Update: withFields(missionsResource, "notes", "settlement"),
-		// A mission names its client, picked from the sector's roster, so the walk lists it.
-		accesstypes.List: append(withFields("Sorties", "missionId", "shipId", "pilotUserId", "returnedAt"), "ClientRosters"),
+		// A mission names its client, picked from the sector's roster, and a claim and a
+		// launch name a squadron and a ship, each picked from its list, so the walk lists
+		// all three.
+		accesstypes.List: append(withFields("Sorties", "missionId", "shipId", "pilotUserId", "returnedAt"), "ClientRosters", "Squadrons", "Ships"),
 		accesstypes.Execute: {
 			"ClaimMission", "LaunchMission", "HoldMission", "ResumeMission", "CompleteMission", "FailMission", "StandDownMission",
 			"InspectShip", "BeginRefit", "StartFlightTest", "PassFlightTest", "FailFlightTest", "ScrapShip",
