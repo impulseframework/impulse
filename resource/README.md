@@ -1928,7 +1928,7 @@ with nothing gone where it cannot be made whole:
   to itself repeated until a level finds nothing, and to any depth: where the database
   refuses a level's statement because it joins too many tables, the delete takes the rows
   of the last level it could read, a page of them at a time, and follows what is under
-  them from their keys as it follows what is under the record from the record's, as often
+  them from the page's rows as it follows what is under the record from its key, as often
   as it must. The library holds no number of its own for it. What that costs grows with
   the depth faster than with the rows: a level's statement follows every level above it
   again, so a record whose rows sit twenty deep is asked about and deleted many times
@@ -2097,8 +2097,10 @@ with nothing gone where it cannot be made whole:
   follows, a step at a time, the foreign keys or interleaves that put the kind's rows
   under the record; under a page of a kind nested under itself it starts from the page's
   rows the same way: a page holds each row's key and whichever other columns of the row
-  the rows under it name, so nothing under a page is found by reading the page's rows a
-  second time. Nothing it sends starts from the kind's whole table.
+  the rows under it name, so what is under a page is found without reading the page's
+  rows a second time. A page's rows are read again, by their keys, in two cases: where
+  one of its rows has no value in such a column, and for a column the kind's resource
+  holds no field for. Nothing it sends starts from the kind's whole table.
 - Under the tenant record, a kind is read by its rows' own way to their tenant, where that
   is one of the kind's ways up to the record. Every row of the kind in the tenant is
   under the record, so the kind's other ways find nothing more and are not written. A
