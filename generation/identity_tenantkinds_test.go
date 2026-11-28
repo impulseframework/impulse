@@ -191,6 +191,9 @@ func Test_identityDeleteCosts_heldToTheStore(t *testing.T) {
 // table with a foreign key declared ON DELETE CASCADE to the users table, and of each
 // table with one to such a table, each with its indexes besides its key. A key that
 // refuses the delete, and a cascade that does not lead to the users, are not counted.
+// Each count is written from the user down: a table under another is joined from the one
+// above it, a table under two such tables counts its keys once by a union, and a table
+// that names a user by a column other than the key is joined from the users table.
 func Test_identityUserCascades(t *testing.T) {
 	t.Parallel()
 
@@ -212,8 +215,8 @@ func Test_identityUserCascades(t *testing.T) {
 	want := []identityUserCascade{
 		{
 			Table:        "CrewSessionAuthEvents",
-			Count:        "(SELECT COUNT(*) FROM CrewSessionAuthEvents c0 WHERE EXISTS (SELECT 1 FROM CrewSessions c1 WHERE c1.Id = c0.SessionId AND c1.UserId = @userId))",
-			PersonCount:  "(SELECT COUNT(*) FROM CrewSessionAuthEvents c0 WHERE EXISTS (SELECT 1 FROM CrewSessions c1 WHERE c1.Id = c0.SessionId AND c1.UserId = p.UserId))",
+			Count:        "(SELECT COUNT(*) FROM CrewSessions c1 JOIN CrewSessionAuthEvents c0 ON c0.SessionId = c1.Id WHERE c1.UserId = @userId)",
+			PersonCount:  "(SELECT COUNT(*) FROM CrewSessions c1 JOIN CrewSessionAuthEvents c0 ON c0.SessionId = c1.Id WHERE c1.UserId = p.UserId)",
 			IndexEntries: 0,
 		},
 		{
@@ -230,13 +233,50 @@ func Test_identityUserCascades(t *testing.T) {
 		t.Errorf("identityUserCascades() (-want +got):\n%s", diff)
 	}
 	data := &identitySourceData{identityInstance: &identityInstance{userCascades: got}}
-	wantSQL := `"SELECT (SELECT COUNT(*) FROM CrewSessionAuthEvents c0 WHERE EXISTS (SELECT 1 FROM CrewSessions c1 WHERE c1.Id = c0.SessionId AND c1.UserId = @userId)), ` +
+	wantSQL := `"SELECT (SELECT COUNT(*) FROM CrewSessions c1 JOIN CrewSessionAuthEvents c0 ON c0.SessionId = c1.Id WHERE c1.UserId = @userId), ` +
 		`(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId), (SELECT COUNT(*) FROM CrewSessions c0 WHERE c0.UserId = @userId)"`
 	if got := data.RowsWithUserSQL(); got != wantSQL {
 		t.Errorf("RowsWithUserSQL() = %s, want %s", got, wantSQL)
 	}
 	if got := (&client{tableMap: map[string]*tableMetadata{"CrewSessionUsers": tenantKindsTable("Id", nil)}}).identityUserCascades("CrewSessionUsers"); got != nil {
 		t.Errorf("identityUserCascades() of a schema with no rule = %v, want none", got)
+	}
+
+	routes := &client{tableMap: map[string]*tableMetadata{
+		"CrewSessionUsers":      tenantKindsTable("Id", nil),
+		"CrewSessions":          tenantKindsTable("Id", nil, cascades("UserId", "CrewSessionUsers")),
+		"CrewSessionIdentities": tenantKindsTable("Id", nil, cascades("UserId", "CrewSessionUsers")),
+		// Under a session and under an identity: two routes to the user.
+		"CrewSessionFactorLinks": tenantKindsTable("Id", nil, cascades("SessionId", "CrewSessions"), cascades("IdentityId", "CrewSessionIdentities")),
+		// Naming the user by the username, not the key.
+		"CrewSessionHandles": tenantKindsTable("Id", nil, foreignKeyMeta{
+			Columns: []string{"Username"}, ReferencedTable: "CrewSessionUsers", ReferencedColumns: []string{"Username"}, DeleteRule: cascadeDeleteAction,
+		}),
+	}}
+	wantRoutes := []identityUserCascade{
+		{
+			Table: "CrewSessionFactorLinks",
+			Count: "(SELECT COUNT(*) FROM (SELECT c0.Id FROM CrewSessions c1 JOIN CrewSessionFactorLinks c0 ON c0.SessionId = c1.Id WHERE c1.UserId = @userId" +
+				" UNION DISTINCT SELECT c0.Id FROM CrewSessionIdentities c1 JOIN CrewSessionFactorLinks c0 ON c0.IdentityId = c1.Id WHERE c1.UserId = @userId))",
+			PersonCount: "(SELECT COUNT(*) FROM (SELECT c0.Id FROM CrewSessions c1 JOIN CrewSessionFactorLinks c0 ON c0.SessionId = c1.Id WHERE c1.UserId = p.UserId" +
+				" UNION DISTINCT SELECT c0.Id FROM CrewSessionIdentities c1 JOIN CrewSessionFactorLinks c0 ON c0.IdentityId = c1.Id WHERE c1.UserId = p.UserId))",
+		},
+		{
+			Table:       "CrewSessionHandles",
+			Count:       "(SELECT COUNT(*) FROM CrewSessionUsers c1 JOIN CrewSessionHandles c0 ON c0.Username = c1.Username WHERE c1.Id = @userId)",
+			PersonCount: "(SELECT COUNT(*) FROM CrewSessionUsers c1 JOIN CrewSessionHandles c0 ON c0.Username = c1.Username WHERE c1.Id = p.UserId)",
+		},
+		{
+			Table: "CrewSessionIdentities", Count: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = @userId)",
+			PersonCount: "(SELECT COUNT(*) FROM CrewSessionIdentities c0 WHERE c0.UserId = p.UserId)",
+		},
+		{
+			Table: "CrewSessions", Count: "(SELECT COUNT(*) FROM CrewSessions c0 WHERE c0.UserId = @userId)",
+			PersonCount: "(SELECT COUNT(*) FROM CrewSessions c0 WHERE c0.UserId = p.UserId)",
+		},
+	}
+	if diff := cmp.Diff(wantRoutes, routes.identityUserCascades("CrewSessionUsers")); diff != "" {
+		t.Errorf("identityUserCascades() of tables with two routes to the user and a route by the username (-want +got):\n%s", diff)
 	}
 }
 

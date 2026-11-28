@@ -195,10 +195,11 @@ func (c *client) identityUserCascades(users string) []identityUserCascade {
 		if len(walk.links[name]) == 0 {
 			continue
 		}
+		key := c.tableMap[name].keyColumns()
 		cascades = append(cascades, identityUserCascade{
 			Table:        name,
-			Count:        "(SELECT COUNT(*) FROM " + name + " c0 WHERE " + walk.under(name, "c0", 0, "@userId") + ")",
-			PersonCount:  "(SELECT COUNT(*) FROM " + name + " c0 WHERE " + walk.under(name, "c0", 0, heldPerson) + ")",
+			Count:        walk.count(name, key, "@userId"),
+			PersonCount:  walk.count(name, key, heldPerson),
 			IndexEntries: c.tableMap[name].secondaryIndexes(),
 		})
 	}
@@ -216,32 +217,72 @@ type userCascadeWalk struct {
 	links map[string][]deleteLink
 }
 
-// under is the condition that a row of the table, read under alias, is removed with the
-// row of the user the expression user names (@userId, or a person of TenantHoldings): one
-// of its keys names the user, or a row the user's delete removes.
-func (w *userCascadeWalk) under(table, alias string, depth int, user string) string {
-	if table == w.users {
-		return alias + "." + w.key[0] + " = " + user
+// count is the statement that counts the rows of table the database removes with the row
+// of the user the expression user names (@userId, or a person of TenantHoldings), written
+// from the user down: one route counts the rows its joins reach, and several count the
+// table's key columns (key) of the rows any of them reaches, each row once.
+func (w *userCascadeWalk) count(table string, key []string, user string) string {
+	routes := w.routes(table)
+	if len(routes) == 1 {
+		return "(SELECT COUNT(*) " + w.from(table, routes[0], user) + ")"
 	}
-	terms := make([]string, 0, len(w.links[table]))
+	columns := "c0." + strings.Join(key, ", c0.")
+	selects := make([]string, 0, len(routes))
+	for _, route := range routes {
+		selects = append(selects, "SELECT "+columns+" "+w.from(table, route, user))
+	}
+
+	return "(SELECT COUNT(*) FROM (" + strings.Join(selects, " UNION DISTINCT ") + "))"
+}
+
+// routes lists the ways a row of table hangs on the users table: each the links from the
+// table up, one at each table, the last of which leads to the users table, in the order
+// of each table's links.
+func (w *userCascadeWalk) routes(table string) [][]deleteLink {
+	var routes [][]deleteLink
 	for _, link := range w.links[table] {
-		if link.Table == w.users && len(link.Columns) == 1 && slices.Equal(link.References, w.key) {
-			terms = append(terms, alias+"."+link.Columns[0]+" = "+user)
+		if link.Table == w.users {
+			routes = append(routes, []deleteLink{link})
 
 			continue
 		}
-		parent := "c" + strconv.Itoa(depth+1)
-		var match []string
-		for i, column := range link.Columns {
-			match = append(match, parent+"."+link.References[i]+" = "+alias+"."+column)
+		for _, above := range w.routes(link.Table) {
+			routes = append(routes, append([]deleteLink{link}, above...))
 		}
-		terms = append(terms, "EXISTS (SELECT 1 FROM "+link.Table+" "+parent+" WHERE "+strings.Join(match, " AND ")+" AND "+w.under(link.Table, parent, depth+1, user)+")")
-	}
-	if len(terms) == 1 {
-		return terms[0]
 	}
 
-	return "(" + strings.Join(terms, " OR ") + ")"
+	return routes
+}
+
+// from is one route of table written from the user down: the route's top, then each table
+// under it joined by the link that leads up from it, the table itself last as c0, and the
+// condition that the top's row is the user's. The top is the table whose link names the
+// user's key by one column, held to user; any other last link joins the users table as
+// the top, its key held to user.
+func (w *userCascadeWalk) from(table string, route []deleteLink, user string) string {
+	tables := make([]string, 0, len(route)+1)
+	tables = append(tables, table)
+	for _, link := range route {
+		tables = append(tables, link.Table)
+	}
+	last := route[len(route)-1]
+	top := len(route)
+	condition := "c" + strconv.Itoa(top) + "." + w.key[0] + " = " + user
+	if len(last.Columns) == 1 && slices.Equal(last.References, w.key) {
+		top = len(route) - 1
+		condition = "c" + strconv.Itoa(top) + "." + last.Columns[0] + " = " + user
+	}
+	statement := "FROM " + tables[top] + " c" + strconv.Itoa(top)
+	for i := top - 1; i >= 0; i-- {
+		link := route[i]
+		match := make([]string, 0, len(link.Columns))
+		for j, column := range link.Columns {
+			match = append(match, "c"+strconv.Itoa(i)+"."+column+" = c"+strconv.Itoa(i+1)+"."+link.References[j])
+		}
+		statement += " JOIN " + tables[i] + " c" + strconv.Itoa(i) + " ON " + strings.Join(match, " AND ")
+	}
+
+	return statement + " WHERE " + condition
 }
 
 // DeleteCosts are the fields of the store's DeleteCosts (identityDeleteCosts).
