@@ -50,9 +50,11 @@ func Serializable(ctx context.Context, client *spanner.Client, f func(context.Co
 // isolation level, whatever level the application set for the client, and returns the
 // commit time. Its reads see the database as it stood at one moment and lock nothing;
 // Spanner aborts it at the commit where another transaction wrote a row it writes, and the
-// client then runs f again. It is for a save of a delete that takes the rows under a
-// record, and nothing else opens one. The error is the client's own, not wrapped, as
-// Serializable's is.
+// client then runs f again. It is for a request the resource client runs as a save of a
+// delete (resource.DeleteRunSave), and nothing else opens one. The level is fixed here,
+// before the request's function has read anything: a delete in such a request that turns
+// out to take no rows runs at this level too. The error is the client's own, not
+// wrapped, as Serializable's is.
 func RepeatableRead(ctx context.Context, client *spanner.Client, f func(context.Context, *spanner.ReadWriteTransaction) error) (time.Time, error) {
 	var options spanner.TransactionOptions
 	options.IsolationLevel = sppb.TransactionOptions_REPEATABLE_READ

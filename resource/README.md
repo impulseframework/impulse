@@ -2081,8 +2081,14 @@ with nothing gone where it cannot be made whole:
   in another tenant or in a table the delete also reads, does not wait for the save.
   Spanner still aborts the save where another transaction wrote a row the save writes,
   and a foreign key still refuses a commit that would leave a row naming a deleted one.
-  Every other transaction of the library stays serializable, a delete of a record with
-  nothing under it among them.
+  Every other transaction of the library stays serializable. A delete of a record with
+  nothing under it is among them, but for one case. The level is fixed when the
+  transaction is opened, from the request's body, before any token is read: a request of
+  nothing but removes that bring tokens is opened at repeatable read whatever its
+  removes take. So a remove in it of a record whose delete takes no rows with it runs at
+  that level too, as the delete of one row, and its token is never read. A question
+  gives a token only for a record with rows under it, so only a request written by hand
+  holds such a remove.
 - A delete reads only the rows under its record. Each statement it sends about a kind (a
   count, a page of rows, a read of whether there is any) starts from the record's key and
   follows, a step at a time, the foreign keys or interleaves that put the kind's rows
