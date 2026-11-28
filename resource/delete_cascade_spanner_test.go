@@ -1536,7 +1536,7 @@ func questionRecords(t *testing.T, err error) int64 {
 
 // pagesOwnRow is the name a statement from a page reads the page's own row of the table
 // under (rowsUnderWriter.wayFromPage).
-var pagesOwnRow = regexp.MustCompile(` AS w[0-9]+_r\b`)
+var pagesOwnRow = regexp.MustCompile(` AS w\d+_r\b`)
 
 // TestTakingDelete_underACarryingPage counts, over the emulator, the replies under a page
 // of replies made by hand, at the page's own level: a page every row of which holds its
